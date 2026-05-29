@@ -25,6 +25,23 @@ class ErrorBoundary extends Component<
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     console.error("[ErrorBoundary] Caught error:", error, errorInfo);
+    const msg = error?.message || "";
+    if (
+      msg.includes("Failed to fetch dynamically imported module") ||
+      msg.includes("Importing a module script failed") ||
+      msg.includes("error loading dynamically imported module")
+    ) {
+      try {
+        const KEY = "__stale_chunk_reload_ts";
+        const last = Number(sessionStorage.getItem(KEY) || "0");
+        if (Date.now() - last >= 10_000) {
+          sessionStorage.setItem(KEY, String(Date.now()));
+          window.location.reload();
+        }
+      } catch {
+        window.location.reload();
+      }
+    }
   }
 
   render() {
