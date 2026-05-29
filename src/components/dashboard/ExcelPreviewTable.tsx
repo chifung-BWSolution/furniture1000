@@ -154,14 +154,22 @@ export interface ColumnMappingState {
   [columnIndex: string]: StandardHeaderValue;
 }
 
+/** Unit for dimension parsing. 'auto' = detect from header text; mm/cm/m force the multiplier. */
+export type DimUnit = 'auto' | 'mm' | 'cm' | 'm';
+
+/** Per-sheet dimension unit override — keyed by sheet name */
+export interface MultiSheetDimUnits {
+  [sheetName: string]: DimUnit;
+}
+
 /** Action type for the three-way action buttons */
 export type PreviewAction = 'queue-shopify' | 'catalog-only' | 'discard';
 
 interface ExcelPreviewTableProps {
   previewData: ExcelPreviewData;
-  onGenerateCatalog: (mapping: ColumnMappingState, selectedRows: number[], multiSheetMapping?: MultiSheetColumnMapping, imageOverrides?: Record<string, string>) => void;
+  onGenerateCatalog: (mapping: ColumnMappingState, selectedRows: number[], multiSheetMapping?: MultiSheetColumnMapping, imageOverrides?: Record<string, string>, multiSheetDimUnits?: MultiSheetDimUnits) => void;
   /** New three-way action handler: passes action type, mapping, selected rows, product names, image overrides, and multi-sheet mapping */
-  onAction?: (action: PreviewAction, mapping: ColumnMappingState, selectedRows: number[], productNames: Record<string, string>, multiSheetMapping?: MultiSheetColumnMapping, imageOverrides?: Record<string, string>) => void;
+  onAction?: (action: PreviewAction, mapping: ColumnMappingState, selectedRows: number[], productNames: Record<string, string>, multiSheetMapping?: MultiSheetColumnMapping, imageOverrides?: Record<string, string>, multiSheetDimUnits?: MultiSheetDimUnits) => void;
   /** Called when rows are discarded/removed from the preview — parent should remove from data */
   onRowsDiscarded?: (rowIndices: number[]) => void;
   onCancel: () => void;
@@ -721,6 +729,25 @@ export function ExcelPreviewTable({
     saveMappings(multiSheetMappings);
   }, [multiSheetMappings]);
 
+  // ─── Per-Sheet Dimension Unit Override ──────────────────────────
+  // 'auto' = detect from header (legacy behaviour); mm/cm/m force the multiplier.
+  // Default to 'mm' so factories whose Excels are already in MM (e.g. CYJ) don't
+  // get silently 10× upscaled when the header lacks a unit keyword.
+  const [multiSheetDimUnits, setMultiSheetDimUnits] = useState<MultiSheetDimUnits>(() => {
+    const units: MultiSheetDimUnits = {};
+    for (const sd of sheetDataList) {
+      units[sd.sheetName] = 'mm';
+    }
+    return units;
+  });
+
+  const currentDimUnit: DimUnit = multiSheetDimUnits[activeSheet.sheetName] || 'mm';
+  const dimUnitOverride: 'mm' | 'cm' | 'm' | undefined = currentDimUnit === 'auto' ? undefined : currentDimUnit;
+
+  const handleDimUnitChange = useCallback((unit: DimUnit) => {
+    setMultiSheetDimUnits(prev => ({ ...prev, [activeSheet.sheetName]: unit }));
+  }, [activeSheet.sheetName]);
+
   const currentMapping = multiSheetMappings[activeSheet.sheetName] || {};
 
   // ─── Per-Sheet Row Selection State ──────────────────────────────
@@ -877,9 +904,9 @@ export function ExcelPreviewTable({
         }
       }
     }
-    // Pass current sheet mapping for backward compat, plus multi-sheet mapping and imageOverrides
-    onGenerateCatalog(currentMapping, allSelectedRows, multiSheetMappings, imageOverrides);
-  }, [currentMapping, multiSheetSelections, multiSheetMappings, sheetDataList, onGenerateCatalog, imageOverrides]);
+    // Pass current sheet mapping for backward compat, plus multi-sheet mapping, imageOverrides, and dim units
+    onGenerateCatalog(currentMapping, allSelectedRows, multiSheetMappings, imageOverrides, multiSheetDimUnits);
+  }, [currentMapping, multiSheetSelections, multiSheetMappings, sheetDataList, onGenerateCatalog, imageOverrides, multiSheetDimUnits]);
 
   // ─── AI Product Name State (declared early to avoid initialization errors) ──
   const [productNames, setProductNames] = useState<Record<string, string>>({});
@@ -942,12 +969,12 @@ export function ExcelPreviewTable({
     if (allSelectedRows.length === 0) return;
 
     if (onAction) {
-      onAction(action, currentMapping, allSelectedRows, productNames, multiSheetMappings, imageOverrides);
+      onAction(action, currentMapping, allSelectedRows, productNames, multiSheetMappings, imageOverrides, multiSheetDimUnits);
     } else {
       // Fallback: use legacy onGenerateCatalog for backward compat
-      onGenerateCatalog(currentMapping, allSelectedRows, multiSheetMappings, imageOverrides);
+      onGenerateCatalog(currentMapping, allSelectedRows, multiSheetMappings, imageOverrides, multiSheetDimUnits);
     }
-  }, [currentMapping, multiSheetSelections, multiSheetMappings, sheetDataList, onAction, onGenerateCatalog, productNames, onRowsDiscarded, imageOverrides]);
+  }, [currentMapping, multiSheetSelections, multiSheetMappings, sheetDataList, onAction, onGenerateCatalog, productNames, onRowsDiscarded, imageOverrides, multiSheetDimUnits]);
 
   // Visible columns for current sheet
   const visibleColumns = useMemo(() => {
@@ -984,14 +1011,14 @@ export function ExcelPreviewTable({
       const colIdx = Number(dimCombinedCol);
       // Get the header text for smart unit detection
       const headerText = activeSheet.headerLabels[colIdx] || '';
-      
+
       for (const row of displayRows) {
         const rawVal = row.cells[colIdx];
         if (rawVal === null || rawVal === undefined) continue;
         const rawStr = String(rawVal).trim();
         if (!rawStr) continue;
-        
-        const parsed = parseSmartDimensions(rawStr, headerText);
+
+        const parsed = parseSmartDimensions(rawStr, headerText, dimUnitOverride);
         // Store parsed values keyed by row:field
         // For the combined column cell itself, show "長×闊×高" parsed with mm labels
         const parts: string[] = [];
@@ -1148,7 +1175,7 @@ export function ExcelPreviewTable({
     }
     
     return result;
-  }, [currentMapping, displayRows, activeSheet.headerLabels]);
+  }, [currentMapping, displayRows, activeSheet.headerLabels, dimUnitOverride]);
 
   // ── Parsed Price Cells (價格取大值) ──────────────────────────────────
   // For columns mapped to cost_price or sale_price, apply cleanPrice (取大值) for display.
@@ -1481,11 +1508,33 @@ export function ExcelPreviewTable({
         {mappedCount === 0 && (
           <span className="text-xs text-muted-foreground/50 italic">尚未映射任何欄位</span>
         )}
+        {dimCombinedColIdx !== null && (
+          <div className="ml-auto flex items-center gap-1.5 rounded-md border border-emerald-500/30 bg-emerald-500/5 px-2 py-1">
+            <span className="text-[10px] font-mono text-emerald-300/80">尺寸原始單位:</span>
+            <Select value={currentDimUnit} onValueChange={(v) => handleDimUnitChange(v as DimUnit)}>
+              <SelectTrigger className="h-6 w-[90px] text-[10px] font-mono border-emerald-500/30 bg-background/50">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="mm" className="text-xs">mm (毫米)</SelectItem>
+                <SelectItem value="cm" className="text-xs">cm (公分)</SelectItem>
+                <SelectItem value="m" className="text-xs">m (米)</SelectItem>
+                <SelectItem value="auto" className="text-xs">auto (自動偵測)</SelectItem>
+              </SelectContent>
+            </Select>
+            <span className="text-[9px] text-emerald-300/60 font-[Manrope]">
+              {currentDimUnit === 'mm' && '不放大 ×1'}
+              {currentDimUnit === 'cm' && '×10 → mm'}
+              {currentDimUnit === 'm' && '×1000 → mm'}
+              {currentDimUnit === 'auto' && '依表頭判斷'}
+            </span>
+          </div>
+        )}
         <Button
           variant="ghost"
           size="sm"
           onClick={handleResetMappings}
-          className="ml-auto text-xs"
+          className={cn("text-xs", dimCombinedColIdx === null && "ml-auto")}
         >
           <RotateCcw className="w-3 h-3 mr-1" />
           重置映射

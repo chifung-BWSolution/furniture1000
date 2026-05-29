@@ -46,7 +46,7 @@ import { CascadingCategorySelector } from './CascadingCategorySelector';
 import { supabase } from '@/lib/supabase';
 import { fetchFactories, fetchFactoriesWithIds, FactoryItem } from '@/lib/factorySupabase';
 import { parseExcelFile, extractImagesFromWorkbook, extractRawExcelTable, ExcelProduct, ExcelImage, getFactoryRule, RawTableExtraction, cleanPrice, parseSmartDimensions, parseDeliveryTerm } from '@/lib/excelParser';
-import { ExcelPreviewTable, ExcelPreviewData, ColumnMappingState, StandardHeaderValue, MultiSheetColumnMapping, PreviewAction } from '@/components/dashboard/ExcelPreviewTable';
+import { ExcelPreviewTable, ExcelPreviewData, ColumnMappingState, StandardHeaderValue, MultiSheetColumnMapping, MultiSheetDimUnits, DimUnit, PreviewAction } from '@/components/dashboard/ExcelPreviewTable';
 import { simplifiedToTraditional } from '@/lib/chineseConverter';
 import { useFactoryLearning, CorrectableField } from '@/hooks/use-factory-learning';
 import { toast } from 'sonner';
@@ -2239,7 +2239,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
   // NOTE: handleGenerate is defined after processFiles below
 
   // ─── Handle "Generate Catalog Result" from the Preview Table ────────
-  const handleGenerateFromPreview = useCallback(async (mapping: ColumnMappingState, selectedRows: number[], multiSheetMapping?: MultiSheetColumnMapping, imageOverrides?: Record<string, string>) => {
+  const handleGenerateFromPreview = useCallback(async (mapping: ColumnMappingState, selectedRows: number[], multiSheetMapping?: MultiSheetColumnMapping, imageOverrides?: Record<string, string>, multiSheetDimUnits?: MultiSheetDimUnits) => {
     if (!excelPreviewData) return;
     
     setIsGeneratingFromPreview(true);
@@ -2282,6 +2282,11 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
 
       // Build CatalogProducts from user-confirmed mapping (per-row mapping aware)
       const catalogProds: CatalogProduct[] = allSheetRows.map(({ row, sheetMapping, sheetName }, idx) => {
+        // User-selected unit override for this sheet's dimension parsing.
+        // 'auto' (or undefined) → fall back to header-based detection.
+        const sheetDimUnit: DimUnit = multiSheetDimUnits?.[sheetName] || 'mm';
+        const dimUnitOverride: 'mm' | 'cm' | 'm' | undefined = sheetDimUnit === 'auto' ? undefined : sheetDimUnit;
+
         // Build column index lookup from this row's sheet mapping
         const fieldToCol: Record<string, number> = {};
         for (const [colIdxStr, field] of Object.entries(sheetMapping)) {
@@ -2438,11 +2443,11 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
           const dimColIdx = fieldToCol['dimensions'];
           const currentSheet = sheets?.find(s => s.sheetName === sheetName);
           const dimHeader = (dimColIdx !== undefined && currentSheet) ? (currentSheet.headerLabels[dimColIdx] || '') : '';
-          const smartDims = parseSmartDimensions(dimensions, dimHeader);
+          const smartDims = parseSmartDimensions(dimensions, dimHeader, dimUnitOverride);
           dimensionLMm = smartDims.l;
           dimensionWMm = smartDims.w;
           dimensionHMm = smartDims.h;
-          console.log(`[DimFallback] Combined "${dimensions}" → L:${dimensionLMm} W:${dimensionWMm} H:${dimensionHMm}`);
+          console.log(`[DimFallback] Combined "${dimensions}" (unit=${sheetDimUnit}) → L:${dimensionLMm} W:${dimensionWMm} H:${dimensionHMm}`);
         }
 
         const displayTitle = modelNumber && material
@@ -2570,7 +2575,8 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
     selectedRows: number[],
     productNames: Record<string, string>,
     multiSheetMapping?: MultiSheetColumnMapping,
-    imageOverrides?: Record<string, string>
+    imageOverrides?: Record<string, string>,
+    multiSheetDimUnits?: MultiSheetDimUnits
   ) => {
     if (!excelPreviewData) return;
 
@@ -2613,6 +2619,10 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
 
       // Build CatalogProducts from user-confirmed mapping (per-row mapping aware)
       const catalogProds: CatalogProduct[] = allSheetRows.map(({ row, sheetMapping, sheetName }, idx) => {
+        // User-selected unit override for this sheet's dimension parsing.
+        const sheetDimUnit: DimUnit = multiSheetDimUnits?.[sheetName] || 'mm';
+        const dimUnitOverride: 'mm' | 'cm' | 'm' | undefined = sheetDimUnit === 'auto' ? undefined : sheetDimUnit;
+
         const fieldToCol: Record<string, number> = {};
         for (const [colIdxStr, field] of Object.entries(sheetMapping)) {
           // Skip all special/internal mapping keys (e.g. __img_product, __ai_product_name)
@@ -2781,11 +2791,11 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
           const dimColIdx = fieldToCol['dimensions'];
           const currentSheet = sheets?.find(s => s.sheetName === sheetName);
           const dimHeader = (dimColIdx !== undefined && currentSheet) ? (currentSheet.headerLabels[dimColIdx] || '') : '';
-          const smartDims = parseSmartDimensions(dimensions, dimHeader);
+          const smartDims = parseSmartDimensions(dimensions, dimHeader, dimUnitOverride);
           dimensionLMm = smartDims.l;
           dimensionWMm = smartDims.w;
           dimensionHMm = smartDims.h;
-          console.log(`[DimFallback] Combined "${dimensions}" → L:${dimensionLMm} W:${dimensionWMm} H:${dimensionHMm}`);
+          console.log(`[DimFallback] Combined "${dimensions}" (unit=${sheetDimUnit}) → L:${dimensionLMm} W:${dimensionWMm} H:${dimensionHMm}`);
         }
 
         // Use AI-generated name as the display title if available, otherwise fallback

@@ -605,14 +605,20 @@ export function parseAdvancedDimensions(raw: string): { l: number | null; w: num
  */
 export function parseSmartDimensions(
   raw: string,
-  headerText?: string
+  headerText?: string,
+  unitOverride?: 'mm' | 'cm' | 'm'
 ): { l: number | null; w: number | null; h: number | null } {
   if (!raw || typeof raw !== 'string') return { l: null, w: null, h: null };
 
-  // ── Step 1: Detect unit multiplier from header ──────────────────────
-  // Global Rule: If headerText is provided, detect from it.
-  // If no headerText, default to 10 (assumes CM → MM, as per Global Unit Engine).
-  const multiplier = headerText ? detectUnitMultiplierFromHeader(headerText) : 10;
+  // ── Step 1: Determine unit multiplier ───────────────────────────────
+  // Priority: explicit unitOverride > header detection > default (CM, ×10).
+  // The override exists so the UI can let users say "this column is already MM"
+  // even when the header text has no unit keyword.
+  let multiplier: number;
+  if (unitOverride === 'mm') multiplier = 1;
+  else if (unitOverride === 'cm') multiplier = 10;
+  else if (unitOverride === 'm') multiplier = 1000;
+  else multiplier = headerText ? detectUnitMultiplierFromHeader(headerText) : 10;
 
   // ── Step 2: Parse using advanced logic (Rules A, B, C) ──────────────
   // parseAdvancedDimensions already implements:
