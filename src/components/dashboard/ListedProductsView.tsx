@@ -240,10 +240,20 @@ export function ListedProductsView({
 
       setTotalCount(count || 0);
 
-      // Build data query
+      // Build data query — explicit columns (avoid heavy JSONB like description_html when not needed for list view)
+      const LIST_COLUMNS = [
+        'id', 'title', 'description', 'tags', 'price', 'compare_at_price',
+        'collection', 'status', 'image_url', 'images',
+        'shopify_product_id', 'source', 'synced_at', 'created_at',
+        'color', 'factory_id', 'factories_display_name',
+        'cost_price', 'production_date', 'shipping_days', 'total_lead_time',
+        'bwf_master_id', 'remarks', 'shipping_fee', 'category',
+        'delivery_term_id', 'delivery_term_name',
+        'dimension_l_mm', 'dimension_w_mm', 'dimension_h_mm',
+      ].join(',');
       let dataQuery = supabase
         .from('products')
-        .select('*')
+        .select(LIST_COLUMNS)
         .order(sortField, { ascending: sortOrder === 'asc' })
         .range(from, to);
 
@@ -600,13 +610,17 @@ export function ListedProductsView({
 
   const toggleSelectAll = useCallback(() => {
     if (products.length === 0) return;
-    const allCurrentIds = products.map(p => p.id);
-    const allSelected = allCurrentIds.every(id => selectedIds.has(id));
-    if (allSelected) {
-      setSelectedIds(new Set());
-    } else {
-      setSelectedIds(new Set(allCurrentIds));
-    }
+    const currentPageIds = products.map(p => p.id);
+    const allCurrentSelected = currentPageIds.every(id => selectedIds.has(id));
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (allCurrentSelected) {
+        for (const id of currentPageIds) next.delete(id);
+      } else {
+        for (const id of currentPageIds) next.add(id);
+      }
+      return next;
+    });
   }, [products, selectedIds]);
 
   const isAllSelected = products.length > 0 && products.every(p => selectedIds.has(p.id));
