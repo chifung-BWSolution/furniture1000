@@ -169,7 +169,47 @@ interface ExcelPreviewTableProps {
 }
 
 // ─── Auto-detect column mappings from header text ─────────────────
-function autoDetectMappings(headers: string[]): ColumnMappingState {
+/**
+ * Detect a column that holds dimensions by inspecting cell data.
+ * A column qualifies when ≥40% of non-empty cells contain a dimension-like
+ * pattern (two or three numbers joined by * × x or /), and no other column
+ * was already mapped to 'dimensions'.
+ * Returns the 0-based column index, or -1 if none qualifies.
+ */
+function detectDimensionsColumnFromData(rows: RawExtractedRow[], columnCount: number, mapping: ColumnMappingState): number {
+  // Skip if a dimensions/dim_* mapping already exists
+  for (const v of Object.values(mapping)) {
+    if (v === 'dimensions' || v === 'dim_length' || v === 'dim_width' || v === 'dim_height' ||
+        v === 'dim_length_mm' || v === 'dim_width_mm' || v === 'dim_height_mm') {
+      return -1;
+    }
+  }
+  const DIM_RE = /\d{2,4}\s*[*×xX/]\s*\d{2,4}(?:\s*[*×xX/]\s*\d{2,4})?/;
+  let bestCol = -1;
+  let bestRatio = 0;
+  for (let c = 0; c < columnCount; c++) {
+    if (mapping[c] && mapping[c] !== 'skip') continue;
+    let nonEmpty = 0;
+    let dimMatches = 0;
+    for (const row of rows) {
+      const cell = row.cells?.[c];
+      if (cell === null || cell === undefined) continue;
+      const s = String(cell).trim();
+      if (!s) continue;
+      nonEmpty++;
+      if (DIM_RE.test(s)) dimMatches++;
+    }
+    if (nonEmpty < 3) continue;
+    const ratio = dimMatches / nonEmpty;
+    if (ratio >= 0.4 && ratio > bestRatio) {
+      bestRatio = ratio;
+      bestCol = c;
+    }
+  }
+  return bestCol;
+}
+
+function autoDetectMappings(headers: string[], rows?: RawExtractedRow[], columnCount?: number): ColumnMappingState {
   const mapping: ColumnMappingState = {};
   
   const patterns: { field: StandardHeaderValue; regex: RegExp }[] = [
@@ -221,6 +261,18 @@ function autoDetectMappings(headers: string[]): ColumnMappingState {
     }
     if (!matched) {
       mapping[i] = 'skip';
+    }
+  }
+
+  // ── Data-based dimensions fallback ──
+  // If no column was matched to 'dimensions' via header text, scan row data
+  // for a column whose cells contain L*W*H-style values (e.g. "550*600*830").
+  // Without this, the 3-column split (長/闊/高) won't trigger when headers
+  // are missing or non-standard.
+  if (rows && columnCount && !Object.values(mapping).includes('dimensions')) {
+    const dimCol = detectDimensionsColumnFromData(rows, columnCount, mapping);
+    if (dimCol >= 0) {
+      mapping[dimCol] = 'dimensions';
     }
   }
 
@@ -606,7 +658,7 @@ export function ExcelPreviewTable({
     // Auto-detect initially; async restore from IndexedDB will override if available
     const mappings: MultiSheetColumnMapping = {};
     for (const sd of sheetDataList) {
-      mappings[sd.sheetName] = autoDetectMappings(sd.headerLabels);
+      mappings[sd.sheetName] = autoDetectMappings(sd.headerLabels, sd.rows, sd.columnCount);
     }
     return mappings;
   });
@@ -747,7 +799,7 @@ export function ExcelPreviewTable({
   const handleResetMappings = useCallback(() => {
     setMultiSheetMappings(prev => ({
       ...prev,
-      [activeSheet.sheetName]: autoDetectMappings(activeSheet.headerLabels),
+      [activeSheet.sheetName]: autoDetectMappings(activeSheet.headerLabels, activeSheet.rows, activeSheet.columnCount),
     }));
   }, [activeSheet.sheetName, activeSheet.headerLabels]);
 
