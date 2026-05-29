@@ -2697,7 +2697,35 @@ export async function extractImagesFromWorkbook(fileBuffer: ArrayBuffer): Promis
           anchorIdx++;
         }
         
-        console.log(`[ExcelParser] JSZip: parsed ${anchorIdx} anchors from ${path}`);
+        // ═══ ALSO PARSE oneCellAnchor BLOCKS ═══════════════════════════════════
+        // Many Chinese Excel editors (WPS, OfficePlus) embed images using oneCellAnchor
+        // instead of twoCellAnchor. These only have a <xdr:from> element (no <xdr:to>).
+        // Without this, images from such files have NO position data and can't be matched to rows.
+        const oneCellAnchorRegex = /<xdr:oneCellAnchor[^>]*>([\s\S]*?)<\/xdr:oneCellAnchor>/g;
+        let oneCellMatch;
+        while ((oneCellMatch = oneCellAnchorRegex.exec(xmlText)) !== null) {
+          const block = oneCellMatch[1];
+          const fromBlockMatch = /<xdr:from>([\s\S]*?)<\/xdr:from>/m.exec(block);
+          const fromBlock = fromBlockMatch ? fromBlockMatch[1] : '';
+          const fromRowMatch = /<xdr:row>(\d+)<\/xdr:row>/.exec(fromBlock);
+          const fromColMatch = /<xdr:col>(\d+)<\/xdr:col>/.exec(fromBlock);
+          const fromRowOffMatch = /<xdr:rowOff>(\d+)<\/xdr:rowOff>/.exec(fromBlock);
+          const embedMatch = /r:embed="([^"]+)"/.exec(block);
+          if (embedMatch) {
+            const fromRow = fromRowMatch ? parseInt(fromRowMatch[1]) : 0;
+            drawingAnchors.set(`${path}:${anchorIdx}`, {
+              fromRow,
+              toRow: fromRow, // oneCellAnchor has no <to>, assume same row
+              fromCol: fromColMatch ? parseInt(fromColMatch[1]) : 0,
+              toCol: (fromColMatch ? parseInt(fromColMatch[1]) : 0) + 1, // assume spans 1 column
+              fromRowOff: fromRowOffMatch ? parseInt(fromRowOffMatch[1]) : 0,
+              toRowOff: 0,
+            });
+          }
+          anchorIdx++;
+        }
+        
+        console.log(`[ExcelParser] JSZip: parsed ${anchorIdx} anchors from ${path} (incl. oneCellAnchors)`);
       }
     }
     
@@ -2845,17 +2873,20 @@ export async function extractImagesFromWorkbook(fileBuffer: ArrayBuffer): Promis
               // ═══════════════════════════════════════════════════════════════════════
               // Column B (Index 1) = STRICTLY lifestyle/效果圖. NEVER a product image.
               // Column C (Index 2) = STRICTLY product/產品圖片. ALWAYS the product image.
+              // Column A (Index 0) = product image for some factories (e.g. 京图/Jingtu).
               // No exceptions. No heuristics. No fallback overrides.
               // ═══════════════════════════════════════════════════════════════════════
               let imageRole: 'product' | 'lifestyle' | 'unknown' = 'unknown';
-              if (fromCol === 1) {
+              if (fromCol === 0) {
+                imageRole = 'product';   // Column A = product image (e.g. 京图 factory format)
+              } else if (fromCol === 1) {
                 imageRole = 'lifestyle'; // Column B = ALWAYS lifestyle
               } else if (fromCol === 2) {
                 imageRole = 'product';   // Column C = ALWAYS product
               } else if (fromCol !== undefined && fromCol >= 3) {
                 imageRole = 'product';   // Column D+ = also product (e.g. some factories use col 3)
               }
-              // If fromCol is undefined or 0, leave as 'unknown' — will be handled conservatively
+              // If fromCol is undefined, leave as 'unknown' — will be handled conservatively
               
               const fromRowVal = fromRowMatch ? parseInt(fromRowMatch[1]) : undefined;
               const toRowVal = toRowMatch ? parseInt(toRowMatch[1]) : undefined;
@@ -2886,6 +2917,122 @@ export async function extractImagesFromWorkbook(fileBuffer: ArrayBuffer): Promis
         }
         
         // Fallback: add image by sequential order without anchor info
+        if (globalImageIdx < mediaEntries.length) {
+          const mediaEntry = mediaEntries[globalImageIdx];
+          const extension = detectImageType(mediaEntry.data);
+          const base64 = uint8ToBase64(mediaEntry.data);
+          images.push({
+            sheetName: 'unknown',
+            imageIndex: globalImageIdx,
+            base64,
+            mimeType: `image/${extension}`,
+          });
+          globalImageIdx++;
+        }
+      }
+      
+      // ═══ PARSE oneCellAnchor BLOCKS (WPS Office / OfficePlus / some Chinese Excel editors) ═══
+      // oneCellAnchor only has a <xdr:from> element — no <xdr:to>.
+      // These are commonly used by WPS Office and OfficePlus for embedded product images.
+      const oneCellAnchorRegex2 = /<xdr:oneCellAnchor[^>]*>([\s\S]*?)<\/xdr:oneCellAnchor>/g;
+      let oneCellMatch2;
+      while ((oneCellMatch2 = oneCellAnchorRegex2.exec(xmlText)) !== null) {
+        const block = oneCellMatch2[1];
+        const fromBlockMatch = /<xdr:from>([\s\S]*?)<\/xdr:from>/m.exec(block);
+        const fromBlock = fromBlockMatch ? fromBlockMatch[1] : '';
+        
+        const fromRowMatch = /<xdr:row>(\d+)<\/xdr:row>/.exec(fromBlock);
+        const fromColMatch = /<xdr:col>(\d+)<\/xdr:col>/.exec(fromBlock);
+        const fromRowOffMatch = /<xdr:rowOff>(\d+)<\/xdr:rowOff>/.exec(fromBlock);
+        const fromColOffVal = /<xdr:colOff>(\d+)<\/xdr:colOff>/.exec(fromBlock)?.[1];
+        const embedMatch = /r:embed="([^"]+)"/.exec(block);
+        
+        if (embedMatch) {
+          const rId = embedMatch[1];
+          let mediaPath: string | undefined;
+          
+          const thisDrawingRels = rIdToMediaPerDrawing.get(drawingPath);
+          if (thisDrawingRels) {
+            mediaPath = thisDrawingRels.get(rId);
+          }
+          
+          if (!mediaPath) {
+            const relsPath = drawingPath.replace('xl/drawings/', 'xl/drawings/_rels/') + '.rels';
+            const relsFile = zip.files[relsPath];
+            if (relsFile) {
+              const relsXml = await relsFile.async('text');
+              const thisRelMatch = new RegExp(`Id="${rId}"[^>]+Target="([^"]+)"`).exec(relsXml);
+              if (thisRelMatch) {
+                mediaPath = thisRelMatch[1].replace('../', 'xl/');
+              }
+            }
+          }
+          
+          if (mediaPath) {
+            const mediaEntry = mediaEntries.find(m => m.name === mediaPath);
+            if (mediaEntry) {
+              const extension = detectImageType(mediaEntry.data);
+              const base64 = uint8ToBase64(mediaEntry.data);
+              
+              let drawingSheetIdx: number;
+              if (drawingToSheetIdx.has(drawingPath)) {
+                drawingSheetIdx = drawingToSheetIdx.get(drawingPath)!;
+              } else {
+                drawingSheetIdx = parseInt(drawingPath.match(/drawing(\d+)/)?.[1] || '1') - 1;
+              }
+              
+              const fromCol = fromColMatch ? parseInt(fromColMatch[1]) : undefined;
+              const fromRowVal = fromRowMatch ? parseInt(fromRowMatch[1]) : undefined;
+              const fromRowOffVal = fromRowOffMatch ? parseInt(fromRowOffMatch[1]) : 0;
+              
+              // For oneCellAnchor, estimate toRow from extent if available, else assume same row
+              // Try to extract <xdr:ext cx="..." cy="..."/> for size estimation
+              const extCyMatch = /<(?:xdr:)?ext[^>]+cy="(\d+)"/.exec(block);
+              // Average row height in EMU is ~200000 (about 15pt). Use this to estimate row span.
+              const estimatedRowSpan = extCyMatch ? Math.max(0, Math.floor(parseInt(extCyMatch[1]) / 200000) - 1) : 0;
+              const toRowVal = fromRowVal !== undefined ? fromRowVal + estimatedRowSpan : undefined;
+              const toCol = fromCol !== undefined ? fromCol + 1 : undefined;
+              
+              // Compute column span
+              const colSpan = 1; // oneCellAnchor typically spans ~1 column for product images
+              
+              // Image role assignment — same logic as twoCellAnchor
+              let imageRole: 'product' | 'lifestyle' | 'unknown' = 'unknown';
+              if (fromCol === 1) {
+                imageRole = 'lifestyle';
+              } else if (fromCol === 2) {
+                imageRole = 'product';
+              } else if (fromCol !== undefined && fromCol >= 3) {
+                imageRole = 'product';
+              } else if (fromCol === 0) {
+                // Column A — for factories like 京图 where product image is in Col A
+                imageRole = 'product';
+              }
+              
+              images.push({
+                sheetName: `sheet${drawingSheetIdx}`,
+                imageIndex: globalImageIdx,
+                base64,
+                mimeType: `image/${extension}`,
+                fromRow: fromRowVal,
+                toRow: toRowVal,
+                fromCol,
+                toCol,
+                fromRowOff: fromRowOffVal,
+                toRowOff: 0,
+                fromColOff: fromColOffVal ? parseInt(fromColOffVal) : 0,
+                toColOff: 0,
+                colSpan,
+                imageRole,
+              });
+              console.log(`[ExcelParser] Image[${globalImageIdx}] 🔒sheet${drawingSheetIdx} (oneCellAnchor from: ${drawingPath}) col=${fromCol}→${toCol} colSpan=${colSpan} role=${imageRole} row=${fromRowVal ?? '?'}(+${fromRowOffVal}EMU)-${toRowVal ?? '?'}`);
+              globalImageIdx++;
+              continue;
+            }
+          }
+        }
+        
+        // Fallback for oneCellAnchor without resolved media
         if (globalImageIdx < mediaEntries.length) {
           const mediaEntry = mediaEntries[globalImageIdx];
           const extension = detectImageType(mediaEntry.data);
