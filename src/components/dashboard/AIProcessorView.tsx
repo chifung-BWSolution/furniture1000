@@ -2153,8 +2153,14 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
   const filteredManufacturers = useMemo(() => {
     if (!manufacturerSearch.trim()) return manufacturerList;
     const q = manufacturerSearch.toLowerCase();
-    return manufacturerList.filter(m => m.toLowerCase().includes(q));
-  }, [manufacturerSearch, manufacturerList]);
+    return manufacturerList.filter(m => {
+      if (m.toLowerCase().includes(q)) return true;
+      // Also search by factory_id (code)
+      const fItem = factoryItemsList.find(f => f.display_name === m);
+      if (fItem?.factory_id && fItem.factory_id.toLowerCase().includes(q)) return true;
+      return false;
+    });
+  }, [manufacturerSearch, manufacturerList, factoryItemsList]);
 
   // ─── Add files to queue WITHOUT triggering processing ───────────────
   const addFilesToQueue = useCallback(async (fileList: FileList | File[]) => {
