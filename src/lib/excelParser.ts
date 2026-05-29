@@ -108,6 +108,30 @@ interface FactoryParsingRule {
    */
   forceLifestyleImageCol?: number;
   /**
+   * HARDCODED column index for product dimensions (0-based).
+   * If set, overrides header-based detection for the dimensions column.
+   * Useful when the dimensions column header is non-standard or when header detection picks a wrong column.
+   */
+  forceDimensionsCol?: number;
+  /**
+   * HARDCODED column index for cost price (0-based).
+   * If set, overrides header-based detection for the costPrice column.
+   */
+  forceCostPriceCol?: number;
+  /**
+   * HARDCODED column index for product model (0-based). Overrides detection.
+   */
+  forceModelCol?: number;
+  /**
+   * HARDCODED column index for product title / 品名 (0-based). Overrides detection.
+   */
+  forceTitleCol?: number;
+  /**
+   * HARDCODED 0-based index of the header row. If set, overrides header detection.
+   * Data rows start at headerRowIndex + 1 + (firstDataRowOffset ?? 0).
+   */
+  forceHeaderRowIndex?: number;
+  /**
    * Optional row filter function. When provided, called for EACH data row.
    * Return `true` to include the row as a valid product, `false` to skip it.
    * 
@@ -955,6 +979,19 @@ const FACTORY_RULES: FactoryParsingRule[] = [
       return hasYear && hasPeitao;
     },
   },
+  {
+    factoryCode: 'CYJ',
+    factoryNames: ['CYJ', '優健家具', '优健家具', '優健', '优健', 'Youjian', 'youjian'],
+    parseDimensions: parseAdvancedDimensions,
+    unitMultiplier: 1, // already in MM
+    description: 'CYJ/優健家具: image col B (1), dimensions col F (5) in mm, 2 numbers = L+H',
+    propagateMergedCells: true,
+    // Layout (0-based): row 4 = header, row 5+ = products. Image at col B (1), dimensions at col F (5).
+    forceHeaderRowIndex: 3,    // header row 4 (1-based) → idx 3, so first data row = idx 4 (Excel row 5)
+    forceImageCol: 1,          // Column B = product image
+    forceDimensionsCol: 5,     // Column F = 产品尺寸
+    strictImageColumns: false,
+  },
   // Add more factory rules here as needed
 ];
 
@@ -1284,6 +1321,27 @@ export async function parseExcelFile(
           `[ExcelParser] FORCE OVERRIDE: lifestyleImageCol ${detectedLifestyleCol} → ${rule.forceLifestyleImageCol} (from factory rule "${rule.factoryCode}")`
         );
       }
+    }
+    if (rule.forceDimensionsCol !== undefined) {
+      columnMapping.dimensions = rule.forceDimensionsCol;
+    }
+    if (rule.forceCostPriceCol !== undefined) {
+      columnMapping.costPrice = rule.forceCostPriceCol;
+    }
+    if (rule.forceModelCol !== undefined) {
+      columnMapping.model = rule.forceModelCol;
+    }
+    if (rule.forceTitleCol !== undefined) {
+      columnMapping.title = rule.forceTitleCol;
+    }
+    if (rule.forceHeaderRowIndex !== undefined) {
+      columnMapping.headerRowIndex = rule.forceHeaderRowIndex;
+    }
+
+    // CYJ: only one image column (Column B = product image). Clear lifestyle to prevent
+    // 效果圖 column being detected from headers and duplicating the product image.
+    if (rule.factoryCode === 'CYJ') {
+      columnMapping.lifestyleImageCol = null;
     }
 
     // ── CYZ/優卓 Single Image Column Rule ─────────────────────────────────────
