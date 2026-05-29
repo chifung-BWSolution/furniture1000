@@ -620,12 +620,15 @@ export function parseSmartDimensions(
   else if (unitOverride === 'm') multiplier = 1000;
   else multiplier = headerText ? detectUnitMultiplierFromHeader(headerText) : 10;
 
-  // ── Step 2: Parse using advanced logic (Rules A, B, C) ──────────────
-  // parseAdvancedDimensions already implements:
-  //   Rule A: Multi-spec → pick largest set; slash → max value
-  //   Rule B: 3 numbers → L, W, H positional
-  //   Rule C: 2 numbers → H/L suffix detection; default 1st=L, 2nd=H
-  const parsed = parseAdvancedDimensions(raw);
+  // ── Step 2: Try the labeled-Chinese format first ────────────────────
+  //   e.g. "座高：46\n座宽：48\n座深：42\n总高：79"
+  // Per CYJ casual-chair rule:
+  //   宽 → length (L), 深 → width (W), max of all 高 → height (H).
+  // Falls back to advanced positional parsing when no labels are found.
+  const labeled = parseLabeledChineseDimensions(raw);
+  const parsed = (labeled.l !== null || labeled.w !== null || labeled.h !== null)
+    ? labeled
+    : parseAdvancedDimensions(raw);
 
   // ── Step D: Apply multiplier ────────────────────────────────────────
   return {
@@ -633,6 +636,59 @@ export function parseSmartDimensions(
     w: parsed.w !== null ? Math.round(parsed.w * multiplier) : null,
     h: parsed.h !== null ? Math.round(parsed.h * multiplier) : null,
   };
+}
+
+/**
+ * parseLabeledChineseDimensions
+ * ─────────────────────────────────────────────────────────────────────
+ * Parses dimension strings whose values are labeled with Chinese keywords,
+ * e.g. "座高：46\n座宽：48\n座深：42\n总高：79".
+ *
+ * CYJ casual-chair convention:
+ *   宽 (any 宽: 座宽, 椅宽, 总宽, 宽度) → product LENGTH
+ *   深 (any 深: 座深, 总深, 深度)     → product WIDTH
+ *   高 (any 高: 座高, 总高, 高度)     → product HEIGHT
+ *     When multiple 高 values coexist (e.g. 座高 + 总高), take the MAX
+ *     (i.e. 总高 wins). Same for 宽 (e.g. 座宽 + 椅宽).
+ *
+ * Returns all-null when no labeled keyword matches (caller should fall
+ * back to positional parsing).
+ */
+export function parseLabeledChineseDimensions(
+  raw: string,
+): { l: number | null; w: number | null; h: number | null } {
+  if (!raw || typeof raw !== 'string') return { l: null, w: null, h: null };
+
+  // Match any "<prefix>宽/深/高<separator><number>" segment.
+  // Separator can be ：: =  whitespace.
+  // Be tolerant of full-width and half-width punctuation.
+  const widthRe = /[\u4e00-\u9fa5]*?(宽|寬|宽度|寬度)\s*[：:=\s]\s*(\d+(?:\.\d+)?)/g;
+  const depthRe = /[\u4e00-\u9fa5]*?(深|深度)\s*[：:=\s]\s*(\d+(?:\.\d+)?)/g;
+  const heightRe = /[\u4e00-\u9fa5]*?(高|高度)\s*[：:=\s]\s*(\d+(?:\.\d+)?)/g;
+
+  const collect = (re: RegExp): number[] => {
+    const out: number[] = [];
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(raw)) !== null) {
+      const n = parseFloat(m[2]);
+      if (!isNaN(n)) out.push(n);
+    }
+    return out;
+  };
+
+  const widths = collect(widthRe);
+  const depths = collect(depthRe);
+  const heights = collect(heightRe);
+
+  if (widths.length === 0 && depths.length === 0 && heights.length === 0) {
+    return { l: null, w: null, h: null };
+  }
+
+  // Multiple 宽/高 values → take the maximum (covers 座高/总高 and 座宽/椅宽).
+  const l = widths.length ? Math.max(...widths) : null;
+  const w = depths.length ? Math.max(...depths) : null;
+  const h = heights.length ? Math.max(...heights) : null;
+  return { l, w, h };
 }
 
 /**

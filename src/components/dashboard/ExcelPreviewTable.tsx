@@ -198,9 +198,12 @@ function detectDimensionsColumnFromData(
     }
   }
   // Headers that LOOK like dimensions (numbers × numbers in cells) but are NOT product dimensions:
-  // 包装规格/包裝規格 = packaging spec; 净重 = net weight; 毛重 = gross weight; etc.
-  const EXCLUDE_HEADER_RE = /包[装裝]|包裝規格|净重|淨重|毛重|重量|箱規|箱规|carton|packaging|gross\s*weight|net\s*weight/i;
+  // 包装规格/包裝規格 = packaging spec; 纸箱/紙箱 = carton box; 净重 = net weight; 毛重 = gross weight; etc.
+  const EXCLUDE_HEADER_RE = /包[装裝]|包裝規格|纸箱|紙箱|净重|淨重|毛重|重量|箱規|箱规|carton|packaging|gross\s*weight|net\s*weight/i;
+  // A cell counts as a dimension if it matches either the positional form
+  // (e.g. "550*600*830") or the labeled-Chinese form (e.g. "座高：46\n座宽：48").
   const DIM_RE = /\d{2,4}\s*[*×xX/]\s*\d{2,4}(?:\s*[*×xX/]\s*\d{2,4})?/;
+  const LABELED_DIM_RE = /(座高|总高|總高|椅高|高度|座宽|座寬|椅宽|椅寬|总宽|總寬|宽度|寬度|座深|总深|總深|深度)\s*[：:=]\s*\d/;
   let bestCol = -1;
   let bestRatio = 0;
   for (let c = 0; c < columnCount; c++) {
@@ -215,7 +218,7 @@ function detectDimensionsColumnFromData(
       const s = String(cell).trim();
       if (!s) continue;
       nonEmpty++;
-      if (DIM_RE.test(s)) dimMatches++;
+      if (DIM_RE.test(s) || LABELED_DIM_RE.test(s)) dimMatches++;
     }
     if (nonEmpty < 2) continue;
     const ratio = dimMatches / nonEmpty;
@@ -260,9 +263,11 @@ function autoDetectMappings(headers: string[], rows?: RawExtractedRow[], columnC
 
   const usedFields = new Set<StandardHeaderValue>();
 
-  // Headers we explicitly never auto-map (packaging/weight columns can otherwise
-  // match 規格/重量 patterns and be misclassified as dimensions or remarks).
-  const ALWAYS_SKIP_RE = /包[装裝]|carton|gross\s*weight|net\s*weight/i;
+  // Headers we explicitly never auto-map (packaging/weight/config columns can otherwise
+  // match 規格/重量/說明 patterns and be misclassified as dimensions/remarks/description).
+  // 配置说明 = "configuration notes" — CYJ casual-chair sheets use this for build details
+  // we don't want imported.
+  const ALWAYS_SKIP_RE = /包[装裝]|纸箱|紙箱|carton|gross\s*weight|net\s*weight|^配置|配置说明|配置說明/i;
 
   for (let i = 0; i < headers.length; i++) {
     const headerText = (headers[i] || '').trim();
