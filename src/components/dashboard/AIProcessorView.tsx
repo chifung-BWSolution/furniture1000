@@ -3095,44 +3095,65 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         });
 
       } else if (action === 'catalog-only') {
-        // Also add to local products table so they appear in Product Catalog UI
-        for (const item of correctedProds) {
-          if (!successfulLocalIds.has(item.id)) continue; // Skip failed items
-          const imageUrl = item.cropped_image_url || item.lifestyleImageUrl || '';
-          const dbResult = dbResults.find((r: any) => r.local_id === item.id);
-          const product = {
-            title: item.title,
-            description: item.description,
-            descriptionHtml: item.description,
-            tags: item.tags,
-            price: item.price,
-            collection: item.collection,
-            imageUrl,
-            variants: [{
-              id: Math.random().toString(36).substring(7),
-              size: 'One Size',
-              color: item.color || 'Default',
-              sku: `SKU-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
+        // Persist DIRECTLY to the Supabase `products` table so items show up
+        // in 產品目錄 only — do NOT call onAddProduct (which would push them
+        // into the in-memory store and the 待上傳到 Shopify queue).
+        const nowIso = new Date().toISOString();
+        const productRows = correctedProds
+          .filter(item => successfulLocalIds.has(item.id))
+          .map(item => {
+            const dbResult = dbResults.find((r: any) => r.local_id === item.id);
+            const imageUrl = item.cropped_image_url || item.lifestyleImageUrl || '';
+            const newId = Math.random().toString(36).substring(2, 15);
+            return {
+              id: newId,
+              title: item.title,
+              description: item.description,
+              description_html: item.description,
+              tags: item.tags,
               price: item.price,
-              inventory: 100,
-            }],
-            factoriesDisplayName: selectedManufacturer || '',
-            factoryId: selectedFactoryId || null,
-            material: item.material || '',
-            dimensionLMm: item.dimensionLMm ?? null,
-            dimensionWMm: item.dimensionWMm ?? null,
-            dimensionHMm: item.dimensionHMm ?? null,
-            costPrice: item.costPrice ?? null,
-            factoryHighlight: selectedFactoryHighlights,
-            titleEn: item.titleEn || undefined,
-            titleZh: item.titleZh || undefined,
-            bwfMasterId: dbResult?.master_id || undefined,
-            deliveryTermId: item.deliveryTermId || null,
-            deliveryTermName: item.deliveryTermName || null,
-            lifestyleImageUrl: item.lifestyleImageUrl || null,
-          };
-          onAddProduct(product);
+              compare_at_price: null,
+              collection: item.collection,
+              status: 'draft',
+              image_url: imageUrl,
+              error_message: null,
+              shopify_product_id: null,
+              sku: `SKU-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
+              created_at: nowIso,
+              source: 'local',
+              synced_at: null,
+              upload_session_id: null,
+              factories_display_name: selectedManufacturer || '',
+              factory_id: selectedFactoryId || '',
+              bwf_master_id: dbResult?.master_id || null,
+              cost_price: item.costPrice ?? null,
+              sale_price: 0,
+              production_date: (item as any).productionLeadTime ?? null,
+              shipping_days: (item as any).shippingDays ?? null,
+              shipping_fee: (item as any).shippingFee ?? null,
+              remarks: (item as any).remarks || '',
+              color: item.color || '',
+              dimension_l_mm: item.dimensionLMm ?? null,
+              dimension_w_mm: item.dimensionWMm ?? null,
+              dimension_h_mm: item.dimensionHMm ?? null,
+              material: item.material || '',
+              category: selectedProductCategory || null,
+              delivery_term_id: item.deliveryTermId || null,
+              delivery_term_name: item.deliveryTermName || null,
+            };
+          });
+
+        if (productRows.length > 0) {
+          const { error: upsertErr } = await supabase
+            .from('products')
+            .upsert(productRows, { onConflict: 'id' });
+          if (upsertErr) {
+            console.error('[PreviewAction:catalog-only] Failed to persist products to DB:', upsertErr.message);
+            throw new Error(`產品目錄儲存失敗：${upsertErr.message}`);
+          }
+          console.log(`[PreviewAction:catalog-only] ✅ ${productRows.length} products persisted to products table only (not added to Shopify queue)`);
         }
+
         toast.success(`✅ ${successCount} 個產品已上傳到產品目錄`, {
           description: failCount > 0 ? `⚠️ ${failCount} 個產品儲存失敗，仍保留在列表中` : undefined,
         });
