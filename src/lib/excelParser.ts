@@ -2422,7 +2422,11 @@ export async function extractRawExcelTable(
       }
     }
 
-    const sheetHeaderRowIndex = bestRowIdx;
+    // Honor factory rule's forceHeaderRowIndex (e.g. CYJ has header at row 4 but
+    // smart detection may pick row 0 because the title row "佛山市优健家具報價單"
+    // has more text). Without this override, downstream logic uses the wrong
+    // header labels and misclassifies columns.
+    const sheetHeaderRowIndex = rule.forceHeaderRowIndex !== undefined ? rule.forceHeaderRowIndex : bestRowIdx;
     const sheetHeaderLabels = (jsonData[sheetHeaderRowIndex] || []).map((h: any) => String(h ?? '').trim());
     const sheetColumnCount = Math.max(...jsonData.slice(0, 20).map(r => (r || []).length), sheetHeaderLabels.length);
 

@@ -176,7 +176,12 @@ interface ExcelPreviewTableProps {
  * was already mapped to 'dimensions'.
  * Returns the 0-based column index, or -1 if none qualifies.
  */
-function detectDimensionsColumnFromData(rows: RawExtractedRow[], columnCount: number, mapping: ColumnMappingState): number {
+function detectDimensionsColumnFromData(
+  rows: RawExtractedRow[],
+  columnCount: number,
+  mapping: ColumnMappingState,
+  headers?: string[],
+): number {
   // Skip if a dimensions/dim_* mapping already exists
   for (const v of Object.values(mapping)) {
     if (v === 'dimensions' || v === 'dim_length' || v === 'dim_width' || v === 'dim_height' ||
@@ -184,11 +189,16 @@ function detectDimensionsColumnFromData(rows: RawExtractedRow[], columnCount: nu
       return -1;
     }
   }
+  // Headers that LOOK like dimensions (numbers × numbers in cells) but are NOT product dimensions:
+  // 包装规格/包裝規格 = packaging spec; 净重 = net weight; 毛重 = gross weight; etc.
+  const EXCLUDE_HEADER_RE = /包[装裝]|包裝規格|净重|淨重|毛重|重量|箱規|箱规|carton|packaging|gross\s*weight|net\s*weight/i;
   const DIM_RE = /\d{2,4}\s*[*×xX/]\s*\d{2,4}(?:\s*[*×xX/]\s*\d{2,4})?/;
   let bestCol = -1;
   let bestRatio = 0;
   for (let c = 0; c < columnCount; c++) {
     if (mapping[c] && mapping[c] !== 'skip') continue;
+    const headerText = headers?.[c]?.trim() || '';
+    if (headerText && EXCLUDE_HEADER_RE.test(headerText)) continue;
     let nonEmpty = 0;
     let dimMatches = 0;
     for (const row of rows) {
@@ -242,9 +252,17 @@ function autoDetectMappings(headers: string[], rows?: RawExtractedRow[], columnC
 
   const usedFields = new Set<StandardHeaderValue>();
 
+  // Headers we explicitly never auto-map (packaging/weight columns can otherwise
+  // match 規格/重量 patterns and be misclassified as dimensions or remarks).
+  const ALWAYS_SKIP_RE = /包[装裝]|carton|gross\s*weight|net\s*weight/i;
+
   for (let i = 0; i < headers.length; i++) {
     const headerText = (headers[i] || '').trim();
     if (!headerText) {
+      mapping[i] = 'skip';
+      continue;
+    }
+    if (ALWAYS_SKIP_RE.test(headerText)) {
       mapping[i] = 'skip';
       continue;
     }
@@ -270,7 +288,7 @@ function autoDetectMappings(headers: string[], rows?: RawExtractedRow[], columnC
   // Without this, the 3-column split (長/闊/高) won't trigger when headers
   // are missing or non-standard.
   if (rows && columnCount && !Object.values(mapping).includes('dimensions')) {
-    const dimCol = detectDimensionsColumnFromData(rows, columnCount, mapping);
+    const dimCol = detectDimensionsColumnFromData(rows, columnCount, mapping, headers);
     if (dimCol >= 0) {
       mapping[dimCol] = 'dimensions';
     }
@@ -686,7 +704,7 @@ export function ExcelPreviewTable({
           if (!hasDimMapping) {
             const sd = sheetDataList.find(s => s.sheetName === sheetName);
             if (sd) {
-              const dimCol = detectDimensionsColumnFromData(sd.rows, sd.columnCount, cleanMapping);
+              const dimCol = detectDimensionsColumnFromData(sd.rows, sd.columnCount, cleanMapping, sd.headerLabels);
               if (dimCol >= 0) cleanMapping[dimCol] = 'dimensions';
             }
           }
