@@ -769,9 +769,12 @@ export function useAppStore() {
 
   const selectAllProducts = useCallback((ids: string[]) => {
     setSelectedProductIds(prev => {
+      if (ids.length === 0) return prev; // no-op if nothing to select
       const allSelected = ids.every(id => prev.has(id));
       if (allSelected) {
-        return new Set();
+        // Deselect all — only create new Set if prev wasn't already empty
+        if (prev.size === 0) return prev;
+        return new Set<string>();
       }
       return new Set(ids);
     });

@@ -19,6 +19,9 @@ interface PublishModalProps {
 }
 
 export function PublishModal({ open, onClose, onConfirm, products }: PublishModalProps) {
+  // Only compute payload when modal is open to avoid expensive JSON.stringify + regex on every parent render
+  if (!open) return null;
+
   const newProducts = products;
 
   const payload = newProducts.map(p => ({

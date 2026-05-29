@@ -531,7 +531,7 @@ interface ProductTableViewProps {
 
 type TableTab = 'local' | 'shopify' | 'all';
 
-export function ProductTableView({
+export const ProductTableView = memo(function ProductTableView({
   products,
   selectedIds,
   filterProductId,
@@ -570,19 +570,25 @@ export function ProductTableView({
     toast.success(`已成功刪除 ${count} 個產品`);
   }, [selectedIds, onDeleteProduct]);
 
-  const baseProducts = filterProductId
-    ? products.filter(p => p.id === filterProductId)
-    : products;
+  const baseProducts = useMemo(() =>
+    filterProductId
+      ? products.filter(p => p.id === filterProductId)
+      : products,
+    [products, filterProductId]
+  );
 
   // Separate local AI drafts from synced Shopify products
-  const localProducts = baseProducts.filter(p => p.source === 'local' || !p.source);
-  const shopifyProducts = baseProducts.filter(p => p.source === 'shopify');
+  const localProducts = useMemo(() => baseProducts.filter(p => p.source === 'local' || !p.source), [baseProducts]);
+  const shopifyProducts = useMemo(() => baseProducts.filter(p => p.source === 'shopify'), [baseProducts]);
   
-  const filteredProducts = activeTab === 'all'
-    ? baseProducts
-    : activeTab === 'shopify'
-      ? shopifyProducts
-      : localProducts;
+  const filteredProducts = useMemo(() =>
+    activeTab === 'all'
+      ? baseProducts
+      : activeTab === 'shopify'
+        ? shopifyProducts
+        : localProducts,
+    [activeTab, baseProducts, shopifyProducts, localProducts]
+  );
 
   const allFilteredIds = useMemo(() => filteredProducts.map(p => p.id), [filteredProducts]);
   const allSelected = useMemo(
@@ -1248,7 +1254,7 @@ export function ProductTableView({
       </div>
     </TooltipProvider>
   );
-}
+});
 
 function VariantRow({
   variant,

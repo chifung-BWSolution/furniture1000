@@ -1,4 +1,4 @@
-import { useState, useCallback, lazy, Suspense } from "react";
+import { useState, useCallback, useMemo, lazy, Suspense } from "react";
 import { useAppStore } from "@/hooks/use-app-store";
 import { SidebarNav } from "./SidebarNav";
 import { TopBar } from "./TopBar";
@@ -60,8 +60,9 @@ export function AppShell() {
   const [showPublishModal, setShowPublishModal] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [editingQuoteId, setEditingQuoteId] = useState<string | null>(null);
-  const selectedProducts = store.products.filter((p) =>
-    store.selectedProductIds.has(p.id),
+  const selectedProducts = useMemo(() =>
+    store.products.filter((p) => store.selectedProductIds.has(p.id)),
+    [store.products, store.selectedProductIds]
   );
 
   const handleBulkPublish = useCallback(() => {
@@ -69,6 +70,11 @@ export function AppShell() {
       setShowPublishModal(true);
     }
   }, [store.selectedProductIds]);
+
+  const handleClearFilter = useCallback(() => {
+    store.setFilterProductId(null);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleConfirmPublish = useCallback(() => {
     store.publishSelected();
@@ -111,7 +117,7 @@ export function AppShell() {
             onUpdateProduct={store.updateProduct}
             onRetryPublish={store.retryPublish}
             onDeleteProduct={store.deleteProduct}
-            onClearFilter={() => store.setFilterProductId(null)}
+            onClearFilter={handleClearFilter}
             onSyncFromShopify={store.syncFromShopify}
             onUploadUnsyncedToMaster={store.uploadUnsyncedToMaster}
             isSyncing={store.isSyncing}
