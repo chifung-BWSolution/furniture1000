@@ -643,8 +643,7 @@ export function ExcelPreviewTable({
   const [multiSheetSelections, setMultiSheetSelections] = useState<Record<string, Set<number>>>(() => {
     const selections: Record<string, Set<number>> = {};
     for (const sd of sheetDataList) {
-      const productRows = sd.rows.filter(r => r.isProductRow);
-      selections[sd.sheetName] = new Set(productRows.map(r => r.rowIndex));
+      selections[sd.sheetName] = new Set<number>();
     }
     return selections;
   });
