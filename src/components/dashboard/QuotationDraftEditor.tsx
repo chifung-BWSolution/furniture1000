@@ -1,0 +1,1681 @@
+import { useState, useEffect, useCallback, lazy, Suspense, useRef } from "react";
+import {
+  ChevronLeft,
+  Plus,
+  Trash2,
+  Save,
+  ShieldCheck,
+  ImagePlus,
+  Eye,
+  Pencil,
+  Check,
+  Loader2,
+  Upload,
+  X,
+} from "lucide-react";
+import { TermsRichEditor } from "@/components/dashboard/TermsRichEditor";
+import { supabase } from "@/lib/supabase";
+import { toast } from "sonner";
+import { SubmitReviewModal } from "@/components/dashboard/SubmitReviewModal";
+import { ProductSelectorModal } from "@/components/dashboard/ProductSelectorModal";
+import type { QuotationPDFData } from "@/types/quotation-pdf";
+import {
+  saveDraft,
+  loadDraft,
+  deleteDraft,
+  type DraftData,
+} from "@/lib/draftStore";
+
+const LazyQuotationPDFPreviewModal = lazy(() =>
+  import("@/components/dashboard/QuotationPDFPreview").then((mod) => ({
+    default: mod.QuotationPDFPreviewModal,
+  })),
+);
+
+interface QuoteFormData {
+  company: string;
+  projectManager: string;
+  projectName: string;
+  clientName: string;
+  clientPhone: string;
+  clientEmail: string;
+  clientIndustry: string[];
+  quotationType: string[];
+  serviceScope: string[];
+  officeArea: string;
+  headcount: string;
+  budgetMin: string;
+  budgetMax: string;
+  workPeriod: string;
+  validityDays: string;
+  remarks: string;
+}
+
+interface QuotationItem {
+  id: string;
+  image: string;
+  referenceImage?: string;
+  name: string;
+  costPrice?: number | null;
+  unitPrice: number;
+  quantity: number;
+  category?: string;
+  material?: string;
+  color?: string;
+  remarks?: string;
+  remarksImage?: string;
+  dimensionLMm?: number | null;
+  dimensionWMm?: number | null;
+  dimensionHMm?: number | null;
+  deliveryTermName?: string;
+}
+
+interface QuotationDraftEditorProps {
+  formData: QuoteFormData;
+  onBack: () => void;
+  existingQuote?: {
+    quoteId: string;
+    version: string;
+    status: string;
+    totalAmount: number;
+    submitter: string;
+    projectData: Record<string, unknown>;
+  };
+}
+
+const generateId = () => Math.random().toString(36).substring(2, 12);
+
+// Helper: Convert file to base64 data URL
+const fileToDataUrl = (file: File): Promise<string> =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+
+// Sub-component: Reference Image Cell (paste or upload)
+function ReferenceImageCell({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (url: string) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const handlePaste = async (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of Array.from(items)) {
+      if (item.type.startsWith("image/")) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (file) {
+          const dataUrl = await fileToDataUrl(file);
+          onChange(dataUrl);
+        }
+        return;
+      }
+    }
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const dataUrl = await fileToDataUrl(file);
+      onChange(dataUrl);
+    }
+    e.target.value = "";
+  };
+
+  return (
+    <div
+      className="relative flex h-12 w-12 aspect-square items-center justify-center rounded-md border border-dashed border-border bg-muted/30 overflow-hidden cursor-pointer group"
+      onPaste={handlePaste}
+      tabIndex={0}
+      onClick={() => !value && inputRef.current?.click()}
+      title="點擊上傳或粘貼圖片"
+    >
+      {value ? (
+        <>
+          <img src={value} alt="" className="h-full w-full object-cover" />
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onChange("");
+            }}
+            className="absolute -top-1 -right-1 hidden group-hover:flex h-4 w-4 items-center justify-center rounded-full bg-rose-500 text-white shadow"
+          >
+            <X className="h-2.5 w-2.5" />
+          </button>
+        </>
+      ) : (
+        <ImagePlus className="h-4 w-4 text-muted-foreground/40" />
+      )}
+      <input
+        ref={inputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleFileChange}
+      />
+    </div>
+  );
+}
+
+// Sub-component: Remarks Cell (text + image support)
+function RemarksCell({
+  text,
+  image,
+  onTextChange,
+  onImageChange,
+}: {
+  text: string;
+  image: string;
+  onTextChange: (val: string) => void;
+  onImageChange: (url: string) => void;
+}) {
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  const handlePaste = async (e: React.ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of Array.from(items)) {
+      if (item.type.startsWith("image/")) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (file) {
+          const dataUrl = await fileToDataUrl(file);
+          onImageChange(dataUrl);
+        }
+        return;
+      }
+    }
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const dataUrl = await fileToDataUrl(file);
+      onImageChange(dataUrl);
+    }
+    e.target.value = "";
+  };
+
+  return (
+    <div className="flex flex-col gap-1 min-w-[100px]">
+      <div className="flex items-center gap-1">
+        <input
+          type="text"
+          value={text}
+          placeholder="備註..."
+          onChange={(e) => onTextChange(e.target.value)}
+          onPaste={handlePaste}
+          className="flex-1 rounded-md border border-border bg-background px-2 py-1 font-body text-[10px] text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+        />
+        <button
+          type="button"
+          onClick={() => fileRef.current?.click()}
+          className="rounded p-1 text-muted-foreground/50 transition-colors hover:bg-primary/10 hover:text-primary"
+          title="上傳圖片"
+        >
+          <Upload className="h-3 w-3" />
+        </button>
+      </div>
+      {image && (
+        <div className="relative group w-10 h-10">
+          <img
+            src={image}
+            alt=""
+            className="h-10 w-10 rounded border border-border object-cover"
+          />
+          <button
+            type="button"
+            onClick={() => onImageChange("")}
+            className="absolute -top-1 -right-1 hidden group-hover:flex h-4 w-4 items-center justify-center rounded-full bg-rose-500 text-white shadow"
+          >
+            <X className="h-2.5 w-2.5" />
+          </button>
+        </div>
+      )}
+      <input
+        ref={fileRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={handleFileChange}
+      />
+    </div>
+  );
+}
+
+const DEFAULT_ITEMS: QuotationItem[] = [
+  {
+    id: generateId(),
+    image: "",
+    name: "",
+    costPrice: null,
+    unitPrice: 0,
+    quantity: 1,
+  },
+  {
+    id: generateId(),
+    image: "",
+    name: "",
+    costPrice: null,
+    unitPrice: 0,
+    quantity: 1,
+  },
+  {
+    id: generateId(),
+    image: "",
+    name: "",
+    costPrice: null,
+    unitPrice: 0,
+    quantity: 1,
+  },
+  {
+    id: generateId(),
+    image: "",
+    name: "",
+    costPrice: null,
+    unitPrice: 0,
+    quantity: 1,
+  },
+];
+
+export function QuotationDraftEditor({
+  formData,
+  onBack,
+  existingQuote,
+}: QuotationDraftEditorProps) {
+  // Determine initial values from existingQuote or defaults
+  const savedProjectData = existingQuote?.projectData || {};
+  const savedCompanyInfo = savedProjectData.companyInfo as
+    | {
+        name?: string;
+        address?: string;
+        phone?: string;
+        email?: string;
+        website?: string;
+      }
+    | undefined;
+  const savedClientInfo = savedProjectData.clientInfo as
+    | { name?: string; phone?: string; email?: string }
+    | undefined;
+  const savedQuoteMeta = savedProjectData.quoteMeta as
+    | {
+        projectName?: string;
+        pmName?: string;
+        validity?: string;
+        deliveryAddress?: string;
+      }
+    | undefined;
+  const savedDeliveryDetails = savedProjectData.deliveryDetails as
+    | string
+    | undefined;
+  const savedItems = savedProjectData.items as
+    | Array<{
+        image: string;
+        name: string;
+        costPrice?: number | null;
+        unitPrice: number;
+        quantity: number;
+        category?: string;
+        material?: string;
+        color?: string;
+        remarks?: string;
+        remarksImage?: string;
+        referenceImage?: string;
+        dimensionLMm?: number | null;
+        dimensionWMm?: number | null;
+        dimensionHMm?: number | null;
+        deliveryTermName?: string;
+      }>
+    | undefined;
+  const savedTermsContent = savedProjectData.termsContent as
+    | {
+        transport: string;
+        extraFees: string;
+        warranty: string;
+        other: string;
+        payment: string;
+        fullHtml?: string;
+      }
+    | undefined;
+
+  // Company info (editable)
+  const [companyInfo, setCompanyInfo] = useState({
+    name: savedCompanyInfo?.name || "Branding Works Design Ltd",
+    address:
+      savedCompanyInfo?.address ||
+      "香港荃灣青山公路459-469號華力工業中心5字樓D-G室",
+    phone: savedCompanyInfo?.phone || "51634839/ 97173545",
+    email: savedCompanyInfo?.email || "sales@brandingworks-furniture.com",
+    website: savedCompanyInfo?.website || "www.brandingworks-furniture.com",
+  });
+
+  // Client info (editable, prefilled from steps or saved)
+  const [clientInfo, setClientInfo] = useState({
+    name: savedClientInfo?.name || formData.clientName,
+    phone: savedClientInfo?.phone || formData.clientPhone,
+    email: savedClientInfo?.email || formData.clientEmail,
+  });
+
+  // Quote meta (editable)
+  const [quoteMeta, setQuoteMeta] = useState({
+    projectName: savedQuoteMeta?.projectName || formData.projectName,
+    pmName: savedQuoteMeta?.pmName || formData.projectManager,
+    validity: savedQuoteMeta?.validity || formData.validityDays || "30",
+    deliveryAddress: savedQuoteMeta?.deliveryAddress || "",
+  });
+
+  // Delivery details (editable)
+  const [deliveryDetails, setDeliveryDetails] = useState(
+    savedDeliveryDetails ||
+      "訂單生產時間自收到訂金起計算，預計3-4 週完成。交付及安裝將分兩日進行：交付後1-2 個工作日內完成安裝。",
+  );
+
+  // Discount / promo note below subtotal
+  const [discountNote, setDiscountNote] = useState("");
+
+  // Terms content (editable)
+  const DEFAULT_TERMS = {
+    transport: `3.1 本報價包含於單一地址的一次性運輸及安裝費用。
+3.2 交付暫不涵蓋大嶼山、長洲、坪洲、南丫島及其他離島地區，包括禁區、5.5噸貨車無法進入路段、展覽場地、倉庫、酒店、裝修單位、船屋、地盤或貨櫃碼頭。若需特殊運送（如經露台懸掛），客戶須自行安排或者另行收費。
+3.3 送貨及安裝的標準時間：星期一至六，09:00-18:00（公眾假期除外）。超出時間須另行收費。
+3.4 遇惡劣天氣 、洪水或道路封閉，交付可能延遲。本公司將於24 小時內聯絡，並於7 天內補送。
+3.5 送貨及安裝期間，現場須安全、清潔且無阻礙，否則本公司保留拒絕權利。
+3.6 安裝不包括電工服務（如電插座安裝）、吊櫃上牆和收口服務，建議聘請合格技工。
+3.7 運輸過程若需要叩關，因叩關過程導致的送貨及安裝延誤，本公司不負任何責任。並可重新安排送貨時間。`,
+    extraFees: `4.1 卸貨區高度須達3.3 米，否則街上卸貨每件加收HKD 200。
+4.2 更改交付日期須於3 天前電郵通知，否則收取HKD 500 行政費。本公司提供首5 天免費儲存，逾期每日每立方米收取HKD80。
+4.3 若交付當日無人接收，須重新安排並收取額外交付費。
+4.4 清拆舊家具不包括在內，須另行報價。
+4.5 樓梯搬運每層每立方米收取HKD 100（限8 層）。
+4.6 交付限 100 米範圍，超出每100 米加收HKD 500。`,
+    warranty: `5.1 保養期為 1 年，自交付日起計算。不適用於不當使用、意外損壞或正常磨損。超過保養期后，進行維修，只收取材料及運輸安裝費用。
+5.2 如貨品有任何損壞或問題，客戶須於產品交付後7天内通知本公司。如貨品有任何損壞或問題而客人不接受時，上限只賠償為貨價10%。
+5.3 瑕疵評估以 1000mm 距離觀察為準，輕微差異（如顏色或收邊）不在範圍。`,
+    other: `6.1 產品貨款未全部付清之前，產品歸屬權為本公司。
+6.2 若需家具安裝固定上墻，需要保證所安裝墻體具有足夠的受力，且必須安裝墻體背板用作安裝上墻的結構件。
+6.3 產品顏色及花紋可能有輕微差異（因顯示器或批次），屬正常，不接受退換。
+6.4 本報價以發票內容為準，圖片及樣本僅供參考。任何更改須以書面通知，本公司不接受口頭承諾。
+6.5 所有規格經確認無誤。本合同經雙方簽署及蓋印後生效。
+6.6 如合約產生任何爭議，雙方無法達成共識，爭議無法解決，將提交香港國際仲裁中心仲裁。
+6.7 本報價有效期為30 天。
+6.8 責任限制：本公司對間接損失（如延誤造成的商業損失）不承擔責任。最高賠償限於訂單總額。
+6.9 不可抗力：如疫情、自然災害等不可控事件，本公司免除相關責任，但將盡力通知並減輕影響。`,
+    payment: `付款條款: 須支付70%訂金於生產前，餘下30%於交付前支付。若未支付餘款，本公司將不安排交付或安裝。
+
+銀行賬戶資料:
+戶口名稱: Branding Works Design Ltd
+銀行名稱: 香港上海匯豐銀行
+戶口號碼: 747-058683-001
+
+若以支票轉賬/信用卡付款，貨期以實際款項到賬日期爲準。`,
+  };
+
+  const buildDefaultFullHtml = (t: typeof DEFAULT_TERMS) =>
+    [
+      `<h3>1&nbsp;&nbsp;付款資料</h3>`,
+      t.payment
+        .split("\n")
+        .map((l) => (l.trim() ? `<p>${l}</p>` : "<p></p>"))
+        .join(""),
+      `<h3>2&nbsp;&nbsp;運輸及安裝條款</h3>`,
+      t.transport
+        .split("\n")
+        .map((l) => (l.trim() ? `<p>${l}</p>` : "<p></p>"))
+        .join(""),
+      `<h3>3&nbsp;&nbsp;額外費用</h3>`,
+      t.extraFees
+        .split("\n")
+        .map((l) => (l.trim() ? `<p>${l}</p>` : "<p></p>"))
+        .join(""),
+      `<h3>4&nbsp;&nbsp;保養及維修</h3>`,
+      t.warranty
+        .split("\n")
+        .map((l) => (l.trim() ? `<p>${l}</p>` : "<p></p>"))
+        .join(""),
+      `<h3>5&nbsp;&nbsp;其他</h3>`,
+      t.other
+        .split("\n")
+        .map((l) => (l.trim() ? `<p>${l}</p>` : "<p></p>"))
+        .join(""),
+    ].join("");
+
+  const [termsContent, setTermsContent] = useState({
+    transport: savedTermsContent?.transport || DEFAULT_TERMS.transport,
+    extraFees: savedTermsContent?.extraFees || DEFAULT_TERMS.extraFees,
+    warranty: savedTermsContent?.warranty || DEFAULT_TERMS.warranty,
+    other: savedTermsContent?.other || DEFAULT_TERMS.other,
+    payment: savedTermsContent?.payment || DEFAULT_TERMS.payment,
+    fullHtml:
+      savedTermsContent?.fullHtml || buildDefaultFullHtml(DEFAULT_TERMS),
+  });
+  const [termsEditMode, setTermsEditMode] = useState(false);
+  const [termsSaving, setTermsSaving] = useState(false);
+
+  const saveTermsToDb = async () => {
+    if (!existingQuote?.quoteId) {
+      // Not yet saved to DB — just toggle off edit mode
+      setTermsEditMode(false);
+      return;
+    }
+    setTermsSaving(true);
+    try {
+      const currentProjectData = buildProjectData();
+      const { error } = await supabase
+        .from("bwf_quote")
+        .update({ project_data: currentProjectData })
+        .eq("quote_id", existingQuote.quoteId);
+      if (error) throw error;
+      toast.success("條款已保存");
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "保存失敗";
+      toast.error("保存失敗", { description: msg });
+    } finally {
+      setTermsSaving(false);
+      setTermsEditMode(false);
+    }
+  };
+
+  // Product items table
+  const [items, setItems] = useState<QuotationItem[]>(() => {
+    if (savedItems && savedItems.length > 0) {
+      return savedItems.map((item) => ({
+        id: generateId(),
+        image: item.image || "",
+        name: item.name || "",
+        costPrice: item.costPrice ?? null,
+        unitPrice: item.unitPrice || 0,
+        quantity: item.quantity || 1,
+        category: item.category,
+        material: item.material,
+        color: item.color,
+        remarks: item.remarks,
+        remarksImage: item.remarksImage,
+        referenceImage: item.referenceImage,
+        dimensionLMm: item.dimensionLMm ?? null,
+        dimensionWMm: item.dimensionWMm ?? null,
+        dimensionHMm: item.dimensionHMm ?? null,
+        deliveryTermName: item.deliveryTermName,
+      }));
+    }
+    return DEFAULT_ITEMS;
+  });
+
+  const addItem = () => {
+    setItems((prev) => [
+      ...prev,
+      {
+        id: generateId(),
+        image: "",
+        name: "",
+        costPrice: null,
+        unitPrice: 0,
+        quantity: 1,
+      },
+    ]);
+  };
+
+  const removeItem = (id: string) => {
+    setItems((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  const updateItem = (
+    id: string,
+    field: keyof QuotationItem,
+    value: string | number | null,
+  ) => {
+    setItems((prev) =>
+      prev.map((item) => (item.id === id ? { ...item, [field]: value } : item)),
+    );
+  };
+
+  // Unit price multiplier (cost-based)
+  const [priceMultiplier, setPriceMultiplier] = useState<string>("1");
+
+  const applyPriceMultiplier = () => {
+    const mult = parseFloat(priceMultiplier);
+    if (isNaN(mult) || mult < 0) {
+      toast.error("請輸入有效的倍率數字");
+      return;
+    }
+    setItems((prev) =>
+      prev.map((item) => {
+        if (item.costPrice != null && item.costPrice > 0) {
+          return { ...item, unitPrice: Math.round(item.costPrice * mult) };
+        }
+        return item;
+      }),
+    );
+    toast.success(`已按成本倍率 ×${mult} 更新單價`);
+  };
+
+  const subtotal = items.reduce(
+    (sum, item) => sum + item.unitPrice * item.quantity,
+    0,
+  );
+  const totalCostPrice = items.some((item) => item.costPrice != null)
+    ? items.reduce(
+        (sum, item) => sum + (item.costPrice ?? 0) * item.quantity,
+        0,
+      )
+    : null;
+
+  // Version & submission modal state
+  const [showSubmitModal, setShowSubmitModal] = useState(false);
+  const [currentVersion] = useState(() => {
+    if (existingQuote?.version) {
+      // Increment the minor version: v1.1 -> v1.2, v1.2 -> v1.3
+      const match = existingQuote.version.match(/^v(\d+)\.(\d+)$/);
+      if (match) {
+        const major = parseInt(match[1]);
+        const minor = parseInt(match[2]) + 1;
+        return `v${major}.${minor}`;
+      }
+    }
+    return "v1.1";
+  });
+
+  // Product selector modal state
+  const [showProductSelector, setShowProductSelector] = useState(false);
+  const [activeItemId, setActiveItemId] = useState<string | null>(null);
+
+  // PDF Preview modal state
+  const [showPDFPreview, setShowPDFPreview] = useState(false);
+
+  // Draft save state
+  const [isSavingDraft, setIsSavingDraft] = useState(false);
+  const [draftSavedAt, setDraftSavedAt] = useState<number | null>(null);
+  const [draftLoaded, setDraftLoaded] = useState(false);
+
+  // Derive the draft key: use existing quoteId or "NEW"
+  const draftKey = existingQuote?.quoteId || "NEW";
+
+  // Load draft from IndexedDB on mount (only for NEW quotes without existingQuote)
+  // For existing quotes, QuickQuoteView handles loading the draft before passing projectData.
+  useEffect(() => {
+    if (existingQuote) {
+      // Already hydrated from QuickQuoteView which checks IndexedDB
+      setDraftLoaded(true);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const cached = await loadDraft(draftKey);
+        if (cancelled || !cached) {
+          setDraftLoaded(true);
+          return;
+        }
+        // Hydrate state from the cached draft
+        if (cached.companyInfo) {
+          setCompanyInfo(cached.companyInfo as typeof companyInfo);
+        }
+        if (cached.clientInfo) {
+          setClientInfo(cached.clientInfo as typeof clientInfo);
+        }
+        if (cached.quoteMeta) {
+          setQuoteMeta(cached.quoteMeta as typeof quoteMeta);
+        }
+        if (cached.deliveryDetails) {
+          setDeliveryDetails(cached.deliveryDetails);
+        }
+        if (cached.termsContent) {
+          setTermsContent(cached.termsContent as typeof termsContent);
+        }
+        if (cached.items && cached.items.length > 0) {
+          setItems(
+            cached.items.map((item: Record<string, unknown>) => ({
+              id: generateId(),
+              image: (item.image as string) || "",
+              name: (item.name as string) || "",
+              costPrice: (item.costPrice as number | null) ?? null,
+              unitPrice: (item.unitPrice as number) || 0,
+              quantity: (item.quantity as number) || 1,
+              category: item.category as string | undefined,
+              material: item.material as string | undefined,
+              color: item.color as string | undefined,
+              remarks: item.remarks as string | undefined,
+              remarksImage: item.remarksImage as string | undefined,
+              referenceImage: item.referenceImage as string | undefined,
+              dimensionLMm: (item.dimensionLMm as number | null) ?? null,
+              dimensionWMm: (item.dimensionWMm as number | null) ?? null,
+              dimensionHMm: (item.dimensionHMm as number | null) ?? null,
+              deliveryTermName: item.deliveryTermName as string | undefined,
+            })),
+          );
+        }
+        setDraftSavedAt(cached.updatedAt);
+        toast.info("已從本地草稿恢復", {
+          description: `上次儲存於 ${new Date(cached.updatedAt).toLocaleString("zh-HK")}`,
+        });
+      } catch {
+        // IndexedDB not available or error — silently continue
+      } finally {
+        if (!cancelled) setDraftLoaded(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftKey]);
+
+  // Build draft data for saving
+  const buildDraftData = useCallback(
+    (): DraftData => ({
+      quoteId: draftKey,
+      updatedAt: Date.now(),
+      formData: formData as unknown as Record<string, unknown>,
+      companyInfo: companyInfo as unknown as Record<string, unknown>,
+      clientInfo: clientInfo as unknown as Record<string, unknown>,
+      quoteMeta: quoteMeta as unknown as Record<string, unknown>,
+      deliveryDetails,
+      termsContent: termsContent as unknown as Record<string, unknown>,
+      items: items.map(
+        ({ id, ...rest }) => rest as unknown as Record<string, unknown>,
+      ),
+      subtotal,
+      discountNote,
+    }),
+    [
+      draftKey,
+      formData,
+      companyInfo,
+      clientInfo,
+      quoteMeta,
+      deliveryDetails,
+      termsContent,
+      items,
+      subtotal,
+      discountNote,
+    ],
+  );
+
+  // Save draft handler
+  const handleSaveDraft = useCallback(async () => {
+    setIsSavingDraft(true);
+    try {
+      await saveDraft(buildDraftData());
+      const now = Date.now();
+      setDraftSavedAt(now);
+      toast.success("草稿已儲存到本地", {
+        description: `儲存時間: ${new Date(now).toLocaleString("zh-HK")}`,
+      });
+    } catch (err) {
+      console.warn("Failed to save draft to IndexedDB", err);
+      toast.error("草稿儲存失敗");
+    } finally {
+      setIsSavingDraft(false);
+    }
+  }, [buildDraftData]);
+
+  const handleProductSelected = (
+    products: {
+      image: string;
+      name: string;
+      unitPrice: number;
+      costPrice?: number | null;
+      category?: string;
+      material?: string;
+      color?: string;
+      remarks?: string;
+      dimensionLMm?: number | null;
+      dimensionWMm?: number | null;
+      dimensionHMm?: number | null;
+      deliveryTermName?: string;
+    }[],
+  ) => {
+    if (products.length === 0) {
+      setActiveItemId(null);
+      return;
+    }
+
+    // Always append selected products as new rows (no deduplication)
+    const newRows = products.map((p) => ({
+      id: generateId(),
+      image: p.image,
+      name: p.name,
+      costPrice: p.costPrice ?? null,
+      unitPrice: p.unitPrice || p.costPrice || 0,
+      quantity: 1,
+      category: p.category,
+      material: p.material,
+      color: p.color,
+      remarks: p.remarks,
+      dimensionLMm: p.dimensionLMm,
+      dimensionWMm: p.dimensionWMm,
+      dimensionHMm: p.dimensionHMm,
+      deliveryTermName: p.deliveryTermName,
+    }));
+
+    // Remove empty placeholder rows and append new ones
+    const nonEmptyItems = items.filter((item) => item.name);
+    setItems([...nonEmptyItems, ...newRows]);
+    setActiveItemId(null);
+  };
+
+  const buildProjectData = () => ({
+    formData,
+    companyInfo,
+    clientInfo,
+    quoteMeta,
+    deliveryDetails,
+    termsContent,
+    items: items.map(({ id, ...rest }) => rest),
+    subtotal,
+  });
+
+  const buildPDFData = (): QuotationPDFData => ({
+    companyInfo,
+    clientInfo,
+    quoteMeta: {
+      ...quoteMeta,
+      quoteNumber: existingQuote?.quoteId || "",
+      date: new Date().toLocaleDateString("zh-HK", {
+        year: "numeric",
+        month: "numeric",
+        day: "numeric",
+      }),
+    },
+    deliveryDetails,
+    termsContent,
+    items: items
+      .filter((i) => i.name)
+      .map((item) => ({
+        image: item.image,
+        name: item.name,
+        unitPrice: item.unitPrice,
+        quantity: item.quantity,
+        category: item.category,
+        material: item.material,
+        color: item.color,
+        remarks: item.remarks,
+        dimensionLMm: item.dimensionLMm,
+        dimensionWMm: item.dimensionWMm,
+        dimensionHMm: item.dimensionHMm,
+        deliveryTermName: item.deliveryTermName,
+      })),
+    subtotal,
+    discountNote,
+  });
+
+  return (
+    <>
+      <div className="h-full overflow-y-auto bg-background">
+        {/* Header */}
+        <div className="mx-auto max-w-[1600px]">
+          <div className="mb-6 flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <button
+                type="button"
+                onClick={onBack}
+                className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                title="返回"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              {existingQuote && (
+                <div>
+                  <p className="font-body text-sm text-muted-foreground">
+                    <span className="font-mono-data text-xs tracking-wider text-primary">
+                      {existingQuote.quoteId}
+                    </span>
+                    <span className="mx-2 text-border">·</span>
+                    目前版本{" "}
+                    <span className="font-semibold">
+                      {existingQuote.version}
+                    </span>
+                    <span className="mx-2 text-border">·</span>
+                    送出新版本將為{" "}
+                    <span className="font-semibold text-primary">
+                      {currentVersion}
+                    </span>
+                  </p>
+                </div>
+              )}
+            </div>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => setShowPDFPreview(true)}
+                className="inline-flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-4 py-2 font-body text-sm font-medium text-primary transition-colors hover:bg-primary/10"
+              >
+                <Eye className="h-4 w-4" />
+                預覽 PDF
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveDraft}
+                disabled={isSavingDraft}
+                className={`inline-flex items-center gap-2 rounded-lg border px-4 py-2 font-body text-sm font-medium transition-colors ${
+                  isSavingDraft
+                    ? "border-border text-muted-foreground cursor-not-allowed opacity-60"
+                    : draftSavedAt
+                      ? "border-emerald-500/30 bg-emerald-500/5 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10"
+                      : "border-border text-foreground hover:bg-accent"
+                }`}
+              >
+                {isSavingDraft ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : draftSavedAt ? (
+                  <Check className="h-4 w-4" />
+                ) : (
+                  <Save className="h-4 w-4" />
+                )}
+                {isSavingDraft
+                  ? "儲存中..."
+                  : draftSavedAt
+                    ? "已儲存"
+                    : "儲存草稿"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowSubmitModal(true)}
+                className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 font-body text-sm font-semibold text-primary-foreground shadow-md shadow-primary/20 transition-all hover:bg-primary/90 active:scale-[0.98]"
+              >
+                <ShieldCheck className="h-4 w-4" />
+                版本審核
+              </button>
+            </div>
+          </div>
+
+          {/* 3-Column Grid */}
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
+            {/* LEFT COLUMN */}
+            <div className="space-y-5 lg:col-span-3">
+              {/* 公司資訊 */}
+              <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
+                <h2 className="mb-4 font-display text-sm font-bold text-foreground/80">
+                  公司資訊
+                </h2>
+                <div className="space-y-3">
+                  <div>
+                    <label className="mb-1 block font-body text-xs text-muted-foreground">
+                      公司名稱
+                    </label>
+                    <div className="rounded-md border border-border/50 bg-muted/30 px-3 py-2 font-mono-data text-xs text-foreground/80">
+                      {companyInfo.name}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="mb-1 block font-body text-xs text-muted-foreground">
+                      地址
+                    </label>
+                    <textarea
+                      value={companyInfo.address}
+                      onChange={(e) =>
+                        setCompanyInfo((p) => ({
+                          ...p,
+                          address: e.target.value,
+                        }))
+                      }
+                      rows={2}
+                      className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block font-body text-xs text-muted-foreground">
+                      電話
+                    </label>
+                    <input
+                      type="text"
+                      value={companyInfo.phone}
+                      onChange={(e) =>
+                        setCompanyInfo((p) => ({ ...p, phone: e.target.value }))
+                      }
+                      className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block font-body text-xs text-muted-foreground">
+                      電郵
+                    </label>
+                    <input
+                      type="email"
+                      value={companyInfo.email}
+                      onChange={(e) =>
+                        setCompanyInfo((p) => ({ ...p, email: e.target.value }))
+                      }
+                      className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block font-body text-xs text-muted-foreground">
+                      網站
+                    </label>
+                    <input
+                      type="text"
+                      value={companyInfo.website}
+                      onChange={(e) =>
+                        setCompanyInfo((p) => ({
+                          ...p,
+                          website: e.target.value,
+                        }))
+                      }
+                      className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                    />
+                  </div>
+                </div>
+              </section>
+
+              {/* 2. 專案分類 (Read-only from Steps) */}
+              <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
+                <h2 className="mb-4 font-display text-sm font-bold text-foreground/80">
+                  專案分類
+                </h2>
+                <div className="space-y-3">
+                  <div>
+                    <label className="mb-1.5 block font-body text-xs text-muted-foreground">
+                      客戶產業
+                    </label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {formData.clientIndustry.map((tag) => (
+                        <span
+                          key={tag}
+                          className="inline-flex rounded-full bg-primary/10 px-2.5 py-0.5 font-body text-[10px] font-medium text-primary"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                      {formData.clientIndustry.length === 0 && (
+                        <span className="font-body text-xs text-muted-foreground/60">
+                          —
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block font-body text-xs text-muted-foreground">
+                      報價類型
+                    </label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {formData.quotationType.map((tag) => (
+                        <span
+                          key={tag}
+                          className="inline-flex rounded-full bg-orange-500/10 px-2.5 py-0.5 font-body text-[10px] font-medium text-orange-600 dark:text-orange-400"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                      {formData.quotationType.length === 0 && (
+                        <span className="font-body text-xs text-muted-foreground/60">
+                          —
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="mb-1.5 block font-body text-xs text-muted-foreground">
+                      服務範圍
+                    </label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {formData.serviceScope.map((tag) => (
+                        <span
+                          key={tag}
+                          className="inline-flex rounded-full bg-emerald-500/10 px-2.5 py-0.5 font-body text-[10px] font-medium text-emerald-600 dark:text-emerald-400"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                      {formData.serviceScope.length === 0 && (
+                        <span className="font-body text-xs text-muted-foreground/60">
+                          —
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <p className="mt-3 font-body text-[10px] text-muted-foreground/60">
+                  * 如需修改，請點擊「基本資訊」回到編輯頁
+                </p>
+              </section>
+
+              {/* 客戶資訊 */}
+              <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
+                <h2 className="mb-4 font-display text-sm font-bold text-foreground/80">
+                  客戶資訊
+                </h2>
+                <div className="space-y-3">
+                  <div>
+                    <label className="mb-1 block font-body text-xs text-muted-foreground">
+                      姓名
+                    </label>
+                    <input
+                      type="text"
+                      value={clientInfo.name}
+                      onChange={(e) =>
+                        setClientInfo((p) => ({ ...p, name: e.target.value }))
+                      }
+                      className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block font-body text-xs text-muted-foreground">
+                      電話
+                    </label>
+                    <input
+                      type="text"
+                      value={clientInfo.phone}
+                      onChange={(e) =>
+                        setClientInfo((p) => ({ ...p, phone: e.target.value }))
+                      }
+                      className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block font-body text-xs text-muted-foreground">
+                      電郵
+                    </label>
+                    <input
+                      type="email"
+                      value={clientInfo.email}
+                      onChange={(e) =>
+                        setClientInfo((p) => ({ ...p, email: e.target.value }))
+                      }
+                      className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                    />
+                  </div>
+                </div>
+              </section>
+
+              {/* 報價資訊 */}
+              <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
+                <h2 className="mb-4 font-display text-sm font-bold text-foreground/80">
+                  報價資訊
+                </h2>
+                <div className="space-y-3">
+                  <div>
+                    <label className="mb-1 block font-body text-xs text-muted-foreground">
+                      專案名稱
+                    </label>
+                    <input
+                      type="text"
+                      value={quoteMeta.projectName}
+                      onChange={(e) =>
+                        setQuoteMeta((p) => ({
+                          ...p,
+                          projectName: e.target.value,
+                        }))
+                      }
+                      className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block font-body text-xs text-muted-foreground">
+                      負責人
+                    </label>
+                    <input
+                      type="text"
+                      value={quoteMeta.pmName}
+                      onChange={(e) =>
+                        setQuoteMeta((p) => ({ ...p, pmName: e.target.value }))
+                      }
+                      className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block font-body text-xs text-muted-foreground">
+                      報價有效期 (天)
+                    </label>
+                    <input
+                      type="number"
+                      value={quoteMeta.validity}
+                      onChange={(e) =>
+                        setQuoteMeta((p) => ({
+                          ...p,
+                          validity: e.target.value,
+                        }))
+                      }
+                      className="w-full rounded-md border border-border bg-background px-3 py-2 font-mono-data text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block font-body text-xs text-muted-foreground">
+                      送貨地址
+                    </label>
+                    <textarea
+                      value={quoteMeta.deliveryAddress}
+                      onChange={(e) =>
+                        setQuoteMeta((p) => ({
+                          ...p,
+                          deliveryAddress: e.target.value,
+                        }))
+                      }
+                      placeholder="請輸入送貨地址"
+                      rows={3}
+                      className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                    />
+                  </div>
+                </div>
+              </section>
+
+            </div>
+
+            {/* CENTER COLUMN */}
+            <div className="space-y-5 lg:col-span-9">
+              {/* 報價內容表格 */}
+              <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
+                <div className="mb-4 flex items-center justify-between">
+                  <h2 className="font-display text-sm font-bold text-foreground/80">
+                    報價內容
+                  </h2>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setActiveItemId(null);
+                      setShowProductSelector(true);
+                    }}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-primary/40 px-3 py-1.5 font-body text-xs font-medium text-primary transition-colors hover:bg-primary/5"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                    新增產品
+                  </button>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="border-b border-border">
+                        <th className="pb-2 pr-2 font-body text-[10px] font-medium text-muted-foreground" style={{ minWidth: "50px" }}>
+                          圖片
+                        </th>
+                        <th className="pb-2 pr-2 font-body text-[10px] font-medium text-muted-foreground" style={{ minWidth: "60px" }}>
+                          參考圖
+                        </th>
+                        <th className="pb-2 pr-2 font-body text-[10px] font-medium text-muted-foreground" style={{ minWidth: "60px" }}>
+                          類別
+                        </th>
+                        <th className="pb-2 pr-2 font-body text-[10px] font-medium text-muted-foreground" style={{ minWidth: "140px" }}>
+                          產品名稱
+                        </th>
+                        <th className="pb-2 pr-2 font-body text-[10px] font-medium text-muted-foreground" style={{ minWidth: "120px" }}>
+                          尺寸(mm)
+                        </th>
+                        <th className="pb-2 pr-2 font-body text-[10px] font-medium text-muted-foreground" style={{ minWidth: "80px" }}>
+                          成本價
+                        </th>
+                        <th className="pb-2 pr-2 font-body text-[10px] font-medium text-muted-foreground" style={{ minWidth: "80px" }}>
+                          單價
+                        </th>
+                        <th className="pb-2 pr-2 font-body text-[10px] font-medium text-muted-foreground" style={{ minWidth: "60px" }}>
+                          數量
+                        </th>
+                        <th className="pb-2 pr-2 font-body text-[10px] font-medium text-muted-foreground" style={{ minWidth: "80px" }}>
+                          貨期
+                        </th>
+                        <th className="pb-2 pr-2 font-body text-[10px] font-medium text-muted-foreground" style={{ minWidth: "120px" }}>
+                          備註
+                        </th>
+                        <th className="pb-2 pr-2 font-body text-[10px] font-medium text-muted-foreground" style={{ minWidth: "70px" }}>
+                          小計
+                        </th>
+                        <th className="pb-2 font-body text-[10px] font-medium text-muted-foreground"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {items.map((item) => (
+                        <tr
+                          key={item.id}
+                          className="border-b border-border/50 last:border-b-0"
+                        >
+                          {/* 圖片 (Product Image) - editable */}
+                          <td className="py-2 pr-2">
+                            <ReferenceImageCell
+                              value={item.image || ""}
+                              onChange={(url) => updateItem(item.id, "image", url)}
+                            />
+                          </td>
+                          {/* 參考圖 (Reference Image) */}
+                          <td className="py-2 pr-2">
+                            <ReferenceImageCell
+                              value={item.referenceImage || ""}
+                              onChange={(url) => updateItem(item.id, "referenceImage", url)}
+                            />
+                          </td>
+                          {/* 類別 (Category) */}
+                          <td className="py-2 pr-2">
+                            <input
+                              type="text"
+                              value={item.category || ""}
+                              placeholder="—"
+                              onChange={(e) =>
+                                updateItem(item.id, "category", e.target.value)
+                              }
+                              className="w-full min-w-[50px] rounded-md border border-border bg-background px-2 py-1.5 font-body text-[10px] text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                            />
+                          </td>
+                          {/* 產品名稱 */}
+                          <td className="py-2 pr-2">
+                            <input
+                              type="text"
+                              value={item.name || ""}
+                              placeholder="未選擇產品"
+                              onChange={(e) =>
+                                updateItem(item.id, "name", e.target.value)
+                              }
+                              className="w-full min-w-[120px] rounded-md border border-border bg-background px-2 py-1.5 font-body text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                            />
+                          </td>
+                          {/* 尺寸 */}
+                          <td className="py-2 pr-2">
+                            <div className="flex items-center gap-0.5">
+                              <input
+                                type="number"
+                                value={item.dimensionLMm ?? ""}
+                                placeholder="L"
+                                onChange={(e) =>
+                                  updateItem(item.id, "dimensionLMm", e.target.value ? parseInt(e.target.value) : null)
+                                }
+                                className="w-10 rounded-md border border-border bg-background px-1 py-1.5 font-mono-data text-[10px] text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                              />
+                              <span className="text-[9px] text-muted-foreground">×</span>
+                              <input
+                                type="number"
+                                value={item.dimensionWMm ?? ""}
+                                placeholder="W"
+                                onChange={(e) =>
+                                  updateItem(item.id, "dimensionWMm", e.target.value ? parseInt(e.target.value) : null)
+                                }
+                                className="w-10 rounded-md border border-border bg-background px-1 py-1.5 font-mono-data text-[10px] text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                              />
+                              <span className="text-[9px] text-muted-foreground">×</span>
+                              <input
+                                type="number"
+                                value={item.dimensionHMm ?? ""}
+                                placeholder="H"
+                                onChange={(e) =>
+                                  updateItem(item.id, "dimensionHMm", e.target.value ? parseInt(e.target.value) : null)
+                                }
+                                className="w-10 rounded-md border border-border bg-background px-1 py-1.5 font-mono-data text-[10px] text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                              />
+                            </div>
+                          </td>
+                          {/* 成本價 */}
+                          <td className="py-2 pr-2">
+                            <input
+                              type="number"
+                              value={item.costPrice ?? ""}
+                              placeholder="—"
+                              onChange={(e) =>
+                                updateItem(
+                                  item.id,
+                                  "costPrice",
+                                  e.target.value ? parseFloat(e.target.value) : null,
+                                )
+                              }
+                              className="w-20 rounded-md border border-border bg-background px-2 py-1.5 font-mono-data text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                            />
+                          </td>
+                          {/* 單價 */}
+                          <td className="py-2 pr-2">
+                            <input
+                              type="number"
+                              value={item.unitPrice || ""}
+                              placeholder="0"
+                              min={0}
+                              onChange={(e) =>
+                                updateItem(
+                                  item.id,
+                                  "unitPrice",
+                                  parseFloat(e.target.value) || 0,
+                                )
+                              }
+                              className="w-20 rounded-md border border-border bg-background px-2 py-1.5 font-mono-data text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                            />
+                          </td>
+                          {/* 數量 */}
+                          <td className="py-2 pr-2">
+                            <input
+                              type="number"
+                              value={item.quantity || ""}
+                              placeholder="1"
+                              min={1}
+                              onChange={(e) =>
+                                updateItem(
+                                  item.id,
+                                  "quantity",
+                                  parseInt(e.target.value) || 1,
+                                )
+                              }
+                              className="w-16 rounded-md border border-border bg-background px-2 py-1.5 font-mono-data text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                            />
+                          </td>
+                          {/* 貨期 */}
+                          <td className="py-2 pr-2">
+                            <input
+                              type="text"
+                              value={item.deliveryTermName || ""}
+                              placeholder="—"
+                              onChange={(e) =>
+                                updateItem(item.id, "deliveryTermName", e.target.value)
+                              }
+                              className="w-20 rounded-md border border-border bg-background px-2 py-1.5 font-body text-[10px] text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                            />
+                          </td>
+                          {/* 備註 (supports text + image) */}
+                          <td className="py-2 pr-2">
+                            <RemarksCell
+                              text={item.remarks || ""}
+                              image={item.remarksImage || ""}
+                              onTextChange={(val) => updateItem(item.id, "remarks", val)}
+                              onImageChange={(url) => updateItem(item.id, "remarksImage", url)}
+                            />
+                          </td>
+                          {/* 小計 */}
+                          <td className="py-2 pr-2">
+                            <span className="font-mono-data text-xs font-medium text-foreground">
+                              $
+                              {(
+                                item.unitPrice * item.quantity
+                              ).toLocaleString()}
+                            </span>
+                          </td>
+                          <td className="py-2">
+                            <button
+                              type="button"
+                              onClick={() => removeItem(item.id)}
+                              className="rounded-md p-1.5 text-muted-foreground/50 transition-colors hover:bg-rose-500/10 hover:text-rose-500"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                {/* Price Multiplier & Subtotal */}
+                <div className="mt-4 flex items-end justify-between border-t border-border pt-3">
+                  {/* 單價規則 - Unit price batch multiplier */}
+                  <div className="flex items-center gap-2">
+                    <span className="font-body text-xs text-primary font-medium">
+                      單價規則：成本倍率
+                    </span>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={priceMultiplier}
+                      onChange={(e) => setPriceMultiplier(e.target.value)}
+                      className="w-16 rounded-md border border-primary/30 bg-background px-2 py-1 font-mono-data text-xs text-foreground text-center focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                    />
+                    <button
+                      type="button"
+                      onClick={applyPriceMultiplier}
+                      className="rounded-md border border-primary/30 bg-primary/5 px-2.5 py-1 font-body text-[10px] font-medium text-primary transition-colors hover:bg-primary/10"
+                    >
+                      套用
+                    </button>
+                  </div>
+                  <div className="flex items-center">
+                    <span className="mr-3 font-body text-xs text-muted-foreground">
+                      合計:
+                    </span>
+                    <span className="font-mono-data text-base font-bold text-foreground">
+                      HKD ${subtotal.toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Discount / promo note */}
+                <div className="mt-3 flex justify-end">
+                  <textarea
+                    value={discountNote}
+                    onChange={(e) => setDiscountNote(e.target.value)}
+                    placeholder="輸入優惠信息（如折扣、贈品等）..."
+                    rows={2}
+                    className="w-72 rounded-md border border-border bg-background px-3 py-2 font-body text-xs leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 resize-y"
+                  />
+                </div>
+              </section>
+
+              {/* 訂單確認及交付細節 */}
+              <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
+                <h2 className="mb-3 font-display text-sm font-bold text-foreground/80">
+                  訂單確認及交付細節
+                </h2>
+                <textarea
+                  value={deliveryDetails}
+                  onChange={(e) => setDeliveryDetails(e.target.value)}
+                  rows={3}
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                />
+              </section>
+
+              {/* 條款及付款 */}
+              <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
+                <div className="mb-4 flex items-center justify-between">
+                  <h2 className="font-display text-sm font-bold text-foreground/80">
+                    條款及付款
+                  </h2>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      termsEditMode ? saveTermsToDb() : setTermsEditMode(true)
+                    }
+                    disabled={termsSaving}
+                    className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-body text-xs font-medium transition-colors ${
+                      termsEditMode
+                        ? "bg-primary/10 text-primary hover:bg-primary/20"
+                        : "border border-border text-foreground/60 hover:bg-accent hover:text-foreground"
+                    } disabled:opacity-60 disabled:cursor-not-allowed`}
+                  >
+                    {termsSaving ? (
+                      <>
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        保存中...
+                      </>
+                    ) : termsEditMode ? (
+                      <>
+                        <Check className="h-3.5 w-3.5" />
+                        完成編輯
+                      </>
+                    ) : (
+                      <>
+                        <Pencil className="h-3.5 w-3.5" />
+                        編輯條款
+                      </>
+                    )}
+                  </button>
+                </div>
+
+                <TermsRichEditor
+                  value={termsContent.fullHtml}
+                  onChange={(html) =>
+                    setTermsContent((prev) => ({ ...prev, fullHtml: html }))
+                  }
+                  editable={termsEditMode}
+                />
+                <div className="hidden space-y-4 font-body text-[11px] leading-relaxed text-foreground/80">
+                  {/* 運輸及安裝條款 (legacy - kept for PDF compat) */}
+                  <div>
+                    <h3 className="mb-2 font-display text-xs font-semibold text-foreground">
+                      運輸及安裝條款
+                    </h3>
+                    {termsEditMode ? (
+                      <textarea
+                        value={termsContent.transport}
+                        onChange={(e) =>
+                          setTermsContent((prev) => ({
+                            ...prev,
+                            transport: e.target.value,
+                          }))
+                        }
+                        rows={8}
+                        className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-[11px] leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 resize-y"
+                      />
+                    ) : (
+                      <div className="space-y-1.5 pl-1 whitespace-pre-line">
+                        {termsContent.transport}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 額外費用 */}
+                  <div>
+                    <h3 className="mb-2 font-display text-xs font-semibold text-foreground">
+                      額外費用
+                    </h3>
+                    {termsEditMode ? (
+                      <textarea
+                        value={termsContent.extraFees}
+                        onChange={(e) =>
+                          setTermsContent((prev) => ({
+                            ...prev,
+                            extraFees: e.target.value,
+                          }))
+                        }
+                        rows={7}
+                        className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-[11px] leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 resize-y"
+                      />
+                    ) : (
+                      <div className="space-y-1.5 pl-1 whitespace-pre-line">
+                        {termsContent.extraFees}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 保養及維修 */}
+                  <div>
+                    <h3 className="mb-2 font-display text-xs font-semibold text-foreground">
+                      保養及維修
+                    </h3>
+                    {termsEditMode ? (
+                      <textarea
+                        value={termsContent.warranty}
+                        onChange={(e) =>
+                          setTermsContent((prev) => ({
+                            ...prev,
+                            warranty: e.target.value,
+                          }))
+                        }
+                        rows={4}
+                        className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-[11px] leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 resize-y"
+                      />
+                    ) : (
+                      <div className="space-y-1.5 pl-1 whitespace-pre-line">
+                        {termsContent.warranty}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 其他 */}
+                  <div>
+                    <h3 className="mb-2 font-display text-xs font-semibold text-foreground">
+                      其他
+                    </h3>
+                    {termsEditMode ? (
+                      <textarea
+                        value={termsContent.other}
+                        onChange={(e) =>
+                          setTermsContent((prev) => ({
+                            ...prev,
+                            other: e.target.value,
+                          }))
+                        }
+                        rows={10}
+                        className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-[11px] leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 resize-y"
+                      />
+                    ) : (
+                      <div className="space-y-1.5 pl-1 whitespace-pre-line">
+                        {termsContent.other}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 付款資料 */}
+                  <div>
+                    <h3 className="mb-2 font-display text-xs font-semibold text-foreground">
+                      付款資料
+                    </h3>
+                    {termsEditMode ? (
+                      <textarea
+                        value={termsContent.payment}
+                        onChange={(e) =>
+                          setTermsContent((prev) => ({
+                            ...prev,
+                            payment: e.target.value,
+                          }))
+                        }
+                        rows={8}
+                        className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-[11px] leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 resize-y"
+                      />
+                    ) : (
+                      <div className="space-y-1.5 pl-1 whitespace-pre-line">
+                        {termsContent.payment}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </section>
+            </div>
+          </div>
+
+          {/* Footer Navigation */}
+          <div className="mt-8 flex items-center justify-between border-t border-border pt-6 pb-8">
+            <button
+              type="button"
+              onClick={onBack}
+              className="inline-flex items-center gap-2 rounded-lg border border-border px-5 py-2.5 font-body text-sm font-medium text-foreground transition-colors hover:bg-accent"
+            >
+              <ChevronLeft className="h-4 w-4" />
+              上一步
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Submit Review Modal */}
+      <SubmitReviewModal
+        open={showSubmitModal}
+        onClose={() => setShowSubmitModal(false)}
+        onSuccess={(quoteId) => {
+          setShowSubmitModal(false);
+          // Clean up local draft after successful submission
+          deleteDraft(draftKey).catch(() => {});
+          if (quoteId) deleteDraft(quoteId).catch(() => {});
+        }}
+        totalAmount={subtotal}
+        totalCostPrice={totalCostPrice}
+        version={currentVersion}
+        projectData={buildProjectData()}
+      />
+
+      {/* Product Selector Modal */}
+      <ProductSelectorModal
+        open={showProductSelector}
+        onClose={() => {
+          setShowProductSelector(false);
+          setActiveItemId(null);
+        }}
+        onSelect={handleProductSelected}
+        existingProductNames={[]}
+      />
+
+      {/* PDF Preview Modal */}
+      {showPDFPreview && (
+        <Suspense
+          fallback={
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+              <div className="text-white">Loading PDF Preview...</div>
+            </div>
+          }
+        >
+          <LazyQuotationPDFPreviewModal
+            open={showPDFPreview}
+            onClose={() => setShowPDFPreview(false)}
+            data={buildPDFData()}
+          />
+        </Suspense>
+      )}
+    </>
+  );
+}
