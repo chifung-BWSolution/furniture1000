@@ -199,9 +199,9 @@ function detectDimensionsColumnFromData(rows: RawExtractedRow[], columnCount: nu
       nonEmpty++;
       if (DIM_RE.test(s)) dimMatches++;
     }
-    if (nonEmpty < 3) continue;
+    if (nonEmpty < 2) continue;
     const ratio = dimMatches / nonEmpty;
-    if (ratio >= 0.4 && ratio > bestRatio) {
+    if (ratio >= 0.3 && ratio > bestRatio) {
       bestRatio = ratio;
       bestCol = c;
     }
@@ -675,6 +675,20 @@ export function ExcelPreviewTable({
           const cleanMapping: ColumnMappingState = {};
           for (const [key, val] of Object.entries(mapping as Record<string, string>)) {
             cleanMapping[key] = validValues.has(val as StandardHeaderValue) ? (val as StandardHeaderValue) : 'skip';
+          }
+          // If the restored mapping has no 'dimensions' nor any dim_* axis,
+          // run data-based dimension detection so columns like 550*600*830
+          // are still split into 長/闊/高 even when older saved mappings exist.
+          const hasDimMapping = Object.values(cleanMapping).some(v =>
+            v === 'dimensions' || v === 'dim_length' || v === 'dim_width' || v === 'dim_height' ||
+            v === 'dim_length_mm' || v === 'dim_width_mm' || v === 'dim_height_mm'
+          );
+          if (!hasDimMapping) {
+            const sd = sheetDataList.find(s => s.sheetName === sheetName);
+            if (sd) {
+              const dimCol = detectDimensionsColumnFromData(sd.rows, sd.columnCount, cleanMapping);
+              if (dimCol >= 0) cleanMapping[dimCol] = 'dimensions';
+            }
           }
           sanitized[sheetName] = cleanMapping;
         }
