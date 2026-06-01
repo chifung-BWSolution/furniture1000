@@ -492,8 +492,12 @@ export function QuotationDraftEditor({
       "訂單生產時間自收到訂金起計算，預計3-4 週完成。交付及安裝將分兩日進行：交付後1-2 個工作日內完成安裝。",
   );
 
-  // Discount / promo note below subtotal
-  const [discountNote, setDiscountNote] = useState("");
+  // Discount (numeric value) — initialized from existing quote's project_data
+  const savedDiscountNote = (() => {
+    const raw = (savedProjectData as Record<string, unknown>).discountNote;
+    return raw == null ? "" : String(raw);
+  })();
+  const [discountNote, setDiscountNote] = useState(savedDiscountNote);
 
   // Installation fee row (editable)
   const DEFAULT_INSTALL_FEE = {
@@ -710,6 +714,11 @@ export function QuotationDraftEditor({
     (sum, item) => sum + item.unitPrice * item.quantity,
     0,
   );
+  const discountValue = (() => {
+    const n = parseFloat(discountNote);
+    return isNaN(n) ? 0 : n;
+  })();
+  const grandTotal = Math.max(0, subtotal - discountValue);
   const totalCostPrice = items.some((item) => item.costPrice != null)
     ? items.reduce(
         (sum, item) => sum + (item.costPrice ?? 0) * item.quantity,
@@ -934,6 +943,8 @@ export function QuotationDraftEditor({
     items: items.map(({ id, ...rest }) => rest),
     subtotal,
     discountNote,
+    discountValue,
+    grandTotal,
     installationFee,
   });
 
@@ -1703,7 +1714,7 @@ export function QuotationDraftEditor({
                         />
                       </div>
                       <div className="flex items-center justify-center px-2 py-2 border-r border-border font-medium" style={{ width: '12.5%' }}>
-                        {subtotal >= 12000 ? (
+                        {grandTotal >= 12000 ? (
                           <span className="text-green-600">FREE</span>
                         ) : (
                           <input
@@ -1717,7 +1728,7 @@ export function QuotationDraftEditor({
                         )}
                       </div>
                       <div className="flex items-center justify-center px-2 py-2 font-medium" style={{ width: '12.5%' }}>
-                        {subtotal >= 12000 ? (
+                        {grandTotal >= 12000 ? (
                           <span className="text-green-600">FREE</span>
                         ) : (
                           <input
@@ -1732,7 +1743,7 @@ export function QuotationDraftEditor({
                       </div>
                     </div>
                     {/* Discount row — split into label + numeric input, sits above 合計 */}
-                    <div className="flex items-stretch overflow-hidden rounded-md border border-border text-xs">
+                    <div className="flex items-stretch overflow-hidden rounded-md border border-border text-sm">
                       <div className="flex items-center justify-center bg-muted/30 px-3 py-2 border-r border-border" style={{ width: '80px' }}>
                         <span className="font-medium text-foreground">Discount</span>
                       </div>
@@ -1746,13 +1757,13 @@ export function QuotationDraftEditor({
                         />
                       </div>
                     </div>
-                    {/* 合計 */}
+                    {/* 合計 (after discount) */}
                     <div className="flex items-center">
                       <span className="mr-3 font-body text-xs text-muted-foreground" style={{ width: '80px', textAlign: 'center' }}>
                         合計:
                       </span>
                       <span className="font-mono-data text-base font-bold text-foreground" style={{ width: '120px', textAlign: 'right' }}>
-                        HKD ${subtotal.toLocaleString()}
+                        HKD ${grandTotal.toLocaleString()}
                       </span>
                     </div>
                   </div>
@@ -1965,7 +1976,7 @@ export function QuotationDraftEditor({
           deleteDraft(draftKey).catch(() => {});
           if (quoteId) deleteDraft(quoteId).catch(() => {});
         }}
-        totalAmount={subtotal}
+        totalAmount={grandTotal}
         totalCostPrice={totalCostPrice}
         version={currentVersion}
         projectData={buildProjectData()}

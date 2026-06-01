@@ -271,7 +271,14 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
 
   const today = data.quoteMeta?.date || new Date().toLocaleDateString('zh-HK', { year: 'numeric', month: 'numeric', day: 'numeric' });
   const quoteNumber = data.quoteMeta?.quoteNumber || '';
-  const isFreeInstallation = (data.subtotal || 0) >= 12000;
+  const discountValue = (() => {
+    const raw = data.discountNote;
+    if (raw == null) return 0;
+    const n = parseFloat(String(raw));
+    return isNaN(n) ? 0 : n;
+  })();
+  const grandTotal = Math.max(0, (data.subtotal || 0) - discountValue);
+  const isFreeInstallation = grandTotal >= 12000;
   const items = data.items || [];
 
   const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://26c0258f-253c-4e4e-9027-922d08aab63f.canvases.tempo.build';
@@ -403,16 +410,16 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
           </View>
         </View>
 
-        {data.discountNote && data.discountNote.toString().trim() !== '' ? (
+        {discountValue > 0 ? (
           <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 6, paddingRight: 4 }}>
-            <Text style={{ fontSize: 6, marginRight: 8, lineHeight: 1.4, width: 60, textAlign: 'right' }}>Discount:</Text>
-            <Text style={{ fontSize: 6, lineHeight: 1.4, width: 90, textAlign: 'right' }}>HK${(parseFloat(data.discountNote.toString()) || 0).toLocaleString()}</Text>
+            <Text style={{ fontSize: 8, marginRight: 8, lineHeight: 1.4, width: 60, textAlign: 'right' }}>Discount:</Text>
+            <Text style={{ fontSize: 8, lineHeight: 1.4, width: 90, textAlign: 'right' }}>HK${discountValue.toLocaleString()}</Text>
           </View>
         ) : null}
 
         <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 2, paddingRight: 4 }}>
           <Text style={{ ...styles.totalLabel, width: 60, textAlign: 'right', marginRight: 8 }}>{'\u7E3D\u91D1\u984D'}:</Text>
-          <Text style={{ ...styles.totalValue, width: 90, textAlign: 'right' }}>HK${(data.subtotal || 0).toLocaleString()}</Text>
+          <Text style={{ ...styles.totalValue, width: 90, textAlign: 'right' }}>HK${grandTotal.toLocaleString()}</Text>
         </View>
 
         <Text style={styles.sectionTitle}>{'<\u8A02\u55AE\u78BA\u8A8D\u53CA\u4EA4\u4ED8\u7D30\u7BC0>'}</Text>
