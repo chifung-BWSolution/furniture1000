@@ -34,7 +34,24 @@ async function loadReactPdfModule(): Promise<ReactPdfModule> {
             { src: NOTO_SANS_TC_BOLD, fontWeight: 700 },
           ],
         });
-        mod.Font.registerHyphenationCallback((word: string) => [word]);
+        mod.Font.registerHyphenationCallback((word: string) => {
+          // Break at every CJK character so Chinese text can wrap inside narrow cells.
+          // Latin/numeric runs stay intact (rendered as single chunks).
+          const cjk = /[\u3000-\u30FF\u3400-\u9FFF\uF900-\uFAFF\uFF00-\uFFEF]/;
+          if (!cjk.test(word)) return [word];
+          const parts: string[] = [];
+          let buf = '';
+          for (const ch of word) {
+            if (cjk.test(ch)) {
+              if (buf) { parts.push(buf); buf = ''; }
+              parts.push(ch);
+            } else {
+              buf += ch;
+            }
+          }
+          if (buf) parts.push(buf);
+          return parts;
+        });
         fontRegistered = true;
         console.log('PDF fonts registered successfully');
       } catch (e) {
@@ -204,7 +221,7 @@ const styles: Record<string, any> = {
   infoBold: { fontWeight: 700 },
   table: { width: '100%', borderWidth: 0.5, borderColor: '#333', marginTop: 8 },
   tableHeader: { display: 'flex', flexDirection: 'row', backgroundColor: '#f5f5f5', borderBottomWidth: 0.5, borderColor: '#333', minHeight: 24, alignItems: 'center' },
-  tableRow: { display: 'flex', flexDirection: 'row', borderBottomWidth: 0.5, borderColor: '#ddd', minHeight: 60, height: 'auto', alignItems: 'center' },
+  tableRow: { display: 'flex', flexDirection: 'row', borderBottomWidth: 0.5, borderColor: '#ddd', minHeight: 60, alignItems: 'stretch' },
   colIndex: { width: '5%', display: 'flex', justifyContent: 'center', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd', paddingVertical: 4 },
   colDesc: { width: '12%', paddingLeft: 4, paddingRight: 4, paddingTop: 4, paddingBottom: 4, display: 'flex', flexDirection: 'column', justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
   colMaterial: { width: '26%', paddingLeft: 4, paddingRight: 4, paddingTop: 4, paddingBottom: 4, display: 'flex', flexDirection: 'column', justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
@@ -215,8 +232,8 @@ const styles: Record<string, any> = {
   colUnitPrice: { width: '10.5%', display: 'flex', justifyContent: 'center', alignItems: 'center', textAlign: 'center', borderRightWidth: 0.5, borderColor: '#ddd', paddingVertical: 4 },
   colSubtotal: { width: '12.5%', display: 'flex', justifyContent: 'center', alignItems: 'center', textAlign: 'center', paddingVertical: 4 },
   tableHeaderText: { fontSize: 6.5, fontWeight: 700, textAlign: 'center', lineHeight: 1.4 },
-  tableCellText: { fontSize: 7, textAlign: 'center', lineHeight: 1.3, flexWrap: 'wrap', wordBreak: 'break-all' },
-  tableCellTextLeft: { fontSize: 7, textAlign: 'left', lineHeight: 1.3, flexWrap: 'wrap', paddingLeft: 4, wordBreak: 'break-all' },
+  tableCellText: { fontSize: 7, textAlign: 'center', lineHeight: 1.3 },
+  tableCellTextLeft: { fontSize: 7, textAlign: 'left', lineHeight: 1.3, paddingLeft: 4 },
   productImage: { width: 50, height: 50, objectFit: 'cover', borderRadius: 2 },
   installRow: { flexDirection: 'row', borderBottomWidth: 0.5, borderColor: '#ddd', minHeight: 28 },
   totalRow: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 6, paddingRight: 4 },
@@ -312,12 +329,12 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
             <View style={styles.tableRow} key={idx} wrap={false}>
               <View style={styles.colIndex}><Text style={styles.tableCellText}>{idx + 1}</Text></View>
               <View style={styles.colDesc}>
-                <View style={{ width: '88%', paddingRight: 10 }}>
+                <View style={{ width: '100%' }}>
                   <Text style={styles.tableCellTextLeft}>{item?.category || item?.name || ''}</Text>
                 </View>
               </View>
               <View style={styles.colMaterial}>
-                <View style={{ width: '88%', paddingRight: 10 }}>
+                <View style={{ width: '100%' }}>
                   <Text style={styles.tableCellTextLeft}>{item?.material || ''}</Text>
                   {formatDimensions(item) ? (
                     <Text style={{ fontSize: 6.5, color: '#555', marginTop: 2, textAlign: 'left', paddingLeft: 4, lineHeight: 1.3 }}>
@@ -331,7 +348,7 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
                 </View>
               </View>
               <View style={styles.colRemarks}>
-                <View style={{ width: '88%', paddingRight: 10 }}>
+                <View style={{ width: '100%' }}>
                   <Text style={styles.tableCellTextLeft}>{item?.remarks || ''}</Text>
                 </View>
               </View>
@@ -373,6 +390,12 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
           <Text style={styles.totalLabel}>{'\u7E3D\u91D1\u984D'}:</Text>
           <Text style={styles.totalValue}>HK${(data.subtotal || 0).toLocaleString()}</Text>
         </View>
+
+        {data.discountNote ? (
+          <View style={{ marginTop: 4, marginBottom: 2, paddingHorizontal: 4 }}>
+            <Text style={{ fontSize: 7.5, color: '#444', lineHeight: 1.5 }}>* {data.discountNote}</Text>
+          </View>
+        ) : null}
 
         <Text style={styles.sectionTitle}>{'<\u8A02\u55AE\u78BA\u8A8D\u53CA\u4EA4\u4ED8\u7D30\u7BC0>'}</Text>
         <Text style={styles.sectionText}>{data.deliveryDetails || ''}</Text>

@@ -43,4 +43,5 @@ export interface QuotationPDFData {
     dimensionHMm?: number | null;
   }[];
   subtotal: number;
+  discountNote?: string;
 }

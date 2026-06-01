@@ -59,10 +59,27 @@ interface QuickQuoteViewProps {
   onClearEditingQuote?: () => void;
 }
 
+const STEP_STORAGE_KEY = 'bwf:quickQuote:currentStep';
+const FORM_STORAGE_KEY = 'bwf:quickQuote:formData';
+
 export function QuickQuoteView({ editingQuoteId, onClearEditingQuote }: QuickQuoteViewProps) {
-  const [currentStep, setCurrentStep] = useState(1);
-  const [isQuotationReady, setIsQuotationReady] = useState(false);
+  const [currentStep, setCurrentStep] = useState<number>(() => {
+    if (typeof window === 'undefined') return 1;
+    const saved = sessionStorage.getItem(STEP_STORAGE_KEY);
+    const n = saved ? parseInt(saved, 10) : 1;
+    return Number.isFinite(n) && n >= 1 && n <= 4 ? n : 1;
+  });
+  const [isQuotationReady, setIsQuotationReady] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return sessionStorage.getItem(STEP_STORAGE_KEY) === '4';
+  });
   const [isLoadingQuote, setIsLoadingQuote] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    sessionStorage.setItem(STEP_STORAGE_KEY, String(currentStep));
+  }, [currentStep]);
+
   const [loadedQuoteData, setLoadedQuoteData] = useState<{
     quoteId: string;
     version: string;
@@ -71,26 +88,43 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote }: QuickQuo
     submitter: string;
     projectData: Record<string, unknown>;
   } | null>(null);
-  const [formData, setFormData] = useState<QuoteFormData>({
-    company: 'Branding Works Design Ltd',
-    projectManager: '',
-    projectName: '',
-    clientName: '',
-    clientPhone: '',
-    clientEmail: '',
-    clientIndustry: [],
-    quotationType: [],
-    // Step 2
-    serviceScope: [],
-    officeArea: '',
-    headcount: '',
-    // Step 3
-    budgetMin: '',
-    budgetMax: '',
-    workPeriod: '',
-    validityDays: '30',
-    remarks: '',
+  const [formData, setFormData] = useState<QuoteFormData>(() => {
+    const defaults: QuoteFormData = {
+      company: 'Branding Works Design Ltd',
+      projectManager: '',
+      projectName: '',
+      clientName: '',
+      clientPhone: '',
+      clientEmail: '',
+      clientIndustry: [],
+      quotationType: [],
+      serviceScope: [],
+      officeArea: '',
+      headcount: '',
+      budgetMin: '',
+      budgetMax: '',
+      workPeriod: '',
+      validityDays: '30',
+      remarks: '',
+    };
+    if (typeof window === 'undefined') return defaults;
+    try {
+      const raw = sessionStorage.getItem(FORM_STORAGE_KEY);
+      if (raw) return { ...defaults, ...JSON.parse(raw) };
+    } catch {
+      // ignore
+    }
+    return defaults;
   });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      sessionStorage.setItem(FORM_STORAGE_KEY, JSON.stringify(formData));
+    } catch {
+      // ignore
+    }
+  }, [formData]);
   const [errors, setErrors] = useState<Partial<Record<keyof QuoteFormData, string>>>({});
 
   // Load existing quote when editingQuoteId is provided

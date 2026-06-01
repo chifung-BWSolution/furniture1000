@@ -68,6 +68,7 @@ interface QuotationItem {
   dimensionWMm?: number | null;
   dimensionHMm?: number | null;
   deliveryTermName?: string;
+  isCustomTerm?: boolean;
 }
 
 interface QuotationDraftEditorProps {
@@ -94,74 +95,187 @@ const fileToDataUrl = (file: File): Promise<string> =>
     reader.readAsDataURL(file);
   });
 
-// Sub-component: Reference Image Cell (paste or upload)
-function ReferenceImageCell({
-  value,
-  onChange,
+// Allowed image MIME types and their extensions
+const ALLOWED_IMAGE_MIME = [
+  "image/png",
+  "image/jpeg",
+  "image/jpg",
+  "image/webp",
+  "image/tiff",
+  "image/svg+xml",
+];
+const ALLOWED_IMAGE_EXT = ["png", "jpg", "jpeg", "webp", "tiff", "tif", "svg"];
+const MAX_IMAGE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
+const ACCEPT_IMAGE_INPUT = ".png,.jpg,.jpeg,.webp,.tiff,.tif,.svg,image/png,image/jpeg,image/webp,image/tiff,image/svg+xml";
+
+function validateImageFile(file: File): string | null {
+  const ext = file.name.split(".").pop()?.toLowerCase() || "";
+  const typeOk =
+    ALLOWED_IMAGE_MIME.includes(file.type) ||
+    ALLOWED_IMAGE_EXT.includes(ext);
+  if (!typeOk) {
+    return "不支援的格式。支援：PNG、JPG、JPEG、WEBP、TIFF、SVG";
+  }
+  if (file.size > MAX_IMAGE_SIZE_BYTES) {
+    return `檔案過大（${(file.size / 1024 / 1024).toFixed(2)} MB），上限為 10 MB`;
+  }
+  return null;
+}
+
+// Sub-component: Image Upload Modal
+function ImageUploadModal({
+  open,
+  onClose,
+  onSelect,
+  title,
 }: {
-  value: string;
-  onChange: (url: string) => void;
+  open: boolean;
+  onClose: () => void;
+  onSelect: (dataUrl: string) => void;
+  title: string;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const [dragActive, setDragActive] = useState(false);
+  const [busy, setBusy] = useState(false);
 
-  const handlePaste = async (e: React.ClipboardEvent) => {
-    const items = e.clipboardData?.items;
-    if (!items) return;
-    for (const item of Array.from(items)) {
-      if (item.type.startsWith("image/")) {
-        e.preventDefault();
-        const file = item.getAsFile();
-        if (file) {
-          const dataUrl = await fileToDataUrl(file);
-          onChange(dataUrl);
-        }
-        return;
-      }
+  if (!open) return null;
+
+  const handleFile = async (file: File) => {
+    const err = validateImageFile(file);
+    if (err) {
+      toast.error("無法上傳圖片", { description: err });
+      return;
+    }
+    try {
+      setBusy(true);
+      const dataUrl = await fileToDataUrl(file);
+      onSelect(dataUrl);
+      onClose();
+    } catch {
+      toast.error("讀取檔案失敗");
+    } finally {
+      setBusy(false);
     }
   };
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleInput = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const dataUrl = await fileToDataUrl(file);
-      onChange(dataUrl);
-    }
     e.target.value = "";
+    if (file) await handleFile(file);
+  };
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragActive(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) await handleFile(file);
   };
 
   return (
     <div
-      className="relative flex h-12 w-12 aspect-square items-center justify-center rounded-md border border-dashed border-border bg-muted/30 overflow-hidden cursor-pointer group"
-      onPaste={handlePaste}
-      tabIndex={0}
-      onClick={() => !value && inputRef.current?.click()}
-      title="點擊上傳或粘貼圖片"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      onClick={onClose}
     >
-      {value ? (
-        <>
-          <img src={value} alt="" className="h-full w-full object-cover" />
+      <div
+        className="w-full max-w-md rounded-xl bg-card p-5 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="mb-3 flex items-center justify-between">
+          <h3 className="font-display text-sm font-bold text-foreground">{title}</h3>
           <button
             type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onChange("");
-            }}
-            className="absolute -top-1 -right-1 hidden group-hover:flex h-4 w-4 items-center justify-center rounded-full bg-rose-500 text-white shadow"
+            onClick={onClose}
+            className="rounded p-1 text-muted-foreground/60 hover:bg-accent hover:text-foreground"
           >
-            <X className="h-2.5 w-2.5" />
+            <X className="h-4 w-4" />
           </button>
-        </>
-      ) : (
-        <ImagePlus className="h-4 w-4 text-muted-foreground/40" />
-      )}
-      <input
-        ref={inputRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={handleFileChange}
-      />
+        </div>
+
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => inputRef.current?.click()}
+          onDragOver={(e) => {
+            e.preventDefault();
+            setDragActive(true);
+          }}
+          onDragLeave={() => setDragActive(false)}
+          onDrop={handleDrop}
+          className={`flex w-full flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed px-4 py-10 transition-colors ${
+            dragActive
+              ? "border-primary bg-primary/5"
+              : "border-border bg-muted/30 hover:border-primary/50 hover:bg-primary/5"
+          } disabled:opacity-60 disabled:cursor-not-allowed`}
+        >
+          {busy ? (
+            <Loader2 className="h-6 w-6 animate-spin text-primary" />
+          ) : (
+            <Upload className="h-6 w-6 text-primary" />
+          )}
+          <span className="font-body text-xs font-medium text-foreground">
+            {busy ? "上傳中..." : "點擊或拖放圖片到此處上傳"}
+          </span>
+          <span className="font-body text-[10px] text-muted-foreground">
+            支援 PNG、JPG、JPEG、WEBP、TIFF、SVG（最大 10 MB）
+          </span>
+        </button>
+
+        <input
+          ref={inputRef}
+          type="file"
+          accept={ACCEPT_IMAGE_INPUT}
+          className="hidden"
+          onChange={handleInput}
+        />
+      </div>
     </div>
+  );
+}
+
+// Sub-component: Reference Image Cell (modal upload)
+function ReferenceImageCell({
+  value,
+  onChange,
+  modalTitle = "上傳圖片",
+}: {
+  value: string;
+  onChange: (url: string) => void;
+  modalTitle?: string;
+}) {
+  const [modalOpen, setModalOpen] = useState(false);
+
+  return (
+    <>
+      <div
+        className="relative flex h-12 w-12 aspect-square items-center justify-center rounded-md border border-dashed border-border bg-muted/30 overflow-hidden cursor-pointer group"
+        onClick={() => setModalOpen(true)}
+        title="點擊上傳圖片"
+      >
+        {value ? (
+          <>
+            <img src={value} alt="" className="h-full w-full object-cover" />
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onChange("");
+              }}
+              className="absolute -top-1 -right-1 hidden group-hover:flex h-4 w-4 items-center justify-center rounded-full bg-rose-500 text-white shadow"
+            >
+              <X className="h-2.5 w-2.5" />
+            </button>
+          </>
+        ) : (
+          <ImagePlus className="h-4 w-4 text-muted-foreground/40" />
+        )}
+      </div>
+      <ImageUploadModal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        onSelect={(url) => onChange(url)}
+        title={modalTitle}
+      />
+    </>
   );
 }
 
@@ -503,6 +617,7 @@ export function QuotationDraftEditor({
         dimensionWMm: item.dimensionWMm ?? null,
         dimensionHMm: item.dimensionHMm ?? null,
         deliveryTermName: item.deliveryTermName,
+        isCustomTerm: (item as { isCustomTerm?: boolean }).isCustomTerm,
       }));
     }
     return DEFAULT_ITEMS;
@@ -518,6 +633,21 @@ export function QuotationDraftEditor({
         costPrice: null,
         unitPrice: 0,
         quantity: 1,
+      },
+    ]);
+  };
+
+  const addCustomTerm = () => {
+    setItems((prev) => [
+      ...prev,
+      {
+        id: generateId(),
+        image: "",
+        name: "",
+        costPrice: null,
+        unitPrice: 0,
+        quantity: 0,
+        isCustomTerm: true,
       },
     ]);
   };
@@ -557,7 +687,7 @@ export function QuotationDraftEditor({
   };
 
   const subtotal = items.reduce(
-    (sum, item) => sum + item.unitPrice * item.quantity,
+    (sum, item) => item.isCustomTerm ? sum : sum + item.unitPrice * item.quantity,
     0,
   );
   const totalCostPrice = items.some((item) => item.costPrice != null)
@@ -1166,17 +1296,27 @@ export function QuotationDraftEditor({
                   <h2 className="font-display text-sm font-bold text-foreground/80">
                     報價內容
                   </h2>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setActiveItemId(null);
-                      setShowProductSelector(true);
-                    }}
-                    className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-primary/40 px-3 py-1.5 font-body text-xs font-medium text-primary transition-colors hover:bg-primary/5"
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                    新增產品
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={addCustomTerm}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-amber-500/50 px-3 py-1.5 font-body text-xs font-medium text-amber-600 transition-colors hover:bg-amber-500/5"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      新建條款
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveItemId(null);
+                        setShowProductSelector(true);
+                      }}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-primary/40 px-3 py-1.5 font-body text-xs font-medium text-primary transition-colors hover:bg-primary/5"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      新增產品
+                    </button>
+                  </div>
                 </div>
 
                 <div className="overflow-x-auto">
@@ -1221,6 +1361,38 @@ export function QuotationDraftEditor({
                     </thead>
                     <tbody>
                       {items.map((item) => (
+                        item.isCustomTerm ? (
+                          <tr
+                            key={item.id}
+                            className="border-b border-border/50 last:border-b-0 bg-amber-500/5"
+                          >
+                            <td className="py-2 pr-2" colSpan={11}>
+                              <div className="flex items-center gap-2">
+                                <span className="rounded-md bg-amber-500/10 px-2 py-1 font-body text-[10px] font-medium text-amber-700">
+                                  條款
+                                </span>
+                                <input
+                                  type="text"
+                                  value={item.name || ""}
+                                  placeholder="輸入額外增值服務（例如：清拆、拆裝舊家私等）..."
+                                  onChange={(e) =>
+                                    updateItem(item.id, "name", e.target.value)
+                                  }
+                                  className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 font-body text-xs text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                                />
+                              </div>
+                            </td>
+                            <td className="py-2">
+                              <button
+                                type="button"
+                                onClick={() => removeItem(item.id)}
+                                className="rounded-md p-1.5 text-muted-foreground/50 transition-colors hover:bg-rose-500/10 hover:text-rose-500"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </td>
+                          </tr>
+                        ) : (
                         <tr
                           key={item.id}
                           className="border-b border-border/50 last:border-b-0"
@@ -1230,6 +1402,7 @@ export function QuotationDraftEditor({
                             <ReferenceImageCell
                               value={item.image || ""}
                               onChange={(url) => updateItem(item.id, "image", url)}
+                              modalTitle="上傳產品圖片"
                             />
                           </td>
                           {/* 參考圖 (Reference Image) */}
@@ -1237,6 +1410,7 @@ export function QuotationDraftEditor({
                             <ReferenceImageCell
                               value={item.referenceImage || ""}
                               onChange={(url) => updateItem(item.id, "referenceImage", url)}
+                              modalTitle="上傳參考圖"
                             />
                           </td>
                           {/* 類別 (Category) */}
@@ -1387,6 +1561,7 @@ export function QuotationDraftEditor({
                             </button>
                           </td>
                         </tr>
+                        )
                       ))}
                     </tbody>
                   </table>
@@ -1415,13 +1590,32 @@ export function QuotationDraftEditor({
                       套用
                     </button>
                   </div>
-                  <div className="flex items-center">
-                    <span className="mr-3 font-body text-xs text-muted-foreground">
-                      合計:
-                    </span>
-                    <span className="font-mono-data text-base font-bold text-foreground">
-                      HKD ${subtotal.toLocaleString()}
-                    </span>
+                  <div className="flex flex-col items-end gap-2">
+                    {/* 傢俱安裝費用 row */}
+                    <div className="flex w-full items-stretch rounded-md border border-border overflow-hidden text-xs">
+                      <div className="flex flex-col justify-center px-3 py-2 bg-muted/30 border-r border-border" style={{ width: '45%' }}>
+                        <span className="font-medium text-foreground">傢俱安裝費用</span>
+                        <span className="text-muted-foreground text-[10px]">安裝清單中傢俱產品並清理包裝垃圾</span>
+                      </div>
+                      <div className="flex flex-col justify-center px-3 py-2 border-r border-border text-center" style={{ width: '30%' }}>
+                        <span className="text-muted-foreground text-[10px] leading-relaxed">訂單總金額滿 HK$12,000<br />將不收取安裝費用</span>
+                      </div>
+                      <div className="flex items-center justify-center px-3 py-2 border-r border-border font-medium" style={{ width: '12.5%' }}>
+                        {subtotal >= 12000 ? <span className="text-green-600">FREE</span> : <span className="text-muted-foreground">另議</span>}
+                      </div>
+                      <div className="flex items-center justify-center px-3 py-2 font-medium" style={{ width: '12.5%' }}>
+                        {subtotal >= 12000 ? <span className="text-green-600">FREE</span> : <span className="text-muted-foreground">另議</span>}
+                      </div>
+                    </div>
+                    {/* 合計 */}
+                    <div className="flex items-center">
+                      <span className="mr-3 font-body text-xs text-muted-foreground">
+                        合計:
+                      </span>
+                      <span className="font-mono-data text-base font-bold text-foreground">
+                        HKD ${subtotal.toLocaleString()}
+                      </span>
+                    </div>
                   </div>
                 </div>
 
