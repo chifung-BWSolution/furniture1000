@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"/c/Users/frank/Downloads/furniture1000-main 0602/furniture1000-main\" && git add -A && git diff --cached --quiet || git commit -m \"auto: update files\" && git push origin main 2>/dev/null || true",
+            "statusMessage": "Pushing to GitHub..."
+          }
+        ]
+      }
+    ]
+  }
+}
