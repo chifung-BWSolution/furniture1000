@@ -1731,7 +1731,7 @@ export function ExcelPreviewTable({
                         'transition-colors h-[52px]',
                         isSelected
                           ? 'bg-indigo-500/5 hover:bg-indigo-500/10'
-                          : 'opacity-40 hover:opacity-70',
+                          : 'opacity-60 hover:opacity-80',
                         !isProductRow && isSelected && 'bg-amber-500/5',
                       )}
                     >
@@ -1843,9 +1843,9 @@ export function ExcelPreviewTable({
                               {arrIdx === productNameInsertIndex - 1 && (
                                 <TableCell className="p-1 min-w-[220px]">
                                   {isGeneratingName ? (
-                                    <div className="flex items-center gap-1.5 text-xs text-amber-600">
+                                    <div className="flex items-center gap-1.5 text-sm text-amber-600">
                                       <Loader2 className="w-3 h-3 animate-spin" />
-                                      <span className="font-[IBM_Plex_Mono] text-xs">AI 生成中...</span>
+                                      <span className="font-[IBM_Plex_Mono] text-sm">AI 生成中...</span>
                                     </div>
                                   ) : generatedName ? (
                                     <div className="flex items-center gap-1">
@@ -1867,7 +1867,7 @@ export function ExcelPreviewTable({
                                       disabled={!hasImage}
                                       onClick={() => handleGenerateProductName(row)}
                                       className={cn(
-                                        "h-7 text-xs font-[IBM_Plex_Mono] gap-1",
+                                        "h-7 text-sm font-[IBM_Plex_Mono] gap-1",
                                         hasImage
                                           ? "text-amber-600 hover:text-amber-700 hover:bg-amber-500/10"
                                           : "text-muted-foreground/40 cursor-not-allowed"
