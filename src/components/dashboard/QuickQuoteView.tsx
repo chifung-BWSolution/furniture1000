@@ -14,6 +14,7 @@ interface QuoteFormData {
   clientPhone: string;
   clientEmail: string;
   clientIndustry: string[];
+  clientIndustryOther: string;
   quotationType: string[];
   // Step 2
   serviceScope: string[];
@@ -92,6 +93,7 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote }: QuickQuo
       clientPhone: '',
       clientEmail: '',
       clientIndustry: [],
+      clientIndustryOther: '',
       quotationType: [],
       serviceScope: [],
       officeArea: '',
@@ -186,6 +188,7 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote }: QuickQuo
             clientPhone: savedFormData.clientPhone || '',
             clientEmail: savedFormData.clientEmail || '',
             clientIndustry: savedFormData.clientIndustry || [],
+            clientIndustryOther: savedFormData.clientIndustryOther || '',
             quotationType: savedFormData.quotationType || [],
             serviceScope: savedFormData.serviceScope || [],
             officeArea: savedFormData.officeArea || '',
@@ -549,7 +552,7 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote }: QuickQuo
                 <label className="mb-2 block font-body text-sm font-medium text-foreground">
                   客戶產業 <span className="text-red-500">*</span>
                 </label>
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   {INDUSTRIES.map((industry) => (
                     <button
                       key={industry}
@@ -565,6 +568,15 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote }: QuickQuo
                       {industry}
                     </button>
                   ))}
+                  {formData.clientIndustry.includes('其他') && (
+                    <input
+                      type="text"
+                      value={formData.clientIndustryOther}
+                      onChange={(e) => updateField('clientIndustryOther', e.target.value)}
+                      placeholder="請填寫產業"
+                      className="border-b border-border bg-transparent px-1 py-1 font-body text-sm text-foreground placeholder:text-muted-foreground/60 focus:border-primary focus:outline-none w-32"
+                    />
+                  )}
                 </div>
                 {errors.clientIndustry && (
                   <p className="mt-1.5 text-xs text-red-500">{errors.clientIndustry}</p>
