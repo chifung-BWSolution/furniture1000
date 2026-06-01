@@ -45,4 +45,11 @@ export interface QuotationPDFData {
   }[];
   subtotal: number;
   discountNote?: string;
+  installationFee?: {
+    title?: string;
+    subtitle?: string;
+    conditionText?: string;
+    freeLabel?: string;
+    chargeLabel?: string;
+  };
 }

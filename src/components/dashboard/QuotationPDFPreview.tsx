@@ -381,19 +381,19 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
           {/* Installation Fee Row */}
           <View style={styles.installRow} wrap={false}>
             <View style={{ width: '60%', padding: 4, justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' }}>
-              <Text style={{ fontSize: 7, fontWeight: 700, lineHeight: 1.4 }}>{'\u50A2\u4FF1\u5B89\u88DD\u8CBB\u7528'}</Text>
-              <Text style={{ fontSize: 6.5, color: '#666', lineHeight: 1.4 }}>{'\u5B89\u88DD\u6E05\u55AE\u4E2D\u50A2\u4FF1\u7522\u54C1\u4E26\u6E05\u7406\u5305\u88DD\u5783\u573E'}</Text>
+              <Text style={{ fontSize: 7, fontWeight: 700, lineHeight: 1.4 }}>{data.installationFee?.title || '\u50A2\u4FF1\u5B89\u88DD\u8CBB\u7528'}</Text>
+              <Text style={{ fontSize: 6.5, color: '#666', lineHeight: 1.4 }}>{data.installationFee?.subtitle || '\u5B89\u88DD\u6E05\u55AE\u4E2D\u50A2\u4FF1\u7522\u54C1\u4E26\u6E05\u7406\u5305\u88DD\u5783\u573E'}</Text>
             </View>
             <View style={{ width: '20%', padding: 4, justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' }}>
               <Text style={{ fontSize: 6.5, textAlign: 'center', lineHeight: 1.4 }}>
-                {'\u8A02\u55AE\u7E3D\u91D1\u984D\u6EFF HK$12,000\n\u5C07\u4E0D\u6536\u53D6\u5B89\u88DD\u8CBB\u7528'}
+                {data.installationFee?.conditionText || '\u8A02\u55AE\u7E3D\u91D1\u984D\u6EFF HK$12,000\n\u5C07\u4E0D\u6536\u53D6\u5B89\u88DD\u8CBB\u7528'}
               </Text>
             </View>
             <View style={{ width: '10%', padding: 4, justifyContent: 'center', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd' }}>
-              <Text style={styles.tableCellText}>{isFreeInstallation ? 'FREE' : '\u53E6\u8B70'}</Text>
+              <Text style={styles.tableCellText}>{isFreeInstallation ? 'FREE' : (data.installationFee?.freeLabel || '\u53E6\u8B70')}</Text>
             </View>
             <View style={{ width: '10%', padding: 4, justifyContent: 'center', alignItems: 'center' }}>
-              <Text style={styles.tableCellText}>{isFreeInstallation ? 'FREE' : '\u53E6\u8B70'}</Text>
+              <Text style={styles.tableCellText}>{isFreeInstallation ? 'FREE' : (data.installationFee?.chargeLabel || '\u53E6\u8B70')}</Text>
             </View>
           </View>
         </View>

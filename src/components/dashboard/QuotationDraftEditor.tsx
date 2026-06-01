@@ -495,6 +495,26 @@ export function QuotationDraftEditor({
   // Discount / promo note below subtotal
   const [discountNote, setDiscountNote] = useState("");
 
+  // Installation fee row (editable)
+  const DEFAULT_INSTALL_FEE = {
+    title: "傢俱安裝費用",
+    subtitle: "安裝清單中傢俱產品並清理包裝垃圾",
+    conditionText: "訂單總金額滿 HK$12,000\n將不收取安裝費用",
+    freeLabel: "另議",
+    chargeLabel: "另議",
+  };
+  const savedInstallationFee = (savedProjectData as Record<string, unknown>)
+    .installationFee as typeof DEFAULT_INSTALL_FEE | undefined;
+  const [installationFee, setInstallationFee] = useState({
+    title: savedInstallationFee?.title || DEFAULT_INSTALL_FEE.title,
+    subtitle: savedInstallationFee?.subtitle || DEFAULT_INSTALL_FEE.subtitle,
+    conditionText:
+      savedInstallationFee?.conditionText || DEFAULT_INSTALL_FEE.conditionText,
+    freeLabel: savedInstallationFee?.freeLabel || DEFAULT_INSTALL_FEE.freeLabel,
+    chargeLabel:
+      savedInstallationFee?.chargeLabel || DEFAULT_INSTALL_FEE.chargeLabel,
+  });
+
   // Terms content (editable)
   const DEFAULT_TERMS = {
     transport: `3.1 本報價包含於單一地址的一次性運輸及安裝費用。
@@ -756,6 +776,17 @@ export function QuotationDraftEditor({
         if (cached.deliveryDetails) {
           setDeliveryDetails(cached.deliveryDetails);
         }
+        if ((cached as Record<string, unknown>).installationFee) {
+          setInstallationFee(
+            (cached as Record<string, unknown>)
+              .installationFee as typeof installationFee,
+          );
+        }
+        if (typeof (cached as Record<string, unknown>).discountNote === "string") {
+          setDiscountNote(
+            (cached as Record<string, unknown>).discountNote as string,
+          );
+        }
         if (cached.termsContent) {
           setTermsContent(cached.termsContent as typeof termsContent);
         }
@@ -813,6 +844,7 @@ export function QuotationDraftEditor({
       ),
       subtotal,
       discountNote,
+      installationFee,
     }),
     [
       draftKey,
@@ -825,6 +857,7 @@ export function QuotationDraftEditor({
       items,
       subtotal,
       discountNote,
+      installationFee,
     ],
   );
 
@@ -900,6 +933,8 @@ export function QuotationDraftEditor({
     termsContent,
     items: items.map(({ id, ...rest }) => rest),
     subtotal,
+    discountNote,
+    installationFee,
   });
 
   const buildPDFData = (): QuotationPDFData => ({
@@ -935,6 +970,7 @@ export function QuotationDraftEditor({
       })),
     subtotal,
     discountNote,
+    installationFee,
   });
 
   return (
@@ -1587,20 +1623,63 @@ export function QuotationDraftEditor({
                     </button>
                   </div>
                   <div className="flex flex-col items-end gap-2">
-                    {/* 傢俱安裝費用 row */}
+                    {/* 傢俱安裝費用 row (editable) */}
                     <div className="flex w-full items-stretch rounded-md border border-border overflow-hidden text-xs">
-                      <div className="flex flex-col justify-center px-3 py-2 bg-muted/30 border-r border-border" style={{ width: '45%' }}>
-                        <span className="font-medium text-foreground">傢俱安裝費用</span>
-                        <span className="text-muted-foreground text-[10px]">安裝清單中傢俱產品並清理包裝垃圾</span>
+                      <div className="flex flex-col justify-center gap-1 px-3 py-2 bg-muted/30 border-r border-border" style={{ width: '45%' }}>
+                        <input
+                          type="text"
+                          value={installationFee.title}
+                          onChange={(e) =>
+                            setInstallationFee((prev) => ({ ...prev, title: e.target.value }))
+                          }
+                          className="w-full bg-transparent font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30 rounded px-1"
+                        />
+                        <input
+                          type="text"
+                          value={installationFee.subtitle}
+                          onChange={(e) =>
+                            setInstallationFee((prev) => ({ ...prev, subtitle: e.target.value }))
+                          }
+                          className="w-full bg-transparent text-muted-foreground text-[10px] focus:outline-none focus:ring-1 focus:ring-primary/30 rounded px-1"
+                        />
                       </div>
                       <div className="flex flex-col justify-center px-3 py-2 border-r border-border text-center" style={{ width: '30%' }}>
-                        <span className="text-muted-foreground text-[10px] leading-relaxed">訂單總金額滿 HK$12,000<br />將不收取安裝費用</span>
+                        <textarea
+                          value={installationFee.conditionText}
+                          onChange={(e) =>
+                            setInstallationFee((prev) => ({ ...prev, conditionText: e.target.value }))
+                          }
+                          rows={2}
+                          className="w-full bg-transparent text-muted-foreground text-[10px] leading-relaxed text-center focus:outline-none focus:ring-1 focus:ring-primary/30 rounded px-1 resize-none"
+                        />
                       </div>
-                      <div className="flex items-center justify-center px-3 py-2 border-r border-border font-medium" style={{ width: '12.5%' }}>
-                        {subtotal >= 12000 ? <span className="text-green-600">FREE</span> : <span className="text-muted-foreground">另議</span>}
+                      <div className="flex items-center justify-center px-2 py-2 border-r border-border font-medium" style={{ width: '12.5%' }}>
+                        {subtotal >= 12000 ? (
+                          <span className="text-green-600">FREE</span>
+                        ) : (
+                          <input
+                            type="text"
+                            value={installationFee.freeLabel}
+                            onChange={(e) =>
+                              setInstallationFee((prev) => ({ ...prev, freeLabel: e.target.value }))
+                            }
+                            className="w-full bg-transparent text-muted-foreground text-center focus:outline-none focus:ring-1 focus:ring-primary/30 rounded px-1"
+                          />
+                        )}
                       </div>
-                      <div className="flex items-center justify-center px-3 py-2 font-medium" style={{ width: '12.5%' }}>
-                        {subtotal >= 12000 ? <span className="text-green-600">FREE</span> : <span className="text-muted-foreground">另議</span>}
+                      <div className="flex items-center justify-center px-2 py-2 font-medium" style={{ width: '12.5%' }}>
+                        {subtotal >= 12000 ? (
+                          <span className="text-green-600">FREE</span>
+                        ) : (
+                          <input
+                            type="text"
+                            value={installationFee.chargeLabel}
+                            onChange={(e) =>
+                              setInstallationFee((prev) => ({ ...prev, chargeLabel: e.target.value }))
+                            }
+                            className="w-full bg-transparent text-muted-foreground text-center focus:outline-none focus:ring-1 focus:ring-primary/30 rounded px-1"
+                          />
+                        )}
                       </div>
                     </div>
                     {/* 合計 */}
