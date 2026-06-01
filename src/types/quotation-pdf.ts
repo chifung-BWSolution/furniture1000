@@ -41,6 +41,7 @@ export interface QuotationPDFData {
     dimensionLMm?: number | null;
     dimensionWMm?: number | null;
     dimensionHMm?: number | null;
+    isCustomTerm?: boolean;
   }[];
   subtotal: number;
   discountNote?: string;

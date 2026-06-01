@@ -325,46 +325,58 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
             <View style={styles.colSubtotal}><Text style={styles.tableHeaderText}>{'\u7E3D\u50F9 (HKD)'}</Text></View>
           </View>
 
-          {items.map((item, idx) => (
-            <View style={styles.tableRow} key={idx} wrap={false}>
-              <View style={styles.colIndex}><Text style={styles.tableCellText}>{idx + 1}</Text></View>
-              <View style={styles.colDesc}>
-                <View style={{ width: '100%' }}>
-                  <Text style={styles.tableCellTextLeft}>{item?.category || item?.name || ''}</Text>
+          {items.map((item, idx) => {
+            if (item?.isCustomTerm) {
+              return (
+                <View style={{ display: 'flex', flexDirection: 'row', borderBottomWidth: 0.5, borderColor: '#ddd', minHeight: 28, alignItems: 'stretch' }} key={idx} wrap={false}>
+                  <View style={styles.colIndex}><Text style={styles.tableCellText}>{idx + 1}</Text></View>
+                  <View style={{ flex: 1, paddingLeft: 6, paddingRight: 6, paddingTop: 6, paddingBottom: 6, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                    <Text style={styles.tableCellTextLeft}>{item?.name || ''}</Text>
+                  </View>
                 </View>
-              </View>
-              <View style={styles.colMaterial}>
-                <View style={{ width: '100%' }}>
-                  <Text style={styles.tableCellTextLeft}>{item?.material || ''}</Text>
-                  {formatDimensions(item) ? (
-                    <Text style={{ fontSize: 6.5, color: '#555', marginTop: 2, textAlign: 'left', paddingLeft: 4, lineHeight: 1.3 }}>
-                      {formatDimensions(item)}mm {item?.color ? `/ ${item.color}` : ''}
-                    </Text>
-                  ) : item?.color ? (
-                    <Text style={{ fontSize: 6.5, color: '#555', marginTop: 2, textAlign: 'left', paddingLeft: 4, lineHeight: 1.3 }}>
-                      {item.color}
-                    </Text>
-                  ) : null}
+              );
+            }
+            return (
+              <View style={styles.tableRow} key={idx} wrap={false}>
+                <View style={styles.colIndex}><Text style={styles.tableCellText}>{idx + 1}</Text></View>
+                <View style={styles.colDesc}>
+                  <View style={{ width: '100%' }}>
+                    <Text style={styles.tableCellTextLeft}>{item?.category || item?.name || ''}</Text>
+                  </View>
                 </View>
-              </View>
-              <View style={styles.colRemarks}>
-                <View style={{ width: '100%' }}>
-                  <Text style={styles.tableCellTextLeft}>{item?.remarks || ''}</Text>
+                <View style={styles.colMaterial}>
+                  <View style={{ width: '100%' }}>
+                    <Text style={styles.tableCellTextLeft}>{item?.material || ''}</Text>
+                    {formatDimensions(item) ? (
+                      <Text style={{ fontSize: 6.5, color: '#555', marginTop: 2, textAlign: 'left', paddingLeft: 4, lineHeight: 1.3 }}>
+                        {formatDimensions(item)}mm {item?.color ? `/ ${item.color}` : ''}
+                      </Text>
+                    ) : item?.color ? (
+                      <Text style={{ fontSize: 6.5, color: '#555', marginTop: 2, textAlign: 'left', paddingLeft: 4, lineHeight: 1.3 }}>
+                        {item.color}
+                      </Text>
+                    ) : null}
+                  </View>
                 </View>
+                <View style={styles.colRemarks}>
+                  <View style={{ width: '100%' }}>
+                    <Text style={styles.tableCellTextLeft}>{item?.remarks || ''}</Text>
+                  </View>
+                </View>
+                <View style={styles.colImage}>
+                  {item?.image ? (
+                    <Image src={item.image} style={styles.productImage} />
+                  ) : (
+                    <Text style={{ fontSize: 6, color: '#999' }}>{'\u2014'}</Text>
+                  )}
+                </View>
+                <View style={styles.colQty}><Text style={styles.tableCellText}>{item?.quantity || 0}</Text></View>
+                <View style={styles.colUnit}><Text style={styles.tableCellText}>{'\u5F35'}</Text></View>
+                <View style={styles.colUnitPrice}><Text style={styles.tableCellText}>HK${(item?.unitPrice || 0).toLocaleString()}</Text></View>
+                <View style={styles.colSubtotal}><Text style={styles.tableCellText}>HK${((item?.unitPrice || 0) * (item?.quantity || 0)).toLocaleString()}</Text></View>
               </View>
-              <View style={styles.colImage}>
-                {item?.image ? (
-                  <Image src={item.image} style={styles.productImage} />
-                ) : (
-                  <Text style={{ fontSize: 6, color: '#999' }}>{'\u2014'}</Text>
-                )}
-              </View>
-              <View style={styles.colQty}><Text style={styles.tableCellText}>{item?.quantity || 0}</Text></View>
-              <View style={styles.colUnit}><Text style={styles.tableCellText}>{'\u5F35'}</Text></View>
-              <View style={styles.colUnitPrice}><Text style={styles.tableCellText}>HK${(item?.unitPrice || 0).toLocaleString()}</Text></View>
-              <View style={styles.colSubtotal}><Text style={styles.tableCellText}>HK${((item?.unitPrice || 0) * (item?.quantity || 0)).toLocaleString()}</Text></View>
-            </View>
-          ))}
+            );
+          })}
 
           {/* Installation Fee Row */}
           <View style={styles.installRow} wrap={false}>

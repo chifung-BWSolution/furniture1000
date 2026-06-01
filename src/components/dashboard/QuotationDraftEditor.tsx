@@ -931,6 +931,7 @@ export function QuotationDraftEditor({
         dimensionWMm: item.dimensionWMm,
         dimensionHMm: item.dimensionHMm,
         deliveryTermName: item.deliveryTermName,
+        isCustomTerm: item.isCustomTerm,
       })),
     subtotal,
     discountNote,
@@ -1303,7 +1304,7 @@ export function QuotationDraftEditor({
                       className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-amber-500/50 px-3 py-1.5 font-body text-xs font-medium text-amber-600 transition-colors hover:bg-amber-500/5"
                     >
                       <Plus className="h-3.5 w-3.5" />
-                      新建條款
+                      增值服務
                     </button>
                     <button
                       type="button"
@@ -1367,20 +1368,15 @@ export function QuotationDraftEditor({
                             className="border-b border-border/50 last:border-b-0 bg-amber-500/5"
                           >
                             <td className="py-2 pr-2" colSpan={11}>
-                              <div className="flex items-center gap-2">
-                                <span className="rounded-md bg-amber-500/10 px-2 py-1 font-body text-[10px] font-medium text-amber-700">
-                                  條款
-                                </span>
-                                <input
-                                  type="text"
-                                  value={item.name || ""}
-                                  placeholder="輸入額外增值服務（例如：清拆、拆裝舊家私等）..."
-                                  onChange={(e) =>
-                                    updateItem(item.id, "name", e.target.value)
-                                  }
-                                  className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 font-body text-xs text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
-                                />
-                              </div>
+                              <input
+                                type="text"
+                                value={item.name || ""}
+                                placeholder="輸入額外增值服務（例如：清拆、拆裝舊家私等）..."
+                                onChange={(e) =>
+                                  updateItem(item.id, "name", e.target.value)
+                                }
+                                className="w-full rounded-md border border-border bg-background px-3 py-1.5 font-body text-xs text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                              />
                             </td>
                             <td className="py-2">
                               <button
