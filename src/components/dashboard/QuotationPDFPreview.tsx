@@ -245,13 +245,14 @@ const styles: Record<string, any> = {
   termsTitle: { fontSize: 9, fontWeight: 700, marginTop: 12, marginBottom: 6, textDecoration: 'underline', lineHeight: 1.4 },
   termItem: { fontSize: 7, lineHeight: 1.7, marginBottom: 1.5, textAlign: 'left' },
   termSubTitle: { fontSize: 8, fontWeight: 700, marginTop: 8, marginBottom: 3, lineHeight: 1.4 },
-  signatureSection: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 30, paddingTop: 12 },
+  signatureSection: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 36, paddingTop: 12 },
   signatureBlock: { width: '45%' },
-  signatureTitle: { fontSize: 9, fontWeight: 700, marginBottom: 4, lineHeight: 1.4 },
-  signatureLabel: { fontSize: 8, marginBottom: 30, lineHeight: 1.4 },
+  signatureTitle: { fontSize: 9, fontWeight: 700, marginBottom: 6, lineHeight: 1.4 },
+  signatureLabel: { fontSize: 8, lineHeight: 1.4 },
+  signatureMiddle: { height: 70, position: 'relative' },
   signatureLine: { borderBottomWidth: 0.5, borderColor: '#333', marginBottom: 4 },
   signatureDate: { fontSize: 7, color: '#666', lineHeight: 1.4 },
-  stamp: { width: 80, height: 80, objectFit: 'contain', position: 'absolute', bottom: 10, right: 0, opacity: 0.85 },
+  stamp: { width: 64, height: 64, objectFit: 'contain', position: 'absolute', bottom: 0, right: 0, opacity: 0.85 },
 };
 
 // ─── QuotationDocument (uses PDF primitives from module) ─────────────────────
@@ -334,11 +335,11 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
 
           {items.map((item, idx) => {
             if (item?.isCustomTerm) {
-              // Description spans 序號 → 圖例 (5 cols totalling 67%); 數量/單位/單價/總價 stay
+              // Description spans 說明→圖例 (4 cols: 12+26+9+15 = 62%); 數量/單位/單價/總價 keep their widths so columns align with product rows
               return (
                 <View style={{ display: 'flex', flexDirection: 'row', borderBottomWidth: 0.5, borderColor: '#ddd', minHeight: 28, alignItems: 'stretch' }} key={idx} wrap={false}>
                   <View style={styles.colIndex}><Text style={styles.tableCellText}>{idx + 1}</Text></View>
-                  <View style={{ width: '67%', paddingLeft: 6, paddingRight: 6, paddingTop: 6, paddingBottom: 6, display: 'flex', flexDirection: 'column', justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' }}>
+                  <View style={{ width: '62%', paddingLeft: 6, paddingRight: 6, paddingTop: 6, paddingBottom: 6, display: 'flex', flexDirection: 'column', justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' }}>
                     <Text style={styles.tableCellTextLeft}>{item?.name || ''}</Text>
                   </View>
                   <View style={styles.colQty}><Text style={styles.tableCellText}>{item?.quantity || 0}</Text></View>
@@ -390,9 +391,9 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
             );
           })}
 
-          {/* Installation Fee Row */}
+          {/* Installation Fee Row — column widths align with product row: title+condition span 77% (序號→單位), free=10.5% (單價), charge=12.5% (總價) */}
           <View style={styles.installRow} wrap={false}>
-            <View style={{ width: '60%', padding: 4, justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' }}>
+            <View style={{ width: '57%', padding: 4, justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' }}>
               <Text style={{ fontSize: 7, fontWeight: 700, lineHeight: 1.4 }}>{data.installationFee?.title || '\u50A2\u4FF1\u5B89\u88DD\u8CBB\u7528'}</Text>
               <Text style={{ fontSize: 6.5, color: '#666', lineHeight: 1.4 }}>{data.installationFee?.subtitle || '\u5B89\u88DD\u6E05\u55AE\u4E2D\u50A2\u4FF1\u7522\u54C1\u4E26\u6E05\u7406\u5305\u88DD\u5783\u573E'}</Text>
             </View>
@@ -401,10 +402,10 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
                 {data.installationFee?.conditionText || '\u8A02\u55AE\u7E3D\u91D1\u984D\u6EFF HK$12,000\n\u5C07\u4E0D\u6536\u53D6\u5B89\u88DD\u8CBB\u7528'}
               </Text>
             </View>
-            <View style={{ width: '10%', padding: 4, justifyContent: 'center', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd' }}>
+            <View style={{ width: '10.5%', padding: 4, justifyContent: 'center', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd' }}>
               <Text style={styles.tableCellText}>{isFreeInstallation ? 'FREE' : (data.installationFee?.freeLabel || '\u53E6\u8B70')}</Text>
             </View>
-            <View style={{ width: '10%', padding: 4, justifyContent: 'center', alignItems: 'center' }}>
+            <View style={{ width: '12.5%', padding: 4, justifyContent: 'center', alignItems: 'center' }}>
               <Text style={styles.tableCellText}>{isFreeInstallation ? 'FREE' : (data.installationFee?.chargeLabel || '\u53E6\u8B70')}</Text>
             </View>
           </View>
@@ -517,18 +518,21 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
           </>
         )}
 
-        {/* Signature Section */}
-        <View style={styles.signatureSection}>
+        {/* Signature Section — wrap={false} keeps it intact on a single page */}
+        <View style={styles.signatureSection} wrap={false}>
           <View style={styles.signatureBlock}>
             <Text style={styles.signatureTitle}>{'\u5BA2\u6236\u78BA\u8A8D'}</Text>
             <Text style={styles.signatureLabel}>{'\u5BA2\u6236\u6388\u6B0A\u4EBA\u59D3\u540D\u53CA\u7C3D\u540D'}</Text>
+            <View style={styles.signatureMiddle} />
             <View style={styles.signatureLine} />
             <Text style={styles.signatureDate}>{'\u7C3D\u7F72\u65E5\u671F:'}</Text>
           </View>
-          <View style={{ ...styles.signatureBlock, position: 'relative' }}>
+          <View style={styles.signatureBlock}>
             <Text style={styles.signatureTitle}>{'Branding Works \u4EE3\u8868'}</Text>
-            <Image src={stampUrl} style={styles.stamp} />
-            <View style={{ height: 30 }} />
+            <Text style={styles.signatureLabel}>{' '}</Text>
+            <View style={styles.signatureMiddle}>
+              <Image src={stampUrl} style={styles.stamp} />
+            </View>
             <View style={styles.signatureLine} />
             <Text style={styles.signatureDate}>{today}</Text>
           </View>

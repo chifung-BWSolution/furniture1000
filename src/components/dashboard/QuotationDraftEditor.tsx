@@ -1341,14 +1341,14 @@ export function QuotationDraftEditor({
               {/* 報價內容表格 */}
               <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
                 <div className="mb-4 flex items-center justify-between">
-                  <h2 className="font-display text-sm font-bold text-foreground/80">
+                  <h2 className="font-display text-base font-bold text-foreground/80">
                     報價內容
                   </h2>
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
                       onClick={addCustomTerm}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-amber-500/50 px-3 py-1.5 font-body text-xs font-medium text-amber-600 transition-colors hover:bg-amber-500/5"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-amber-500/50 px-3 py-1.5 font-body text-sm font-medium text-amber-600 transition-colors hover:bg-amber-500/5"
                     >
                       <Plus className="h-3.5 w-3.5" />
                       增值服務
@@ -1359,7 +1359,7 @@ export function QuotationDraftEditor({
                         setActiveItemId(null);
                         setShowProductSelector(true);
                       }}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-primary/40 px-3 py-1.5 font-body text-xs font-medium text-primary transition-colors hover:bg-primary/5"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-primary/40 px-3 py-1.5 font-body text-sm font-medium text-primary transition-colors hover:bg-primary/5"
                     >
                       <Plus className="h-3.5 w-3.5" />
                       新增產品
@@ -1371,43 +1371,43 @@ export function QuotationDraftEditor({
                   <table className="w-full text-left">
                     <thead>
                       <tr className="border-b border-border">
-                        <th className="pb-2 pr-2 font-body text-[10px] font-medium text-muted-foreground" style={{ minWidth: "50px" }}>
+                        <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "50px" }}>
                           圖片
                         </th>
-                        <th className="pb-2 pr-2 font-body text-[10px] font-medium text-muted-foreground" style={{ minWidth: "60px" }}>
+                        <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "60px" }}>
                           參考圖
                         </th>
-                        <th className="pb-2 pr-2 font-body text-[10px] font-medium text-muted-foreground" style={{ minWidth: "60px" }}>
+                        <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "60px" }}>
                           類別
                         </th>
-                        <th className="pb-2 pr-2 font-body text-[10px] font-medium text-muted-foreground" style={{ minWidth: "140px" }}>
+                        <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "140px" }}>
                           產品名稱
                         </th>
-                        <th className="pb-2 pr-2 font-body text-[10px] font-medium text-muted-foreground" style={{ minWidth: "160px" }}>
+                        <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "160px" }}>
                           材質及明細
                         </th>
-                        <th className="pb-2 pr-2 font-body text-[10px] font-medium text-muted-foreground" style={{ minWidth: "120px" }}>
+                        <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "120px" }}>
                           尺寸(mm)
                         </th>
-                        <th className="pb-2 pr-2 font-body text-[10px] font-medium text-muted-foreground" style={{ minWidth: "80px" }}>
+                        <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "80px" }}>
                           成本價
                         </th>
-                        <th className="pb-2 pr-2 font-body text-[10px] font-medium text-muted-foreground" style={{ minWidth: "80px" }}>
+                        <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "80px" }}>
                           單價
                         </th>
-                        <th className="pb-2 pr-2 font-body text-[10px] font-medium text-muted-foreground" style={{ minWidth: "60px" }}>
+                        <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "60px" }}>
                           數量
                         </th>
-                        <th className="pb-2 pr-2 font-body text-[10px] font-medium text-muted-foreground" style={{ minWidth: "80px" }}>
+                        <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "80px" }}>
                           貨期
                         </th>
-                        <th className="pb-2 pr-2 font-body text-[10px] font-medium text-muted-foreground" style={{ minWidth: "120px" }}>
+                        <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "120px" }}>
                           備註
                         </th>
-                        <th className="pb-2 pr-2 font-body text-[10px] font-medium text-muted-foreground" style={{ minWidth: "70px" }}>
+                        <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "70px" }}>
                           小計
                         </th>
-                        <th className="pb-2 font-body text-[10px] font-medium text-muted-foreground"></th>
+                        <th className="pb-2 font-body text-xs font-medium text-muted-foreground"></th>
                       </tr>
                     </thead>
                     <tbody>
@@ -1502,7 +1502,7 @@ export function QuotationDraftEditor({
                               onChange={(e) =>
                                 updateItem(item.id, "category", e.target.value)
                               }
-                              className="w-full min-w-[50px] rounded-md border border-border bg-background px-2 py-1.5 font-body text-[10px] text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                              className="w-full min-w-[50px] rounded-md border border-border bg-background px-2 py-1.5 font-body text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
                             />
                           </td>
                           {/* 產品名稱 */}
@@ -1526,7 +1526,7 @@ export function QuotationDraftEditor({
                               onChange={(e) =>
                                 updateItem(item.id, "material", e.target.value)
                               }
-                              className="w-full min-w-[140px] rounded-md border border-border bg-background px-2 py-1.5 font-body text-[10px] leading-relaxed text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 resize-y"
+                              className="w-full min-w-[140px] rounded-md border border-border bg-background px-2 py-1.5 font-body text-xs leading-relaxed text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 resize-y"
                             />
                           </td>
                           {/* 尺寸 */}
@@ -1539,9 +1539,9 @@ export function QuotationDraftEditor({
                                 onChange={(e) =>
                                   updateItem(item.id, "dimensionLMm", e.target.value ? parseInt(e.target.value) : null)
                                 }
-                                className="w-10 rounded-md border border-border bg-background px-1 py-1.5 font-mono-data text-[10px] text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                                className="w-12 rounded-md border border-border bg-background px-1 py-1.5 font-mono-data text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
                               />
-                              <span className="text-[9px] text-muted-foreground">×</span>
+                              <span className="text-xs text-muted-foreground">×</span>
                               <input
                                 type="number"
                                 value={item.dimensionWMm ?? ""}
@@ -1549,9 +1549,9 @@ export function QuotationDraftEditor({
                                 onChange={(e) =>
                                   updateItem(item.id, "dimensionWMm", e.target.value ? parseInt(e.target.value) : null)
                                 }
-                                className="w-10 rounded-md border border-border bg-background px-1 py-1.5 font-mono-data text-[10px] text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                                className="w-12 rounded-md border border-border bg-background px-1 py-1.5 font-mono-data text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
                               />
-                              <span className="text-[9px] text-muted-foreground">×</span>
+                              <span className="text-xs text-muted-foreground">×</span>
                               <input
                                 type="number"
                                 value={item.dimensionHMm ?? ""}
@@ -1559,7 +1559,7 @@ export function QuotationDraftEditor({
                                 onChange={(e) =>
                                   updateItem(item.id, "dimensionHMm", e.target.value ? parseInt(e.target.value) : null)
                                 }
-                                className="w-10 rounded-md border border-border bg-background px-1 py-1.5 font-mono-data text-[10px] text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                                className="w-12 rounded-md border border-border bg-background px-1 py-1.5 font-mono-data text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
                               />
                             </div>
                           </td>
@@ -1622,7 +1622,7 @@ export function QuotationDraftEditor({
                               onChange={(e) =>
                                 updateItem(item.id, "deliveryTermName", e.target.value)
                               }
-                              className="w-20 rounded-md border border-border bg-background px-2 py-1.5 font-body text-[10px] text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                              className="w-20 rounded-md border border-border bg-background px-2 py-1.5 font-body text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
                             />
                           </td>
                           {/* 備註 (supports text + image) */}
@@ -1677,7 +1677,7 @@ export function QuotationDraftEditor({
                     <button
                       type="button"
                       onClick={applyPriceMultiplier}
-                      className="rounded-md border border-primary/30 bg-primary/5 px-2.5 py-1 font-body text-[10px] font-medium text-primary transition-colors hover:bg-primary/10"
+                      className="rounded-md border border-primary/30 bg-primary/5 px-2.5 py-1 font-body text-xs font-medium text-primary transition-colors hover:bg-primary/10"
                     >
                       套用
                     </button>
@@ -1700,7 +1700,7 @@ export function QuotationDraftEditor({
                           onChange={(e) =>
                             setInstallationFee((prev) => ({ ...prev, subtitle: e.target.value }))
                           }
-                          className="w-full bg-transparent text-muted-foreground text-[10px] focus:outline-none focus:ring-1 focus:ring-primary/30 rounded px-1"
+                          className="w-full bg-transparent text-muted-foreground text-xs focus:outline-none focus:ring-1 focus:ring-primary/30 rounded px-1"
                         />
                       </div>
                       <div className="flex flex-col justify-center px-3 py-2 border-r border-border text-center" style={{ width: '30%' }}>
@@ -1710,7 +1710,7 @@ export function QuotationDraftEditor({
                             setInstallationFee((prev) => ({ ...prev, conditionText: e.target.value }))
                           }
                           rows={2}
-                          className="w-full bg-transparent text-muted-foreground text-[10px] leading-relaxed text-center focus:outline-none focus:ring-1 focus:ring-primary/30 rounded px-1 resize-none"
+                          className="w-full bg-transparent text-muted-foreground text-xs leading-relaxed text-center focus:outline-none focus:ring-1 focus:ring-primary/30 rounded px-1 resize-none"
                         />
                       </div>
                       <div className="flex items-center justify-center px-2 py-2 border-r border-border font-medium" style={{ width: '12.5%' }}>
