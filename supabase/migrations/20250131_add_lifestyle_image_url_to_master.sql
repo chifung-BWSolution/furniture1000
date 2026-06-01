@@ -1,0 +1,6 @@
+-- This migration needs to be run on the MASTER Supabase project (kqwktnplkqucsbasyfjl)
+-- It cannot be run on this project as bwf_product_master lives on the master DB.
+-- Run this SQL directly in the master project's SQL editor:
+--
+-- ALTER TABLE bwf_product_master ADD COLUMN IF NOT EXISTS lifestyle_image_url TEXT;
+-- NOTIFY pgrst, 'reload schema';
