@@ -75,12 +75,9 @@ export const STANDARD_HEADERS = [
   { value: 'material', label: 'Material (材質描述) → material', labelZh: '材質描述' },
   { value: 'color', label: 'Color (顏色) → color', labelZh: '顏色' },
   // ── Dimensions (stored as mm in DB) — SEPARATE COLUMNS PREFERRED ──
-  { value: 'dim_length_mm', label: '長度 (mm) → dimension_l_mm', labelZh: '長度 (mm)' },
-  { value: 'dim_width_mm', label: '闊度 (mm) → dimension_w_mm', labelZh: '闊度 (mm)' },
-  { value: 'dim_height_mm', label: '高度 (mm) → dimension_h_mm', labelZh: '高度 (mm)' },
-  { value: 'dim_length', label: 'Length (長 cm) → dimension_l_mm', labelZh: '長 (cm)' },
-  { value: 'dim_width', label: 'Width (闊 cm) → dimension_w_mm', labelZh: '闊 (cm)' },
-  { value: 'dim_height', label: 'Height (高 cm) → dimension_h_mm', labelZh: '高 (cm)' },
+  { value: 'dim_length_mm', label: '長度 → dimension_l_mm', labelZh: '長度' },
+  { value: 'dim_width_mm', label: '闊度 → dimension_w_mm', labelZh: '闊度' },
+  { value: 'dim_height_mm', label: '高度 → dimension_h_mm', labelZh: '高度' },
   { value: 'dimensions', label: 'Dimensions Combined (尺寸) → splits to 長/闊/高', labelZh: '尺寸(合併)' },
   // ── Classification ──
   { value: 'collection', label: 'Collection/Category (系列) → category', labelZh: '系列' },
@@ -191,8 +188,7 @@ function detectDimensionsColumnFromData(
 ): number {
   // Skip if a dimensions/dim_* mapping already exists
   for (const v of Object.values(mapping)) {
-    if (v === 'dimensions' || v === 'dim_length' || v === 'dim_width' || v === 'dim_height' ||
-        v === 'dim_length_mm' || v === 'dim_width_mm' || v === 'dim_height_mm') {
+    if (v === 'dimensions' || v === 'dim_length_mm' || v === 'dim_width_mm' || v === 'dim_height_mm') {
       return -1;
     }
   }
@@ -244,12 +240,9 @@ function autoDetectMappings(headers: string[], rows?: RawExtractedRow[], columnC
     { field: 'material', regex: /material|材質|材质|用料|fabric|面料|材质描述/i },
     { field: 'color', regex: /color|colour|顏色|颜色|色/i },
     { field: 'dimensions', regex: /dimension|尺寸|size|規格|规格|長寬高|长宽高|L\*W\*H|W\*D\*H/i },
-    { field: 'dim_length', regex: /^(L|length|長|长|長度|长度)$/i },
-    { field: 'dim_width', regex: /^(W|width|寬|宽|寬度|宽度|闊)$/i },
-    { field: 'dim_height', regex: /^(H|height|高|高度)$/i },
-    { field: 'dim_length_mm', regex: /^(長度?\s*[\(（]?\s*mm\s*[\)）]?|长度?\s*[\(（]?\s*mm\s*[\)）]?)$/i },
-    { field: 'dim_width_mm', regex: /^(闊度?\s*[\(（]?\s*mm\s*[\)）]?|寬度?\s*[\(（]?\s*mm\s*[\)）]?|宽度?\s*[\(（]?\s*mm\s*[\)）]?)$/i },
-    { field: 'dim_height_mm', regex: /^(高度?\s*[\(（]?\s*mm\s*[\)）]?)$/i },
+    { field: 'dim_length_mm', regex: /^(L|length|長|长|長度|长度|長度?\s*[\(（]?\s*[mc]m\s*[\)）]?|长度?\s*[\(（]?\s*[mc]m\s*[\)）]?)$/i },
+    { field: 'dim_width_mm', regex: /^(W|width|寬|宽|寬度|宽度|闊|闊度?\s*[\(（]?\s*[mc]m\s*[\)）]?|寬度?\s*[\(（]?\s*[mc]m\s*[\)）]?|宽度?\s*[\(（]?\s*[mc]m\s*[\)）]?)$/i },
+    { field: 'dim_height_mm', regex: /^(H|height|高|高度|高度?\s*[\(（]?\s*[mc]m\s*[\)）]?)$/i },
     { field: 'collection', regex: /series|系列|collection|category|類別|类别/i },
     { field: 'factory_name', regex: /factory|工廠|工厂|manufacturer|供應商|供应商|廠名|厂名/i },
     { field: 'production_lead_time', regex: /lead\s*time|生产周期|生產週期|工期/i },
@@ -710,8 +703,7 @@ export function ExcelPreviewTable({
           // run data-based dimension detection so columns like 550*600*830
           // are still split into 長/闊/高 even when older saved mappings exist.
           const hasDimMapping = Object.values(cleanMapping).some(v =>
-            v === 'dimensions' || v === 'dim_length' || v === 'dim_width' || v === 'dim_height' ||
-            v === 'dim_length_mm' || v === 'dim_width_mm' || v === 'dim_height_mm'
+            v === 'dimensions' || v === 'dim_length_mm' || v === 'dim_width_mm' || v === 'dim_height_mm'
           );
           if (!hasDimMapping) {
             const sd = sheetDataList.find(s => s.sheetName === sheetName);
@@ -1002,9 +994,6 @@ export function ExcelPreviewTable({
     
     // Find which columns are mapped to dimension-related fields
     const dimCombinedCol = Object.entries(currentMapping).find(([k, v]) => v === 'dimensions' && !k.startsWith('__'))?.[0];
-    const dimLCol = Object.entries(currentMapping).find(([k, v]) => v === 'dim_length' && !k.startsWith('__'))?.[0];
-    const dimWCol = Object.entries(currentMapping).find(([k, v]) => v === 'dim_width' && !k.startsWith('__'))?.[0];
-    const dimHCol = Object.entries(currentMapping).find(([k, v]) => v === 'dim_height' && !k.startsWith('__'))?.[0];
     const dimLMmCol = Object.entries(currentMapping).find(([k, v]) => v === 'dim_length_mm' && !k.startsWith('__'))?.[0];
     const dimWMmCol = Object.entries(currentMapping).find(([k, v]) => v === 'dim_width_mm' && !k.startsWith('__'))?.[0];
     const dimHMmCol = Object.entries(currentMapping).find(([k, v]) => v === 'dim_height_mm' && !k.startsWith('__'))?.[0];
@@ -1036,75 +1025,6 @@ export function ExcelPreviewTable({
         if (parsed.l !== null) result[`${row.rowIndex}:dim_l`] = String(parsed.l);
         if (parsed.w !== null) result[`${row.rowIndex}:dim_w`] = String(parsed.w);
         if (parsed.h !== null) result[`${row.rowIndex}:dim_h`] = String(parsed.h);
-      }
-    }
-    
-    // For individual cm fields, show the mm-converted value as a plain number (no suffix)
-    // ALSO handle complex dimension strings (e.g., "60/70/80*75") by parsing via parseSmartDimensions
-    if (dimLCol !== undefined) {
-      const colIdx = Number(dimLCol);
-      const headerText = activeSheet.headerLabels[colIdx] || '';
-      for (const row of displayRows) {
-        const rawVal = row.cells[colIdx];
-        if (rawVal === null || rawVal === undefined) continue;
-        const rawStr = String(rawVal).trim();
-        if (!rawStr) continue;
-        
-        if (rawStr.includes('/') || rawStr.includes('*') || rawStr.includes('×') || rawStr.includes('\n')) {
-          const parsed = parseSmartDimensions(rawStr, headerText);
-          if (parsed.l !== null) {
-            result[`${row.rowIndex}:dim_display:${colIdx}`] = String(parsed.l);
-          }
-        } else {
-          const num = typeof rawVal === 'number' ? rawVal : parseFloat(rawStr.replace(/[,$¥￥]/g, ''));
-          if (!isNaN(num)) {
-            result[`${row.rowIndex}:dim_display:${colIdx}`] = String(Math.round(num * 10));
-          }
-        }
-      }
-    }
-    if (dimWCol !== undefined) {
-      const colIdx = Number(dimWCol);
-      const headerText = activeSheet.headerLabels[colIdx] || '';
-      for (const row of displayRows) {
-        const rawVal = row.cells[colIdx];
-        if (rawVal === null || rawVal === undefined) continue;
-        const rawStr = String(rawVal).trim();
-        if (!rawStr) continue;
-        
-        if (rawStr.includes('/') || rawStr.includes('*') || rawStr.includes('×') || rawStr.includes('\n')) {
-          const parsed = parseSmartDimensions(rawStr, headerText);
-          if (parsed.w !== null) {
-            result[`${row.rowIndex}:dim_display:${colIdx}`] = String(parsed.w);
-          }
-        } else {
-          const num = typeof rawVal === 'number' ? rawVal : parseFloat(rawStr.replace(/[,$¥￥]/g, ''));
-          if (!isNaN(num)) {
-            result[`${row.rowIndex}:dim_display:${colIdx}`] = String(Math.round(num * 10));
-          }
-        }
-      }
-    }
-    if (dimHCol !== undefined) {
-      const colIdx = Number(dimHCol);
-      const headerText = activeSheet.headerLabels[colIdx] || '';
-      for (const row of displayRows) {
-        const rawVal = row.cells[colIdx];
-        if (rawVal === null || rawVal === undefined) continue;
-        const rawStr = String(rawVal).trim();
-        if (!rawStr) continue;
-        
-        if (rawStr.includes('/') || rawStr.includes('*') || rawStr.includes('×') || rawStr.includes('\n')) {
-          const parsed = parseSmartDimensions(rawStr, headerText);
-          if (parsed.h !== null) {
-            result[`${row.rowIndex}:dim_display:${colIdx}`] = String(parsed.h);
-          }
-        } else {
-          const num = typeof rawVal === 'number' ? rawVal : parseFloat(rawStr.replace(/[,$¥￥]/g, ''));
-          if (!isNaN(num)) {
-            result[`${row.rowIndex}:dim_display:${colIdx}`] = String(Math.round(num * 10));
-          }
-        }
       }
     }
     
@@ -1967,7 +1887,7 @@ export function ExcelPreviewTable({
                         // ── Smart Dimension Display ──
                         // If this column is mapped to a dimension field, show parsed value instead of raw
                         let displayVal = '';
-                        const isDimensionField = mapping === 'dim_length' || mapping === 'dim_width' || mapping === 'dim_height' || mapping === 'dim_length_mm' || mapping === 'dim_width_mm' || mapping === 'dim_height_mm';
+                        const isDimensionField = mapping === 'dim_length_mm' || mapping === 'dim_width_mm' || mapping === 'dim_height_mm';
                         const isPriceField = mapping === 'cost_price' || mapping === 'sale_price';
                         
                         if (isDimensionField && rawDisplayVal) {
@@ -1986,18 +1906,6 @@ export function ExcelPreviewTable({
                               } else if (mapping === 'dim_width_mm' && parsed.w !== null) {
                                 displayVal = String(parsed.w);
                               } else if (mapping === 'dim_height_mm' && parsed.h !== null) {
-                                displayVal = String(parsed.h);
-                              } else {
-                                displayVal = rawDisplayVal ? simplifiedToTraditional(rawDisplayVal) : '';
-                              }
-                            } else if ((mapping === 'dim_length' || mapping === 'dim_width' || mapping === 'dim_height') && (rawDisplayVal.includes('/') || rawDisplayVal.includes('*'))) {
-                              const headerText = activeSheet.headerLabels[colIdx] || '';
-                              const parsed = parseSmartDimensions(rawDisplayVal, headerText);
-                              if (mapping === 'dim_length' && parsed.l !== null) {
-                                displayVal = String(parsed.l);
-                              } else if (mapping === 'dim_width' && parsed.w !== null) {
-                                displayVal = String(parsed.w);
-                              } else if (mapping === 'dim_height' && parsed.h !== null) {
                                 displayVal = String(parsed.h);
                               } else {
                                 displayVal = rawDisplayVal ? simplifiedToTraditional(rawDisplayVal) : '';

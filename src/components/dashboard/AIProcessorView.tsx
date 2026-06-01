@@ -2349,93 +2349,43 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         const shippingFee = getCellNum('shipping_fee');
         const remarks = getCellStr('remarks') || null;
 
-        // Parse dimensions — support combined, individual (cm), AND individual (mm) fields
-        // Priority: dim_length_mm/dim_width_mm/dim_height_mm (already in mm, no conversion)
-        //         > dim_length/dim_width/dim_height (assumed cm, multiply by 10)
-        //         > dimensions combined (parsed with advanced logic)
+        // Parse dimensions — support individual (mm) fields OR combined string
         let dimensionLMm: number | null = null;
         let dimensionWMm: number | null = null;
         let dimensionHMm: number | null = null;
 
-        // Check if mm fields are mapped
         const dimLMmStr = getCellStr('dim_length_mm');
         const dimWMmStr = getCellStr('dim_width_mm');
         const dimHMmStr = getCellStr('dim_height_mm');
-        const hasMmFields = dimLMmStr || dimWMmStr || dimHMmStr;
 
-        if (hasMmFields) {
-          // For mm fields, handle complex dimension strings (e.g., "60/70/80*75") via parseSmartDimensions
-          if (dimLMmStr && (dimLMmStr.includes('/') || dimLMmStr.includes('*') || dimLMmStr.includes('×') || dimLMmStr.includes('\n'))) {
-            const currentSheet = sheets?.find(s => s.sheetName === sheetName);
-            const colIdx = fieldToCol['dim_length_mm'];
-            const headerText = (colIdx !== undefined && currentSheet) ? (currentSheet.headerLabels[colIdx] || '') : '';
-            const parsed = parseSmartDimensions(dimLMmStr, headerText);
-            dimensionLMm = parsed.l;
-          } else {
-            dimensionLMm = getCellNum('dim_length_mm');
-          }
-          if (dimWMmStr && (dimWMmStr.includes('/') || dimWMmStr.includes('*') || dimWMmStr.includes('×') || dimWMmStr.includes('\n'))) {
-            const currentSheet = sheets?.find(s => s.sheetName === sheetName);
-            const colIdx = fieldToCol['dim_width_mm'];
-            const headerText = (colIdx !== undefined && currentSheet) ? (currentSheet.headerLabels[colIdx] || '') : '';
-            const parsed = parseSmartDimensions(dimWMmStr, headerText);
-            dimensionWMm = parsed.w;
-          } else {
-            dimensionWMm = getCellNum('dim_width_mm');
-          }
-          if (dimHMmStr && (dimHMmStr.includes('/') || dimHMmStr.includes('*') || dimHMmStr.includes('×') || dimHMmStr.includes('\n'))) {
-            const currentSheet = sheets?.find(s => s.sheetName === sheetName);
-            const colIdx = fieldToCol['dim_height_mm'];
-            const headerText = (colIdx !== undefined && currentSheet) ? (currentSheet.headerLabels[colIdx] || '') : '';
-            const parsed = parseSmartDimensions(dimHMmStr, headerText);
-            dimensionHMm = parsed.h;
-          } else {
-            dimensionHMm = getCellNum('dim_height_mm');
-          }
-
-          // Round for clean storage
-          if (dimensionLMm !== null) dimensionLMm = Math.round(dimensionLMm);
-          if (dimensionWMm !== null) dimensionWMm = Math.round(dimensionWMm);
-          if (dimensionHMm !== null) dimensionHMm = Math.round(dimensionHMm);
+        if (dimLMmStr && (dimLMmStr.includes('/') || dimLMmStr.includes('*') || dimLMmStr.includes('×') || dimLMmStr.includes('\n'))) {
+          const currentSheet = sheets?.find(s => s.sheetName === sheetName);
+          const colIdx = fieldToCol['dim_length_mm'];
+          const headerText = (colIdx !== undefined && currentSheet) ? (currentSheet.headerLabels[colIdx] || '') : '';
+          dimensionLMm = parseSmartDimensions(dimLMmStr, headerText).l;
         } else {
-          // Try individual cm fields — also handle complex strings
-          const dimLStr = getCellStr('dim_length');
-          const dimWStr = getCellStr('dim_width');
-          const dimHStr = getCellStr('dim_height');
-
-          if (dimLStr && (dimLStr.includes('/') || dimLStr.includes('*') || dimLStr.includes('×') || dimLStr.includes('\n'))) {
-            const currentSheet = sheets?.find(s => s.sheetName === sheetName);
-            const colIdx = fieldToCol['dim_length'];
-            const headerText = (colIdx !== undefined && currentSheet) ? (currentSheet.headerLabels[colIdx] || '') : '';
-            const parsed = parseSmartDimensions(dimLStr, headerText);
-            dimensionLMm = parsed.l; // parseSmartDimensions already returns mm
-          } else {
-            dimensionLMm = getCellNum('dim_length');
-            if (dimensionLMm !== null) dimensionLMm = Math.round(dimensionLMm * 10);
-          }
-
-          if (dimWStr && (dimWStr.includes('/') || dimWStr.includes('*') || dimWStr.includes('×') || dimWStr.includes('\n'))) {
-            const currentSheet = sheets?.find(s => s.sheetName === sheetName);
-            const colIdx = fieldToCol['dim_width'];
-            const headerText = (colIdx !== undefined && currentSheet) ? (currentSheet.headerLabels[colIdx] || '') : '';
-            const parsed = parseSmartDimensions(dimWStr, headerText);
-            dimensionWMm = parsed.w;
-          } else {
-            dimensionWMm = getCellNum('dim_width');
-            if (dimensionWMm !== null) dimensionWMm = Math.round(dimensionWMm * 10);
-          }
-
-          if (dimHStr && (dimHStr.includes('/') || dimHStr.includes('*') || dimHStr.includes('×') || dimHStr.includes('\n'))) {
-            const currentSheet = sheets?.find(s => s.sheetName === sheetName);
-            const colIdx = fieldToCol['dim_height'];
-            const headerText = (colIdx !== undefined && currentSheet) ? (currentSheet.headerLabels[colIdx] || '') : '';
-            const parsed = parseSmartDimensions(dimHStr, headerText);
-            dimensionHMm = parsed.h;
-          } else {
-            dimensionHMm = getCellNum('dim_height');
-            if (dimensionHMm !== null) dimensionHMm = Math.round(dimensionHMm * 10);
-          }
+          dimensionLMm = getCellNum('dim_length_mm');
         }
+        if (dimWMmStr && (dimWMmStr.includes('/') || dimWMmStr.includes('*') || dimWMmStr.includes('×') || dimWMmStr.includes('\n'))) {
+          const currentSheet = sheets?.find(s => s.sheetName === sheetName);
+          const colIdx = fieldToCol['dim_width_mm'];
+          const headerText = (colIdx !== undefined && currentSheet) ? (currentSheet.headerLabels[colIdx] || '') : '';
+          dimensionWMm = parseSmartDimensions(dimWMmStr, headerText).w;
+        } else {
+          dimensionWMm = getCellNum('dim_width_mm');
+        }
+        if (dimHMmStr && (dimHMmStr.includes('/') || dimHMmStr.includes('*') || dimHMmStr.includes('×') || dimHMmStr.includes('\n'))) {
+          const currentSheet = sheets?.find(s => s.sheetName === sheetName);
+          const colIdx = fieldToCol['dim_height_mm'];
+          const headerText = (colIdx !== undefined && currentSheet) ? (currentSheet.headerLabels[colIdx] || '') : '';
+          dimensionHMm = parseSmartDimensions(dimHMmStr, headerText).h;
+        } else {
+          dimensionHMm = getCellNum('dim_height_mm');
+        }
+
+        if (dimensionLMm !== null) dimensionLMm = Math.round(dimensionLMm);
+        if (dimensionWMm !== null) dimensionWMm = Math.round(dimensionWMm);
+        if (dimensionHMm !== null) dimensionHMm = Math.round(dimensionHMm);
 
         // Fallback: parse from combined dimensions string using smart parser (unit-aware)
         // Trigger if ALL three dimension fields are still null and we have a combined string
@@ -2698,92 +2648,43 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         const nameKey = `${sheetName}:${row.rowIndex}`;
         const aiGeneratedName = productNames[nameKey] || '';
 
-        // Parse dimensions — support combined, individual (cm), AND individual (mm) fields
-        // Priority: dim_length_mm/dim_width_mm/dim_height_mm (already in mm, no conversion)
-        //         > dim_length/dim_width/dim_height (assumed cm, multiply by 10)
-        //         > dimensions combined (parsed with advanced logic)
+        // Parse dimensions — individual (mm) fields OR combined string
         let dimensionLMm: number | null = null;
         let dimensionWMm: number | null = null;
         let dimensionHMm: number | null = null;
 
-        // Check if mm fields are mapped
         const dimLMmStr2 = getCellStr('dim_length_mm');
         const dimWMmStr2 = getCellStr('dim_width_mm');
         const dimHMmStr2 = getCellStr('dim_height_mm');
-        const hasMmFields2 = dimLMmStr2 || dimWMmStr2 || dimHMmStr2;
 
-        if (hasMmFields2) {
-          // Handle complex dimension strings via parseSmartDimensions
-          if (dimLMmStr2 && (dimLMmStr2.includes('/') || dimLMmStr2.includes('*') || dimLMmStr2.includes('×') || dimLMmStr2.includes('\n'))) {
-            const currentSheet = sheets?.find(s => s.sheetName === sheetName);
-            const colIdx = fieldToCol['dim_length_mm'];
-            const headerText = (colIdx !== undefined && currentSheet) ? (currentSheet.headerLabels[colIdx] || '') : '';
-            const parsed = parseSmartDimensions(dimLMmStr2, headerText);
-            dimensionLMm = parsed.l;
-          } else {
-            dimensionLMm = getCellNum('dim_length_mm');
-          }
-          if (dimWMmStr2 && (dimWMmStr2.includes('/') || dimWMmStr2.includes('*') || dimWMmStr2.includes('×') || dimWMmStr2.includes('\n'))) {
-            const currentSheet = sheets?.find(s => s.sheetName === sheetName);
-            const colIdx = fieldToCol['dim_width_mm'];
-            const headerText = (colIdx !== undefined && currentSheet) ? (currentSheet.headerLabels[colIdx] || '') : '';
-            const parsed = parseSmartDimensions(dimWMmStr2, headerText);
-            dimensionWMm = parsed.w;
-          } else {
-            dimensionWMm = getCellNum('dim_width_mm');
-          }
-          if (dimHMmStr2 && (dimHMmStr2.includes('/') || dimHMmStr2.includes('*') || dimHMmStr2.includes('×') || dimHMmStr2.includes('\n'))) {
-            const currentSheet = sheets?.find(s => s.sheetName === sheetName);
-            const colIdx = fieldToCol['dim_height_mm'];
-            const headerText = (colIdx !== undefined && currentSheet) ? (currentSheet.headerLabels[colIdx] || '') : '';
-            const parsed = parseSmartDimensions(dimHMmStr2, headerText);
-            dimensionHMm = parsed.h;
-          } else {
-            dimensionHMm = getCellNum('dim_height_mm');
-          }
-
-          if (dimensionLMm !== null) dimensionLMm = Math.round(dimensionLMm);
-          if (dimensionWMm !== null) dimensionWMm = Math.round(dimensionWMm);
-          if (dimensionHMm !== null) dimensionHMm = Math.round(dimensionHMm);
+        if (dimLMmStr2 && (dimLMmStr2.includes('/') || dimLMmStr2.includes('*') || dimLMmStr2.includes('×') || dimLMmStr2.includes('\n'))) {
+          const currentSheet = sheets?.find(s => s.sheetName === sheetName);
+          const colIdx = fieldToCol['dim_length_mm'];
+          const headerText = (colIdx !== undefined && currentSheet) ? (currentSheet.headerLabels[colIdx] || '') : '';
+          dimensionLMm = parseSmartDimensions(dimLMmStr2, headerText).l;
         } else {
-          // Try individual cm fields — also handle complex strings
-          const dimLStr2 = getCellStr('dim_length');
-          const dimWStr2 = getCellStr('dim_width');
-          const dimHStr2 = getCellStr('dim_height');
-
-          if (dimLStr2 && (dimLStr2.includes('/') || dimLStr2.includes('*') || dimLStr2.includes('×') || dimLStr2.includes('\n'))) {
-            const currentSheet = sheets?.find(s => s.sheetName === sheetName);
-            const colIdx = fieldToCol['dim_length'];
-            const headerText = (colIdx !== undefined && currentSheet) ? (currentSheet.headerLabels[colIdx] || '') : '';
-            const parsed = parseSmartDimensions(dimLStr2, headerText);
-            dimensionLMm = parsed.l;
-          } else {
-            dimensionLMm = getCellNum('dim_length');
-            if (dimensionLMm !== null) dimensionLMm = Math.round(dimensionLMm * 10);
-          }
-
-          if (dimWStr2 && (dimWStr2.includes('/') || dimWStr2.includes('*') || dimWStr2.includes('×') || dimWStr2.includes('\n'))) {
-            const currentSheet = sheets?.find(s => s.sheetName === sheetName);
-            const colIdx = fieldToCol['dim_width'];
-            const headerText = (colIdx !== undefined && currentSheet) ? (currentSheet.headerLabels[colIdx] || '') : '';
-            const parsed = parseSmartDimensions(dimWStr2, headerText);
-            dimensionWMm = parsed.w;
-          } else {
-            dimensionWMm = getCellNum('dim_width');
-            if (dimensionWMm !== null) dimensionWMm = Math.round(dimensionWMm * 10);
-          }
-
-          if (dimHStr2 && (dimHStr2.includes('/') || dimHStr2.includes('*') || dimHStr2.includes('×') || dimHStr2.includes('\n'))) {
-            const currentSheet = sheets?.find(s => s.sheetName === sheetName);
-            const colIdx = fieldToCol['dim_height'];
-            const headerText = (colIdx !== undefined && currentSheet) ? (currentSheet.headerLabels[colIdx] || '') : '';
-            const parsed = parseSmartDimensions(dimHStr2, headerText);
-            dimensionHMm = parsed.h;
-          } else {
-            dimensionHMm = getCellNum('dim_height');
-            if (dimensionHMm !== null) dimensionHMm = Math.round(dimensionHMm * 10);
-          }
+          dimensionLMm = getCellNum('dim_length_mm');
         }
+        if (dimWMmStr2 && (dimWMmStr2.includes('/') || dimWMmStr2.includes('*') || dimWMmStr2.includes('×') || dimWMmStr2.includes('\n'))) {
+          const currentSheet = sheets?.find(s => s.sheetName === sheetName);
+          const colIdx = fieldToCol['dim_width_mm'];
+          const headerText = (colIdx !== undefined && currentSheet) ? (currentSheet.headerLabels[colIdx] || '') : '';
+          dimensionWMm = parseSmartDimensions(dimWMmStr2, headerText).w;
+        } else {
+          dimensionWMm = getCellNum('dim_width_mm');
+        }
+        if (dimHMmStr2 && (dimHMmStr2.includes('/') || dimHMmStr2.includes('*') || dimHMmStr2.includes('×') || dimHMmStr2.includes('\n'))) {
+          const currentSheet = sheets?.find(s => s.sheetName === sheetName);
+          const colIdx = fieldToCol['dim_height_mm'];
+          const headerText = (colIdx !== undefined && currentSheet) ? (currentSheet.headerLabels[colIdx] || '') : '';
+          dimensionHMm = parseSmartDimensions(dimHMmStr2, headerText).h;
+        } else {
+          dimensionHMm = getCellNum('dim_height_mm');
+        }
+
+        if (dimensionLMm !== null) dimensionLMm = Math.round(dimensionLMm);
+        if (dimensionWMm !== null) dimensionWMm = Math.round(dimensionWMm);
+        if (dimensionHMm !== null) dimensionHMm = Math.round(dimensionHMm);
 
         // Fallback: parse from combined dimensions string using smart parser (unit-aware)
         // Trigger if ALL three dimension fields are still null and we have a combined string
