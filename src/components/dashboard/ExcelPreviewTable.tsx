@@ -1338,7 +1338,7 @@ export function ExcelPreviewTable({
             <h3 className="font-semibold text-foreground font-[Syne]">
               數據預覽 & 欄位對應 (Column Mapping)
             </h3>
-            <p className="text-xs text-muted-foreground font-[Manrope]">
+            <p className="text-sm text-foreground/70 font-[Manrope]">
               {hasMultipleSheets
                 ? '每個工作表獨立處理 — 切換 Tab 查看不同工作表的數據和圖片'
                 : '下拉選單對齊每個 Excel 欄位，選擇要映射的 bwf_product_master 欄位'
@@ -1347,22 +1347,22 @@ export function ExcelPreviewTable({
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <Badge variant="outline" className="font-mono text-xs">
+          <Badge variant="outline" className="font-mono text-sm font-semibold text-foreground">
             {displayRows.length} 數據行
           </Badge>
-          <Badge variant="outline" className="font-mono text-xs text-indigo-400 border-indigo-500/30">
+          <Badge variant="outline" className="font-mono text-sm font-semibold text-indigo-700 border-indigo-500/50">
             {mappedCount} 欄位已映射
           </Badge>
-          <Badge variant="outline" className="font-mono text-xs text-emerald-400 border-emerald-500/30">
+          <Badge variant="outline" className="font-mono text-sm font-semibold text-emerald-700 border-emerald-600/50">
             {totalSelected} 已選 (全部)
           </Badge>
           {hasAnyProductImage && (
-            <Badge variant="outline" className="font-mono text-xs text-cyan-400 border-cyan-500/30 gap-1">
+            <Badge variant="outline" className="font-mono text-sm font-semibold text-cyan-700 border-cyan-600/50 gap-1">
               <ImageIcon className="w-3 h-3" /> 產品圖
             </Badge>
           )}
           {hasAnyLifestyleImage && (
-            <Badge variant="outline" className="font-mono text-xs text-purple-400 border-purple-500/30 gap-1">
+            <Badge variant="outline" className="font-mono text-sm font-semibold text-purple-700 border-purple-600/50 gap-1">
               <ImagePlus className="w-3 h-3" /> 效果圖
             </Badge>
           )}
@@ -1415,8 +1415,8 @@ export function ExcelPreviewTable({
 
       {/* Mapping Summary - Quick Overview (for active sheet) */}
       <div className="flex items-center gap-2 flex-wrap rounded-lg border border-border/50 bg-muted/30 px-4 py-2">
-        <span className="text-xs text-muted-foreground font-[Manrope] mr-2">
-          {hasMultipleSheets && <span className="text-indigo-400">[{activeSheet.sheetName}]</span>} 映射狀態:
+        <span className="text-sm text-foreground font-[Manrope] mr-2 font-medium">
+          {hasMultipleSheets && <span className="text-indigo-700">[{activeSheet.sheetName}]</span>} 映射狀態:
         </span>
         {Object.entries(currentMapping)
           .filter(([k, v]) => v !== 'skip' && !k.startsWith('__img_'))
@@ -1424,29 +1424,29 @@ export function ExcelPreviewTable({
             <Badge
               key={colIdx}
               variant="secondary"
-              className="text-xs font-mono"
+              className="text-sm font-mono font-semibold text-foreground"
             >
               Col {colLetter(Number(colIdx))} → {STANDARD_HEADERS.find(h => h.value === field)?.labelZh || field}
             </Badge>
           ))}
         {mappedCount === 0 && (
-          <span className="text-xs text-muted-foreground/50 italic">尚未映射任何欄位</span>
+          <span className="text-sm text-foreground/50 italic">尚未映射任何欄位</span>
         )}
         {dimCombinedColIdx !== null && (
-          <div className="ml-auto flex items-center gap-1.5 rounded-md border border-emerald-500/30 bg-emerald-500/5 px-2 py-1">
-            <span className="text-xs font-mono text-emerald-300/80">尺寸原始單位:</span>
+          <div className="ml-auto flex items-center gap-1.5 rounded-md border border-emerald-600/50 bg-emerald-500/5 px-2 py-1">
+            <span className="text-sm font-mono text-emerald-800 font-medium">尺寸原始單位:</span>
             <Select value={currentDimUnit} onValueChange={(v) => handleDimUnitChange(v as DimUnit)}>
-              <SelectTrigger className="h-6 w-[90px] text-xs font-mono border-emerald-500/30 bg-background/50">
+              <SelectTrigger className="h-6 w-[90px] text-sm font-mono border-emerald-600/50 bg-background/50">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="mm" className="text-xs">mm (毫米)</SelectItem>
-                <SelectItem value="cm" className="text-xs">cm (公分)</SelectItem>
-                <SelectItem value="m" className="text-xs">m (米)</SelectItem>
-                <SelectItem value="auto" className="text-xs">auto (自動偵測)</SelectItem>
+                <SelectItem value="mm" className="text-sm">mm (毫米)</SelectItem>
+                <SelectItem value="cm" className="text-sm">cm (公分)</SelectItem>
+                <SelectItem value="m" className="text-sm">m (米)</SelectItem>
+                <SelectItem value="auto" className="text-sm">auto (自動偵測)</SelectItem>
               </SelectContent>
             </Select>
-            <span className="text-xs text-emerald-300/60 font-[Manrope]">
+            <span className="text-sm text-emerald-700 font-[Manrope]">
               {currentDimUnit === 'mm' && '不放大 ×1'}
               {currentDimUnit === 'cm' && '×10 → mm'}
               {currentDimUnit === 'm' && '×1000 → mm'}
@@ -1458,7 +1458,7 @@ export function ExcelPreviewTable({
           variant="ghost"
           size="sm"
           onClick={handleResetMappings}
-          className={cn("text-xs", dimCombinedColIdx === null && "ml-auto")}
+          className={cn("text-sm", dimCombinedColIdx === null && "ml-auto")}
         >
           <RotateCcw className="w-3 h-3 mr-1" />
           重置映射
@@ -1480,8 +1480,8 @@ export function ExcelPreviewTable({
                     />
                   </TableHead>
                   {/* Row # column */}
-                  <TableHead className="w-12 text-center text-xs font-mono text-muted-foreground sticky left-10 z-30 bg-card">
-                    <span className="text-muted-foreground/60">Row</span>
+                  <TableHead className="w-12 text-center text-sm font-mono text-foreground sticky left-10 z-30 bg-card">
+                    <span className="text-foreground/70">Row</span>
                   </TableHead>
                   {/* Product Image column header with mapping dropdown */}
                   {hasAnyProductImage && (
@@ -1490,15 +1490,15 @@ export function ExcelPreviewTable({
                         value={currentMapping['__img_product'] || 'product_image'}
                         onValueChange={(val) => handleMappingChange('__img_product', val as StandardHeaderValue)}
                       >
-                        <SelectTrigger className="h-7 text-xs border-cyan-500/30 bg-background/50 font-mono w-[68px]">
-                          <span className="truncate text-xs">
+                        <SelectTrigger className="h-7 text-sm border-cyan-600/50 bg-background/50 font-mono font-semibold text-cyan-800 w-[68px]">
+                          <span className="truncate text-sm">
                             {currentMapping['__img_product'] === 'lifestyle_image' ? '效果圖' : currentMapping['__img_product'] === 'skip' ? '跳過' : '產品圖'}
                           </span>
                         </SelectTrigger>
                         <SelectContent className="max-h-[300px]">
-                          <SelectItem value="product_image" className="text-xs">產品圖片 → image_url</SelectItem>
-                          <SelectItem value="lifestyle_image" className="text-xs">效果圖 → lifestyle_image_url</SelectItem>
-                          <SelectItem value="skip" className="text-xs">— 跳過 —</SelectItem>
+                          <SelectItem value="product_image" className="text-sm">產品圖片 → image_url</SelectItem>
+                          <SelectItem value="lifestyle_image" className="text-sm">效果圖 → lifestyle_image_url</SelectItem>
+                          <SelectItem value="skip" className="text-sm">— 跳過 —</SelectItem>
                         </SelectContent>
                       </Select>
                     </TableHead>
@@ -1510,15 +1510,15 @@ export function ExcelPreviewTable({
                         value={currentMapping['__img_lifestyle'] || 'lifestyle_image'}
                         onValueChange={(val) => handleMappingChange('__img_lifestyle', val as StandardHeaderValue)}
                       >
-                        <SelectTrigger className="h-7 text-xs border-purple-500/30 bg-background/50 font-mono w-[68px]">
-                          <span className="truncate text-xs">
+                        <SelectTrigger className="h-7 text-sm border-purple-600/50 bg-background/50 font-mono font-semibold text-purple-800 w-[68px]">
+                          <span className="truncate text-sm">
                             {currentMapping['__img_lifestyle'] === 'product_image' ? '產品圖' : currentMapping['__img_lifestyle'] === 'skip' ? '跳過' : '效果圖'}
                           </span>
                         </SelectTrigger>
                         <SelectContent className="max-h-[300px]">
-                          <SelectItem value="lifestyle_image" className="text-xs">效果圖 → lifestyle_image_url</SelectItem>
-                          <SelectItem value="product_image" className="text-xs">產品圖片 → image_url</SelectItem>
-                          <SelectItem value="skip" className="text-xs">— 跳過 —</SelectItem>
+                          <SelectItem value="lifestyle_image" className="text-sm">效果圖 → lifestyle_image_url</SelectItem>
+                          <SelectItem value="product_image" className="text-sm">產品圖片 → image_url</SelectItem>
+                          <SelectItem value="skip" className="text-sm">— 跳過 —</SelectItem>
                         </SelectContent>
                       </Select>
                     </TableHead>
@@ -1530,7 +1530,7 @@ export function ExcelPreviewTable({
                       {colIdx === dimCombinedColIdx ? (
                         <>
                           <TableHead className="min-w-[100px] p-1">
-                            <div className="h-7 flex items-center justify-center text-xs font-mono text-emerald-400 border border-emerald-500/30 rounded bg-emerald-500/5 px-1 relative group">
+                            <div className="h-7 flex items-center justify-center text-sm font-mono font-semibold text-emerald-800 border border-emerald-600/50 rounded bg-emerald-500/5 px-1 relative group">
                               長度 (mm)
                               <button
                                 onClick={() => handleMappingChange(colIdx, 'skip' as StandardHeaderValue)}
@@ -1540,12 +1540,12 @@ export function ExcelPreviewTable({
                             </div>
                           </TableHead>
                           <TableHead className="min-w-[100px] p-1">
-                            <div className="h-7 flex items-center justify-center text-xs font-mono text-emerald-400 border border-emerald-500/30 rounded bg-emerald-500/5 px-1">
+                            <div className="h-7 flex items-center justify-center text-sm font-mono font-semibold text-emerald-800 border border-emerald-600/50 rounded bg-emerald-500/5 px-1">
                               闊度 (mm)
                             </div>
                           </TableHead>
                           <TableHead className="min-w-[100px] p-1">
-                            <div className="h-7 flex items-center justify-center text-xs font-mono text-emerald-400 border border-emerald-500/30 rounded bg-emerald-500/5 px-1">
+                            <div className="h-7 flex items-center justify-center text-sm font-mono font-semibold text-emerald-800 border border-emerald-600/50 rounded bg-emerald-500/5 px-1">
                               高度 (mm)
                             </div>
                           </TableHead>
@@ -1593,7 +1593,7 @@ export function ExcelPreviewTable({
                               className={cn(
                                 "h-7 text-xs font-[IBM_Plex_Mono] gap-1 border-amber-500/30 shrink-0",
                                 batchEligibleCount > 0
-                                  ? "text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 hover:border-amber-400/50"
+                                  ? "text-amber-600 hover:text-amber-700 hover:bg-amber-500/10 hover:border-amber-600/50"
                                   : "text-muted-foreground/40"
                               )}
                               title={`一鍵生成 ${batchEligibleCount} 個產品名稱 — AI 識別傢俬類別 (需有圖片)`}
@@ -1653,17 +1653,17 @@ export function ExcelPreviewTable({
                 {/* Row 2: Original Excel headers (for reference) */}
                 <TableRow className="bg-muted/50 border-b border-border [&>th]:align-middle [&>th]:h-[32px]">
                   <TableHead className="sticky left-0 z-30 bg-muted/50" />
-                  <TableHead className="text-center text-xs font-mono text-muted-foreground/60 sticky left-10 z-30 bg-muted/50">
+                  <TableHead className="text-center text-sm font-mono text-foreground/60 sticky left-10 z-30 bg-muted/50">
                     #
                   </TableHead>
                   {/* Image column labels — show short reference tags below the dropdowns */}
                   {hasAnyProductImage && (
-                    <TableHead className="w-[72px] bg-muted/50 text-center text-xs font-mono text-cyan-400/60">
+                    <TableHead className="w-[72px] bg-muted/50 text-center text-sm font-mono text-cyan-700">
                       產品圖
                     </TableHead>
                   )}
                   {hasAnyLifestyleImage && (
-                    <TableHead className="w-[72px] bg-muted/50 text-center text-xs font-mono text-purple-400/60">
+                    <TableHead className="w-[72px] bg-muted/50 text-center text-sm font-mono text-purple-700">
                       效果圖
                     </TableHead>
                   )}
@@ -1671,28 +1671,28 @@ export function ExcelPreviewTable({
                     <React.Fragment key={colIdx}>
                       {colIdx === dimCombinedColIdx ? (
                         <>
-                          <TableHead className="text-xs font-mono text-emerald-400/70 px-2">
-                            <span className="text-indigo-400/70">{colLetter(colIdx)}:</span>{' '}
+                          <TableHead className="text-sm font-mono text-emerald-700 px-2">
+                            <span className="text-indigo-700">{colLetter(colIdx)}:</span>{' '}
                             <span>dimension_l_mm</span>
                           </TableHead>
-                          <TableHead className="text-xs font-mono text-emerald-400/70 px-2">
-                            <span className="text-indigo-400/70">{colLetter(colIdx)}:</span>{' '}
+                          <TableHead className="text-sm font-mono text-emerald-700 px-2">
+                            <span className="text-indigo-700">{colLetter(colIdx)}:</span>{' '}
                             <span>dimension_w_mm</span>
                           </TableHead>
-                          <TableHead className="text-xs font-mono text-emerald-400/70 px-2">
-                            <span className="text-indigo-400/70">{colLetter(colIdx)}:</span>{' '}
+                          <TableHead className="text-sm font-mono text-emerald-700 px-2">
+                            <span className="text-indigo-700">{colLetter(colIdx)}:</span>{' '}
                             <span>dimension_h_mm</span>
                           </TableHead>
                         </>
                       ) : (
-                      <TableHead className="text-xs font-mono text-muted-foreground/70 px-2 truncate max-w-[160px]">
-                        <span className="text-indigo-400/70">{colLetter(colIdx)}:</span>{' '}
-                        <span className="text-muted-foreground/90">{simplifiedToTraditional(activeSheet.headerLabels[colIdx] || '') || '—'}</span>
+                      <TableHead className="text-sm font-mono text-foreground/70 px-2 truncate max-w-[160px]">
+                        <span className="text-indigo-700">{colLetter(colIdx)}:</span>{' '}
+                        <span className="text-foreground">{simplifiedToTraditional(activeSheet.headerLabels[colIdx] || '') || '—'}</span>
                       </TableHead>
                       )}
                       {/* AI Product Name reference header inserted at same position */}
                       {arrIdx === productNameInsertIndex - 1 && (
-                        <TableHead className="text-xs font-mono text-amber-400/60 text-center">
+                        <TableHead className="text-sm font-mono text-amber-600 text-center font-semibold">
                           產品名稱
                         </TableHead>
                       )}
@@ -1712,7 +1712,7 @@ export function ExcelPreviewTable({
                   <TableRow>
                     <TableCell
                       colSpan={visibleColumns.length + 4 + (hasAnyProductImage ? 1 : 0) + (hasAnyLifestyleImage ? 1 : 0) + (dimCombinedColIdx !== null ? 2 : 0)}
-                      className="text-center py-12 text-muted-foreground/60 font-[Manrope]"
+                      className="text-center py-12 text-foreground/60 font-[Manrope]"
                     >
                       <div className="flex flex-col items-center gap-2">
                         <AlertTriangle className="w-6 h-6 text-amber-400/60" />
@@ -1743,7 +1743,7 @@ export function ExcelPreviewTable({
                         />
                       </TableCell>
                       {/* Row number */}
-                      <TableCell className="text-center text-xs font-mono text-muted-foreground/60 sticky left-10 z-10 bg-card p-1">
+                      <TableCell className="text-center text-sm font-mono text-foreground/70 sticky left-10 z-10 bg-card p-1">
                         {row.rowIndex}
                       </TableCell>
                       {/* Product Image Thumbnail — with override support */}
@@ -1822,28 +1822,28 @@ export function ExcelPreviewTable({
                           return (
                             <React.Fragment key={colIdx}>
                               <TableCell
-                                className="text-xs font-[IBM_Plex_Mono] px-2 text-emerald-400 text-center"
+                                className="text-sm font-[IBM_Plex_Mono] px-2 text-emerald-700 text-center"
                                 title={`Raw: ${rawDisplayVal} → L: ${dimL}`}
                               >
-                                {dimL || <span className="text-muted-foreground/20">—</span>}
+                                {dimL || <span className="text-foreground/30">—</span>}
                               </TableCell>
                               <TableCell
-                                className="text-xs font-[IBM_Plex_Mono] px-2 text-emerald-400 text-center"
+                                className="text-sm font-[IBM_Plex_Mono] px-2 text-emerald-700 text-center"
                                 title={`Raw: ${rawDisplayVal} → W: ${dimW}`}
                               >
-                                {dimW || <span className="text-muted-foreground/20">—</span>}
+                                {dimW || <span className="text-foreground/30">—</span>}
                               </TableCell>
                               <TableCell
-                                className="text-xs font-[IBM_Plex_Mono] px-2 text-emerald-400 text-center"
+                                className="text-sm font-[IBM_Plex_Mono] px-2 text-emerald-700 text-center"
                                 title={`Raw: ${rawDisplayVal} → H: ${dimH}`}
                               >
-                                {dimH || <span className="text-muted-foreground/20">—</span>}
+                                {dimH || <span className="text-foreground/30">—</span>}
                               </TableCell>
                               {/* AI Product Name cell inserted after the anchor column */}
                               {arrIdx === productNameInsertIndex - 1 && (
                                 <TableCell className="p-1 min-w-[220px]">
                                   {isGeneratingName ? (
-                                    <div className="flex items-center gap-1.5 text-xs text-amber-400">
+                                    <div className="flex items-center gap-1.5 text-xs text-amber-600">
                                       <Loader2 className="w-3 h-3 animate-spin" />
                                       <span className="font-[IBM_Plex_Mono] text-xs">AI 生成中...</span>
                                     </div>
@@ -1869,7 +1869,7 @@ export function ExcelPreviewTable({
                                       className={cn(
                                         "h-7 text-xs font-[IBM_Plex_Mono] gap-1",
                                         hasImage
-                                          ? "text-amber-400 hover:text-amber-300 hover:bg-amber-500/10"
+                                          ? "text-amber-600 hover:text-amber-700 hover:bg-amber-500/10"
                                           : "text-muted-foreground/40 cursor-not-allowed"
                                       )}
                                       title={hasImage ? "一鍵生成 — 使用 AI 識別傢俬類別" : "需要先新增圖片才能生成名稱"}
@@ -1937,11 +1937,11 @@ export function ExcelPreviewTable({
                           <React.Fragment key={colIdx}>
                             <TableCell
                               className={cn(
-                                'text-xs font-[IBM_Plex_Mono] px-2 max-w-[200px] truncate',
+                                'text-sm font-[IBM_Plex_Mono] px-2 max-w-[200px] truncate',
                                 isMapped && 'text-foreground',
-                                !isMapped && 'text-muted-foreground/60',
-                                isDimensionField && isMapped && displayVal && 'text-emerald-400',
-                                isPriceField && isMapped && displayVal && rawDisplayVal !== displayVal && 'text-amber-400',
+                                !isMapped && 'text-foreground/50',
+                                isDimensionField && isMapped && displayVal && 'text-emerald-700',
+                                isPriceField && isMapped && displayVal && rawDisplayVal !== displayVal && 'text-amber-600',
                               )}
                               title={
                                 isDimensionField && rawDisplayVal !== displayVal
@@ -1951,7 +1951,7 @@ export function ExcelPreviewTable({
                                     : displayVal
                               }
                             >
-                              {displayVal || <span className="text-muted-foreground/20">—</span>}
+                              {displayVal || <span className="text-foreground/30">—</span>}
                             </TableCell>
                             {/* AI Product Name cell inserted after the anchor column */}
                             {arrIdx === productNameInsertIndex - 1 && (
