@@ -327,12 +327,17 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
 
           {items.map((item, idx) => {
             if (item?.isCustomTerm) {
+              // Description spans 序號 → 圖例 (5 cols totalling 67%); 數量/單位/單價/總價 stay
               return (
                 <View style={{ display: 'flex', flexDirection: 'row', borderBottomWidth: 0.5, borderColor: '#ddd', minHeight: 28, alignItems: 'stretch' }} key={idx} wrap={false}>
                   <View style={styles.colIndex}><Text style={styles.tableCellText}>{idx + 1}</Text></View>
-                  <View style={{ flex: 1, paddingLeft: 6, paddingRight: 6, paddingTop: 6, paddingBottom: 6, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                  <View style={{ width: '67%', paddingLeft: 6, paddingRight: 6, paddingTop: 6, paddingBottom: 6, display: 'flex', flexDirection: 'column', justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' }}>
                     <Text style={styles.tableCellTextLeft}>{item?.name || ''}</Text>
                   </View>
+                  <View style={styles.colQty}><Text style={styles.tableCellText}>{item?.quantity || 0}</Text></View>
+                  <View style={styles.colUnit}><Text style={styles.tableCellText}>{'\u5F35'}</Text></View>
+                  <View style={styles.colUnitPrice}><Text style={styles.tableCellText}>HK${(item?.unitPrice || 0).toLocaleString()}</Text></View>
+                  <View style={styles.colSubtotal}><Text style={styles.tableCellText}>HK${((item?.unitPrice || 0) * (item?.quantity || 0)).toLocaleString()}</Text></View>
                 </View>
               );
             }
@@ -341,7 +346,7 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
                 <View style={styles.colIndex}><Text style={styles.tableCellText}>{idx + 1}</Text></View>
                 <View style={styles.colDesc}>
                   <View style={{ width: '100%' }}>
-                    <Text style={styles.tableCellTextLeft}>{item?.category || item?.name || ''}</Text>
+                    <Text style={styles.tableCellTextLeft}>{item?.name || ''}</Text>
                   </View>
                 </View>
                 <View style={styles.colMaterial}>
@@ -398,16 +403,17 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
           </View>
         </View>
 
-        <View style={styles.totalRow}>
-          <Text style={styles.totalLabel}>{'\u7E3D\u91D1\u984D'}:</Text>
-          <Text style={styles.totalValue}>HK${(data.subtotal || 0).toLocaleString()}</Text>
-        </View>
-
-        {data.discountNote ? (
-          <View style={{ marginTop: 4, marginBottom: 2, paddingHorizontal: 4 }}>
-            <Text style={{ fontSize: 7.5, color: '#444', lineHeight: 1.5 }}>* {data.discountNote}</Text>
+        {data.discountNote && data.discountNote.toString().trim() !== '' ? (
+          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 6, paddingRight: 4 }}>
+            <Text style={{ fontSize: 6, marginRight: 8, lineHeight: 1.4, width: 60, textAlign: 'right' }}>Discount:</Text>
+            <Text style={{ fontSize: 6, lineHeight: 1.4, width: 90, textAlign: 'right' }}>HK${(parseFloat(data.discountNote.toString()) || 0).toLocaleString()}</Text>
           </View>
         ) : null}
+
+        <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 2, paddingRight: 4 }}>
+          <Text style={{ ...styles.totalLabel, width: 60, textAlign: 'right', marginRight: 8 }}>{'\u7E3D\u91D1\u984D'}:</Text>
+          <Text style={{ ...styles.totalValue, width: 90, textAlign: 'right' }}>HK${(data.subtotal || 0).toLocaleString()}</Text>
+        </View>
 
         <Text style={styles.sectionTitle}>{'<\u8A02\u55AE\u78BA\u8A8D\u53CA\u4EA4\u4ED8\u7D30\u7BC0>'}</Text>
         <Text style={styles.sectionText}>{data.deliveryDetails || ''}</Text>

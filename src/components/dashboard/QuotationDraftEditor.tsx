@@ -666,7 +666,7 @@ export function QuotationDraftEditor({
         name: "",
         costPrice: null,
         unitPrice: 0,
-        quantity: 0,
+        quantity: 1,
         isCustomTerm: true,
       },
     ]);
@@ -707,7 +707,7 @@ export function QuotationDraftEditor({
   };
 
   const subtotal = items.reduce(
-    (sum, item) => item.isCustomTerm ? sum : sum + item.unitPrice * item.quantity,
+    (sum, item) => sum + item.unitPrice * item.quantity,
     0,
   );
   const totalCostPrice = items.some((item) => item.costPrice != null)
@@ -1372,6 +1372,9 @@ export function QuotationDraftEditor({
                         <th className="pb-2 pr-2 font-body text-[10px] font-medium text-muted-foreground" style={{ minWidth: "140px" }}>
                           產品名稱
                         </th>
+                        <th className="pb-2 pr-2 font-body text-[10px] font-medium text-muted-foreground" style={{ minWidth: "160px" }}>
+                          材質及明細
+                        </th>
                         <th className="pb-2 pr-2 font-body text-[10px] font-medium text-muted-foreground" style={{ minWidth: "120px" }}>
                           尺寸(mm)
                         </th>
@@ -1403,7 +1406,8 @@ export function QuotationDraftEditor({
                             key={item.id}
                             className="border-b border-border/50 last:border-b-0 bg-amber-500/5"
                           >
-                            <td className="py-2 pr-2" colSpan={11}>
+                            {/* full-width description spans 圖片→成本價 (7 cols) */}
+                            <td className="py-2 pr-2" colSpan={7}>
                               <input
                                 type="text"
                                 value={item.name || ""}
@@ -1413,6 +1417,39 @@ export function QuotationDraftEditor({
                                 }
                                 className="w-full rounded-md border border-border bg-background px-3 py-1.5 font-body text-xs text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
                               />
+                            </td>
+                            {/* 單價 */}
+                            <td className="py-2 pr-2">
+                              <input
+                                type="number"
+                                value={item.unitPrice || ""}
+                                placeholder="0"
+                                onChange={(e) =>
+                                  updateItem(item.id, "unitPrice", e.target.value ? parseFloat(e.target.value) : 0)
+                                }
+                                className="w-20 rounded-md border border-border bg-background px-2 py-1.5 font-mono-data text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                              />
+                            </td>
+                            {/* 數量 */}
+                            <td className="py-2 pr-2">
+                              <input
+                                type="number"
+                                value={item.quantity || ""}
+                                placeholder="1"
+                                onChange={(e) =>
+                                  updateItem(item.id, "quantity", e.target.value ? parseInt(e.target.value) : 0)
+                                }
+                                className="w-14 rounded-md border border-border bg-background px-2 py-1.5 font-mono-data text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                              />
+                            </td>
+                            {/* 貨期 / 備註 — empty for value-add service */}
+                            <td className="py-2 pr-2"></td>
+                            <td className="py-2 pr-2"></td>
+                            {/* 小計 */}
+                            <td className="py-2 pr-2">
+                              <span className="font-mono-data text-xs font-medium text-foreground">
+                                ${(item.unitPrice * item.quantity).toLocaleString()}
+                              </span>
                             </td>
                             <td className="py-2">
                               <button
@@ -1467,6 +1504,18 @@ export function QuotationDraftEditor({
                                 updateItem(item.id, "name", e.target.value)
                               }
                               className="w-full min-w-[120px] rounded-md border border-border bg-background px-2 py-1.5 font-body text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                            />
+                          </td>
+                          {/* 材質及明細 */}
+                          <td className="py-2 pr-2">
+                            <textarea
+                              value={item.material || ""}
+                              placeholder="材質及明細..."
+                              rows={2}
+                              onChange={(e) =>
+                                updateItem(item.id, "material", e.target.value)
+                              }
+                              className="w-full min-w-[140px] rounded-md border border-border bg-background px-2 py-1.5 font-body text-[10px] leading-relaxed text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 resize-y"
                             />
                           </td>
                           {/* 尺寸 */}
@@ -1682,27 +1731,31 @@ export function QuotationDraftEditor({
                         )}
                       </div>
                     </div>
+                    {/* Discount row — split into label + numeric input, sits above 合計 */}
+                    <div className="flex items-stretch overflow-hidden rounded-md border border-border text-xs">
+                      <div className="flex items-center justify-center bg-muted/30 px-3 py-2 border-r border-border" style={{ width: '80px' }}>
+                        <span className="font-medium text-foreground">Discount</span>
+                      </div>
+                      <div className="flex items-center px-2 py-1" style={{ width: '120px' }}>
+                        <input
+                          type="number"
+                          value={discountNote}
+                          onChange={(e) => setDiscountNote(e.target.value)}
+                          placeholder="0"
+                          className="w-full bg-transparent text-right font-mono-data text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30 rounded px-1"
+                        />
+                      </div>
+                    </div>
                     {/* 合計 */}
                     <div className="flex items-center">
-                      <span className="mr-3 font-body text-xs text-muted-foreground">
+                      <span className="mr-3 font-body text-xs text-muted-foreground" style={{ width: '80px', textAlign: 'center' }}>
                         合計:
                       </span>
-                      <span className="font-mono-data text-base font-bold text-foreground">
+                      <span className="font-mono-data text-base font-bold text-foreground" style={{ width: '120px', textAlign: 'right' }}>
                         HKD ${subtotal.toLocaleString()}
                       </span>
                     </div>
                   </div>
-                </div>
-
-                {/* Discount / promo note */}
-                <div className="mt-3 flex justify-end">
-                  <textarea
-                    value={discountNote}
-                    onChange={(e) => setDiscountNote(e.target.value)}
-                    placeholder="輸入優惠信息（如折扣、贈品等）..."
-                    rows={2}
-                    className="w-72 rounded-md border border-border bg-background px-3 py-2 font-body text-xs leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 resize-y"
-                  />
                 </div>
               </section>
 
