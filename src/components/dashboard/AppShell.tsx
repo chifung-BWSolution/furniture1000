@@ -1,12 +1,15 @@
 import { useState, useCallback, useMemo, lazy, Suspense } from "react";
 import { useAppStore } from "@/hooks/use-app-store";
 import { SidebarNav } from "./SidebarNav";
+import { PrimaryTopNav } from "./PrimaryTopNav";
 import { TopBar } from "./TopBar";
 import { DashboardView } from "./DashboardView";
 import { ProductTableView } from "./ProductTableView";
 import { SettingsView } from "./SettingsView";
 import { PublishModal } from "./PublishModal";
 import { Construction } from "lucide-react";
+import { findSection, getSection } from "./navConfig";
+import { type PrimarySection } from "@/types/product";
 
 // Lazy-loaded heavy views (contain large dependencies like pdfjs-dist, @react-pdf/renderer, etc.)
 const AIProcessorView = lazy(() =>
@@ -181,6 +184,104 @@ export function AppShell() {
             description="瀏覽廠家產品目錄，取得最新報價資訊。"
           />
         );
+      case "advanced-search":
+        return (
+          <PlaceholderView
+            title="進階搜尋"
+            description="跨產品、廠家、分類的深度搜尋功能。"
+          />
+        );
+      case "customer-design-projects":
+        return (
+          <PlaceholderView
+            title="設計專案（客戶）"
+            description="客戶端的設計專案視圖與審批進度。"
+          />
+        );
+      case "customer-product-search":
+        return (
+          <PlaceholderView
+            title="產品搜尋（客戶）"
+            description="客戶可搜尋並挑選方案內的傢俬產品。"
+          />
+        );
+      case "customer-confirmed-products":
+        return (
+          <PlaceholderView
+            title="確定產品"
+            description="客戶確認採購的產品清單。"
+          />
+        );
+      case "customer-company-info":
+        return (
+          <PlaceholderView
+            title="公司資料"
+            description="客戶公司聯絡與發票資料。"
+          />
+        );
+      case "quotation-settings":
+        return (
+          <PlaceholderView
+            title="報價設定"
+            description="預設條款、稅率、付款方式與簽署設定。"
+          />
+        );
+      case "publish-copywriting":
+        return (
+          <PlaceholderView
+            title="產品文案"
+            description="AI 撰寫產品標題、描述與賣點文案。"
+          />
+        );
+      case "publish-precheck":
+        return (
+          <PlaceholderView
+            title="發佈前檢查"
+            description="檢查圖片、SEO、價格、庫存等上架前必填欄位。"
+          />
+        );
+      case "published-products":
+        return (
+          <PlaceholderView
+            title="已上載產品"
+            description="所有已成功上架到 Shopify 的產品。"
+          />
+        );
+      case "report-factory":
+        return (
+          <PlaceholderView
+            title="廠家報告"
+            description="按廠家匯總的產品數、銷售與交期分析。"
+          />
+        );
+      case "report-product":
+        return (
+          <PlaceholderView
+            title="產品報告"
+            description="產品銷售、庫存與表現分析報告。"
+          />
+        );
+      case "report-sales":
+        return (
+          <PlaceholderView
+            title="銷售報告"
+            description="期間銷售趨勢、客戶分佈與成交報告。"
+          />
+        );
+      case "user-management":
+        return (
+          <PlaceholderView
+            title="用戶管理"
+            description="管理團隊成員的角色與存取權限。"
+          />
+        );
+      case "login-history":
+        return (
+          <PlaceholderView
+            title="登入紀錄"
+            description="檢視用戶登入歷史與安全事件。"
+          />
+        );
       case "quick-quote":
         return (
           <QuickQuoteView
@@ -215,36 +316,45 @@ export function AppShell() {
     }
   };
 
+  const activeSection: PrimarySection = findSection(store.currentView);
+
+  const handleViewChange = (view: typeof store.currentView) => {
+    if (store.currentView === 'category-management' && view !== 'category-management') {
+      store.reloadProducts();
+    }
+    store.setCurrentView(view);
+    store.setFilterProductId(null);
+    if (view !== "quick-quote") {
+      setEditingQuoteId(null);
+    }
+  };
+
+  const handleSectionChange = (section: PrimarySection) => {
+    if (section === activeSection) return;
+    const target = getSection(section).children[0]?.view;
+    if (target) handleViewChange(target);
+  };
+
   return (
-    <div className="flex h-screen w-screen overflow-hidden">
-      {/* Sidebar */}
-      <SidebarNav
-        currentView={store.currentView}
-        onViewChange={(view) => {
-          // Reload products from DB when leaving category management
-          // to ensure category assignments are reflected
-          if (store.currentView === 'category-management' && view !== 'category-management') {
-            store.reloadProducts();
-          }
-          store.setCurrentView(view);
-          store.setFilterProductId(null);
-          // Clear editing quote when navigating away
-          if (view !== "quick-quote") {
-            setEditingQuoteId(null);
-          }
-        }}
-        isDarkMode={store.isDarkMode}
-        onToggleDarkMode={store.toggleDarkMode}
+    <div className="flex h-screen w-screen flex-col overflow-hidden">
+      <PrimaryTopNav
+        activeSection={activeSection}
+        onSectionChange={handleSectionChange}
         isConnected={store.settings.isConnected}
-        isCollapsed={sidebarCollapsed}
-        onCollapseChange={setSidebarCollapsed}
       />
 
-      {/* Main Content */}
-      <main
-        className="flex flex-1 flex-col overflow-hidden transition-all duration-300"
-        style={{ marginLeft: sidebarCollapsed ? 8 : 20 }}
-      >
+      <div className="flex flex-1 min-h-0 overflow-hidden">
+        <SidebarNav
+          activeSection={activeSection}
+          currentView={store.currentView}
+          onViewChange={handleViewChange}
+          isDarkMode={store.isDarkMode}
+          onToggleDarkMode={store.toggleDarkMode}
+          isCollapsed={sidebarCollapsed}
+          onCollapseChange={setSidebarCollapsed}
+        />
+
+        <main className="flex flex-1 flex-col min-w-0 overflow-hidden">
         <TopBar
           currentView={store.currentView}
           selectedCount={store.selectedProductIds.size}
@@ -284,7 +394,8 @@ export function AppShell() {
             </Suspense>
           )}
         </div>
-      </main>
+        </main>
+      </div>
 
       {/* Publish Confirmation Modal */}
       <PublishModal

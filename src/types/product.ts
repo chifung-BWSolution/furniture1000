@@ -85,4 +85,49 @@ export interface AppSettings {
   geminiProxyUrl: string;
 }
 
-export type ViewType = 'dashboard' | 'ai-processor' | 'ready-to-publish' | 'listed-products' | 'settings' | 'manufacturer-catalog' | 'design-projects' | 'product-search' | 'invite-clients' | 'confirmed-projects' | 'factory-catalog-quote' | 'quick-quote' | 'product-report' | 'quotation-list' | 'category-management';
+export type ViewType =
+  // 產品管理
+  | 'dashboard'
+  | 'advanced-search'
+  | 'manufacturer-catalog'
+  | 'ai-processor'
+  | 'listed-products'
+  | 'category-management'
+  // 傢俬方案
+  | 'design-projects'
+  | 'product-search'
+  | 'invite-clients'
+  | 'confirmed-projects'
+  // 客戶專區
+  | 'customer-design-projects'
+  | 'customer-product-search'
+  | 'customer-confirmed-products'
+  | 'customer-company-info'
+  // 傢俬報價
+  | 'factory-catalog-quote'
+  | 'quick-quote'
+  | 'product-report'
+  | 'quotation-list'
+  | 'quotation-settings'
+  // 網上發佈
+  | 'publish-copywriting'
+  | 'publish-precheck'
+  | 'ready-to-publish'
+  | 'published-products'
+  // 分析報表
+  | 'report-factory'
+  | 'report-product'
+  | 'report-sales'
+  // 設定
+  | 'settings'
+  | 'user-management'
+  | 'login-history';
+
+export type PrimarySection =
+  | 'solutions'
+  | 'customers'
+  | 'quote'
+  | 'products'
+  | 'publish'
+  | 'reports'
+  | 'admin';

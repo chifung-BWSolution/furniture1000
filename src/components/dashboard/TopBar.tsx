@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Database, ChevronRight, Save, Loader2, Check } from 'lucide-react';
 import { ViewType } from '@/types/product';
+import { getViewMeta } from './navConfig';
 
 interface TopBarProps {
   currentView: ViewType;
@@ -21,23 +22,6 @@ interface TopBarProps {
   };
 }
 
-const viewLabels: Record<ViewType, { label: string; parent?: string }> = {
-  dashboard: { label: '儀表板', parent: '管理後台' },
-  'ai-processor': { label: '上載PDF', parent: '管理後台' },
-  'ready-to-publish': { label: '準備發佈', parent: '管理後台' },
-  'listed-products': { label: '產品目錄', parent: '管理後台' },
-  settings: { label: '設定', parent: '管理後台' },
-  'manufacturer-catalog': { label: '廠家目錄', parent: '管理後台' },
-  'design-projects': { label: '設計專案', parent: '傢俬方案平台' },
-  'product-search': { label: '產品搜尋', parent: '傢俬方案平台' },
-  'invite-clients': { label: '邀請客戶', parent: '傢俬方案平台' },
-  'confirmed-projects': { label: '已確定方案', parent: '傢俬方案平台' },
-  'factory-catalog-quote': { label: '廠家目錄', parent: '傢俬報價平台' },
-  'quick-quote': { label: '快速報價', parent: '傢俬報價平台' },
-  'product-report': { label: '產品報告', parent: '傢俬報價平台' },
-  'quotation-list': { label: '報價表一覽', parent: '傢俬報價平台' },
-  'category-management': { label: '產品分類', parent: '管理後台' },
-};
 
 export function TopBar({
   currentView,
@@ -50,7 +34,8 @@ export function TopBar({
   hasUnsavedChanges,
   stats,
 }: TopBarProps) {
-  const viewInfo = viewLabels[currentView];
+  const meta = getViewMeta(currentView);
+  const viewInfo = { label: meta.viewLabel, parent: meta.sectionLabel };
 
   // Only show product-related buttons on product catalog views
   const showProductButtons = currentView === 'listed-products' || currentView === 'ready-to-publish';
