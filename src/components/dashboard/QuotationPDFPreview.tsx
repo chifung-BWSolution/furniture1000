@@ -15,8 +15,10 @@ let cachedModule: ReactPdfModule | null = null;
 let loadPromise: Promise<ReactPdfModule> | null = null;
 let fontRegistered = false;
 
-const NOTO_SANS_TC_REGULAR = 'https://cdn.jsdelivr.net/fontsource/fonts/noto-sans-tc@latest/chinese-traditional-400-normal.ttf';
-const NOTO_SANS_TC_BOLD = 'https://cdn.jsdelivr.net/fontsource/fonts/noto-sans-tc@latest/chinese-traditional-700-normal.ttf';
+// Use Noto Sans HK (Hong Kong) which includes Cantonese/HK-specific glyphs
+// like 枱, 嘅, 咗, 攞 that are missing from the noto-sans-tc subset.
+const NOTO_SANS_HK_REGULAR = 'https://cdn.jsdelivr.net/fontsource/fonts/noto-sans-hk@latest/chinese-hongkong-400-normal.ttf';
+const NOTO_SANS_HK_BOLD = 'https://cdn.jsdelivr.net/fontsource/fonts/noto-sans-hk@latest/chinese-hongkong-700-normal.ttf';
 
 async function loadReactPdfModule(): Promise<ReactPdfModule> {
   if (cachedModule) return cachedModule;
@@ -27,11 +29,13 @@ async function loadReactPdfModule(): Promise<ReactPdfModule> {
     cachedModule = mod;
     if (!fontRegistered) {
       try {
+        // Use Noto Sans HK — covers HK-specific Han glyphs like 枱 that
+        // are missing from the noto-sans-tc Traditional Chinese subset.
         mod.Font.register({
           family: 'NotoSansTC',
           fonts: [
-            { src: NOTO_SANS_TC_REGULAR, fontWeight: 400 },
-            { src: NOTO_SANS_TC_BOLD, fontWeight: 700 },
+            { src: NOTO_SANS_HK_REGULAR, fontWeight: 400 },
+            { src: NOTO_SANS_HK_BOLD, fontWeight: 700 },
           ],
         });
         mod.Font.registerHyphenationCallback((word: string) => {
