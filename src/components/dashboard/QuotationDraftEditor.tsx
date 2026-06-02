@@ -135,10 +135,9 @@ function ImageUploadModal({
   title: string;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
+  const dropRef = useRef<HTMLButtonElement>(null);
   const [dragActive, setDragActive] = useState(false);
   const [busy, setBusy] = useState(false);
-
-  if (!open) return null;
 
   const handleFile = async (file: File) => {
     const err = validateImageFile(file);
@@ -157,6 +156,29 @@ function ImageUploadModal({
       setBusy(false);
     }
   };
+
+  // Listen to paste events while modal is open (Ctrl+V / right-click paste)
+  useEffect(() => {
+    if (!open) return;
+    const handler = async (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (const item of Array.from(items)) {
+        if (item.type.startsWith("image/")) {
+          e.preventDefault();
+          const file = item.getAsFile();
+          if (file) await handleFile(file);
+          return;
+        }
+      }
+    };
+    window.addEventListener("paste", handler);
+    // Auto-focus drop area so right-click → paste context menu works
+    dropRef.current?.focus();
+    return () => window.removeEventListener("paste", handler);
+  }, [open]);
+
+  if (!open) return null;
 
   const handleInput = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -192,6 +214,7 @@ function ImageUploadModal({
         </div>
 
         <button
+          ref={dropRef}
           type="button"
           disabled={busy}
           onClick={() => inputRef.current?.click()}
@@ -213,7 +236,7 @@ function ImageUploadModal({
             <Upload className="h-6 w-6 text-primary" />
           )}
           <span className="font-body text-xs font-medium text-foreground">
-            {busy ? "上傳中..." : "點擊或拖放圖片到此處上傳"}
+            {busy ? "上傳中..." : "點擊、拖放或貼上 (Ctrl+V) 圖片"}
           </span>
           <span className="font-body text-[10px] text-muted-foreground">
             支援 PNG、JPG、JPEG、WEBP、TIFF、SVG（最大 10 MB）
@@ -953,7 +976,7 @@ export function QuotationDraftEditor({
     clientInfo,
     quoteMeta: {
       ...quoteMeta,
-      quoteNumber: existingQuote?.quoteId || "",
+      quoteNumber: quoteMeta.projectName || existingQuote?.quoteId || "",
       date: new Date().toLocaleDateString("zh-HK", {
         year: "numeric",
         month: "numeric",
@@ -1271,7 +1294,7 @@ export function QuotationDraftEditor({
                 <div className="space-y-3">
                   <div>
                     <label className="mb-1 block font-body text-xs text-muted-foreground">
-                      專案名稱
+                      報價單號
                     </label>
                     <input
                       type="text"

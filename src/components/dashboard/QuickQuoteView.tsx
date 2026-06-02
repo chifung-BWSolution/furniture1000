@@ -259,7 +259,7 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote }: QuickQuo
       newErrors.projectManager = '請填寫項目經理姓名';
     }
     if (!formData.projectName.trim()) {
-      newErrors.projectName = '請填寫專案名稱';
+      newErrors.projectName = '請填寫報價單號';
     }
     if (!formData.clientName.trim()) {
       newErrors.clientName = '請填寫客戶名稱';
@@ -485,13 +485,13 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote }: QuickQuo
               {/* Project Name (full width) */}
               <div>
                 <label className="mb-1.5 block font-body text-sm font-medium text-foreground">
-                  專案名稱 <span className="text-red-500">*</span>
+                  報價單號 <span className="text-red-500">*</span>
                 </label>
                 <input
                   type="text"
                   value={formData.projectName}
                   onChange={(e) => updateField('projectName', e.target.value)}
-                  placeholder="例：太古城中心辦公室裝修工程"
+                  placeholder="例：Q2026-0601-866"
                   className={cn(
                     'w-full rounded-lg border bg-background px-4 py-2.5 font-body text-sm text-foreground placeholder:text-muted-foreground/60 transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20',
                     errors.projectName ? 'border-red-500' : 'border-border'
@@ -813,7 +813,7 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote }: QuickQuo
                 </h4>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <span className="block font-body text-xs text-white/50">專案名稱</span>
+                    <span className="block font-body text-xs text-white/50">報價單號</span>
                     <span className="mt-0.5 block font-mono-data text-sm text-white/90 truncate">
                       {formData.projectName || '—'}
                     </span>
