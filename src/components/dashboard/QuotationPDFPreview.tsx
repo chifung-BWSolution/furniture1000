@@ -302,7 +302,6 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
 
   const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://26c0258f-253c-4e4e-9027-922d08aab63f.canvases.tempo.build';
   const logoUrl = `${baseUrl}/assets/bwf-logo.png`;
-  const stampUrl = `${baseUrl}/assets/bwf-stamp.png`;
 
   const formatDimensions = (item: QuotationPDFData['items'][0]) => {
     if (!item) return '';
@@ -536,23 +535,15 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
           </>
         )}
 
-        {/* Signature Section — wrap={false} keeps it intact on a single page */}
-        <View style={styles.signatureSection} wrap={false}>
+        {/* Customer signature only — kept on the same page as the terms.
+            minPresenceAhead reserves space so it isn't pushed to a new page. */}
+        <View style={styles.signatureSection} wrap={false} minPresenceAhead={80}>
           <View style={styles.signatureBlock}>
             <Text style={styles.signatureTitle}>{'\u5BA2\u6236\u78BA\u8A8D'}</Text>
             <Text style={styles.signatureLabel}>{'\u5BA2\u6236\u6388\u6B0A\u4EBA\u59D3\u540D\u53CA\u7C3D\u540D'}</Text>
             <View style={styles.signatureMiddle} />
             <View style={styles.signatureLine} />
             <Text style={styles.signatureDate}>{'\u7C3D\u7F72\u65E5\u671F:'}</Text>
-          </View>
-          <View style={styles.signatureBlock}>
-            <Text style={styles.signatureTitle}>{'Branding Works \u4EE3\u8868'}</Text>
-            <Text style={styles.signatureLabel}>{' '}</Text>
-            <View style={styles.signatureMiddle}>
-              <Image src={stampUrl} style={styles.stamp} />
-            </View>
-            <View style={styles.signatureLine} />
-            <Text style={styles.signatureDate}>{today}</Text>
           </View>
         </View>
 
