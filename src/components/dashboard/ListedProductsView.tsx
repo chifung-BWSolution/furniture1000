@@ -67,7 +67,7 @@ import { ProductDetailModal } from './ProductDetailModal';
 
 type SortField = 'created_at' | 'title';
 type SortOrder = 'asc' | 'desc';
-type PageSize = 100 | 200 | 500;
+type PageSize = 20 | 50 | 100 | 200 | 500;
 
 interface ListedProduct {
   id: string;
@@ -124,7 +124,7 @@ export function ListedProductsView({
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [sortField, setSortField] = useState<SortField>('created_at');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
-  const [pageSize, setPageSize] = useState<PageSize>(100);
+  const [pageSize, setPageSize] = useState<PageSize>(20);
   const [currentPage, setCurrentPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -906,6 +906,8 @@ export function ListedProductsView({
                 <SelectValue placeholder="Per page" />
               </SelectTrigger>
               <SelectContent>
+                <SelectItem value="20">每頁 20 項</SelectItem>
+                <SelectItem value="50">每頁 50 項</SelectItem>
                 <SelectItem value="100">每頁 100 項</SelectItem>
                 <SelectItem value="200">每頁 200 項</SelectItem>
                 <SelectItem value="500">每頁 500 項</SelectItem>
@@ -1122,7 +1124,7 @@ export function ListedProductsView({
             >
               <Database className="h-3 w-3 text-indigo-500" />
               <span className="text-[11px] text-indigo-500 font-body">
-                產品目錄：顯示所有產品資料，依建立時間排序。已同步的產品帶有「已同步」標記。
+                已優化載入速度 • 預設顯示前 {pageSize} 件產品，其餘資料將於滾動或切換分頁時延遲載入
               </span>
             </motion.div>
           )}
@@ -1131,12 +1133,30 @@ export function ListedProductsView({
         {/* Table */}
         <div className="flex-1 overflow-auto">
           {isLoading ? (
-            <div className="flex h-full items-center justify-center">
-              <div className="flex flex-col items-center gap-3">
-                <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-                <span className="font-mono-data text-xs text-muted-foreground">
-                  正在載入產品目錄...
-                </span>
+            <div className="px-6 py-3">
+              <div className="mb-2 flex items-center gap-2 text-[11px] text-muted-foreground font-body">
+                <Loader2 className="h-3 w-3 animate-spin text-primary" />
+                Lazy Loading 已啟用 • 正在載入前 {pageSize} 件產品...
+              </div>
+              <div className="space-y-2">
+                {Array.from({ length: Math.min(pageSize, 8) }).map((_, i) => (
+                  <div
+                    key={i}
+                    className="flex items-center gap-4 rounded-md border border-border/60 bg-card/30 px-4 py-3"
+                  >
+                    <div className="h-4 w-4 animate-pulse rounded bg-muted" />
+                    <div className="h-12 w-12 animate-pulse rounded-md bg-muted" />
+                    <div className="flex-1 space-y-2">
+                      <div className="h-3 w-1/3 animate-pulse rounded bg-muted" />
+                      <div className="h-2.5 w-1/4 animate-pulse rounded bg-muted/70" />
+                    </div>
+                    <div className="h-3 w-16 animate-pulse rounded bg-muted" />
+                    <div className="h-3 w-20 animate-pulse rounded bg-muted" />
+                    <div className="h-3 w-14 animate-pulse rounded bg-muted" />
+                    <div className="h-3 w-16 animate-pulse rounded bg-muted" />
+                    <div className="h-3 w-10 animate-pulse rounded bg-muted" />
+                  </div>
+                ))}
               </div>
             </div>
           ) : fetchError ? (
@@ -1279,6 +1299,8 @@ export function ListedProductsView({
                           <img
                             src={imgSrc}
                             alt={product.images?.[0]?.alt || product.title}
+                            loading="lazy"
+                            decoding="async"
                             className="h-9 w-9 aspect-square rounded-md object-cover flex-shrink-0 bg-muted"
                           />
                         ) : (
