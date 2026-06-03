@@ -10,7 +10,7 @@ import {
   assignZoneProductToZone, unassignZoneProduct, updateProjectFloorPlan,
   createZone, updateZone, deleteZone,
 } from '@/lib/solutionsApi';
-import { generateFloorPlanDataUrl, defaultZoneSeeds } from '@/lib/floorPlanGenerator';
+import { generateFloorPlanDataUrl, defaultZoneSeeds, isGeneratedFloorPlan } from '@/lib/floorPlanGenerator';
 import { toast } from 'sonner';
 import {
   ZONE_PRODUCT_STATUS_META, type ZoneProductStatus, type SchemeLabel,
@@ -345,7 +345,16 @@ export function DesignProjectsView() {
           >
             {/* uploaded floor plan image */}
             {floorPlan && !floorPlan.startsWith('data:application/pdf') && (
-              <img src={floorPlan} alt="平面圖" className="absolute inset-0 h-full w-full object-contain" />
+              <img
+                src={floorPlan}
+                alt="平面圖"
+                className={cn(
+                  'absolute inset-0 h-full w-full',
+                  // generated SVG stretches to fill so it aligns 1:1 with zone boxes;
+                  // uploaded images keep their aspect ratio
+                  isGeneratedFloorPlan(floorPlan) ? 'object-fill' : 'object-contain'
+                )}
+              />
             )}
             {floorPlan && floorPlan.startsWith('data:application/pdf') && (
               <div className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground">

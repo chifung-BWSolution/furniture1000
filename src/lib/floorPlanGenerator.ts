@@ -25,24 +25,29 @@ function esc(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
-/** Build an SVG floor plan string from zones. */
-export function buildFloorPlanSvg(zones: ProjectZone[], title?: string): string {
+/**
+ * Build an SVG floor plan string from zones.
+ *
+ * The SVG uses preserveAspectRatio="none" and is rendered with object-fill, so
+ * its viewBox maps linearly onto the container in x and y independently. Zone
+ * overlay boxes are positioned with the SAME percentage bounds, so the drawn
+ * rooms line up exactly with the zone boxes at any container size. Room names
+ * are intentionally NOT drawn here — the crisp HTML zone overlays provide them,
+ * which keeps text undistorted regardless of stretching.
+ */
+export function buildFloorPlanSvg(zones: ProjectZone[], _title?: string): string {
   const rooms = zones
-    .map((z, i) => {
+    .map((z) => {
       const x = (z.bounds.x / 100) * VW;
       const y = (z.bounds.y / 100) * VH;
       const w = (z.bounds.w / 100) * VW;
       const h = (z.bounds.h / 100) * VH;
-      const label = esc(z.name || `分區 ${i + 1}`);
-      const code = z.code ? esc(z.code) : '';
       return `
     <g>
       <rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}"
             rx="6" fill="#ffffff" stroke="#94a3b8" stroke-width="3" />
       <rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${w.toFixed(1)}" height="22"
             rx="6" fill="#eef2ff" />
-      <text x="${(x + 12).toFixed(1)}" y="${(y + 16).toFixed(1)}"
-            font-family="system-ui, sans-serif" font-size="13" font-weight="700" fill="#4f46e5">${code ? code + '  ' : ''}${label}</text>
     </g>`;
     })
     .join('');
@@ -51,7 +56,7 @@ export function buildFloorPlanSvg(zones: ProjectZone[], title?: string): string 
   const doorX = VW * 0.46;
   const doorArc = `<path d="M ${doorX} ${VH - WALL} a 60 60 0 0 1 60 -60" fill="none" stroke="#cbd5e1" stroke-width="2.5" />`;
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${VW} ${VH}" width="${VW}" height="${VH}">
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${VW} ${VH}" width="${VW}" height="${VH}" preserveAspectRatio="none">
   <defs>
     <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
       <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#e2e8f0" stroke-width="1" />
@@ -63,7 +68,6 @@ export function buildFloorPlanSvg(zones: ProjectZone[], title?: string): string 
         fill="none" stroke="#475569" stroke-width="${WALL}" />
   ${doorArc}
   ${rooms}
-  ${title ? `<text x="${VW - 20}" y="${VH - 18}" text-anchor="end" font-family="system-ui, sans-serif" font-size="12" fill="#94a3b8">${esc(title)} · 生成平面圖</text>` : ''}
 </svg>`;
 }
 
