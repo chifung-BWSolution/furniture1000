@@ -44,6 +44,8 @@ export function ProductCategoryView() {
   const [isSaving, setIsSaving] = useState(false);
   const [search, setSearch] = useState('');
   const [dirty, setDirty] = useState(false);
+  // ids of rows that exist in DB and were removed in the UI — deleted on save
+  const [deletedIds, setDeletedIds] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   // pending rows from an Excel import, awaiting confirm-replace
   const [pendingImport, setPendingImport] = useState<{ level1: string; level2: string }[] | null>(null);
@@ -57,6 +59,7 @@ export function ProductCategoryView() {
         .order('sort_order', { ascending: true });
       if (error) throw error;
       setRows((data || []).map(mapRow));
+      setDeletedIds([]);
       setDirty(false);
     } catch (err) {
       toast.error('載入分類失敗', { description: err instanceof Error ? err.message : '請稍後再試' });
@@ -99,7 +102,12 @@ export function ProductCategoryView() {
   };
 
   const deleteRow = (id: string) => {
-    setRows((prev) => prev.filter((r) => r.id !== id));
+    setRows((prev) => {
+      const target = prev.find((r) => r.id === id);
+      // existing DB rows must be deleted on save; new rows just vanish
+      if (target && !target.isNew) setDeletedIds((d) => [...d, id]);
+      return prev.filter((r) => r.id !== id);
+    });
     setDirty(true);
   };
 
@@ -119,6 +127,8 @@ export function ProductCategoryView() {
 
   const confirmImport = () => {
     if (!pendingImport) return;
+    // import replaces everything — existing DB rows must be deleted on save
+    setDeletedIds((d) => [...d, ...rows.filter((r) => !r.isNew).map((r) => r.id)]);
     setRows(pendingImport.map((p, i) => ({
       id: 'imp-' + i, level1: p.level1, level2: p.level2, sortOrder: i, isNew: true,
     })));
@@ -127,25 +137,54 @@ export function ProductCategoryView() {
     toast.success(`已導入 ${pendingImport.length} 筆分類`, { description: '請按「儲存」寫入資料庫' });
   };
 
-  // Persist: replace all rows in DB with current UI state.
+  // Persist incrementally: delete removed rows, update existing rows, insert new
+  // ones. sort_order is recomputed from each row's current position on screen.
   const save = async () => {
     setIsSaving(true);
     try {
-      // delete everything, then insert current rows in order
-      const { error: delErr } = await supabase.from('product_category').delete().neq('id', '00000000-0000-0000-0000-000000000000');
-      if (delErr) throw delErr;
-
       const valid = rows.filter((r) => r.level1.trim() && r.level2.trim());
-      if (valid.length > 0) {
-        const payload = valid.map((r, i) => ({
+      // sort_order = position in the current (full) row list, so ordering is stable
+      const orderOf = new Map(rows.map((r, i) => [r.id, i]));
+
+      // 1) delete rows the user removed (that existed in DB)
+      if (deletedIds.length > 0) {
+        const { error: delErr } = await supabase
+          .from('product_category')
+          .delete()
+          .in('id', deletedIds);
+        if (delErr) throw delErr;
+      }
+
+      // 2) update existing rows (id is a real DB uuid → not isNew)
+      const existing = valid.filter((r) => !r.isNew);
+      for (const r of existing) {
+        const { error: updErr } = await supabase
+          .from('product_category')
+          .update({
+            level1: r.level1.trim(),
+            level2: r.level2.trim(),
+            sort_order: orderOf.get(r.id) ?? 0,
+            updated_at: new Date().toISOString(),
+          })
+          .eq('id', r.id);
+        if (updErr) throw updErr;
+      }
+
+      // 3) insert new rows (let DB assign the uuid)
+      const fresh = valid.filter((r) => r.isNew);
+      if (fresh.length > 0) {
+        const payload = fresh.map((r) => ({
           level1: r.level1.trim(),
           level2: r.level2.trim(),
-          sort_order: i,
+          sort_order: orderOf.get(r.id) ?? 0,
         }));
         const { error: insErr } = await supabase.from('product_category').insert(payload);
         if (insErr) throw insErr;
       }
-      toast.success('已儲存產品分類', { description: `${valid.length} 筆已寫入資料庫` });
+
+      toast.success('已儲存產品分類', {
+        description: `更新 ${existing.length} 筆、新增 ${fresh.length} 筆、刪除 ${deletedIds.length} 筆`,
+      });
       await load();
     } catch (err) {
       toast.error('儲存失敗', { description: err instanceof Error ? err.message : '請稍後再試' });
