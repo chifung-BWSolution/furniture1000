@@ -9,7 +9,7 @@ import { SettingsView } from "./SettingsView";
 import { PublishModal } from "./PublishModal";
 import { Construction } from "lucide-react";
 import { findSection, getSection } from "./navConfig";
-import { type PrimarySection } from "@/types/product";
+import { type PrimarySection, type ViewType } from "@/types/product";
 
 // Lazy-loaded heavy views (contain large dependencies like pdfjs-dist, @react-pdf/renderer, etc.)
 const AIProcessorView = lazy(() =>
@@ -56,6 +56,23 @@ const CustomerConfirmedProductsView = lazy(() =>
 const CustomerCompanyInfoView = lazy(() =>
   import("./customers/CustomerCompanyInfoView").then((mod) => ({ default: mod.CustomerCompanyInfoView }))
 );
+
+// Views that fetch their own data independently of the app store's product
+// load — they must not be gated by store.isLoading, so they render immediately.
+const SELF_LOADING_VIEWS = new Set<ViewType>([
+  "listed-products",
+  "manufacturer-catalog",
+  "category-management",
+  "quotation-list",
+  "design-projects",
+  "product-search",
+  "invite-clients",
+  "confirmed-projects",
+  "customer-design-projects",
+  "customer-product-search",
+  "customer-confirmed-products",
+  "customer-company-info",
+]);
 
 function PlaceholderView({
   title,
@@ -354,7 +371,7 @@ export function AppShell() {
         />
 
         <div className="flex-1 overflow-hidden">
-          {store.isLoading ? (
+          {store.isLoading && !SELF_LOADING_VIEWS.has(store.currentView) ? (
             <div className="flex h-full items-center justify-center">
               <div className="flex flex-col items-center gap-3">
                 <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />

@@ -289,19 +289,25 @@ export function useAppStore() {
     async function loadProducts() {
       setIsLoading(true);
       try {
-        // Fetch total count for stats
-        const { count: totalCount } = await supabase
-          .from('products')
-          .select('id', { count: 'exact', head: true });
-        setTotalProductCount(totalCount || 0);
-
         // Limit initial load to 100 products for performance
         const PAGE_LIMIT = 100;
-        const { data: productRows, error: prodErr } = await supabase
+
+        // Run count (estimated — uses planner stats, far faster than 'exact'
+        // on a large table) and the product page IN PARALLEL so they don't
+        // block each other.
+        const countPromise = supabase
+          .from('products')
+          .select('id', { count: 'estimated', head: true });
+        const dataPromise = supabase
           .from('products')
           .select('*')
           .order('created_at', { ascending: false })
           .range(0, PAGE_LIMIT - 1);
+
+        const [{ count: totalCount }, { data: productRows, error: prodErr }] =
+          await Promise.all([countPromise, dataPromise]);
+
+        setTotalProductCount(totalCount || 0);
 
         if (prodErr) {
           console.warn('[Supabase] Error loading products, using sample data:', prodErr.message);
@@ -322,35 +328,42 @@ export function useAppStore() {
           return;
         }
 
-        // Only fetch variants for loaded products (not all variants in DB)
+        // Render products immediately with empty variants — unblocks the whole
+        // app shell now instead of waiting for the variants round-trip.
+        const loaded = productRows.map((row: any) => dbRowToProduct(row, []));
+        setProducts(loaded);
+        setIsLoading(false);
+
+        // Fetch variants in the background and patch them in afterwards.
         const productIds = productRows.map((p: any) => p.id);
-        const { data: variantRows, error: varErr } = await supabase
+        supabase
           .from('product_variants')
           .select('*')
-          .in('product_id', productIds);
-
-        if (varErr) {
-          console.warn('[Supabase] Error loading variants, using sample data:', varErr.message);
-          setProducts(SAMPLE_PRODUCTS);
-          setIsLoading(false);
-          return;
-        }
-
-        const variantsByProduct: Record<string, any[]> = {};
-        (variantRows || []).forEach((v: any) => {
-          if (!variantsByProduct[v.product_id]) variantsByProduct[v.product_id] = [];
-          variantsByProduct[v.product_id].push(v);
-        });
-
-        const loaded = productRows.map((row: any) =>
-          dbRowToProduct(row, variantsByProduct[row.id] || [])
-        );
-
-        setProducts(loaded);
+          .in('product_id', productIds)
+          .then(({ data: variantRows }) => {
+            if (!variantRows || variantRows.length === 0) return;
+            const variantsByProduct: Record<string, any[]> = {};
+            variantRows.forEach((v: any) => {
+              (variantsByProduct[v.product_id] ||= []).push(v);
+            });
+            setProducts((prev) =>
+              prev.map((p) =>
+                variantsByProduct[p.id]
+                  ? {
+                      ...p,
+                      variants: variantsByProduct[p.id].map((v: any) => ({
+                        id: v.id, size: v.size, color: v.color, sku: v.sku,
+                        price: parseFloat(v.price), inventory: v.inventory,
+                      })),
+                    }
+                  : p
+              )
+            );
+          });
+        return;
       } catch (err) {
         console.warn('[Supabase] Unexpected error, using sample data:', err);
         setProducts(SAMPLE_PRODUCTS);
-      } finally {
         setIsLoading(false);
       }
     }
