@@ -302,10 +302,13 @@ export function DesignProjectsView() {
         </div>
       </div>
 
-      {/* Main split: floor plan (left) + design basket (right) */}
-      <div className="flex min-h-0 flex-1 overflow-hidden">
+      {/* Main split: floor plan (left) + design basket (right).
+          Fixed, generous height so both columns are tall regardless of the
+          page's outer layout — the whole floor plan is visible without
+          scrolling and the basket shows several products at once. */}
+      <div className="flex h-[560px] shrink-0 overflow-hidden">
         {/* Floor plan area */}
-        <div className="flex min-w-0 flex-1 flex-col overflow-auto p-6">
+        <div className="flex min-w-0 flex-1 flex-col overflow-hidden p-6">
           <div className="mb-3 flex items-center gap-2">
             <LayoutGrid className="h-4 w-4 text-primary" />
             <h2 className="font-display text-sm font-bold">平面圖分區</h2>
@@ -331,9 +334,9 @@ export function DesignProjectsView() {
             onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFloorPlanFile(f); e.target.value = ''; }}
           />
 
-          {/* Floor plan canvas with draggable zones — grows to fill the section */}
+          {/* Floor plan canvas with draggable zones — fills the section height */}
           <div
-            className="relative w-full flex-1 min-h-[460px] overflow-hidden rounded-xl border-2 border-dashed border-border bg-muted/20"
+            className="relative min-h-0 w-full flex-1 overflow-hidden rounded-xl border-2 border-dashed border-border bg-muted/20"
             onDragOver={(e) => { if (!draggingIdRef.current) e.preventDefault(); }}
             onDrop={(e) => {
               // file drop for floor plan (only when not dragging a product)
