@@ -821,14 +821,6 @@ export function ListedProductsView({
         {/* Toolbar */}
         <div className="flex items-center justify-between border-b border-border bg-muted/30 px-6 py-2.5">
           <div className="flex items-center gap-3">
-            {/* Section icon */}
-            <div className="flex items-center gap-1.5 text-indigo-500">
-              <Database className="h-4 w-4" />
-              <span className="font-display text-xs font-bold">產品目錄</span>
-            </div>
-
-            <div className="h-4 w-px bg-border" />
-
             {/* Search */}
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
