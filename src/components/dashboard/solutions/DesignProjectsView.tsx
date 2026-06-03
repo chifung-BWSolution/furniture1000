@@ -331,9 +331,9 @@ export function DesignProjectsView() {
             onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFloorPlanFile(f); e.target.value = ''; }}
           />
 
-          {/* Floor plan canvas with draggable zones */}
+          {/* Floor plan canvas with draggable zones — grows to fill the section */}
           <div
-            className="relative aspect-[16/10] w-full overflow-hidden rounded-xl border-2 border-dashed border-border bg-muted/20"
+            className="relative w-full flex-1 min-h-[460px] overflow-hidden rounded-xl border-2 border-dashed border-border bg-muted/20"
             onDragOver={(e) => { if (!draggingIdRef.current) e.preventDefault(); }}
             onDrop={(e) => {
               // file drop for floor plan (only when not dragging a product)
