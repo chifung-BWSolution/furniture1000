@@ -33,6 +33,33 @@ const CategoryManagementView = lazy(() =>
 const ProductCategoryView = lazy(() =>
   import("./ProductCategoryView").then((mod) => ({ default: mod.ProductCategoryView }))
 );
+// 網上發佈 (Online Publication)
+const PublishCopywritingView = lazy(() =>
+  import("./publish/PublishCopywritingView").then((mod) => ({ default: mod.PublishCopywritingView }))
+);
+const PublishPrecheckView = lazy(() =>
+  import("./publish/PublishPrecheckView").then((mod) => ({ default: mod.PublishPrecheckView }))
+);
+const PublishedProductsView = lazy(() =>
+  import("./publish/PublishedProductsView").then((mod) => ({ default: mod.PublishedProductsView }))
+);
+// 分析報表 (Analytics Reports)
+const FactoryReportView = lazy(() =>
+  import("./reports/FactoryReportView").then((mod) => ({ default: mod.FactoryReportView }))
+);
+const ProductReportView = lazy(() =>
+  import("./reports/ProductReportView").then((mod) => ({ default: mod.ProductReportView }))
+);
+const SalesReportView = lazy(() =>
+  import("./reports/SalesReportView").then((mod) => ({ default: mod.SalesReportView }))
+);
+// 設定 (Settings)
+const UserManagementView = lazy(() =>
+  import("./admin/UserManagementView").then((mod) => ({ default: mod.UserManagementView }))
+);
+const LoginHistoryView = lazy(() =>
+  import("./admin/LoginHistoryView").then((mod) => ({ default: mod.LoginHistoryView }))
+);
 // 傢俬方案 (Furniture Scheme)
 const DesignProjectsView = lazy(() =>
   import("./solutions/DesignProjectsView").then((mod) => ({ default: mod.DesignProjectsView }))
@@ -76,6 +103,14 @@ const SELF_LOADING_VIEWS = new Set<ViewType>([
   "customer-product-search",
   "customer-confirmed-products",
   "customer-company-info",
+  "publish-copywriting",
+  "publish-precheck",
+  "published-products",
+  "report-factory",
+  "report-product",
+  "report-sales",
+  "user-management",
+  "login-history",
 ]);
 
 function PlaceholderView({
@@ -234,61 +269,21 @@ export function AppShell() {
           />
         );
       case "publish-copywriting":
-        return (
-          <PlaceholderView
-            title="產品文案"
-            description="AI 撰寫產品標題、描述與賣點文案。"
-          />
-        );
+        return <PublishCopywritingView />;
       case "publish-precheck":
-        return (
-          <PlaceholderView
-            title="發佈前檢查"
-            description="檢查圖片、SEO、價格、庫存等上架前必填欄位。"
-          />
-        );
+        return <PublishPrecheckView />;
       case "published-products":
-        return (
-          <PlaceholderView
-            title="已上載產品"
-            description="所有已成功上架到 Shopify 的產品。"
-          />
-        );
+        return <PublishedProductsView />;
       case "report-factory":
-        return (
-          <PlaceholderView
-            title="廠家報告"
-            description="按廠家匯總的產品數、銷售與交期分析。"
-          />
-        );
+        return <FactoryReportView />;
       case "report-product":
-        return (
-          <PlaceholderView
-            title="產品報告"
-            description="產品銷售、庫存與表現分析報告。"
-          />
-        );
+        return <ProductReportView />;
       case "report-sales":
-        return (
-          <PlaceholderView
-            title="銷售報告"
-            description="期間銷售趨勢、客戶分佈與成交報告。"
-          />
-        );
+        return <SalesReportView />;
       case "user-management":
-        return (
-          <PlaceholderView
-            title="用戶管理"
-            description="管理團隊成員的角色與存取權限。"
-          />
-        );
+        return <UserManagementView />;
       case "login-history":
-        return (
-          <PlaceholderView
-            title="登入紀錄"
-            description="檢視用戶登入歷史與安全事件。"
-          />
-        );
+        return <LoginHistoryView />;
       case "quick-quote":
         return (
           <QuickQuoteView
