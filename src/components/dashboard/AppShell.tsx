@@ -30,6 +30,32 @@ const QuotationListView = lazy(() =>
 const CategoryManagementView = lazy(() =>
   import("./CategoryManagementView").then((mod) => ({ default: mod.CategoryManagementView }))
 );
+// 傢俬方案 (Furniture Scheme)
+const DesignProjectsView = lazy(() =>
+  import("./solutions/DesignProjectsView").then((mod) => ({ default: mod.DesignProjectsView }))
+);
+const ProductSearchView = lazy(() =>
+  import("./solutions/ProductSearchView").then((mod) => ({ default: mod.ProductSearchView }))
+);
+const InviteClientsView = lazy(() =>
+  import("./solutions/InviteClientsView").then((mod) => ({ default: mod.InviteClientsView }))
+);
+const ConfirmedProjectsView = lazy(() =>
+  import("./solutions/ConfirmedProjectsView").then((mod) => ({ default: mod.ConfirmedProjectsView }))
+);
+// 客戶專區 (Client Zone)
+const CustomerDesignProjectsView = lazy(() =>
+  import("./customers/CustomerDesignProjectsView").then((mod) => ({ default: mod.CustomerDesignProjectsView }))
+);
+const CustomerProductSearchView = lazy(() =>
+  import("./customers/CustomerProductSearchView").then((mod) => ({ default: mod.CustomerProductSearchView }))
+);
+const CustomerConfirmedProductsView = lazy(() =>
+  import("./customers/CustomerConfirmedProductsView").then((mod) => ({ default: mod.CustomerConfirmedProductsView }))
+);
+const CustomerCompanyInfoView = lazy(() =>
+  import("./customers/CustomerCompanyInfoView").then((mod) => ({ default: mod.CustomerCompanyInfoView }))
+);
 
 function PlaceholderView({
   title,
@@ -150,33 +176,13 @@ export function AppShell() {
       case "manufacturer-catalog":
         return <ManufacturerDirectoryView />;
       case "design-projects":
-        return (
-          <PlaceholderView
-            title="設計專案"
-            description="管理您的室內設計項目，追蹤進度並協調團隊合作。"
-          />
-        );
+        return <DesignProjectsView />;
       case "product-search":
-        return (
-          <PlaceholderView
-            title="產品搜尋"
-            description="搜尋產品數據庫，快速找到符合設計需求的傢俬產品。"
-          />
-        );
+        return <ProductSearchView />;
       case "invite-clients":
-        return (
-          <PlaceholderView
-            title="邀請客戶"
-            description="向客戶發送邀請，讓他們查看和確認設計方案。"
-          />
-        );
+        return <InviteClientsView />;
       case "confirmed-projects":
-        return (
-          <PlaceholderView
-            title="已確定方案"
-            description="查看所有已被客戶確認的設計方案和訂單狀態。"
-          />
-        );
+        return <ConfirmedProjectsView />;
       case "factory-catalog-quote":
         return (
           <PlaceholderView
@@ -192,33 +198,13 @@ export function AppShell() {
           />
         );
       case "customer-design-projects":
-        return (
-          <PlaceholderView
-            title="設計專案（客戶）"
-            description="客戶端的設計專案視圖與審批進度。"
-          />
-        );
+        return <CustomerDesignProjectsView />;
       case "customer-product-search":
-        return (
-          <PlaceholderView
-            title="產品搜尋（客戶）"
-            description="客戶可搜尋並挑選方案內的傢俬產品。"
-          />
-        );
+        return <CustomerProductSearchView />;
       case "customer-confirmed-products":
-        return (
-          <PlaceholderView
-            title="確定產品"
-            description="客戶確認採購的產品清單。"
-          />
-        );
+        return <CustomerConfirmedProductsView />;
       case "customer-company-info":
-        return (
-          <PlaceholderView
-            title="公司資料"
-            description="客戶公司聯絡與發票資料。"
-          />
-        );
+        return <CustomerCompanyInfoView />;
       case "quotation-settings":
         return (
           <PlaceholderView
