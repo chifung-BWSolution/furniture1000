@@ -4,7 +4,11 @@ import {
   Plus, Upload, Sparkles, GripVertical, Save, Trash2, Pencil,
   LayoutGrid, ImageIcon, ChevronDown, Check, Loader2,
 } from 'lucide-react';
-import { fetchProjects, fetchZones, fetchZoneProducts } from '@/lib/solutionsApi';
+import {
+  fetchProjects, fetchZones, fetchZoneProducts,
+  createProject, saveProject, updateZoneProductStatus,
+} from '@/lib/solutionsApi';
+import { toast } from 'sonner';
 import {
   ZONE_PRODUCT_STATUS_META, type ZoneProductStatus, type SchemeLabel,
   type DesignProject, type ProjectZone, type ZoneProduct,
@@ -19,6 +23,7 @@ export function DesignProjectsView() {
   const [allZones, setAllZones] = useState<ProjectZone[]>([]);
   const [allZoneProducts, setAllZoneProducts] = useState<ZoneProduct[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
 
   // Load project list once
   useEffect(() => {
@@ -27,6 +32,36 @@ export function DesignProjectsView() {
       if (rows.length > 0) setActiveProjectId((cur) => cur || rows[0].id);
     });
   }, []);
+
+  // --- write handlers ---
+  const handleCreateProject = async () => {
+    const name = window.prompt('輸入新專案名稱：');
+    if (!name?.trim()) return;
+    const res = await createProject({ name: name.trim() });
+    if (res.ok && res.data) {
+      setProjects((prev) => [res.data!, ...prev]);
+      setActiveProjectId(res.data.id);
+      toast.success('已建立專案', { description: res.data.name });
+    } else {
+      toast.error('建立失敗', { description: res.error });
+    }
+  };
+
+  const handleSaveVersion = async () => {
+    setIsSaving(true);
+    const res = await saveProject(activeProjectId, { activeScheme: scheme });
+    setIsSaving(false);
+    res.ok
+      ? toast.success('已儲存版本', { description: `方案 ${scheme}` })
+      : toast.error('儲存失敗', { description: res.error });
+  };
+
+  const handleSetProductStatus = async (zoneProductId: string, status: ZoneProductStatus) => {
+    // optimistic update
+    setAllZoneProducts((prev) => prev.map((zp) => zp.id === zoneProductId ? { ...zp, status } : zp));
+    const res = await updateZoneProductStatus(zoneProductId, status);
+    if (!res.ok) toast.error('更新失敗', { description: res.error });
+  };
 
   // Load zones + products when active project changes
   useEffect(() => {
@@ -86,13 +121,20 @@ export function DesignProjectsView() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <button className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
-            <Save className="h-3.5 w-3.5" /> 儲存版本
+          <button
+            onClick={handleSaveVersion}
+            disabled={isSaving}
+            className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
+          >
+            {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />} 儲存版本
           </button>
           <button className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-primary to-primary/80 px-3.5 py-2 text-xs font-semibold text-primary-foreground shadow-sm transition-opacity hover:opacity-90">
             <Sparkles className="h-3.5 w-3.5" /> AI 建議分區與產品組合
           </button>
-          <button className="flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-xs font-semibold text-primary-foreground shadow-sm transition-opacity hover:opacity-90">
+          <button
+            onClick={handleCreateProject}
+            className="flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-xs font-semibold text-primary-foreground shadow-sm transition-opacity hover:opacity-90"
+          >
             <Plus className="h-3.5 w-3.5" /> 建立新專案
           </button>
         </div>
@@ -223,15 +265,16 @@ export function DesignProjectsView() {
                     <td className="px-3 py-2">
                       <div className="flex items-center gap-1">
                         {STATUS_OPTIONS.map((s) => (
-                          <span
+                          <button
                             key={s}
+                            onClick={() => handleSetProductStatus(zp.id, s)}
                             className={cn(
                               'cursor-pointer rounded-full border px-2 py-0.5 text-[10.5px] font-medium transition-all',
                               s === zp.status ? ZONE_PRODUCT_STATUS_META[s].className : 'border-transparent text-muted-foreground/40 hover:text-muted-foreground'
                             )}
                           >
                             {ZONE_PRODUCT_STATUS_META[s].label}
-                          </span>
+                          </button>
                         ))}
                       </div>
                     </td>

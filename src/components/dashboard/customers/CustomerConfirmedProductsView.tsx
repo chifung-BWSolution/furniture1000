@@ -3,7 +3,11 @@ import { cn } from '@/lib/utils';
 import {
   CheckCircle2, MessageSquare, Send, AtSign, ChevronDown, ChevronUp, Loader2,
 } from 'lucide-react';
-import { fetchProjects, fetchZoneProducts, fetchDiscussions } from '@/lib/solutionsApi';
+import {
+  fetchProjects, fetchZoneProducts, fetchDiscussions,
+  updateZoneProductStatus, addDiscussion,
+} from '@/lib/solutionsApi';
+import { toast } from 'sonner';
 import {
   ZONE_PRODUCT_STATUS_META,
   type ZoneProductStatus, type DesignProject, type ZoneProduct, type ProductDiscussion,
@@ -50,8 +54,32 @@ export function CustomerConfirmedProductsView() {
     );
   }
 
-  const setStatus = (id: string, s: ZoneProductStatus) =>
+  const setStatus = async (id: string, s: ZoneProductStatus) => {
     setStatuses((prev) => ({ ...prev, [id]: s }));
+    const res = await updateZoneProductStatus(id, s);
+    if (!res.ok) toast.error('更新失敗', { description: res.error });
+  };
+
+  const handleSend = async (zoneProductId: string) => {
+    const body = draft.trim();
+    if (!body) return;
+    const mentions = Array.from(body.matchAll(/@(\S+)/g)).map((m) => m[1]);
+    setDraft('');
+    const res = await addDiscussion({
+      projectId: project!.id,
+      zoneProductId,
+      author: '陳大文（客戶）',
+      authorRole: 'client',
+      body,
+      mentions,
+    });
+    if (res.ok && res.data) {
+      setDiscussions((prev) => [...prev, res.data!]);
+      toast.success('已送出留言，已通知 PM / 設計師');
+    } else {
+      toast.error('送出失敗', { description: res.error });
+    }
+  };
 
   return (
     <div className="h-full overflow-y-auto bg-background p-6 md:p-10">
@@ -130,12 +158,13 @@ export function CustomerConfirmedProductsView() {
                     <div className="mt-3 flex items-center gap-2 rounded-lg border border-border bg-background px-2 py-1.5">
                       <button className="rounded p-1 text-muted-foreground hover:text-primary" title="提及"><AtSign className="h-3.5 w-3.5" /></button>
                       <input
-                        value={isOpen ? draft : ''}
+                        value={draft}
                         onChange={(e) => setDraft(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') handleSend(p.id); }}
                         placeholder="輸入留言，使用 @ 提及 PM / 設計師..."
                         className="flex-1 bg-transparent font-body text-[12.5px] text-foreground placeholder:text-muted-foreground/50 focus:outline-none"
                       />
-                      <button className="flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-[11px] font-medium text-primary-foreground hover:opacity-90"><Send className="h-3 w-3" /> 送出</button>
+                      <button onClick={() => handleSend(p.id)} className="flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-[11px] font-medium text-primary-foreground hover:opacity-90"><Send className="h-3 w-3" /> 送出</button>
                     </div>
                   </div>
                 )}

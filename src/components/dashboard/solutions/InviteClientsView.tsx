@@ -4,7 +4,11 @@ import {
   Link2, Mail, Copy, ShieldCheck, Eye, EyeOff, RefreshCw, XCircle,
   Send, Check, ChevronDown,
 } from 'lucide-react';
-import { fetchProjects, fetchInvitations } from '@/lib/solutionsApi';
+import {
+  fetchProjects, fetchInvitations,
+  createInvitation, updateInvitationStatus,
+} from '@/lib/solutionsApi';
+import { toast } from 'sonner';
 import { INVITATION_STATUS_META, type DesignProject, type ProjectInvitation } from '@/types/solutions';
 
 function formatDateTime(dateStr: string | null) {
@@ -32,6 +36,41 @@ export function InviteClientsView() {
     if (!projectId) return;
     fetchInvitations(projectId).then(setInvitations);
   }, [projectId]);
+
+  const reload = () => fetchInvitations(projectId).then(setInvitations);
+
+  const handleSendEmail = async () => {
+    if (!email.trim()) { toast.error('請輸入電郵地址'); return; }
+    const res = await createInvitation({ projectId, channel: 'email', email: email.trim() });
+    if (res.ok) {
+      toast.success('已發送邀請', { description: email.trim() });
+      setEmail('');
+      reload();
+    } else {
+      toast.error('發送失敗', { description: res.error });
+    }
+  };
+
+  const handleCreateLink = async () => {
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+    const res = await createInvitation({ projectId, channel: 'link', email: null });
+    if (res.ok) { toast.success('已產生分享連結'); reload(); }
+    else toast.error('產生失敗', { description: res.error });
+  };
+
+  const handleResend = async (id: string) => {
+    const res = await updateInvitationStatus(id, 'sent');
+    if (res.ok) { toast.success('已重新發送'); reload(); }
+    else toast.error('操作失敗', { description: res.error });
+  };
+
+  const handleRevoke = async (id: string) => {
+    setInvitations((prev) => prev.map((i) => i.id === id ? { ...i, status: 'revoked' } : i));
+    const res = await updateInvitationStatus(id, 'revoked');
+    if (res.ok) toast.success('已撤銷邀請');
+    else { toast.error('撤銷失敗', { description: res.error }); reload(); }
+  };
 
   return (
     <div className="h-full overflow-y-auto bg-background p-6 md:p-8">
@@ -64,7 +103,7 @@ export function InviteClientsView() {
             <div className="flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2">
               <span className="flex-1 truncate font-mono-data text-[11.5px] text-muted-foreground">{shareUrl}</span>
               <button
-                onClick={() => { setCopied(true); setTimeout(() => setCopied(false), 1500); }}
+                onClick={handleCreateLink}
                 className={cn('flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors', copied ? 'bg-emerald-500/15 text-emerald-600' : 'bg-primary/10 text-primary hover:bg-primary/20')}
               >
                 {copied ? <><Check className="h-3.5 w-3.5" /> 已複製</> : <><Copy className="h-3.5 w-3.5" /> 複製</>}
@@ -89,7 +128,7 @@ export function InviteClientsView() {
                 placeholder="client@example.com"
                 className="flex-1 rounded-lg border border-border bg-background px-3 py-2 font-body text-sm placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
               />
-              <button className="flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-xs font-semibold text-primary-foreground shadow-sm transition-opacity hover:opacity-90">
+              <button onClick={handleSendEmail} className="flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-xs font-semibold text-primary-foreground shadow-sm transition-opacity hover:opacity-90">
                 <Send className="h-3.5 w-3.5" /> 發送
               </button>
             </div>
@@ -139,8 +178,8 @@ export function InviteClientsView() {
                     <td className="px-3 py-3 font-mono-data text-[11.5px] text-muted-foreground">{formatDateTime(inv.viewedAt)}</td>
                     <td className="px-3 py-3">
                       <div className="flex justify-end gap-1.5">
-                        <button className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"><RefreshCw className="h-3 w-3" /> 重發</button>
-                        <button className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-rose-500 hover:bg-rose-500/10"><XCircle className="h-3 w-3" /> 撤銷</button>
+                        <button onClick={() => handleResend(inv.id)} className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"><RefreshCw className="h-3 w-3" /> 重發</button>
+                        <button onClick={() => handleRevoke(inv.id)} className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-rose-500 hover:bg-rose-500/10"><XCircle className="h-3 w-3" /> 撤銷</button>
                       </div>
                     </td>
                   </tr>

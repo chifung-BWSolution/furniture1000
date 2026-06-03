@@ -4,10 +4,12 @@ import {
   Building2, User, Mail, Phone, MapPin, ShieldAlert, Save, ArrowRight,
   CheckCircle2, FolderClock,
 } from 'lucide-react';
-import { fetchCompany, fetchProjects } from '@/lib/solutionsApi';
+import { fetchCompany, fetchProjects, submitCompanyChanges } from '@/lib/solutionsApi';
+import { toast } from 'sonner';
 import type { DesignProject } from '@/types/solutions';
 
 export function CustomerCompanyInfoView() {
+  const [companyId, setCompanyId] = useState<string | null>(null);
   const [form, setForm] = useState({
     name: '',
     contactPerson: '',
@@ -16,18 +18,42 @@ export function CustomerCompanyInfoView() {
     address: '',
   });
   const [submitted, setSubmitted] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [historyProjects, setHistoryProjects] = useState<DesignProject[]>([]);
 
   useEffect(() => {
-    fetchCompany().then((c) => setForm({
-      name: c.name,
-      contactPerson: c.contactPerson ?? '',
-      contactEmail: c.contactEmail ?? '',
-      contactPhone: c.contactPhone ?? '',
-      address: c.address ?? '',
-    }));
+    fetchCompany().then((c) => {
+      setCompanyId(c.id);
+      setForm({
+        name: c.name,
+        contactPerson: c.contactPerson ?? '',
+        contactEmail: c.contactEmail ?? '',
+        contactPhone: c.contactPhone ?? '',
+        address: c.address ?? '',
+      });
+    });
     fetchProjects().then(setHistoryProjects);
   }, []);
+
+  const handleSubmit = async () => {
+    if (!companyId) return;
+    setIsSubmitting(true);
+    const res = await submitCompanyChanges(companyId, {
+      name: form.name,
+      contact_person: form.contactPerson,
+      contact_email: form.contactEmail,
+      contact_phone: form.contactPhone,
+      address: form.address,
+    });
+    setIsSubmitting(false);
+    if (res.ok) {
+      setSubmitted(true);
+      setTimeout(() => setSubmitted(false), 2500);
+      toast.success('已提交修改，待 PM 審核');
+    } else {
+      toast.error('提交失敗', { description: res.error });
+    }
+  };
 
   return (
     <div className="h-full overflow-y-auto bg-background p-6 md:p-10">
@@ -67,8 +93,9 @@ export function CustomerCompanyInfoView() {
               </span>
             )}
             <button
-              onClick={() => { setSubmitted(true); setTimeout(() => setSubmitted(false), 2500); }}
-              className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground shadow-sm transition-opacity hover:opacity-90"
+              onClick={handleSubmit}
+              disabled={isSubmitting}
+              className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground shadow-sm transition-opacity hover:opacity-90 disabled:opacity-50"
             >
               <Save className="h-3.5 w-3.5" /> 提交修改（需審核）
             </button>

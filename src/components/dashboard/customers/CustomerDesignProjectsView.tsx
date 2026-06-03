@@ -3,7 +3,8 @@ import { cn } from '@/lib/utils';
 import {
   ChevronLeft, CheckCircle2, MessageCircle, Edit3, MapPin, ArrowRight,
 } from 'lucide-react';
-import { fetchProjects, fetchZones, fetchZoneProducts } from '@/lib/solutionsApi';
+import { fetchProjects, fetchZones, fetchZoneProducts, updateZoneProductStatus } from '@/lib/solutionsApi';
+import { toast } from 'sonner';
 import type { DesignProject, ProjectZone, ZoneProduct } from '@/types/solutions';
 
 export function CustomerDesignProjectsView() {
@@ -21,6 +22,14 @@ export function CustomerDesignProjectsView() {
     Promise.all([fetchZones(openProjectId), fetchZoneProducts(openProjectId)])
       .then(([z, zp]) => { setZones(z); setProducts(zp.filter((p) => p.zoneId)); });
   }, [openProjectId]);
+
+  const handleAction = async (zoneProductId: string, status: 'confirmed' | 'discussing', label: string) => {
+    setProducts((prev) => prev.map((p) => p.id === zoneProductId ? { ...p, status } : p));
+    const res = await updateZoneProductStatus(zoneProductId, status);
+    res.ok
+      ? toast.success(`已${label}，已通知 PM / 設計師`)
+      : toast.error('操作失敗', { description: res.error });
+  };
 
   if (!openProjectId) {
     return (
@@ -98,9 +107,18 @@ export function CustomerDesignProjectsView() {
                         <p className="mt-1 font-mono-data text-base font-bold text-primary">${zp.salePrice.toLocaleString()}</p>
                         <p className="text-[11px] text-muted-foreground">數量 × {zp.quantity}</p>
                         <div className="mt-2.5 grid grid-cols-3 gap-1">
-                          <button className="flex items-center justify-center gap-0.5 rounded-lg bg-emerald-500/10 px-1 py-1.5 text-[10.5px] font-medium text-emerald-600 transition-colors hover:bg-emerald-500/20"><CheckCircle2 className="h-3 w-3" /> 確認</button>
-                          <button className="flex items-center justify-center gap-0.5 rounded-lg bg-amber-500/10 px-1 py-1.5 text-[10.5px] font-medium text-amber-600 transition-colors hover:bg-amber-500/20"><MessageCircle className="h-3 w-3" /> 討論</button>
-                          <button className="flex items-center justify-center gap-0.5 rounded-lg border border-border px-1 py-1.5 text-[10.5px] font-medium text-muted-foreground transition-colors hover:bg-accent"><Edit3 className="h-3 w-3" /> 修改</button>
+                          <button
+                            onClick={() => handleAction(zp.id, 'confirmed', '確認')}
+                            className={cn('flex items-center justify-center gap-0.5 rounded-lg px-1 py-1.5 text-[10.5px] font-medium transition-colors', zp.status === 'confirmed' ? 'bg-emerald-500/20 text-emerald-700 ring-1 ring-emerald-500/40' : 'bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20')}
+                          ><CheckCircle2 className="h-3 w-3" /> 確認</button>
+                          <button
+                            onClick={() => handleAction(zp.id, 'discussing', '提出討論')}
+                            className={cn('flex items-center justify-center gap-0.5 rounded-lg px-1 py-1.5 text-[10.5px] font-medium transition-colors', zp.status === 'discussing' ? 'bg-amber-500/20 text-amber-700 ring-1 ring-amber-500/40' : 'bg-amber-500/10 text-amber-600 hover:bg-amber-500/20')}
+                          ><MessageCircle className="h-3 w-3" /> 討論</button>
+                          <button
+                            onClick={() => handleAction(zp.id, 'discussing', '要求修改')}
+                            className="flex items-center justify-center gap-0.5 rounded-lg border border-border px-1 py-1.5 text-[10.5px] font-medium text-muted-foreground transition-colors hover:bg-accent"
+                          ><Edit3 className="h-3 w-3" /> 修改</button>
                         </div>
                       </div>
                     </div>

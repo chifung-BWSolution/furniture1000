@@ -232,3 +232,187 @@ export async function fetchSearchProducts(limit = 60): Promise<SearchProduct[]> 
     return MOCK_SEARCH_PRODUCTS;
   }
 }
+
+// ===========================================================================
+// WRITE operations
+// Each returns { ok, error, data? }. They never throw — callers do optimistic
+// UI updates and surface ok/error via toast.
+// ===========================================================================
+export interface WriteResult<T = unknown> {
+  ok: boolean;
+  error?: string;
+  data?: T;
+}
+
+/** Create a new design project. */
+export async function createProject(input: {
+  name: string;
+  clientName?: string;
+  clientCompany?: string;
+  floorPlanUrl?: string | null;
+  floorPlanType?: string | null;
+}): Promise<WriteResult<DesignProject>> {
+  try {
+    const { data, error } = await supabase
+      .from('design_projects')
+      .insert({
+        name: input.name,
+        client_name: input.clientName ?? null,
+        client_company: input.clientCompany ?? null,
+        floor_plan_url: input.floorPlanUrl ?? null,
+        floor_plan_type: input.floorPlanType ?? null,
+        status: 'draft',
+        active_scheme: 'A',
+        progress: 0,
+        created_by: 'CF',
+      })
+      .select()
+      .single();
+    if (error) return { ok: false, error: error.message };
+    return { ok: true, data: mapProject(data) };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : '建立失敗' };
+  }
+}
+
+/** Update project-level fields (e.g. save a version snapshot, change active scheme/progress). */
+export async function saveProject(
+  projectId: string,
+  patch: { activeScheme?: string; progress?: number; status?: string; name?: string },
+): Promise<WriteResult> {
+  try {
+    const row: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    if (patch.activeScheme !== undefined) row.active_scheme = patch.activeScheme;
+    if (patch.progress !== undefined) row.progress = patch.progress;
+    if (patch.status !== undefined) row.status = patch.status;
+    if (patch.name !== undefined) row.name = patch.name;
+    const { error } = await supabase.from('design_projects').update(row).eq('id', projectId);
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : '儲存失敗' };
+  }
+}
+
+/** Update a single zone_product's confirmation status. */
+export async function updateZoneProductStatus(
+  zoneProductId: string,
+  status: string,
+): Promise<WriteResult> {
+  try {
+    const { error } = await supabase.from('zone_products').update({ status }).eq('id', zoneProductId);
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : '更新失敗' };
+  }
+}
+
+/** Bulk-update zone_product statuses. */
+export async function bulkUpdateZoneProductStatus(
+  ids: string[],
+  status: string,
+): Promise<WriteResult> {
+  try {
+    const { error } = await supabase.from('zone_products').update({ status }).in('id', ids);
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : '更新失敗' };
+  }
+}
+
+/** Generate a short share token without Date/Math (deterministic-ish, fine for demo). */
+function makeShareToken() {
+  return 'tok_' + Math.abs(hashStr(JSON.stringify(globalThis.performance?.now?.() ?? '') + Math.random())).toString(36).slice(0, 8);
+}
+function hashStr(s: string) {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) { h = (h << 5) - h + s.charCodeAt(i); h |= 0; }
+  return h;
+}
+
+/** Create an invitation (link or email). */
+export async function createInvitation(input: {
+  projectId: string;
+  channel: 'link' | 'email';
+  email?: string | null;
+}): Promise<WriteResult<ProjectInvitation>> {
+  try {
+    const { data, error } = await supabase
+      .from('project_invitations')
+      .insert({
+        project_id: input.projectId,
+        channel: input.channel,
+        email: input.email ?? null,
+        share_token: makeShareToken(),
+        status: 'sent',
+      })
+      .select()
+      .single();
+    if (error) return { ok: false, error: error.message };
+    return { ok: true, data: mapInvitation(data) };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : '建立邀請失敗' };
+  }
+}
+
+/** Update an invitation's status (resend → sent, revoke → revoked). */
+export async function updateInvitationStatus(
+  invitationId: string,
+  status: 'sent' | 'viewed' | 'revoked',
+): Promise<WriteResult> {
+  try {
+    const { error } = await supabase.from('project_invitations').update({ status }).eq('id', invitationId);
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : '更新失敗' };
+  }
+}
+
+/** Add a discussion message. */
+export async function addDiscussion(input: {
+  projectId: string;
+  zoneProductId: string | null;
+  author: string;
+  authorRole: 'pm' | 'designer' | 'client';
+  body: string;
+  mentions?: string[];
+}): Promise<WriteResult<ProductDiscussion>> {
+  try {
+    const { data, error } = await supabase
+      .from('product_discussions')
+      .insert({
+        project_id: input.projectId,
+        zone_product_id: input.zoneProductId,
+        author: input.author,
+        author_role: input.authorRole,
+        body: input.body,
+        mentions: input.mentions ?? [],
+      })
+      .select()
+      .single();
+    if (error) return { ok: false, error: error.message };
+    return { ok: true, data: mapDiscussion(data) };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : '送出失敗' };
+  }
+}
+
+/** Submit client company contact changes for PM approval (stored in pending_changes). */
+export async function submitCompanyChanges(
+  companyId: string,
+  changes: Record<string, string>,
+): Promise<WriteResult> {
+  try {
+    const { error } = await supabase
+      .from('client_companies')
+      .update({ pending_changes: changes })
+      .eq('id', companyId);
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : '提交失敗' };
+  }
+}
