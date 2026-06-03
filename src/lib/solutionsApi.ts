@@ -465,6 +465,66 @@ export async function updateProjectFloorPlan(
   }
 }
 
+/** Create a zone under a project. Returns the inserted zone. */
+export async function createZone(input: {
+  projectId: string;
+  name: string;
+  code?: string | null;
+  bounds: { x: number; y: number; w: number; h: number };
+  aiSuggested?: boolean;
+  sortOrder?: number;
+}): Promise<WriteResult<ProjectZone>> {
+  try {
+    const { data, error } = await supabase
+      .from('project_zones')
+      .insert({
+        project_id: input.projectId,
+        name: input.name,
+        code: input.code ?? null,
+        bounds: input.bounds,
+        ai_suggested: input.aiSuggested ?? false,
+        sort_order: input.sortOrder ?? 0,
+      })
+      .select()
+      .single();
+    if (error) return { ok: false, error: error.message };
+    return { ok: true, data: mapZone(data) };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : '建立分區失敗' };
+  }
+}
+
+/** Update a zone's editable fields (name, code, bounds). */
+export async function updateZone(
+  zoneId: string,
+  patch: { name?: string; code?: string | null; bounds?: { x: number; y: number; w: number; h: number } },
+): Promise<WriteResult> {
+  try {
+    const row: Record<string, unknown> = {};
+    if (patch.name !== undefined) row.name = patch.name;
+    if (patch.code !== undefined) row.code = patch.code;
+    if (patch.bounds !== undefined) row.bounds = patch.bounds;
+    const { error } = await supabase.from('project_zones').update(row).eq('id', zoneId);
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : '更新分區失敗' };
+  }
+}
+
+/** Delete a zone. Its zone_products are moved back to the basket (zone_id → null). */
+export async function deleteZone(zoneId: string): Promise<WriteResult> {
+  try {
+    // un-assign any products in this zone first so they aren't orphaned
+    await supabase.from('zone_products').update({ zone_id: null }).eq('zone_id', zoneId);
+    const { error } = await supabase.from('project_zones').delete().eq('id', zoneId);
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : '刪除分區失敗' };
+  }
+}
+
 /**
  * Find the most relevant project for the customer "確定產品" view:
  * the first project that actually has products assigned to zones.

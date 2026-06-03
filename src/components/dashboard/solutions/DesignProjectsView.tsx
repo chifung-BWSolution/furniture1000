@@ -2,13 +2,15 @@ import { useState, useEffect, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import {
   Plus, Upload, Sparkles, GripVertical, Save, Trash2, Pencil,
-  LayoutGrid, ImageIcon, ChevronDown, Check, Loader2, X, CornerUpLeft,
+  LayoutGrid, ImageIcon, ChevronDown, Check, Loader2, X, CornerUpLeft, Wand2,
 } from 'lucide-react';
 import {
   fetchProjects, fetchZones, fetchZoneProducts,
   createProject, saveProject, updateZoneProductStatus, bulkUpdateZoneProductStatus,
   assignZoneProductToZone, unassignZoneProduct, updateProjectFloorPlan,
+  createZone, updateZone, deleteZone,
 } from '@/lib/solutionsApi';
+import { generateFloorPlanDataUrl, defaultZoneSeeds } from '@/lib/floorPlanGenerator';
 import { toast } from 'sonner';
 import {
   ZONE_PRODUCT_STATUS_META, type ZoneProductStatus, type SchemeLabel,
@@ -26,6 +28,7 @@ export function DesignProjectsView() {
   const [isLoading, setIsLoading] = useState(true);
   const [projectsLoaded, setProjectsLoaded] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
   const [floorPlan, setFloorPlan] = useState<string | null>(null);
   const [dragOverZoneId, setDragOverZoneId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -68,6 +71,70 @@ export function DesignProjectsView() {
     setAllZoneProducts((prev) => prev.map((zp) => zp.id === zoneProductId ? { ...zp, status } : zp));
     const res = await updateZoneProductStatus(zoneProductId, status);
     if (!res.ok) toast.error('更新失敗', { description: res.error });
+  };
+
+  // --- generate a floor plan from the project's zones (seeding zones if none) ---
+  const handleGenerateFloorPlan = async () => {
+    if (!activeProjectId || isGenerating) return;
+    setIsGenerating(true);
+    try {
+      let zonesForPlan = allZones;
+
+      // No zones yet → create the default AI-suggested set first.
+      if (zonesForPlan.length === 0) {
+        const seeds = defaultZoneSeeds();
+        const created: ProjectZone[] = [];
+        for (let i = 0; i < seeds.length; i++) {
+          const s = seeds[i];
+          const res = await createZone({
+            projectId: activeProjectId,
+            name: s.name,
+            code: s.code,
+            bounds: s.bounds,
+            aiSuggested: true,
+            sortOrder: i,
+          });
+          if (!res.ok || !res.data) throw new Error(res.error || '建立分區失敗');
+          created.push(res.data);
+        }
+        zonesForPlan = created;
+        setAllZones(created);
+      }
+
+      const dataUrl = generateFloorPlanDataUrl(zonesForPlan, project?.name);
+      setFloorPlan(dataUrl);
+      const res = await updateProjectFloorPlan(activeProjectId, dataUrl, 'image/svg+xml');
+      if (res.ok) {
+        setProjects((prev) => prev.map((p) =>
+          p.id === activeProjectId ? { ...p, floorPlanUrl: dataUrl, floorPlanType: 'image/svg+xml' } : p));
+        toast.success('已生成平面圖', { description: `${zonesForPlan.length} 個分區` });
+      } else {
+        toast.message('平面圖已顯示，但未寫入資料庫', { description: res.error });
+      }
+    } catch (e) {
+      toast.error('生成平面圖失敗', { description: e instanceof Error ? e.message : '請稍後再試' });
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  // --- zone rename / delete ---
+  const handleRenameZone = async (zone: ProjectZone) => {
+    const name = window.prompt('分區名稱：', zone.name);
+    if (name === null) return;
+    const trimmed = name.trim();
+    if (!trimmed || trimmed === zone.name) return;
+    setAllZones((prev) => prev.map((z) => z.id === zone.id ? { ...z, name: trimmed } : z));
+    const res = await updateZone(zone.id, { name: trimmed });
+    if (!res.ok) toast.error('重新命名失敗', { description: res.error });
+  };
+
+  const handleDeleteZone = async (zone: ProjectZone) => {
+    if (!window.confirm(`確定刪除分區「${zone.name}」？該區產品會移回設計籃。`)) return;
+    setAllZones((prev) => prev.filter((z) => z.id !== zone.id));
+    setAllZoneProducts((prev) => prev.map((zp) => zp.zoneId === zone.id ? { ...zp, zoneId: null } : zp));
+    const res = await deleteZone(zone.id);
+    res.ok ? toast.success('已刪除分區') : toast.error('刪除失敗', { description: res.error });
   };
 
   // --- floor plan upload ---
@@ -218,8 +285,13 @@ export function DesignProjectsView() {
           >
             {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />} 儲存版本
           </button>
-          <button className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-primary to-primary/80 px-3.5 py-2 text-xs font-semibold text-primary-foreground shadow-sm transition-opacity hover:opacity-90">
-            <Sparkles className="h-3.5 w-3.5" /> AI 建議分區與產品組合
+          <button
+            onClick={handleGenerateFloorPlan}
+            disabled={isGenerating}
+            className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-primary to-primary/80 px-3.5 py-2 text-xs font-semibold text-primary-foreground shadow-sm transition-opacity hover:opacity-90 disabled:opacity-50"
+          >
+            {isGenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+            AI 建議分區與產品組合
           </button>
           <button
             onClick={handleCreateProject}
@@ -240,6 +312,14 @@ export function DesignProjectsView() {
             <span className="font-mono-data text-[11px] text-muted-foreground">
               {zones.length} 個分區 · AI 自動建議
             </span>
+            <button
+              onClick={handleGenerateFloorPlan}
+              disabled={isGenerating}
+              className="ml-auto flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/5 px-2.5 py-1.5 text-[11px] font-semibold text-primary transition-colors hover:bg-primary/10 disabled:opacity-50"
+            >
+              {isGenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}
+              {zones.length === 0 ? '生成平面圖與分區' : '生成平面圖'}
+            </button>
           </div>
 
           {/* hidden file input for floor plan upload */}
@@ -273,17 +353,30 @@ export function DesignProjectsView() {
               </div>
             )}
 
-            {/* upload hint overlay — only when no floor plan yet */}
+            {/* upload + generate hint overlay — only when no floor plan yet */}
             {!floorPlan && (
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                className="absolute left-1/2 top-3 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-card/90 px-3 py-1.5 shadow-sm backdrop-blur transition-colors hover:border-primary/50 hover:text-primary"
-              >
-                <Upload className="h-3.5 w-3.5 text-primary" />
-                <span className="text-[11px] font-medium text-muted-foreground">
-                  點擊或拖拉上傳平面圖（PDF / JPG / PNG）
-                </span>
-              </button>
+              <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3">
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex items-center gap-2 rounded-full border border-border bg-card/90 px-3 py-1.5 shadow-sm backdrop-blur transition-colors hover:border-primary/50 hover:text-primary"
+                >
+                  <Upload className="h-3.5 w-3.5 text-primary" />
+                  <span className="text-[11px] font-medium text-muted-foreground">
+                    點擊或拖拉上傳平面圖（PDF / JPG / PNG）
+                  </span>
+                </button>
+                <div className="flex items-center gap-2 text-[11px] text-muted-foreground/60">
+                  <span className="h-px w-8 bg-border" /> 或 <span className="h-px w-8 bg-border" />
+                </div>
+                <button
+                  onClick={handleGenerateFloorPlan}
+                  disabled={isGenerating}
+                  className="flex items-center gap-2 rounded-full bg-gradient-to-r from-primary to-primary/80 px-4 py-2 text-[11px] font-semibold text-primary-foreground shadow-sm transition-opacity hover:opacity-90 disabled:opacity-50"
+                >
+                  {isGenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}
+                  {zones.length === 0 ? '生成平面圖與分區' : '依分區生成平面圖'}
+                </button>
+              </div>
             )}
             {/* replace button when a floor plan exists */}
             {floorPlan && (
@@ -324,8 +417,14 @@ export function DesignProjectsView() {
                     {z.name}
                   </span>
                   <span className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
-                    <button className="rounded p-0.5 text-primary/70 hover:bg-primary/15 hover:text-primary"><Pencil className="h-3 w-3" /></button>
-                    <button className="rounded p-0.5 text-rose-400/70 hover:bg-rose-500/15 hover:text-rose-500"><Trash2 className="h-3 w-3" /></button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleRenameZone(z); }}
+                      className="rounded p-0.5 text-primary/70 hover:bg-primary/15 hover:text-primary"
+                    ><Pencil className="h-3 w-3" /></button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleDeleteZone(z); }}
+                      className="rounded p-0.5 text-rose-400/70 hover:bg-rose-500/15 hover:text-rose-500"
+                    ><Trash2 className="h-3 w-3" /></button>
                   </span>
                 </div>
                 {/* products assigned to this zone (current scheme) */}
