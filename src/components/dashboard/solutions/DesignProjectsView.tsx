@@ -244,9 +244,9 @@ export function DesignProjectsView() {
   }
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-background">
+    <div className="flex h-full flex-col overflow-y-auto bg-background">
       {/* Toolbar */}
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-muted/30 px-6 py-3">
+      <div className="sticky top-0 z-20 flex shrink-0 items-center justify-between gap-3 border-b border-border bg-muted/30 px-6 py-3 backdrop-blur">
         <div className="flex items-center gap-3">
           {/* Project switcher */}
           <div className="relative">
