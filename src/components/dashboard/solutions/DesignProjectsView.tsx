@@ -1,12 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import {
   Plus, Upload, Sparkles, GripVertical, Save, Trash2, Pencil,
-  LayoutGrid, ImageIcon, ChevronDown, Check, Loader2,
+  LayoutGrid, ImageIcon, ChevronDown, Check, Loader2, X, CornerUpLeft,
 } from 'lucide-react';
 import {
   fetchProjects, fetchZones, fetchZoneProducts,
-  createProject, saveProject, updateZoneProductStatus,
+  createProject, saveProject, updateZoneProductStatus, bulkUpdateZoneProductStatus,
+  assignZoneProductToZone, unassignZoneProduct, updateProjectFloorPlan,
 } from '@/lib/solutionsApi';
 import { toast } from 'sonner';
 import {
@@ -25,6 +26,11 @@ export function DesignProjectsView() {
   const [isLoading, setIsLoading] = useState(true);
   const [projectsLoaded, setProjectsLoaded] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [floorPlan, setFloorPlan] = useState<string | null>(null);
+  const [dragOverZoneId, setDragOverZoneId] = useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const draggingIdRef = useRef<string | null>(null);
 
   // Load project list once
   useEffect(() => {
@@ -64,14 +70,78 @@ export function DesignProjectsView() {
     if (!res.ok) toast.error('更新失敗', { description: res.error });
   };
 
+  // --- floor plan upload ---
+  const handleFloorPlanFile = async (file: File) => {
+    const okType = /\.(pdf|jpe?g|png)$/i.test(file.name);
+    if (!okType) { toast.error('檔案格式不支援', { description: '請上傳 PDF / JPG / PNG' }); return; }
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const dataUrl = reader.result as string;
+      setFloorPlan(dataUrl);
+      toast.success('平面圖已上傳', { description: file.name });
+      if (activeProjectId) {
+        // persist (data URL kept short for demo; large files may exceed column — best-effort)
+        const res = await updateProjectFloorPlan(activeProjectId, dataUrl, file.type || 'image');
+        if (!res.ok) toast.message('平面圖已顯示，但未寫入資料庫', { description: res.error });
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // --- drag & drop: basket → zone ---
+  const handleDropOnZone = async (zoneId: string) => {
+    const id = draggingIdRef.current;
+    draggingIdRef.current = null;
+    setDragOverZoneId(null);
+    if (!id) return;
+    // assign to zone under the currently active scheme so it shows in the table
+    setAllZoneProducts((prev) => prev.map((zp) => zp.id === id ? { ...zp, zoneId, scheme } : zp));
+    const res = await assignZoneProductToZone(id, zoneId, scheme);
+    res.ok
+      ? toast.success('已分配到分區')
+      : toast.message('已分配（畫面）', { description: res.error });
+  };
+
+  const handleMoveToBasket = async (zoneProductId: string) => {
+    setAllZoneProducts((prev) => prev.map((zp) => zp.id === zoneProductId ? { ...zp, zoneId: null } : zp));
+    const res = await unassignZoneProduct(zoneProductId);
+    if (!res.ok) toast.message('已移回設計籃（畫面）', { description: res.error });
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const handleBulkConfirm = async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) { toast.message('請先勾選產品'); return; }
+    setAllZoneProducts((prev) => prev.map((zp) => ids.includes(zp.id) ? { ...zp, status: 'confirmed' } : zp));
+    setSelectedIds(new Set());
+    const res = await bulkUpdateZoneProductStatus(ids, 'confirmed');
+    res.ok
+      ? toast.success(`已將 ${ids.length} 件標為已確定`)
+      : toast.error('批量更新失敗', { description: res.error });
+  };
+
   // Load zones + products when active project changes
   useEffect(() => {
     if (!activeProjectId) return;
     setIsLoading(true);
+    setSelectedIds(new Set());
     Promise.all([fetchZones(activeProjectId), fetchZoneProducts(activeProjectId)])
       .then(([z, zp]) => { setAllZones(z); setAllZoneProducts(zp); })
       .finally(() => setIsLoading(false));
   }, [activeProjectId]);
+
+  // reflect the active project's stored floor plan
+  useEffect(() => {
+    const p = projects.find((x) => x.id === activeProjectId);
+    setFloorPlan(p?.floorPlanUrl ?? null);
+  }, [activeProjectId, projects]);
 
   const project = projects.find((p) => p.id === activeProjectId);
   const zones = allZones;
@@ -172,20 +242,80 @@ export function DesignProjectsView() {
             </span>
           </div>
 
+          {/* hidden file input for floor plan upload */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".pdf,.jpg,.jpeg,.png,image/*"
+            className="hidden"
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFloorPlanFile(f); e.target.value = ''; }}
+          />
+
           {/* Floor plan canvas with draggable zones */}
-          <div className="relative aspect-[16/10] w-full overflow-hidden rounded-xl border-2 border-dashed border-border bg-muted/20">
-            {/* upload hint overlay */}
-            <div className="absolute left-1/2 top-3 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-card/90 px-3 py-1.5 shadow-sm backdrop-blur">
-              <Upload className="h-3.5 w-3.5 text-primary" />
-              <span className="text-[11px] font-medium text-muted-foreground">
-                拖拉上傳平面圖（PDF / JPG / PNG）
-              </span>
-            </div>
-            {/* zone boxes */}
+          <div
+            className="relative aspect-[16/10] w-full overflow-hidden rounded-xl border-2 border-dashed border-border bg-muted/20"
+            onDragOver={(e) => { if (!draggingIdRef.current) e.preventDefault(); }}
+            onDrop={(e) => {
+              // file drop for floor plan (only when not dragging a product)
+              if (draggingIdRef.current) return;
+              e.preventDefault();
+              const f = e.dataTransfer.files?.[0];
+              if (f) handleFloorPlanFile(f);
+            }}
+          >
+            {/* uploaded floor plan image */}
+            {floorPlan && !floorPlan.startsWith('data:application/pdf') && (
+              <img src={floorPlan} alt="平面圖" className="absolute inset-0 h-full w-full object-contain" />
+            )}
+            {floorPlan && floorPlan.startsWith('data:application/pdf') && (
+              <div className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground">
+                已上傳 PDF 平面圖
+              </div>
+            )}
+
+            {/* upload hint overlay — only when no floor plan yet */}
+            {!floorPlan && (
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                className="absolute left-1/2 top-3 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-card/90 px-3 py-1.5 shadow-sm backdrop-blur transition-colors hover:border-primary/50 hover:text-primary"
+              >
+                <Upload className="h-3.5 w-3.5 text-primary" />
+                <span className="text-[11px] font-medium text-muted-foreground">
+                  點擊或拖拉上傳平面圖（PDF / JPG / PNG）
+                </span>
+              </button>
+            )}
+            {/* replace button when a floor plan exists */}
+            {floorPlan && (
+              <div className="absolute right-3 top-3 z-10 flex gap-1.5">
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex items-center gap-1 rounded-full border border-border bg-card/90 px-2.5 py-1 text-[10.5px] font-medium text-muted-foreground shadow-sm backdrop-blur hover:text-primary"
+                >
+                  <Upload className="h-3 w-3" /> 更換
+                </button>
+                <button
+                  onClick={() => { setFloorPlan(null); if (activeProjectId) updateProjectFloorPlan(activeProjectId, '', ''); }}
+                  className="flex items-center gap-1 rounded-full border border-border bg-card/90 px-2.5 py-1 text-[10.5px] font-medium text-rose-500 shadow-sm backdrop-blur hover:bg-rose-500/10"
+                >
+                  <X className="h-3 w-3" /> 移除
+                </button>
+              </div>
+            )}
+
+            {/* zone boxes — drop targets for basket products */}
             {zones.map((z) => (
               <div
                 key={z.id}
-                className="group absolute rounded-lg border-2 border-primary/40 bg-primary/5 transition-colors hover:border-primary hover:bg-primary/10"
+                onDragOver={(e) => { if (draggingIdRef.current) { e.preventDefault(); setDragOverZoneId(z.id); } }}
+                onDragLeave={() => setDragOverZoneId((cur) => cur === z.id ? null : cur)}
+                onDrop={(e) => { e.preventDefault(); e.stopPropagation(); handleDropOnZone(z.id); }}
+                className={cn(
+                  'group absolute rounded-lg border-2 transition-colors',
+                  dragOverZoneId === z.id
+                    ? 'border-primary bg-primary/20 ring-2 ring-primary/30'
+                    : 'border-primary/40 bg-primary/5 hover:border-primary hover:bg-primary/10'
+                )}
                 style={{ left: `${z.bounds.x}%`, top: `${z.bounds.y}%`, width: `${z.bounds.w}%`, height: `${z.bounds.h}%` }}
               >
                 <div className="flex items-center justify-between gap-1 px-2 py-1">
@@ -198,6 +328,14 @@ export function DesignProjectsView() {
                     <button className="rounded p-0.5 text-rose-400/70 hover:bg-rose-500/15 hover:text-rose-500"><Trash2 className="h-3 w-3" /></button>
                   </span>
                 </div>
+                {/* products assigned to this zone (current scheme) */}
+                <div className="flex flex-wrap gap-1 px-2">
+                  {zoneProducts.filter((zp) => zp.zoneId === z.id).map((zp) => (
+                    <span key={zp.id} className="flex items-center gap-1 rounded bg-card/80 px-1.5 py-0.5 text-[9.5px] font-medium text-foreground shadow-sm">
+                      {zp.productTitle}
+                    </span>
+                  ))}
+                </div>
                 {z.aiSuggested && (
                   <span className="absolute bottom-1 right-1 flex items-center gap-0.5 rounded bg-primary/15 px-1 py-0.5 text-[8px] font-medium text-primary">
                     <Sparkles className="h-2.5 w-2.5" /> AI
@@ -207,7 +345,7 @@ export function DesignProjectsView() {
             ))}
           </div>
           <p className="mt-2 text-center text-[11px] text-muted-foreground/70">
-            上傳平面圖後 AI 自動建議分區，支援拖拉調整範圍、重新命名、刪除。
+            上傳平面圖後 AI 自動建議分區，支援拖拉調整範圍、重新命名、刪除。將右側設計籃產品拖入分區即可分配。
           </p>
         </div>
 
@@ -227,6 +365,8 @@ export function DesignProjectsView() {
               <div
                 key={item.id}
                 draggable
+                onDragStart={() => { draggingIdRef.current = item.id; }}
+                onDragEnd={() => { draggingIdRef.current = null; setDragOverZoneId(null); }}
                 className="group flex cursor-grab items-center gap-2.5 rounded-lg border border-border bg-card p-2 transition-shadow hover:shadow-sm active:cursor-grabbing"
               >
                 <GripVertical className="h-4 w-4 shrink-0 text-muted-foreground/40" />
@@ -237,6 +377,11 @@ export function DesignProjectsView() {
                 </div>
               </div>
             ))}
+            {basket.length === 0 && (
+              <p className="py-8 text-center text-[11px] text-muted-foreground/60">
+                設計籃已清空，所有產品皆已分配到分區
+              </p>
+            )}
           </div>
           <div className="border-t border-border/60 p-3">
             <p className="text-center text-[10.5px] text-muted-foreground/70">
@@ -250,29 +395,47 @@ export function DesignProjectsView() {
       <div className="shrink-0 border-t border-border bg-card">
         <div className="flex items-center justify-between px-6 py-2.5">
           <h3 className="font-display text-sm font-bold">產品分配表（方案 {scheme}）</h3>
-          <button className="flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
-            <Check className="h-3.5 w-3.5" /> 批量更新狀態
+          <button
+            onClick={handleBulkConfirm}
+            disabled={selectedIds.size === 0}
+            className="flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
+          >
+            <Check className="h-3.5 w-3.5" /> 批量標為已確定{selectedIds.size > 0 ? `（${selectedIds.size}）` : ''}
           </button>
         </div>
         <div className="max-h-[230px] overflow-auto">
           <table className="w-full text-sm">
             <thead className="sticky top-0 bg-muted/50 text-[11px] uppercase tracking-wider text-muted-foreground">
               <tr>
-                <th className="px-6 py-2 text-left font-medium"><input type="checkbox" className="rounded border-border" /></th>
+                <th className="px-6 py-2 text-left font-medium">
+                  <input
+                    type="checkbox"
+                    className="rounded border-border"
+                    checked={zoneProducts.length > 0 && zoneProducts.every((zp) => selectedIds.has(zp.id))}
+                    onChange={(e) => setSelectedIds(e.target.checked ? new Set(zoneProducts.map((zp) => zp.id)) : new Set())}
+                  />
+                </th>
                 <th className="px-3 py-2 text-left font-medium">產品</th>
                 <th className="px-3 py-2 text-left font-medium">分區</th>
                 <th className="px-3 py-2 text-right font-medium">售價</th>
                 <th className="px-3 py-2 text-center font-medium">數量</th>
                 <th className="px-3 py-2 text-left font-medium">狀態</th>
+                <th className="px-3 py-2 text-center font-medium"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border/60">
               {zoneProducts.map((zp) => {
                 const zoneName = zones.find((z) => z.id === zp.zoneId)?.name ?? '未分配';
-                const meta = ZONE_PRODUCT_STATUS_META[zp.status];
                 return (
                   <tr key={zp.id} className="hover:bg-muted/30">
-                    <td className="px-6 py-2"><input type="checkbox" className="rounded border-border" /></td>
+                    <td className="px-6 py-2">
+                      <input
+                        type="checkbox"
+                        className="rounded border-border"
+                        checked={selectedIds.has(zp.id)}
+                        onChange={() => toggleSelect(zp.id)}
+                      />
+                    </td>
                     <td className="px-3 py-2">
                       <div className="flex items-center gap-2.5">
                         <img src={zp.productImageUrl} alt={zp.productTitle} loading="lazy" className="h-8 w-8 rounded object-cover bg-muted" />
@@ -298,9 +461,25 @@ export function DesignProjectsView() {
                         ))}
                       </div>
                     </td>
+                    <td className="px-3 py-2 text-center">
+                      <button
+                        onClick={() => handleMoveToBasket(zp.id)}
+                        title="移回設計籃"
+                        className="rounded p-1 text-muted-foreground/60 hover:bg-muted hover:text-foreground"
+                      >
+                        <CornerUpLeft className="h-3.5 w-3.5" />
+                      </button>
+                    </td>
                   </tr>
                 );
               })}
+              {zoneProducts.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="px-6 py-8 text-center text-[12px] text-muted-foreground/60">
+                    方案 {scheme} 尚未分配產品 — 將右側設計籃的產品拖入左側分區
+                  </td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>

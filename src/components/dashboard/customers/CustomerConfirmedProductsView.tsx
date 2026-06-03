@@ -4,7 +4,7 @@ import {
   CheckCircle2, MessageSquare, Send, AtSign, ChevronDown, ChevronUp, Loader2,
 } from 'lucide-react';
 import {
-  fetchProjects, fetchZoneProducts, fetchDiscussions,
+  fetchProjectWithProducts, fetchDiscussions,
   updateZoneProductStatus, addDiscussion,
 } from '@/lib/solutionsApi';
 import { toast } from 'sonner';
@@ -28,16 +28,15 @@ export function CustomerConfirmedProductsView() {
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    fetchProjects().then((rows) => {
-      const p = rows[0];
+    // Load the project that actually has products assigned to zones — mirrors
+    // 傢俬方案 > 已確定方案 so the customer sees the same product set.
+    fetchProjectWithProducts().then(({ project: p, products: inZone }) => {
       if (!p) { setLoaded(true); return; }
       setProject(p);
-      Promise.all([fetchZoneProducts(p.id), fetchDiscussions(p.id)]).then(([zp, disc]) => {
-        const inZone = zp.filter((x) => x.zoneId);
-        setProducts(inZone);
-        setStatuses(Object.fromEntries(inZone.map((x) => [x.id, x.status])));
+      setProducts(inZone);
+      setStatuses(Object.fromEntries(inZone.map((x) => [x.id, x.status])));
+      fetchDiscussions(p.id).then((disc) => {
         setDiscussions(disc);
-        // default-open the first product that has a discussion
         const firstWithDisc = inZone.find((x) => disc.some((d) => d.zoneProductId === x.id));
         if (firstWithDisc) setOpenDiscussion(firstWithDisc.id);
       }).finally(() => setLoaded(true));

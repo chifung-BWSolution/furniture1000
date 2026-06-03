@@ -412,3 +412,81 @@ export async function submitCompanyChanges(
     return { ok: false, error: e instanceof Error ? e.message : '提交失敗' };
   }
 }
+
+/** Assign a zone_product to a zone (drag from basket → zone), optionally under a scheme. */
+export async function assignZoneProductToZone(
+  zoneProductId: string,
+  zoneId: string,
+  scheme?: string,
+): Promise<WriteResult> {
+  try {
+    const patch: Record<string, unknown> = { zone_id: zoneId };
+    if (scheme) patch.scheme = scheme;
+    const { error } = await supabase
+      .from('zone_products')
+      .update(patch)
+      .eq('id', zoneProductId);
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : '分配失敗' };
+  }
+}
+
+/** Move a zone_product back to the design basket (zone_id → null). */
+export async function unassignZoneProduct(zoneProductId: string): Promise<WriteResult> {
+  try {
+    const { error } = await supabase
+      .from('zone_products')
+      .update({ zone_id: null })
+      .eq('id', zoneProductId);
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : '移動失敗' };
+  }
+}
+
+/** Persist a project's uploaded floor plan (data URL or storage URL + type). */
+export async function updateProjectFloorPlan(
+  projectId: string,
+  floorPlanUrl: string,
+  floorPlanType: string,
+): Promise<WriteResult> {
+  try {
+    const { error } = await supabase
+      .from('design_projects')
+      .update({ floor_plan_url: floorPlanUrl, floor_plan_type: floorPlanType, updated_at: new Date().toISOString() })
+      .eq('id', projectId);
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : '儲存平面圖失敗' };
+  }
+}
+
+/**
+ * Find the most relevant project for the customer "確定產品" view:
+ * the first project that actually has products assigned to zones.
+ * Falls back to the first project, or null if none exist.
+ */
+export async function fetchProjectWithProducts(): Promise<{
+  project: DesignProject | null;
+  products: ZoneProduct[];
+}> {
+  const projects = await fetchProjects();
+  if (projects.length === 0) return { project: null, products: [] };
+
+  // Look for a project whose zone_products include zone-assigned items.
+  for (const p of projects) {
+    const zps = await fetchZoneProducts(p.id);
+    const inZone = zps.filter((x) => x.zoneId);
+    if (inZone.length > 0) {
+      return { project: p, products: inZone };
+    }
+  }
+  // None had assigned products — return the first project with whatever it has.
+  const first = projects[0];
+  const zps = await fetchZoneProducts(first.id);
+  return { project: first, products: zps.filter((x) => x.zoneId) };
+}
