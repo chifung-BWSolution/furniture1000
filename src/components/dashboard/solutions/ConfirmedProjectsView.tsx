@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import {
   FileDown, Database, History, CheckCircle2, MessageSquare, ChevronDown,
-  Clock, RotateCcw, GitCompare,
+  Clock, RotateCcw, GitCompare, Loader2,
 } from 'lucide-react';
-import { MOCK_PROJECTS, MOCK_ZONES, MOCK_ZONE_PRODUCTS } from '@/constants/solutions-mock';
+import { fetchProjects, fetchZones, fetchZoneProducts } from '@/lib/solutionsApi';
+import type { DesignProject, ProjectZone, ZoneProduct } from '@/types/solutions';
 
 const VERSIONS = [
   { id: 'v3', label: 'v1.3', date: '2026-06-01T14:20:00Z', note: '客戶確認最終版', current: true },
@@ -23,12 +24,38 @@ function fmt(d: string) {
 }
 
 export function ConfirmedProjectsView() {
-  const confirmedProjects = MOCK_PROJECTS.filter((p) => p.status === 'confirmed' || p.progress >= 60);
-  const [projectId, setProjectId] = useState(confirmedProjects[0]?.id ?? MOCK_PROJECTS[0].id);
-  const project = MOCK_PROJECTS.find((p) => p.id === projectId) ?? MOCK_PROJECTS[0];
-  const zones = MOCK_ZONES.filter((z) => z.projectId === project.id);
-  const confirmed = MOCK_ZONE_PRODUCTS.filter((zp) => zp.projectId === project.id && zp.status === 'confirmed');
+  const [projects, setProjects] = useState<DesignProject[]>([]);
+  const [projectId, setProjectId] = useState('');
+  const [zones, setZones] = useState<ProjectZone[]>([]);
+  const [zoneProducts, setZoneProducts] = useState<ZoneProduct[]>([]);
+
+  useEffect(() => {
+    fetchProjects().then((rows) => {
+      const eligible = rows.filter((p) => p.status === 'confirmed' || p.progress >= 60);
+      const list = eligible.length > 0 ? eligible : rows;
+      setProjects(list);
+      if (list.length > 0) setProjectId((cur) => cur || list[0].id);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!projectId) return;
+    Promise.all([fetchZones(projectId), fetchZoneProducts(projectId)])
+      .then(([z, zp]) => { setZones(z); setZoneProducts(zp); });
+  }, [projectId]);
+
+  const confirmedProjects = projects;
+  const project = projects.find((p) => p.id === projectId);
+  const confirmed = zoneProducts.filter((zp) => zp.status === 'confirmed');
   const total = confirmed.reduce((sum, zp) => sum + zp.salePrice * zp.quantity, 0);
+
+  if (!project) {
+    return (
+      <div className="flex h-full items-center justify-center bg-background">
+        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="h-full overflow-y-auto bg-background p-6 md:p-8">

@@ -1,23 +1,33 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import {
   Building2, User, Mail, Phone, MapPin, ShieldAlert, Save, ArrowRight,
   CheckCircle2, FolderClock,
 } from 'lucide-react';
-import { MOCK_CLIENT_COMPANY, MOCK_PROJECTS } from '@/constants/solutions-mock';
+import { fetchCompany, fetchProjects } from '@/lib/solutionsApi';
+import type { DesignProject } from '@/types/solutions';
 
 export function CustomerCompanyInfoView() {
-  const c = MOCK_CLIENT_COMPANY;
   const [form, setForm] = useState({
-    name: c.name,
-    contactPerson: c.contactPerson ?? '',
-    contactEmail: c.contactEmail ?? '',
-    contactPhone: c.contactPhone ?? '',
-    address: c.address ?? '',
+    name: '',
+    contactPerson: '',
+    contactEmail: '',
+    contactPhone: '',
+    address: '',
   });
   const [submitted, setSubmitted] = useState(false);
+  const [historyProjects, setHistoryProjects] = useState<DesignProject[]>([]);
 
-  const historyProjects = MOCK_PROJECTS;
+  useEffect(() => {
+    fetchCompany().then((c) => setForm({
+      name: c.name,
+      contactPerson: c.contactPerson ?? '',
+      contactEmail: c.contactEmail ?? '',
+      contactPhone: c.contactPhone ?? '',
+      address: c.address ?? '',
+    }));
+    fetchProjects().then(setHistoryProjects);
+  }, []);
 
   return (
     <div className="h-full overflow-y-auto bg-background p-6 md:p-10">

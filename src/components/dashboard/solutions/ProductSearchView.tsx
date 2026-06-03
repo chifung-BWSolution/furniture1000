@@ -1,11 +1,12 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import {
   Search, SlidersHorizontal, LayoutGrid, List, Share2, FolderPlus,
   FileText, Check, Package, Truck,
 } from 'lucide-react';
-import { MOCK_SEARCH_PRODUCTS, PRODUCT_CATEGORIES } from '@/constants/solutions-mock';
-import { TIER_META, type ProductTier } from '@/types/solutions';
+import { PRODUCT_CATEGORIES } from '@/constants/solutions-mock';
+import { fetchSearchProducts } from '@/lib/solutionsApi';
+import { TIER_META, type ProductTier, type SearchProduct } from '@/types/solutions';
 
 const COLORS = ['全部', '黑色', '白色', '灰色', '胡桃啡', '原木色', '米白'];
 const STOCK_OPTS = ['全部', '現貨', '訂製'];
@@ -18,9 +19,17 @@ export function ProductSearchView() {
   const [tierFilter, setTierFilter] = useState<ProductTier | '全部'>('全部');
   const [view, setView] = useState<'grid' | 'list'>('grid');
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [products, setProducts] = useState<SearchProduct[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    fetchSearchProducts(60)
+      .then(setProducts)
+      .finally(() => setIsLoading(false));
+  }, []);
 
   const results = useMemo(() => {
-    return MOCK_SEARCH_PRODUCTS.filter((p) => {
+    return products.filter((p) => {
       if (keyword && !p.title.includes(keyword) && !p.description.includes(keyword)) return false;
       if (category !== '全部' && p.category !== category) return false;
       if (color !== '全部' && p.color !== color) return false;
@@ -29,7 +38,7 @@ export function ProductSearchView() {
       if (tierFilter !== '全部' && p.tier !== tierFilter) return false;
       return true;
     });
-  }, [keyword, category, color, stock, tierFilter]);
+  }, [products, keyword, category, color, stock, tierFilter]);
 
   const toggle = (id: string) => {
     setSelected((prev) => {
@@ -103,7 +112,20 @@ export function ProductSearchView() {
 
       {/* Results */}
       <div className="flex-1 overflow-auto p-6">
-        {view === 'grid' ? (
+        {isLoading ? (
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="overflow-hidden rounded-xl border border-border bg-card">
+                <div className="aspect-[4/3] animate-pulse bg-muted" />
+                <div className="space-y-2 p-3">
+                  <div className="h-3 w-2/3 animate-pulse rounded bg-muted" />
+                  <div className="h-2.5 w-full animate-pulse rounded bg-muted/70" />
+                  <div className="h-4 w-1/3 animate-pulse rounded bg-muted" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : view === 'grid' ? (
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {results.map((p) => {
               const isSel = selected.has(p.id);

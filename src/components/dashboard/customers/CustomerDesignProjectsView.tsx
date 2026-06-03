@@ -1,13 +1,26 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import {
   ChevronLeft, CheckCircle2, MessageCircle, Edit3, MapPin, ArrowRight,
 } from 'lucide-react';
-import { MOCK_PROJECTS, MOCK_ZONES, MOCK_ZONE_PRODUCTS } from '@/constants/solutions-mock';
+import { fetchProjects, fetchZones, fetchZoneProducts } from '@/lib/solutionsApi';
+import type { DesignProject, ProjectZone, ZoneProduct } from '@/types/solutions';
 
 export function CustomerDesignProjectsView() {
   const [openProjectId, setOpenProjectId] = useState<string | null>(null);
-  const invited = MOCK_PROJECTS; // 受邀專案
+  const [invited, setInvited] = useState<DesignProject[]>([]); // 受邀專案
+  const [zones, setZones] = useState<ProjectZone[]>([]);
+  const [products, setProducts] = useState<ZoneProduct[]>([]);
+
+  useEffect(() => {
+    fetchProjects().then(setInvited);
+  }, []);
+
+  useEffect(() => {
+    if (!openProjectId) return;
+    Promise.all([fetchZones(openProjectId), fetchZoneProducts(openProjectId)])
+      .then(([z, zp]) => { setZones(z); setProducts(zp.filter((p) => p.zoneId)); });
+  }, [openProjectId]);
 
   if (!openProjectId) {
     return (
@@ -41,9 +54,8 @@ export function CustomerDesignProjectsView() {
     );
   }
 
-  const project = MOCK_PROJECTS.find((p) => p.id === openProjectId)!;
-  const zones = MOCK_ZONES.filter((z) => z.projectId === project.id);
-  const products = MOCK_ZONE_PRODUCTS.filter((zp) => zp.projectId === project.id);
+  const project = invited.find((p) => p.id === openProjectId);
+  if (!project) return null;
 
   return (
     <div className="h-full overflow-y-auto bg-background p-6 md:p-10">

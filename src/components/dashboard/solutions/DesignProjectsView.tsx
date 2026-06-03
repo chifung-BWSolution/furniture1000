@@ -1,24 +1,55 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import {
   Plus, Upload, Sparkles, GripVertical, Save, Trash2, Pencil,
-  LayoutGrid, ImageIcon, ChevronDown, Check,
+  LayoutGrid, ImageIcon, ChevronDown, Check, Loader2,
 } from 'lucide-react';
-import {
-  MOCK_PROJECTS, MOCK_ZONES, MOCK_ZONE_PRODUCTS, MOCK_DESIGN_BASKET,
-} from '@/constants/solutions-mock';
+import { fetchProjects, fetchZones, fetchZoneProducts } from '@/lib/solutionsApi';
 import {
   ZONE_PRODUCT_STATUS_META, type ZoneProductStatus, type SchemeLabel,
+  type DesignProject, type ProjectZone, type ZoneProduct,
 } from '@/types/solutions';
 
 const STATUS_OPTIONS: ZoneProductStatus[] = ['confirmed', 'discussing', 'pending'];
 
 export function DesignProjectsView() {
-  const [activeProjectId, setActiveProjectId] = useState(MOCK_PROJECTS[0].id);
+  const [projects, setProjects] = useState<DesignProject[]>([]);
+  const [activeProjectId, setActiveProjectId] = useState<string>('');
   const [scheme, setScheme] = useState<SchemeLabel>('A');
-  const project = MOCK_PROJECTS.find((p) => p.id === activeProjectId) ?? MOCK_PROJECTS[0];
-  const zones = MOCK_ZONES.filter((z) => z.projectId === project.id);
-  const zoneProducts = MOCK_ZONE_PRODUCTS.filter((zp) => zp.projectId === project.id);
+  const [allZones, setAllZones] = useState<ProjectZone[]>([]);
+  const [allZoneProducts, setAllZoneProducts] = useState<ZoneProduct[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Load project list once
+  useEffect(() => {
+    fetchProjects().then((rows) => {
+      setProjects(rows);
+      if (rows.length > 0) setActiveProjectId((cur) => cur || rows[0].id);
+    });
+  }, []);
+
+  // Load zones + products when active project changes
+  useEffect(() => {
+    if (!activeProjectId) return;
+    setIsLoading(true);
+    Promise.all([fetchZones(activeProjectId), fetchZoneProducts(activeProjectId)])
+      .then(([z, zp]) => { setAllZones(z); setAllZoneProducts(zp); })
+      .finally(() => setIsLoading(false));
+  }, [activeProjectId]);
+
+  const project = projects.find((p) => p.id === activeProjectId);
+  const zones = allZones;
+  // zone_id NULL = 設計籃；其餘為已分配到分區的產品
+  const zoneProducts = allZoneProducts.filter((zp) => zp.zoneId && zp.scheme === scheme);
+  const basket = allZoneProducts.filter((zp) => !zp.zoneId);
+
+  if (!project) {
+    return (
+      <div className="flex h-full items-center justify-center bg-background">
+        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">
@@ -32,7 +63,7 @@ export function DesignProjectsView() {
               onChange={(e) => setActiveProjectId(e.target.value)}
               className="h-9 appearance-none rounded-lg border border-border bg-card pl-3 pr-9 font-display text-sm font-semibold text-foreground focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
             >
-              {MOCK_PROJECTS.map((p) => (
+              {projects.map((p) => (
                 <option key={p.id} value={p.id}>{p.name}</option>
               ))}
             </select>
@@ -126,11 +157,11 @@ export function DesignProjectsView() {
               <h3 className="font-display text-sm font-bold">設計籃</h3>
             </div>
             <span className="rounded-full bg-primary/10 px-2 py-0.5 font-mono-data text-[11px] font-semibold text-primary">
-              {MOCK_DESIGN_BASKET.length}
+              {basket.length}
             </span>
           </div>
           <div className="flex-1 space-y-2 overflow-y-auto p-3">
-            {MOCK_DESIGN_BASKET.map((item) => (
+            {basket.map((item) => (
               <div
                 key={item.id}
                 draggable

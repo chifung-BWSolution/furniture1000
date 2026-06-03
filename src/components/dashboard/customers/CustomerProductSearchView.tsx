@@ -1,14 +1,24 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import { Search, Eye } from 'lucide-react';
-import { MOCK_SEARCH_PRODUCTS, PRODUCT_CATEGORIES } from '@/constants/solutions-mock';
+import { PRODUCT_CATEGORIES } from '@/constants/solutions-mock';
+import { fetchSearchProducts } from '@/lib/solutionsApi';
+import type { SearchProduct } from '@/types/solutions';
 
 export function CustomerProductSearchView() {
   const [keyword, setKeyword] = useState('');
   const [category, setCategory] = useState('全部');
+  const [all, setAll] = useState<SearchProduct[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // 客戶唯讀：僅限受邀專案內產品或 A 類已發佈產品
-  const visible = MOCK_SEARCH_PRODUCTS.filter((p) => p.tier === 'A' || p.tier === 'B');
+  useEffect(() => {
+    fetchSearchProducts(48)
+      .then(setAll)
+      .finally(() => setIsLoading(false));
+  }, []);
+
+  // 客戶唯讀：僅限受邀專案內產品或 A/B 類已發佈產品
+  const visible = useMemo(() => all.filter((p) => p.tier === 'A' || p.tier === 'B'), [all]);
 
   const results = useMemo(() => {
     return visible.filter((p) => {
@@ -73,7 +83,7 @@ export function CustomerProductSearchView() {
           ))}
         </div>
 
-        {results.length === 0 && (
+        {!isLoading && results.length === 0 && (
           <div className="flex flex-col items-center justify-center py-20 text-center">
             <Search className="mb-3 h-8 w-8 text-muted-foreground/40" />
             <p className="font-display text-sm text-muted-foreground">找不到符合條件的產品</p>

@@ -1,10 +1,13 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import {
-  CheckCircle2, MessageSquare, Send, AtSign, ChevronDown, ChevronUp,
+  CheckCircle2, MessageSquare, Send, AtSign, ChevronDown, ChevronUp, Loader2,
 } from 'lucide-react';
-import { MOCK_ZONE_PRODUCTS, MOCK_DISCUSSIONS, MOCK_PROJECTS } from '@/constants/solutions-mock';
-import { ZONE_PRODUCT_STATUS_META, type ZoneProductStatus } from '@/types/solutions';
+import { fetchProjects, fetchZoneProducts, fetchDiscussions } from '@/lib/solutionsApi';
+import {
+  ZONE_PRODUCT_STATUS_META,
+  type ZoneProductStatus, type DesignProject, type ZoneProduct, type ProductDiscussion,
+} from '@/types/solutions';
 
 function fmt(d: string) {
   const x = new Date(d);
@@ -12,16 +15,40 @@ function fmt(d: string) {
 }
 
 export function CustomerConfirmedProductsView() {
-  const project = MOCK_PROJECTS[0];
-  const [statuses, setStatuses] = useState<Record<string, ZoneProductStatus>>(
-    Object.fromEntries(MOCK_ZONE_PRODUCTS.filter((p) => p.projectId === project.id).map((p) => [p.id, p.status]))
-  );
-  const [openDiscussion, setOpenDiscussion] = useState<string | null>('zp2');
+  const [project, setProject] = useState<DesignProject | null>(null);
+  const [products, setProducts] = useState<ZoneProduct[]>([]);
+  const [discussions, setDiscussions] = useState<ProductDiscussion[]>([]);
+  const [statuses, setStatuses] = useState<Record<string, ZoneProductStatus>>({});
+  const [openDiscussion, setOpenDiscussion] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
-  const products = MOCK_ZONE_PRODUCTS.filter((p) => p.projectId === project.id);
+
+  useEffect(() => {
+    fetchProjects().then((rows) => {
+      const p = rows[0];
+      if (!p) return;
+      setProject(p);
+      Promise.all([fetchZoneProducts(p.id), fetchDiscussions(p.id)]).then(([zp, disc]) => {
+        const inZone = zp.filter((x) => x.zoneId);
+        setProducts(inZone);
+        setStatuses(Object.fromEntries(inZone.map((x) => [x.id, x.status])));
+        setDiscussions(disc);
+        // default-open the first product that has a discussion
+        const firstWithDisc = inZone.find((x) => disc.some((d) => d.zoneProductId === x.id));
+        if (firstWithDisc) setOpenDiscussion(firstWithDisc.id);
+      });
+    });
+  }, []);
 
   const confirmedCount = Object.values(statuses).filter((s) => s === 'confirmed').length;
-  const progress = Math.round((confirmedCount / products.length) * 100);
+  const progress = products.length > 0 ? Math.round((confirmedCount / products.length) * 100) : 0;
+
+  if (!project) {
+    return (
+      <div className="flex h-full items-center justify-center bg-background">
+        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   const setStatus = (id: string, s: ZoneProductStatus) =>
     setStatuses((prev) => ({ ...prev, [id]: s }));
@@ -47,7 +74,7 @@ export function CustomerConfirmedProductsView() {
         <div className="mt-5 space-y-3">
           {products.map((p) => {
             const status = statuses[p.id];
-            const discussions = MOCK_DISCUSSIONS.filter((d) => d.zoneProductId === p.id);
+            const itemDiscussions = discussions.filter((d) => d.zoneProductId === p.id);
             const isOpen = openDiscussion === p.id;
             return (
               <div key={p.id} className="overflow-hidden rounded-xl border border-border bg-card">
@@ -79,14 +106,14 @@ export function CustomerConfirmedProductsView() {
                   onClick={() => setOpenDiscussion(isOpen ? null : p.id)}
                   className="flex w-full items-center justify-between border-t border-border/60 bg-muted/20 px-3 py-2 text-[11.5px] text-muted-foreground hover:bg-muted/40"
                 >
-                  <span className="flex items-center gap-1.5"><MessageSquare className="h-3.5 w-3.5" /> 討論區 {discussions.length > 0 && `(${discussions.length})`}</span>
+                  <span className="flex items-center gap-1.5"><MessageSquare className="h-3.5 w-3.5" /> 討論區 {itemDiscussions.length > 0 && `(${itemDiscussions.length})`}</span>
                   {isOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
                 </button>
 
                 {isOpen && (
                   <div className="border-t border-border/60 p-3">
                     <div className="space-y-3">
-                      {discussions.map((d) => (
+                      {itemDiscussions.map((d) => (
                         <div key={d.id} className="flex gap-2">
                           <div className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] font-bold', d.authorRole === 'client' ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground')}>
                             {d.author.slice(0, 1)}
@@ -97,7 +124,7 @@ export function CustomerConfirmedProductsView() {
                           </div>
                         </div>
                       ))}
-                      {discussions.length === 0 && <p className="text-center text-[11px] text-muted-foreground/60">尚無討論，留言即時通知 PM / 設計師</p>}
+                      {itemDiscussions.length === 0 && <p className="text-center text-[11px] text-muted-foreground/60">尚無討論，留言即時通知 PM / 設計師</p>}
                     </div>
                     {/* composer */}
                     <div className="mt-3 flex items-center gap-2 rounded-lg border border-border bg-background px-2 py-1.5">

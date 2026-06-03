@@ -1,11 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import {
   Link2, Mail, Copy, ShieldCheck, Eye, EyeOff, RefreshCw, XCircle,
   Send, Check, ChevronDown,
 } from 'lucide-react';
-import { MOCK_PROJECTS, MOCK_INVITATIONS } from '@/constants/solutions-mock';
-import { INVITATION_STATUS_META } from '@/types/solutions';
+import { fetchProjects, fetchInvitations } from '@/lib/solutionsApi';
+import { INVITATION_STATUS_META, type DesignProject, type ProjectInvitation } from '@/types/solutions';
 
 function formatDateTime(dateStr: string | null) {
   if (!dateStr) return '—';
@@ -14,11 +14,24 @@ function formatDateTime(dateStr: string | null) {
 }
 
 export function InviteClientsView() {
-  const [projectId, setProjectId] = useState(MOCK_PROJECTS[0].id);
+  const [projects, setProjects] = useState<DesignProject[]>([]);
+  const [projectId, setProjectId] = useState('');
   const [email, setEmail] = useState('');
   const [copied, setCopied] = useState(false);
+  const [invitations, setInvitations] = useState<ProjectInvitation[]>([]);
   const shareUrl = `https://fds.app/share/${projectId}/tok_a1b2c3`;
-  const invitations = MOCK_INVITATIONS.filter((i) => i.projectId === projectId);
+
+  useEffect(() => {
+    fetchProjects().then((rows) => {
+      setProjects(rows);
+      if (rows.length > 0) setProjectId((cur) => cur || rows[0].id);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!projectId) return;
+    fetchInvitations(projectId).then(setInvitations);
+  }, [projectId]);
 
   return (
     <div className="h-full overflow-y-auto bg-background p-6 md:p-8">
@@ -31,7 +44,7 @@ export function InviteClientsView() {
           </div>
           <div className="relative">
             <select value={projectId} onChange={(e) => setProjectId(e.target.value)} className="h-9 appearance-none rounded-lg border border-border bg-card pl-3 pr-9 font-display text-sm font-semibold focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20">
-              {MOCK_PROJECTS.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
             <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           </div>
