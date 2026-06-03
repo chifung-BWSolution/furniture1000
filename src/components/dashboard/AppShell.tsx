@@ -30,6 +30,9 @@ const QuotationListView = lazy(() =>
 const CategoryManagementView = lazy(() =>
   import("./CategoryManagementView").then((mod) => ({ default: mod.CategoryManagementView }))
 );
+const ProductCategoryView = lazy(() =>
+  import("./ProductCategoryView").then((mod) => ({ default: mod.ProductCategoryView }))
+);
 // 傢俬方案 (Furniture Scheme)
 const DesignProjectsView = lazy(() =>
   import("./solutions/DesignProjectsView").then((mod) => ({ default: mod.DesignProjectsView }))
@@ -63,6 +66,7 @@ const SELF_LOADING_VIEWS = new Set<ViewType>([
   "listed-products",
   "manufacturer-catalog",
   "category-management",
+  "category-registry",
   "quotation-list",
   "design-projects",
   "product-search",
@@ -314,6 +318,8 @@ export function AppShell() {
         );
       case "category-management":
         return <CategoryManagementView />;
+      case "category-registry":
+        return <ProductCategoryView />;
       default:
         return null;
     }

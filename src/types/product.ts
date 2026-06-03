@@ -121,7 +121,8 @@ export type ViewType =
   // 設定
   | 'settings'
   | 'user-management'
-  | 'login-history';
+  | 'login-history'
+  | 'category-registry';
 
 export type PrimarySection =
   | 'solutions'

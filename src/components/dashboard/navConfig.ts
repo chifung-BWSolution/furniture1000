@@ -99,6 +99,7 @@ export const NAV_CONFIG: PrimaryItem[] = [
     children: [
       { view: 'user-management', label: '用戶管理', icon: UserCog },
       { view: 'login-history', label: '登入紀錄', icon: History },
+      { view: 'category-registry', label: '產品分類', icon: FolderTree },
       { view: 'settings', label: '系統設定', icon: SettingsIcon },
     ],
   },
