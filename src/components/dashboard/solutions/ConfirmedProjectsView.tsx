@@ -28,6 +28,7 @@ export function ConfirmedProjectsView() {
   const [projectId, setProjectId] = useState('');
   const [zones, setZones] = useState<ProjectZone[]>([]);
   const [zoneProducts, setZoneProducts] = useState<ZoneProduct[]>([]);
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     fetchProjects().then((rows) => {
@@ -35,7 +36,7 @@ export function ConfirmedProjectsView() {
       const list = eligible.length > 0 ? eligible : rows;
       setProjects(list);
       if (list.length > 0) setProjectId((cur) => cur || list[0].id);
-    });
+    }).finally(() => setLoaded(true));
   }, []);
 
   useEffect(() => {
@@ -50,9 +51,20 @@ export function ConfirmedProjectsView() {
   const total = confirmed.reduce((sum, zp) => sum + zp.salePrice * zp.quantity, 0);
 
   if (!project) {
+    if (!loaded) {
+      return (
+        <div className="flex h-full items-center justify-center bg-background">
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+        </div>
+      );
+    }
     return (
-      <div className="flex h-full items-center justify-center bg-background">
-        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      <div className="flex h-full flex-col items-center justify-center gap-3 bg-background p-8 text-center">
+        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10">
+          <CheckCircle2 className="h-8 w-8 text-primary" />
+        </div>
+        <h2 className="font-display text-lg font-bold">尚無已確定方案</h2>
+        <p className="font-body text-sm text-muted-foreground">當客戶確認設計方案後，會在此顯示完整產品清單與總價</p>
       </div>
     );
   }

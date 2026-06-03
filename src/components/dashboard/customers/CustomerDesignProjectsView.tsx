@@ -57,6 +57,15 @@ export function CustomerDesignProjectsView() {
                 <ArrowRight className="h-5 w-5 text-muted-foreground" />
               </button>
             ))}
+            {invited.length === 0 && (
+              <div className="flex flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-border py-16 text-center">
+                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10">
+                  <MapPin className="h-7 w-7 text-primary" />
+                </div>
+                <h2 className="font-display text-base font-bold">尚未收到專案邀請</h2>
+                <p className="font-body text-[13px] text-muted-foreground">當設計師團隊邀請您查看方案時，專案會在此顯示</p>
+              </div>
+            )}
           </div>
         </div>
       </div>

@@ -23,6 +23,7 @@ export function CustomerCompanyInfoView() {
 
   useEffect(() => {
     fetchCompany().then((c) => {
+      if (!c) return;
       setCompanyId(c.id);
       setForm({
         name: c.name,

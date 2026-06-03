@@ -25,11 +25,12 @@ export function CustomerConfirmedProductsView() {
   const [statuses, setStatuses] = useState<Record<string, ZoneProductStatus>>({});
   const [openDiscussion, setOpenDiscussion] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     fetchProjects().then((rows) => {
       const p = rows[0];
-      if (!p) return;
+      if (!p) { setLoaded(true); return; }
       setProject(p);
       Promise.all([fetchZoneProducts(p.id), fetchDiscussions(p.id)]).then(([zp, disc]) => {
         const inZone = zp.filter((x) => x.zoneId);
@@ -39,7 +40,7 @@ export function CustomerConfirmedProductsView() {
         // default-open the first product that has a discussion
         const firstWithDisc = inZone.find((x) => disc.some((d) => d.zoneProductId === x.id));
         if (firstWithDisc) setOpenDiscussion(firstWithDisc.id);
-      });
+      }).finally(() => setLoaded(true));
     });
   }, []);
 
@@ -47,9 +48,20 @@ export function CustomerConfirmedProductsView() {
   const progress = products.length > 0 ? Math.round((confirmedCount / products.length) * 100) : 0;
 
   if (!project) {
+    if (!loaded) {
+      return (
+        <div className="flex h-full items-center justify-center bg-background">
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+        </div>
+      );
+    }
     return (
-      <div className="flex h-full items-center justify-center bg-background">
-        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      <div className="flex h-full flex-col items-center justify-center gap-3 bg-background p-8 text-center">
+        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10">
+          <CheckCircle2 className="h-8 w-8 text-primary" />
+        </div>
+        <h2 className="font-display text-lg font-bold">尚無待確認產品</h2>
+        <p className="font-body text-sm text-muted-foreground">當您受邀的專案有產品方案時，會在此顯示供您確認</p>
       </div>
     );
   }

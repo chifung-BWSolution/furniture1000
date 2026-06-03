@@ -1,18 +1,14 @@
 // ============================================================================
 // Data access layer for 傢俬方案 / 客戶專區 pages.
-// Wraps Supabase queries, maps snake_case rows → camelCase domain types,
-// and falls back to mock data when a table is empty or the query fails so
-// pages never render blank.
+// Wraps Supabase queries and maps snake_case rows → camelCase domain types.
+// Returns real data only — no mock fallback. Empty tables yield empty results
+// and pages render their empty states.
 // ============================================================================
 import { supabase } from './supabase';
 import type {
   DesignProject, ProjectZone, ZoneProduct, ProjectInvitation,
   ClientCompany, ProductDiscussion, SearchProduct,
 } from '@/types/solutions';
-import {
-  MOCK_PROJECTS, MOCK_ZONES, MOCK_ZONE_PRODUCTS,
-  MOCK_INVITATIONS, MOCK_CLIENT_COMPANY, MOCK_DISCUSSIONS, MOCK_SEARCH_PRODUCTS,
-} from '@/constants/solutions-mock';
 
 // ---------------------------------------------------------------------------
 // Row → domain mappers
@@ -130,7 +126,7 @@ function mapSearchProduct(r: any): SearchProduct {
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
 // ---------------------------------------------------------------------------
-// Fetchers (each returns mock fallback on empty/error)
+// Fetchers (real data only — empty array / null when no rows)
 // ---------------------------------------------------------------------------
 export async function fetchProjects(): Promise<DesignProject[]> {
   try {
@@ -138,10 +134,10 @@ export async function fetchProjects(): Promise<DesignProject[]> {
       .from('design_projects')
       .select('*')
       .order('updated_at', { ascending: false });
-    if (error || !data || data.length === 0) return MOCK_PROJECTS;
+    if (error || !data) return [];
     return data.map(mapProject);
   } catch {
-    return MOCK_PROJECTS;
+    return [];
   }
 }
 
@@ -152,10 +148,10 @@ export async function fetchZones(projectId: string): Promise<ProjectZone[]> {
       .select('*')
       .eq('project_id', projectId)
       .order('sort_order', { ascending: true });
-    if (error || !data || data.length === 0) return MOCK_ZONES.filter((z) => z.projectId === projectId);
+    if (error || !data) return [];
     return data.map(mapZone);
   } catch {
-    return MOCK_ZONES.filter((z) => z.projectId === projectId);
+    return [];
   }
 }
 
@@ -166,10 +162,10 @@ export async function fetchZoneProducts(projectId: string): Promise<ZoneProduct[
       .select('*')
       .eq('project_id', projectId)
       .order('sort_order', { ascending: true });
-    if (error || !data || data.length === 0) return MOCK_ZONE_PRODUCTS.filter((p) => p.projectId === projectId);
+    if (error || !data) return [];
     return data.map(mapZoneProduct);
   } catch {
-    return MOCK_ZONE_PRODUCTS.filter((p) => p.projectId === projectId);
+    return [];
   }
 }
 
@@ -180,24 +176,24 @@ export async function fetchInvitations(projectId: string): Promise<ProjectInvita
       .select('*')
       .eq('project_id', projectId)
       .order('created_at', { ascending: false });
-    if (error || !data || data.length === 0) return MOCK_INVITATIONS.filter((i) => i.projectId === projectId);
+    if (error || !data) return [];
     return data.map(mapInvitation);
   } catch {
-    return MOCK_INVITATIONS.filter((i) => i.projectId === projectId);
+    return [];
   }
 }
 
-export async function fetchCompany(): Promise<ClientCompany> {
+export async function fetchCompany(): Promise<ClientCompany | null> {
   try {
     const { data, error } = await supabase
       .from('client_companies')
       .select('*')
       .limit(1)
       .maybeSingle();
-    if (error || !data) return MOCK_CLIENT_COMPANY;
+    if (error || !data) return null;
     return mapCompany(data);
   } catch {
-    return MOCK_CLIENT_COMPANY;
+    return null;
   }
 }
 
@@ -208,10 +204,10 @@ export async function fetchDiscussions(projectId: string): Promise<ProductDiscus
       .select('*')
       .eq('project_id', projectId)
       .order('created_at', { ascending: true });
-    if (error || !data || data.length === 0) return MOCK_DISCUSSIONS.filter((d) => d.projectId === projectId);
+    if (error || !data) return [];
     return data.map(mapDiscussion);
   } catch {
-    return MOCK_DISCUSSIONS.filter((d) => d.projectId === projectId);
+    return [];
   }
 }
 
@@ -226,10 +222,10 @@ export async function fetchSearchProducts(limit = 60): Promise<SearchProduct[]> 
       .select('id,title,description,price,sale_price,image_url,images,collection,category,color,total_lead_time,shipping_days,delivery_term_name')
       .order('created_at', { ascending: false })
       .limit(limit);
-    if (error || !data || data.length === 0) return MOCK_SEARCH_PRODUCTS;
+    if (error || !data) return [];
     return data.map(mapSearchProduct);
   } catch {
-    return MOCK_SEARCH_PRODUCTS;
+    return [];
   }
 }
 

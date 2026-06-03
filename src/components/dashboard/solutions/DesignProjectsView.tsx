@@ -23,6 +23,7 @@ export function DesignProjectsView() {
   const [allZones, setAllZones] = useState<ProjectZone[]>([]);
   const [allZoneProducts, setAllZoneProducts] = useState<ZoneProduct[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [projectsLoaded, setProjectsLoaded] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
 
   // Load project list once
@@ -30,7 +31,7 @@ export function DesignProjectsView() {
     fetchProjects().then((rows) => {
       setProjects(rows);
       if (rows.length > 0) setActiveProjectId((cur) => cur || rows[0].id);
-    });
+    }).finally(() => setProjectsLoaded(true));
   }, []);
 
   // --- write handlers ---
@@ -79,9 +80,28 @@ export function DesignProjectsView() {
   const basket = allZoneProducts.filter((zp) => !zp.zoneId);
 
   if (!project) {
+    if (!projectsLoaded) {
+      return (
+        <div className="flex h-full items-center justify-center bg-background">
+          <Loader2 className="h-6 w-6 animate-spin text-primary" />
+        </div>
+      );
+    }
     return (
-      <div className="flex h-full items-center justify-center bg-background">
-        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      <div className="flex h-full flex-col items-center justify-center gap-4 bg-background p-8 text-center">
+        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10">
+          <LayoutGrid className="h-8 w-8 text-primary" />
+        </div>
+        <div>
+          <h2 className="font-display text-lg font-bold">尚無設計專案</h2>
+          <p className="mt-1 font-body text-sm text-muted-foreground">建立第一個專案以開始規劃分區與產品方案</p>
+        </div>
+        <button
+          onClick={handleCreateProject}
+          className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground shadow-sm transition-opacity hover:opacity-90"
+        >
+          <Plus className="h-3.5 w-3.5" /> 建立新專案
+        </button>
       </div>
     );
   }
