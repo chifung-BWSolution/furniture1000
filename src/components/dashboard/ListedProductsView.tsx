@@ -152,10 +152,15 @@ export function ListedProductsView({
     };
   }, [searchQuery]);
 
-  // Fetch unique factory names for filter
+  // Fetch unique factory names for filter — DEFERRED: only runs the first time
+  // the user opens the factory dropdown, so it never competes with the
+  // first-screen product query (previously scanned all 1464 rows on mount).
+  const factoriesLoadedRef = useRef(false);
   useEffect(() => {
+    if (!factoryFilterOpen || factoriesLoadedRef.current) return;
+    factoriesLoadedRef.current = true;
+
     const fetchFactories = async () => {
-      // Fetch all distinct factory names by paginating through all products
       let allFactoryNames: string[] = [];
       let page = 0;
       const batchSize = 1000;
@@ -168,7 +173,7 @@ export function ListedProductsView({
           .not('factories_display_name', 'is', null)
           .neq('factories_display_name', '')
           .range(page * batchSize, (page + 1) * batchSize - 1);
-        
+
         if (data && data.length > 0) {
           allFactoryNames = allFactoryNames.concat(
             data.map((r: any) => r.factories_display_name as string).filter(Boolean)
@@ -188,7 +193,7 @@ export function ListedProductsView({
       setAvailableFactories(unique);
     };
     fetchFactories();
-  }, []);
+  }, [factoryFilterOpen]);
 
   // Close factory dropdown on outside click
   useEffect(() => {
@@ -211,10 +216,11 @@ export function ListedProductsView({
       const from = (currentPage - 1) * pageSize;
       const to = from + pageSize - 1;
 
-      // Build base query for count
+      // Build base query for count — 'estimated' is far faster than 'exact' on
+      // large tables (uses planner stats instead of scanning every row).
       let countQuery = supabase
         .from('products')
-        .select('id', { count: 'exact', head: true });
+        .select('id', { count: 'estimated', head: true });
 
       if (debouncedSearch.trim()) {
         countQuery = countQuery.ilike('title', `%${debouncedSearch.trim()}%`);
@@ -231,14 +237,6 @@ export function ListedProductsView({
       if (selectedFactories.length > 0) {
         countQuery = countQuery.in('factories_display_name', selectedFactories);
       }
-
-      const { count, error: countErr } = await countQuery;
-
-      if (countErr) {
-        console.error('[ProductCatalog] Count error:', countErr);
-      }
-
-      setTotalCount(count || 0);
 
       // Build data query — explicit columns (avoid heavy JSONB like description_html when not needed for list view)
       const LIST_COLUMNS = [
@@ -273,7 +271,14 @@ export function ListedProductsView({
         dataQuery = dataQuery.in('factories_display_name', selectedFactories);
       }
 
-      const { data: productRows, error: prodErr } = await dataQuery;
+      // Run count + data IN PARALLEL — they no longer block each other.
+      const [{ count, error: countErr }, { data: productRows, error: prodErr }] =
+        await Promise.all([countQuery, dataQuery]);
+
+      if (countErr) {
+        console.error('[ProductCatalog] Count error:', countErr);
+      }
+      setTotalCount(count || 0);
 
       if (prodErr) {
         console.error('[ProductCatalog] Fetch error:', prodErr);
@@ -288,19 +293,6 @@ export function ListedProductsView({
         setIsLoading(false);
         return;
       }
-
-      // Fetch variants for these products
-      const productIds = productRows.map((p: any) => p.id);
-      const { data: variantRows } = await supabase
-        .from('product_variants')
-        .select('*')
-        .in('product_id', productIds);
-
-      const variantsByProduct: Record<string, any[]> = {};
-      (variantRows || []).forEach((v: any) => {
-        if (!variantsByProduct[v.product_id]) variantsByProduct[v.product_id] = [];
-        variantsByProduct[v.product_id].push(v);
-      });
 
       const mapped: ListedProduct[] = productRows.map((row: any) => ({
         id: row.id,
@@ -335,17 +327,41 @@ export function ListedProductsView({
         dimensionLMm: row.dimension_l_mm != null ? parseInt(row.dimension_l_mm) : null,
         dimensionWMm: row.dimension_w_mm != null ? parseInt(row.dimension_w_mm) : null,
         dimensionHMm: row.dimension_h_mm != null ? parseInt(row.dimension_h_mm) : null,
-        variants: (variantsByProduct[row.id] || []).map((v: any) => ({
-          id: v.id,
-          size: v.size,
-          color: v.color,
-          sku: v.sku,
-          price: parseFloat(v.price),
-          inventory: v.inventory,
-        })),
+        // variants 先留空，下方背景非阻塞補上，讓首屏立即顯示
+        variants: [],
       }));
 
+      // 立即渲染前 N 件 — 首屏不再等 variants
       setProducts(mapped);
+      setIsLoading(false);
+
+      // 背景非阻塞抓取 variants，回來後再 patch 進已渲染的列
+      const productIds = productRows.map((p: any) => p.id);
+      supabase
+        .from('product_variants')
+        .select('*')
+        .in('product_id', productIds)
+        .then(({ data: variantRows }) => {
+          if (!variantRows || variantRows.length === 0) return;
+          const variantsByProduct: Record<string, any[]> = {};
+          variantRows.forEach((v: any) => {
+            (variantsByProduct[v.product_id] ||= []).push(v);
+          });
+          setProducts((prev) =>
+            prev.map((p) =>
+              variantsByProduct[p.id]
+                ? {
+                    ...p,
+                    variants: variantsByProduct[p.id].map((v: any) => ({
+                      id: v.id, size: v.size, color: v.color, sku: v.sku,
+                      price: parseFloat(v.price), inventory: v.inventory,
+                    })),
+                  }
+                : p
+            )
+          );
+        });
+      return;
     } catch (err) {
       console.error('[ProductCatalog] Unexpected error:', err);
       setFetchError('連線逾時或發生未預期的錯誤，請檢查資料庫狀態');
