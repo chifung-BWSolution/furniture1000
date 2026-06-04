@@ -1,0 +1,266 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 220 14% 96%;
+    --foreground: 230 25% 10%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 230 25% 10%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 230 25% 10%;
+
+    --primary: 239 84% 67%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 220 14% 92%;
+    --secondary-foreground: 230 25% 10%;
+
+    --muted: 220 14% 92%;
+    --muted-foreground: 220 10% 46%;
+
+    --accent: 220 14% 92%;
+    --accent-foreground: 230 25% 10%;
+
+    --destructive: 347 77% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 220 14% 89%;
+    --input: 220 14% 89%;
+    --ring: 239 84% 67%;
+
+    --radius: 0.625rem;
+
+    --sidebar-background: 0 0% 98%;
+    --sidebar-foreground: 240 5.3% 26.1%;
+    --sidebar-primary: 239 84% 67%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 220 14% 95%;
+    --sidebar-accent-foreground: 230 25% 10%;
+    --sidebar-border: 220 13% 91%;
+    --sidebar-ring: 239 84% 67%;
+  }
+
+  .dark {
+    --background: 228 35% 7%;
+    --foreground: 220 20% 93%;
+
+    --card: 229 27% 13%;
+    --card-foreground: 220 20% 93%;
+
+    --popover: 229 27% 13%;
+    --popover-foreground: 220 20% 93%;
+
+    --primary: 239 84% 67%;
+    --primary-foreground: 0 0% 100%;
+
+    --secondary: 231 22% 17%;
+    --secondary-foreground: 220 20% 93%;
+
+    --muted: 231 22% 17%;
+    --muted-foreground: 220 15% 60%;
+
+    --accent: 231 22% 17%;
+    --accent-foreground: 220 20% 93%;
+
+    --destructive: 347 77% 60%;
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 232 18% 22%;
+    --input: 232 18% 22%;
+    --ring: 239 84% 67%;
+
+    --sidebar-background: 228 35% 5%;
+    --sidebar-foreground: 220 20% 90%;
+    --sidebar-primary: 239 84% 67%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 231 22% 14%;
+    --sidebar-accent-foreground: 220 20% 90%;
+    --sidebar-border: 231 22% 14%;
+    --sidebar-ring: 239 84% 67%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Manrope', sans-serif;
+  }
+  /* Restore browser defaults that Tailwind Preflight strips */
+  u {
+    text-decoration: underline;
+  }
+}
+
+.font-display {
+  font-family: 'Syne', sans-serif;
+}
+
+.font-mono-data {
+  font-family: 'IBM Plex Mono', monospace;
+}
+
+.font-body {
+  font-family: 'Manrope', sans-serif;
+}
+
+@keyframes pulse-glow {
+  0%, 100% { 
+    box-shadow: 0 0 5px hsl(239 84% 67% / 0.3), 0 0 20px hsl(239 84% 67% / 0.1);
+  }
+  50% { 
+    box-shadow: 0 0 10px hsl(239 84% 67% / 0.5), 0 0 40px hsl(239 84% 67% / 0.2);
+  }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes border-pulse {
+  0%, 100% { border-color: hsl(239 84% 67% / 0.3); }
+  50% { border-color: hsl(239 84% 67% / 0.8); }
+}
+
+@keyframes status-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+.animate-shimmer {
+  background: linear-gradient(90deg, transparent, hsl(239 84% 67% / 0.1), transparent);
+  background-size: 200% 100%;
+  animation: shimmer 2s ease-in-out infinite;
+}
+
+.animate-border-pulse {
+  animation: border-pulse 2s ease-in-out infinite;
+}
+
+.animate-status-pulse {
+  animation: status-pulse 1.5s ease-in-out infinite;
+}
+
+.animate-fade-up {
+  animation: fade-up 0.4s ease-out forwards;
+}
+
+.noise-overlay {
+  position: relative;
+}
+.noise-overlay::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0.03;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 1;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.5);
+}
+
+/* ─── Tiptap Rich Editor Styles ─────────────────────────────────── */
+.terms-rich-editor .ProseMirror,
+.terms-rich-editor .tiptap {
+  outline: none;
+}
+.terms-rich-editor .ProseMirror p,
+.terms-rich-editor .tiptap p {
+  margin-bottom: 0.4em;
+}
+.terms-rich-editor .ProseMirror h3,
+.terms-rich-editor .tiptap h3 {
+  font-size: 0.75rem;
+  font-weight: 700;
+  margin-top: 1em;
+  margin-bottom: 0.35em;
+  color: hsl(var(--foreground));
+}
+.terms-rich-editor .ProseMirror ul,
+.terms-rich-editor .ProseMirror ol,
+.terms-rich-editor .tiptap ul,
+.terms-rich-editor .tiptap ol {
+  padding-left: 1.25em;
+  margin-bottom: 0.4em;
+}
+.terms-rich-editor .ProseMirror ul,
+.terms-rich-editor .tiptap ul {
+  list-style-type: disc;
+}
+.terms-rich-editor .ProseMirror ol,
+.terms-rich-editor .tiptap ol {
+  list-style-type: decimal;
+}
+.terms-rich-editor .ProseMirror li,
+.terms-rich-editor .tiptap li {
+  margin-bottom: 0.2em;
+}
+.terms-rich-editor .ProseMirror strong,
+.terms-rich-editor .tiptap strong {
+  font-weight: 700;
+}
+.terms-rich-editor .ProseMirror em,
+.terms-rich-editor .tiptap em {
+  font-style: italic;
+}
+/* 針對 <u> 標籤強制顯示所有空格 */
+u {
+  white-space: pre-wrap;
+  text-decoration: underline;
+}
+.terms-rich-editor .ProseMirror u,
+.terms-rich-editor .tiptap u,
+.terms-rich-editor u {
+  text-decoration: underline !important;
+  text-decoration-line: underline !important;
+  text-underline-offset: 2px;
+  white-space: pre-wrap;
+  display: inline;
+  min-width: 1ch;
+  /* Prevent browser from collapsing any whitespace inside <u> */
+  word-spacing: normal;
+  letter-spacing: normal;
+}
+/* Ensure ProseMirror doesn't hide empty text nodes with underline marks */
+.terms-rich-editor .ProseMirror [data-node-type="text"],
+.terms-rich-editor .tiptap [data-node-type="text"] {
+  white-space: pre-wrap;
+}
+.terms-rich-editor .ProseMirror p.is-editor-empty:first-child::before,
+.terms-rich-editor .tiptap p.is-editor-empty:first-child::before {
+  color: hsl(var(--muted-foreground) / 0.5);
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}

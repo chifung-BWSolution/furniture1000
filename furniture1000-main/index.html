@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Shopify AI Product Suite</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600;700&family=Manrope:wght@300;400;500;600;700;800&family=Syne:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  </head>
+  <body>
+    <script>
+      // Early suppression of cross-origin "Script error." before any modules load
+      // This MUST run before any other scripts to intercept errors at the earliest point
+      (function() {
+        // 1. window.onerror — the absolute first handler
+        window.onerror = function(msg, src, line, col, err) {
+          var m = typeof msg === "string" ? msg : "";
+          var s = typeof src === "string" ? src : "";
+          if (!s || s === "" || m === "Script error." || m === "" || line === 0) return true;
+          return false;
+        };
+
+        // 2. Capture-phase error event listener (fires before bubble)
+        window.addEventListener("error", function(e) {
+          if (!e.filename || e.filename === "" || e.message === "Script error." || e.message === "" || e.lineno === 0) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            return false;
+          }
+        }, true);
+
+        // 3. Capture-phase unhandled rejection listener
+        window.addEventListener("unhandledrejection", function(e) {
+          var r = e && e.reason;
+          var m = (r && r.message) || String(r || "");
+          if (!m || m === "Script error." || m.includes("Failed to fetch") || m.includes("Load failed") || m.includes("NetworkError") || (r && typeof r === "object" && !r.stack && !r.message)) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+          }
+        }, true);
+
+        // 4. ResizeObserver loop error suppression (common in embedded iframes)
+        window.addEventListener("error", function(e) {
+          if (e.message && e.message.indexOf("ResizeObserver") !== -1) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            return false;
+          }
+        }, true);
+
+        // 5. Suppress postMessage-based error forwarding from parent/child frames
+        window.addEventListener("message", function(e) {
+          try {
+            var data = typeof e.data === "string" ? JSON.parse(e.data) : e.data;
+            if (data && data.type === "error" && (!data.message || data.message === "Script error.")) {
+              e.stopImmediatePropagation();
+            }
+          } catch(ex) {}
+        }, true);
+      })();
+    </script>
+    <div id="root"></div>
+    <script type="module" crossorigin="anonymous" src="/src/main.tsx"></script>
+  </body>
+</html>
