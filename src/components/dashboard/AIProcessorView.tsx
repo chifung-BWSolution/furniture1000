@@ -522,6 +522,38 @@ function generateUploadSessionId(): string {
   return `session_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
 }
 
+/**
+ * Normalize a raw production-time cell into one of the 4 allowed options:
+ * 'in stock' | 'within 7days' | '7-22days' | '23days or above'.
+ * Accepts plain numbers (days), Chinese/English keywords, or "X天/天/日/days".
+ * Returns null when nothing usable is found.
+ */
+function normalizeProductionTime(raw: unknown): string | null {
+  if (raw === null || raw === undefined) return null;
+  const s = String(raw).trim();
+  if (!s) return null;
+  const lower = s.toLowerCase();
+
+  // 現貨 / in stock
+  if (/現貨|现货|stock|spot/.test(lower) || /現貨|现货/.test(s)) return 'in stock';
+
+  // pull the largest number of days from the string (handles ranges like "7-22天")
+  const nums = (s.match(/\d+(?:\.\d+)?/g) || []).map(Number).filter((n) => !isNaN(n));
+  const days = nums.length ? Math.max(...nums) : NaN;
+
+  if (!isNaN(days)) {
+    if (days <= 0) return 'in stock';
+    if (days <= 7) return 'within 7days';
+    if (days <= 22) return '7-22days';
+    return '23days or above';
+  }
+
+  // keyword fallbacks
+  if (/within\s*7|7\s*days?\s*內|一週|一周/.test(lower)) return 'within 7days';
+  if (/23|above|以上|個月|个月|month/.test(lower)) return '23days or above';
+  return null;
+}
+
 // ─── PDF Catalog AI Analysis (V6 — Multi-Object Segmentation + Frontend Cropping) ──
 
 async function analyzePDFCatalogBatched(
@@ -2403,6 +2435,9 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         // Extract additional mapped fields that map directly to bwf_product_master columns
         const factoryNameFromExcel = getCellStr('factory_name');
         const productionLeadTime = getCellNum('production_lead_time');
+        // 'production_lead_time' mapping now feeds the new products.production_time
+        // (4 fixed options) — normalize the raw cell value.
+        const productionTime = normalizeProductionTime(getCellStr('production_lead_time'));
         const deliveryDays = getCellNum('delivery_days');
         const shippingDays = getCellNum('shipping_days');
         const shippingFee = getCellNum('shipping_fee');
@@ -2509,6 +2544,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
           bounding_box: null,
           costPrice,
           productionLeadTime,
+          productionTime,
           deliveryDays,
           shippingDays,
           shippingFee,
@@ -2809,6 +2845,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
           bounding_box: null,
           costPrice,
           productionLeadTime,
+          productionTime,
           deliveryDays,
           shippingDays,
           shippingFee,
@@ -3121,6 +3158,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
               cost_price: item.costPrice ?? null,
               sale_price: 0,
               production_date: (item as any).productionLeadTime ?? null,
+              production_time: (item as any).productionTime ?? null,
               shipping_days: (item as any).shippingDays ?? null,
               shipping_fee: (item as any).shippingFee ?? null,
               remarks: (item as any).remarks || '',

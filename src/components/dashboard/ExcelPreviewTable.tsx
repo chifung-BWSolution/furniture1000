@@ -83,7 +83,7 @@ export const STANDARD_HEADERS = [
   { value: 'collection', label: 'Collection/Category (系列) → category', labelZh: '系列' },
   { value: 'factory_name', label: 'Factory Name (工廠名) → factory_name', labelZh: '工廠名' },
   // ── Lead time & Shipping ──
-  { value: 'production_lead_time', label: 'Production Lead Time (生產週期) → production_lead_time', labelZh: '生產週期' },
+  { value: 'production_lead_time', label: 'Production Time (生產時間) → production_time', labelZh: '生產時間' },
   { value: 'delivery_days', label: 'Delivery Days (交貨天數) → delivery_days', labelZh: '交貨天數' },
   { value: 'shipping_days', label: 'Shipping Days (運輸天數) → shipping_days', labelZh: '運輸天數' },
   { value: 'shipping_fee', label: 'Shipping Fee (運費) → shipping_fee', labelZh: '運費' },
