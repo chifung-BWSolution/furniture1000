@@ -47,7 +47,7 @@ import { supabase } from '@/lib/supabase';
 import { fetchFactories, fetchFactoriesWithIds, FactoryItem } from '@/lib/factorySupabase';
 import { parseExcelFile, extractImagesFromWorkbook, extractRawExcelTable, ExcelProduct, ExcelImage, getFactoryRule, RawTableExtraction, cleanPrice, parseSmartDimensions, parseDeliveryTerm } from '@/lib/excelParser';
 import { ExcelPreviewTable, ExcelPreviewData, ColumnMappingState, StandardHeaderValue, MultiSheetColumnMapping, MultiSheetDimUnits, DimUnit, PreviewAction } from '@/components/dashboard/ExcelPreviewTable';
-import { simplifiedToTraditional } from '@/lib/chineseConverter';
+import { simplifiedToTraditional, convertRowToTraditional } from '@/lib/chineseConverter';
 import { useFactoryLearning, CorrectableField } from '@/hooks/use-factory-learning';
 import { toast } from 'sonner';
 import { saveSession, loadSession, clearSession, clearMappings } from '@/lib/sessionStore';
@@ -2116,6 +2116,29 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
     });
   }, []);
 
+  // ── Edit a preview cell in place — updates both top-level rows and per-sheet rows
+  // so the edited value flows through to upload. ──
+  const handleCellEdit = useCallback((sheetName: string, rowIndex: number, colIdx: number, value: string) => {
+    setExcelPreviewData(prev => {
+      if (!prev) return prev;
+      const patchRows = (rows: typeof prev.rows) =>
+        rows.map(r => {
+          if (r.rowIndex !== rowIndex) return r;
+          const cells = [...r.cells];
+          cells[colIdx] = value;
+          return { ...r, cells };
+        });
+      const newSheets = prev.sheets?.map(s =>
+        s.sheetName === sheetName ? { ...s, rows: patchRows(s.rows) } : s
+      );
+      // Keep top-level rows in sync (single-sheet fallback also covered)
+      const newRows = newSheets
+        ? newSheets.flatMap(s => s.rows)
+        : patchRows(prev.rows);
+      return { ...prev, rows: newRows, sheets: newSheets };
+    });
+  }, []);
+
   // ── Factory Learning hook — loads + applies correction patterns per factory ──
   const { saveCorrection, applyCorrections, getCorrections } = useFactoryLearning(
     selectedFactoryId,
@@ -3874,10 +3897,11 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
 
         // Build preview data and show the interactive preview table
         const previewData: ExcelPreviewData = {
-          headerLabels: rawTable.headerLabels,
+          // 上傳後將所有簡體中文內容轉為香港繁體（表頭 + 每格）
+          headerLabels: rawTable.headerLabels.map(h => simplifiedToTraditional(h || '')),
           rows: rawTable.rows.map(r => ({
             rowIndex: r.rowIndex,
-            cells: r.cells,
+            cells: convertRowToTraditional(r.cells),
             productImageData: r.productImageData,
             lifestyleImageData: r.lifestyleImageData,
             isProductRow: r.isProductRow,
@@ -3892,11 +3916,11 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
           // Per-sheet independent data for multi-tab UI
           sheets: rawTable.sheets?.map(s => ({
             sheetName: s.sheetName,
-            headerLabels: s.headerLabels,
+            headerLabels: s.headerLabels.map(h => simplifiedToTraditional(h || '')),
             headerRowIndex: s.headerRowIndex,
             rows: s.rows.map(r => ({
               rowIndex: r.rowIndex,
-              cells: r.cells,
+              cells: convertRowToTraditional(r.cells),
               productImageData: r.productImageData,
               lifestyleImageData: r.lifestyleImageData,
               isProductRow: r.isProductRow,
@@ -4823,6 +4847,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
             onGenerateCatalog={handleGenerateFromPreview}
             onAction={handlePreviewAction}
             onRowsDiscarded={removeRowsFromPreview}
+            onCellEdit={handleCellEdit}
             onCancel={handleCancelPreview}
             isGenerating={isGeneratingFromPreview}
           />

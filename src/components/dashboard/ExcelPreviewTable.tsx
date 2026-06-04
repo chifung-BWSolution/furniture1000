@@ -168,6 +168,8 @@ interface ExcelPreviewTableProps {
   onAction?: (action: PreviewAction, mapping: ColumnMappingState, selectedRows: number[], productNames: Record<string, string>, multiSheetMapping?: MultiSheetColumnMapping, imageOverrides?: Record<string, string>, multiSheetDimUnits?: MultiSheetDimUnits) => void;
   /** Called when rows are discarded/removed from the preview — parent should remove from data */
   onRowsDiscarded?: (rowIndices: number[]) => void;
+  /** Called when a cell value is edited inline — parent updates preview data */
+  onCellEdit?: (sheetName: string, rowIndex: number, colIdx: number, value: string) => void;
   onCancel: () => void;
   isGenerating: boolean;
 }
@@ -640,6 +642,7 @@ export function ExcelPreviewTable({
   onGenerateCatalog,
   onAction,
   onRowsDiscarded,
+  onCellEdit,
   onCancel,
   isGenerating,
 }: ExcelPreviewTableProps) {
@@ -1140,6 +1143,21 @@ export function ExcelPreviewTable({
 
   // Enlarged image state
   const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
+
+  // ─── Inline cell editing ───────────────────────────────────────────
+  // key = `${rowIndex}:${colIdx}` for the cell currently being edited
+  const [editingCell, setEditingCell] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState('');
+
+  const startEdit = useCallback((rowIndex: number, colIdx: number, current: string) => {
+    setEditingCell(`${rowIndex}:${colIdx}`);
+    setEditValue(current);
+  }, []);
+
+  const commitEdit = useCallback((rowIndex: number, colIdx: number) => {
+    onCellEdit?.(activeSheet.sheetName, rowIndex, colIdx, editValue);
+    setEditingCell(null);
+  }, [onCellEdit, activeSheet.sheetName, editValue]);
 
   // ─── Image Override State ──────────────────────────────────────────
   const [imageModalOpen, setImageModalOpen] = useState(false);
@@ -1933,25 +1951,38 @@ export function ExcelPreviewTable({
                         const isGeneratingName = generatingNames[nameKey];
                         const hasImage = !!(getImageForRow(row, 'product') || getImageForRow(row, 'lifestyle'));
 
+                        const cellKey = `${row.rowIndex}:${colIdx}`;
+                        const isEditingThis = editingCell === cellKey;
+
                         return (
                           <React.Fragment key={colIdx}>
                             <TableCell
                               className={cn(
-                                'text-sm font-[IBM_Plex_Mono] px-2 max-w-[200px] truncate',
+                                'text-sm font-[IBM_Plex_Mono] px-2 max-w-[200px]',
+                                !isEditingThis && 'truncate cursor-text hover:bg-indigo-500/5',
                                 isMapped && 'text-foreground',
                                 !isMapped && 'text-foreground/50',
                                 isDimensionField && isMapped && displayVal && 'text-emerald-700',
                                 isPriceField && isMapped && displayVal && rawDisplayVal !== displayVal && 'text-amber-600',
                               )}
-                              title={
-                                isDimensionField && rawDisplayVal !== displayVal
-                                  ? `Raw: ${rawDisplayVal} → Parsed: ${displayVal}`
-                                  : isPriceField && rawDisplayVal !== displayVal
-                                    ? `Raw: ${rawDisplayVal} → Max: ${displayVal}`
-                                    : displayVal
-                              }
+                              title={isEditingThis ? undefined : '點擊編輯'}
+                              onClick={() => { if (!isEditingThis) startEdit(row.rowIndex, colIdx, rawDisplayVal); }}
                             >
-                              {displayVal || <span className="text-foreground/30">—</span>}
+                              {isEditingThis ? (
+                                <input
+                                  autoFocus
+                                  value={editValue}
+                                  onChange={(e) => setEditValue(e.target.value)}
+                                  onBlur={() => commitEdit(row.rowIndex, colIdx)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') commitEdit(row.rowIndex, colIdx);
+                                    if (e.key === 'Escape') setEditingCell(null);
+                                  }}
+                                  className="w-full min-w-[120px] rounded border border-indigo-400 bg-background px-1.5 py-1 text-sm font-[IBM_Plex_Mono] focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                                />
+                              ) : (
+                                displayVal || <span className="text-foreground/30">—</span>
+                              )}
                             </TableCell>
                             {/* AI Product Name cell inserted after the anchor column */}
                             {arrIdx === productNameInsertIndex - 1 && (
