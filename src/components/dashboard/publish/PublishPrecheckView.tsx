@@ -61,6 +61,27 @@ export function PublishPrecheckView() {
     toast.success('已套用全部建議修正', { description: '所有檢查項目已通過' });
   };
 
+  // 「進入準備上載」：把通過檢查的產品標記 ready_to_publish=true，準備上載頁才會顯示
+  const [isEntering, setIsEntering] = useState(false);
+  const handleEnter = async () => {
+    if (!allPass || items.length === 0) return;
+    const ids = items.map((it) => it.id);
+    setIsEntering(true);
+    try {
+      const { error } = await supabase
+        .from('products')
+        .update({ ready_to_publish: true })
+        .in('id', ids);
+      if (error) throw new Error(error.message);
+      setItems([]);
+      toast.success('已送往準備上載', { description: `${ids.length} 件產品已進入準備上載` });
+    } catch (e) {
+      toast.error('操作失敗', { description: e instanceof Error ? e.message : '請稍後再試' });
+    } finally {
+      setIsEntering(false);
+    }
+  };
+
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">
       {/* Toolbar */}
@@ -71,11 +92,11 @@ export function PublishPrecheckView() {
           <span className="ml-1 rounded-full bg-primary/10 px-2.5 py-0.5 font-mono-data text-[11px] font-semibold text-primary">{items.length} 件待檢查</span>
         </div>
         <button
-          disabled={!allPass}
-          onClick={() => toast.success('已送往準備上載', { description: '檢查全部通過' })}
+          disabled={!allPass || items.length === 0 || isEntering}
+          onClick={handleEnter}
           className="flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-bold text-primary-foreground shadow-md hover:opacity-90 disabled:opacity-50"
         >
-          <UploadCloud className="h-4 w-4" /> 進入準備上載
+          {isEntering ? <Loader2 className="h-4 w-4 animate-spin" /> : <UploadCloud className="h-4 w-4" />} 進入準備上載
         </button>
       </div>
 

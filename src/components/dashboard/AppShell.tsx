@@ -158,6 +158,11 @@ export function AppShell() {
     store.products.filter((p) => store.selectedProductIds.has(p.id)),
     [store.products, store.selectedProductIds]
   );
+  // 準備上載頁：只顯示發佈前檢查通過後標記 readyToPublish 的產品
+  const readyToPublishProducts = useMemo(() =>
+    store.products.filter((p) => p.readyToPublish),
+    [store.products]
+  );
 
   const handleBulkPublish = useCallback(async () => {
     // 所有產品頁：「上傳到產品目錄」— 把已選產品標記 in_catalog（寫入 Supabase，跨裝置共用）
@@ -216,7 +221,7 @@ export function AppShell() {
       case "ready-to-publish":
         return (
           <ProductTableView
-            products={store.products}
+            products={readyToPublishProducts}
             selectedIds={store.selectedProductIds}
             filterProductId={store.filterProductId}
             onToggleSelect={store.toggleProductSelection}
@@ -396,7 +401,7 @@ export function AppShell() {
         <TopBar
           currentView={store.currentView}
           selectedCount={store.currentView === 'listed-products' ? listedStats.selected : store.selectedProductIds.size}
-          totalProducts={store.currentView === 'listed-products' ? listedStats.total : store.products.length}
+          totalProducts={store.currentView === 'listed-products' ? listedStats.total : store.currentView === 'ready-to-publish' ? readyToPublishProducts.length : store.products.length}
           onBulkPublish={handleBulkPublish}
           onSave={store.saveProducts}
           isSaving={store.isSaving}

@@ -74,6 +74,8 @@ export interface Product {
   deliveryTerm?: DeliveryTerm | null;
   /** Lifestyle / scene image URL (效果圖) */
   lifestyleImageUrl?: string | null;
+  /** 發佈前檢查通過後，按「進入準備上載」設為 true，準備上載頁只顯示此類產品 */
+  readyToPublish?: boolean;
 }
 
 export interface AppSettings {
