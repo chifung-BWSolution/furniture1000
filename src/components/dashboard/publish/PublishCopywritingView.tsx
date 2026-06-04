@@ -1,11 +1,10 @@
-import { useState, useEffect, useRef } from 'react';
-import { cn } from '@/lib/utils';
+import { useState, useRef, useMemo } from 'react';
 import {
   FileText, Sparkles, ChevronLeft, ArrowRight, Loader2,
   UploadCloud, Search, X,
 } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
+import { usePublishList } from './usePublishList';
 
 interface CopyItem {
   id: string;
@@ -13,6 +12,9 @@ interface CopyItem {
   description: string;
   imageUrl: string;
   images: string[];
+  factory: string;
+  level1: string;
+  level2: string;
   seoTitle: string;
   seoDescription: string;
   handle: string;
@@ -24,41 +26,32 @@ function slugify(s: string) {
 
 export function PublishCopywritingView() {
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [items, setItems] = useState<CopyItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setIsLoading(true);
-      const { data } = await supabase
-        .from('products')
-        .select('id,title,description,image_url,images,image_url_2,image_url_3')
-        .eq('in_shopify_queue', true)
-        .order('created_at', { ascending: false });
-      if (cancelled) return;
-      const mapped: CopyItem[] = (data || []).map((r: any) => {
-        const imgs = [
-          (Array.isArray(r.images) && r.images[0]?.src) || r.image_url || '',
-          r.image_url_2 || '',
-          r.image_url_3 || '',
-        ].filter(Boolean);
-        return {
-          id: r.id,
-          title: r.title || '',
-          description: r.description || '',
-          imageUrl: imgs[0] || '',
-          images: imgs,
-          seoTitle: r.title || '',
-          seoDescription: (r.description || '').slice(0, 160),
-          handle: slugify(r.title || ''),
-        };
-      });
-      setItems(mapped);
-      setIsLoading(false);
-    })();
-    return () => { cancelled = true; };
-  }, []);
+  const { rows, totalCount, isLoading, Toolbar, Pagination } = usePublishList({
+    select: 'id,title,description,image_url,images,image_url_2,image_url_3,factories_display_name,level1_category,level2_category',
+    applyBaseFilters: (q) => q.eq('in_shopify_queue', true).eq('info_done', false),
+  });
+
+  const items: CopyItem[] = useMemo(() => rows.map((r: any) => {
+    const imgs = [
+      (Array.isArray(r.images) && r.images[0]?.src) || r.image_url || '',
+      r.image_url_2 || '',
+      r.image_url_3 || '',
+    ].filter(Boolean);
+    return {
+      id: r.id,
+      title: r.title || '',
+      description: r.description || '',
+      imageUrl: imgs[0] || '',
+      images: imgs,
+      factory: r.factories_display_name || '',
+      level1: r.level1_category || '',
+      level2: r.level2_category || '',
+      seoTitle: r.title || '',
+      seoDescription: (r.description || '').slice(0, 160),
+      handle: slugify(r.title || ''),
+    };
+  }), [rows]);
 
   const product = items.find((p) => p.id === activeId) ?? null;
 
@@ -91,21 +84,22 @@ export function PublishCopywritingView() {
   if (!product) {
     return (
       <div className="flex h-full flex-col overflow-hidden bg-background">
-        <div className="flex shrink-0 items-center gap-2 border-b border-border bg-muted/30 px-8 py-3.5">
+        <div className="flex shrink-0 items-center gap-2 border-b border-border bg-muted/30 px-8 py-3">
           <FileText className="h-4 w-4 text-primary" />
           <h2 className="font-display text-sm font-bold">產品文案</h2>
           <span className="ml-1 rounded-full bg-primary/10 px-2.5 py-0.5 font-mono-data text-[11px] font-semibold text-primary">
-            {items.length} 件產品待處理
+            {totalCount} 件產品待處理
           </span>
         </div>
+        {Toolbar}
         <div className="flex-1 overflow-auto p-8">
           {isLoading ? (
             <div className="flex h-40 items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
           ) : items.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-3 py-24 text-center">
               <FileText className="h-8 w-8 text-muted-foreground/40" />
-              <p className="font-display text-sm text-muted-foreground">尚無待處理產品</p>
-              <p className="font-body text-[12px] text-muted-foreground/70">到「產品管理 → 待處理產品」點「A 加入Shopify」即可加入</p>
+              <p className="font-display text-sm text-muted-foreground">尚無符合條件的產品</p>
+              <p className="font-body text-[12px] text-muted-foreground/70">到「產品管理 → 待處理產品」點「A 加入Shopify」即可加入，或調整上方篩選</p>
             </div>
           ) : (
             <div className="mx-auto grid max-w-6xl grid-cols-1 gap-4 lg:grid-cols-2">
@@ -118,14 +112,20 @@ export function PublishCopywritingView() {
                   <img src={p.imageUrl} alt={p.title} loading="lazy" className="h-20 w-20 shrink-0 rounded-xl object-cover bg-muted" />
                   <div className="min-w-0 flex-1">
                     <h3 className="font-display text-[14px] font-bold text-foreground line-clamp-1">{p.title}</h3>
-                    <p className="mt-1 line-clamp-2 font-body text-[12px] leading-relaxed text-muted-foreground">{p.description || '尚未填寫產品說明'}</p>
-                    <span className="mt-2 inline-flex items-center gap-1 text-[11px] font-medium text-primary">編輯文案 <ArrowRight className="h-3 w-3" /></span>
+                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                      {p.factory && <span className="rounded bg-muted px-1.5 py-0.5 font-body text-[10px] text-muted-foreground">{p.factory}</span>}
+                      {p.level1 && <span className="rounded bg-indigo-500/10 px-1.5 py-0.5 font-body text-[10px] text-indigo-600">{p.level1}</span>}
+                      {p.level2 && <span className="rounded bg-muted px-1.5 py-0.5 font-body text-[10px] text-muted-foreground">{p.level2}</span>}
+                    </div>
+                    <p className="mt-1 line-clamp-1 font-body text-[12px] leading-relaxed text-muted-foreground">{p.description || '尚未填寫產品說明'}</p>
+                    <span className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-medium text-primary">編輯文案 <ArrowRight className="h-3 w-3" /></span>
                   </div>
                 </button>
               ))}
             </div>
           )}
         </div>
+        {Pagination}
       </div>
     );
   }

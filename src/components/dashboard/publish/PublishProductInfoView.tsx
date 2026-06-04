@@ -5,11 +5,13 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
+import { usePublishList } from './usePublishList';
 
 interface InfoItem {
   id: string;
   title: string;
   imageUrl: string;
+  factory: string;
   price: number;
   costPrice: number | null;
   dimL: number | null;
@@ -24,41 +26,37 @@ interface InfoItem {
 
 export function PublishProductInfoView() {
   const [items, setItems] = useState<InfoItem[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [tagDraft, setTagDraft] = useState<Record<string, string>>({});
+  const [reloadKey, setReloadKey] = useState(0);
 
+  const { rows, totalCount, isLoading, Toolbar, Pagination } = usePublishList({
+    select: 'id,title,image_url,images,price,sale_price,cost_price,sku,tags,dimension_l_mm,dimension_w_mm,dimension_h_mm,level1_category,level2_category,delivery_term_name,model,factories_display_name',
+    applyBaseFilters: (q) => q.eq('in_shopify_queue', true).eq('info_done', false),
+    reloadKey,
+  });
+
+  // 把唯讀的 rows 轉成本頁可編輯的 items 副本（換頁/篩選/重載時重置）
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setIsLoading(true);
-      const { data } = await supabase
-        .from('products')
-        .select('id,title,image_url,images,price,sale_price,cost_price,sku,tags,dimension_l_mm,dimension_w_mm,dimension_h_mm,level1_category,level2_category,delivery_term_name,model')
-        .eq('in_shopify_queue', true)
-        .eq('info_done', false)
-        .order('created_at', { ascending: false });
-      if (cancelled) return;
-      const mapped: InfoItem[] = (data || []).map((r: any) => ({
-        id: r.id,
-        title: r.title || '',
-        imageUrl: (Array.isArray(r.images) && r.images[0]?.src) || r.image_url || '',
-        price: Number(r.sale_price ?? r.price ?? 0),
-        costPrice: r.cost_price != null ? Number(r.cost_price) : null,
-        dimL: r.dimension_l_mm ?? null,
-        dimW: r.dimension_w_mm ?? null,
-        dimH: r.dimension_h_mm ?? null,
-        sku: r.sku || r.model || '',
-        tags: Array.isArray(r.tags) ? r.tags : [],
-        level1: r.level1_category || '',
-        level2: r.level2_category || '',
-        deliveryTermName: r.delivery_term_name || '',
-      }));
-      setItems(mapped);
-      setIsLoading(false);
-    })();
-    return () => { cancelled = true; };
-  }, []);
+    const mapped: InfoItem[] = rows.map((r: any) => ({
+      id: r.id,
+      title: r.title || '',
+      imageUrl: (Array.isArray(r.images) && r.images[0]?.src) || r.image_url || '',
+      factory: r.factories_display_name || '',
+      price: Number(r.sale_price ?? r.price ?? 0),
+      costPrice: r.cost_price != null ? Number(r.cost_price) : null,
+      dimL: r.dimension_l_mm ?? null,
+      dimW: r.dimension_w_mm ?? null,
+      dimH: r.dimension_h_mm ?? null,
+      sku: r.sku || r.model || '',
+      tags: Array.isArray(r.tags) ? r.tags : [],
+      level1: r.level1_category || '',
+      level2: r.level2_category || '',
+      deliveryTermName: r.delivery_term_name || '',
+    }));
+    setItems(mapped);
+    setSelected(new Set());
+  }, [rows]);
 
   const patch = (id: string, p: Partial<InfoItem>) =>
     setItems((prev) => prev.map((it) => (it.id === id ? { ...it, ...p } : it)));
@@ -100,9 +98,9 @@ export function PublishProductInfoView() {
           .eq('id', id);
         if (error) throw new Error(error.message);
       }
-      // Remove completed products from this page's list
-      setItems((prev) => prev.filter((p) => !selected.has(p.id)));
+      // 重新載入列表（已完成的會因 info_done=true 而被排除），並更新總數/分頁
       setSelected(new Set());
+      setReloadKey((k) => k + 1);
       toast.success('已送往發佈前檢查', { description: `${ids.length} 件產品的資訊已儲存` });
     } catch (e) {
       toast.error('儲存失敗', { description: e instanceof Error ? e.message : '請稍後再試' });
@@ -114,25 +112,37 @@ export function PublishProductInfoView() {
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">
       {/* Header */}
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-muted/30 px-8 py-3.5">
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-muted/30 px-8 py-3">
         <div className="flex items-center gap-2">
           <Boxes className="h-4 w-4 text-primary" />
           <h2 className="font-display text-sm font-bold">產品信息</h2>
           <span className="ml-1 rounded-full bg-primary/10 px-2.5 py-0.5 font-mono-data text-[11px] font-semibold text-primary">
-            {items.length} 件已完成文案
+            {totalCount} 件待補充
           </span>
           {selected.size > 0 && (
             <span className="rounded-full bg-emerald-500/10 px-2.5 py-0.5 font-mono-data text-[11px] font-semibold text-emerald-600">已選 {selected.size}</span>
           )}
         </div>
-        <button
-          onClick={handleComplete}
-          disabled={selected.size === 0 || isSaving}
-          className="flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white shadow-md transition-opacity hover:opacity-90 disabled:opacity-50"
-        >
-          {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} 完成{selected.size > 0 ? `（${selected.size}）` : ''}
-        </button>
+        <div className="flex items-center gap-2">
+          {items.length > 0 && (
+            <button
+              onClick={() => setSelected(new Set(items.map((it) => it.id)))}
+              className="rounded-lg border border-border px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              全選本頁
+            </button>
+          )}
+          <button
+            onClick={handleComplete}
+            disabled={selected.size === 0 || isSaving}
+            className="flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white shadow-md transition-opacity hover:opacity-90 disabled:opacity-50"
+          >
+            {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} 完成{selected.size > 0 ? `（${selected.size}）` : ''}
+          </button>
+        </div>
       </div>
+
+      {Toolbar}
 
       <div className="flex-1 overflow-auto p-8">
         {isLoading ? (
@@ -140,8 +150,8 @@ export function PublishProductInfoView() {
         ) : items.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-3 py-24 text-center">
             <Boxes className="h-8 w-8 text-muted-foreground/40" />
-            <p className="font-display text-sm text-muted-foreground">尚無產品</p>
-            <p className="font-body text-[12px] text-muted-foreground/70">在「產品文案」提交產品後，於此補充規格資訊</p>
+            <p className="font-display text-sm text-muted-foreground">尚無符合條件的產品</p>
+            <p className="font-body text-[12px] text-muted-foreground/70">在「產品文案」提交產品後，於此補充規格資訊；或用上方篩選選一個廠家/分類逐批處理</p>
           </div>
         ) : (
           <div className="mx-auto max-w-5xl space-y-5">
@@ -153,7 +163,14 @@ export function PublishProductInfoView() {
                   <div className="flex items-center gap-3 border-b border-border/60 px-5 py-3">
                     <input type="checkbox" checked={isSel} onChange={() => toggle(it.id)} className="h-4 w-4 rounded border-border accent-emerald-600" />
                     <img src={it.imageUrl} alt={it.title} loading="lazy" className="h-12 w-12 rounded-lg object-cover bg-muted" />
-                    <h3 className="font-display text-[14px] font-bold text-foreground line-clamp-1">{it.title}</h3>
+                    <div className="min-w-0 flex-1">
+                      <h3 className="font-display text-[14px] font-bold text-foreground line-clamp-1">{it.title}</h3>
+                      <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
+                        {it.factory && <span className="rounded bg-muted px-1.5 py-0.5 font-body text-[10px] text-muted-foreground">{it.factory}</span>}
+                        {it.level1 && <span className="rounded bg-indigo-500/10 px-1.5 py-0.5 font-body text-[10px] text-indigo-600">{it.level1}</span>}
+                        {it.level2 && <span className="rounded bg-muted px-1.5 py-0.5 font-body text-[10px] text-muted-foreground">{it.level2}</span>}
+                      </div>
+                    </div>
                   </div>
                   {/* card body */}
                   <div className="grid grid-cols-1 gap-x-6 gap-y-4 p-5 md:grid-cols-2 lg:grid-cols-3">
@@ -219,6 +236,7 @@ export function PublishProductInfoView() {
           </div>
         )}
       </div>
+      {Pagination}
     </div>
   );
 }
