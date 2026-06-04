@@ -98,6 +98,7 @@ interface ListedProduct {
   category?: string | null;
   level1Category?: string | null;
   level2Category?: string | null;
+  productionTime?: string | null;
   deliveryTermId?: string | null;
   deliveryTermName?: string | null;
   dimensionLMm?: number | null;
@@ -301,7 +302,7 @@ export function ListedProductsView({
         'color', 'factory_id', 'factories_display_name',
         'cost_price', 'production_date', 'shipping_days', 'total_lead_time',
         'bwf_master_id', 'remarks', 'shipping_fee', 'category',
-        'level1_category', 'level2_category',
+        'level1_category', 'level2_category', 'production_time',
         'delivery_term_id', 'delivery_term_name',
         'dimension_l_mm', 'dimension_w_mm', 'dimension_h_mm',
       ].join(',');
@@ -387,6 +388,7 @@ export function ListedProductsView({
         category: row.category || null,
         level1Category: row.level1_category || null,
         level2Category: row.level2_category || null,
+        productionTime: row.production_time || null,
         deliveryTermId: row.delivery_term_id || null,
         deliveryTermName: row.delivery_term_name || null,
         dimensionLMm: row.dimension_l_mm != null ? parseInt(row.dimension_l_mm) : null,
@@ -1265,6 +1267,13 @@ export function ListedProductsView({
                       二級分類
                     </span>
                   </th>
+                  {isCatalog && (
+                    <th className="px-3 py-3 text-left">
+                      <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                        生產時間
+                      </span>
+                    </th>
+                  )}
                   <th className="px-3 py-3 text-left">
                     <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
                       成本
@@ -1433,6 +1442,19 @@ export function ListedProductsView({
                         <span className="text-[10px] text-muted-foreground">—</span>
                       )}
                     </td>
+
+                    {/* Production Time (catalog only) */}
+                    {isCatalog && (
+                      <td className="px-3 py-3">
+                        {product.productionTime ? (
+                          <Badge variant="outline" className="font-body text-[10px] border-sky-500/30 text-sky-600 dark:text-sky-400 whitespace-nowrap">
+                            {product.productionTime}
+                          </Badge>
+                        ) : (
+                          <span className="text-[10px] text-muted-foreground">—</span>
+                        )}
+                      </td>
+                    )}
 
                     {/* Cost Price */}
                     <td className="px-3 py-3">
