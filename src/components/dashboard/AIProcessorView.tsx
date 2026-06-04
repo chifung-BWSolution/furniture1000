@@ -1915,20 +1915,44 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
   const [selectedProductCategory, setSelectedProductCategory] = useState<string>('');
   const [categoryList, setCategoryList] = useState<{ id: string; name: string; parent_id: string | null; level: number; sort_order: number }[]>([]);
   const [categoryListLoading, setCategoryListLoading] = useState(false);
+  // raw 一級/二級 pairs from product_category — used to resolve level1/level2 on upload
+  const [categoryPairs, setCategoryPairs] = useState<{ level1: string; level2: string }[]>([]);
 
-  // Fetch categories from bwf_product_categories on mount
+  // Fetch categories from the product_category table (設定 > 產品分類) on mount.
+  // Build the cascading-selector shape: level-1 = unique 一級分類, level-2 = 二級分類.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setCategoryListLoading(true);
       try {
-        const { data, error } = await supabase.functions.invoke('supabase-functions-manage-categories', {
-          body: { action: 'list' },
-        });
-        if (!cancelled && data?.categories) {
-          setCategoryList(data.categories);
+        const { data, error } = await supabase
+          .from('product_category')
+          .select('level1, level2, sort_order')
+          .order('sort_order', { ascending: true });
+        if (error) {
+          console.warn('[AIProcessorView] Failed to fetch product_category:', error.message);
         }
-        if (error) console.warn('[AIProcessorView] Failed to fetch categories:', error);
+        if (!cancelled && data) {
+          const pairs = data.map((r: any) => ({ level1: String(r.level1 ?? '').trim(), level2: String(r.level2 ?? '').trim() }))
+            .filter((p) => p.level1);
+          setCategoryPairs(pairs);
+
+          // build flat list for CascadingCategorySelector
+          const built: { id: string; name: string; parent_id: string | null; level: number; sort_order: number }[] = [];
+          const level1Ids = new Map<string, string>();
+          let order = 0;
+          for (const p of pairs) {
+            if (!level1Ids.has(p.level1)) {
+              const id = 'L1::' + p.level1;
+              level1Ids.set(p.level1, id);
+              built.push({ id, name: p.level1, parent_id: null, level: 1, sort_order: order++ });
+            }
+            if (p.level2) {
+              built.push({ id: 'L2::' + p.level1 + '::' + p.level2, name: p.level2, parent_id: level1Ids.get(p.level1)!, level: 2, sort_order: order++ });
+            }
+          }
+          setCategoryList(built);
+        }
       } catch (err) {
         console.warn('[AIProcessorView] Category fetch error:', err);
       } finally {
@@ -1937,6 +1961,18 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
     })();
     return () => { cancelled = true; };
   }, []);
+
+  // Resolve a selected category name (could be a 一級 or 二級 name) → { level1, level2 }
+  const resolveCategoryLevels = useCallback((selected: string): { level1: string | null; level2: string | null } => {
+    if (!selected) return { level1: null, level2: null };
+    // match as 二級分類 first
+    const asL2 = categoryPairs.find((p) => p.level2 === selected);
+    if (asL2) return { level1: asL2.level1, level2: asL2.level2 };
+    // else match as 一級分類
+    const asL1 = categoryPairs.find((p) => p.level1 === selected);
+    if (asL1) return { level1: asL1.level1, level2: null };
+    return { level1: null, level2: null };
+  }, [categoryPairs]);
 
   // ─── Session Recovery Guard (IndexedDB) ───────────────────────────────────
   // This runs on mount. Loads the full session (including images) from IndexedDB.
@@ -3039,6 +3075,8 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
               dimension_h_mm: item.dimensionHMm ?? null,
               material: item.material || '',
               category: selectedProductCategory || null,
+              level1_category: resolveCategoryLevels(selectedProductCategory).level1,
+              level2_category: resolveCategoryLevels(selectedProductCategory).level2,
               delivery_term_id: item.deliveryTermId || null,
               delivery_term_name: item.deliveryTermName || null,
             };
@@ -3106,7 +3144,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
       setProcessingProgress({ phase: 'error', message: classifiedError });
       toast.error('❌ 儲存失敗', { description: classifiedError });
     }
-  }, [excelPreviewData, selectedManufacturer, selectedFactoryId, selectedFactoryHighlights, applyCorrections, onAddProduct, setCatalogProductsWithRef, removeRowsFromPreview]);
+  }, [excelPreviewData, selectedManufacturer, selectedFactoryId, selectedFactoryHighlights, selectedProductCategory, resolveCategoryLevels, applyCorrections, onAddProduct, setCatalogProductsWithRef, removeRowsFromPreview]);
 
   const processFiles = useCallback(async (fileList: FileList | File[]) => {
     const files = Array.from(fileList);
