@@ -899,50 +899,32 @@ export function ListedProductsView({
       : toast.error('操作失敗', { description: res.error });
   }, [dismissTarget, dropRowLocally]);
 
-  // Send selected products to the "Ready to Publish" queue
-  const handleSendToPublishQueue = useCallback(() => {
-    if (!onSendToPublishQueue || selectedIds.size === 0) return;
-
-    const selectedProducts = products.filter(p => selectedIds.has(p.id));
-    // Map ListedProduct to Product format
-    const mappedProducts = selectedProducts.map(p => ({
-      id: p.id,
-      title: p.title,
-      description: p.description,
-      descriptionHtml: p.descriptionHtml,
-      tags: p.tags,
-      price: p.price,
-      compareAtPrice: p.compareAtPrice,
-      collection: p.collection,
-      status: 'draft' as const,
-      imageUrl: p.imageUrl,
-      variants: p.variants,
-      createdAt: p.createdAt,
-      source: 'local' as const,
-      shopifyProductId: p.shopifyProductId,
-      color: p.color,
-      factoryId: p.factoryId,
-      factoriesDisplayName: p.factoriesDisplayName,
-      costPrice: p.costPrice,
-      productionLeadTime: p.productionLeadTime,
-      shippingDays: p.shippingDays,
-      shippingFee: p.shippingFee,
-      bwfMasterId: p.bwfMasterId,
-      remarks: p.remarks,
-      category: p.category,
-      deliveryTermId: p.deliveryTermId,
-      deliveryTermName: p.deliveryTermName,
-      dimensionLMm: p.dimensionLMm,
-      dimensionWMm: p.dimensionWMm,
-      dimensionHMm: p.dimensionHMm,
-    }));
-
-    onSendToPublishQueue(mappedProducts);
-    toast.success(`已將 ${mappedProducts.length} 件產品加入待上傳佇列`, {
-      description: '正在導航到「待上傳到 Shopify」頁面...',
-    });
+  // 「待上傳到 Shopify」（批量）— 與單列「A 加入Shopify」一致：
+  // 標記 in_shopify_queue=true + in_catalog=true（寫入 Supabase），
+  // 產品即出現在「網上發佈 > 產品文案」與「產品目錄」，並從本頁前端消失。
+  const [isQueuing, setIsQueuing] = useState(false);
+  const handleSendToPublishQueue = useCallback(async () => {
+    if (selectedIds.size === 0) return;
+    const ids = Array.from(selectedIds);
+    setIsQueuing(true);
+    // 前端先樂觀移除選中的列，並清空選取
+    setProducts((prev) => prev.filter((p) => !selectedIds.has(p.id)));
+    setTotalCount((c) => Math.max(0, c - ids.length));
     setSelectedIds(new Set());
-  }, [selectedIds, products, onSendToPublishQueue]);
+    try {
+      const res = await addToShopifyQueue(ids);
+      if (res.ok) {
+        toast.success(`已將 ${ids.length} 件產品加入 Shopify`, {
+          description: '已送往「網上發佈 > 產品文案」與「產品目錄」',
+        });
+      } else {
+        toast.error('操作失敗', { description: res.error });
+        fetchProducts(); // 失敗時還原列表
+      }
+    } finally {
+      setIsQueuing(false);
+    }
+  }, [selectedIds, fetchProducts]);
 
   // Handle product updated from detail modal
   const handleProductUpdated = useCallback((updatedProduct: ListedProduct) => {
@@ -1146,18 +1128,18 @@ export function ListedProductsView({
                 已選 {selectedIds.size} 項
               </Badge>
             )}
-            {onSendToPublishQueue && (
+            {!isCatalog && (
               <Button
                 variant="outline"
                 size="sm"
                 onClick={handleSendToPublishQueue}
-                disabled={selectedIds.size === 0}
+                disabled={selectedIds.size === 0 || isQueuing}
                 className={cn(
                   "gap-2 font-display text-xs font-bold transition-all border-indigo-500/40 text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-500/10",
                   selectedIds.size === 0 && "opacity-50"
                 )}
               >
-                <Send className="h-3.5 w-3.5" />
+                {isQueuing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
                 待上傳到 Shopify
               </Button>
             )}
