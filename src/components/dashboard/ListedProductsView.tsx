@@ -109,6 +109,8 @@ interface ListedProductsViewProps {
   isSyncing?: boolean;
   lastSyncTime?: string | null;
   onSendToPublishQueue?: (products: any[]) => void;
+  /** Report total + selected counts up to the TopBar */
+  onStatsChange?: (stats: { total: number; selected: number }) => void;
 }
 
 export function ListedProductsView({
@@ -116,6 +118,7 @@ export function ListedProductsView({
   isSyncing,
   lastSyncTime,
   onSendToPublishQueue,
+  onStatsChange,
 }: ListedProductsViewProps) {
   const [products, setProducts] = useState<ListedProduct[]>([]);
   const [totalCount, setTotalCount] = useState(0);
@@ -150,6 +153,11 @@ export function ListedProductsView({
   );
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const factoryDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Report total + selected counts up to the TopBar
+  useEffect(() => {
+    onStatsChange?.({ total: totalCount, selected: selectedIds.size });
+  }, [totalCount, selectedIds, onStatsChange]);
 
   // Debounced search
   useEffect(() => {
@@ -1086,47 +1094,6 @@ export function ListedProductsView({
                 <Trash2 className="h-3.5 w-3.5" />
               )}
               {isDeleting ? '正在刪除...' : '刪除'}
-            </Button>
-            {lastSyncTime && (
-              <span className="font-mono-data text-[10px] text-muted-foreground">
-                上次同步: {new Date(lastSyncTime).toLocaleTimeString()}
-              </span>
-            )}
-            {onSyncFromShopify && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleSync}
-                disabled={isSyncing}
-                className={cn(
-                  "gap-2 font-display text-xs font-bold transition-all",
-                  isSyncing && "border-amber-500/40 text-amber-500"
-                )}
-              >
-                {isSyncing ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <CloudDownload className="h-3.5 w-3.5" />
-                )}
-                {isSyncing ? '正在從 Shopify 同步...' : '從 Shopify 同步'}
-              </Button>
-            )}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleSyncFromMaster}
-              disabled={isSyncingMaster}
-              className={cn(
-                "gap-2 font-display text-xs font-bold transition-all",
-                isSyncingMaster && "border-indigo-500/40 text-indigo-500"
-              )}
-            >
-              {isSyncingMaster ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Database className="h-3.5 w-3.5" />
-              )}
-              {isSyncingMaster ? '正在同步...' : '從全域 DB 同步'}
             </Button>
           </div>
         </div>

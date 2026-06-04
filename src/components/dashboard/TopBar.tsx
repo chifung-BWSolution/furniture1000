@@ -56,34 +56,19 @@ export function TopBar({
       {/* Right — Stats & CTA (only on product catalog views) */}
       {showProductButtons && (
         <div className="flex items-center gap-4">
-          {/* Product stats pills */}
+          {/* Product count pills — 總共產品 / 已選產品 */}
           <div className="hidden items-center gap-2 md:flex">
-            <span className="font-mono-data text-[11px] text-muted-foreground tracking-wider">
-              {totalProducts} 個產品
+            <span className="inline-flex items-center gap-1.5 rounded-md bg-muted px-2.5 py-1 text-[11px] font-semibold text-muted-foreground font-mono-data">
+              總共產品
+              <span className="text-foreground">{totalProducts.toLocaleString()}</span>
             </span>
-            <div className="h-4 w-px bg-border" />
-            <div className="flex items-center gap-1.5">
-              <span className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground font-mono-data">
-                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground" />
-                {stats.drafts}
-              </span>
-              {stats.publishing > 0 && (
-                <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-500 font-mono-data">
-                  <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-status-pulse" />
-                  {stats.publishing}
-                </span>
-              )}
-              <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-500 font-mono-data">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                {stats.success}
-              </span>
-              {stats.errors > 0 && (
-                <span className="inline-flex items-center gap-1 rounded-md bg-rose-500/10 px-2 py-0.5 text-[10px] font-semibold text-rose-500 font-mono-data">
-                  <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
-                  {stats.errors}
-                </span>
-              )}
-            </div>
+            <span className={cn(
+              'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-semibold font-mono-data',
+              selectedCount > 0 ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
+            )}>
+              已選產品
+              <span className={selectedCount > 0 ? 'text-primary' : 'text-foreground'}>{selectedCount.toLocaleString()}</span>
+            </span>
           </div>
 
           {/* Save Button */}

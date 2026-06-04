@@ -145,6 +145,8 @@ export function AppShell() {
   const [showPublishModal, setShowPublishModal] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [editingQuoteId, setEditingQuoteId] = useState<string | null>(null);
+  // Real total/selected counts reported up from ListedProductsView (所有產品)
+  const [listedStats, setListedStats] = useState({ total: 0, selected: 0 });
   const selectedProducts = useMemo(() =>
     store.products.filter((p) => store.selectedProductIds.has(p.id)),
     [store.products, store.selectedProductIds]
@@ -216,6 +218,7 @@ export function AppShell() {
             onSyncFromShopify={store.syncFromShopify}
             isSyncing={store.isSyncing}
             lastSyncTime={store.lastSyncTime}
+            onStatsChange={setListedStats}
             onSendToPublishQueue={(products) => {
               store.addProducts(products);
               store.setCurrentView("ready-to-publish");
@@ -361,8 +364,8 @@ export function AppShell() {
         <main className="flex flex-1 flex-col min-w-0 overflow-hidden">
         <TopBar
           currentView={store.currentView}
-          selectedCount={store.selectedProductIds.size}
-          totalProducts={store.products.length}
+          selectedCount={store.currentView === 'listed-products' ? listedStats.selected : store.selectedProductIds.size}
+          totalProducts={store.currentView === 'listed-products' ? listedStats.total : store.products.length}
           onBulkPublish={handleBulkPublish}
           onSave={store.saveProducts}
           isSaving={store.isSaving}
