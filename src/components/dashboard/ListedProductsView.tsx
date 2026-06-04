@@ -101,6 +101,7 @@ interface ListedProduct {
   productionTime?: string | null;
   material?: string | null;
   model?: string | null;
+  specifications?: string | null;
   deliveryTermId?: string | null;
   deliveryTermName?: string | null;
   dimensionLMm?: number | null;
@@ -305,7 +306,7 @@ export function ListedProductsView({
         'cost_price', 'production_date', 'shipping_days', 'total_lead_time',
         'bwf_master_id', 'remarks', 'shipping_fee', 'category',
         'level1_category', 'level2_category', 'production_time',
-        'material', 'model',
+        'material', 'model', 'specifications',
         'delivery_term_id', 'delivery_term_name',
         'dimension_l_mm', 'dimension_w_mm', 'dimension_h_mm',
       ].join(',');
@@ -394,6 +395,7 @@ export function ListedProductsView({
         productionTime: row.production_time || null,
         material: row.material || null,
         model: row.model || null,
+        specifications: row.specifications || null,
         deliveryTermId: row.delivery_term_id || null,
         deliveryTermName: row.delivery_term_name || null,
         dimensionLMm: row.dimension_l_mm != null ? parseInt(row.dimension_l_mm) : null,
@@ -1296,6 +1298,11 @@ export function ListedProductsView({
                   </th>
                   <th className="px-3 py-3 text-left">
                     <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                      規格
+                    </span>
+                  </th>
+                  <th className="px-3 py-3 text-left">
+                    <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
                       總交期
                     </span>
                   </th>
@@ -1470,6 +1477,15 @@ export function ListedProductsView({
                     <td className="px-3 py-3 max-w-[180px]">
                       {product.material ? (
                         <span className="font-body text-[11px] text-foreground line-clamp-2">{product.material}</span>
+                      ) : (
+                        <span className="text-[10px] text-muted-foreground">—</span>
+                      )}
+                    </td>
+
+                    {/* 規格 (specifications) */}
+                    <td className="px-3 py-3 max-w-[180px]">
+                      {product.specifications ? (
+                        <span className="font-body text-[11px] text-foreground line-clamp-2">{product.specifications}</span>
                       ) : (
                         <span className="text-[10px] text-muted-foreground">—</span>
                       )}
