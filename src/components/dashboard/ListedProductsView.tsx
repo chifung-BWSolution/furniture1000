@@ -99,6 +99,8 @@ interface ListedProduct {
   level1Category?: string | null;
   level2Category?: string | null;
   productionTime?: string | null;
+  material?: string | null;
+  model?: string | null;
   deliveryTermId?: string | null;
   deliveryTermName?: string | null;
   dimensionLMm?: number | null;
@@ -303,6 +305,7 @@ export function ListedProductsView({
         'cost_price', 'production_date', 'shipping_days', 'total_lead_time',
         'bwf_master_id', 'remarks', 'shipping_fee', 'category',
         'level1_category', 'level2_category', 'production_time',
+        'material', 'model',
         'delivery_term_id', 'delivery_term_name',
         'dimension_l_mm', 'dimension_w_mm', 'dimension_h_mm',
       ].join(',');
@@ -389,6 +392,8 @@ export function ListedProductsView({
         level1Category: row.level1_category || null,
         level2Category: row.level2_category || null,
         productionTime: row.production_time || null,
+        material: row.material || null,
+        model: row.model || null,
         deliveryTermId: row.delivery_term_id || null,
         deliveryTermName: row.delivery_term_name || null,
         dimensionLMm: row.dimension_l_mm != null ? parseInt(row.dimension_l_mm) : null,
@@ -1267,6 +1272,11 @@ export function ListedProductsView({
                       二級分類
                     </span>
                   </th>
+                  <th className="px-3 py-3 text-left">
+                    <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                      系列
+                    </span>
+                  </th>
                   {isCatalog && (
                     <th className="px-3 py-3 text-left">
                       <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
@@ -1281,7 +1291,7 @@ export function ListedProductsView({
                   </th>
                   <th className="px-3 py-3 text-left">
                     <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                      售價
+                      材質
                     </span>
                   </th>
                   <th className="px-3 py-3 text-left">
@@ -1297,26 +1307,6 @@ export function ListedProductsView({
                   <th className="px-3 py-3 text-left">
                     <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
                       標籤
-                    </span>
-                  </th>
-                  <th className="px-3 py-3 text-left">
-                    <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                      款式
-                    </span>
-                  </th>
-                  <th className="px-3 py-3 text-left">
-                    <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                      同步狀態
-                    </span>
-                  </th>
-                  <th className="px-3 py-3 text-left">
-                    <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                      狀態
-                    </span>
-                  </th>
-                  <th className="px-3 py-3 text-left">
-                    <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                      Shopify
                     </span>
                   </th>
                 </tr>
@@ -1443,6 +1433,15 @@ export function ListedProductsView({
                       )}
                     </td>
 
+                    {/* 系列 (model) */}
+                    <td className="px-3 py-3">
+                      {product.model ? (
+                        <span className="font-mono-data text-[11px] text-foreground">{product.model}</span>
+                      ) : (
+                        <span className="text-[10px] text-muted-foreground">—</span>
+                      )}
+                    </td>
+
                     {/* Production Time (catalog only) */}
                     {isCatalog && (
                       <td className="px-3 py-3">
@@ -1467,11 +1466,13 @@ export function ListedProductsView({
                       )}
                     </td>
 
-                    {/* Sale Price */}
-                    <td className="px-3 py-3">
-                      <span className="font-mono-data text-sm font-bold">
-                        ${product.price.toFixed(2)}
-                      </span>
+                    {/* 材質 (material) */}
+                    <td className="px-3 py-3 max-w-[180px]">
+                      {product.material ? (
+                        <span className="font-body text-[11px] text-foreground line-clamp-2">{product.material}</span>
+                      ) : (
+                        <span className="text-[10px] text-muted-foreground">—</span>
+                      )}
                     </td>
 
                     {/* Total Lead Time */}
@@ -1540,49 +1541,6 @@ export function ListedProductsView({
                       </div>
                     </td>
 
-                    {/* Variants */}
-                    <td className="px-3 py-3">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setVariantModal({ product })}
-                        className="h-7 gap-1 text-[10px] font-mono-data"
-                      >
-                        {product.variants.length} 個
-                        <ChevronDown className="h-3 w-3" />
-                      </Button>
-                    </td>
-
-                    {/* Sync Status */}
-                    <td className="px-3 py-3">
-                      <SyncStatusBadge product={product} />
-                    </td>
-
-                    {/* Product Status */}
-                    <td className="px-3 py-3">
-                      <StatusBadge status={product.status as any} />
-                    </td>
-
-                    {/* Shopify ID */}
-                    <td className="px-3 py-3">
-                      {product.shopifyProductId ? (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Badge className="gap-1 cursor-pointer bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 hover:bg-emerald-500/20 font-mono-data text-[10px]">
-                              <ExternalLink className="h-2.5 w-2.5" />
-                              {product.shopifyProductId.slice(-8)}
-                            </Badge>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p className="font-mono-data text-[11px]">
-                              Shopify 產品 ID: {product.shopifyProductId}
-                            </p>
-                          </TooltipContent>
-                        </Tooltip>
-                      ) : (
-                        <span className="text-[10px] text-muted-foreground">—</span>
-                      )}
-                    </td>
                   </motion.tr>
                 ))}
               </tbody>
