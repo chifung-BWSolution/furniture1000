@@ -15,7 +15,7 @@
     "@tailwindcss/vite": "^4.0.0",
     "@vitejs/plugin-react": "^5.0.0",
     "tailwindcss": "^4.0.0",
-    "tempo-sdk": "latest",
+    "tempo-sdk": "^0.0.10",
     "typescript": "^5.9.0",
     "vite": "^7.0.0",
     "vite-tsconfig-paths": "^6.0.0"
