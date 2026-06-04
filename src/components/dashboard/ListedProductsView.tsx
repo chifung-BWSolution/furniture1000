@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { ProductVariant } from '@/types/product';
 import { StatusBadge } from './StatusBadge';
@@ -38,9 +38,6 @@ import {
 } from '@/components/ui/alert-dialog';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  ArrowUpDown,
-  ArrowDownAZ,
-  ArrowUpAZ,
   AlertTriangle,
   Check,
   ChevronDown,
@@ -53,10 +50,10 @@ import {
   Database,
   ExternalLink,
   Factory,
+  FolderTree,
   Loader2,
   Search,
   Send,
-  Store,
   Trash2,
   X,
 } from 'lucide-react';
@@ -98,6 +95,8 @@ interface ListedProduct {
   bwfMasterId?: string | null;
   remarks?: string | null;
   category?: string | null;
+  level1Category?: string | null;
+  level2Category?: string | null;
   deliveryTermId?: string | null;
   deliveryTermName?: string | null;
   dimensionLMm?: number | null;
@@ -137,6 +136,18 @@ export function ListedProductsView({
   const [factoryFilterOpen, setFactoryFilterOpen] = useState(false);
   const [selectedFactories, setSelectedFactories] = useState<string[]>([]);
   const [availableFactories, setAvailableFactories] = useState<string[]>([]);
+  // 一級/二級分類篩選（讀 product_category 表）
+  const [level1Filter, setLevel1Filter] = useState<string>('');
+  const [level2Filter, setLevel2Filter] = useState<string>('');
+  const [categoryPairs, setCategoryPairs] = useState<{ level1: string; level2: string }[]>([]);
+  const level1Options = useMemo(
+    () => Array.from(new Set(categoryPairs.map((p) => p.level1))),
+    [categoryPairs]
+  );
+  const level2Options = useMemo(
+    () => Array.from(new Set(categoryPairs.filter((p) => p.level1 === level1Filter && p.level2).map((p) => p.level2))),
+    [categoryPairs, level1Filter]
+  );
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const factoryDropdownRef = useRef<HTMLDivElement>(null);
 
@@ -151,6 +162,28 @@ export function ListedProductsView({
       if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
     };
   }, [searchQuery]);
+
+  // Fetch 一級/二級分類選項 from product_category（用於分類篩選下拉）
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from('product_category')
+        .select('level1, level2, sort_order')
+        .order('sort_order', { ascending: true });
+      if (!cancelled && data) {
+        setCategoryPairs(
+          data
+            .map((r: { level1: string | null; level2: string | null }) => ({
+              level1: String(r.level1 ?? '').trim(),
+              level2: String(r.level2 ?? '').trim(),
+            }))
+            .filter((p) => p.level1)
+        );
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   // Fetch unique factory names for filter — DEFERRED: only runs the first time
   // the user opens the factory dropdown, so it never competes with the
@@ -238,6 +271,10 @@ export function ListedProductsView({
         countQuery = countQuery.in('factories_display_name', selectedFactories);
       }
 
+      // Apply category filters to count query
+      if (level1Filter) countQuery = countQuery.eq('level1_category', level1Filter);
+      if (level2Filter) countQuery = countQuery.eq('level2_category', level2Filter);
+
       // Build data query — explicit columns (avoid heavy JSONB like description_html when not needed for list view)
       const LIST_COLUMNS = [
         'id', 'title', 'description', 'tags', 'price', 'compare_at_price',
@@ -246,6 +283,7 @@ export function ListedProductsView({
         'color', 'factory_id', 'factories_display_name',
         'cost_price', 'production_date', 'shipping_days', 'total_lead_time',
         'bwf_master_id', 'remarks', 'shipping_fee', 'category',
+        'level1_category', 'level2_category',
         'delivery_term_id', 'delivery_term_name',
         'dimension_l_mm', 'dimension_w_mm', 'dimension_h_mm',
       ].join(',');
@@ -270,6 +308,10 @@ export function ListedProductsView({
       if (selectedFactories.length > 0) {
         dataQuery = dataQuery.in('factories_display_name', selectedFactories);
       }
+
+      // Apply category filters to data query
+      if (level1Filter) dataQuery = dataQuery.eq('level1_category', level1Filter);
+      if (level2Filter) dataQuery = dataQuery.eq('level2_category', level2Filter);
 
       // Run count + data IN PARALLEL — they no longer block each other.
       const [{ count, error: countErr }, { data: productRows, error: prodErr }] =
@@ -322,6 +364,8 @@ export function ListedProductsView({
         remarks: row.remarks || null,
         shippingFee: row.shipping_fee != null ? parseFloat(row.shipping_fee) : null,
         category: row.category || null,
+        level1Category: row.level1_category || null,
+        level2Category: row.level2_category || null,
         deliveryTermId: row.delivery_term_id || null,
         deliveryTermName: row.delivery_term_name || null,
         dimensionLMm: row.dimension_l_mm != null ? parseInt(row.dimension_l_mm) : null,
@@ -369,7 +413,7 @@ export function ListedProductsView({
     } finally {
       setIsLoading(false);
     }
-  }, [currentPage, pageSize, sortField, sortOrder, debouncedSearch, shopifyFilter, selectedFactories]);
+  }, [currentPage, pageSize, sortField, sortOrder, debouncedSearch, shopifyFilter, selectedFactories, level1Filter, level2Filter]);
 
   // Fetch on mount and when deps change
   useEffect(() => {
@@ -645,7 +689,7 @@ export function ListedProductsView({
   // Clear selection when products change (e.g. page change, search)
   useEffect(() => {
     setSelectedIds(new Set());
-  }, [currentPage, debouncedSearch, sortField, sortOrder, pageSize, shopifyFilter, selectedFactories]);
+  }, [currentPage, debouncedSearch, sortField, sortOrder, pageSize, shopifyFilter, selectedFactories, level1Filter, level2Filter]);
 
   // Delete selected products — master DB + local DB
   const handleDeleteSelected = useCallback(async () => {
@@ -858,50 +902,6 @@ export function ListedProductsView({
 
             <div className="h-4 w-px bg-border" />
 
-            {/* Sort dropdown */}
-            <Select
-              value={`${sortField}:${sortOrder}`}
-              onValueChange={(val) => {
-                const [field, order] = val.split(':') as [SortField, SortOrder];
-                setSortField(field);
-                setSortOrder(order);
-                setCurrentPage(1);
-              }}
-            >
-              <SelectTrigger className="h-8 w-[200px] text-xs font-body gap-1">
-                <ArrowUpDown className="h-3 w-3 text-muted-foreground" />
-                <SelectValue placeholder="Sort by" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="created_at:desc">
-                  <div className="flex items-center gap-2">
-                    <ArrowDownAZ className="h-3.5 w-3.5" />
-                    建立時間 (最新優先)
-                  </div>
-                </SelectItem>
-                <SelectItem value="created_at:asc">
-                  <div className="flex items-center gap-2">
-                    <ArrowUpAZ className="h-3.5 w-3.5" />
-                    建立時間 (最舊優先)
-                  </div>
-                </SelectItem>
-                <SelectItem value="title:asc">
-                  <div className="flex items-center gap-2">
-                    <ArrowDownAZ className="h-3.5 w-3.5" />
-                    產品名稱 (A–Z)
-                  </div>
-                </SelectItem>
-                <SelectItem value="title:desc">
-                  <div className="flex items-center gap-2">
-                    <ArrowUpAZ className="h-3.5 w-3.5" />
-                    產品名稱 (Z–A)
-                  </div>
-                </SelectItem>
-              </SelectContent>
-            </Select>
-
-            <div className="h-4 w-px bg-border" />
-
             {/* Items per page */}
             <Select
               value={pageSize.toString()}
@@ -924,24 +924,48 @@ export function ListedProductsView({
 
             <div className="h-4 w-px bg-border" />
 
-            {/* Shopify Filter */}
+            {/* 一級分類 Filter */}
             <Select
-              value={shopifyFilter}
+              value={level1Filter || '__all__'}
               onValueChange={(val) => {
-                setShopifyFilter(val as 'all' | 'shopify' | 'database');
+                setLevel1Filter(val === '__all__' ? '' : val);
+                setLevel2Filter(''); // reset 二級 when 一級 changes
                 setCurrentPage(1);
               }}
             >
-              <SelectTrigger className="h-8 w-[160px] text-xs font-body gap-1">
-                <Store className="h-3 w-3 text-muted-foreground" />
-                <SelectValue placeholder="篩選" />
+              <SelectTrigger className="h-8 w-[150px] text-xs font-body gap-1">
+                <FolderTree className="h-3 w-3 text-muted-foreground" />
+                <SelectValue placeholder="一級分類" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">全部</SelectItem>
-                <SelectItem value="shopify">Shopify 已上架</SelectItem>
-                <SelectItem value="database">資料庫產品</SelectItem>
+                <SelectItem value="__all__">全部一級分類</SelectItem>
+                {level1Options.map((l1) => (
+                  <SelectItem key={l1} value={l1}>{l1}</SelectItem>
+                ))}
               </SelectContent>
             </Select>
+
+            {/* 二級分類 Filter — only when a 一級 is chosen */}
+            {level1Filter && level2Options.length > 0 && (
+              <Select
+                value={level2Filter || '__all__'}
+                onValueChange={(val) => {
+                  setLevel2Filter(val === '__all__' ? '' : val);
+                  setCurrentPage(1);
+                }}
+              >
+                <SelectTrigger className="h-8 w-[150px] text-xs font-body gap-1">
+                  <FolderTree className="h-3 w-3 text-muted-foreground" />
+                  <SelectValue placeholder="二級分類" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">全部二級分類</SelectItem>
+                  {level2Options.map((l2) => (
+                    <SelectItem key={l2} value={l2}>{l2}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
 
             {/* Count */}
             <Badge variant="secondary" className="font-mono-data text-[10px]">
@@ -1235,6 +1259,16 @@ export function ListedProductsView({
                   </th>
                   <th className="px-3 py-3 text-left">
                     <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                      一級分類
+                    </span>
+                  </th>
+                  <th className="px-3 py-3 text-left">
+                    <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                      二級分類
+                    </span>
+                  </th>
+                  <th className="px-3 py-3 text-left">
+                    <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
                       成本
                     </span>
                   </th>
@@ -1377,6 +1411,26 @@ export function ListedProductsView({
                         <span className="font-body text-[11px] text-foreground truncate max-w-[120px] inline-block">
                           {product.factoriesDisplayName}
                         </span>
+                      ) : (
+                        <span className="text-[10px] text-muted-foreground">—</span>
+                      )}
+                    </td>
+
+                    {/* Level 1 Category */}
+                    <td className="px-3 py-3">
+                      {product.level1Category ? (
+                        <Badge variant="outline" className="font-body text-[10px] border-indigo-500/30 text-indigo-600 dark:text-indigo-400">
+                          {product.level1Category}
+                        </Badge>
+                      ) : (
+                        <span className="text-[10px] text-muted-foreground">—</span>
+                      )}
+                    </td>
+
+                    {/* Level 2 Category */}
+                    <td className="px-3 py-3">
+                      {product.level2Category ? (
+                        <span className="font-body text-[11px] text-foreground">{product.level2Category}</span>
                       ) : (
                         <span className="text-[10px] text-muted-foreground">—</span>
                       )}
