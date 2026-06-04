@@ -189,6 +189,7 @@ interface CatalogProduct {
   factoriesDisplayName?: string;
   costPrice?: number | null;
   productionLeadTime?: number | null;
+  productionTime?: string | null;
   deliveryDays?: number | null;
   shippingDays?: number | null;
   shippingFee?: number | null;
@@ -2724,6 +2725,8 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         // Extract additional mapped fields for master DB
         const factoryNameFromExcel = getCellStr('factory_name');
         const productionLeadTime = getCellNum('production_lead_time');
+        // 'production_lead_time' mapping feeds the new products.production_time (4 options)
+        const productionTime = normalizeProductionTime(getCellStr('production_lead_time'));
         const deliveryDays = getCellNum('delivery_days');
         const shippingDays = getCellNum('shipping_days');
         const shippingFee = getCellNum('shipping_fee');
