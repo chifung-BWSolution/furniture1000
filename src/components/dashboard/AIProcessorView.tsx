@@ -2962,6 +2962,13 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
             const errJson = JSON.parse(errText);
             detail = errJson.error || errJson.message || detail;
           } catch {}
+          // For catalog-only, the master DB write is best-effort — we still
+          // persist to the local `products` table below. Don't abort the whole
+          // upload just because the external master DB rejected the chunk.
+          if (action === 'catalog-only') {
+            console.warn(`[PreviewAction:catalog-only] Master DB chunk ${ci + 1} failed (non-fatal): ${detail}`);
+            continue;
+          }
           throw new Error(`Database save failed (chunk ${ci + 1}/${chunks.length}, ${payloadSizeKB}KB): HTTP ${resp.status} — ${detail}`);
         }
 
@@ -2986,7 +2993,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         });
       }
 
-      if (successCount === 0 && correctedProds.length > 0) {
+      if (successCount === 0 && correctedProds.length > 0 && action !== 'catalog-only') {
         const firstError = failedItems[0]?.error || 'Unknown error';
         const errorSummary = failedItems.slice(0, 3).map((r: any) => r.error).join(' | ');
         console.error(`[PreviewAction:${action}] ALL FAILED. First error: ${firstError}`);
@@ -3058,9 +3065,12 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         // Persist DIRECTLY to the Supabase `products` table so items show up
         // in 產品目錄 only — do NOT call onAddProduct (which would push them
         // into the in-memory store and the 待上傳到 Shopify queue).
+        //
+        // IMPORTANT: write ALL selected products regardless of whether the
+        // external master DB accepted them — the products table is the source
+        // of truth for 所有產品, and master DB is just an optional backup.
         const nowIso = new Date().toISOString();
         const productRows = correctedProds
-          .filter(item => successfulLocalIds.has(item.id))
           .map(item => {
             const dbResult = dbResults.find((r: any) => r.local_id === item.id);
             const imageUrl = item.cropped_image_url || item.lifestyleImageUrl || '';
@@ -3116,13 +3126,22 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
           console.log(`[PreviewAction:catalog-only] ✅ ${productRows.length} products persisted to products table only (not added to Shopify queue)`);
         }
 
-        toast.success(`✅ ${successCount} 個產品已上傳到產品目錄`, {
-          description: failCount > 0 ? `⚠️ ${failCount} 個產品儲存失敗，仍保留在列表中` : undefined,
+        const catalogCount = productRows.length;
+        toast.success(`✅ ${catalogCount} 個產品已上傳到產品目錄`, {
+          description: '已寫入「所有產品」，含一級/二級分類',
         });
         setProcessingProgress({
           phase: 'complete',
-          message: `✅ ${successCount} 個產品已上傳到產品目錄 (僅目錄)`,
+          message: `✅ ${catalogCount} 個產品已上傳到產品目錄 (僅目錄)`,
         });
+        // catalog-only writes ALL selected rows → burn them all down
+        const allCatalogRowIndices = correctedProds.map(p => p.page_number);
+        if (allCatalogRowIndices.length > 0) {
+          removeRowsFromPreview(allCatalogRowIndices);
+        }
+        setProcessingProgress(null);
+        setIsGeneratingFromPreview(false);
+        return;
       }
 
       // ─── BURN-DOWN: Only remove SUCCESSFULLY processed rows from preview & IndexedDB ───
