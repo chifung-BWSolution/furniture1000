@@ -71,6 +71,10 @@ export const STANDARD_HEADERS = [
   // ── Image fields ──
   { value: 'product_image', label: 'Product Image (產品圖片) → image_url', labelZh: '產品圖片' },
   { value: 'lifestyle_image', label: 'Lifestyle Image (效果圖) → lifestyle_image_url', labelZh: '效果圖' },
+  { value: 'image_url_2', label: 'Product Image 2 (產品圖片2) → image_url_2', labelZh: '產品圖片2' },
+  { value: 'image_url_3', label: 'Product Image 3 (產品圖片3) → image_url_3', labelZh: '產品圖片3' },
+  // ── Specifications ──
+  { value: 'specifications', label: '規格 Specifications → specifications', labelZh: '規格 Specifications' },
   // ── Material & Physical ──
   { value: 'material', label: 'Material (材質描述) → material', labelZh: '材質描述' },
   { value: 'color', label: 'Color (顏色) → color', labelZh: '顏色' },

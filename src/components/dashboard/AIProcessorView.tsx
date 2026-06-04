@@ -196,6 +196,9 @@ interface CatalogProduct {
   shippingDays?: number | null;
   shippingFee?: number | null;
   remarks?: string | null;
+  specifications?: string | null;
+  imageUrl2?: string | null;
+  imageUrl3?: string | null;
   color?: string | null;
   bbox_quality?: 'ok' | 'too_thin' | 'too_wide' | 'too_tall' | 'failed' | 'invalid'; // Red Border Debug quality flag
   grid_position?: string; // e.g. "r0c1" from Gemini's grid detection
@@ -2446,6 +2449,9 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         const shippingDays = getCellNum('shipping_days');
         const shippingFee = getCellNum('shipping_fee');
         const remarks = getCellStr('remarks') || null;
+        const specifications = getCellStr('specifications') ? simplifiedToTraditional(getCellStr('specifications')) : null;
+        const imageUrl2 = getCellStr('image_url_2') || null;
+        const imageUrl3 = getCellStr('image_url_3') || null;
 
         // Parse dimensions — support individual (mm) fields OR combined string
         let dimensionLMm: number | null = null;
@@ -2553,6 +2559,9 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
           shippingDays,
           shippingFee,
           remarks,
+          specifications,
+          imageUrl2,
+          imageUrl3,
           color,
           factoriesDisplayName: factoryNameFromExcel || selectedManufacturer,
           dimensionLMm,
@@ -2734,6 +2743,9 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         const shippingDays = getCellNum('shipping_days');
         const shippingFee = getCellNum('shipping_fee');
         const remarks = getCellStr('remarks') || null;
+        const specifications = getCellStr('specifications') ? simplifiedToTraditional(getCellStr('specifications')) : null;
+        const imageUrl2 = getCellStr('image_url_2') || null;
+        const imageUrl3 = getCellStr('image_url_3') || null;
 
         // ── Delivery Term Parsing (from 參考貨期 column) ──────────────────────
         const rawDeliveryTermRef = getCellStr('delivery_term_ref');
@@ -2856,6 +2868,9 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
           shippingDays,
           shippingFee,
           remarks,
+          specifications,
+          imageUrl2,
+          imageUrl3,
           color,
           factoriesDisplayName: factoryNameFromExcel || selectedManufacturer,
           dimensionLMm,
@@ -3165,6 +3180,9 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
               sale_price: 0,
               production_date: (item as any).productionLeadTime ?? null,
               production_time: (item as any).productionTime ?? null,
+              specifications: (item as any).specifications ?? null,
+              image_url_2: (item as any).imageUrl2 ?? null,
+              image_url_3: (item as any).imageUrl3 ?? null,
               shipping_days: (item as any).shippingDays ?? null,
               shipping_fee: (item as any).shippingFee ?? null,
               remarks: (item as any).remarks || '',
