@@ -1,11 +1,19 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import {
-  FileText, Sparkles, Image as ImageIcon, History, Eye, ShieldCheck, ChevronLeft, RotateCcw,
+  FileText, Sparkles, Image as ImageIcon, History, Eye, ShieldCheck, ChevronLeft, RotateCcw, Loader2,
 } from 'lucide-react';
-import { MOCK_COPY_PRODUCTS, type CopyProduct } from '@/constants/analytics-mock';
-import { TIER_META } from '@/types/solutions';
+import { type CopyProduct } from '@/constants/analytics-mock';
+import { TIER_META, type ProductTier } from '@/types/solutions';
+import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
+
+/** Derive an A/B/C tier from price (same band logic used elsewhere). */
+function deriveTier(price: number): ProductTier {
+  if (price >= 4000) return 'A';
+  if (price >= 1500) return 'B';
+  return 'C';
+}
 
 const COPY_STATUS_META: Record<CopyProduct['copyStatus'], { label: string; className: string }> = {
   optimized: { label: '已優化', className: 'bg-emerald-500/15 text-emerald-600 border-emerald-500/30' },
@@ -21,7 +29,42 @@ const MOCK_VERSIONS = [
 
 export function PublishCopywritingView() {
   const [activeId, setActiveId] = useState<string | null>(null);
-  const product = MOCK_COPY_PRODUCTS.find((p) => p.id === activeId) ?? null;
+  const [items, setItems] = useState<CopyProduct[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Load products marked for the Shopify queue (in_shopify_queue = true)
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setIsLoading(true);
+      const { data } = await supabase
+        .from('products')
+        .select('id,title,description,material,specifications,image_url,images,price,sale_price')
+        .eq('in_shopify_queue', true)
+        .order('created_at', { ascending: false });
+      if (cancelled) return;
+      const mapped: CopyProduct[] = (data || []).map((r: any) => {
+        const sale = Number(r.sale_price ?? r.price ?? 0);
+        const img = (Array.isArray(r.images) && r.images[0]?.src) || r.image_url || '';
+        return {
+          id: r.id,
+          title: r.title || '',
+          imageUrl: img,
+          description: (r.description || '').slice(0, 80),
+          material: r.material || '',
+          workmanship: r.specifications || '',
+          lifestyleImageUrl: null,
+          tier: deriveTier(sale),
+          copyStatus: (r.description ? 'draft' : 'needs_work') as CopyProduct['copyStatus'],
+        };
+      });
+      setItems(mapped);
+      setIsLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const product = items.find((p) => p.id === activeId) ?? null;
 
   // editable draft state
   const [desc, setDesc] = useState('');
@@ -42,7 +85,7 @@ export function PublishCopywritingView() {
         <div className="flex shrink-0 items-center gap-2 border-b border-border bg-muted/30 px-6 py-3">
           <FileText className="h-4 w-4 text-primary" />
           <h2 className="font-display text-sm font-bold">產品文案</h2>
-          <span className="font-mono-data text-[11px] text-muted-foreground">{MOCK_COPY_PRODUCTS.length} 件產品</span>
+          <span className="font-mono-data text-[11px] text-muted-foreground">{items.length} 件產品</span>
         </div>
         <div className="flex-1 overflow-auto p-6">
           <div className="mx-auto max-w-4xl overflow-hidden rounded-xl border border-border bg-card">
@@ -57,7 +100,7 @@ export function PublishCopywritingView() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/60">
-                {MOCK_COPY_PRODUCTS.map((p) => (
+                {items.map((p) => (
                   <tr key={p.id} className="hover:bg-muted/30">
                     <td className="px-4 py-2.5">
                       <div className="flex items-center gap-3">
@@ -73,6 +116,12 @@ export function PublishCopywritingView() {
                     </td>
                   </tr>
                 ))}
+                {!isLoading && items.length === 0 && (
+                  <tr><td colSpan={5} className="px-6 py-10 text-center text-[12px] text-muted-foreground/60">尚無產品 — 到「所有產品」點「A 加入Shopify」即可加入</td></tr>
+                )}
+                {isLoading && (
+                  <tr><td colSpan={5} className="px-6 py-10 text-center"><Loader2 className="mx-auto h-5 w-5 animate-spin text-primary" /></td></tr>
+                )}
               </tbody>
             </table>
           </div>

@@ -35,3 +35,37 @@ export async function removeFromCatalog(ids: string[]): Promise<{ ok: boolean; e
     return { ok: false, error: e instanceof Error ? e.message : '移除失敗' };
   }
 }
+
+/**
+ * A「加入Shopify」: mark products for the Shopify queue AND add to catalog.
+ * They appear on 網上發佈>產品文案 (in_shopify_queue) and 產品目錄 (in_catalog),
+ * and disappear from 所有產品.
+ */
+export async function addToShopifyQueue(ids: string[]): Promise<{ ok: boolean; count: number; error?: string }> {
+  if (ids.length === 0) return { ok: true, count: 0 };
+  try {
+    const { error } = await supabase
+      .from('products')
+      .update({ in_shopify_queue: true, in_catalog: true })
+      .in('id', ids);
+    if (error) return { ok: false, count: 0, error: error.message };
+    return { ok: true, count: ids.length };
+  } catch (e) {
+    return { ok: false, count: 0, error: e instanceof Error ? e.message : '加入失敗' };
+  }
+}
+
+/** C「暫不考慮」: mark products dismissed (hidden from 所有產品, kept in DB). */
+export async function dismissProducts(ids: string[]): Promise<{ ok: boolean; count: number; error?: string }> {
+  if (ids.length === 0) return { ok: true, count: 0 };
+  try {
+    const { error } = await supabase
+      .from('products')
+      .update({ dismissed: true })
+      .in('id', ids);
+    if (error) return { ok: false, count: 0, error: error.message };
+    return { ok: true, count: ids.length };
+  } catch (e) {
+    return { ok: false, count: 0, error: e instanceof Error ? e.message : '移除失敗' };
+  }
+}

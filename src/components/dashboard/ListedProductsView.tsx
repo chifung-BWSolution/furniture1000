@@ -58,7 +58,7 @@ import {
   X,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import { removeFromCatalog } from '@/lib/catalogStore';
+import { removeFromCatalog, addToCatalog, addToShopifyQueue, dismissProducts } from '@/lib/catalogStore';
 import { toast } from 'sonner';
 import { getChineseColorLabel, getColorHex } from '@/constants/color-map';
 import { ProductDetailModal } from './ProductDetailModal';
@@ -295,7 +295,12 @@ export function ListedProductsView({
       if (level2Filter) countQuery = countQuery.eq('level2_category', level2Filter);
 
       // 產品目錄頁：只計算已加入目錄的產品
-      if (isCatalog) countQuery = countQuery.eq('in_catalog', true);
+      if (isCatalog) {
+        countQuery = countQuery.eq('in_catalog', true);
+      } else {
+        // 所有產品頁：排除已加入目錄 / Shopify 佇列 / 已忽略的產品
+        countQuery = countQuery.eq('in_catalog', false).eq('in_shopify_queue', false).eq('dismissed', false);
+      }
 
       // Build data query — explicit columns (avoid heavy JSONB like description_html when not needed for list view)
       const LIST_COLUMNS = [
@@ -337,7 +342,12 @@ export function ListedProductsView({
       if (level2Filter) dataQuery = dataQuery.eq('level2_category', level2Filter);
 
       // 產品目錄頁：只顯示已加入目錄的產品
-      if (isCatalog) dataQuery = dataQuery.eq('in_catalog', true);
+      if (isCatalog) {
+        dataQuery = dataQuery.eq('in_catalog', true);
+      } else {
+        // 所有產品頁：排除已加入目錄 / Shopify 佇列 / 已忽略的產品
+        dataQuery = dataQuery.eq('in_catalog', false).eq('in_shopify_queue', false).eq('dismissed', false);
+      }
 
       // Run count + data IN PARALLEL — they no longer block each other.
       const [{ count, error: countErr }, { data: productRows, error: prodErr }] =
@@ -852,6 +862,43 @@ export function ListedProductsView({
     }
   }, [selectedIds, products, currentPage, isCatalog]);
 
+  // ── Per-row processing actions (所有產品頁) ──
+  // Optimistically remove the row from view, then persist the flag.
+  const [dismissTarget, setDismissTarget] = useState<ListedProduct | null>(null);
+
+  const dropRowLocally = useCallback((id: string) => {
+    setProducts((prev) => prev.filter((p) => p.id !== id));
+    setTotalCount((c) => Math.max(0, c - 1));
+    setSelectedIds((prev) => { const n = new Set(prev); n.delete(id); return n; });
+  }, []);
+
+  const handleRowToShopify = useCallback(async (product: ListedProduct) => {
+    dropRowLocally(product.id);
+    const res = await addToShopifyQueue([product.id]);
+    res.ok
+      ? toast.success('已加入 Shopify', { description: `${product.title} — 已送往產品文案與產品目錄` })
+      : toast.error('操作失敗', { description: res.error });
+  }, [dropRowLocally]);
+
+  const handleRowToCatalog = useCallback(async (product: ListedProduct) => {
+    dropRowLocally(product.id);
+    const res = await addToCatalog([product.id]);
+    res.ok
+      ? toast.success('已加到產品目錄', { description: product.title })
+      : toast.error('操作失敗', { description: res.error });
+  }, [dropRowLocally]);
+
+  const confirmDismiss = useCallback(async () => {
+    const product = dismissTarget;
+    setDismissTarget(null);
+    if (!product) return;
+    dropRowLocally(product.id);
+    const res = await dismissProducts([product.id]);
+    res.ok
+      ? toast.success('已移除', { description: product.title })
+      : toast.error('操作失敗', { description: res.error });
+  }, [dismissTarget, dropRowLocally]);
+
   // Send selected products to the "Ready to Publish" queue
   const handleSendToPublishQueue = useCallback(() => {
     if (!onSendToPublishQueue || selectedIds.size === 0) return;
@@ -1291,6 +1338,13 @@ export function ListedProductsView({
                       成本
                     </span>
                   </th>
+                  {!isCatalog && (
+                    <th className="px-3 py-3 text-center">
+                      <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                        處理
+                      </span>
+                    </th>
+                  )}
                   <th className="px-3 py-3 text-left">
                     <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
                       材質
@@ -1472,6 +1526,32 @@ export function ListedProductsView({
                         <span className="text-[10px] text-muted-foreground">—</span>
                       )}
                     </td>
+
+                    {/* 處理動作 A/B/C (所有產品頁) */}
+                    {!isCatalog && (
+                      <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex flex-col gap-1 w-[112px]">
+                          <button
+                            onClick={() => handleRowToShopify(product)}
+                            className="flex items-center justify-center gap-1 rounded-md bg-indigo-500/10 px-2 py-1 text-[10.5px] font-medium text-indigo-600 transition-colors hover:bg-indigo-500/20"
+                          >
+                            <Send className="h-3 w-3" /> A 加入Shopify
+                          </button>
+                          <button
+                            onClick={() => handleRowToCatalog(product)}
+                            className="flex items-center justify-center gap-1 rounded-md bg-emerald-500/10 px-2 py-1 text-[10.5px] font-medium text-emerald-600 transition-colors hover:bg-emerald-500/20"
+                          >
+                            <Database className="h-3 w-3" /> B 加到產品目錄
+                          </button>
+                          <button
+                            onClick={() => setDismissTarget(product)}
+                            className="flex items-center justify-center gap-1 rounded-md border border-border px-2 py-1 text-[10.5px] font-medium text-muted-foreground transition-colors hover:bg-rose-500/10 hover:text-rose-500"
+                          >
+                            <Trash2 className="h-3 w-3" /> C 暫不考慮
+                          </button>
+                        </div>
+                      </td>
+                    )}
 
                     {/* 材質 (material) */}
                     <td className="px-3 py-3 max-w-[180px]">
@@ -1726,6 +1806,34 @@ export function ListedProductsView({
               >
                 <Trash2 className="h-3.5 w-3.5" />
                 是
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* C 暫不考慮 — 確認移除單一產品 */}
+        <AlertDialog open={!!dismissTarget} onOpenChange={(o) => { if (!o) setDismissTarget(null); }}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle className="font-display flex items-center gap-2">
+                <Trash2 className="h-5 w-5 text-rose-500" />
+                確認移除
+              </AlertDialogTitle>
+              <AlertDialogDescription className="font-body text-sm">
+                是否同意移除 <span className="font-bold text-foreground">1</span> 項的產品？
+                <br />
+                <span className="text-xs text-muted-foreground mt-2 block">
+                  「{dismissTarget?.title}」將從「所有產品」頁面移除（產品資料保留於資料庫，可日後找回）。
+                </span>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel className="font-display text-xs font-bold">否</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={confirmDismiss}
+                className="bg-rose-500 text-white hover:bg-rose-600 font-display text-xs font-bold gap-1.5"
+              >
+                <Trash2 className="h-3.5 w-3.5" /> 是，移除
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
