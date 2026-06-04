@@ -37,8 +37,11 @@ export function TopBar({
   const meta = getViewMeta(currentView);
   const viewInfo = { label: meta.viewLabel, parent: meta.sectionLabel };
 
-  // Only show product-related buttons on product catalog views
-  const showProductButtons = currentView === 'listed-products' || currentView === 'ready-to-publish';
+  // Show stats (總共/已選) on product list views
+  const showProductButtons = currentView === 'listed-products' || currentView === 'ready-to-publish' || currentView === 'product-catalog';
+  // The upload-to-catalog action only appears on the 所有產品 / 待發佈 views
+  const showUploadButton = currentView === 'listed-products' || currentView === 'ready-to-publish';
+  const uploadLabel = currentView === 'listed-products' ? '上傳到產品目錄' : '上傳到資料庫';
 
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-border bg-background/80 px-6 backdrop-blur-xl">
@@ -72,7 +75,7 @@ export function TopBar({
           </div>
 
           {/* Save Button */}
-          {onSave && (
+          {showUploadButton && onSave && (
             <Button
               onClick={onSave}
               disabled={isSaving || !hasUnsavedChanges}
@@ -94,28 +97,30 @@ export function TopBar({
             </Button>
           )}
 
-          {/* Upload to Database Button */}
-          <Button
-            onClick={onBulkPublish}
-            disabled={selectedCount === 0 || isPublishing}
-            className={cn(
-              'relative gap-2 bg-primary font-display font-bold text-primary-foreground transition-all duration-300',
-              selectedCount > 0 && !isPublishing && 'animate-pulse-glow hover:scale-[0.98] active:scale-[0.96]',
-              (selectedCount === 0 || isPublishing) && 'opacity-60'
-            )}
-          >
-            {isPublishing ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Database className="h-4 w-4" />
-            )}
-            {isPublishing ? '上傳中...' : '上傳到資料庫'}
-            {selectedCount > 0 && !isPublishing && (
-              <Badge className="ml-1 h-5 min-w-5 bg-white/20 text-[10px] text-white hover:bg-white/20">
-                {selectedCount}
-              </Badge>
-            )}
-          </Button>
+          {/* Upload Button (所有產品 → 上傳到產品目錄) */}
+          {showUploadButton && (
+            <Button
+              onClick={onBulkPublish}
+              disabled={selectedCount === 0 || isPublishing}
+              className={cn(
+                'relative gap-2 bg-primary font-display font-bold text-primary-foreground transition-all duration-300',
+                selectedCount > 0 && !isPublishing && 'animate-pulse-glow hover:scale-[0.98] active:scale-[0.96]',
+                (selectedCount === 0 || isPublishing) && 'opacity-60'
+              )}
+            >
+              {isPublishing ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Database className="h-4 w-4" />
+              )}
+              {isPublishing ? '上傳中...' : uploadLabel}
+              {selectedCount > 0 && !isPublishing && (
+                <Badge className="ml-1 h-5 min-w-5 bg-white/20 text-[10px] text-white hover:bg-white/20">
+                  {selectedCount}
+                </Badge>
+              )}
+            </Button>
+          )}
         </div>
       )}
     </header>

@@ -10,6 +10,8 @@ import { PublishModal } from "./PublishModal";
 import { Construction } from "lucide-react";
 import { findSection, getSection } from "./navConfig";
 import { type PrimarySection, type ViewType } from "@/types/product";
+import { addToCatalog } from "@/lib/catalogStore";
+import { toast } from "sonner";
 
 // Lazy-loaded heavy views (contain large dependencies like pdfjs-dist, @react-pdf/renderer, etc.)
 const AIProcessorView = lazy(() =>
@@ -91,6 +93,7 @@ const CustomerCompanyInfoView = lazy(() =>
 // load — they must not be gated by store.isLoading, so they render immediately.
 const SELF_LOADING_VIEWS = new Set<ViewType>([
   "listed-products",
+  "product-catalog",
   "manufacturer-catalog",
   "category-management",
   "category-registry",
@@ -146,17 +149,29 @@ export function AppShell() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [editingQuoteId, setEditingQuoteId] = useState<string | null>(null);
   // Real total/selected counts reported up from ListedProductsView (所有產品)
-  const [listedStats, setListedStats] = useState({ total: 0, selected: 0 });
+  const [listedStats, setListedStats] = useState<{ total: number; selected: number; selectedIds: string[] }>({ total: 0, selected: 0, selectedIds: [] });
   const selectedProducts = useMemo(() =>
     store.products.filter((p) => store.selectedProductIds.has(p.id)),
     [store.products, store.selectedProductIds]
   );
 
   const handleBulkPublish = useCallback(() => {
+    // 所有產品頁：「上傳到產品目錄」— 把已選產品加入產品目錄（純前端，不改 DB）
+    if (store.currentView === 'listed-products') {
+      if (listedStats.selectedIds.length === 0) {
+        toast.message('請先勾選產品');
+        return;
+      }
+      const added = addToCatalog(listedStats.selectedIds);
+      toast.success(`已加入產品目錄`, {
+        description: added > 0 ? `新增 ${added} 件（共 ${listedStats.selectedIds.length} 件已選）` : '所選產品已在目錄中',
+      });
+      return;
+    }
     if (store.selectedProductIds.size > 0) {
       setShowPublishModal(true);
     }
-  }, [store.selectedProductIds]);
+  }, [store.selectedProductIds, store.currentView, listedStats.selectedIds]);
 
   const handleClearFilter = useCallback(() => {
     store.setFilterProductId(null);
@@ -215,6 +230,7 @@ export function AppShell() {
       case "listed-products":
         return (
           <ListedProductsView
+            mode="all"
             onSyncFromShopify={store.syncFromShopify}
             isSyncing={store.isSyncing}
             lastSyncTime={store.lastSyncTime}
@@ -223,6 +239,13 @@ export function AppShell() {
               store.addProducts(products);
               store.setCurrentView("ready-to-publish");
             }}
+          />
+        );
+      case "product-catalog":
+        return (
+          <ListedProductsView
+            mode="catalog"
+            onStatsChange={setListedStats}
           />
         );
       case "settings":

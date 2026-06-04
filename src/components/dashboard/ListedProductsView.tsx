@@ -58,6 +58,7 @@ import {
   X,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { getCatalogIds, subscribeCatalog, removeFromCatalog } from '@/lib/catalogStore';
 import { toast } from 'sonner';
 import { getChineseColorLabel, getColorHex } from '@/constants/color-map';
 import { ProductDetailModal } from './ProductDetailModal';
@@ -109,8 +110,10 @@ interface ListedProductsViewProps {
   isSyncing?: boolean;
   lastSyncTime?: string | null;
   onSendToPublishQueue?: (products: any[]) => void;
-  /** Report total + selected counts up to the TopBar */
-  onStatsChange?: (stats: { total: number; selected: number }) => void;
+  /** Report total + selected counts (and selected IDs) up to the TopBar */
+  onStatsChange?: (stats: { total: number; selected: number; selectedIds: string[] }) => void;
+  /** 'catalog' = 產品目錄頁（僅顯示已加入目錄的產品）; undefined = 所有產品頁 */
+  mode?: 'all' | 'catalog';
 }
 
 export function ListedProductsView({
@@ -119,7 +122,10 @@ export function ListedProductsView({
   lastSyncTime,
   onSendToPublishQueue,
   onStatsChange,
+  mode = 'all',
 }: ListedProductsViewProps) {
+  const isCatalog = mode === 'catalog';
+  const [catalogIds, setCatalogIds] = useState<string[]>(() => getCatalogIds());
   const [products, setProducts] = useState<ListedProduct[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -156,8 +162,11 @@ export function ListedProductsView({
 
   // Report total + selected counts up to the TopBar
   useEffect(() => {
-    onStatsChange?.({ total: totalCount, selected: selectedIds.size });
+    onStatsChange?.({ total: totalCount, selected: selectedIds.size, selectedIds: Array.from(selectedIds) });
   }, [totalCount, selectedIds, onStatsChange]);
+
+  // Keep catalog IDs in sync (catalog page re-queries when the set changes)
+  useEffect(() => subscribeCatalog(setCatalogIds), []);
 
   // Debounced search
   useEffect(() => {
@@ -254,14 +263,23 @@ export function ListedProductsView({
     setIsLoading(true);
     setFetchError(null);
     try {
+      // 產品目錄頁：尚未加入任何產品 → 直接顯示空狀態，不查詢
+      if (isCatalog && catalogIds.length === 0) {
+        setProducts([]);
+        setTotalCount(0);
+        setIsLoading(false);
+        return;
+      }
+
       const from = (currentPage - 1) * pageSize;
       const to = from + pageSize - 1;
 
       // Build base query for count — 'estimated' is far faster than 'exact' on
       // large tables (uses planner stats instead of scanning every row).
+      // catalog mode uses 'exact' (small set); all-products uses 'estimated' (fast on large table)
       let countQuery = supabase
         .from('products')
-        .select('id', { count: 'estimated', head: true });
+        .select('id', { count: isCatalog ? 'exact' : 'estimated', head: true });
 
       if (debouncedSearch.trim()) {
         countQuery = countQuery.ilike('title', `%${debouncedSearch.trim()}%`);
@@ -282,6 +300,9 @@ export function ListedProductsView({
       // Apply category filters to count query
       if (level1Filter) countQuery = countQuery.eq('level1_category', level1Filter);
       if (level2Filter) countQuery = countQuery.eq('level2_category', level2Filter);
+
+      // 產品目錄頁：只計算已加入目錄的產品
+      if (isCatalog) countQuery = countQuery.in('id', catalogIds);
 
       // Build data query — explicit columns (avoid heavy JSONB like description_html when not needed for list view)
       const LIST_COLUMNS = [
@@ -320,6 +341,9 @@ export function ListedProductsView({
       // Apply category filters to data query
       if (level1Filter) dataQuery = dataQuery.eq('level1_category', level1Filter);
       if (level2Filter) dataQuery = dataQuery.eq('level2_category', level2Filter);
+
+      // 產品目錄頁：只顯示已加入目錄的產品
+      if (isCatalog) dataQuery = dataQuery.in('id', catalogIds);
 
       // Run count + data IN PARALLEL — they no longer block each other.
       const [{ count, error: countErr }, { data: productRows, error: prodErr }] =
@@ -421,7 +445,7 @@ export function ListedProductsView({
     } finally {
       setIsLoading(false);
     }
-  }, [currentPage, pageSize, sortField, sortOrder, debouncedSearch, shopifyFilter, selectedFactories, level1Filter, level2Filter]);
+  }, [currentPage, pageSize, sortField, sortOrder, debouncedSearch, shopifyFilter, selectedFactories, level1Filter, level2Filter, isCatalog, catalogIds]);
 
   // Fetch on mount and when deps change
   useEffect(() => {
@@ -706,6 +730,15 @@ export function ListedProductsView({
 
     if (productsToDelete.length === 0) return;
 
+    // 產品目錄頁：「刪除」只把產品移出目錄（前端），不刪除資料庫
+    if (isCatalog) {
+      setShowDeleteConfirm(false);
+      removeFromCatalog(idsToDelete);
+      setSelectedIds(new Set());
+      toast.success(`已從產品目錄移除 ${idsToDelete.length} 件產品`);
+      return;
+    }
+
     setIsDeleting(true);
     setShowDeleteConfirm(false);
 
@@ -814,7 +847,7 @@ export function ListedProductsView({
     } finally {
       setIsDeleting(false);
     }
-  }, [selectedIds, products, currentPage]);
+  }, [selectedIds, products, currentPage, isCatalog]);
 
   // Send selected products to the "Ready to Publish" queue
   const handleSendToPublishQueue = useCallback(() => {
@@ -1180,12 +1213,14 @@ export function ListedProductsView({
             <div className="flex flex-col items-center justify-center py-20">
               <Database className="mb-3 h-8 w-8 text-muted-foreground/40" />
               <p className="font-display text-sm text-muted-foreground">
-                {debouncedSearch ? '找不到符合搜尋的產品' : '產品目錄是空的'}
+                {debouncedSearch ? '找不到符合搜尋的產品' : isCatalog ? '產品目錄是空的' : '產品目錄是空的'}
               </p>
               <p className="mt-1 text-xs text-muted-foreground/70 font-body">
                 {debouncedSearch
                   ? '請嘗試其他搜尋字詞'
-                  : '從「上載PDF」新增產品或從 Shopify 同步現有產品'}
+                  : isCatalog
+                    ? '到「所有產品」勾選產品，按「上傳到產品目錄」即可加入'
+                    : '從「上載PDF」新增產品或從 Shopify 同步現有產品'}
               </p>
             </div>
           ) : (

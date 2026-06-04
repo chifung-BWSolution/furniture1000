@@ -92,6 +92,7 @@ export type ViewType =
   | 'manufacturer-catalog'
   | 'ai-processor'
   | 'listed-products'
+  | 'product-catalog'
   | 'category-management'
   // 傢俬方案
   | 'design-projects'
