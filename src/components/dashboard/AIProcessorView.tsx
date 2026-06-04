@@ -73,8 +73,10 @@ async function getPdfjs() {
 /** Render a single PDF page to a base64 JPEG image */
 // V20 FIX 2: Increased scale from 2.0 → 3.0 for high-quality rendering
 // Low scale causes bounding_box math to fall into empty sub-pixels → blank crops
-const PDF_RENDER_SCALE = 3.0;
-const PDF_JPEG_QUALITY = 0.90; // Increased from 0.85 for better fidelity
+// 2.0x balances clarity vs memory. At 3.0x a single A4 canvas is ~35MB and
+// rendering many pages can OOM the browser tab/window. 2.0x ≈ 55% less memory.
+const PDF_RENDER_SCALE = 2.0;
+const PDF_JPEG_QUALITY = 0.88;
 
 async function renderPdfPageToImage(
   pdfData: ArrayBuffer,
@@ -511,8 +513,9 @@ async function analyzeImageWithAI(
 // ─── PDF Catalog: Batch Processing Constants ─────────────────
 // ONE page per request — absolute safest for high-res furniture catalogs
 const PAGES_PER_BATCH = 1;
-// How many single-page requests to send in parallel (safe concurrency)
-const PARALLEL_CONCURRENCY = 3;
+// How many single-page requests to send in parallel. Lowered 3→2 to cap how
+// many large page canvases live in memory at once (avoids browser OOM crashes).
+const PARALLEL_CONCURRENCY = 2;
 const INTER_BATCH_DELAY_MS = 500; // shorter delay since requests are tiny now
 
 function estimatePDFPages(fileSizeBytes: number): number {
