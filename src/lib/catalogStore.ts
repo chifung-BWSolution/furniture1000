@@ -1,64 +1,37 @@
 // ============================================================================
-// Product Catalog (產品目錄) — front-end only selection store.
-// Holds the set of product IDs the user has "uploaded to 產品目錄".
-// Persisted in localStorage; the 產品目錄 page reuses the products table
-// (Supabase) but only shows products whose id is in this set. No DB change.
+// Product Catalog (產品目錄) — Supabase-backed membership.
+// Catalog membership lives in products.in_catalog (boolean) so every user on
+// every device sees the same catalog. The 產品目錄 page queries
+// products WHERE in_catalog = true. No separate table needed.
 // ============================================================================
+import { supabase } from './supabase';
 
-const STORAGE_KEY = 'fds-product-catalog-ids';
-
-type Listener = (ids: string[]) => void;
-const listeners = new Set<Listener>();
-
-function read(): string[] {
+/** Add product IDs to the catalog (set in_catalog = true). Returns ok + count. */
+export async function addToCatalog(ids: string[]): Promise<{ ok: boolean; count: number; error?: string }> {
+  if (ids.length === 0) return { ok: true, count: 0 };
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return [];
-    const arr = JSON.parse(raw);
-    return Array.isArray(arr) ? arr.filter((x) => typeof x === 'string') : [];
-  } catch {
-    return [];
+    const { error } = await supabase
+      .from('products')
+      .update({ in_catalog: true })
+      .in('id', ids);
+    if (error) return { ok: false, count: 0, error: error.message };
+    return { ok: true, count: ids.length };
+  } catch (e) {
+    return { ok: false, count: 0, error: e instanceof Error ? e.message : '加入失敗' };
   }
 }
 
-function write(ids: string[]) {
+/** Remove product IDs from the catalog (set in_catalog = false). */
+export async function removeFromCatalog(ids: string[]): Promise<{ ok: boolean; error?: string }> {
+  if (ids.length === 0) return { ok: true };
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(ids));
-  } catch {
-    /* ignore quota errors */
+    const { error } = await supabase
+      .from('products')
+      .update({ in_catalog: false })
+      .in('id', ids);
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : '移除失敗' };
   }
-  listeners.forEach((l) => l(ids));
-}
-
-/** Current catalog product IDs. */
-export function getCatalogIds(): string[] {
-  return read();
-}
-
-/** Add product IDs to the catalog (deduped). Returns how many were newly added. */
-export function addToCatalog(ids: string[]): number {
-  const current = read();
-  const set = new Set(current);
-  let added = 0;
-  for (const id of ids) {
-    if (!set.has(id)) { set.add(id); added++; }
-  }
-  if (added > 0) write(Array.from(set));
-  return added;
-}
-
-/** Remove product IDs from the catalog. */
-export function removeFromCatalog(ids: string[]): void {
-  const set = new Set(read());
-  let changed = false;
-  for (const id of ids) {
-    if (set.delete(id)) changed = true;
-  }
-  if (changed) write(Array.from(set));
-}
-
-/** Subscribe to catalog changes. Returns an unsubscribe function. */
-export function subscribeCatalog(listener: Listener): () => void {
-  listeners.add(listener);
-  return () => { listeners.delete(listener); };
 }

@@ -58,7 +58,7 @@ import {
   X,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import { getCatalogIds, subscribeCatalog, removeFromCatalog } from '@/lib/catalogStore';
+import { removeFromCatalog } from '@/lib/catalogStore';
 import { toast } from 'sonner';
 import { getChineseColorLabel, getColorHex } from '@/constants/color-map';
 import { ProductDetailModal } from './ProductDetailModal';
@@ -125,7 +125,6 @@ export function ListedProductsView({
   mode = 'all',
 }: ListedProductsViewProps) {
   const isCatalog = mode === 'catalog';
-  const [catalogIds, setCatalogIds] = useState<string[]>(() => getCatalogIds());
   const [products, setProducts] = useState<ListedProduct[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -165,8 +164,6 @@ export function ListedProductsView({
     onStatsChange?.({ total: totalCount, selected: selectedIds.size, selectedIds: Array.from(selectedIds) });
   }, [totalCount, selectedIds, onStatsChange]);
 
-  // Keep catalog IDs in sync (catalog page re-queries when the set changes)
-  useEffect(() => subscribeCatalog(setCatalogIds), []);
 
   // Debounced search
   useEffect(() => {
@@ -263,14 +260,6 @@ export function ListedProductsView({
     setIsLoading(true);
     setFetchError(null);
     try {
-      // 產品目錄頁：尚未加入任何產品 → 直接顯示空狀態，不查詢
-      if (isCatalog && catalogIds.length === 0) {
-        setProducts([]);
-        setTotalCount(0);
-        setIsLoading(false);
-        return;
-      }
-
       const from = (currentPage - 1) * pageSize;
       const to = from + pageSize - 1;
 
@@ -302,7 +291,7 @@ export function ListedProductsView({
       if (level2Filter) countQuery = countQuery.eq('level2_category', level2Filter);
 
       // 產品目錄頁：只計算已加入目錄的產品
-      if (isCatalog) countQuery = countQuery.in('id', catalogIds);
+      if (isCatalog) countQuery = countQuery.eq('in_catalog', true);
 
       // Build data query — explicit columns (avoid heavy JSONB like description_html when not needed for list view)
       const LIST_COLUMNS = [
@@ -343,7 +332,7 @@ export function ListedProductsView({
       if (level2Filter) dataQuery = dataQuery.eq('level2_category', level2Filter);
 
       // 產品目錄頁：只顯示已加入目錄的產品
-      if (isCatalog) dataQuery = dataQuery.in('id', catalogIds);
+      if (isCatalog) dataQuery = dataQuery.eq('in_catalog', true);
 
       // Run count + data IN PARALLEL — they no longer block each other.
       const [{ count, error: countErr }, { data: productRows, error: prodErr }] =
@@ -445,7 +434,7 @@ export function ListedProductsView({
     } finally {
       setIsLoading(false);
     }
-  }, [currentPage, pageSize, sortField, sortOrder, debouncedSearch, shopifyFilter, selectedFactories, level1Filter, level2Filter, isCatalog, catalogIds]);
+  }, [currentPage, pageSize, sortField, sortOrder, debouncedSearch, shopifyFilter, selectedFactories, level1Filter, level2Filter, isCatalog]);
 
   // Fetch on mount and when deps change
   useEffect(() => {
@@ -730,12 +719,17 @@ export function ListedProductsView({
 
     if (productsToDelete.length === 0) return;
 
-    // 產品目錄頁：「刪除」只把產品移出目錄（前端），不刪除資料庫
+    // 產品目錄頁：「刪除」只把產品移出目錄（in_catalog=false），不刪除產品本身
     if (isCatalog) {
       setShowDeleteConfirm(false);
-      removeFromCatalog(idsToDelete);
+      const res = await removeFromCatalog(idsToDelete);
       setSelectedIds(new Set());
-      toast.success(`已從產品目錄移除 ${idsToDelete.length} 件產品`);
+      if (res.ok) {
+        toast.success(`已從產品目錄移除 ${idsToDelete.length} 件產品`);
+        fetchProducts();
+      } else {
+        toast.error('移除失敗', { description: res.error });
+      }
       return;
     }
 
@@ -1156,7 +1150,9 @@ export function ListedProductsView({
             >
               <Database className="h-3 w-3 text-indigo-500" />
               <span className="text-[11px] text-indigo-500 font-body">
-                已優化載入速度 • 預設顯示前 {pageSize} 件產品，其餘資料將於滾動或切換分頁時延遲載入
+                {isCatalog
+                  ? `產品目錄 • 共 ${totalCount.toLocaleString()} 件 — 此處只顯示已加入目錄的產品，所有裝置即時同步`
+                  : `已優化載入速度 • 預設顯示前 ${pageSize} 件產品，其餘資料將於滾動或切換分頁時延遲載入`}
               </span>
             </motion.div>
           )}
