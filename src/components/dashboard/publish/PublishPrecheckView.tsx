@@ -1,16 +1,50 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import {
-  ShieldCheck, Check, X, Sparkles, Wand2, UploadCloud, AlertTriangle, CheckCircle2,
+  ShieldCheck, Check, X, Sparkles, Wand2, UploadCloud, AlertTriangle, CheckCircle2, Loader2,
 } from 'lucide-react';
-import { MOCK_CHECK_ITEMS, CHECK_LABELS, type CheckItem } from '@/constants/analytics-mock';
+import { CHECK_LABELS, type CheckItem } from '@/constants/analytics-mock';
+import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 
 type CheckKey = keyof Omit<CheckItem, 'id' | 'product'>;
 const CHECK_KEYS: CheckKey[] = ['imageResolution', 'requiredFields', 'pricingFormula', 'tierTag'];
 
 export function PublishPrecheckView() {
-  const [items, setItems] = useState<CheckItem[]>(MOCK_CHECK_ITEMS);
+  const [items, setItems] = useState<CheckItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Load products whose info is done (info_done = true) and derive check results
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setIsLoading(true);
+      const { data } = await supabase
+        .from('products')
+        .select('id,title,description,image_url,images,sale_price,price,level1_category,level2_category,dimension_l_mm')
+        .eq('in_shopify_queue', true)
+        .eq('info_done', true)
+        .order('created_at', { ascending: false });
+      if (cancelled) return;
+      const mapped: CheckItem[] = (data || []).map((r: any) => {
+        const hasImg = !!((Array.isArray(r.images) && r.images[0]?.src) || r.image_url);
+        const hasRequired = !!(r.title && r.dimension_l_mm != null);
+        const hasPrice = Number(r.sale_price ?? r.price ?? 0) > 0;
+        const hasTier = !!(r.level1_category && r.level2_category);
+        return {
+          id: r.id,
+          product: r.title || '(未命名)',
+          imageResolution: hasImg,
+          requiredFields: hasRequired,
+          pricingFormula: hasPrice,
+          tierTag: hasTier,
+        };
+      });
+      setItems(mapped);
+      setIsLoading(false);
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   const totalChecks = items.length * CHECK_KEYS.length;
   const passedChecks = items.reduce((sum, it) => sum + CHECK_KEYS.filter((k) => it[k]).length, 0);
@@ -122,6 +156,12 @@ export function PublishPrecheckView() {
                     </tr>
                   );
                 })}
+                {isLoading && (
+                  <tr><td colSpan={CHECK_KEYS.length + 2} className="px-6 py-12 text-center"><Loader2 className="mx-auto h-5 w-5 animate-spin text-primary" /></td></tr>
+                )}
+                {!isLoading && items.length === 0 && (
+                  <tr><td colSpan={CHECK_KEYS.length + 2} className="px-6 py-12 text-center text-[12px] text-muted-foreground/60">尚無待檢查產品 — 到「產品信息」按「完成」後，產品會送到此處</td></tr>
+                )}
               </tbody>
             </table>
           </div>

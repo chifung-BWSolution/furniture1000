@@ -36,6 +36,7 @@ export function PublishProductInfoView() {
         .from('products')
         .select('id,title,image_url,images,price,sale_price,cost_price,sku,tags,dimension_l_mm,dimension_w_mm,dimension_h_mm,level1_category,level2_category,delivery_term_name,model')
         .eq('in_shopify_queue', true)
+        .eq('info_done', false)
         .order('created_at', { ascending: false });
       if (cancelled) return;
       const mapped: InfoItem[] = (data || []).map((r: any) => ({
@@ -72,10 +73,42 @@ export function PublishProductInfoView() {
     setTagDraft((prev) => ({ ...prev, [id]: '' }));
   };
 
-  const handleComplete = () => {
+  const [isSaving, setIsSaving] = useState(false);
+  const handleComplete = async () => {
     if (selected.size === 0) { toast.message('請先勾選產品'); return; }
-    toast.success(`已送往發佈前檢查`, { description: `${selected.size} 件產品` });
-    setSelected(new Set());
+    const ids = Array.from(selected);
+    setIsSaving(true);
+    try {
+      // Persist each selected product's edited info + mark info_done=true
+      for (const id of ids) {
+        const it = items.find((x) => x.id === id);
+        if (!it) continue;
+        const { error } = await supabase
+          .from('products')
+          .update({
+            sale_price: it.price,
+            sku: it.sku,
+            tags: it.tags,
+            dimension_l_mm: it.dimL,
+            dimension_w_mm: it.dimW,
+            dimension_h_mm: it.dimH,
+            level1_category: it.level1 || null,
+            level2_category: it.level2 || null,
+            delivery_term_name: it.deliveryTermName || null,
+            info_done: true,
+          })
+          .eq('id', id);
+        if (error) throw new Error(error.message);
+      }
+      // Remove completed products from this page's list
+      setItems((prev) => prev.filter((p) => !selected.has(p.id)));
+      setSelected(new Set());
+      toast.success('已送往發佈前檢查', { description: `${ids.length} 件產品的資訊已儲存` });
+    } catch (e) {
+      toast.error('儲存失敗', { description: e instanceof Error ? e.message : '請稍後再試' });
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -94,10 +127,10 @@ export function PublishProductInfoView() {
         </div>
         <button
           onClick={handleComplete}
-          disabled={selected.size === 0}
+          disabled={selected.size === 0 || isSaving}
           className="flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-bold text-white shadow-md transition-opacity hover:opacity-90 disabled:opacity-50"
         >
-          <Check className="h-4 w-4" /> 完成{selected.size > 0 ? `（${selected.size}）` : ''}
+          {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />} 完成{selected.size > 0 ? `（${selected.size}）` : ''}
         </button>
       </div>
 
