@@ -30,74 +30,98 @@ export function PublishPrecheckView() {
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">
       {/* Toolbar */}
-      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-muted/30 px-6 py-3">
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-muted/30 px-8 py-3.5">
         <div className="flex items-center gap-2">
           <ShieldCheck className="h-4 w-4 text-primary" />
           <h2 className="font-display text-sm font-bold">發佈前檢查</h2>
-          <span className="font-mono-data text-[11px] text-muted-foreground">{items.length} 件待檢查</span>
+          <span className="ml-1 rounded-full bg-primary/10 px-2.5 py-0.5 font-mono-data text-[11px] font-semibold text-primary">{items.length} 件待檢查</span>
         </div>
         <button
           disabled={!allPass}
           onClick={() => toast.success('已送往準備上載', { description: '檢查全部通過' })}
-          className="flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-xs font-semibold text-primary-foreground shadow-sm hover:opacity-90 disabled:opacity-50"
+          className="flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-bold text-primary-foreground shadow-md hover:opacity-90 disabled:opacity-50"
         >
-          <UploadCloud className="h-3.5 w-3.5" /> 進入準備上載
+          <UploadCloud className="h-4 w-4" /> 進入準備上載
         </button>
       </div>
 
-      {/* Pass-rate banner */}
-      <div className="shrink-0 border-b border-border bg-card px-6 py-4">
-        <div className="mx-auto flex max-w-5xl items-center gap-6">
+      {/* Pass-rate banner with progress bar */}
+      <div className="shrink-0 border-b border-border bg-card px-8 py-5">
+        <div className="mx-auto flex max-w-6xl items-center gap-8">
           <div className="flex items-center gap-3">
-            <div className={cn('flex h-12 w-12 items-center justify-center rounded-xl', allPass ? 'bg-emerald-500/15' : 'bg-amber-500/15')}>
-              {allPass ? <CheckCircle2 className="h-6 w-6 text-emerald-600" /> : <AlertTriangle className="h-6 w-6 text-amber-600" />}
+            <div className={cn('flex h-14 w-14 items-center justify-center rounded-2xl', allPass ? 'bg-emerald-500/15' : 'bg-amber-500/15')}>
+              {allPass ? <CheckCircle2 className="h-7 w-7 text-emerald-600" /> : <AlertTriangle className="h-7 w-7 text-amber-600" />}
             </div>
             <div>
-              <p className="font-display text-2xl font-bold text-foreground">{passRate}%</p>
+              <p className="font-display text-3xl font-bold text-foreground">{passRate}%</p>
               <p className="font-body text-[11px] text-muted-foreground">整體通過率</p>
             </div>
           </div>
-          <div className="h-10 w-px bg-border" />
-          <div className="flex gap-6">
-            <div><p className="font-display text-lg font-bold text-emerald-600">{passedChecks}</p><p className="text-[11px] text-muted-foreground">通過項目</p></div>
-            <div><p className="font-display text-lg font-bold text-rose-600">{totalChecks - passedChecks}</p><p className="text-[11px] text-muted-foreground">需修正項目</p></div>
+          {/* progress bar */}
+          <div className="flex-1">
+            <div className="mb-1.5 flex items-center justify-between text-[11px] text-muted-foreground">
+              <span className="flex items-center gap-1.5"><span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />通過 {passedChecks}</span>
+              <span className="flex items-center gap-1.5"><span className="inline-block h-2 w-2 rounded-full bg-rose-500" />需修正 {totalChecks - passedChecks}</span>
+            </div>
+            <div className="h-2.5 w-full overflow-hidden rounded-full bg-muted">
+              <div className={cn('h-full rounded-full transition-all', allPass ? 'bg-emerald-500' : 'bg-gradient-to-r from-primary to-primary/70')} style={{ width: `${passRate}%` }} />
+            </div>
           </div>
-          <div className="ml-auto">
-            <button onClick={fixAll} disabled={allPass} className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-primary to-primary/80 px-3.5 py-2 text-xs font-semibold text-primary-foreground shadow-sm hover:opacity-90 disabled:opacity-50">
-              <Wand2 className="h-3.5 w-3.5" /> 一鍵批量修正
-            </button>
-          </div>
+          <button
+            onClick={fixAll}
+            disabled={allPass}
+            className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-primary to-primary/80 px-5 py-3 text-sm font-bold text-primary-foreground shadow-md transition-all hover:opacity-90 hover:scale-[0.98] disabled:opacity-50 disabled:hover:scale-100"
+          >
+            <Wand2 className="h-4 w-4" /> 一鍵批量修正
+            {!allPass && <span className="rounded-full bg-white/20 px-2 py-0.5 text-[11px]">{totalChecks - passedChecks}</span>}
+          </button>
         </div>
       </div>
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
         {/* checklist */}
-        <div className="flex-1 overflow-auto p-6">
-          <div className="mx-auto max-w-3xl overflow-hidden rounded-xl border border-border bg-card">
+        <div className="flex-1 overflow-auto p-8">
+          <div className="mx-auto max-w-5xl overflow-hidden rounded-2xl border border-border bg-card">
             <table className="w-full text-sm">
               <thead className="bg-muted/50 text-[11px] uppercase tracking-wider text-muted-foreground">
                 <tr>
-                  <th className="px-4 py-2.5 text-left font-medium">產品</th>
-                  {CHECK_KEYS.map((k) => <th key={k} className="px-3 py-2.5 text-center font-medium">{CHECK_LABELS[k]}</th>)}
+                  <th className="px-5 py-3 text-left font-medium">產品</th>
+                  {CHECK_KEYS.map((k) => <th key={k} className="px-3 py-3 text-center font-medium">{CHECK_LABELS[k]}</th>)}
+                  <th className="px-4 py-3 text-center font-medium">結果</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/60">
-                {items.map((it) => (
-                  <tr key={it.id} className="hover:bg-muted/30">
-                    <td className="px-4 py-2.5 font-body text-[13px] font-medium text-foreground">{it.product}</td>
-                    {CHECK_KEYS.map((k) => (
-                      <td key={k} className="px-3 py-2.5 text-center">
-                        {it[k] ? (
-                          <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-600"><Check className="h-3.5 w-3.5" /></span>
-                        ) : (
-                          <button onClick={() => fixOne(it.id, k)} title="點擊修正" className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-rose-500/15 text-rose-600 hover:bg-rose-500/25">
-                            <X className="h-3.5 w-3.5" />
-                          </button>
-                        )}
+                {items.map((it) => {
+                  const rowPass = CHECK_KEYS.every((k) => it[k]);
+                  return (
+                    <tr key={it.id} className={cn('hover:bg-muted/30', !rowPass && 'bg-amber-500/[0.03]')}>
+                      <td className="px-5 py-3">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted">
+                            <ShieldCheck className="h-4 w-4 text-muted-foreground/40" />
+                          </div>
+                          <span className="font-body text-[13px] font-medium text-foreground">{it.product}</span>
+                        </div>
                       </td>
-                    ))}
-                  </tr>
-                ))}
+                      {CHECK_KEYS.map((k) => (
+                        <td key={k} className="px-3 py-3 text-center">
+                          {it[k] ? (
+                            <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-600"><Check className="h-4 w-4" /></span>
+                          ) : (
+                            <button onClick={() => fixOne(it.id, k)} title="點擊修正" className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-rose-500/15 text-rose-600 hover:bg-rose-500/25">
+                              <X className="h-4 w-4" />
+                            </button>
+                          )}
+                        </td>
+                      ))}
+                      <td className="px-4 py-3 text-center">
+                        {rowPass
+                          ? <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10.5px] font-medium text-emerald-600">通過</span>
+                          : <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10.5px] font-medium text-amber-600">需修正</span>}
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

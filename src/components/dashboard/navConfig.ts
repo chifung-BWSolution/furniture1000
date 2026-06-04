@@ -78,6 +78,7 @@ export const NAV_CONFIG: PrimaryItem[] = [
     icon: Globe,
     children: [
       { view: 'publish-copywriting', label: '產品文案', icon: FileText },
+      { view: 'publish-product-info', label: '產品信息', icon: Boxes },
       { view: 'publish-precheck', label: '發佈前檢查', icon: ShieldCheck },
       { view: 'ready-to-publish', label: '準備上載', icon: UploadCloud },
       { view: 'published-products', label: '已上載產品', icon: CheckCheck },

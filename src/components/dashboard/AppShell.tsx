@@ -39,6 +39,9 @@ const ProductCategoryView = lazy(() =>
 const PublishCopywritingView = lazy(() =>
   import("./publish/PublishCopywritingView").then((mod) => ({ default: mod.PublishCopywritingView }))
 );
+const PublishProductInfoView = lazy(() =>
+  import("./publish/PublishProductInfoView").then((mod) => ({ default: mod.PublishProductInfoView }))
+);
 const PublishPrecheckView = lazy(() =>
   import("./publish/PublishPrecheckView").then((mod) => ({ default: mod.PublishPrecheckView }))
 );
@@ -107,6 +110,7 @@ const SELF_LOADING_VIEWS = new Set<ViewType>([
   "customer-confirmed-products",
   "customer-company-info",
   "publish-copywriting",
+  "publish-product-info",
   "publish-precheck",
   "published-products",
   "report-factory",
@@ -298,6 +302,8 @@ export function AppShell() {
         );
       case "publish-copywriting":
         return <PublishCopywritingView />;
+      case "publish-product-info":
+        return <PublishProductInfoView />;
       case "publish-precheck":
         return <PublishPrecheckView />;
       case "published-products":

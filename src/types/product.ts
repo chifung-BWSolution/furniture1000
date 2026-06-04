@@ -112,6 +112,7 @@ export type ViewType =
   | 'quotation-settings'
   // 網上發佈
   | 'publish-copywriting'
+  | 'publish-product-info'
   | 'publish-precheck'
   | 'ready-to-publish'
   | 'published-products'
