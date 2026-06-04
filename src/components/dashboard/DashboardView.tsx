@@ -150,7 +150,7 @@ export function DashboardView({ products, stats, onProductClick, onNavigateToAI 
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+          <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5">
             {pendingProducts.map((product, i) => (
               <motion.button
                 key={product.id}
@@ -164,7 +164,7 @@ export function DashboardView({ products, stats, onProductClick, onNavigateToAI 
                 )}
               >
                 {/* Image */}
-                <div className="relative aspect-[4/3] w-full overflow-hidden bg-muted">
+                <div className="relative aspect-[8/3] w-full overflow-hidden bg-muted">
                   {product.imageUrl ? (
                     <img
                       src={product.imageUrl}
