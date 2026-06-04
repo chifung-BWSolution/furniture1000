@@ -2108,7 +2108,7 @@ export function ExcelPreviewTable({
             {totalSelected} rows selected{hasMultipleSheets ? ` across ${sheetDataList.filter(sd => (multiSheetSelections[sd.sheetName]?.size || 0) > 0).length} sheets` : ''}
           </span>
           
-          {/* Button C: Discard / Ignore */}
+          {/* Button C: Delete selected rows from preview (no save) */}
           <Button
             variant="ghost"
             onClick={() => handleAction('discard')}
@@ -2116,8 +2116,8 @@ export function ExcelPreviewTable({
             className="text-sm gap-1.5 text-muted-foreground hover:text-rose-400 hover:bg-rose-500/10"
           >
             <Trash2 className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">暫不考慮</span>
-            <span className="sm:hidden">忽略</span>
+            <span className="hidden sm:inline">刪除</span>
+            <span className="sm:hidden">刪除</span>
           </Button>
 
           {/* Button B: Upload to Catalog Only */}
@@ -2136,27 +2136,6 @@ export function ExcelPreviewTable({
                 <Archive className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">上傳到產品目錄</span>
                 <span className="sm:hidden">目錄</span>
-              </span>
-            )}
-          </Button>
-
-          {/* Button A: Queue for Shopify (save to BOTH master + shopify queue) */}
-          <Button
-            onClick={() => handleAction('queue-shopify')}
-            disabled={isGenerating || mappedCount < 2 || totalSelected === 0}
-            className="bg-indigo-600 hover:bg-indigo-500 text-white gap-1.5 text-sm font-[Syne] font-semibold"
-          >
-            {isGenerating ? (
-              <span className="contents">
-                <Loader2 className="w-4 h-4 animate-spin" />
-                處理中...
-              </span>
-            ) : (
-              <span className="contents">
-                <ShoppingCart className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">待上傳到 Shopify</span>
-                <span className="sm:hidden">Shopify</span>
-                <ArrowRight className="w-3.5 h-3.5" />
               </span>
             )}
           </Button>

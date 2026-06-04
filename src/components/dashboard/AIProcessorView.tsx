@@ -3070,6 +3070,26 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         // external master DB accepted them — the products table is the source
         // of truth for 所有產品, and master DB is just an optional backup.
         const nowIso = new Date().toISOString();
+
+        // ── Merge factory highlights for this factory ──
+        // Accumulate ALL highlights ever uploaded for this factory: union of
+        // what already exists in products + this upload's selection.
+        let mergedHighlights: string[] = [...(selectedFactoryHighlights || [])];
+        if (selectedManufacturer) {
+          try {
+            const { data: existingRows } = await supabase
+              .from('products')
+              .select('factory_highlights')
+              .eq('factories_display_name', selectedManufacturer)
+              .not('factory_highlights', 'is', null)
+              .limit(200);
+            const existing = (existingRows || []).flatMap((r: any) => r.factory_highlights || []);
+            mergedHighlights = Array.from(new Set([...existing, ...mergedHighlights])).filter(Boolean);
+          } catch (e) {
+            console.warn('[catalog-only] could not fetch existing factory_highlights:', e);
+          }
+        }
+
         const productRows = correctedProds
           .map(item => {
             const dbResult = dbResults.find((r: any) => r.local_id === item.id);
@@ -3095,6 +3115,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
               upload_session_id: null,
               factories_display_name: selectedManufacturer || '',
               factory_id: selectedFactoryId || '',
+              factory_highlights: mergedHighlights,
               bwf_master_id: dbResult?.master_id || null,
               cost_price: item.costPrice ?? null,
               sale_price: 0,
@@ -3124,6 +3145,17 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
             throw new Error(`產品目錄儲存失敗：${upsertErr.message}`);
           }
           console.log(`[PreviewAction:catalog-only] ✅ ${productRows.length} products persisted to products table only (not added to Shopify queue)`);
+
+          // Back-fill: keep ALL products of this factory in sync with the merged
+          // highlight set, so previously-uploaded products of the same factory
+          // also reflect the consolidated highlights.
+          if (selectedManufacturer && mergedHighlights.length > 0) {
+            const { error: hlErr } = await supabase
+              .from('products')
+              .update({ factory_highlights: mergedHighlights })
+              .eq('factories_display_name', selectedManufacturer);
+            if (hlErr) console.warn('[catalog-only] factory_highlights back-fill failed:', hlErr.message);
+          }
         }
 
         const catalogCount = productRows.length;
