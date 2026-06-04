@@ -67,7 +67,7 @@ export const NAV_CONFIG: PrimaryItem[] = [
       { view: 'advanced-search', label: '進階搜尋', icon: Search },
       { view: 'manufacturer-catalog', label: '廠家目錄', icon: BookOpen },
       { view: 'ai-processor', label: '上載PDF', icon: FileUp },
-      { view: 'listed-products', label: '所有產品', icon: Boxes },
+      { view: 'listed-products', label: '待處理產品', icon: Boxes },
       { view: 'product-catalog', label: '產品目錄', icon: BookOpen },
       { view: 'category-management', label: '產品分類', icon: FolderTree },
     ],

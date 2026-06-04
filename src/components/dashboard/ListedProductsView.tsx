@@ -1379,7 +1379,7 @@ export function ListedProductsView({
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: i * 0.02, duration: 0.25 }}
-                    className="group h-[52px] border-b border-border transition-colors hover:bg-muted/60 cursor-pointer"
+                    className="group h-[72px] border-b border-border transition-colors hover:bg-muted/60 cursor-pointer"
                     onClick={(e) => handleRowClick(e, product)}
                   >
                     {/* Checkbox */}
@@ -1401,11 +1401,11 @@ export function ListedProductsView({
                             alt={product.images?.[0]?.alt || product.title}
                             loading="lazy"
                             decoding="async"
-                            className="h-9 w-9 aspect-square rounded-md object-cover flex-shrink-0 bg-muted"
+                            className="h-14 w-14 aspect-square rounded-md object-cover flex-shrink-0 bg-muted"
                           />
                         ) : (
-                          <div className="h-9 w-9 aspect-square rounded-md bg-muted flex items-center justify-center">
-                            <Store className="h-4 w-4 text-muted-foreground/40" />
+                          <div className="h-14 w-14 aspect-square rounded-md bg-muted flex items-center justify-center">
+                            <Store className="h-5 w-5 text-muted-foreground/40" />
                           </div>
                         );
                       })()}
