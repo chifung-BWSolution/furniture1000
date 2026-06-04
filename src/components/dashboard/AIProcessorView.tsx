@@ -3113,6 +3113,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
               source: 'local',
               synced_at: null,
               upload_session_id: null,
+              model: (item as any).modelNumber || null,
               factories_display_name: selectedManufacturer || '',
               factory_id: selectedFactoryId || '',
               factory_highlights: mergedHighlights,
