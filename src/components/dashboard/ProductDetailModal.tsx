@@ -932,7 +932,91 @@ export function ProductDetailModal({
                         triggerClassName="font-body text-xs h-9"
                       />
                     </div>
+
+                    {/* 現貨 / 全訂製 toggle — under Collection */}
+                    <div className="flex items-center gap-2">
+                      <span className="font-body text-xs text-muted-foreground">產品類型：</span>
+                      <div className="flex rounded-lg border border-border overflow-hidden">
+                        <button
+                          onClick={() => setProductionType('stock')}
+                          className={cn(
+                            'px-3 py-1 text-xs font-medium transition-colors',
+                            productionType === 'stock'
+                              ? 'bg-emerald-500 text-white'
+                              : 'bg-background text-muted-foreground hover:bg-muted'
+                          )}
+                        >
+                          現貨
+                        </button>
+                        <button
+                          onClick={() => setProductionType('custom')}
+                          className={cn(
+                            'px-3 py-1 text-xs font-medium transition-colors',
+                            productionType === 'custom'
+                              ? 'bg-amber-500 text-white'
+                              : 'bg-background text-muted-foreground hover:bg-muted'
+                          )}
+                        >
+                          全訂製
+                        </button>
+                      </div>
+                    </div>
                   </div>
+                </section>
+
+                <Separator />
+
+                {/* Dimensions Section */}
+                <section>
+                  <div className="flex items-center gap-2 mb-4">
+                    <Package className="h-4 w-4 text-orange-500" />
+                    <h3 className="font-display text-sm font-bold">尺寸資訊 / Dimensions (mm)</h3>
+                  </div>
+                  <div className="grid grid-cols-3 gap-4">
+                    <div className="space-y-2">
+                      <Label className="font-body text-xs text-muted-foreground">
+                        長 (Length)
+                      </Label>
+                      <Input
+                        type="number"
+                        value={dimensionL}
+                        onChange={e => setDimensionL(e.target.value)}
+                        placeholder="mm"
+                        className="h-9 font-mono-data text-xs bg-background"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="font-body text-xs text-muted-foreground">
+                        闊 (Width)
+                      </Label>
+                      <Input
+                        type="number"
+                        value={dimensionW}
+                        onChange={e => setDimensionW(e.target.value)}
+                        placeholder="mm"
+                        className="h-9 font-mono-data text-xs bg-background"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label className="font-body text-xs text-muted-foreground">
+                        高 (Height)
+                      </Label>
+                      <Input
+                        type="number"
+                        value={dimensionH}
+                        onChange={e => setDimensionH(e.target.value)}
+                        placeholder="mm"
+                        className="h-9 font-mono-data text-xs bg-background"
+                      />
+                    </div>
+                  </div>
+                  {(dimensionL || dimensionW || dimensionH) && (
+                    <div className="mt-3 rounded-lg bg-muted/50 border border-border p-3">
+                      <span className="font-mono-data text-xs text-muted-foreground">
+                        {dimensionL || '—'} × {dimensionW || '—'} × {dimensionH || '—'} mm
+                      </span>
+                    </div>
+                  )}
                 </section>
 
                 <Separator />
@@ -943,34 +1027,6 @@ export function ProductDetailModal({
                     <DollarSign className="h-4 w-4 text-amber-500" />
                     <h3 className="font-display text-sm font-bold">價格與成本</h3>
                     <span className="font-body text-[11px] text-muted-foreground">（已包含運輸/包裝費用）</span>
-                  </div>
-                  {/* 現貨 / 全訂製 toggle */}
-                  <div className="flex items-center gap-2 mb-4">
-                    <span className="font-body text-xs text-muted-foreground">產品類型：</span>
-                    <div className="flex rounded-lg border border-border overflow-hidden">
-                      <button
-                        onClick={() => setProductionType('stock')}
-                        className={cn(
-                          'px-3 py-1 text-xs font-medium transition-colors',
-                          productionType === 'stock'
-                            ? 'bg-emerald-500 text-white'
-                            : 'bg-background text-muted-foreground hover:bg-muted'
-                        )}
-                      >
-                        現貨
-                      </button>
-                      <button
-                        onClick={() => setProductionType('custom')}
-                        className={cn(
-                          'px-3 py-1 text-xs font-medium transition-colors',
-                          productionType === 'custom'
-                            ? 'bg-amber-500 text-white'
-                            : 'bg-background text-muted-foreground hover:bg-muted'
-                        )}
-                      >
-                        全訂製
-                      </button>
-                    </div>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
@@ -1138,61 +1194,6 @@ export function ProductDetailModal({
                     </div>
                   </div>
                 )}
-
-                <Separator />
-
-                {/* Dimensions Section */}
-                <section>
-                  <div className="flex items-center gap-2 mb-4">
-                    <Package className="h-4 w-4 text-orange-500" />
-                    <h3 className="font-display text-sm font-bold">尺寸資訊 / Dimensions (mm)</h3>
-                  </div>
-                  <div className="grid grid-cols-3 gap-4">
-                    <div className="space-y-2">
-                      <Label className="font-body text-xs text-muted-foreground">
-                        長 (Length)
-                      </Label>
-                      <Input
-                        type="number"
-                        value={dimensionL}
-                        onChange={e => setDimensionL(e.target.value)}
-                        placeholder="mm"
-                        className="h-9 font-mono-data text-xs bg-background"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="font-body text-xs text-muted-foreground">
-                        闊 (Width)
-                      </Label>
-                      <Input
-                        type="number"
-                        value={dimensionW}
-                        onChange={e => setDimensionW(e.target.value)}
-                        placeholder="mm"
-                        className="h-9 font-mono-data text-xs bg-background"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label className="font-body text-xs text-muted-foreground">
-                        高 (Height)
-                      </Label>
-                      <Input
-                        type="number"
-                        value={dimensionH}
-                        onChange={e => setDimensionH(e.target.value)}
-                        placeholder="mm"
-                        className="h-9 font-mono-data text-xs bg-background"
-                      />
-                    </div>
-                  </div>
-                  {(dimensionL || dimensionW || dimensionH) && (
-                    <div className="mt-3 rounded-lg bg-muted/50 border border-border p-3">
-                      <span className="font-mono-data text-xs text-muted-foreground">
-                        {dimensionL || '—'} × {dimensionW || '—'} × {dimensionH || '—'} mm
-                      </span>
-                    </div>
-                  )}
-                </section>
 
                 <Separator />
 
