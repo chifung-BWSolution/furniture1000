@@ -323,9 +323,14 @@ interface ImageOverrideModalProps {
   mode: 'replace' | 'add';
 }
 
+const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml'];
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5 MB
+
 function ImageOverrideModal({ isOpen, onClose, currentImage, onConfirm, mode }: ImageOverrideModalProps) {
   const [previewImage, setPreviewImage] = useState<string | null>(currentImage);
   const [isDragging, setIsDragging] = useState(false);
+  const [fileError, setFileError] = useState<string | null>(null);
+  // In 'add' mode start with no image; in 'replace' mode start with current image
   const [isReplacing, setIsReplacing] = useState(mode === 'add');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dropZoneRef = useRef<HTMLDivElement>(null);
@@ -333,9 +338,28 @@ function ImageOverrideModal({ isOpen, onClose, currentImage, onConfirm, mode }: 
   useEffect(() => {
     setPreviewImage(currentImage);
     setIsReplacing(mode === 'add');
+    setFileError(null);
   }, [currentImage, mode, isOpen]);
 
-  // Handle clipboard paste
+  const loadFile = useCallback((file: File) => {
+    setFileError(null);
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+      setFileError('格式不支援，請上傳 PNG、JPG、WEBP 或 SVG 圖片');
+      return;
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      setFileError('圖片大小超過 5MB 上限');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      setPreviewImage(ev.target?.result as string);
+      setIsReplacing(true);
+    };
+    reader.readAsDataURL(file);
+  }, []);
+
+  // Ctrl+V paste
   useEffect(() => {
     if (!isOpen) return;
     const handlePaste = (e: ClipboardEvent) => {
@@ -345,36 +369,22 @@ function ImageOverrideModal({ isOpen, onClose, currentImage, onConfirm, mode }: 
         if (item.type.startsWith('image/')) {
           e.preventDefault();
           const file = item.getAsFile();
-          if (file) {
-            const reader = new FileReader();
-            reader.onload = (ev) => {
-              setPreviewImage(ev.target?.result as string);
-              setIsReplacing(true);
-            };
-            reader.readAsDataURL(file);
-          }
+          if (file) loadFile(file);
           break;
         }
       }
     };
     document.addEventListener('paste', handlePaste);
     return () => document.removeEventListener('paste', handlePaste);
-  }, [isOpen]);
+  }, [isOpen, loadFile]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
-    const files = e.dataTransfer.files;
-    if (files.length > 0 && files[0].type.startsWith('image/')) {
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        setPreviewImage(ev.target?.result as string);
-        setIsReplacing(true);
-      };
-      reader.readAsDataURL(files[0]);
-    }
-  }, []);
+    const file = e.dataTransfer.files?.[0];
+    if (file) loadFile(file);
+  }, [loadFile]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -390,20 +400,13 @@ function ImageOverrideModal({ isOpen, onClose, currentImage, onConfirm, mode }: 
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file && file.type.startsWith('image/')) {
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        setPreviewImage(ev.target?.result as string);
-        setIsReplacing(true);
-      };
-      reader.readAsDataURL(file);
-    }
-  }, []);
+    if (file) loadFile(file);
+    // reset so same file can be selected again
+    e.target.value = '';
+  }, [loadFile]);
 
   const handleConfirm = () => {
-    if (previewImage) {
-      onConfirm(previewImage);
-    }
+    if (previewImage) onConfirm(previewImage);
     onClose();
   };
 
@@ -418,6 +421,15 @@ function ImageOverrideModal({ isOpen, onClose, currentImage, onConfirm, mode }: 
         className="relative bg-card border border-border rounded-2xl shadow-2xl p-6 max-w-lg w-full mx-4 space-y-4"
         onClick={(e) => e.stopPropagation()}
       >
+        {/* Always-present hidden file input */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".png,.jpg,.jpeg,.webp,.svg,image/png,image/jpeg,image/webp,image/svg+xml"
+          onChange={handleFileSelect}
+          className="hidden"
+        />
+
         {/* Header */}
         <div className="flex items-center justify-between">
           <h3 className="font-[Syne] font-bold text-lg text-foreground">
@@ -433,14 +445,19 @@ function ImageOverrideModal({ isOpen, onClose, currentImage, onConfirm, mode }: 
 
         {/* Image Preview / Drop Zone */}
         {(!isReplacing && previewImage) ? (
+          // ── replace mode: show current image with Ctrl+V hint ──
           <div className="flex flex-col items-center gap-3">
             <img
               src={previewImage}
               alt="Current image"
               className="max-h-[300px] max-w-full rounded-xl object-contain border border-white/10"
             />
+            <p className="text-xs text-muted-foreground/60">
+              可按 <kbd className="px-1 py-0.5 rounded bg-muted border border-border text-xs">Ctrl+V</kbd> 直接貼上新圖片取代
+            </p>
           </div>
         ) : (
+          // ── add / replacing: drop zone ──
           <div
             ref={dropZoneRef}
             onDrop={handleDrop}
@@ -467,22 +484,23 @@ function ImageOverrideModal({ isOpen, onClose, currentImage, onConfirm, mode }: 
                 <Upload className="w-8 h-8 text-muted-foreground/50" />
                 <div className="text-center space-y-1">
                   <p className="text-sm font-[Manrope] text-muted-foreground">
-                    拖放圖片到此處 或 點擊選擇
+                    點擊選擇 或 拖放圖片到此處
                   </p>
                   <p className="text-xs text-muted-foreground/60">
-                    也支援 <kbd className="px-1 py-0.5 rounded bg-muted border border-border text-xs">Ctrl+V</kbd> 貼上剪貼簿圖片
+                    也支援 <kbd className="px-1 py-0.5 rounded bg-muted border border-border text-xs">Ctrl+V</kbd> 貼上
+                  </p>
+                  <p className="text-xs text-muted-foreground/50">
+                    PNG · JPG · WEBP · SVG，上限 5MB
                   </p>
                 </div>
               </div>
             )}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              onChange={handleFileSelect}
-              className="hidden"
-            />
           </div>
+        )}
+
+        {/* Error message */}
+        {fileError && (
+          <p className="text-xs text-rose-500 text-center">{fileError}</p>
         )}
 
         {/* Action Buttons */}
@@ -490,7 +508,7 @@ function ImageOverrideModal({ isOpen, onClose, currentImage, onConfirm, mode }: 
           {mode === 'replace' && !isReplacing && (
             <Button
               variant="outline"
-              onClick={() => setIsReplacing(true)}
+              onClick={() => fileInputRef.current?.click()}
               className="gap-2 text-sm"
             >
               <RefreshCw className="w-4 h-4" />
