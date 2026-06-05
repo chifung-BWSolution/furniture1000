@@ -96,29 +96,122 @@ interface ProductDetailModalProps {
 }
 
 // ─── Lightbox Component ────────────────────────────────────────────────
+
+/** Resize a File/Blob to max 1200×1200 and return a JPEG base64 data-URL at quality 0.92 */
+async function resizeToJpeg(file: File | Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const MAX = 1200;
+      let { width, height } = img;
+      if (width > MAX || height > MAX) {
+        if (width > height) { height = Math.round((height / width) * MAX); width = MAX; }
+        else { width = Math.round((width / height) * MAX); height = MAX; }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) { reject(new Error('canvas context unavailable')); return; }
+      ctx.drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL('image/jpeg', 0.92));
+    };
+    img.onerror = reject;
+    img.src = url;
+  });
+}
+
 function ImageLightbox({
   images,
   initialIndex,
   onClose,
+  productId,
+  onReplaceMain,
 }: {
   images: ProductImage[];
   initialIndex: number;
   onClose: () => void;
+  productId: string;
+  onReplaceMain?: (newSrc: string) => void;
 }) {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
+  const [pastedImage, setPastedImage] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
 
   const goNext = useCallback(() => setCurrentIndex((i) => (i + 1) % images.length), [images.length]);
   const goPrev = useCallback(() => setCurrentIndex((i) => (i - 1 + images.length) % images.length), [images.length]);
 
+  // Keyboard: Escape / arrows / Ctrl+V
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-      if (e.key === 'ArrowRight') goNext();
-      if (e.key === 'ArrowLeft') goPrev();
+      if (e.key === 'Escape') { if (pastedImage) { setPastedImage(null); } else { onClose(); } }
+      if (!pastedImage && e.key === 'ArrowRight') goNext();
+      if (!pastedImage && e.key === 'ArrowLeft') goPrev();
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [onClose, goNext, goPrev]);
+  }, [onClose, goNext, goPrev, pastedImage]);
+
+  // Ctrl+V paste
+  useEffect(() => {
+    const handlePaste = async (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (const item of items) {
+        if (item.type.startsWith('image/')) {
+          e.preventDefault();
+          const file = item.getAsFile();
+          if (!file) break;
+          try {
+            const resized = await resizeToJpeg(file);
+            setPastedImage(resized);
+          } catch {
+            toast.error('圖片處理失敗，請重試');
+          }
+          break;
+        }
+      }
+    };
+    document.addEventListener('paste', handlePaste);
+    return () => document.removeEventListener('paste', handlePaste);
+  }, []);
+
+  const handleSavePasted = async () => {
+    if (!pastedImage) return;
+    setIsSaving(true);
+    try {
+      // Build new images list: replace index 0 (main image) with pasted
+      const updatedImages = images.map((img, idx) =>
+        idx === currentIndex ? { ...img, src: pastedImage } : img
+      );
+      const imageUrl = updatedImages[0]?.src ?? pastedImage;
+
+      const { error } = await supabase
+        .from('products')
+        .update({
+          image_url: imageUrl,
+          images: updatedImages.map((img) => ({ src: img.src, alt: img.alt || '', path: img.path || '' })),
+        })
+        .eq('id', productId);
+
+      if (error) {
+        toast.error('儲存失敗', { description: error.message });
+        return;
+      }
+      toast.success('主圖已更新');
+      onReplaceMain?.(pastedImage);
+      setPastedImage(null);
+      onClose();
+    } catch (err) {
+      toast.error('儲存時發生錯誤，請重試');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const displaySrc = pastedImage ?? images[currentIndex]?.src;
 
   return (
     <motion.div
@@ -126,7 +219,7 @@ function ImageLightbox({
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-md"
-      onClick={onClose}
+      onClick={() => { if (!pastedImage) onClose(); }}
     >
       {/* Close button */}
       <button
@@ -139,12 +232,12 @@ function ImageLightbox({
       {/* Counter */}
       <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 px-3 py-1.5 rounded-full bg-white/10 backdrop-blur-sm">
         <span className="font-mono-data text-xs text-white">
-          {currentIndex + 1} / {images.length}
+          {pastedImage ? '貼上新圖片預覽' : `${currentIndex + 1} / ${images.length}`}
         </span>
       </div>
 
-      {/* Navigation arrows */}
-      {images.length > 1 && (
+      {/* Navigation arrows — hidden when previewing pasted image */}
+      {!pastedImage && images.length > 1 && (
         <>
           <button
             onClick={(e) => { e.stopPropagation(); goPrev(); }}
@@ -163,23 +256,54 @@ function ImageLightbox({
 
       {/* Main Image */}
       <motion.div
-        key={currentIndex}
+        key={pastedImage ? 'pasted' : currentIndex}
         initial={{ opacity: 0, scale: 0.95 }}
         animate={{ opacity: 1, scale: 1 }}
         transition={{ duration: 0.2 }}
-        className="max-w-[85vw] max-h-[85vh] flex items-center justify-center"
+        className="max-w-[85vw] max-h-[75vh] flex items-center justify-center"
         onClick={(e) => e.stopPropagation()}
       >
         <img
-          src={images[currentIndex]?.src}
-          alt={images[currentIndex]?.alt || 'Product image'}
-          className="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl"
+          src={displaySrc}
+          alt="Product image"
+          className="max-w-full max-h-[75vh] object-contain rounded-lg shadow-2xl"
         />
       </motion.div>
 
-      {/* Thumbnail strip at bottom */}
-      {images.length > 1 && (
-        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-2 px-4 py-2 rounded-xl bg-white/10 backdrop-blur-sm max-w-[80vw] overflow-x-auto">
+      {/* Paste hint / Save bar */}
+      <div
+        className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-3 z-10"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {pastedImage ? (
+          <>
+            <button
+              onClick={() => setPastedImage(null)}
+              className="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-sm font-body transition-colors"
+            >
+              取消
+            </button>
+            <button
+              onClick={handleSavePasted}
+              disabled={isSaving}
+              className="flex items-center gap-2 px-5 py-2 rounded-lg bg-primary hover:bg-primary/90 text-white text-sm font-medium transition-colors disabled:opacity-60"
+            >
+              {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              儲存取代主圖
+            </button>
+          </>
+        ) : (
+          <div className="px-4 py-2 rounded-full bg-white/10 backdrop-blur-sm">
+            <span className="font-body text-xs text-white/70">
+              按 <kbd className="px-1.5 py-0.5 rounded bg-white/20 text-white text-xs">Ctrl+V</kbd> 貼上新圖片取代主圖
+            </span>
+          </div>
+        )}
+      </div>
+
+      {/* Thumbnail strip */}
+      {!pastedImage && images.length > 1 && (
+        <div className="absolute bottom-20 left-1/2 -translate-x-1/2 flex gap-2 px-4 py-2 rounded-xl bg-white/10 backdrop-blur-sm max-w-[80vw] overflow-x-auto">
           {images.map((img, idx) => (
             <button
               key={idx}
@@ -191,11 +315,7 @@ function ImageLightbox({
                   : 'border-transparent opacity-60 hover:opacity-100'
               )}
             >
-              <img
-                src={img.src}
-                alt={img.alt || `Thumb ${idx + 1}`}
-                className="h-full w-full object-cover"
-              />
+              <img src={img.src} alt={img.alt || `Thumb ${idx + 1}`} className="h-full w-full object-cover" />
             </button>
           ))}
         </div>
@@ -1260,6 +1380,12 @@ export function ProductDetailModal({
                 images={images}
                 initialIndex={lightboxIndex}
                 onClose={() => setLightboxOpen(false)}
+                productId={product.id}
+                onReplaceMain={(newSrc) => {
+                  setImages((prev) =>
+                    prev.map((img, idx) => (idx === lightboxIndex ? { ...img, src: newSrc } : img))
+                  );
+                }}
               />
             )}
           </AnimatePresence>
