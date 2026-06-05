@@ -1439,7 +1439,7 @@ export function ListedProductsView({
                       </div>
 
                       {/* Info — right side, stretched to full image height */}
-                      <div className="flex flex-col flex-1 min-w-0 px-3 py-3 justify-between">
+                      <div className="flex flex-col flex-1 min-w-0 px-3 py-2 justify-between">
                         {/* Title */}
                         <p className="font-display text-[13px] font-bold leading-snug line-clamp-2">
                           {product.title}
