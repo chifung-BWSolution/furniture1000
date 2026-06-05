@@ -53,9 +53,12 @@ import {
   ExternalLink,
   Factory,
   FolderTree,
+  LayoutGrid,
+  List,
   Loader2,
   Search,
   Send,
+  Store,
   Trash2,
   X,
 } from 'lucide-react';
@@ -151,6 +154,7 @@ export function ListedProductsView({
   const [showPricingDialog, setShowPricingDialog] = useState(false);
   const [pricingMultiplier, setPricingMultiplier] = useState('');
   const [isApplyingPricing, setIsApplyingPricing] = useState(false);
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [detailProduct, setDetailProduct] = useState<ListedProduct | null>(null);
   const [shopifyFilter, setShopifyFilter] = useState<'all' | 'shopify' | 'database'>('all');
   const [factoryFilterOpen, setFactoryFilterOpen] = useState(false);
@@ -1224,10 +1228,39 @@ export function ListedProductsView({
 
           <div className="flex items-center gap-2">
             {selectedIds.size > 0 && (
-              <Badge variant="secondary" className="font-mono-data text-[10px] animate-in fade-in">
+              <Badge variant="secondary" className="font-mono-data text-xs animate-in fade-in">
                 已選 {selectedIds.size} 項
               </Badge>
             )}
+
+            {/* Grid / List toggle */}
+            <div className="flex items-center rounded-md border border-border overflow-hidden">
+              <button
+                onClick={() => setViewMode('grid')}
+                className={cn(
+                  'flex items-center gap-1 px-2.5 py-1.5 text-xs transition-colors',
+                  viewMode === 'grid'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:bg-muted'
+                )}
+                title="Grid 格式"
+              >
+                <LayoutGrid className="h-3.5 w-3.5" />
+              </button>
+              <button
+                onClick={() => setViewMode('list')}
+                className={cn(
+                  'flex items-center gap-1 px-2.5 py-1.5 text-xs transition-colors',
+                  viewMode === 'list'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:bg-muted'
+                )}
+                title="List 格式"
+              >
+                <List className="h-3.5 w-3.5" />
+              </button>
+            </div>
+
             {!isCatalog && (
               <Button
                 variant="outline"
@@ -1305,7 +1338,7 @@ export function ListedProductsView({
         <div className="flex-1 overflow-auto">
           {isLoading ? (
             <div className="px-6 py-3">
-              <div className="mb-2 flex items-center gap-2 text-[11px] text-muted-foreground font-body">
+              <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground font-body">
                 <Loader2 className="h-3 w-3 animate-spin text-primary" />
                 Lazy Loading 已啟用 • 正在載入前 {pageSize} 件產品...
               </div>
@@ -1362,7 +1395,117 @@ export function ListedProductsView({
                     : '從「上載PDF」新增產品或從 Shopify 同步現有產品'}
               </p>
             </div>
+          ) : viewMode === 'grid' ? (
+            /* ── GRID VIEW ── */
+            <div className="p-4 grid grid-cols-2 gap-4">
+              {products.map((product) => {
+                const imgSrc = product.images?.[0]?.src || product.imageUrl || '';
+                const dimStr = [product.dimensionLMm, product.dimensionWMm, product.dimensionHMm]
+                  .filter(Boolean).length > 0
+                  ? `${product.dimensionLMm ?? '—'} × ${product.dimensionWMm ?? '—'} × ${product.dimensionHMm ?? '—'} mm`
+                  : null;
+                return (
+                  <motion.div
+                    key={product.id}
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="flex flex-col rounded-xl border border-border bg-card overflow-hidden hover:shadow-md transition-shadow cursor-pointer"
+                    onClick={(e) => handleRowClick(e, product)}
+                  >
+                    {/* Image — 1:1 square */}
+                    <div className="relative w-full aspect-square bg-muted overflow-hidden">
+                      {imgSrc ? (
+                        <img
+                          src={imgSrc}
+                          alt={product.title}
+                          loading="lazy"
+                          className="absolute inset-0 h-full w-full object-cover"
+                        />
+                      ) : (
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <Store className="h-12 w-12 text-muted-foreground/30" />
+                        </div>
+                      )}
+                      {/* Checkbox overlay */}
+                      <div
+                        className="absolute top-2 left-2"
+                        onClick={(e) => { e.stopPropagation(); toggleSelectProduct(product.id); }}
+                      >
+                        <Checkbox checked={selectedIds.has(product.id)} className="bg-white/80" />
+                      </div>
+                    </div>
+
+                    {/* Content */}
+                    <div className="flex flex-col flex-1 p-3 gap-2">
+                      {/* Title */}
+                      <p className="font-display text-sm font-bold leading-tight line-clamp-2 min-h-[2.5rem]">
+                        {product.title}
+                      </p>
+
+                      {/* Prices */}
+                      <div className="flex items-center gap-3">
+                        {product.costPrice != null && (
+                          <span className="font-mono-data text-xs text-amber-600 dark:text-amber-400">
+                            成本 ¥{product.costPrice.toFixed(0)}
+                          </span>
+                        )}
+                        {product.salePrice != null && product.salePrice > 0 && (
+                          <span className="font-mono-data text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                            售 HK${product.salePrice.toLocaleString()}
+                          </span>
+                        )}
+                      </div>
+
+                      {/* Material — max 3 lines */}
+                      {product.material && (
+                        <p className="font-body text-xs text-muted-foreground line-clamp-3 leading-relaxed">
+                          {product.material}
+                        </p>
+                      )}
+
+                      {/* Dimensions */}
+                      {dimStr && (
+                        <p className="font-mono-data text-xs text-muted-foreground/80">
+                          📐 {dimStr}
+                        </p>
+                      )}
+
+                      {/* A/B/C Actions */}
+                      {!isCatalog && (
+                        <div
+                          className="mt-auto pt-2 grid grid-cols-3 gap-1.5 border-t border-border"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <button
+                            onClick={() => handleRowToShopify(product)}
+                            className="flex items-center justify-center gap-1 rounded-md bg-indigo-500/10 px-1.5 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-500/20 transition-colors"
+                          >
+                            <Send className="h-3 w-3 flex-shrink-0" />
+                            <span className="truncate">A 加入Shopify</span>
+                          </button>
+                          <button
+                            onClick={() => handleRowToCatalog(product)}
+                            className="flex items-center justify-center gap-1 rounded-md bg-emerald-500/10 px-1.5 py-1.5 text-xs font-medium text-emerald-600 hover:bg-emerald-500/20 transition-colors"
+                          >
+                            <Database className="h-3 w-3 flex-shrink-0" />
+                            <span className="truncate">B 加到目錄</span>
+                          </button>
+                          <button
+                            onClick={() => setDismissTarget(product)}
+                            className="flex items-center justify-center gap-1 rounded-md border border-border px-1.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-rose-500/10 hover:text-rose-500 transition-colors"
+                          >
+                            <Trash2 className="h-3 w-3 flex-shrink-0" />
+                            <span className="truncate">C 暫不考慮</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
+                );
+              })}
+            </div>
           ) : (
+            /* ── LIST VIEW ── */
             <table className="w-full min-w-[1580px]">
               <thead className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm">
                 <tr className="border-b border-border">
@@ -1759,7 +1902,7 @@ export function ListedProductsView({
         {/* Pagination Footer */}
         {!isLoading && products.length > 0 && (
           <div className="flex items-center justify-between border-t border-border bg-muted/30 px-6 py-2.5">
-            <span className="font-mono-data text-[11px] text-muted-foreground">
+            <span className="font-mono-data text-xs text-muted-foreground">
               顯示 {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, totalCount)}，共 {totalCount} 項
             </span>
 
