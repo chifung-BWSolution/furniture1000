@@ -92,6 +92,7 @@ export type ViewType =
   | 'dashboard'
   | 'advanced-search'
   | 'manufacturer-catalog'
+  | 'factory-detail'
   | 'ai-processor'
   | 'listed-products'
   | 'product-catalog'

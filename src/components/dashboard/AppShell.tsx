@@ -23,6 +23,9 @@ const ListedProductsView = lazy(() =>
 const ManufacturerDirectoryView = lazy(() =>
   import("./ManufacturerDirectoryView").then((mod) => ({ default: mod.ManufacturerDirectoryView }))
 );
+const FactoryDetailView = lazy(() =>
+  import("./FactoryDetailPage").then((mod) => ({ default: mod.FactoryDetailView }))
+);
 const QuickQuoteView = lazy(() =>
   import("./QuickQuoteView").then((mod) => ({ default: mod.QuickQuoteView }))
 );
@@ -98,6 +101,7 @@ const SELF_LOADING_VIEWS = new Set<ViewType>([
   "listed-products",
   "product-catalog",
   "manufacturer-catalog",
+  "factory-detail",
   "category-management",
   "category-registry",
   "quotation-list",
@@ -266,6 +270,13 @@ export function AppShell() {
         );
       case "manufacturer-catalog":
         return <ManufacturerDirectoryView />;
+      case "factory-detail":
+        return store.factoryDetailCode ? (
+          <FactoryDetailView
+            factoryCode={store.factoryDetailCode}
+            onBack={() => store.setCurrentView("manufacturer-catalog")}
+          />
+        ) : null;
       case "design-projects":
         return <DesignProjectsView />;
       case "product-search":

@@ -267,6 +267,7 @@ export function useAppStore() {
   const [currentView, setCurrentView] = useState<ViewType>('quick-quote');
   const [selectedProductIds, setSelectedProductIds] = useState<Set<string>>(new Set());
   const [filterProductId, setFilterProductId] = useState<string | null>(null);
+  const [factoryDetailCode, setFactoryDetailCode] = useState<string | null>(null);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -1532,6 +1533,8 @@ export function useAppStore() {
     currentView,
     selectedProductIds,
     filterProductId,
+    factoryDetailCode,
+    setFactoryDetailCode,
     isDarkMode,
     stats,
     isLoading,

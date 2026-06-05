@@ -1,5 +1,20 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+
+// ─── Standalone route wrapper ─────────────────────────────────────────────────
+// This is kept so the /manufacturers/:factoryCode route still works as a
+// fallback (e.g. direct URL navigation). The AppShell uses FactoryDetailView.
+export function FactoryDetailPage() {
+  const { factoryCode } = useParams<{ factoryCode: string }>();
+  const navigate = useNavigate();
+  if (!factoryCode) return null;
+  return (
+    <FactoryDetailView
+      factoryCode={factoryCode}
+      onBack={() => navigate(-1)}
+    />
+  );
+}
 import { cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
 import { Input } from '@/components/ui/input';
@@ -79,11 +94,15 @@ interface OrderHistoryRecord {
   clientName: string;
 }
 
-// ─── Main Page ────────────────────────────────────────────────────────────────
+// ─── Shared View (used both by the standalone route and the AppShell view) ────
 
-export function FactoryDetailPage() {
-  const { factoryCode } = useParams<{ factoryCode: string }>();
-  const navigate = useNavigate();
+export function FactoryDetailView({
+  factoryCode,
+  onBack,
+}: {
+  factoryCode: string;
+  onBack: () => void;
+}) {
 
   const [factory, setFactory] = useState<FactoryRecord | null>(null);
   const [comments, setComments] = useState<StaffComment[]>([]);
@@ -115,7 +134,7 @@ export function FactoryDetailPage() {
         );
         if (!found) {
           toast.error('找不到此廠家');
-          navigate('/manufacturers');
+          onBack();
           return;
         }
         setFactory(found);
@@ -218,15 +237,15 @@ export function FactoryDetailPage() {
   if (!factory) return null;
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Top Bar */}
-      <header className="sticky top-0 z-30 border-b border-border bg-background/90 backdrop-blur-md">
-        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
+    <div className="h-full overflow-y-auto bg-background">
+      {/* Sub-header — back + actions, sits inside the AppShell content area */}
+      <div className="sticky top-0 z-20 border-b border-border bg-background/90 backdrop-blur-md">
+        <div className="flex h-12 items-center justify-between px-6">
           <div className="flex items-center gap-3">
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => navigate(-1)}
+              onClick={onBack}
               className="gap-1.5 font-display text-xs"
             >
               <ArrowLeft className="h-3.5 w-3.5" />
@@ -243,7 +262,6 @@ export function FactoryDetailPage() {
               )}
             </div>
           </div>
-
           <div className="flex items-center gap-2">
             <Button
               variant="outline"
@@ -270,7 +288,7 @@ export function FactoryDetailPage() {
             </Button>
           </div>
         </div>
-      </header>
+      </div>
 
       {/* Page Body */}
       <div className="mx-auto max-w-6xl px-6 py-8">

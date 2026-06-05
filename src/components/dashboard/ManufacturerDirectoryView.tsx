@@ -21,8 +21,8 @@ import {
   X,
   ChevronRight,
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
+import { useAppStore } from '@/hooks/use-app-store';
 import { motion, AnimatePresence } from 'framer-motion';
 
 // --- Types ---
@@ -66,7 +66,7 @@ interface LinkedProjectRecord {
 // --- Component ---
 
 export function ManufacturerDirectoryView() {
-  const navigate = useNavigate();
+  const store = useAppStore();
   const [factories, setFactories] = useState<FactoryRecord[]>([]);
   const [comments, setComments] = useState<StaffComment[]>([]);
   const [products, setProducts] = useState<ProductRecord[]>([]);
@@ -137,7 +137,8 @@ export function ManufacturerDirectoryView() {
 
   const handleViewDetail = (factory: FactoryRecord) => {
     const slug = factory.factory_code || factory.id;
-    navigate(`/manufacturers/${slug}`);
+    store.setFactoryDetailCode(slug);
+    store.setCurrentView('factory-detail');
   };
 
   return (
