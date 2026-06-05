@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { Progress } from '@/components/ui/progress';
-import { ColorSelector } from './ColorSelector';
+import { MultiColorSelector } from './MultiColorSelector';
 import { CascadingCategorySelector } from './CascadingCategorySelector';
 import {
   X,
@@ -1206,9 +1206,9 @@ export function ProductDetailModal({
                   <div className="grid gap-4">
                     <div className="space-y-2">
                       <Label className="font-body text-xs text-muted-foreground">
-                        顏色
+                        顏色（可多選）
                       </Label>
-                      <ColorSelector
+                      <MultiColorSelector
                         value={color}
                         onChange={setColor}
                         placeholder="選擇顏色..."
