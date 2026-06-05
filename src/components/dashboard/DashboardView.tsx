@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { supabase } from '@/lib/supabase';
-import { Loader2 } from 'lucide-react';
+import { Loader2, ArrowRight } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface DashboardViewProps {
   onNavigateToAI: () => void;
@@ -35,7 +36,6 @@ function thisMonthRange(): { gte: string; lt: string } {
 
 async function fetchDashboardStats(): Promise<DashboardStats> {
   const { gte, lt } = thisMonthRange();
-
   const [
     { data: allProducts },
     { data: monthProducts },
@@ -76,58 +76,73 @@ async function fetchDashboardStats(): Promise<DashboardStats> {
   };
 }
 
-interface SectionProps {
-  title: string;
+interface StatTileProps {
+  label: string;
+  value: number | string;
+  sub?: string;
+  accent?: string;
+  onClick?: () => void;
   delay?: number;
-  children: React.ReactNode;
+  wide?: boolean;
 }
 
-function Section({ title, delay = 0, children }: SectionProps) {
+function StatTile({ label, value, sub, accent = 'text-foreground', onClick, delay = 0, wide }: StatTileProps) {
   return (
     <motion.div
-      initial={{ opacity: 0, y: 10 }}
+      initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      transition={{ delay, duration: 0.35 }}
+      transition={{ delay, duration: 0.3 }}
+      onClick={onClick}
+      className={cn(
+        'flex flex-col justify-between rounded-xl border border-border bg-card p-5 gap-3',
+        onClick && 'cursor-pointer hover:border-primary/40 hover:bg-muted/30 transition-colors',
+        wide && 'col-span-2'
+      )}
     >
-      <p style={{ fontSize: 12 }} className="mb-3 font-semibold uppercase tracking-widest text-muted-foreground">
-        {title}
-      </p>
-      <div className="rounded-xl border border-border bg-card">
-        {children}
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <p style={{ fontSize: 13 }} className="font-medium text-foreground leading-snug">{label}</p>
+          {sub && <p style={{ fontSize: 12 }} className="mt-0.5 text-muted-foreground">{sub}</p>}
+        </div>
+        {onClick && <ArrowRight style={{ fontSize: 14 }} className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />}
       </div>
+      <p style={{ fontSize: 32 }} className={cn('font-bold font-mono-data tabular-nums leading-none', accent)}>
+        {value}
+      </p>
     </motion.div>
   );
 }
 
-interface RowProps {
-  label: string;
-  value: number | string;
-  sub?: string;
-  onClick?: () => void;
-  last?: boolean;
+interface TierTileProps {
+  tier: string;
+  range: string;
+  count: number;
+  pct: number;
+  accent: string;
+  delay?: number;
 }
 
-function Row({ label, value, sub, onClick, last }: RowProps) {
-  const base =
-    'flex items-center justify-between px-5 py-4' +
-    (last ? '' : ' border-b border-border') +
-    (onClick ? ' cursor-pointer hover:bg-muted/40 transition-colors' : '');
+function TierTile({ tier, range, count, pct, accent, delay = 0 }: TierTileProps) {
   return (
-    <div className={base} onClick={onClick} role={onClick ? 'button' : undefined}>
-      <div className="flex flex-col gap-0.5">
-        <span style={{ fontSize: 13 }} className="font-medium text-foreground leading-tight">
-          {label}
-        </span>
-        {sub && (
-          <span style={{ fontSize: 12 }} className="text-muted-foreground">
-            {sub}
-          </span>
-        )}
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay, duration: 0.3 }}
+      className="flex flex-col justify-between rounded-xl border border-border bg-card p-5 gap-3"
+    >
+      <div>
+        <p style={{ fontSize: 16 }} className={cn('font-bold', accent)}>{tier} 類</p>
+        <p style={{ fontSize: 12 }} className="mt-0.5 text-muted-foreground">{range}</p>
       </div>
-      <span style={{ fontSize: 22 }} className="font-bold font-mono-data tabular-nums text-foreground">
-        {value}
-      </span>
-    </div>
+      <div className="flex items-end justify-between">
+        <p style={{ fontSize: 32 }} className="font-bold font-mono-data tabular-nums leading-none text-foreground">
+          {count}
+        </p>
+        <p style={{ fontSize: 18 }} className={cn('font-semibold font-mono-data', accent)}>
+          {pct}%
+        </p>
+      </div>
+    </motion.div>
   );
 }
 
@@ -156,78 +171,119 @@ export function DashboardView({ onNavigateToAI, onNavigateToCopywriting }: Dashb
 
   return (
     <div className="h-full overflow-y-auto">
-      <div className="space-y-7 p-6 max-w-2xl">
+      <div className="p-6 space-y-8 max-w-3xl">
 
         {/* 產品概覽 */}
-        <Section title="產品概覽" delay={0}>
-          <Row
-            label="本月上載產品"
-            value={stats?.uploadedThisMonth ?? 0}
-          />
-          <Row
-            label="待填寫產品文案"
-            sub="已加入 Shopify 佇列，文案尚未填寫"
-            value={stats?.copywritingPending ?? 0}
-            onClick={onNavigateToCopywriting}
-          />
-          <Row
-            label="產品目錄"
-            sub="已加入產品目錄的產品"
-            value={stats?.catalogCount ?? 0}
-            last
-          />
-        </Section>
+        <div>
+          <p style={{ fontSize: 12 }} className="mb-3 font-semibold uppercase tracking-widest text-muted-foreground">
+            產品概覽
+          </p>
+          <div className="grid grid-cols-3 gap-3">
+            <StatTile
+              label="本月上載產品"
+              value={stats?.uploadedThisMonth ?? 0}
+              delay={0}
+            />
+            <StatTile
+              label="待填寫產品文案"
+              sub="已加入佇列，文案未填"
+              value={stats?.copywritingPending ?? 0}
+              accent="text-amber-500"
+              onClick={onNavigateToCopywriting}
+              delay={0.05}
+            />
+            <StatTile
+              label="產品目錄"
+              sub="已加入目錄的產品"
+              value={stats?.catalogCount ?? 0}
+              accent="text-emerald-600"
+              delay={0.1}
+            />
+          </div>
+        </div>
 
         {/* A/B/C 類別分布 */}
-        <Section title="A / B / C 類別分布" delay={0.08}>
-          <Row
-            label="A 類（≥ $4,000）"
-            value={`${stats?.tierA ?? 0}　${tierAPercent}%`}
-          />
-          <Row
-            label="B 類（$1,500 – $3,999）"
-            value={`${stats?.tierB ?? 0}　${tierBPercent}%`}
-          />
-          <Row
-            label="C 類（< $1,500）"
-            value={`${stats?.tierC ?? 0}　${tierCPercent}%`}
-            last
-          />
-        </Section>
+        <div>
+          <p style={{ fontSize: 12 }} className="mb-3 font-semibold uppercase tracking-widest text-muted-foreground">
+            A / B / C 類別分布
+          </p>
+          <div className="grid grid-cols-3 gap-3">
+            <TierTile
+              tier="A"
+              range="≥ $4,000"
+              count={stats?.tierA ?? 0}
+              pct={tierAPercent}
+              accent="text-primary"
+              delay={0.12}
+            />
+            <TierTile
+              tier="B"
+              range="$1,500 – $3,999"
+              count={stats?.tierB ?? 0}
+              pct={tierBPercent}
+              accent="text-amber-500"
+              delay={0.17}
+            />
+            <TierTile
+              tier="C"
+              range="< $1,500"
+              count={stats?.tierC ?? 0}
+              pct={tierCPercent}
+              accent="text-muted-foreground"
+              delay={0.22}
+            />
+          </div>
+        </div>
 
         {/* 本月業務 */}
-        <Section title="本月業務" delay={0.16}>
-          <Row
-            label="專案成立"
-            value={stats?.projectsThisMonth ?? 0}
-          />
-          <Row
-            label="客戶邀請"
-            value={stats?.invitesThisMonth ?? 0}
-          />
-          <Row
-            label="報價單"
-            value={stats?.quotesThisMonth ?? 0}
-            last
-          />
-        </Section>
+        <div>
+          <p style={{ fontSize: 12 }} className="mb-3 font-semibold uppercase tracking-widest text-muted-foreground">
+            本月業務
+          </p>
+          <div className="grid grid-cols-3 gap-3">
+            <StatTile
+              label="專案成立"
+              value={stats?.projectsThisMonth ?? 0}
+              accent="text-violet-600"
+              delay={0.24}
+            />
+            <StatTile
+              label="客戶邀請"
+              value={stats?.invitesThisMonth ?? 0}
+              accent="text-sky-600"
+              delay={0.29}
+            />
+            <StatTile
+              label="報價單"
+              value={stats?.quotesThisMonth ?? 0}
+              accent="text-rose-500"
+              delay={0.34}
+            />
+          </div>
+        </div>
 
         {/* 快捷操作 */}
-        <Section title="快捷操作" delay={0.24}>
-          <Row
-            label="處理新產品"
-            sub="上傳目錄及圖片進行 AI 分析"
-            value="→"
-            onClick={onNavigateToAI}
-          />
-          <Row
-            label="填寫產品文案"
-            sub={`${stats?.copywritingPending ?? 0} 件待填寫`}
-            value="→"
-            onClick={onNavigateToCopywriting}
-            last
-          />
-        </Section>
+        <div>
+          <p style={{ fontSize: 12 }} className="mb-3 font-semibold uppercase tracking-widest text-muted-foreground">
+            快捷操作
+          </p>
+          <div className="grid grid-cols-2 gap-3">
+            <StatTile
+              label="處理新產品"
+              sub="上傳目錄及圖片進行 AI 分析"
+              value=""
+              onClick={onNavigateToAI}
+              delay={0.36}
+            />
+            <StatTile
+              label="填寫產品文案"
+              sub={`${stats?.copywritingPending ?? 0} 件待填寫`}
+              value=""
+              onClick={onNavigateToCopywriting}
+              delay={0.4}
+            />
+          </div>
+        </div>
 
       </div>
     </div>
