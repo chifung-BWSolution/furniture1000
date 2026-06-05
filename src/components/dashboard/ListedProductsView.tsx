@@ -39,6 +39,8 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   AlertTriangle,
+  Ban,
+  Calculator,
   Check,
   ChevronDown,
   ChevronLeft,
@@ -89,6 +91,7 @@ interface ListedProduct {
   factoryId?: string | null;
   factoriesDisplayName?: string | null;
   costPrice?: number | null;
+  salePrice?: number | null;
   productionLeadTime?: number | null;
   shippingDays?: number | null;
   shippingFee?: number | null;
@@ -142,7 +145,12 @@ export function ListedProductsView({
   const [variantModal, setVariantModal] = useState<{ product: ListedProduct } | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showBatchRejectConfirm, setShowBatchRejectConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isBatchRejecting, setIsBatchRejecting] = useState(false);
+  const [showPricingDialog, setShowPricingDialog] = useState(false);
+  const [pricingMultiplier, setPricingMultiplier] = useState('');
+  const [isApplyingPricing, setIsApplyingPricing] = useState(false);
   const [detailProduct, setDetailProduct] = useState<ListedProduct | null>(null);
   const [shopifyFilter, setShopifyFilter] = useState<'all' | 'shopify' | 'database'>('all');
   const [factoryFilterOpen, setFactoryFilterOpen] = useState(false);
@@ -308,7 +316,7 @@ export function ListedProductsView({
         'collection', 'status', 'image_url', 'images',
         'shopify_product_id', 'source', 'synced_at', 'created_at',
         'color', 'factory_id', 'factories_display_name',
-        'cost_price', 'production_date', 'shipping_days', 'total_lead_time',
+        'cost_price', 'sale_price', 'production_date', 'shipping_days', 'total_lead_time',
         'bwf_master_id', 'remarks', 'shipping_fee', 'category',
         'level1_category', 'level2_category', 'production_time',
         'material', 'model', 'specifications',
@@ -393,6 +401,7 @@ export function ListedProductsView({
         factoryId: row.factory_id || null,
         factoriesDisplayName: row.factories_display_name || null,
         costPrice: row.cost_price != null ? parseFloat(row.cost_price) : null,
+        salePrice: row.sale_price != null ? parseFloat(row.sale_price) : null,
         productionLeadTime: row.production_date != null ? parseInt(row.production_date) : null,
         shippingDays: row.shipping_days != null ? parseInt(row.shipping_days) : null,
         totalLeadTime: row.total_lead_time != null ? parseInt(row.total_lead_time) : null,
@@ -899,6 +908,97 @@ export function ListedProductsView({
       : toast.error('操作失敗', { description: res.error });
   }, [dismissTarget, dropRowLocally]);
 
+  // 批量「暫不考慮」— save to products_rejected then dismiss
+  const handleBatchReject = useCallback(async () => {
+    const ids = Array.from(selectedIds);
+    const productsToReject = products.filter(p => ids.includes(p.id));
+    if (productsToReject.length === 0) return;
+
+    setIsBatchRejecting(true);
+    setShowBatchRejectConfirm(false);
+
+    setProducts(prev => prev.filter(p => !selectedIds.has(p.id)));
+    setTotalCount(c => Math.max(0, c - ids.length));
+    setSelectedIds(new Set());
+
+    const toastId = toast.loading(`正在將 ${productsToReject.length} 件產品標記為「暫不考慮」...`);
+    try {
+      const rejectedRows = productsToReject.map(p => ({
+        original_product_id: p.id,
+        title: p.title,
+        description: p.description,
+        tags: p.tags,
+        price: p.price,
+        image_url: p.imageUrl,
+        factory_id: p.factoryId ?? null,
+        factories_display_name: p.factoriesDisplayName ?? null,
+        cost_price: p.costPrice ?? null,
+        color: p.color ?? null,
+        category: p.category ?? null,
+        source: p.source,
+        shopify_product_id: p.shopifyProductId ?? null,
+        bwf_master_id: p.bwfMasterId ?? null,
+        rejection_source: 'listed_products',
+      }));
+      await supabase.from('products_rejected').insert(rejectedRows);
+      const res = await dismissProducts(ids);
+      if (res.ok) {
+        toast.success(`已將 ${ids.length} 件產品標記為「暫不考慮」`, {
+          id: toastId, description: '資料已儲存至 products_rejected。', duration: 5000,
+        });
+      } else {
+        toast.error('部分操作失敗', { id: toastId, description: res.error });
+      }
+    } catch (err) {
+      toast.error('操作失敗', { id: toastId, description: err instanceof Error ? err.message : '未知錯誤' });
+    } finally {
+      setIsBatchRejecting(false);
+    }
+  }, [selectedIds, products]);
+
+  // 批量定價 — 套用定價倍數並寫入 Supabase sale_price
+  const handleApplyPricing = useCallback(async () => {
+    const multiplier = parseFloat(pricingMultiplier);
+    if (isNaN(multiplier) || multiplier <= 0) {
+      toast.error('請輸入有效的倍數，例如 2.3、2.5、2.7');
+      return;
+    }
+    const toUpdate = products.filter(p => p.costPrice != null && p.costPrice > 0);
+    if (toUpdate.length === 0) {
+      toast.error('當前頁面沒有含成本的產品可計算售價');
+      return;
+    }
+    setIsApplyingPricing(true);
+    setShowPricingDialog(false);
+    const toastId = toast.loading(`正在為 ${toUpdate.length} 件產品套用定價 ×${multiplier}...`);
+    try {
+      const updates = toUpdate.map(p => ({
+        id: p.id,
+        newSalePrice: Math.ceil(p.costPrice! * multiplier),
+      }));
+      const results = await Promise.all(
+        updates.map(u => supabase.from('products').update({ sale_price: u.newSalePrice }).eq('id', u.id))
+      );
+      const firstErr = results.find(r => r.error)?.error ?? null;
+      if (firstErr) {
+        toast.error('售價更新失敗', { id: toastId, description: firstErr.message });
+        return;
+      }
+      const updateMap = new Map(updates.map(u => [u.id, u.newSalePrice]));
+      setProducts(prev => prev.map(p => updateMap.has(p.id) ? { ...p, salePrice: updateMap.get(p.id)! } : p));
+      toast.success(`已為 ${updates.length} 件產品套用售價`, {
+        id: toastId,
+        description: `定價倍數 ×${multiplier}，售價已同步至 Supabase。`,
+        duration: 5000,
+      });
+      setPricingMultiplier('');
+    } catch (err) {
+      toast.error('操作失敗', { id: toastId, description: err instanceof Error ? err.message : '未知錯誤' });
+    } finally {
+      setIsApplyingPricing(false);
+    }
+  }, [pricingMultiplier, products]);
+
   // 「待上傳到 Shopify」（批量）— 與單列「A 加入Shopify」一致：
   // 標記 in_shopify_queue=true + in_catalog=true（寫入 Supabase），
   // 產品即出現在「網上發佈 > 產品文案」與「產品目錄」，並從本頁前端消失。
@@ -1144,21 +1244,26 @@ export function ListedProductsView({
               </Button>
             )}
             <Button
-              variant="destructive"
+              variant="outline"
               size="sm"
-              onClick={() => setShowDeleteConfirm(true)}
-              disabled={selectedIds.size === 0 || isDeleting}
+              onClick={() => setShowBatchRejectConfirm(true)}
+              disabled={selectedIds.size === 0 || isBatchRejecting}
               className={cn(
-                "gap-2 font-display text-xs font-bold transition-all",
+                "gap-2 font-display text-xs font-bold transition-all border-rose-500/40 text-rose-500 hover:bg-rose-500/10",
                 selectedIds.size === 0 && "opacity-50"
               )}
             >
-              {isDeleting ? (
+              {isBatchRejecting ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
               ) : (
-                <Trash2 className="h-3.5 w-3.5" />
+                <Ban className="h-3.5 w-3.5" />
               )}
-              {isDeleting ? '正在刪除...' : '刪除'}
+              {isBatchRejecting ? '處理中...' : '暫不考慮'}
+              {selectedIds.size > 0 && !isBatchRejecting && (
+                <Badge variant="secondary" className="ml-0.5 h-4 min-w-4 px-1 text-[9px]">
+                  {selectedIds.size}
+                </Badge>
+              )}
             </Button>
           </div>
         </div>
@@ -1319,6 +1424,20 @@ export function ListedProductsView({
                     <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
                       成本
                     </span>
+                  </th>
+                  <th className="px-3 py-2 text-left">
+                    <div className="flex flex-col gap-1">
+                      <button
+                        onClick={() => setShowPricingDialog(true)}
+                        className="flex items-center gap-1 rounded-md bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 transition-colors whitespace-nowrap"
+                      >
+                        <Calculator className="h-2.5 w-2.5" />
+                        定價
+                      </button>
+                      <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                        售價
+                      </span>
+                    </div>
                   </th>
                   {!isCatalog && (
                     <th className="px-3 py-3 text-center">
@@ -1503,6 +1622,17 @@ export function ListedProductsView({
                       {product.costPrice != null ? (
                         <span className="font-mono-data text-[11px] text-amber-600 dark:text-amber-400">
                           ¥{product.costPrice.toFixed(2)}
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-muted-foreground">—</span>
+                      )}
+                    </td>
+
+                    {/* Sale Price (sale_price column) */}
+                    <td className="px-3 py-3">
+                      {product.salePrice != null && product.salePrice > 0 ? (
+                        <span className="font-mono-data text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+                          HK${product.salePrice.toLocaleString()}
                         </span>
                       ) : (
                         <span className="text-[10px] text-muted-foreground">—</span>
@@ -1820,6 +1950,117 @@ export function ListedProductsView({
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        {/* 批量「暫不考慮」確認 */}
+        <AlertDialog open={showBatchRejectConfirm} onOpenChange={setShowBatchRejectConfirm}>
+          <AlertDialogContent className="max-w-md border-rose-500/20">
+            <AlertDialogHeader>
+              <AlertDialogTitle className="font-display flex items-center gap-2">
+                <Ban className="h-5 w-5 text-rose-500" />
+                確認批量「暫不考慮」
+              </AlertDialogTitle>
+              <AlertDialogDescription className="font-body text-sm">
+                將所選的{' '}
+                <span className="font-mono-data font-bold text-rose-500">{selectedIds.size}</span>{' '}
+                件產品標記為「暫不考慮」？
+                <br />
+                <span className="text-xs text-muted-foreground mt-2 block">
+                  產品資料將儲存至{' '}
+                  <code className="font-mono-data text-rose-500">products_rejected</code>{' '}
+                  記錄，並從列表中移除。
+                </span>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel className="font-display text-xs font-bold">取消</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleBatchReject}
+                className="bg-rose-500 text-white hover:bg-rose-600 font-display text-xs font-bold gap-1.5"
+              >
+                <Ban className="h-3.5 w-3.5" /> 確認暫不考慮
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* 定價對話框 */}
+        <Dialog open={showPricingDialog} onOpenChange={setShowPricingDialog}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle className="font-display flex items-center gap-2">
+                <Calculator className="h-4 w-4 text-emerald-500" />
+                批量定價
+              </DialogTitle>
+              <DialogDescription className="font-body text-sm">
+                輸入定價倍數，售價 = 成本 × 倍數（小數進位取整數）
+                <br />
+                <span className="text-xs text-muted-foreground mt-1 block">
+                  套用至當前頁面顯示的{' '}
+                  <span className="font-mono-data font-bold text-foreground">
+                    {products.filter(p => p.costPrice != null && p.costPrice > 0).length}
+                  </span>{' '}
+                  件有成本的產品（依目前篩選及分頁）
+                </span>
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <div className="space-y-2">
+                <label className="font-mono-data text-[11px] text-muted-foreground uppercase tracking-widest">
+                  定價倍數
+                </label>
+                <Input
+                  type="number"
+                  step="0.1"
+                  min="0.1"
+                  placeholder="例如 2.3、2.5、2.7"
+                  value={pricingMultiplier}
+                  onChange={e => setPricingMultiplier(e.target.value)}
+                  className="font-mono-data text-sm"
+                  onKeyDown={e => { if (e.key === 'Enter') handleApplyPricing(); }}
+                  autoFocus
+                />
+                {pricingMultiplier && !isNaN(parseFloat(pricingMultiplier)) && (
+                  <p className="text-[11px] text-muted-foreground font-body">
+                    預覽：成本 ¥360 → 售價 HK$
+                    <span className="font-mono-data font-bold text-emerald-500">
+                      {Math.ceil(360 * parseFloat(pricingMultiplier))}
+                    </span>
+                  </p>
+                )}
+              </div>
+              <div className="flex gap-2 flex-wrap">
+                {['2.3', '2.5', '2.7', '3.0'].map(v => (
+                  <button
+                    key={v}
+                    onClick={() => setPricingMultiplier(v)}
+                    className={cn(
+                      'rounded-md border px-3 py-1 text-xs font-mono-data transition-colors',
+                      pricingMultiplier === v
+                        ? 'border-emerald-500 bg-emerald-500/10 text-emerald-600'
+                        : 'border-border hover:border-emerald-500/50 hover:bg-muted'
+                    )}
+                  >
+                    ×{v}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" size="sm" onClick={() => setShowPricingDialog(false)} className="font-display text-xs">
+                取消
+              </Button>
+              <Button
+                size="sm"
+                onClick={handleApplyPricing}
+                disabled={!pricingMultiplier || isNaN(parseFloat(pricingMultiplier)) || parseFloat(pricingMultiplier) <= 0 || isApplyingPricing}
+                className="gap-1.5 font-display text-xs bg-emerald-600 hover:bg-emerald-500 text-white"
+              >
+                {isApplyingPricing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Calculator className="h-3.5 w-3.5" />}
+                套用定價
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
 
         {/* Product Detail Modal */}
         {detailProduct && (
