@@ -341,6 +341,15 @@ function ImageOverrideModal({ isOpen, onClose, currentImage, onConfirm, mode }: 
     setPreviewImage(currentImage);
     setIsReplacing(mode === 'add');
     setFileError(null);
+    // Proactively query clipboard-read permission when modal opens
+    if (isOpen && navigator.permissions) {
+      navigator.permissions.query({ name: 'clipboard-read' as PermissionName }).then((result) => {
+        if (result.state === 'prompt') {
+          // Pre-request permission by doing a silent read attempt
+          navigator.clipboard?.read?.().catch(() => {});
+        }
+      }).catch(() => {});
+    }
   }, [currentImage, mode, isOpen]);
 
   const loadFile = useCallback((file: File) => {
@@ -382,9 +391,9 @@ function ImageOverrideModal({ isOpen, onClose, currentImage, onConfirm, mode }: 
       setFileError('剪貼板中沒有圖片，請先在 Excel 中複製圖片（右鍵 → 複製）');
     } catch (err: any) {
       if (err?.name === 'NotAllowedError') {
-        setFileError('瀏覽器需要剪貼板權限。請點擊「允許」授予權限後重試。');
+        setFileError('請在瀏覽器地址欄左側的鎖頭圖示 → 剪貼板 → 設為「允許」，然後重試。');
       } else {
-        setFileError('無法讀取剪貼板，請使用「更換」按鈕選擇圖片檔案。');
+        setFileError('無法讀取剪貼板，請使用「更換」按鈕選擇圖片檔案，或在瀏覽器設定中允許剪貼板權限。');
       }
     } finally {
       setIsPasting(false);
