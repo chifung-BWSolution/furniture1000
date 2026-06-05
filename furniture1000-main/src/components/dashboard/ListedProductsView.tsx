@@ -43,6 +43,7 @@ import {
   ArrowUpAZ,
   AlertTriangle,
   Ban,
+  Calculator,
   Check,
   ChevronDown,
   ChevronLeft,
@@ -92,6 +93,7 @@ interface ListedProduct {
   factoryId?: string | null;
   factoriesDisplayName?: string | null;
   costPrice?: number | null;
+  salePrice?: number | null;
   productionLeadTime?: number | null;
   shippingDays?: number | null;
   shippingFee?: number | null;
@@ -135,6 +137,9 @@ export function ListedProductsView({
   const [showBatchRejectConfirm, setShowBatchRejectConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isBatchRejecting, setIsBatchRejecting] = useState(false);
+  const [showPricingDialog, setShowPricingDialog] = useState(false);
+  const [pricingMultiplier, setPricingMultiplier] = useState('');
+  const [isApplyingPricing, setIsApplyingPricing] = useState(false);
   const [detailProduct, setDetailProduct] = useState<ListedProduct | null>(null);
   const [shopifyFilter, setShopifyFilter] = useState<'all' | 'shopify' | 'database'>('all');
   const [factoryFilterOpen, setFactoryFilterOpen] = useState(false);
@@ -249,7 +254,7 @@ export function ListedProductsView({
         'collection', 'status', 'image_url', 'images',
         'shopify_product_id', 'source', 'synced_at', 'created_at',
         'color', 'factory_id', 'factories_display_name',
-        'cost_price', 'production_date', 'shipping_days', 'total_lead_time',
+        'cost_price', 'sale_price', 'production_date', 'shipping_days', 'total_lead_time',
         'bwf_master_id', 'remarks', 'shipping_fee', 'category',
         'delivery_term_id', 'delivery_term_name',
         'dimension_l_mm', 'dimension_w_mm', 'dimension_h_mm',
@@ -326,6 +331,7 @@ export function ListedProductsView({
         factoryId: row.factory_id || null,
         factoriesDisplayName: row.factories_display_name || null,
         costPrice: row.cost_price != null ? parseFloat(row.cost_price) : null,
+        salePrice: row.sale_price != null ? parseFloat(row.sale_price) : null,
         productionLeadTime: row.production_date != null ? parseInt(row.production_date) : null,
         shippingDays: row.shipping_days != null ? parseInt(row.shipping_days) : null,
         totalLeadTime: row.total_lead_time != null ? parseInt(row.total_lead_time) : null,
@@ -831,6 +837,68 @@ export function ListedProductsView({
     }
   }, [selectedIds, products]);
 
+  // Apply pricing multiplier to current page products (respecting all active filters)
+  const handleApplyPricing = useCallback(async () => {
+    const multiplier = parseFloat(pricingMultiplier);
+    if (isNaN(multiplier) || multiplier <= 0) {
+      toast.error('請輸入有效的倍數，例如 2.3、2.5、2.7');
+      return;
+    }
+
+    // products[] already reflects current page + all active filters
+    const toUpdate = products.filter(p => p.costPrice != null && p.costPrice > 0);
+    if (toUpdate.length === 0) {
+      toast.error('當前頁面沒有含成本的產品可以計算售價');
+      return;
+    }
+
+    setIsApplyingPricing(true);
+    setShowPricingDialog(false);
+    const toastId = toast.loading(`正在為 ${toUpdate.length} 件產品套用定價 ×${multiplier}...`);
+
+    try {
+      // Compute new sale prices (cost × multiplier, round up to integer)
+      const updates = toUpdate.map(p => ({
+        id: p.id,
+        newSalePrice: Math.ceil(p.costPrice! * multiplier),
+      }));
+
+      // Batch update Supabase in parallel
+      const results = await Promise.all(
+        updates.map(u =>
+          supabase.from('products').update({ sale_price: u.newSalePrice }).eq('id', u.id)
+        )
+      );
+      const firstErr = results.find(r => r.error)?.error;
+      const error = firstErr ?? null;
+
+      if (error) {
+        toast.error('售價更新失敗', { id: toastId, description: error.message });
+        return;
+      }
+
+      // Update local state
+      const updateMap = new Map(updates.map(u => [u.id, u.newSalePrice]));
+      setProducts(prev =>
+        prev.map(p => updateMap.has(p.id) ? { ...p, salePrice: updateMap.get(p.id)! } : p)
+      );
+
+      toast.success(`已為 ${updates.length} 件產品套用售價`, {
+        id: toastId,
+        description: `定價倍數 ×${multiplier}，售價已更新並同步至 Supabase。`,
+        duration: 5000,
+      });
+      setPricingMultiplier('');
+    } catch (err) {
+      toast.error('操作失敗', {
+        id: toastId,
+        description: err instanceof Error ? err.message : '未知錯誤',
+      });
+    } finally {
+      setIsApplyingPricing(false);
+    }
+  }, [pricingMultiplier, products]);
+
   // Send selected products to the "Ready to Publish" queue
   const handleSendToPublishQueue = useCallback(() => {
     if (!onSendToPublishQueue || selectedIds.size === 0) return;
@@ -1318,10 +1386,19 @@ export function ListedProductsView({
                       成本
                     </span>
                   </th>
-                  <th className="px-3 py-3 text-left">
-                    <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                      售價
-                    </span>
+                  <th className="px-3 py-2 text-left">
+                    <div className="flex flex-col gap-1">
+                      <button
+                        onClick={() => setShowPricingDialog(true)}
+                        className="flex items-center gap-1 rounded-md bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 text-[10px] font-semibold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 transition-colors whitespace-nowrap"
+                      >
+                        <Calculator className="h-2.5 w-2.5" />
+                        定價
+                      </button>
+                      <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                        售價
+                      </span>
+                    </div>
                   </th>
                   <th className="px-3 py-3 text-left">
                     <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
@@ -1473,11 +1550,15 @@ export function ListedProductsView({
                       )}
                     </td>
 
-                    {/* Sale Price */}
+                    {/* Sale Price (from sale_price column) */}
                     <td className="px-3 py-3">
-                      <span className="font-mono-data text-sm font-bold">
-                        ${product.price.toFixed(2)}
-                      </span>
+                      {product.salePrice != null && product.salePrice > 0 ? (
+                        <span className="font-mono-data text-sm font-bold text-emerald-600 dark:text-emerald-400">
+                          HK${product.salePrice.toLocaleString()}
+                        </span>
+                      ) : (
+                        <span className="font-mono-data text-[10px] text-muted-foreground">—</span>
+                      )}
                     </td>
 
                     {/* Total Lead Time */}
@@ -1794,6 +1875,87 @@ export function ListedProductsView({
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        {/* 定價對話框 */}
+        <Dialog open={showPricingDialog} onOpenChange={setShowPricingDialog}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader>
+              <DialogTitle className="font-display flex items-center gap-2">
+                <Calculator className="h-4 w-4 text-emerald-500" />
+                批量定價
+              </DialogTitle>
+              <DialogDescription className="font-body text-sm">
+                輸入定價倍數，售價 = 成本 × 倍數（小數進位取整數）
+                <br />
+                <span className="text-xs text-muted-foreground mt-1 block">
+                  將套用至當前頁面顯示的{' '}
+                  <span className="font-mono-data font-bold text-foreground">
+                    {products.filter(p => p.costPrice != null && p.costPrice > 0).length}
+                  </span>{' '}
+                  件有成本的產品（依目前篩選條件）
+                </span>
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              <div className="space-y-2">
+                <label className="font-mono-data text-[11px] text-muted-foreground uppercase tracking-widest">
+                  定價倍數
+                </label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    type="number"
+                    step="0.1"
+                    min="0.1"
+                    placeholder="例如 2.3、2.5、2.7"
+                    value={pricingMultiplier}
+                    onChange={e => setPricingMultiplier(e.target.value)}
+                    className="font-mono-data text-sm"
+                    onKeyDown={e => { if (e.key === 'Enter') handleApplyPricing(); }}
+                    autoFocus
+                  />
+                </div>
+                {pricingMultiplier && !isNaN(parseFloat(pricingMultiplier)) && (
+                  <p className="text-[11px] text-muted-foreground font-body">
+                    預覽：成本 ¥360 → 售價 HK$
+                    <span className="font-mono-data font-bold text-emerald-500">
+                      {Math.ceil(360 * parseFloat(pricingMultiplier))}
+                    </span>
+                  </p>
+                )}
+              </div>
+              <div className="flex gap-2 flex-wrap">
+                {['2.3', '2.5', '2.7', '3.0'].map(v => (
+                  <button
+                    key={v}
+                    onClick={() => setPricingMultiplier(v)}
+                    className={cn(
+                      'rounded-md border px-3 py-1 text-xs font-mono-data transition-colors',
+                      pricingMultiplier === v
+                        ? 'border-emerald-500 bg-emerald-500/10 text-emerald-600'
+                        : 'border-border hover:border-emerald-500/50 hover:bg-muted'
+                    )}
+                  >
+                    ×{v}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button variant="outline" size="sm" onClick={() => setShowPricingDialog(false)} className="font-display text-xs">
+                取消
+              </Button>
+              <Button
+                size="sm"
+                onClick={handleApplyPricing}
+                disabled={!pricingMultiplier || isNaN(parseFloat(pricingMultiplier)) || parseFloat(pricingMultiplier) <= 0 || isApplyingPricing}
+                className="gap-1.5 font-display text-xs bg-emerald-600 hover:bg-emerald-500 text-white"
+              >
+                {isApplyingPricing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Calculator className="h-3.5 w-3.5" />}
+                套用定價
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
 
         {/* Product Detail Modal */}
         {detailProduct && (
