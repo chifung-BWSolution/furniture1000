@@ -40,6 +40,7 @@ import {
 import { Product } from '@/types/product';
 import { OFFICIAL_PRODUCT_TAGS } from '@/constants/product-tags';
 import { MANUFACTURERS } from '@/constants/manufacturers';
+import { COLOR_MAP } from '@/constants/color-map';
 import { TagSelector } from './TagSelector';
 import { ColorSelector } from './ColorSelector';
 import { CascadingCategorySelector } from './CascadingCategorySelector';
@@ -2183,6 +2184,13 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
     selectedFactoryId,
     selectedManufacturer,
   );
+
+  // ── 材料管理: Colors & Fabrics (Multi-select) ──
+  const [selectedColors, setSelectedColors] = useState<string[]>([]);
+  const [selectedFabrics, setSelectedFabrics] = useState<string[]>([]);
+  const [colorsOpen, setColorsOpen] = useState(false);
+  const [colorsSearch, setColorsSearch] = useState('');
+  const [fabricsOpen, setFabricsOpen] = useState(false);
 
   // ── Factory Highlights (Multi-select) ──
   const [selectedFactoryHighlights, setSelectedFactoryHighlights] = useState<string[]>([]);
@@ -4631,6 +4639,282 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
                 <p className="font-body text-[10px] text-muted-foreground/50 mt-1.5">
                   選擇分類後，此批次上傳的所有產品將自動歸入該分類。不選則需稍後在「分類管理」中手動指派。
                 </p>
+              </div>
+            </motion.div>
+          )}
+
+          {/* ━━━ 材料管理 Module ━━━ */}
+          {isManufacturerSelected && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              transition={{ duration: 0.3 }}
+              className="space-y-3"
+            >
+              <div className="flex items-center gap-2">
+                <div className={cn(
+                  "flex h-6 w-6 items-center justify-center rounded-md transition-colors duration-300",
+                  (selectedColors.length > 0 || selectedFabrics.length > 0)
+                    ? "bg-violet-500/15 text-violet-500"
+                    : "bg-muted text-muted-foreground"
+                )}>
+                  <Layers className="h-3.5 w-3.5" />
+                </div>
+                <h3 className="font-display text-sm font-bold tracking-tight">材料管理</h3>
+                {(selectedColors.length > 0 || selectedFabrics.length > 0) && (
+                  <Badge className="ml-auto bg-violet-500/15 text-violet-500 border border-violet-500/30 font-mono-data text-[10px] gap-1">
+                    <Check className="h-2.5 w-2.5" />
+                    {selectedColors.length + selectedFabrics.length} 已選
+                  </Badge>
+                )}
+                {selectedColors.length === 0 && selectedFabrics.length === 0 && (
+                  <span className="ml-auto font-mono-data text-[10px] text-muted-foreground/50">可選</span>
+                )}
+              </div>
+
+              <div className="pl-8 space-y-3">
+                {/* ── 顏色 Multi-select ── */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-display text-xs font-semibold text-foreground/80">顏色</span>
+                    {selectedColors.length > 0 && (
+                      <Badge className="bg-violet-500/10 text-violet-500 border border-violet-500/20 font-mono-data text-[10px]">
+                        {selectedColors.length}
+                      </Badge>
+                    )}
+                  </div>
+
+                  {selectedColors.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {selectedColors.map((colorEn) => {
+                        const c = COLOR_MAP.find(x => x.en === colorEn);
+                        return (
+                          <Badge
+                            key={colorEn}
+                            variant="secondary"
+                            className="group gap-1.5 px-2 py-0.5 text-[11px] font-body bg-violet-500/10 text-violet-600 border border-violet-500/20 hover:bg-violet-500/20 transition-all cursor-default"
+                          >
+                            {c && (
+                              <span
+                                className="h-2.5 w-2.5 rounded-full border border-border/50 flex-shrink-0"
+                                style={{ backgroundColor: c.hex }}
+                              />
+                            )}
+                            <span>{c?.cn ?? colorEn}</span>
+                            <button
+                              onClick={() => setSelectedColors(prev => prev.filter(x => x !== colorEn))}
+                              className="ml-0.5 rounded-full hover:bg-destructive/20 hover:text-destructive p-0.5 transition-colors"
+                            >
+                              <X className="h-2.5 w-2.5" />
+                            </button>
+                          </Badge>
+                        );
+                      })}
+                      <button
+                        onClick={() => setSelectedColors([])}
+                        className="flex items-center h-[22px] px-1.5 rounded-md text-[10px] font-mono-data text-muted-foreground hover:text-destructive hover:bg-destructive/10 border border-dashed border-border hover:border-destructive/30 transition-all"
+                      >
+                        清除全部
+                      </button>
+                    </div>
+                  )}
+
+                  <Popover open={colorsOpen} onOpenChange={setColorsOpen}>
+                    <PopoverTrigger asChild>
+                      <button
+                        className={cn(
+                          "flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left transition-all",
+                          "border-border bg-background hover:border-violet-500/50 hover:bg-accent/50",
+                          colorsOpen && "border-violet-500 ring-1 ring-violet-500/20 bg-accent/30"
+                        )}
+                      >
+                        <span className="h-3.5 w-3.5 flex-shrink-0 text-violet-500/70 font-mono-data text-xs leading-none">🎨</span>
+                        <span className="flex-1 font-body text-xs text-muted-foreground truncate">選擇顏色（可多選）...</span>
+                        <ChevronsUpDown className={cn(
+                          "h-3.5 w-3.5 text-muted-foreground flex-shrink-0 transition-transform",
+                          colorsOpen && "rotate-180"
+                        )} />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" side="bottom" align="start" sideOffset={4}>
+                      <Command shouldFilter={false}>
+                        <CommandInput
+                          placeholder="搜尋顏色 (中英文)..."
+                          value={colorsSearch}
+                          onValueChange={setColorsSearch}
+                          className="font-body text-xs"
+                        />
+                        <CommandList className="max-h-[260px] overflow-y-auto">
+                          <CommandEmpty className="py-4 text-center font-body text-xs text-muted-foreground">
+                            找不到「{colorsSearch}」
+                          </CommandEmpty>
+                          <CommandGroup>
+                            {COLOR_MAP
+                              .filter(c => !colorsSearch.trim() || c.cn.includes(colorsSearch) || c.en.toLowerCase().includes(colorsSearch.toLowerCase()))
+                              .map((c) => {
+                                const isSelected = selectedColors.includes(c.en);
+                                return (
+                                  <CommandItem
+                                    key={c.en}
+                                    value={c.en}
+                                    onSelect={() => {
+                                      if (isSelected) {
+                                        setSelectedColors(prev => prev.filter(x => x !== c.en));
+                                      } else {
+                                        setSelectedColors(prev => [...prev, c.en]);
+                                      }
+                                    }}
+                                    className="flex items-center gap-2 font-body text-xs cursor-pointer"
+                                  >
+                                    <div className={cn(
+                                      "flex h-4 w-4 items-center justify-center rounded border transition-all flex-shrink-0",
+                                      isSelected
+                                        ? "bg-violet-500 border-violet-500 text-white scale-100"
+                                        : "border-muted-foreground/30 hover:border-violet-500/50"
+                                    )}>
+                                      {isSelected && <Check className="h-3 w-3" />}
+                                    </div>
+                                    <span
+                                      className="h-3.5 w-3.5 rounded-full border border-border/50 flex-shrink-0"
+                                      style={{ backgroundColor: c.hex }}
+                                    />
+                                    <span className={cn("flex-1", isSelected && "text-violet-600 font-medium")}>{c.cn}</span>
+                                    <span className="text-[9px] text-muted-foreground/50 font-mono-data">{c.en}</span>
+                                  </CommandItem>
+                                );
+                              })}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                </div>
+
+                {/* ── 皮料/布料 Multi-select ── */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-display text-xs font-semibold text-foreground/80">皮料/布料</span>
+                    {selectedFabrics.length > 0 && (
+                      <Badge className="bg-violet-500/10 text-violet-500 border border-violet-500/20 font-mono-data text-[10px]">
+                        {selectedFabrics.length}
+                      </Badge>
+                    )}
+                  </div>
+
+                  {selectedFabrics.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {selectedFabrics.map((fabric) => (
+                        <Badge
+                          key={fabric}
+                          variant="secondary"
+                          className="group gap-1 px-2 py-0.5 text-[11px] font-body bg-amber-500/10 text-amber-700 border border-amber-500/20 hover:bg-amber-500/20 transition-all cursor-default"
+                        >
+                          <span>{fabric}</span>
+                          <button
+                            onClick={() => setSelectedFabrics(prev => prev.filter(x => x !== fabric))}
+                            className="ml-0.5 rounded-full hover:bg-destructive/20 hover:text-destructive p-0.5 transition-colors"
+                          >
+                            <X className="h-2.5 w-2.5" />
+                          </button>
+                        </Badge>
+                      ))}
+                      <button
+                        onClick={() => setSelectedFabrics([])}
+                        className="flex items-center h-[22px] px-1.5 rounded-md text-[10px] font-mono-data text-muted-foreground hover:text-destructive hover:bg-destructive/10 border border-dashed border-border hover:border-destructive/30 transition-all"
+                      >
+                        清除全部
+                      </button>
+                    </div>
+                  )}
+
+                  <Popover open={fabricsOpen} onOpenChange={setFabricsOpen}>
+                    <PopoverTrigger asChild>
+                      <button
+                        className={cn(
+                          "flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left transition-all",
+                          "border-border bg-background hover:border-amber-500/50 hover:bg-accent/50",
+                          fabricsOpen && "border-amber-500 ring-1 ring-amber-500/20 bg-accent/30"
+                        )}
+                      >
+                        <span className="flex-shrink-0 text-amber-600/70 font-mono-data text-xs leading-none">🪢</span>
+                        <span className="flex-1 font-body text-xs text-muted-foreground truncate">選擇皮料/布料（可多選）...</span>
+                        <ChevronsUpDown className={cn(
+                          "h-3.5 w-3.5 text-muted-foreground flex-shrink-0 transition-transform",
+                          fabricsOpen && "rotate-180"
+                        )} />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" side="bottom" align="start" sideOffset={4}>
+                      <Command>
+                        <CommandInput
+                          placeholder="搜尋皮料/布料..."
+                          className="font-body text-xs"
+                        />
+                        <CommandList className="max-h-[260px] overflow-y-auto">
+                          <CommandEmpty className="py-4 text-center font-body text-xs text-muted-foreground">找不到相關材料</CommandEmpty>
+                          <CommandGroup heading="皮料">
+                            {['頭層牛皮', '二層牛皮', '羊皮', '豬皮', '馬皮', 'PU 仿皮', 'PVC 皮料', '超纖皮', '全粒面皮', '修面皮', '壓紋皮', '翻毛皮（麂皮）', '漆皮'].map((item) => {
+                              const isSelected = selectedFabrics.includes(item);
+                              return (
+                                <CommandItem
+                                  key={item}
+                                  value={item}
+                                  onSelect={() => {
+                                    if (isSelected) {
+                                      setSelectedFabrics(prev => prev.filter(x => x !== item));
+                                    } else {
+                                      setSelectedFabrics(prev => [...prev, item]);
+                                    }
+                                  }}
+                                  className="flex items-center gap-2 font-body text-xs cursor-pointer"
+                                >
+                                  <div className={cn(
+                                    "flex h-4 w-4 items-center justify-center rounded border transition-all flex-shrink-0",
+                                    isSelected
+                                      ? "bg-amber-500 border-amber-500 text-white"
+                                      : "border-muted-foreground/30 hover:border-amber-500/50"
+                                  )}>
+                                    {isSelected && <Check className="h-3 w-3" />}
+                                  </div>
+                                  <span className={cn("flex-1", isSelected && "text-amber-700 font-medium")}>{item}</span>
+                                </CommandItem>
+                              );
+                            })}
+                          </CommandGroup>
+                          <CommandGroup heading="布料">
+                            {['棉布', '麻布', '絨布', '天鵝絨', '燈芯絨', '帆布', '牛仔布', '針織布', '緹花布', '提花布', '雪尼爾', '人造絲', '滌綸布', '尼龍布', '防水布', '仿麂皮布'].map((item) => {
+                              const isSelected = selectedFabrics.includes(item);
+                              return (
+                                <CommandItem
+                                  key={item}
+                                  value={item}
+                                  onSelect={() => {
+                                    if (isSelected) {
+                                      setSelectedFabrics(prev => prev.filter(x => x !== item));
+                                    } else {
+                                      setSelectedFabrics(prev => [...prev, item]);
+                                    }
+                                  }}
+                                  className="flex items-center gap-2 font-body text-xs cursor-pointer"
+                                >
+                                  <div className={cn(
+                                    "flex h-4 w-4 items-center justify-center rounded border transition-all flex-shrink-0",
+                                    isSelected
+                                      ? "bg-amber-500 border-amber-500 text-white"
+                                      : "border-muted-foreground/30 hover:border-amber-500/50"
+                                  )}>
+                                    {isSelected && <Check className="h-3 w-3" />}
+                                  </div>
+                                  <span className={cn("flex-1", isSelected && "text-amber-700 font-medium")}>{item}</span>
+                                </CommandItem>
+                              );
+                            })}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                </div>
               </div>
             </motion.div>
           )}
