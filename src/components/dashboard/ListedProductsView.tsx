@@ -1415,14 +1415,14 @@ export function ListedProductsView({
                   >
                     {/* Top: image left + info right */}
                     <div className="flex gap-0">
-                      {/* Image — fixed 1:1 square, ~40% width */}
-                      <div className="relative flex-shrink-0 w-[40%] aspect-square bg-muted overflow-hidden">
+                      {/* Image — 1:1 square, object-contain to show full product */}
+                      <div className="relative flex-shrink-0 w-[40%] aspect-square bg-white dark:bg-muted overflow-hidden border-r border-border">
                         {imgSrc ? (
                           <img
                             src={imgSrc}
                             alt={product.title}
                             loading="lazy"
-                            className="absolute inset-0 h-full w-full object-cover"
+                            className="absolute inset-0 h-full w-full object-contain p-2"
                           />
                         ) : (
                           <div className="absolute inset-0 flex items-center justify-center">
@@ -1439,13 +1439,13 @@ export function ListedProductsView({
                       </div>
 
                       {/* Info — right side */}
-                      <div className="flex flex-col flex-1 min-w-0 p-3 gap-1.5">
-                        {/* Title */}
-                        <p className="font-display text-sm font-bold leading-snug line-clamp-2">
+                      <div className="flex flex-col flex-1 min-w-0 p-3 gap-2">
+                        {/* Title — 14px */}
+                        <p className="font-display text-[14px] font-bold leading-snug line-clamp-2">
                           {product.title}
                         </p>
 
-                        {/* Prices */}
+                        {/* Prices — 12px min */}
                         <div className="flex flex-wrap gap-x-3 gap-y-0.5">
                           {product.costPrice != null && (
                             <span className="font-mono-data text-xs text-amber-600 dark:text-amber-400">
@@ -1459,7 +1459,33 @@ export function ListedProductsView({
                           )}
                         </div>
 
-                        {/* Material — max 3 lines */}
+                        {/* Factory name */}
+                        {product.factoriesDisplayName && (
+                          <div className="flex items-center gap-1">
+                            <Factory className="h-3 w-3 text-muted-foreground flex-shrink-0" />
+                            <span className="font-body text-xs text-muted-foreground truncate">
+                              {product.factoriesDisplayName}
+                            </span>
+                          </div>
+                        )}
+
+                        {/* Category */}
+                        {(product.level1Category || product.category) && (
+                          <div className="flex items-center gap-1 flex-wrap">
+                            {product.level1Category && (
+                              <Badge variant="outline" className="text-xs px-1.5 py-0 h-5">
+                                {product.level1Category}
+                              </Badge>
+                            )}
+                            {product.level2Category && (
+                              <Badge variant="outline" className="text-xs px-1.5 py-0 h-5 text-muted-foreground">
+                                {product.level2Category}
+                              </Badge>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Material — max 3 lines, 12px */}
                         {product.material && (
                           <p className="font-body text-xs text-muted-foreground line-clamp-3 leading-relaxed">
                             {product.material}
