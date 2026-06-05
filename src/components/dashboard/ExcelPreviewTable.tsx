@@ -364,8 +364,38 @@ function ImageOverrideModal({ isOpen, onClose, currentImage, onConfirm, mode }: 
     }
     const reader = new FileReader();
     reader.onload = (ev) => {
-      setPreviewImage(ev.target?.result as string);
-      setIsReplacing(true);
+      const rawDataUrl = ev.target?.result as string;
+      // Resize to max 1200px at high quality — preserves clarity for display
+      // while keeping the data URI well under the 2MB Supabase payload limit
+      const MAX_DISPLAY_DIM = 1200;
+      const DISPLAY_QUALITY = 0.92;
+      const img = new Image();
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > MAX_DISPLAY_DIM || height > MAX_DISPLAY_DIM) {
+          const ratio = Math.min(MAX_DISPLAY_DIM / width, MAX_DISPLAY_DIM / height);
+          width = Math.round(width * ratio);
+          height = Math.round(height * ratio);
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const resized = canvas.toDataURL('image/jpeg', DISPLAY_QUALITY);
+          setPreviewImage(resized);
+        } else {
+          setPreviewImage(rawDataUrl);
+        }
+        setIsReplacing(true);
+      };
+      img.onerror = () => {
+        // Fallback: use raw if canvas fails
+        setPreviewImage(rawDataUrl);
+        setIsReplacing(true);
+      };
+      img.src = rawDataUrl;
     };
     reader.readAsDataURL(file);
   }, []);
