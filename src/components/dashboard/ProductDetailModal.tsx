@@ -139,11 +139,57 @@ function ImageLightbox({
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [pastedImage, setPastedImage] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const goNext = useCallback(() => setCurrentIndex((i) => (i + 1) % images.length), [images.length]);
   const goPrev = useCallback(() => setCurrentIndex((i) => (i - 1 + images.length) % images.length), [images.length]);
 
-  // Keyboard: Escape / arrows / Ctrl+V
+  // Auto-focus the container so keydown / paste events fire without user clicking
+  useEffect(() => {
+    containerRef.current?.focus();
+  }, []);
+
+  // Core paste handler — tries Clipboard API first (works for Excel), falls back to clipboardData
+  const processPaste = useCallback(async (clipboardData?: DataTransfer | null) => {
+    // Method 1: standard clipboardData.items (works for browser paste, screenshots)
+    if (clipboardData?.items) {
+      for (const item of clipboardData.items) {
+        if (item.type.startsWith('image/')) {
+          const file = item.getAsFile();
+          if (file) {
+            try {
+              setPastedImage(await resizeToJpeg(file));
+            } catch {
+              toast.error('圖片處理失敗，請重試');
+            }
+            return;
+          }
+        }
+      }
+    }
+
+    // Method 2: navigator.clipboard.read() — needed for Excel / Office copy-image
+    try {
+      if (!navigator.clipboard?.read) return;
+      const items = await navigator.clipboard.read();
+      for (const item of items) {
+        const imageType = item.types.find((t) => t.startsWith('image/'));
+        if (imageType) {
+          const blob = await item.getType(imageType);
+          try {
+            setPastedImage(await resizeToJpeg(blob));
+          } catch {
+            toast.error('圖片處理失敗，請重試');
+          }
+          return;
+        }
+      }
+    } catch {
+      // Clipboard API not available or permission denied — silently ignore
+    }
+  }, []);
+
+  // Keyboard: Escape / arrows
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') { if (pastedImage) { setPastedImage(null); } else { onClose(); } }
@@ -154,29 +200,15 @@ function ImageLightbox({
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [onClose, goNext, goPrev, pastedImage]);
 
-  // Ctrl+V paste
+  // document-level paste event (catches paste even when focus is elsewhere)
   useEffect(() => {
-    const handlePaste = async (e: ClipboardEvent) => {
-      const items = e.clipboardData?.items;
-      if (!items) return;
-      for (const item of items) {
-        if (item.type.startsWith('image/')) {
-          e.preventDefault();
-          const file = item.getAsFile();
-          if (!file) break;
-          try {
-            const resized = await resizeToJpeg(file);
-            setPastedImage(resized);
-          } catch {
-            toast.error('圖片處理失敗，請重試');
-          }
-          break;
-        }
-      }
+    const handlePaste = (e: ClipboardEvent) => {
+      e.preventDefault();
+      processPaste(e.clipboardData);
     };
     document.addEventListener('paste', handlePaste);
     return () => document.removeEventListener('paste', handlePaste);
-  }, []);
+  }, [processPaste]);
 
   const handleSavePasted = async () => {
     if (!pastedImage) return;
@@ -215,11 +247,14 @@ function ImageLightbox({
 
   return (
     <motion.div
+      ref={containerRef}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-md"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-md outline-none"
+      tabIndex={-1}
       onClick={() => { if (!pastedImage) onClose(); }}
+      onPaste={(e) => { e.preventDefault(); processPaste(e.clipboardData); }}
     >
       {/* Close button */}
       <button
@@ -293,10 +328,18 @@ function ImageLightbox({
             </button>
           </>
         ) : (
-          <div className="px-4 py-2 rounded-full bg-white/10 backdrop-blur-sm">
-            <span className="font-body text-xs text-white/70">
-              按 <kbd className="px-1.5 py-0.5 rounded bg-white/20 text-white text-xs">Ctrl+V</kbd> 貼上新圖片取代主圖
-            </span>
+          <div className="flex items-center gap-2">
+            <div className="px-4 py-2 rounded-full bg-white/10 backdrop-blur-sm">
+              <span className="font-body text-xs text-white/70">
+                按 <kbd className="px-1.5 py-0.5 rounded bg-white/20 text-white text-xs">Ctrl+V</kbd> 貼上新圖片取代主圖
+              </span>
+            </div>
+            <button
+              onClick={(e) => { e.stopPropagation(); processPaste(); }}
+              className="px-3 py-2 rounded-full bg-white/10 hover:bg-white/20 backdrop-blur-sm text-white/70 hover:text-white text-xs font-body transition-colors"
+            >
+              點擊貼上
+            </button>
           </div>
         )}
       </div>
