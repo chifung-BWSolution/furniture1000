@@ -1396,9 +1396,9 @@ export function ListedProductsView({
               </p>
             </div>
           ) : viewMode === 'grid' ? (
-            /* ── GRID VIEW ── */
+            /* ── GRID VIEW — 一行 2 款，每款左圖右資訊，底部 A/B/C ── */
             <div className="p-4 grid grid-cols-2 gap-4">
-              {products.map((product) => {
+              {products.map((product, i) => {
                 const imgSrc = product.images?.[0]?.src || product.imageUrl || '';
                 const dimStr = [product.dimensionLMm, product.dimensionWMm, product.dimensionHMm]
                   .filter(Boolean).length > 0
@@ -1409,97 +1409,101 @@ export function ListedProductsView({
                     key={product.id}
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: i * 0.02 }}
                     className="flex flex-col rounded-xl border border-border bg-card overflow-hidden hover:shadow-md transition-shadow cursor-pointer"
                     onClick={(e) => handleRowClick(e, product)}
                   >
-                    {/* Image — 1:1 square */}
-                    <div className="relative w-full aspect-square bg-muted overflow-hidden">
-                      {imgSrc ? (
-                        <img
-                          src={imgSrc}
-                          alt={product.title}
-                          loading="lazy"
-                          className="absolute inset-0 h-full w-full object-cover"
-                        />
-                      ) : (
-                        <div className="absolute inset-0 flex items-center justify-center">
-                          <Store className="h-12 w-12 text-muted-foreground/30" />
-                        </div>
-                      )}
-                      {/* Checkbox overlay */}
-                      <div
-                        className="absolute top-2 left-2"
-                        onClick={(e) => { e.stopPropagation(); toggleSelectProduct(product.id); }}
-                      >
-                        <Checkbox checked={selectedIds.has(product.id)} className="bg-white/80" />
-                      </div>
-                    </div>
-
-                    {/* Content */}
-                    <div className="flex flex-col flex-1 p-3 gap-2">
-                      {/* Title */}
-                      <p className="font-display text-sm font-bold leading-tight line-clamp-2 min-h-[2.5rem]">
-                        {product.title}
-                      </p>
-
-                      {/* Prices */}
-                      <div className="flex items-center gap-3">
-                        {product.costPrice != null && (
-                          <span className="font-mono-data text-xs text-amber-600 dark:text-amber-400">
-                            成本 ¥{product.costPrice.toFixed(0)}
-                          </span>
+                    {/* Top: image left + info right */}
+                    <div className="flex gap-0">
+                      {/* Image — fixed 1:1 square, ~40% width */}
+                      <div className="relative flex-shrink-0 w-[40%] aspect-square bg-muted overflow-hidden">
+                        {imgSrc ? (
+                          <img
+                            src={imgSrc}
+                            alt={product.title}
+                            loading="lazy"
+                            className="absolute inset-0 h-full w-full object-cover"
+                          />
+                        ) : (
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <Store className="h-10 w-10 text-muted-foreground/30" />
+                          </div>
                         )}
-                        {product.salePrice != null && product.salePrice > 0 && (
-                          <span className="font-mono-data text-xs font-bold text-emerald-600 dark:text-emerald-400">
-                            售 HK${product.salePrice.toLocaleString()}
-                          </span>
-                        )}
-                      </div>
-
-                      {/* Material — max 3 lines */}
-                      {product.material && (
-                        <p className="font-body text-xs text-muted-foreground line-clamp-3 leading-relaxed">
-                          {product.material}
-                        </p>
-                      )}
-
-                      {/* Dimensions */}
-                      {dimStr && (
-                        <p className="font-mono-data text-xs text-muted-foreground/80">
-                          📐 {dimStr}
-                        </p>
-                      )}
-
-                      {/* A/B/C Actions */}
-                      {!isCatalog && (
+                        {/* Checkbox */}
                         <div
-                          className="mt-auto pt-2 grid grid-cols-3 gap-1.5 border-t border-border"
-                          onClick={(e) => e.stopPropagation()}
+                          className="absolute top-2 left-2"
+                          onClick={(e) => { e.stopPropagation(); toggleSelectProduct(product.id); }}
                         >
-                          <button
-                            onClick={() => handleRowToShopify(product)}
-                            className="flex items-center justify-center gap-1 rounded-md bg-indigo-500/10 px-1.5 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-500/20 transition-colors"
-                          >
-                            <Send className="h-3 w-3 flex-shrink-0" />
-                            <span className="truncate">A 加入Shopify</span>
-                          </button>
-                          <button
-                            onClick={() => handleRowToCatalog(product)}
-                            className="flex items-center justify-center gap-1 rounded-md bg-emerald-500/10 px-1.5 py-1.5 text-xs font-medium text-emerald-600 hover:bg-emerald-500/20 transition-colors"
-                          >
-                            <Database className="h-3 w-3 flex-shrink-0" />
-                            <span className="truncate">B 加到目錄</span>
-                          </button>
-                          <button
-                            onClick={() => setDismissTarget(product)}
-                            className="flex items-center justify-center gap-1 rounded-md border border-border px-1.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-rose-500/10 hover:text-rose-500 transition-colors"
-                          >
-                            <Trash2 className="h-3 w-3 flex-shrink-0" />
-                            <span className="truncate">C 暫不考慮</span>
-                          </button>
+                          <Checkbox checked={selectedIds.has(product.id)} className="bg-white/80" />
                         </div>
-                      )}
+                      </div>
+
+                      {/* Info — right side */}
+                      <div className="flex flex-col flex-1 min-w-0 p-3 gap-1.5">
+                        {/* Title */}
+                        <p className="font-display text-sm font-bold leading-snug line-clamp-2">
+                          {product.title}
+                        </p>
+
+                        {/* Prices */}
+                        <div className="flex flex-wrap gap-x-3 gap-y-0.5">
+                          {product.costPrice != null && (
+                            <span className="font-mono-data text-xs text-amber-600 dark:text-amber-400">
+                              成本 ¥{product.costPrice.toFixed(0)}
+                            </span>
+                          )}
+                          {product.salePrice != null && product.salePrice > 0 && (
+                            <span className="font-mono-data text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                              售 HK${product.salePrice.toLocaleString()}
+                            </span>
+                          )}
+                        </div>
+
+                        {/* Material — max 3 lines */}
+                        {product.material && (
+                          <p className="font-body text-xs text-muted-foreground line-clamp-3 leading-relaxed">
+                            {product.material}
+                          </p>
+                        )}
+
+                        {/* Dimensions */}
+                        {dimStr && (
+                          <p className="font-mono-data text-xs text-muted-foreground/70 mt-auto">
+                            {dimStr}
+                          </p>
+                        )}
+                      </div>
                     </div>
+
+                    {/* Bottom: A/B/C action buttons */}
+                    {!isCatalog && (
+                      <div
+                        className="grid grid-cols-3 border-t border-border"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <button
+                          onClick={() => handleRowToShopify(product)}
+                          className="flex items-center justify-center gap-1.5 px-2 py-2 text-xs font-medium text-indigo-600 bg-indigo-500/5 hover:bg-indigo-500/15 transition-colors border-r border-border"
+                        >
+                          <Send className="h-3 w-3 flex-shrink-0" />
+                          A 加入Shopify
+                        </button>
+                        <button
+                          onClick={() => handleRowToCatalog(product)}
+                          className="flex items-center justify-center gap-1.5 px-2 py-2 text-xs font-medium text-emerald-600 bg-emerald-500/5 hover:bg-emerald-500/15 transition-colors border-r border-border"
+                        >
+                          <Database className="h-3 w-3 flex-shrink-0" />
+                          B 加到目錄
+                        </button>
+                        <button
+                          onClick={() => setDismissTarget(product)}
+                          className="flex items-center justify-center gap-1.5 px-2 py-2 text-xs font-medium text-muted-foreground hover:bg-rose-500/10 hover:text-rose-500 transition-colors"
+                        >
+                          <Trash2 className="h-3 w-3 flex-shrink-0" />
+                          C 暫不考慮
+                        </button>
+                      </div>
+                    )}
                   </motion.div>
                 );
               })}
