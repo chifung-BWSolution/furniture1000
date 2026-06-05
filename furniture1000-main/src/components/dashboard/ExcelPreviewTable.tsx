@@ -54,6 +54,8 @@ import {
 } from 'lucide-react';
 import { ExcelImage, SheetTableData, parseSmartDimensions, cleanPrice } from '@/lib/excelParser';
 import { simplifiedToTraditional, containsSimplifiedChinese } from '@/lib/chineseConverter';
+import { supabase } from '@/lib/supabase';
+import { toast } from 'sonner';
 // supabase relay import removed — using direct fetch to bypass relay size limits
 
 // ─── Standard Headers (bwf_product_master schema fields) ──────────
@@ -912,19 +914,53 @@ export function ExcelPreviewTable({
   // Handler: three-way action buttons
   const handleAction = useCallback((action: PreviewAction) => {
     if (action === 'discard') {
-      // Collect all selected row indices across all sheets
+      // Collect selected rows + data for saving to products_rejected
       const discardedRows: number[] = [];
+      const rowsToSave: Array<{ raw_row_data: Record<string, unknown>; rejection_source: string }> = [];
+
       for (const sd of sheetDataList) {
         const sel = multiSheetSelections[sd.sheetName];
-        if (sel) {
-          for (const rowIdx of sel) {
-            discardedRows.push(rowIdx);
+        if (!sel) continue;
+        for (const rowIdx of sel) {
+          discardedRows.push(rowIdx);
+          const row = sd.rows.find(r => r.rowIndex === rowIdx);
+          if (row) {
+            const mappedCells: Record<string, unknown> = {};
+            sd.headerLabels.forEach((header, colIdx) => {
+              mappedCells[header || `col_${colIdx}`] = row.cells[colIdx] ?? null;
+            });
+            rowsToSave.push({
+              raw_row_data: {
+                sheet: sd.sheetName,
+                row_index: rowIdx,
+                cells: row.cells,
+                header_map: mappedCells,
+                has_image: !!(row.productImageData || row.lifestyleImageData),
+              },
+              rejection_source: 'excel_preview',
+            });
           }
         }
       }
-      
+
       if (discardedRows.length === 0) return;
-      
+
+      // Save to products_rejected (fire-and-forget)
+      if (rowsToSave.length > 0) {
+        supabase
+          .from('products_rejected')
+          .insert(rowsToSave)
+          .then(({ error }) => {
+            if (error) {
+              toast.error('「暫不考慮」記錄儲存失敗', { description: error.message });
+            } else {
+              toast.success(`已將 ${rowsToSave.length} 筆資料標記為「暫不考慮」`, {
+                description: '資料已儲存至 products_rejected 記錄。',
+              });
+            }
+          });
+      }
+
       // Clear selections ONLY for the discarded rows (not all sheets)
       const discardedSet = new Set(discardedRows);
       setMultiSheetSelections(prev => {
@@ -943,7 +979,7 @@ export function ExcelPreviewTable({
         }
         return next;
       });
-      
+
       // Notify parent to remove these rows from preview data (burn-down)
       if (onRowsDiscarded) {
         onRowsDiscarded(discardedRows);

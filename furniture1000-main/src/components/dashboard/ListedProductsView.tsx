@@ -42,6 +42,7 @@ import {
   ArrowDownAZ,
   ArrowUpAZ,
   AlertTriangle,
+  Ban,
   Check,
   ChevronDown,
   ChevronLeft,
@@ -131,7 +132,9 @@ export function ListedProductsView({
   const [variantModal, setVariantModal] = useState<{ product: ListedProduct } | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showBatchRejectConfirm, setShowBatchRejectConfirm] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isBatchRejecting, setIsBatchRejecting] = useState(false);
   const [detailProduct, setDetailProduct] = useState<ListedProduct | null>(null);
   const [shopifyFilter, setShopifyFilter] = useState<'all' | 'shopify' | 'database'>('all');
   const [factoryFilterOpen, setFactoryFilterOpen] = useState(false);
@@ -748,6 +751,86 @@ export function ListedProductsView({
     }
   }, [selectedIds, products, currentPage]);
 
+  // Batch「暫不考慮」— save to products_rejected then delete from local DB
+  const handleBatchReject = useCallback(async () => {
+    const ids = Array.from(selectedIds);
+    const productsToReject = products.filter(p => ids.includes(p.id));
+    if (productsToReject.length === 0) return;
+
+    setIsBatchRejecting(true);
+    setShowBatchRejectConfirm(false);
+
+    // Optimistically remove from view
+    setProducts(prev => prev.filter(p => !selectedIds.has(p.id)));
+    setTotalCount(c => Math.max(0, c - ids.length));
+    setSelectedIds(new Set());
+
+    const toastId = toast.loading(`正在將 ${productsToReject.length} 件產品標記為「暫不考慮」...`);
+
+    try {
+      // Step 1: Save to products_rejected
+      const rejectedRows = productsToReject.map(p => ({
+        original_product_id: p.id,
+        title: p.title,
+        description: p.description,
+        tags: p.tags,
+        price: p.price,
+        compare_at_price: p.compareAtPrice ?? null,
+        collection: p.collection,
+        image_url: p.imageUrl,
+        factory_id: p.factoryId ?? null,
+        factories_display_name: p.factoriesDisplayName ?? null,
+        cost_price: p.costPrice ?? null,
+        production_date: p.productionLeadTime ?? null,
+        shipping_days: p.shippingDays ?? null,
+        total_lead_time: p.totalLeadTime ?? null,
+        shipping_fee: p.shippingFee ?? null,
+        delivery_term_id: p.deliveryTermId ?? null,
+        delivery_term_name: p.deliveryTermName ?? null,
+        color: p.color ?? null,
+        dimension_l_mm: p.dimensionLMm ?? null,
+        dimension_w_mm: p.dimensionWMm ?? null,
+        dimension_h_mm: p.dimensionHMm ?? null,
+        remarks: p.remarks ?? null,
+        category: p.category ?? null,
+        source: p.source,
+        shopify_product_id: p.shopifyProductId ?? null,
+        bwf_master_id: p.bwfMasterId ?? null,
+        rejection_source: 'listed_products',
+      }));
+
+      const { error: rejectErr } = await supabase.from('products_rejected').insert(rejectedRows);
+      if (rejectErr) {
+        toast.error('儲存「暫不考慮」記錄失敗', { id: toastId, description: rejectErr.message });
+        setIsBatchRejecting(false);
+        return;
+      }
+
+      // Step 2: Delete variants + products from local DB
+      await supabase.from('product_variants').delete().in('product_id', ids);
+      const { error: delErr } = await supabase.from('products').delete().in('id', ids);
+
+      if (delErr) {
+        toast.error('從本地資料庫移除失敗', { id: toastId, description: delErr.message });
+        setIsBatchRejecting(false);
+        return;
+      }
+
+      toast.success(`已將 ${ids.length} 件產品標記為「暫不考慮」`, {
+        id: toastId,
+        description: '產品資料已儲存至 products_rejected 記錄。',
+        duration: 5000,
+      });
+    } catch (err) {
+      toast.error('操作失敗', {
+        id: toastId,
+        description: err instanceof Error ? err.message : '未知錯誤',
+      });
+    } finally {
+      setIsBatchRejecting(false);
+    }
+  }, [selectedIds, products]);
+
   // Send selected products to the "Ready to Publish" queue
   const handleSendToPublishQueue = useCallback(() => {
     if (!onSendToPublishQueue || selectedIds.size === 0) return;
@@ -1039,21 +1122,26 @@ export function ListedProductsView({
               </Button>
             )}
             <Button
-              variant="destructive"
+              variant="outline"
               size="sm"
-              onClick={() => setShowDeleteConfirm(true)}
-              disabled={selectedIds.size === 0 || isDeleting}
+              onClick={() => setShowBatchRejectConfirm(true)}
+              disabled={selectedIds.size === 0 || isBatchRejecting}
               className={cn(
-                "gap-2 font-display text-xs font-bold transition-all",
+                "gap-2 font-display text-xs font-bold transition-all border-rose-500/40 text-rose-500 hover:bg-rose-500/10",
                 selectedIds.size === 0 && "opacity-50"
               )}
             >
-              {isDeleting ? (
+              {isBatchRejecting ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
               ) : (
-                <Trash2 className="h-3.5 w-3.5" />
+                <Ban className="h-3.5 w-3.5" />
               )}
-              {isDeleting ? '正在刪除...' : '刪除'}
+              {isBatchRejecting ? '處理中...' : '暫不考慮'}
+              {selectedIds.size > 0 && !isBatchRejecting && (
+                <Badge variant="secondary" className="ml-0.5 h-4 min-w-4 px-1 text-[9px]">
+                  {selectedIds.size}
+                </Badge>
+              )}
             </Button>
             {lastSyncTime && (
               <span className="font-mono-data text-[10px] text-muted-foreground">
@@ -1670,6 +1758,38 @@ export function ListedProductsView({
               >
                 <Trash2 className="h-3.5 w-3.5" />
                 是
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        {/* 批量「暫不考慮」確認 */}
+        <AlertDialog open={showBatchRejectConfirm} onOpenChange={setShowBatchRejectConfirm}>
+          <AlertDialogContent className="max-w-md border-rose-500/20">
+            <AlertDialogHeader>
+              <AlertDialogTitle className="font-display flex items-center gap-2">
+                <Ban className="h-5 w-5 text-rose-500" />
+                確認批量「暫不考慮」
+              </AlertDialogTitle>
+              <AlertDialogDescription className="font-body text-sm">
+                將所選的{' '}
+                <span className="font-mono-data font-bold text-rose-500">{selectedIds.size}</span>{' '}
+                件產品標記為「暫不考慮」？
+                <br />
+                <span className="text-xs text-muted-foreground mt-2 block">
+                  產品資料將儲存至{' '}
+                  <code className="font-mono-data text-rose-500">products_rejected</code>{' '}
+                  記錄，並從待處理列表中移除。
+                </span>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel className="font-display text-xs font-bold">取消</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleBatchReject}
+                className="bg-rose-500 text-white hover:bg-rose-600 font-display text-xs font-bold gap-1.5"
+              >
+                <Ban className="h-3.5 w-3.5" /> 確認暫不考慮
               </AlertDialogAction>
             </AlertDialogFooter>
           </AlertDialogContent>
