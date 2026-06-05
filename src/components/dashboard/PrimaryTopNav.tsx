@@ -18,9 +18,9 @@ export function PrimaryTopNav({ activeSection, onSectionChange }: PrimaryTopNavP
           <ShoppingBag className="h-5 w-5 text-primary" />
         </div>
         <div className="leading-tight">
-          <div className="font-display text-[14px] font-bold tracking-tight">AI 產品管理</div>
+          <div className="font-display text-[14px] font-bold tracking-tight">FDP Furniture Design Platform</div>
           <div className="font-mono-data text-[10px] text-muted-foreground tracking-[0.12em] uppercase">
-            Shopify 管理工具
+            傢私設計管理平台
           </div>
         </div>
       </div>
