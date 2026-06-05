@@ -4,8 +4,8 @@ import { motion } from 'framer-motion';
 import { supabase } from '@/lib/supabase';
 import {
   Package,
-  PackageOpen,
-  CheckCircle2,
+  BookOpen,
+  Library,
   FolderKanban,
   FileText,
   TrendingUp,
@@ -16,7 +16,7 @@ import {
 
 interface DashboardViewProps {
   onNavigateToAI: () => void;
-  onNavigateToPending?: () => void;
+  onNavigateToCopywriting?: () => void;
 }
 
 interface DashboardStats {
@@ -26,10 +26,10 @@ interface DashboardStats {
   tierA: number;
   tierB: number;
   tierC: number;
-  // 待處理產品（status = draft，未進入 Shopify 佇列）
-  pendingCount: number;
-  // 已處理產品（status = success 或有 shopify_product_id）
-  processedCount: number;
+  // 待填寫產品文案（in_shopify_queue = true AND info_done = false）
+  copywritingPending: number;
+  // 產品目錄（in_catalog = true）
+  catalogCount: number;
   // 每月專案成立數（本月）
   projectsThisMonth: number;
   // 客戶邀請數（本月）
@@ -60,12 +60,16 @@ async function fetchDashboardStats(): Promise<DashboardStats> {
   const [
     { data: allProducts },
     { data: monthProducts },
+    { data: copywritingRows },
+    { data: catalogRows },
     { data: projects },
     { data: invites },
     { data: quotes },
   ] = await Promise.all([
-    supabase.from('products').select('id, status, shopify_product_id, sale_price, price'),
-    supabase.from('products').select('id, sale_price, price').gte('created_at', gte).lt('created_at', lt),
+    supabase.from('products').select('id, sale_price, price'),
+    supabase.from('products').select('id').gte('created_at', gte).lt('created_at', lt),
+    supabase.from('products').select('id').eq('in_shopify_queue', true).eq('info_done', false),
+    supabase.from('products').select('id').eq('in_catalog', true),
     supabase.from('design_projects').select('id').gte('created_at', gte).lt('created_at', lt),
     supabase.from('project_invitations').select('id').gte('created_at', gte).lt('created_at', lt),
     supabase.from('bwf_quote').select('id').gte('created_at', gte).lt('created_at', lt),
@@ -74,20 +78,12 @@ async function fetchDashboardStats(): Promise<DashboardStats> {
   const products = allProducts ?? [];
 
   let tierA = 0, tierB = 0, tierC = 0;
-  let pendingCount = 0, processedCount = 0;
-
   for (const p of products) {
     const price = Number(p.sale_price ?? p.price ?? 0);
     const tier = deriveTier(price);
     if (tier === 'A') tierA++;
     else if (tier === 'B') tierB++;
     else tierC++;
-
-    if (p.status === 'success' || p.shopify_product_id) {
-      processedCount++;
-    } else {
-      pendingCount++;
-    }
   }
 
   return {
@@ -95,8 +91,8 @@ async function fetchDashboardStats(): Promise<DashboardStats> {
     tierA,
     tierB,
     tierC,
-    pendingCount,
-    processedCount,
+    copywritingPending: (copywritingRows ?? []).length,
+    catalogCount: (catalogRows ?? []).length,
     projectsThisMonth: (projects ?? []).length,
     invitesThisMonth: (invites ?? []).length,
     quotesThisMonth: (quotes ?? []).length,
@@ -131,7 +127,7 @@ function StatCard({ label, value, icon: Icon, color, bg, delay = 0 }: StatCardPr
   );
 }
 
-export function DashboardView({ onNavigateToAI, onNavigateToPending }: DashboardViewProps) {
+export function DashboardView({ onNavigateToAI, onNavigateToCopywriting }: DashboardViewProps) {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -146,11 +142,6 @@ export function DashboardView({ onNavigateToAI, onNavigateToPending }: Dashboard
   const tierBPercent = tierTotal > 0 ? Math.round((stats!.tierB / tierTotal) * 100) : 0;
   const tierCPercent = tierTotal > 0 ? Math.round((stats!.tierC / tierTotal) * 100) : 0;
 
-  const processedPercent =
-    stats && stats.pendingCount + stats.processedCount > 0
-      ? Math.round((stats.processedCount / (stats.pendingCount + stats.processedCount)) * 100)
-      : 0;
-
   if (loading) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -163,9 +154,9 @@ export function DashboardView({ onNavigateToAI, onNavigateToPending }: Dashboard
     <div className="h-full overflow-y-auto">
       <div className="space-y-8 p-6">
 
-        {/* 本月上載 + 待處理 + 已處理 */}
+        {/* 本月上載 + 待填寫文案 + 產品目錄 */}
         <div>
-          <h3 className="mb-4 font-display text-sm font-bold text-muted-foreground uppercase tracking-wide">本月產品</h3>
+          <h3 className="mb-4 font-display text-sm font-bold text-muted-foreground uppercase tracking-wide">產品概覽</h3>
           <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
             <StatCard
               label="本月上載產品"
@@ -176,17 +167,17 @@ export function DashboardView({ onNavigateToAI, onNavigateToPending }: Dashboard
               delay={0}
             />
             <StatCard
-              label="待處理產品"
-              value={stats?.pendingCount ?? 0}
-              icon={PackageOpen}
+              label="待填寫產品文案"
+              value={stats?.copywritingPending ?? 0}
+              icon={BookOpen}
               color="text-amber-500"
               bg="bg-amber-500/10"
               delay={0.06}
             />
             <StatCard
-              label="已處理產品"
-              value={stats?.processedCount ?? 0}
-              icon={CheckCircle2}
+              label="產品目錄"
+              value={stats?.catalogCount ?? 0}
+              icon={Library}
               color="text-emerald-500"
               bg="bg-emerald-500/10"
               delay={0.12}
@@ -235,33 +226,39 @@ export function DashboardView({ onNavigateToAI, onNavigateToPending }: Dashboard
           </div>
         </motion.div>
 
-        {/* 處理進度 */}
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.24, duration: 0.4 }}
-          className="rounded-xl border border-border bg-card p-6"
-        >
-          <div className="mb-3 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10">
-                <TrendingUp className="h-5 w-5 text-emerald-500" />
+        {/* 文案填寫進度 */}
+        {(() => {
+          const total = (stats?.copywritingPending ?? 0) + (stats?.catalogCount ?? 0);
+          const donePct = total > 0 ? Math.round(((stats?.catalogCount ?? 0) / total) * 100) : 0;
+          return (
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.24, duration: 0.4 }}
+              className="rounded-xl border border-border bg-card p-6"
+            >
+              <div className="mb-3 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10">
+                    <TrendingUp className="h-5 w-5 text-emerald-500" />
+                  </div>
+                  <h3 className="font-display text-sm font-bold">文案填寫進度</h3>
+                </div>
+                <span className="font-mono-data text-xs text-muted-foreground">{donePct}%</span>
               </div>
-              <h3 className="font-display text-sm font-bold">產品處理進度</h3>
-            </div>
-            <span className="font-mono-data text-xs text-muted-foreground">{processedPercent}%</span>
-          </div>
-          <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-            <div
-              className="h-full rounded-full bg-gradient-to-r from-primary to-emerald-500 transition-all duration-700"
-              style={{ width: `${processedPercent}%` }}
-            />
-          </div>
-          <div className="mt-2 flex justify-between font-mono-data text-xs text-muted-foreground">
-            <span>已處理 {stats?.processedCount ?? 0}</span>
-            <span>待處理 {stats?.pendingCount ?? 0}</span>
-          </div>
-        </motion.div>
+              <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-primary to-emerald-500 transition-all duration-700"
+                  style={{ width: `${donePct}%` }}
+                />
+              </div>
+              <div className="mt-2 flex justify-between font-mono-data text-xs text-muted-foreground">
+                <span>已入目錄 {stats?.catalogCount ?? 0}</span>
+                <span>待填文案 {stats?.copywritingPending ?? 0}</span>
+              </div>
+            </motion.div>
+          );
+        })()}
 
         {/* 本月業務數據 */}
         <div>
@@ -319,16 +316,16 @@ export function DashboardView({ onNavigateToAI, onNavigateToPending }: Dashboard
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.52, duration: 0.4 }}
-            onClick={onNavigateToPending}
+            onClick={onNavigateToCopywriting}
             className="group flex items-center gap-4 rounded-xl border border-border bg-card p-6 text-left transition-all hover:border-amber-500/30 hover:shadow-lg hover:shadow-amber-500/5"
           >
             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-amber-500/10 transition-transform group-hover:scale-110">
-              <PackageOpen className="h-6 w-6 text-amber-500" />
+              <BookOpen className="h-6 w-6 text-amber-500" />
             </div>
             <div className="flex-1">
-              <h3 className="font-display text-sm font-bold">查看待處理產品</h3>
+              <h3 className="font-display text-sm font-bold">填寫產品文案</h3>
               <p className="mt-0.5 text-xs text-muted-foreground font-body">
-                {stats?.pendingCount ?? 0} 件尚未處理
+                {stats?.copywritingPending ?? 0} 件待填寫
               </p>
             </div>
             <ArrowRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-1 group-hover:text-amber-500" />

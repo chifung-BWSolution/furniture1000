@@ -204,7 +204,7 @@ export function AppShell() {
         return (
           <DashboardView
             onNavigateToAI={() => store.setCurrentView("ai-processor")}
-            onNavigateToPending={() => store.setCurrentView("listed-products")}
+            onNavigateToCopywriting={() => store.setCurrentView("publish-copywriting")}
           />
         );
       case "ai-processor":
