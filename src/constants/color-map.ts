@@ -205,6 +205,48 @@ export function getColorHex(englishName: string): string {
 }
 
 /**
+ * Match a raw color string containing potentially multiple colors
+ * (e.g. "凌志色/橫紋烏金色", "黑色, 白色", "Black White") to W3C color names.
+ * Returns a comma-separated string of English W3C names (for DB storage).
+ * Returns empty string if no match found.
+ */
+export function matchMultipleColors(rawColorStr: string): string {
+  if (!rawColorStr || !rawColorStr.trim()) return '';
+  // Split on common delimiters: / | , 、 space (but keep multi-char words together)
+  const parts = rawColorStr
+    .split(/[/|,、；;]+/)
+    .map(s => s.trim())
+    .filter(Boolean);
+
+  const matched: string[] = [];
+  const seen = new Set<string>();
+
+  for (const part of parts) {
+    const en = autoMatchColor(part);
+    if (en && !seen.has(en)) {
+      matched.push(en);
+      seen.add(en);
+    }
+  }
+
+  return matched.join(',');
+}
+
+/**
+ * Convert a comma-separated English color string to Chinese display labels.
+ * e.g. "Black,White" → "黑色, 白色"
+ */
+export function multiColorToChineseDisplay(englishColors: string): string {
+  if (!englishColors) return '';
+  return englishColors
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean)
+    .map(en => getChineseColorLabel(en) || en)
+    .join(', ');
+}
+
+/**
  * Auto-match an AI-extracted color string (Chinese or English) to the closest mapping.
  * Returns the English W3C name if matched, or empty string if no match.
  */

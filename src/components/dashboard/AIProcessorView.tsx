@@ -40,7 +40,7 @@ import {
 import { Product } from '@/types/product';
 import { OFFICIAL_PRODUCT_TAGS } from '@/constants/product-tags';
 import { MANUFACTURERS } from '@/constants/manufacturers';
-import { COLOR_MAP } from '@/constants/color-map';
+import { COLOR_MAP, matchMultipleColors, autoMatchColor } from '@/constants/color-map';
 import { TagSelector } from './TagSelector';
 import { ColorSelector } from './ColorSelector';
 import { CascadingCategorySelector } from './CascadingCategorySelector';
@@ -2441,7 +2441,8 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         })();
         const salePrice = cleanPrice(rawSalePriceCell);
         const rawColor = getCellStr('color') || null;
-        const color = rawColor ? simplifiedToTraditional(rawColor) : null;
+        // Match raw color string (possibly multiple, e.g. "黑色/白色") to W3C English names
+        const color = rawColor ? (matchMultipleColors(simplifiedToTraditional(rawColor)) || autoMatchColor(simplifiedToTraditional(rawColor)) || null) : null;
         // Apply Simplified → Traditional Chinese conversion for description
         const rawDescription = getCellStr('description');
         const description = rawDescription ? simplifiedToTraditional(rawDescription) : '';
@@ -2736,7 +2737,8 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         })();
         const salePrice = cleanPrice(rawSalePriceCell);
         const rawColor = getCellStr('color') || null;
-        const color = rawColor ? simplifiedToTraditional(rawColor) : null;
+        // Match raw color string (possibly multiple, e.g. "黑色/白色") to W3C English names
+        const color = rawColor ? (matchMultipleColors(simplifiedToTraditional(rawColor)) || autoMatchColor(simplifiedToTraditional(rawColor)) || null) : null;
         // Apply Simplified → Traditional Chinese conversion for description
         const rawDescription = getCellStr('description');
         const description = rawDescription ? simplifiedToTraditional(rawDescription) : '';

@@ -65,7 +65,7 @@ import {
 import { supabase } from '@/lib/supabase';
 import { removeFromCatalog, addToCatalog, addToShopifyQueue, dismissProducts } from '@/lib/catalogStore';
 import { toast } from 'sonner';
-import { getChineseColorLabel, getColorHex } from '@/constants/color-map';
+import { getChineseColorLabel, getColorHex, multiColorToChineseDisplay } from '@/constants/color-map';
 import { ProductDetailModal } from './ProductDetailModal';
 
 type SortField = 'created_at' | 'title';
@@ -1699,20 +1699,24 @@ export function ListedProductsView({
                       </div>
                     </td>
 
-                    {/* Color (Chinese) */}
+                    {/* Color (Chinese) — supports comma-separated multi-color */}
                     <td className="px-3 py-3">
                       {product.color ? (
-                        <div className="flex items-center gap-1.5">
-                          <div
-                            className="h-3.5 w-3.5 rounded-full border border-border flex-shrink-0"
-                            style={{ backgroundColor: getColorHex(product.color) }}
-                          />
-                          <span className="font-mono-data text-[11px]">
-                            {getChineseColorLabel(product.color) || product.color}
-                          </span>
+                        <div className="flex flex-wrap items-center gap-1">
+                          {product.color.split(',').map(s => s.trim()).filter(Boolean).map((colorEn) => (
+                            <div key={colorEn} className="flex items-center gap-1 rounded-full bg-muted/50 border border-border/50 px-1.5 py-0.5">
+                              <div
+                                className="h-2.5 w-2.5 rounded-full border border-border/40 flex-shrink-0"
+                                style={{ backgroundColor: getColorHex(colorEn) }}
+                              />
+                              <span className="font-body text-xs">
+                                {getChineseColorLabel(colorEn) || colorEn}
+                              </span>
+                            </div>
+                          ))}
                         </div>
                       ) : (
-                        <span className="text-[10px] text-muted-foreground">—</span>
+                        <span className="text-xs text-muted-foreground">—</span>
                       )}
                     </td>
 
