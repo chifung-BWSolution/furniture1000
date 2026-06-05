@@ -203,10 +203,8 @@ export function AppShell() {
       case "dashboard":
         return (
           <DashboardView
-            products={store.products}
-            stats={store.stats}
-            onProductClick={store.navigateToProduct}
             onNavigateToAI={() => store.setCurrentView("ai-processor")}
+            onNavigateToPending={() => store.setCurrentView("listed-products")}
           />
         );
       case "ai-processor":

@@ -1,201 +1,341 @@
+import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
-import { Product } from '@/types/product';
-import { StatusBadge } from './StatusBadge';
 import { motion } from 'framer-motion';
+import { supabase } from '@/lib/supabase';
 import {
   Package,
-  TrendingUp,
-  AlertTriangle,
+  PackageOpen,
   CheckCircle2,
-  Clock,
+  FolderKanban,
+  FileText,
+  TrendingUp,
   Sparkles,
   ArrowRight,
+  Loader2,
 } from 'lucide-react';
 
 interface DashboardViewProps {
-  products: Product[];
-  stats: {
-    total: number;
-    drafts: number;
-    publishing: number;
-    success: number;
-    errors: number;
-  };
-  onProductClick: (productId: string) => void;
   onNavigateToAI: () => void;
+  onNavigateToPending?: () => void;
 }
 
-export function DashboardView({ products, stats, onProductClick, onNavigateToAI }: DashboardViewProps) {
-  const pendingProducts = products.filter(p => p.status === 'draft' || p.status === 'error');
+interface DashboardStats {
+  // 本月上載產品數
+  uploadedThisMonth: number;
+  // A/B/C 分類分布
+  tierA: number;
+  tierB: number;
+  tierC: number;
+  // 待處理產品（status = draft，未進入 Shopify 佇列）
+  pendingCount: number;
+  // 已處理產品（status = success 或有 shopify_product_id）
+  processedCount: number;
+  // 每月專案成立數（本月）
+  projectsThisMonth: number;
+  // 客戶邀請數（本月）
+  invitesThisMonth: number;
+  // 報價單數（本月）
+  quotesThisMonth: number;
+}
+
+function deriveTier(price: number): 'A' | 'B' | 'C' {
+  if (price >= 4000) return 'A';
+  if (price >= 1500) return 'B';
+  return 'C';
+}
+
+function thisMonthRange(): { gte: string; lt: string } {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), 1);
+  const end = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  return {
+    gte: start.toISOString(),
+    lt: end.toISOString(),
+  };
+}
+
+async function fetchDashboardStats(): Promise<DashboardStats> {
+  const { gte, lt } = thisMonthRange();
+
+  const [
+    { data: allProducts },
+    { data: monthProducts },
+    { data: projects },
+    { data: invites },
+    { data: quotes },
+  ] = await Promise.all([
+    supabase.from('products').select('id, status, shopify_product_id, sale_price, price'),
+    supabase.from('products').select('id, sale_price, price').gte('created_at', gte).lt('created_at', lt),
+    supabase.from('design_projects').select('id').gte('created_at', gte).lt('created_at', lt),
+    supabase.from('project_invitations').select('id').gte('created_at', gte).lt('created_at', lt),
+    supabase.from('bwf_quote').select('id').gte('created_at', gte).lt('created_at', lt),
+  ]);
+
+  const products = allProducts ?? [];
+
+  let tierA = 0, tierB = 0, tierC = 0;
+  let pendingCount = 0, processedCount = 0;
+
+  for (const p of products) {
+    const price = Number(p.sale_price ?? p.price ?? 0);
+    const tier = deriveTier(price);
+    if (tier === 'A') tierA++;
+    else if (tier === 'B') tierB++;
+    else tierC++;
+
+    if (p.status === 'success' || p.shopify_product_id) {
+      processedCount++;
+    } else {
+      pendingCount++;
+    }
+  }
+
+  return {
+    uploadedThisMonth: (monthProducts ?? []).length,
+    tierA,
+    tierB,
+    tierC,
+    pendingCount,
+    processedCount,
+    projectsThisMonth: (projects ?? []).length,
+    invitesThisMonth: (invites ?? []).length,
+    quotesThisMonth: (quotes ?? []).length,
+  };
+}
+
+interface StatCardProps {
+  label: string;
+  value: number | string;
+  icon: React.ElementType;
+  color: string;
+  bg: string;
+  delay?: number;
+}
+
+function StatCard({ label, value, icon: Icon, color, bg, delay = 0 }: StatCardProps) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay, duration: 0.4 }}
+      className="rounded-xl border border-border bg-card p-5 transition-all hover:shadow-lg hover:shadow-primary/5"
+    >
+      <div className="flex items-center justify-between">
+        <span className="font-body text-xs text-muted-foreground">{label}</span>
+        <div className={cn('flex h-8 w-8 items-center justify-center rounded-lg', bg)}>
+          <Icon className={cn('h-4 w-4', color)} />
+        </div>
+      </div>
+      <p className="mt-2 font-mono-data text-3xl font-bold tracking-tight">{value}</p>
+    </motion.div>
+  );
+}
+
+export function DashboardView({ onNavigateToAI, onNavigateToPending }: DashboardViewProps) {
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchDashboardStats()
+      .then(setStats)
+      .finally(() => setLoading(false));
+  }, []);
+
+  const tierTotal = stats ? stats.tierA + stats.tierB + stats.tierC : 0;
+  const tierAPercent = tierTotal > 0 ? Math.round((stats!.tierA / tierTotal) * 100) : 0;
+  const tierBPercent = tierTotal > 0 ? Math.round((stats!.tierB / tierTotal) * 100) : 0;
+  const tierCPercent = tierTotal > 0 ? Math.round((stats!.tierC / tierTotal) * 100) : 0;
+
+  const processedPercent =
+    stats && stats.pendingCount + stats.processedCount > 0
+      ? Math.round((stats.processedCount / (stats.pendingCount + stats.processedCount)) * 100)
+      : 0;
+
+  if (loading) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   return (
     <div className="h-full overflow-y-auto">
-    <div className="space-y-8 p-6">
-      {/* Stats Cards */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        {[
-          {
-            label: '全部產品',
-            value: stats.total,
-            icon: Package,
-            color: 'text-primary',
-            bg: 'bg-primary/10',
-          },
-          {
-            label: '準備發佈',
-            value: stats.drafts,
-            icon: Clock,
-            color: 'text-muted-foreground',
-            bg: 'bg-muted',
-          },
-          {
-            label: '已發佈',
-            value: stats.success,
-            icon: CheckCircle2,
-            color: 'text-emerald-500',
-            bg: 'bg-emerald-500/10',
-          },
-          {
-            label: '錯誤',
-            value: stats.errors,
-            icon: AlertTriangle,
-            color: 'text-rose-500',
-            bg: 'bg-rose-500/10',
-          },
-        ].map((stat, i) => (
-          <motion.div
-            key={stat.label}
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: i * 0.08, duration: 0.4 }}
-            className="rounded-xl border border-border bg-card p-5 transition-all hover:shadow-lg hover:shadow-primary/5"
-          >
-            <div className="flex items-center justify-between">
-              <span className="font-body text-xs text-muted-foreground">{stat.label}</span>
-              <div className={cn('flex h-8 w-8 items-center justify-center rounded-lg', stat.bg)}>
-                <stat.icon className={cn('h-4 w-4', stat.color)} />
-              </div>
-            </div>
-            <p className="mt-2 font-mono-data text-3xl font-bold tracking-tight">{stat.value}</p>
-          </motion.div>
-        ))}
-      </div>
+      <div className="space-y-8 p-6">
 
-      {/* Quick Actions */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <motion.button
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.35, duration: 0.4 }}
-          onClick={onNavigateToAI}
-          className="group flex items-center gap-4 rounded-xl border border-border bg-card p-6 text-left transition-all hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5"
-        >
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 transition-transform group-hover:scale-110">
-            <Sparkles className="h-6 w-6 text-primary" />
+        {/* 本月上載 + 待處理 + 已處理 */}
+        <div>
+          <h3 className="mb-4 font-display text-sm font-bold text-muted-foreground uppercase tracking-wide">本月產品</h3>
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
+            <StatCard
+              label="本月上載產品"
+              value={stats?.uploadedThisMonth ?? 0}
+              icon={Package}
+              color="text-primary"
+              bg="bg-primary/10"
+              delay={0}
+            />
+            <StatCard
+              label="待處理產品"
+              value={stats?.pendingCount ?? 0}
+              icon={PackageOpen}
+              color="text-amber-500"
+              bg="bg-amber-500/10"
+              delay={0.06}
+            />
+            <StatCard
+              label="已處理產品"
+              value={stats?.processedCount ?? 0}
+              icon={CheckCircle2}
+              color="text-emerald-500"
+              bg="bg-emerald-500/10"
+              delay={0.12}
+            />
           </div>
-          <div className="flex-1">
-            <h3 className="font-display text-sm font-bold">處理新產品</h3>
-            <p className="mt-0.5 text-xs text-muted-foreground font-body">
-              上傳目錄及圖片進行 AI 分析
-            </p>
-          </div>
-          <ArrowRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-1 group-hover:text-primary" />
-        </motion.button>
+        </div>
 
+        {/* A/B/C 分類分布 */}
         <motion.div
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.4, duration: 0.4 }}
-          className="flex items-center gap-4 rounded-xl border border-border bg-card p-6"
+          transition={{ delay: 0.18, duration: 0.4 }}
+          className="rounded-xl border border-border bg-card p-6"
         >
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-500/10">
-            <TrendingUp className="h-6 w-6 text-emerald-500" />
+          <div className="mb-4 flex items-center justify-between">
+            <h3 className="font-display text-sm font-bold">A / B / C 類別分布</h3>
+            <span className="font-mono-data text-xs text-muted-foreground">{tierTotal} 件</span>
           </div>
-          <div className="flex-1">
-            <h3 className="font-display text-sm font-bold">流水線狀態</h3>
-            <div className="mt-2 flex items-center gap-3">
-              <div className="flex-1">
-                <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-                  <div
-                    className="h-full rounded-full bg-gradient-to-r from-primary to-emerald-500 transition-all duration-700"
-                    style={{
-                      width: `${stats.total > 0 ? ((stats.success / stats.total) * 100) : 0}%`,
-                    }}
-                  />
+          {/* Stacked bar */}
+          <div className="mb-4 flex h-3 w-full overflow-hidden rounded-full bg-muted">
+            {tierAPercent > 0 && (
+              <div className="h-full bg-primary transition-all duration-700" style={{ width: `${tierAPercent}%` }} />
+            )}
+            {tierBPercent > 0 && (
+              <div className="h-full bg-amber-400 transition-all duration-700" style={{ width: `${tierBPercent}%` }} />
+            )}
+            {tierCPercent > 0 && (
+              <div className="h-full bg-muted-foreground/30 transition-all duration-700" style={{ width: `${tierCPercent}%` }} />
+            )}
+          </div>
+          <div className="grid grid-cols-3 gap-4">
+            {[
+              { label: 'A 類', count: stats?.tierA ?? 0, pct: tierAPercent, dot: 'bg-primary' },
+              { label: 'B 類', count: stats?.tierB ?? 0, pct: tierBPercent, dot: 'bg-amber-400' },
+              { label: 'C 類', count: stats?.tierC ?? 0, pct: tierCPercent, dot: 'bg-muted-foreground/30' },
+            ].map((t) => (
+              <div key={t.label} className="flex flex-col gap-1">
+                <div className="flex items-center gap-2">
+                  <span className={cn('h-2.5 w-2.5 rounded-full', t.dot)} />
+                  <span className="font-body text-xs text-muted-foreground">{t.label}</span>
                 </div>
+                <p className="font-mono-data text-2xl font-bold">{t.count}</p>
+                <p className="font-mono-data text-xs text-muted-foreground">{t.pct}%</p>
               </div>
-              <span className="font-mono-data text-xs text-muted-foreground">
-                {stats.total > 0 ? Math.round((stats.success / stats.total) * 100) : 0}%
-              </span>
-            </div>
-          </div>
-        </motion.div>
-      </div>
-
-      {/* Product Cards — Bento Grid */}
-      <div>
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="font-display text-base font-bold">待處理產品</h3>
-          <span className="font-mono-data text-xs text-muted-foreground">
-            {pendingProducts.length} 個項目
-          </span>
-        </div>
-
-        {pendingProducts.length === 0 ? (
-          <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-16">
-            <Package className="mb-3 h-10 w-10 text-muted-foreground/40" />
-            <p className="font-body text-sm text-muted-foreground">暫無待處理產品</p>
-            <p className="mt-1 text-xs text-muted-foreground/70">
-              透過 AI 處理器處理新項目
-            </p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5">
-            {pendingProducts.map((product, i) => (
-              <motion.button
-                key={product.id}
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.1 + i * 0.04, duration: 0.4 }}
-                onClick={() => onProductClick(product.id)}
-                className={cn(
-                  'group relative flex flex-col overflow-hidden rounded-xl border border-border bg-card text-left transition-all duration-300',
-                  'hover:-translate-y-0.5 hover:border-primary/20 hover:shadow-xl hover:shadow-primary/5'
-                )}
-              >
-                {/* Image */}
-                <div className="relative aspect-[8/3] w-full overflow-hidden bg-muted">
-                  {product.imageUrl ? (
-                    <img
-                      src={product.imageUrl}
-                      alt={product.title}
-                      className="h-full w-full object-cover bg-white transition-transform duration-500 group-hover:scale-105"
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).style.display = 'none';
-                      }}
-                    />
-                  ) : null}
-
-                </div>
-
-                {/* Content */}
-                <div className="flex flex-1 flex-col p-3">
-                  <h4 className="font-display text-xs font-bold leading-tight line-clamp-1">
-                    {product.title}
-                  </h4>
-                  <div className="mt-2 flex items-center justify-between">
-                    <span className="font-mono-data text-sm font-bold text-primary">
-                      ${product.price.toFixed(2)}
-                    </span>
-                    <StatusBadge status={product.status} />
-                  </div>
-                </div>
-              </motion.button>
             ))}
           </div>
-        )}
+        </motion.div>
+
+        {/* 處理進度 */}
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.24, duration: 0.4 }}
+          className="rounded-xl border border-border bg-card p-6"
+        >
+          <div className="mb-3 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-500/10">
+                <TrendingUp className="h-5 w-5 text-emerald-500" />
+              </div>
+              <h3 className="font-display text-sm font-bold">產品處理進度</h3>
+            </div>
+            <span className="font-mono-data text-xs text-muted-foreground">{processedPercent}%</span>
+          </div>
+          <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-primary to-emerald-500 transition-all duration-700"
+              style={{ width: `${processedPercent}%` }}
+            />
+          </div>
+          <div className="mt-2 flex justify-between font-mono-data text-xs text-muted-foreground">
+            <span>已處理 {stats?.processedCount ?? 0}</span>
+            <span>待處理 {stats?.pendingCount ?? 0}</span>
+          </div>
+        </motion.div>
+
+        {/* 本月業務數據 */}
+        <div>
+          <h3 className="mb-4 font-display text-sm font-bold text-muted-foreground uppercase tracking-wide">本月業務</h3>
+          <div className="grid grid-cols-2 gap-4 lg:grid-cols-3">
+            <StatCard
+              label="專案成立"
+              value={stats?.projectsThisMonth ?? 0}
+              icon={FolderKanban}
+              color="text-violet-500"
+              bg="bg-violet-500/10"
+              delay={0.3}
+            />
+            <StatCard
+              label="客戶邀請"
+              value={stats?.invitesThisMonth ?? 0}
+              icon={Sparkles}
+              color="text-sky-500"
+              bg="bg-sky-500/10"
+              delay={0.36}
+            />
+            <StatCard
+              label="報價單"
+              value={stats?.quotesThisMonth ?? 0}
+              icon={FileText}
+              color="text-rose-500"
+              bg="bg-rose-500/10"
+              delay={0.42}
+            />
+          </div>
+        </div>
+
+        {/* Quick Actions */}
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <motion.button
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.48, duration: 0.4 }}
+            onClick={onNavigateToAI}
+            className="group flex items-center gap-4 rounded-xl border border-border bg-card p-6 text-left transition-all hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5"
+          >
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 transition-transform group-hover:scale-110">
+              <Sparkles className="h-6 w-6 text-primary" />
+            </div>
+            <div className="flex-1">
+              <h3 className="font-display text-sm font-bold">處理新產品</h3>
+              <p className="mt-0.5 text-xs text-muted-foreground font-body">
+                上傳目錄及圖片進行 AI 分析
+              </p>
+            </div>
+            <ArrowRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-1 group-hover:text-primary" />
+          </motion.button>
+
+          <motion.button
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.52, duration: 0.4 }}
+            onClick={onNavigateToPending}
+            className="group flex items-center gap-4 rounded-xl border border-border bg-card p-6 text-left transition-all hover:border-amber-500/30 hover:shadow-lg hover:shadow-amber-500/5"
+          >
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-amber-500/10 transition-transform group-hover:scale-110">
+              <PackageOpen className="h-6 w-6 text-amber-500" />
+            </div>
+            <div className="flex-1">
+              <h3 className="font-display text-sm font-bold">查看待處理產品</h3>
+              <p className="mt-0.5 text-xs text-muted-foreground font-body">
+                {stats?.pendingCount ?? 0} 件尚未處理
+              </p>
+            </div>
+            <ArrowRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-1 group-hover:text-amber-500" />
+          </motion.button>
+        </div>
+
       </div>
-    </div>
     </div>
   );
 }
