@@ -4790,10 +4790,10 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
                   </Popover>
                 </div>
 
-                {/* ── 皮料/布料 Multi-select ── */}
+                {/* ── 皮料/板材 Multi-select ── */}
                 <div className="space-y-1.5">
                   <div className="flex items-center gap-1.5">
-                    <span className="font-display text-xs font-semibold text-foreground/80">皮料/布料</span>
+                    <span className="font-display text-xs font-semibold text-foreground/80">皮料/板材</span>
                     {selectedFabrics.length > 0 && (
                       <Badge className="bg-violet-500/10 text-violet-500 border border-violet-500/20 font-mono-data text-[10px]">
                         {selectedFabrics.length}
@@ -4837,7 +4837,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
                         )}
                       >
                         <span className="flex-shrink-0 text-amber-600/70 font-mono-data text-xs leading-none">🪢</span>
-                        <span className="flex-1 font-body text-xs text-muted-foreground truncate">選擇皮料/布料（可多選）...</span>
+                        <span className="flex-1 font-body text-xs text-muted-foreground truncate">選擇皮料/板材（可多選）...</span>
                         <ChevronsUpDown className={cn(
                           "h-3.5 w-3.5 text-muted-foreground flex-shrink-0 transition-transform",
                           fabricsOpen && "rotate-180"
@@ -4847,13 +4847,13 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
                     <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" side="bottom" align="start" sideOffset={4}>
                       <Command>
                         <CommandInput
-                          placeholder="搜尋皮料/布料..."
+                          placeholder="搜尋皮料/板材..."
                           className="font-body text-xs"
                         />
                         <CommandList className="max-h-[260px] overflow-y-auto">
                           <CommandEmpty className="py-4 text-center font-body text-xs text-muted-foreground">找不到相關材料</CommandEmpty>
                           <CommandGroup heading="皮料">
-                            {['頭層牛皮', '二層牛皮', '羊皮', '豬皮', '馬皮', 'PU 仿皮', 'PVC 皮料', '超纖皮', '全粒面皮', '修面皮', '壓紋皮', '翻毛皮（麂皮）', '漆皮'].map((item) => {
+                            {['PU皮', '超纖皮', '真皮', '硅膠皮'].map((item) => {
                               const isSelected = selectedFabrics.includes(item);
                               return (
                                 <CommandItem
@@ -4881,8 +4881,8 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
                               );
                             })}
                           </CommandGroup>
-                          <CommandGroup heading="布料">
-                            {['棉布', '麻布', '絨布', '天鵝絨', '燈芯絨', '帆布', '牛仔布', '針織布', '緹花布', '提花布', '雪尼爾', '人造絲', '滌綸布', '尼龍布', '防水布', '仿麂皮布'].map((item) => {
+                          <CommandGroup heading="板材">
+                            {['MFC板', '實木多層板', '中纖板', '海洋板', '防火板', '實木', '原木'].map((item) => {
                               const isSelected = selectedFabrics.includes(item);
                               return (
                                 <CommandItem
