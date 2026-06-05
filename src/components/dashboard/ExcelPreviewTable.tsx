@@ -330,10 +330,12 @@ function ImageOverrideModal({ isOpen, onClose, currentImage, onConfirm, mode }: 
   const [previewImage, setPreviewImage] = useState<string | null>(currentImage);
   const [isDragging, setIsDragging] = useState(false);
   const [fileError, setFileError] = useState<string | null>(null);
+  const [isPasting, setIsPasting] = useState(false);
   // In 'add' mode start with no image; in 'replace' mode start with current image
   const [isReplacing, setIsReplacing] = useState(mode === 'add');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dropZoneRef = useRef<HTMLDivElement>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setPreviewImage(currentImage);
@@ -359,26 +361,64 @@ function ImageOverrideModal({ isOpen, onClose, currentImage, onConfirm, mode }: 
     reader.readAsDataURL(file);
   }, []);
 
-  // Ctrl+V paste — listen on both document and the modal container
-  const modalRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!isOpen) return;
-    const handlePaste = (e: ClipboardEvent) => {
-      const items = e.clipboardData?.items;
-      if (!items) return;
-      for (const item of items) {
-        if (item.type.startsWith('image/')) {
-          e.preventDefault();
-          e.stopPropagation();
-          const file = item.getAsFile();
-          if (file) loadFile(file);
-          return;
+  // Read image from OS clipboard via Clipboard API (works for Excel/external app copies)
+  const readClipboardImage = useCallback(async () => {
+    setFileError(null);
+    setIsPasting(true);
+    try {
+      // First try the modern Clipboard API (supports images copied from Excel/OS)
+      if (navigator.clipboard && 'read' in navigator.clipboard) {
+        const items = await navigator.clipboard.read();
+        for (const item of items) {
+          const imageType = item.types.find(t => t.startsWith('image/'));
+          if (imageType) {
+            const blob = await item.getType(imageType);
+            const file = new File([blob], 'pasted-image.png', { type: imageType });
+            loadFile(file);
+            return;
+          }
         }
       }
+      setFileError('剪貼板中沒有圖片，請先在 Excel 中複製圖片（右鍵 → 複製）');
+    } catch (err: any) {
+      if (err?.name === 'NotAllowedError') {
+        setFileError('瀏覽器需要剪貼板權限。請點擊「允許」授予權限後重試。');
+      } else {
+        setFileError('無法讀取剪貼板，請使用「更換」按鈕選擇圖片檔案。');
+      }
+    } finally {
+      setIsPasting(false);
+    }
+  }, [loadFile]);
+
+  // Ctrl+V keydown — trigger clipboard read (works when paste event fails)
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
+        e.preventDefault();
+        readClipboardImage();
+      }
     };
-    document.addEventListener('paste', handlePaste, true); // capture phase
-    return () => document.removeEventListener('paste', handlePaste, true);
-  }, [isOpen, loadFile]);
+    // paste event fallback (for images copied within browser)
+    const handlePaste = (e: ClipboardEvent) => {
+      const items = Array.from(e.clipboardData?.items ?? []);
+      const imageItem = items.find(i => i.type.startsWith('image/'));
+      if (imageItem) {
+        e.preventDefault();
+        const file = imageItem.getAsFile();
+        if (file) { loadFile(file); return; }
+      }
+      // No image in clipboardData.items — try Clipboard API
+      readClipboardImage();
+    };
+    document.addEventListener('keydown', handleKeyDown, true);
+    document.addEventListener('paste', handlePaste, true);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown, true);
+      document.removeEventListener('paste', handlePaste, true);
+    };
+  }, [isOpen, loadFile, readClipboardImage]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -425,18 +465,6 @@ function ImageOverrideModal({ isOpen, onClose, currentImage, onConfirm, mode }: 
         onClick={(e) => e.stopPropagation()}
         tabIndex={0}
         autoFocus
-        onPaste={(e) => {
-          const items = e.clipboardData?.items;
-          if (!items) return;
-          for (const item of Array.from(items)) {
-            if (item.type.startsWith('image/')) {
-              e.preventDefault();
-              const file = item.getAsFile();
-              if (file) loadFile(file);
-              return;
-            }
-          }
-        }}
       >
         {/* Always-present hidden file input */}
         <input
@@ -462,15 +490,26 @@ function ImageOverrideModal({ isOpen, onClose, currentImage, onConfirm, mode }: 
 
         {/* Image Preview / Drop Zone */}
         {(!isReplacing && previewImage) ? (
-          // ── replace mode: show current image with Ctrl+V hint ──
+          // ── replace mode: show current image + paste button ──
           <div className="flex flex-col items-center gap-3">
             <img
               src={previewImage}
               alt="Current image"
-              className="max-h-[300px] max-w-full rounded-xl object-contain border border-white/10"
+              className="max-h-[240px] max-w-full rounded-xl object-contain border border-white/10"
             />
-            <p className="text-xs text-muted-foreground/60">
-              可按 <kbd className="px-1 py-0.5 rounded bg-muted border border-border text-xs">Ctrl+V</kbd> 直接貼上新圖片取代
+            <button
+              onClick={readClipboardImage}
+              disabled={isPasting}
+              className="flex items-center gap-2 rounded-lg border border-indigo-500/40 bg-indigo-500/10 px-4 py-2 text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:bg-indigo-500/20 transition-colors disabled:opacity-50"
+            >
+              {isPasting ? (
+                <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> 讀取剪貼板中...</>
+              ) : (
+                <><kbd className="px-1.5 py-0.5 rounded bg-muted border border-border text-xs font-mono">Ctrl+V</kbd> 貼上圖片（從 Excel/截圖）</>
+              )}
+            </button>
+            <p className="text-xs text-muted-foreground/50">
+              在 Excel 右鍵複製圖片後，按上方按鈕或直接按 Ctrl+V
             </p>
           </div>
         ) : (
@@ -523,14 +562,25 @@ function ImageOverrideModal({ isOpen, onClose, currentImage, onConfirm, mode }: 
         {/* Action Buttons */}
         <div className="flex items-center justify-end gap-2 pt-2">
           {mode === 'replace' && !isReplacing && (
-            <Button
-              variant="outline"
-              onClick={() => fileInputRef.current?.click()}
-              className="gap-2 text-sm"
-            >
-              <RefreshCw className="w-4 h-4" />
-              更換
-            </Button>
+            <>
+              <Button
+                variant="outline"
+                onClick={readClipboardImage}
+                disabled={isPasting}
+                className="gap-2 text-sm"
+              >
+                {isPasting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                貼上
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => fileInputRef.current?.click()}
+                className="gap-2 text-sm"
+              >
+                <RefreshCw className="w-4 h-4" />
+                更換
+              </Button>
+            </>
           )}
           <Button
             onClick={handleConfirm}
