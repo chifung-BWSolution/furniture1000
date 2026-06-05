@@ -359,7 +359,8 @@ function ImageOverrideModal({ isOpen, onClose, currentImage, onConfirm, mode }: 
     reader.readAsDataURL(file);
   }, []);
 
-  // Ctrl+V paste
+  // Ctrl+V paste — listen on both document and the modal container
+  const modalRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (!isOpen) return;
     const handlePaste = (e: ClipboardEvent) => {
@@ -368,14 +369,15 @@ function ImageOverrideModal({ isOpen, onClose, currentImage, onConfirm, mode }: 
       for (const item of items) {
         if (item.type.startsWith('image/')) {
           e.preventDefault();
+          e.stopPropagation();
           const file = item.getAsFile();
           if (file) loadFile(file);
-          break;
+          return;
         }
       }
     };
-    document.addEventListener('paste', handlePaste);
-    return () => document.removeEventListener('paste', handlePaste);
+    document.addEventListener('paste', handlePaste, true); // capture phase
+    return () => document.removeEventListener('paste', handlePaste, true);
   }, [isOpen, loadFile]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
@@ -418,8 +420,23 @@ function ImageOverrideModal({ isOpen, onClose, currentImage, onConfirm, mode }: 
       onClick={onClose}
     >
       <div
-        className="relative bg-card border border-border rounded-2xl shadow-2xl p-6 max-w-lg w-full mx-4 space-y-4"
+        ref={modalRef}
+        className="relative bg-card border border-border rounded-2xl shadow-2xl p-6 max-w-lg w-full mx-4 space-y-4 outline-none"
         onClick={(e) => e.stopPropagation()}
+        tabIndex={0}
+        autoFocus
+        onPaste={(e) => {
+          const items = e.clipboardData?.items;
+          if (!items) return;
+          for (const item of Array.from(items)) {
+            if (item.type.startsWith('image/')) {
+              e.preventDefault();
+              const file = item.getAsFile();
+              if (file) loadFile(file);
+              return;
+            }
+          }
+        }}
       >
         {/* Always-present hidden file input */}
         <input
