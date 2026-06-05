@@ -1438,24 +1438,31 @@ export function ListedProductsView({
                         </div>
                       </div>
 
-                      {/* Info — right side */}
-                      <div className="flex flex-col flex-1 min-w-0 px-3 pt-2.5 pb-2 gap-1">
+                      {/* Info — right side, stretched to full image height */}
+                      <div className="flex flex-col flex-1 min-w-0 px-3 py-3 justify-between">
                         {/* Title */}
                         <p className="font-display text-[13px] font-bold leading-snug line-clamp-2">
                           {product.title}
                         </p>
 
-                        {/* Prices */}
-                        <div className="flex flex-wrap gap-x-2 gap-y-0">
-                          {product.costPrice != null && (
-                            <span className="font-mono-data text-[11px] text-amber-600 dark:text-amber-400">
-                              成本 ¥{product.costPrice.toFixed(0)}
-                            </span>
-                          )}
-                          {product.salePrice != null && product.salePrice > 0 && (
-                            <span className="font-mono-data text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
-                              售 HK${product.salePrice.toLocaleString()}
-                            </span>
+                        {/* Prices + Dimensions together */}
+                        <div>
+                          <div className="flex flex-wrap gap-x-2 gap-y-0">
+                            {product.costPrice != null && (
+                              <span className="font-mono-data text-[11px] text-amber-600 dark:text-amber-400">
+                                成本 ¥{product.costPrice.toFixed(0)}
+                              </span>
+                            )}
+                            {product.salePrice != null && product.salePrice > 0 && (
+                              <span className="font-mono-data text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
+                                售 HK${product.salePrice.toLocaleString()}
+                              </span>
+                            )}
+                          </div>
+                          {dimStr && (
+                            <p className="font-mono-data text-[10px] text-muted-foreground/60 mt-0.5">
+                              {dimStr}
+                            </p>
                           )}
                         </div>
 
@@ -1485,17 +1492,10 @@ export function ListedProductsView({
                           </div>
                         )}
 
-                        {/* Material — max 4 lines */}
+                        {/* Material — max 4 lines, fills remaining space */}
                         {product.material && (
-                          <p className="font-body text-[11px] text-muted-foreground line-clamp-4 leading-snug mt-0.5">
+                          <p className="font-body text-[11px] text-muted-foreground line-clamp-4 leading-snug">
                             {product.material}
-                          </p>
-                        )}
-
-                        {/* Dimensions */}
-                        {dimStr && (
-                          <p className="font-mono-data text-[10px] text-muted-foreground/60 mt-0.5">
-                            {dimStr}
                           </p>
                         )}
                       </div>
