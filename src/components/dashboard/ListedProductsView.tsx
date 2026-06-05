@@ -1492,12 +1492,12 @@ export function ListedProductsView({
                           </div>
                         )}
 
-                        {/* Material — max 4 lines, fills remaining space */}
-                        {product.material && (
+                        {/* Material — always reserves 4 lines of height */}
+                        <div className="min-h-[60px]">
                           <p className="font-body text-[11px] text-muted-foreground line-clamp-4 leading-snug">
-                            {product.material}
+                            {product.material ?? ''}
                           </p>
-                        )}
+                        </div>
                       </div>
                     </div>
 
