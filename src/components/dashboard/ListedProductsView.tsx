@@ -1439,21 +1439,21 @@ export function ListedProductsView({
                       </div>
 
                       {/* Info — right side */}
-                      <div className="flex flex-col flex-1 min-w-0 p-3 gap-2">
+                      <div className="flex flex-col flex-1 min-w-0 px-3 pt-2.5 pb-2 gap-1">
                         {/* Title */}
-                        <p className="font-display text-[14px] font-bold leading-snug line-clamp-2">
+                        <p className="font-display text-[13px] font-bold leading-snug line-clamp-2">
                           {product.title}
                         </p>
 
                         {/* Prices */}
-                        <div className="flex flex-wrap gap-x-3 gap-y-0.5">
+                        <div className="flex flex-wrap gap-x-2 gap-y-0">
                           {product.costPrice != null && (
-                            <span className="font-mono-data text-xs text-amber-600 dark:text-amber-400">
+                            <span className="font-mono-data text-[11px] text-amber-600 dark:text-amber-400">
                               成本 ¥{product.costPrice.toFixed(0)}
                             </span>
                           )}
                           {product.salePrice != null && product.salePrice > 0 && (
-                            <span className="font-mono-data text-xs font-bold text-emerald-600 dark:text-emerald-400">
+                            <span className="font-mono-data text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
                               售 HK${product.salePrice.toLocaleString()}
                             </span>
                           )}
@@ -1462,8 +1462,8 @@ export function ListedProductsView({
                         {/* Factory name */}
                         {product.factoriesDisplayName && (
                           <div className="flex items-center gap-1">
-                            <Factory className="h-3 w-3 text-muted-foreground flex-shrink-0" />
-                            <span className="font-body text-xs text-muted-foreground truncate">
+                            <Factory className="h-2.5 w-2.5 text-muted-foreground flex-shrink-0" />
+                            <span className="font-body text-[11px] text-muted-foreground truncate">
                               {product.factoriesDisplayName}
                             </span>
                           </div>
@@ -1473,12 +1473,12 @@ export function ListedProductsView({
                         {(product.level1Category || product.category) && (
                           <div className="flex items-center gap-1 flex-wrap">
                             {product.level1Category && (
-                              <Badge variant="outline" className="text-xs px-1.5 py-0 h-5">
+                              <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 leading-none">
                                 {product.level1Category}
                               </Badge>
                             )}
                             {product.level2Category && (
-                              <Badge variant="outline" className="text-xs px-1.5 py-0 h-5 text-muted-foreground">
+                              <Badge variant="outline" className="text-[10px] px-1 py-0 h-4 leading-none text-muted-foreground">
                                 {product.level2Category}
                               </Badge>
                             )}
@@ -1487,14 +1487,14 @@ export function ListedProductsView({
 
                         {/* Material — max 4 lines */}
                         {product.material && (
-                          <p className="font-body text-xs text-muted-foreground line-clamp-4 leading-relaxed">
+                          <p className="font-body text-[11px] text-muted-foreground line-clamp-4 leading-snug mt-0.5">
                             {product.material}
                           </p>
                         )}
 
                         {/* Dimensions */}
                         {dimStr && (
-                          <p className="font-mono-data text-xs text-muted-foreground/70">
+                          <p className="font-mono-data text-[10px] text-muted-foreground/60 mt-0.5">
                             {dimStr}
                           </p>
                         )}
