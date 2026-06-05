@@ -325,9 +325,3 @@ export function ManufacturerDirectoryView() {
   );
 }
 
-// (Detail content moved to FactoryDetailPage.tsx)
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-interface _FactoryDetailContentProps {
-  factory: FactoryRecord;
-  comments: StaffComment[];
-  products: ProductRecord[];
