@@ -1440,61 +1440,61 @@ export function ListedProductsView({
 
                       {/* Info — right side, stretched to full image height */}
                       <div className="flex flex-col flex-1 min-w-0 px-3 py-2 justify-between">
-                        {/* Title — 14px */}
-                        <p className="font-display text-[14px] font-bold leading-snug line-clamp-2">
+                        {/* Title — 18px */}
+                        <p className="font-display text-[18px] font-bold leading-snug line-clamp-2">
                           {product.title}
                         </p>
 
-                        {/* Prices + Dimensions together — 12px */}
+                        {/* Prices + Dimensions — 14px */}
                         <div>
                           <div className="flex flex-wrap gap-x-2 gap-y-0">
                             {product.costPrice != null && (
-                              <span className="font-mono-data text-[12px] text-amber-600 dark:text-amber-400">
+                              <span className="font-mono-data text-[14px] text-amber-600 dark:text-amber-400">
                                 成本 ¥{product.costPrice.toFixed(0)}
                               </span>
                             )}
                             {product.salePrice != null && product.salePrice > 0 && (
-                              <span className="font-mono-data text-[12px] font-bold text-emerald-600 dark:text-emerald-400">
+                              <span className="font-mono-data text-[14px] font-bold text-emerald-600 dark:text-emerald-400">
                                 售 HK${product.salePrice.toLocaleString()}
                               </span>
                             )}
                           </div>
                           {dimStr && (
-                            <p className="font-mono-data text-[12px] text-muted-foreground/60 mt-0.5">
+                            <p className="font-mono-data text-[14px] text-muted-foreground/60 mt-0.5">
                               {dimStr}
                             </p>
                           )}
                         </div>
 
-                        {/* Factory name — 12px */}
+                        {/* Factory name — 14px */}
                         {product.factoriesDisplayName && (
                           <div className="flex items-center gap-1">
-                            <Factory className="h-3 w-3 text-muted-foreground flex-shrink-0" />
-                            <span className="font-body text-[12px] text-muted-foreground truncate">
+                            <Factory className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                            <span className="font-body text-[14px] text-muted-foreground truncate">
                               {product.factoriesDisplayName}
                             </span>
                           </div>
                         )}
 
-                        {/* Category — 12px */}
+                        {/* Category Badge — 14px */}
                         {(product.level1Category || product.category) && (
                           <div className="flex items-center gap-1 flex-wrap">
                             {product.level1Category && (
-                              <Badge variant="outline" className="text-[12px] px-1.5 py-0 h-5 leading-none">
+                              <Badge variant="outline" className="text-[14px] px-2 py-0.5 h-6 leading-none">
                                 {product.level1Category}
                               </Badge>
                             )}
                             {product.level2Category && (
-                              <Badge variant="outline" className="text-[12px] px-1.5 py-0 h-5 leading-none text-muted-foreground">
+                              <Badge variant="outline" className="text-[14px] px-2 py-0.5 h-6 leading-none text-muted-foreground">
                                 {product.level2Category}
                               </Badge>
                             )}
                           </div>
                         )}
 
-                        {/* Material — 12px, always reserves 4 lines of height */}
+                        {/* Material — 16px, always reserves 4 lines */}
                         <div className="min-h-[66px]">
-                          <p className="font-body text-[12px] text-muted-foreground line-clamp-4 leading-snug">
+                          <p className="font-body text-[16px] text-muted-foreground line-clamp-4 leading-snug">
                             {product.material ?? ''}
                           </p>
                         </div>
