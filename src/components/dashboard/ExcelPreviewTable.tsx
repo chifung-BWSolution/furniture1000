@@ -1132,11 +1132,12 @@ export function ExcelPreviewTable({
     const dimWMmCol = Object.entries(currentMapping).find(([k, v]) => v === 'dim_width_mm' && !k.startsWith('__'))?.[0];
     const dimHMmCol = Object.entries(currentMapping).find(([k, v]) => v === 'dim_height_mm' && !k.startsWith('__'))?.[0];
 
-    // If there's a combined dimensions column, parse it for each row and provide
-    // virtual L/W/H values for display in that column's cell
-    if (dimCombinedCol !== undefined) {
-      const colIdx = Number(dimCombinedCol);
-      // Get the header text for smart unit detection
+    // If there are combined dimensions columns, parse each for all rows
+    const allDimCombinedCols = Object.entries(currentMapping)
+      .filter(([k, v]) => v === 'dimensions' && !k.startsWith('__'))
+      .map(([k]) => Number(k));
+
+    for (const colIdx of allDimCombinedCols) {
       const headerText = activeSheet.headerLabels[colIdx] || '';
 
       for (const row of displayRows) {
@@ -1146,16 +1147,13 @@ export function ExcelPreviewTable({
         if (!rawStr) continue;
 
         const parsed = parseSmartDimensions(rawStr, headerText, dimUnitOverride);
-        // Store parsed values keyed by row:field
-        // For the combined column cell itself, show "長×闊×高" parsed with mm labels
         const parts: string[] = [];
         if (parsed.l !== null) parts.push(`長:${parsed.l}`);
         if (parsed.w !== null) parts.push(`闊:${parsed.w}`);
         if (parsed.h !== null) parts.push(`高:${parsed.h}`);
         result[`${row.rowIndex}:dim_combined_display:${colIdx}`] = parts.length > 0 ? parts.join(' × ') + ' mm' : rawStr;
-        
-        // Also store individual L/W/H so if there's no separate dim_*_mm columns,
-        // we can display them as virtual resolved values
+
+        // Store individual L/W/H — last written wins (later column overrides earlier)
         if (parsed.l !== null) result[`${row.rowIndex}:dim_l`] = String(parsed.l);
         if (parsed.w !== null) result[`${row.rowIndex}:dim_w`] = String(parsed.w);
         if (parsed.h !== null) result[`${row.rowIndex}:dim_h`] = String(parsed.h);
@@ -1265,12 +1263,20 @@ export function ExcelPreviewTable({
   }, [currentMapping, displayRows]);
 
   // ── Virtual Dimension Columns (3 columns replacing combined) ─────────
-  // When a column is mapped to 'dimensions' (combined), we inject 3 virtual columns
+  // When columns are mapped to 'dimensions' (combined), we inject 3 virtual columns
   // for 長度 (mm), 闊度 (mm), 高度 (mm) INSTEAD of showing the combined cell.
-  const dimCombinedColIdx = useMemo(() => {
-    const entry = Object.entries(currentMapping).find(([k, v]) => v === 'dimensions' && !k.startsWith('__'));
-    return entry ? Number(entry[0]) : null;
+  // Supports multiple dimension columns (e.g. Col I and Col K both set to 'dimensions').
+  const dimCombinedColIdxSet = useMemo(() => {
+    const idxs = Object.entries(currentMapping)
+      .filter(([k, v]) => v === 'dimensions' && !k.startsWith('__'))
+      .map(([k]) => Number(k));
+    return new Set(idxs);
   }, [currentMapping]);
+  // Keep singular alias for backward-compat with existing code
+  const dimCombinedColIdx = useMemo(() => {
+    const first = [...dimCombinedColIdxSet][0];
+    return first !== undefined ? first : null;
+  }, [dimCombinedColIdxSet]);
 
   // Enlarged image state
   const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
@@ -1581,7 +1587,7 @@ export function ExcelPreviewTable({
         {mappedCount === 0 && (
           <span className="text-sm text-foreground/50 italic">尚未映射任何欄位</span>
         )}
-        {dimCombinedColIdx !== null && (
+        {dimCombinedColIdxSet.size > 0 && (
           <div className="ml-auto flex items-center gap-1.5 rounded-md border border-emerald-600/50 bg-emerald-500/5 px-2 py-1">
             <span className="text-sm font-mono text-emerald-800 font-medium">尺寸原始單位:</span>
             <Select value={currentDimUnit} onValueChange={(v) => handleDimUnitChange(v as DimUnit)}>
@@ -1607,7 +1613,7 @@ export function ExcelPreviewTable({
           variant="ghost"
           size="sm"
           onClick={handleResetMappings}
-          className={cn("text-sm", dimCombinedColIdx === null && "ml-auto")}
+          className={cn("text-sm", dimCombinedColIdxSet.size === 0 && "ml-auto")}
         >
           <RotateCcw className="w-3 h-3 mr-1" />
           重置映射
@@ -1675,8 +1681,8 @@ export function ExcelPreviewTable({
                   {/* Data column dropdowns — with AI Product Name inserted after model_number/material */}
                   {visibleColumns.map((colIdx, arrIdx) => (
                     <React.Fragment key={colIdx}>
-                      {/* If this is the combined dimensions column, render 3 virtual column headers instead */}
-                      {colIdx === dimCombinedColIdx ? (
+                      {/* If this is a combined dimensions column, render 3 virtual column headers instead */}
+                      {dimCombinedColIdxSet.has(colIdx) ? (
                         <>
                           <TableHead className="min-w-[100px] p-1">
                             <div className="h-7 flex items-center justify-center text-sm font-mono font-semibold text-emerald-800 border border-emerald-600/50 rounded bg-emerald-500/5 px-1 relative group">
@@ -1818,7 +1824,7 @@ export function ExcelPreviewTable({
                   )}
                   {visibleColumns.map((colIdx, arrIdx) => (
                     <React.Fragment key={colIdx}>
-                      {colIdx === dimCombinedColIdx ? (
+                      {dimCombinedColIdxSet.has(colIdx) ? (
                         <>
                           <TableHead className="text-sm font-mono text-emerald-700 px-2">
                             <span className="text-indigo-700">{colLetter(colIdx)}:</span>{' '}
@@ -1860,7 +1866,7 @@ export function ExcelPreviewTable({
                 {displayRows.length === 0 && (
                   <TableRow>
                     <TableCell
-                      colSpan={visibleColumns.length + 4 + (hasAnyProductImage ? 1 : 0) + (hasAnyLifestyleImage ? 1 : 0) + (dimCombinedColIdx !== null ? 2 : 0)}
+                      colSpan={visibleColumns.length + 4 + (hasAnyProductImage ? 1 : 0) + (hasAnyLifestyleImage ? 1 : 0) + (dimCombinedColIdxSet.size * 2)}
                       className="text-center py-12 text-foreground/60 font-[Manrope]"
                     >
                       <div className="flex flex-col items-center gap-2">
@@ -1957,8 +1963,8 @@ export function ExcelPreviewTable({
                         const isMapped = mapping && mapping !== 'skip';
                         
                         // ── VIRTUAL 3-COLUMN SPLIT for Combined Dimensions ──
-                        // If this is the combined dimensions column, render 3 separate cells
-                        if (colIdx === dimCombinedColIdx) {
+                        // If this is any combined dimensions column, render 3 separate cells
+                        if (dimCombinedColIdxSet.has(colIdx)) {
                           const dimL = parsedDimensionCells[`${row.rowIndex}:dim_l`] || '';
                           const dimW = parsedDimensionCells[`${row.rowIndex}:dim_w`] || '';
                           const dimH = parsedDimensionCells[`${row.rowIndex}:dim_h`] || '';
