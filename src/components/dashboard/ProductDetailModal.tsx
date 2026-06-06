@@ -10,6 +10,13 @@ import { Progress } from '@/components/ui/progress';
 import { MultiColorSelector } from './MultiColorSelector';
 import { CascadingCategorySelector } from './CascadingCategorySelector';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   X,
   Save,
   Loader2,
@@ -1096,8 +1103,8 @@ export function ProductDetailModal({
                       />
                     </div>
 
-                    {/* 現貨 / 全訂製 toggle — under Collection */}
-                    <div className="flex items-center gap-2">
+                    {/* 現貨 / 全訂製 toggle + 生產天數 (全訂製限定) */}
+                    <div className="flex items-center gap-3 flex-wrap">
                       <span className="font-body text-xs text-muted-foreground">產品類型：</span>
                       <div className="flex rounded-lg border border-border overflow-hidden">
                         <button
@@ -1123,6 +1130,24 @@ export function ProductDetailModal({
                           全訂製
                         </button>
                       </div>
+                      {/* 生產天數 — 只在全訂製時顯示 */}
+                      {productionType === 'custom' && (
+                        <Select
+                          value={productionLeadTime || ''}
+                          onValueChange={setProductionLeadTime}
+                        >
+                          <SelectTrigger className="h-8 w-[130px] font-body text-xs">
+                            <SelectValue placeholder="生產天數" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectItem value="5">3–7 天</SelectItem>
+                            <SelectItem value="12">8–15 天</SelectItem>
+                            <SelectItem value="20">16–25 天</SelectItem>
+                            <SelectItem value="33">26–40 天</SelectItem>
+                            <SelectItem value="45">41 天以上</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      )}
                     </div>
                   </div>
                 </section>
@@ -1257,19 +1282,6 @@ export function ProductDetailModal({
                         onChange={(e) => setFactoryId(e.target.value)}
                         className="font-mono-data text-xs h-9"
                         placeholder="輸入廠家代號..."
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="detail-production-lead" className="font-body text-xs text-muted-foreground">
-                        生產天數
-                      </Label>
-                      <Input
-                        id="detail-production-lead"
-                        type="number"
-                        value={productionLeadTime}
-                        onChange={(e) => setProductionLeadTime(e.target.value)}
-                        className="font-mono-data text-xs h-9"
-                        placeholder="0"
                       />
                     </div>
                   </div>
