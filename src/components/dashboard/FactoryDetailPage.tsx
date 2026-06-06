@@ -1,20 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-
-// ─── Standalone route wrapper ─────────────────────────────────────────────────
-// This is kept so the /manufacturers/:factoryCode route still works as a
-// fallback (e.g. direct URL navigation). The AppShell uses FactoryDetailView.
-export function FactoryDetailPage() {
-  const { factoryCode } = useParams<{ factoryCode: string }>();
-  const navigate = useNavigate();
-  if (!factoryCode) return null;
-  return (
-    <FactoryDetailView
-      factoryCode={factoryCode}
-      onBack={() => navigate(-1)}
-    />
-  );
-}
 import { cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
 import { Input } from '@/components/ui/input';
@@ -50,6 +35,19 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { motion, AnimatePresence } from 'framer-motion';
+
+// ─── Standalone route wrapper ─────────────────────────────────────────────────
+export function FactoryDetailPage() {
+  const { factoryCode } = useParams<{ factoryCode: string }>();
+  const navigate = useNavigate();
+  if (!factoryCode) return null;
+  return (
+    <FactoryDetailView
+      factoryCode={factoryCode}
+      onBack={() => navigate(-1)}
+    />
+  );
+}
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -173,7 +171,7 @@ export function FactoryDetailView({
     } finally {
       setIsLoading(false);
     }
-  }, [factoryCode, navigate]);
+  }, [factoryCode, onBack]);
 
   useEffect(() => {
     fetchData();
