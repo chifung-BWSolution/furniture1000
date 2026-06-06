@@ -1337,22 +1337,22 @@ export function ExcelPreviewTable({
 
 
 
-  // Get model number for a row (from the mapped column)
+  // Get model number for a row (from the mapped column) — converted to Traditional Chinese
   const getModelNumber = useCallback((row: RawExtractedRow): string => {
     const modelColIdx = Object.entries(currentMapping).find(([_, v]) => v === 'model_number')?.[0];
     if (modelColIdx && !modelColIdx.startsWith('__')) {
       const val = row.cells[Number(modelColIdx)];
-      return val ? String(val).trim() : '';
+      return val ? simplifiedToTraditional(String(val).trim()) : '';
     }
     return '';
   }, [currentMapping]);
 
-  // Get title for a row (from the mapped column)
+  // Get title for a row (from the mapped column) — converted to Traditional Chinese
   const getTitle = useCallback((row: RawExtractedRow): string => {
     const titleColIdx = Object.entries(currentMapping).find(([_, v]) => v === 'title')?.[0];
     if (titleColIdx && !titleColIdx.startsWith('__')) {
       const val = row.cells[Number(titleColIdx)];
-      return val ? String(val).trim() : '';
+      return val ? simplifiedToTraditional(String(val).trim()) : '';
     }
     return '';
   }, [currentMapping]);

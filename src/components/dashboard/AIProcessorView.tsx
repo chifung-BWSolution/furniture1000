@@ -2418,13 +2418,13 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
           return isNaN(num) ? null : num;
         };
 
-        const modelNumber = getCellStr('model_number');
-        const rawTitle = getCellStr('title') || modelNumber || `Row ${row.rowIndex}`;
+        const modelNumber = simplifiedToTraditional(getCellStr('model_number'));
+        const rawTitle = getCellStr('title') || getCellStr('model_number') || `Row ${row.rowIndex}`;
         const title = simplifiedToTraditional(rawTitle);
         // Apply Simplified → Traditional Chinese conversion for material (材质描述)
         const rawMaterial = getCellStr('material');
         const material = rawMaterial ? simplifiedToTraditional(rawMaterial) : '';
-        const dimensions = getCellStr('dimensions');
+        const dimensions = simplifiedToTraditional(getCellStr('dimensions'));
         // Apply price cleaning (取大值): handles "680/750/820" → 820
         // CRITICAL: Always pass raw cell value to cleanPrice. 
         // getCellStr returns string representation; getCellNum would truncate at first non-numeric char.
@@ -2449,7 +2449,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         const rawCollection = getCellStr('collection');
         const collection = rawCollection ? simplifiedToTraditional(rawCollection) : '';
         // Extract additional mapped fields that map directly to bwf_product_master columns
-        const factoryNameFromExcel = getCellStr('factory_name');
+        const factoryNameFromExcel = simplifiedToTraditional(getCellStr('factory_name'));
         const productionLeadTime = getCellNum('production_lead_time');
         // 'production_lead_time' mapping now feeds the new products.production_time
         // (4 fixed options) — normalize the raw cell value.
@@ -2457,7 +2457,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         const deliveryDays = getCellNum('delivery_days');
         const shippingDays = getCellNum('shipping_days');
         const shippingFee = getCellNum('shipping_fee');
-        const remarks = getCellStr('remarks') || null;
+        const remarks = getCellStr('remarks') ? simplifiedToTraditional(getCellStr('remarks')) : null;
         const specifications = getCellStr('specifications') ? simplifiedToTraditional(getCellStr('specifications')) : null;
         const imageUrl2 = getCellStr('image_url_2') || null;
         const imageUrl3 = getCellStr('image_url_3') || null;
@@ -2714,13 +2714,13 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
           return isNaN(num) ? null : num;
         };
 
-        const modelNumber = getCellStr('model_number');
-        const rawTitle = getCellStr('title') || modelNumber || `Row ${row.rowIndex}`;
+        const modelNumber = simplifiedToTraditional(getCellStr('model_number'));
+        const rawTitle = getCellStr('title') || getCellStr('model_number') || `Row ${row.rowIndex}`;
         const title = simplifiedToTraditional(rawTitle);
         // Apply Simplified → Traditional Chinese conversion for material (材质描述)
         const rawMaterial = getCellStr('material');
         const material = rawMaterial ? simplifiedToTraditional(rawMaterial) : '';
-        const dimensions = getCellStr('dimensions');
+        const dimensions = simplifiedToTraditional(getCellStr('dimensions'));
         // Apply price cleaning (取大值): handles "680/750/820" → 820
         // CRITICAL: Always pass raw cell value to cleanPrice. 
         // getCellStr returns string representation; getCellNum would truncate at first non-numeric char.
@@ -2745,14 +2745,14 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         const rawCollection = getCellStr('collection');
         const collection = rawCollection ? simplifiedToTraditional(rawCollection) : '';
         // Extract additional mapped fields for master DB
-        const factoryNameFromExcel = getCellStr('factory_name');
+        const factoryNameFromExcel = simplifiedToTraditional(getCellStr('factory_name'));
         const productionLeadTime = getCellNum('production_lead_time');
         // 'production_lead_time' mapping feeds the new products.production_time (4 options)
         const productionTime = normalizeProductionTime(getCellStr('production_lead_time'));
         const deliveryDays = getCellNum('delivery_days');
         const shippingDays = getCellNum('shipping_days');
         const shippingFee = getCellNum('shipping_fee');
-        const remarks = getCellStr('remarks') || null;
+        const remarks = getCellStr('remarks') ? simplifiedToTraditional(getCellStr('remarks')) : null;
         const specifications = getCellStr('specifications') ? simplifiedToTraditional(getCellStr('specifications')) : null;
         const imageUrl2 = getCellStr('image_url_2') || null;
         const imageUrl3 = getCellStr('image_url_3') || null;
