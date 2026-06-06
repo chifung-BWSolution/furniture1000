@@ -1,7 +1,7 @@
 import {
   Layers, Users, Calculator, Package, Globe, BarChart3, Settings as SettingsIcon,
   LayoutDashboard, Search, UserPlus, CheckCircle2,
-  Building2, Factory, Zap, FileBarChart, ClipboardList, SlidersHorizontal,
+  Building2, Zap, FileBarChart, ClipboardList, SlidersHorizontal,
   FileUp, FolderTree, BookOpen, Boxes,
   FileText, ShieldCheck, UploadCloud, CheckCheck,
   Building, BarChart2, TrendingUp,
@@ -51,7 +51,6 @@ export const NAV_CONFIG: PrimaryItem[] = [
     label: '傢俬報價',
     icon: Calculator,
     children: [
-      { view: 'factory-catalog-quote', label: '廠家目錄', icon: Factory },
       { view: 'quick-quote', label: '快速報價', icon: Zap },
       { view: 'product-report', label: '產品報告', icon: FileBarChart },
       { view: 'quotation-list', label: '報價一覽', icon: ClipboardList },

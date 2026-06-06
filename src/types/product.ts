@@ -108,7 +108,6 @@ export type ViewType =
   | 'customer-confirmed-products'
   | 'customer-company-info'
   // 傢俬報價
-  | 'factory-catalog-quote'
   | 'quick-quote'
   | 'product-report'
   | 'quotation-list'

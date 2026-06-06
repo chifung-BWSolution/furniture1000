@@ -285,13 +285,7 @@ export function AppShell() {
         return <InviteClientsView />;
       case "confirmed-projects":
         return <ConfirmedProjectsView />;
-      case "factory-catalog-quote":
-        return (
-          <PlaceholderView
-            title="廠家目錄"
-            description="瀏覽廠家產品目錄，取得最新報價資訊。"
-          />
-        );
+
       case "advanced-search":
         return (
           <PlaceholderView
