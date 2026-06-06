@@ -95,6 +95,9 @@ export const STANDARD_HEADERS = [
   { value: 'remarks', label: 'Remarks (備註) → remarks', labelZh: '備註' },
   { value: 'delivery_term_ref', label: 'Delivery Term Ref (參考貨期) → delivery_term_name/id', labelZh: '參考貨期' },
   { value: 'index_number', label: 'Row Index (序號) — skip in DB', labelZh: '序號' },
+  // ── Stock / Customize ──
+  { value: 'in_stock', label: 'In Stock (現貨) → in_stock', labelZh: '現貨' },
+  { value: 'customize', label: 'Customize Lead Time (訂製天數) → customize', labelZh: '訂製天數' },
 ] as const;
 
 export type StandardHeaderValue = (typeof STANDARD_HEADERS)[number]['value'];

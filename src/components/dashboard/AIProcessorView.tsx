@@ -563,6 +563,45 @@ function normalizeProductionTime(raw: unknown): string | null {
   return null;
 }
 
+/**
+ * Map a raw cell value to one of the 5 fixed customize lead-time options.
+ * Rules:
+ *  - If text contains 現貨/stock → null (not a customize value; use in_stock=true instead)
+ *  - Extract the LAST number from the raw string (handles ranges like "10-20" → 20)
+ *  - Map to nearest bracket: ≤7→3-7天, ≤15→8-15天, ≤25→16-25天, ≤40→26-40天, >40→41天以上
+ *  - If value < 3 (smaller than smallest option), snap to 3-7天
+ */
+function mapCustomizeLeadTime(raw: unknown): string | null {
+  if (raw === null || raw === undefined) return null;
+  const s = String(raw).trim();
+  if (!s) return null;
+  // 現貨 / in stock → not a customize value
+  if (/現貨|现货|stock|spot/i.test(s)) return null;
+  // Extract all numbers; use the LAST one (handles "10-20" → 20, "18-20" → 20)
+  const nums = (s.match(/\d+(?:\.\d+)?/g) || []).map(Number).filter(n => !isNaN(n));
+  if (!nums.length) return null;
+  const days = nums[nums.length - 1]; // take the last number
+  if (days <= 7) return '3-7天';   // includes days < 3 (snap to minimum)
+  if (days <= 15) return '8-15天';
+  if (days <= 25) return '16-25天';
+  if (days <= 40) return '26-40天';
+  return '41天以上';
+}
+
+/**
+ * Map a raw cell value to in_stock boolean.
+ * Returns true if the cell text indicates stock availability, false otherwise.
+ */
+function mapInStock(raw: unknown): boolean | null {
+  if (raw === null || raw === undefined) return null;
+  const s = String(raw).trim();
+  if (!s) return null;
+  if (/現貨|现货|stock|spot|有貨|有货|in.?stock/i.test(s)) return true;
+  // Any non-empty text that isn't stock-related → treat as "has content" = true
+  if (s.length > 0) return true;
+  return null;
+}
+
 // ─── PDF Catalog AI Analysis (V6 — Multi-Object Segmentation + Frontend Cropping) ──
 
 async function analyzePDFCatalogBatched(
@@ -2465,6 +2504,12 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         const specifications = getCellStr('specifications') ? simplifiedToTraditional(getCellStr('specifications')) : null;
         const imageUrl2 = getCellStr('image_url_2') || null;
         const imageUrl3 = getCellStr('image_url_3') || null;
+        // in_stock: mapped column text → boolean
+        const inStockRaw = getCellStr('in_stock');
+        const inStock: boolean | null = inStockRaw ? mapInStock(inStockRaw) : null;
+        // customize: mapped column number/range → one of the 5 lead-time options
+        const customizeRaw = getCellStr('customize');
+        const customize: string | null = customizeRaw ? mapCustomizeLeadTime(customizeRaw) : null;
 
         // Parse dimensions — support individual (mm) fields OR combined string
         let dimensionLMm: number | null = null;
@@ -2581,6 +2626,8 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
           dimensionWMm,
           dimensionHMm,
           modelNumber,
+          inStock,
+          customize,
           imageSource: resolvedProductImage ? 'excel' as const : null,
           dataSource: 'excel' as const,
           imageValidated: !!resolvedProductImage,
@@ -2760,6 +2807,12 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         const specifications = getCellStr('specifications') ? simplifiedToTraditional(getCellStr('specifications')) : null;
         const imageUrl2 = getCellStr('image_url_2') || null;
         const imageUrl3 = getCellStr('image_url_3') || null;
+        // in_stock: mapped column text → boolean
+        const inStockRaw = getCellStr('in_stock');
+        const inStock: boolean | null = inStockRaw ? mapInStock(inStockRaw) : null;
+        // customize: mapped column number/range → one of the 5 lead-time options
+        const customizeRaw = getCellStr('customize');
+        const customize: string | null = customizeRaw ? mapCustomizeLeadTime(customizeRaw) : null;
 
         // ── Delivery Term Parsing (from 參考貨期 column) ──────────────────────
         const rawDeliveryTermRef = getCellStr('delivery_term_ref');
@@ -3210,6 +3263,8 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
               level2_category: resolveCategoryLevels(selectedProductCategory).level2,
               delivery_term_id: item.deliveryTermId || null,
               delivery_term_name: item.deliveryTermName || null,
+              in_stock: (item as any).inStock ?? null,
+              customize: (item as any).customize ?? null,
             };
           });
 
