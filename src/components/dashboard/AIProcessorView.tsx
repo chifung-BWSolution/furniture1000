@@ -26,6 +26,7 @@ import {
   FileStack,
   Grid3X3,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   Ruler,
   Layers,
