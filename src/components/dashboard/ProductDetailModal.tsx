@@ -396,7 +396,7 @@ export function ProductDetailModal({
   const [dimensionL, setDimensionL] = useState('');
   const [dimensionW, setDimensionW] = useState('');
   const [dimensionH, setDimensionH] = useState('');
-  const [productionType, setProductionType] = useState<'stock' | 'custom'>('stock');
+  const [productionType, setProductionType] = useState<'stock' | 'custom' | null>(null);
   const [showSceneDialog, setShowSceneDialog] = useState(false);
   const [selectedScenes, setSelectedScenes] = useState<string[]>([]);
   const [isSaving, setIsSaving] = useState(false);
@@ -433,7 +433,12 @@ export function ProductDetailModal({
       setDimensionL(product.dimensionLMm != null ? product.dimensionLMm.toString() : '');
       setDimensionW(product.dimensionWMm != null ? product.dimensionWMm.toString() : '');
       setDimensionH(product.dimensionHMm != null ? product.dimensionHMm.toString() : '');
-      setProductionType((product as any).productionType === 'custom' ? 'custom' : 'stock');
+      // Read from in_stock / customize fields; null = not yet selected
+      const inStock = (product as any).inStock ?? (product as any).in_stock;
+      const customize = (product as any).customize;
+      if (inStock === true) setProductionType('stock');
+      else if (customize) setProductionType('custom');
+      else setProductionType(null);
 
       // Initialize images
       const productImages: ProductImage[] = product.images && product.images.length > 0
@@ -548,6 +553,9 @@ export function ProductDetailModal({
     try {
       const parsedCostPrice = costPrice ? parseFloat(costPrice) : null;
       const parsedSalePrice = salePrice ? parseFloat(salePrice) : null;
+      // in_stock / customize: derive from productionType selection
+      const inStockValue = productionType === 'stock' ? true : (productionType === 'custom' ? false : null);
+      const customizeValue = productionType === 'custom' ? (productionLeadTime || null) : null;
       const parsedProductionLeadTime = productionLeadTime ? parseInt(productionLeadTime) : null;
       const parsedShippingDays = shippingDays ? parseInt(shippingDays) : null;
       const parsedShippingFee = shippingFee ? parseFloat(shippingFee) : null;
@@ -653,6 +661,8 @@ export function ProductDetailModal({
         dimension_l_mm: parsedDimensionL,
         dimension_w_mm: parsedDimensionW,
         dimension_h_mm: parsedDimensionH,
+        in_stock: inStockValue,
+        customize: customizeValue,
         images: localImagesList,
         image_url: localImagesList[0]?.src || product.imageUrl || null,
       };
@@ -1103,12 +1113,12 @@ export function ProductDetailModal({
                       />
                     </div>
 
-                    {/* 現貨 / 全訂製 toggle + 生產天數 (全訂製限定) */}
+                    {/* 現貨 / 全訂製 toggle + 生產天數 (全訂製限定) — 預設未選擇 */}
                     <div className="flex items-center gap-3 flex-wrap">
                       <span className="font-body text-xs text-muted-foreground">產品類型：</span>
                       <div className="flex rounded-lg border border-border overflow-hidden">
                         <button
-                          onClick={() => setProductionType('stock')}
+                          onClick={() => setProductionType(productionType === 'stock' ? null : 'stock')}
                           className={cn(
                             'px-3 py-1 text-xs font-medium transition-colors',
                             productionType === 'stock'
@@ -1119,7 +1129,7 @@ export function ProductDetailModal({
                           現貨
                         </button>
                         <button
-                          onClick={() => setProductionType('custom')}
+                          onClick={() => setProductionType(productionType === 'custom' ? null : 'custom')}
                           className={cn(
                             'px-3 py-1 text-xs font-medium transition-colors',
                             productionType === 'custom'
@@ -1130,21 +1140,24 @@ export function ProductDetailModal({
                           全訂製
                         </button>
                       </div>
-                      {/* 生產天數 — 只在全訂製時顯示 */}
+                      {productionType === null && (
+                        <span className="font-body text-[11px] text-muted-foreground/60 italic">未選擇</span>
+                      )}
+                      {/* 生產天數 — 只在全訂製時顯示，使用固定 5 選項 */}
                       {productionType === 'custom' && (
                         <Select
                           value={productionLeadTime || ''}
                           onValueChange={setProductionLeadTime}
                         >
                           <SelectTrigger className="h-8 w-[130px] font-body text-xs">
-                            <SelectValue placeholder="生產天數" />
+                            <SelectValue placeholder="選擇生產天數" />
                           </SelectTrigger>
                           <SelectContent>
-                            <SelectItem value="5">3–7 天</SelectItem>
-                            <SelectItem value="12">8–15 天</SelectItem>
-                            <SelectItem value="20">16–25 天</SelectItem>
-                            <SelectItem value="33">26–40 天</SelectItem>
-                            <SelectItem value="45">41 天以上</SelectItem>
+                            <SelectItem value="3-7天">3–7 天</SelectItem>
+                            <SelectItem value="8-15天">8–15 天</SelectItem>
+                            <SelectItem value="16-25天">16–25 天</SelectItem>
+                            <SelectItem value="26-40天">26–40 天</SelectItem>
+                            <SelectItem value="41天以上">41 天以上</SelectItem>
                           </SelectContent>
                         </Select>
                       )}
