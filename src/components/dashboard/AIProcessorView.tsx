@@ -2185,6 +2185,9 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
     selectedManufacturer,
   );
 
+  // ── 兩步驟導航 ──
+  const [currentStep, setCurrentStep] = useState<1 | 2>(1);
+
   // ── 材料管理: Colors & Fabrics (Multi-select) ──
   const [selectedColors, setSelectedColors] = useState<string[]>([]);
   const [selectedFabrics, setSelectedFabrics] = useState<string[]>([]);
@@ -4293,7 +4296,47 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
 
   return (
     <div ref={leftPanelRef} className="flex h-full flex-col overflow-y-auto">
-      {/* ══════ TOP SECTION: Configuration ══════ */}
+
+      {/* ══════ Step Indicator ══════ */}
+      <div className="flex-shrink-0 border-b border-border bg-muted/20 px-6 py-2.5">
+        <div className="flex items-center gap-3 max-w-4xl mx-auto">
+          <button
+            onClick={() => setCurrentStep(1)}
+            className={cn(
+              'flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
+              currentStep === 1
+                ? 'bg-primary text-primary-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+            )}
+          >
+            <span className={cn(
+              'flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold',
+              currentStep === 1 ? 'bg-white/20' : 'bg-muted-foreground/20'
+            )}>1</span>
+            設置廠家資料
+          </button>
+          <div className="h-px flex-1 bg-border max-w-[60px]" />
+          <button
+            onClick={() => setCurrentStep(2)}
+            disabled={!isManufacturerSelected}
+            className={cn(
+              'flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
+              currentStep === 2
+                ? 'bg-primary text-primary-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed'
+            )}
+          >
+            <span className={cn(
+              'flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold',
+              currentStep === 2 ? 'bg-white/20' : 'bg-muted-foreground/20'
+            )}>2</span>
+            上傳及處理產品
+          </button>
+        </div>
+      </div>
+
+      {/* ══════ STEP 1: 選擇廠家 → 材料管理 ══════ */}
+      {currentStep === 1 && (
       <div className="flex-shrink-0 border-b border-border bg-card/50 p-6">
         <div className="flex flex-col gap-4 max-w-4xl mx-auto">
 
@@ -4924,7 +4967,27 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         </div>
       </div>
 
-      {/* ══════ MIDDLE SECTION: Upload & AI Processing ══════ */}
+        {/* 下一步 button — bottom-right of Step 1 */}
+        <div className="flex justify-end px-6 py-4 border-t border-border bg-background/50">
+          <button
+            onClick={() => setCurrentStep(2)}
+            disabled={!isManufacturerSelected}
+            className={cn(
+              'flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold transition-all',
+              isManufacturerSelected
+                ? 'bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm'
+                : 'bg-muted text-muted-foreground cursor-not-allowed opacity-50'
+            )}
+          >
+            下一步
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
+      {/* ══════ STEP 2: 上傳產品檔案 → 產品目錄 ══════ */}
+      {currentStep === 2 && (
+      <>
       <div className="flex-shrink-0 p-6 max-w-4xl mx-auto w-full">
         <div className="flex flex-col gap-4">
 
@@ -5815,6 +5878,8 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
           )}
         </AnimatePresence>
       </div>
+      </>
+      )}
     </div>
   );
 }
