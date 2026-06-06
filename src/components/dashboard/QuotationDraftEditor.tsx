@@ -1250,7 +1250,6 @@ export function QuotationDraftEditor({
                       )}
                     </div>
                   </div>
-                </div>
                   <p className="mt-3 font-body text-[10px] text-muted-foreground/60">
                     * 如需修改，請點擊「基本資訊」回到編輯頁
                   </p>
