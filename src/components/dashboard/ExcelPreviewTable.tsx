@@ -203,7 +203,7 @@ function detectDimensionsColumnFromData(
   }
   // Headers that LOOK like dimensions (numbers × numbers in cells) but are NOT product dimensions:
   // 包装规格/包裝規格 = packaging spec; 纸箱/紙箱 = carton box; 净重 = net weight; 毛重 = gross weight; etc.
-  const EXCLUDE_HEADER_RE = /包[装裝]|包裝規格|纸箱|紙箱|净重|淨重|毛重|重量|箱規|箱规|carton|packaging|gross\s*weight|net\s*weight/i;
+  const EXCLUDE_HEADER_RE = /包[装裝]|包装|包裝|包裝規格|纸箱|紙箱|净重|淨重|毛重|浮重|重量|箱[規规]|箱體|箱体|外[箱盒]|carton|packaging|gross\s*weight|net\s*weight/i;
   // A cell counts as a dimension if it matches either the positional form
   // (e.g. "550*600*830") or the labeled-Chinese form (e.g. "座高：46\n座宽：48").
   const DIM_RE = /\d{2,4}\s*[*×xX/]\s*\d{2,4}(?:\s*[*×xX/]\s*\d{2,4})?/;
@@ -248,7 +248,7 @@ function autoDetectMappings(headers: string[], rows?: RawExtractedRow[], columnC
     { field: 'lifestyle_image', regex: /效果图|效果圖|lifestyle|scene\s*image|场景图|場景圖/i },
     { field: 'material', regex: /material|材質|材质|用料|fabric|面料|材质描述/i },
     { field: 'color', regex: /color|colour|顏色|颜色|色/i },
-    { field: 'dimensions', regex: /dimension|尺寸|size|規格|规格|長寬高|长宽高|L\*W\*H|W\*D\*H/i },
+    { field: 'dimensions', regex: /^(?!.*(?:包[装裝]|carton|packaging|毛重|淨重|净重|箱[規规]|外[箱盒])).*(?:dimension|尺寸|size|規格|规格|長寬高|长宽高|L\*W\*H|W\*D\*H)/i },
     { field: 'dim_length_mm', regex: /^(L|length|長|长|長度|长度|長度?\s*[\(（]?\s*[mc]m\s*[\)）]?|长度?\s*[\(（]?\s*[mc]m\s*[\)）]?)$/i },
     { field: 'dim_width_mm', regex: /^(W|width|寬|宽|寬度|宽度|闊|闊度?\s*[\(（]?\s*[mc]m\s*[\)）]?|寬度?\s*[\(（]?\s*[mc]m\s*[\)）]?|宽度?\s*[\(（]?\s*[mc]m\s*[\)）]?)$/i },
     { field: 'dim_height_mm', regex: /^(H|height|高|高度|高度?\s*[\(（]?\s*[mc]m\s*[\)）]?)$/i },
@@ -268,7 +268,7 @@ function autoDetectMappings(headers: string[], rows?: RawExtractedRow[], columnC
   // match 規格/重量/說明 patterns and be misclassified as dimensions/remarks/description).
   // 配置说明 = "configuration notes" — CYJ casual-chair sheets use this for build details
   // we don't want imported.
-  const ALWAYS_SKIP_RE = /包[装裝]|纸箱|紙箱|carton|gross\s*weight|net\s*weight|^配置|配置说明|配置說明/i;
+  const ALWAYS_SKIP_RE = /包[装裝]|包装|包裝|纸箱|紙箱|carton|gross\s*weight|net\s*weight|^配置|配置说明|配置說明|箱[規规]|箱體|箱体|外[箱盒]|淨重|净重|毛重|浮重/i;
 
   for (let i = 0; i < headers.length; i++) {
     const headerText = (headers[i] || '').trim();
