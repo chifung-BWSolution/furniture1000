@@ -1046,12 +1046,10 @@ const FACTORY_RULES: FactoryParsingRule[] = [
     factoryNames: ['CYJ', '優健家具', '优健家具', '優健', '优健', 'Youjian', 'youjian'],
     parseDimensions: parseAdvancedDimensions,
     unitMultiplier: 1, // already in MM
-    description: 'CYJ/優健家具: image col B (1), dimensions col F (5) in mm, 2 numbers = L+H',
+    description: 'CYJ/優健家具: auto-detect image cols, dimensions in mm, all product data exported',
     propagateMergedCells: true,
-    // Layout (0-based): row 4 = header, row 5+ = products. Image at col B (1), dimensions at col F (5).
-    forceHeaderRowIndex: 3,    // header row 4 (1-based) → idx 3, so first data row = idx 4 (Excel row 5)
-    forceImageCol: 1,          // Column B = product image
-    forceDimensionsCol: 5,     // Column F = 产品尺寸
+    // Do NOT force header row — let auto-detection find it per file (different 優健 files have different layouts)
+    // Do NOT force image col — multiple image columns may exist; let generic detection handle all of them
     strictImageColumns: false,
   },
   // Add more factory rules here as needed
