@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, lazy, Suspense, useRef } from "react";
 import {
   ChevronLeft,
+  ChevronDown,
   Plus,
   Trash2,
   Save,
@@ -482,6 +483,13 @@ export function QuotationDraftEditor({
         fullHtml?: string;
       }
     | undefined;
+
+  // Left panel section collapse states (all collapsed by default)
+  const [collapseCompany, setCollapseCompany] = useState(true);
+  const [collapseProject, setCollapseProject] = useState(true);
+  const [collapseClient, setCollapseClient] = useState(true);
+  const [collapseQuoteMeta, setCollapseQuoteMeta] = useState(true);
+  const anyExpanded = !collapseCompany || !collapseProject || !collapseClient || !collapseQuoteMeta;
 
   // Company info (editable)
   const [companyInfo, setCompanyInfo] = useState({
@@ -1089,14 +1097,19 @@ export function QuotationDraftEditor({
 
           {/* 3-Column Grid */}
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
-            {/* LEFT COLUMN */}
-            <div className="space-y-5 lg:col-span-3">
+            {/* LEFT COLUMN — narrow when all collapsed, wider when any open */}
+            <div className={`space-y-2 ${anyExpanded ? 'lg:col-span-3' : 'lg:col-span-2'}`}>
               {/* 公司資訊 */}
-              <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
-                <h2 className="mb-4 font-display text-sm font-bold text-foreground/80">
-                  公司資訊
-                </h2>
-                <div className="space-y-3">
+              <section className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setCollapseCompany((v) => !v)}
+                  className="flex w-full items-center justify-between px-4 py-3 hover:bg-muted/40 transition-colors"
+                >
+                  <h2 className="font-display text-sm font-bold text-foreground/80">公司資訊</h2>
+                  <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${collapseCompany ? '' : 'rotate-180'}`} />
+                </button>
+                {!collapseCompany && <div className="px-4 pb-4 space-y-3">
                   <div>
                     <label className="mb-1 block font-body text-xs text-muted-foreground">
                       公司名稱
@@ -1163,15 +1176,20 @@ export function QuotationDraftEditor({
                       className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
                     />
                   </div>
-                </div>
+                </div>}
               </section>
 
               {/* 2. 專案分類 (Read-only from Steps) */}
-              <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
-                <h2 className="mb-4 font-display text-sm font-bold text-foreground/80">
-                  專案分類
-                </h2>
-                <div className="space-y-3">
+              <section className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setCollapseProject((v) => !v)}
+                  className="flex w-full items-center justify-between px-4 py-3 hover:bg-muted/40 transition-colors"
+                >
+                  <h2 className="font-display text-sm font-bold text-foreground/80">專案分類</h2>
+                  <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${collapseProject ? '' : 'rotate-180'}`} />
+                </button>
+                {!collapseProject && <div className="px-4 pb-4 space-y-3">
                   <div>
                     <label className="mb-1.5 block font-body text-xs text-muted-foreground">
                       客戶產業
@@ -1233,17 +1251,23 @@ export function QuotationDraftEditor({
                     </div>
                   </div>
                 </div>
-                <p className="mt-3 font-body text-[10px] text-muted-foreground/60">
-                  * 如需修改，請點擊「基本資訊」回到編輯頁
-                </p>
+                  <p className="mt-3 font-body text-[10px] text-muted-foreground/60">
+                    * 如需修改，請點擊「基本資訊」回到編輯頁
+                  </p>
+                </div>}
               </section>
 
               {/* 客戶資訊 */}
-              <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
-                <h2 className="mb-4 font-display text-sm font-bold text-foreground/80">
-                  客戶資訊
-                </h2>
-                <div className="space-y-3">
+              <section className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setCollapseClient((v) => !v)}
+                  className="flex w-full items-center justify-between px-4 py-3 hover:bg-muted/40 transition-colors"
+                >
+                  <h2 className="font-display text-sm font-bold text-foreground/80">客戶資訊</h2>
+                  <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${collapseClient ? '' : 'rotate-180'}`} />
+                </button>
+                {!collapseClient && <div className="px-4 pb-4 space-y-3">
                   <div>
                     <label className="mb-1 block font-body text-xs text-muted-foreground">
                       姓名
@@ -1283,15 +1307,20 @@ export function QuotationDraftEditor({
                       className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
                     />
                   </div>
-                </div>
+                </div>}
               </section>
 
               {/* 報價資訊 */}
-              <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
-                <h2 className="mb-4 font-display text-sm font-bold text-foreground/80">
-                  報價資訊
-                </h2>
-                <div className="space-y-3">
+              <section className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setCollapseQuoteMeta((v) => !v)}
+                  className="flex w-full items-center justify-between px-4 py-3 hover:bg-muted/40 transition-colors"
+                >
+                  <h2 className="font-display text-sm font-bold text-foreground/80">報價資訊</h2>
+                  <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${collapseQuoteMeta ? '' : 'rotate-180'}`} />
+                </button>
+                {!collapseQuoteMeta && <div className="px-4 pb-4 space-y-3">
                   <div>
                     <label className="mb-1 block font-body text-xs text-muted-foreground">
                       報價單號
@@ -1354,13 +1383,13 @@ export function QuotationDraftEditor({
                       className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
                     />
                   </div>
-                </div>
+                </div>}
               </section>
 
             </div>
 
-            {/* CENTER COLUMN */}
-            <div className="space-y-5 lg:col-span-9">
+            {/* CENTER COLUMN — expands as left column shrinks */}
+            <div className={`space-y-5 ${anyExpanded ? 'lg:col-span-9' : 'lg:col-span-10'}`}>
               {/* 報價內容表格 */}
               <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
                 <div className="mb-4 flex items-center justify-between">
