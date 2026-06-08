@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import {
   Boxes, Check, Loader2, Tag, Ruler, DollarSign, Truck, FolderTree, X,
@@ -24,11 +24,17 @@ interface InfoItem {
   deliveryTermName: string;
 }
 
-export function PublishProductInfoView() {
+interface Props {
+  focusProductId?: string | null;
+  onFocusHandled?: () => void;
+}
+
+export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props) {
   const [items, setItems] = useState<InfoItem[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [tagDraft, setTagDraft] = useState<Record<string, string>>({});
   const [reloadKey, setReloadKey] = useState(0);
+  const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   const { rows, totalCount, isLoading, Toolbar, Pagination } = usePublishList({
     select: 'id,title,image_url,images,price,sale_price,cost_price,sku,tags,dimension_l_mm,dimension_w_mm,dimension_h_mm,level1_category,level2_category,delivery_term_name,model,factories_display_name',
@@ -57,6 +63,18 @@ export function PublishProductInfoView() {
     setItems(mapped);
     setSelected(new Set());
   }, [rows]);
+
+  // Scroll to the focused product once items are loaded
+  useEffect(() => {
+    if (!focusProductId || items.length === 0) return;
+    const el = cardRefs.current[focusProductId];
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.classList.add('ring-2', 'ring-primary/40');
+      setTimeout(() => el.classList.remove('ring-2', 'ring-primary/40'), 2000);
+      onFocusHandled?.();
+    }
+  }, [focusProductId, items]);
 
   const patch = (id: string, p: Partial<InfoItem>) =>
     setItems((prev) => prev.map((it) => (it.id === id ? { ...it, ...p } : it)));
@@ -158,7 +176,7 @@ export function PublishProductInfoView() {
             {items.map((it) => {
               const isSel = selected.has(it.id);
               return (
-                <div key={it.id} className={cn('rounded-2xl border bg-card transition-all', isSel ? 'border-emerald-500/50 ring-2 ring-emerald-500/20' : 'border-border')}>
+                <div key={it.id} ref={(el) => { cardRefs.current[it.id] = el; }} className={cn('rounded-2xl border bg-card transition-all', isSel ? 'border-emerald-500/50 ring-2 ring-emerald-500/20' : 'border-border')}>
                   {/* card head */}
                   <div className="flex items-center gap-3 border-b border-border/60 px-5 py-3">
                     <input type="checkbox" checked={isSel} onChange={() => toggle(it.id)} className="h-4 w-4 rounded border-border accent-emerald-600" />

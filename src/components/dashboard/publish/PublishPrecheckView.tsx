@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import {
-  ShieldCheck, Check, X, Sparkles, Wand2, UploadCloud, AlertTriangle, CheckCircle2, Loader2,
+  ShieldCheck, Check, X, UploadCloud, AlertTriangle, CheckCircle2, Loader2,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
@@ -9,19 +9,19 @@ import { toast } from 'sonner';
 // ── Field definitions ────────────────────────────────────────────────────────
 
 interface CopyFields {
-  shopifyTitle: boolean;       // Shopify 產品名稱
-  shopifyDescription: boolean; // Shopify 產品說明
-  shopifyImages: boolean;      // Shopify 產品圖片
-  seoInfo: boolean;            // Shopify 搜尋引擎產品資訊
+  shopifyTitle: boolean;
+  shopifyDescription: boolean;
+  shopifyImages: boolean;
+  seoInfo: boolean;
 }
 
 interface InfoFields {
-  price: boolean;              // 產品價錢
-  sku: boolean;                // 產品編碼 (SKU)
-  delivery: boolean;           // 送貨資訊
-  dimensions: boolean;         // 產品尺寸（長 / 闊 / 高 mm）
-  category: boolean;           // 產品分類（一級 / 二級）
-  tags: boolean;               // 產品標籤
+  price: boolean;
+  sku: boolean;
+  delivery: boolean;
+  dimensions: boolean;
+  category: boolean;
+  tags: boolean;
 }
 
 interface CheckRow {
@@ -57,8 +57,13 @@ function rowAllPass(row: CheckRow) {
 
 // ── Props ────────────────────────────────────────────────────────────────────
 
+interface NavigatePayload {
+  view: 'publish-copywriting' | 'publish-product-info';
+  productId: string;
+}
+
 interface Props {
-  onNavigate?: (view: 'publish-copywriting' | 'publish-product-info') => void;
+  onNavigate?: (payload: NavigatePayload) => void;
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
@@ -124,17 +129,7 @@ export function PublishPrecheckView({ onNavigate }: Props) {
     return sum + copyPass + infoPass;
   }, 0);
   const passRate = totalChecks > 0 ? Math.round((passedChecks / totalChecks) * 100) : 0;
-  const failingItems = items.filter((row) => !rowAllPass(row));
-  const allPass = failingItems.length === 0 && items.length > 0;
-
-  const fixAll = () => {
-    setItems((prev) => prev.map((row) => ({
-      ...row,
-      copy: { shopifyTitle: true, shopifyDescription: true, shopifyImages: true, seoInfo: true },
-      info: { price: true, sku: true, delivery: true, dimensions: true, category: true, tags: true },
-    })));
-    toast.success('已套用全部建議修正', { description: '所有檢查項目已通過' });
-  };
+  const allPass = items.length > 0 && items.every(rowAllPass);
 
   const handleEnter = async () => {
     if (!allPass || items.length === 0) return;
@@ -154,13 +149,6 @@ export function PublishPrecheckView({ onNavigate }: Props) {
       setIsEntering(false);
     }
   };
-
-  const handleCrossClick = (type: 'copy' | 'info') => {
-    if (!onNavigate) return;
-    onNavigate(type === 'copy' ? 'publish-copywriting' : 'publish-product-info');
-  };
-
-  // ── Render ──
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">
@@ -207,212 +195,133 @@ export function PublishPrecheckView({ onNavigate }: Props) {
               />
             </div>
           </div>
-          <button
-            onClick={fixAll}
-            disabled={allPass || items.length === 0}
-            className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-primary to-primary/80 px-5 py-3 text-sm font-bold text-primary-foreground shadow-md transition-all hover:opacity-90 hover:scale-[0.98] disabled:opacity-50 disabled:hover:scale-100"
-          >
-            <Wand2 className="h-4 w-4" /> 一鍵批量修正
-            {!allPass && items.length > 0 && (
-              <span className="rounded-full bg-white/20 px-2 py-0.5 text-[11px]">{totalChecks - passedChecks}</span>
-            )}
-          </button>
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 overflow-hidden">
-        {/* Checklist table */}
-        <div className="flex-1 overflow-auto p-8">
-          <div className="mx-auto max-w-6xl overflow-hidden rounded-2xl border border-border bg-card">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/50 text-[11px] uppercase tracking-wider text-muted-foreground">
-                {/* Group header row */}
-                <tr>
-                  <th className="px-4 py-2.5 text-left font-medium border-b border-border/60" rowSpan={2}>廠家名稱</th>
-                  <th className="px-4 py-2.5 text-left font-medium border-b border-border/60" rowSpan={2}>產品名稱</th>
+      {/* Checklist table */}
+      <div className="flex-1 overflow-auto p-8">
+        <div className="mx-auto max-w-6xl overflow-hidden rounded-2xl border border-border bg-card">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/50 text-[11px] uppercase tracking-wider text-muted-foreground">
+              <tr>
+                <th className="px-4 py-2.5 text-left font-medium border-b border-border/60" rowSpan={2}>廠家名稱</th>
+                <th className="px-4 py-2.5 text-left font-medium border-b border-border/60" rowSpan={2}>產品名稱</th>
+                <th
+                  colSpan={COPY_LABELS.length}
+                  className="px-3 py-2 text-center font-semibold border-b border-border/60 border-l border-indigo-500/20 bg-indigo-500/5 text-indigo-600"
+                >
+                  產品文案
+                </th>
+                <th
+                  colSpan={INFO_LABELS.length}
+                  className="px-3 py-2 text-center font-semibold border-b border-border/60 border-l border-emerald-500/20 bg-emerald-500/5 text-emerald-600"
+                >
+                  產品信息
+                </th>
+                <th className="px-4 py-2 text-center font-medium border-b border-border/60" rowSpan={2}>結果</th>
+              </tr>
+              <tr>
+                {COPY_LABELS.map((f, i) => (
                   <th
-                    colSpan={COPY_LABELS.length}
-                    className="px-3 py-2 text-center font-semibold border-b border-border/60 border-l border-indigo-500/20 bg-indigo-500/5 text-indigo-600"
+                    key={f.key}
+                    className={cn(
+                      'px-2 py-2 text-center font-medium leading-tight max-w-[90px] whitespace-normal',
+                      i === 0 && 'border-l border-indigo-500/20'
+                    )}
                   >
-                    產品文案
+                    <span className="inline-block text-[10px]">{f.label}</span>
                   </th>
+                ))}
+                {INFO_LABELS.map((f, i) => (
                   <th
-                    colSpan={INFO_LABELS.length}
-                    className="px-3 py-2 text-center font-semibold border-b border-border/60 border-l border-emerald-500/20 bg-emerald-500/5 text-emerald-600"
+                    key={f.key}
+                    className={cn(
+                      'px-2 py-2 text-center font-medium leading-tight max-w-[90px] whitespace-normal',
+                      i === 0 && 'border-l border-emerald-500/20'
+                    )}
                   >
-                    產品信息
+                    <span className="inline-block text-[10px]">{f.label}</span>
                   </th>
-                  <th className="px-4 py-2 text-center font-medium border-b border-border/60" rowSpan={2}>結果</th>
-                </tr>
-                {/* Sub-header row */}
-                <tr>
-                  {COPY_LABELS.map((f, i) => (
-                    <th
-                      key={f.key}
-                      className={cn(
-                        'px-2 py-2 text-center font-medium leading-tight max-w-[90px] whitespace-normal',
-                        i === 0 && 'border-l border-indigo-500/20'
-                      )}
-                    >
-                      <span className="inline-block text-[10px]">{f.label}</span>
-                    </th>
-                  ))}
-                  {INFO_LABELS.map((f, i) => (
-                    <th
-                      key={f.key}
-                      className={cn(
-                        'px-2 py-2 text-center font-medium leading-tight max-w-[90px] whitespace-normal',
-                        i === 0 && 'border-l border-emerald-500/20'
-                      )}
-                    >
-                      <span className="inline-block text-[10px]">{f.label}</span>
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border/60">
-                {items.map((row) => {
-                  const rowPass = rowAllPass(row);
-                  return (
-                    <tr key={row.id} className={cn('hover:bg-muted/30', !rowPass && 'bg-amber-500/[0.03]')}>
-                      <td className="px-4 py-3">
-                        <span className="font-body text-[12px] text-muted-foreground">{row.factoryName}</span>
-                      </td>
-                      <td className="px-4 py-3">
-                        <span className="font-body text-[13px] font-medium text-foreground">{row.productName}</span>
-                      </td>
-
-                      {/* 產品文案 checks */}
-                      {COPY_LABELS.map((f, i) => (
-                        <td key={f.key} className={cn('px-2 py-3 text-center', i === 0 && 'border-l border-indigo-500/10')}>
-                          {row.copy[f.key] ? (
-                            <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-600">
-                              <Check className="h-4 w-4" />
-                            </span>
-                          ) : (
-                            <button
-                              onClick={() => handleCrossClick('copy')}
-                              title={`點擊前往「產品文案」填寫「${f.label}」`}
-                              className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-rose-500/15 text-rose-600 hover:bg-rose-500/25 transition-colors"
-                            >
-                              <X className="h-4 w-4" />
-                            </button>
-                          )}
-                        </td>
-                      ))}
-
-                      {/* 產品信息 checks */}
-                      {INFO_LABELS.map((f, i) => (
-                        <td key={f.key} className={cn('px-2 py-3 text-center', i === 0 && 'border-l border-emerald-500/10')}>
-                          {row.info[f.key] ? (
-                            <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-600">
-                              <Check className="h-4 w-4" />
-                            </span>
-                          ) : (
-                            <button
-                              onClick={() => handleCrossClick('info')}
-                              title={`點擊前往「產品信息」填寫「${f.label}」`}
-                              className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-rose-500/15 text-rose-600 hover:bg-rose-500/25 transition-colors"
-                            >
-                              <X className="h-4 w-4" />
-                            </button>
-                          )}
-                        </td>
-                      ))}
-
-                      <td className="px-4 py-3 text-center">
-                        {rowPass
-                          ? <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10.5px] font-medium text-emerald-600">通過</span>
-                          : <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10.5px] font-medium text-amber-600">需修正</span>
-                        }
-                      </td>
-                    </tr>
-                  );
-                })}
-
-                {isLoading && (
-                  <tr>
-                    <td colSpan={COPY_LABELS.length + INFO_LABELS.length + 3} className="px-6 py-12 text-center">
-                      <Loader2 className="mx-auto h-5 w-5 animate-spin text-primary" />
-                    </td>
-                  </tr>
-                )}
-                {!isLoading && items.length === 0 && (
-                  <tr>
-                    <td colSpan={COPY_LABELS.length + INFO_LABELS.length + 3} className="px-6 py-12 text-center text-[12px] text-muted-foreground/60">
-                      尚無待檢查產品 — 到「產品信息」按「完成」後，產品會送到此處
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* AI suggestions sidebar */}
-        <aside className="flex w-[320px] shrink-0 flex-col overflow-auto border-l border-border bg-sidebar p-5">
-          <div className="mb-3 flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-primary" />
-            <h4 className="font-display text-sm font-bold">AI 修正建議</h4>
-          </div>
-
-          {items.length === 0 && !isLoading ? (
-            <div className="flex flex-col items-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/5 py-10 text-center">
-              <CheckCircle2 className="h-8 w-8 text-emerald-600" />
-              <p className="font-display text-sm font-bold text-emerald-700">全部檢查通過</p>
-              <p className="text-[11px] text-muted-foreground">可進入準備上載流程</p>
-            </div>
-          ) : allPass ? (
-            <div className="flex flex-col items-center gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/5 py-10 text-center">
-              <CheckCircle2 className="h-8 w-8 text-emerald-600" />
-              <p className="font-display text-sm font-bold text-emerald-700">全部檢查通過</p>
-              <p className="text-[11px] text-muted-foreground">可進入準備上載流程</p>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {failingItems.map((row) => {
-                const failCopy = COPY_LABELS.filter(f => !row.copy[f.key]);
-                const failInfo = INFO_LABELS.filter(f => !row.info[f.key]);
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border/60">
+              {items.map((row) => {
+                const rowPass = rowAllPass(row);
                 return (
-                  <div key={row.id} className="rounded-xl border border-border bg-card p-3">
-                    <p className="font-display text-[11px] font-semibold text-muted-foreground">{row.factoryName}</p>
-                    <p className="font-display text-[12.5px] font-semibold text-foreground">{row.productName}</p>
-                    <ul className="mt-1.5 space-y-1">
-                      {failCopy.map(f => (
-                        <li key={f.key} className="flex items-center justify-between gap-2">
-                          <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                            <AlertTriangle className="h-3 w-3 text-indigo-500 flex-shrink-0" />
-                            {f.label}
+                  <tr key={row.id} className={cn('hover:bg-muted/30', !rowPass && 'bg-amber-500/[0.03]')}>
+                    <td className="px-4 py-3">
+                      <span className="font-body text-[12px] text-muted-foreground">{row.factoryName}</span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="font-body text-[13px] font-medium text-foreground">{row.productName}</span>
+                    </td>
+
+                    {/* 產品文案 checks */}
+                    {COPY_LABELS.map((f, i) => (
+                      <td key={f.key} className={cn('px-2 py-3 text-center', i === 0 && 'border-l border-indigo-500/10')}>
+                        {row.copy[f.key] ? (
+                          <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-600">
+                            <Check className="h-4 w-4" />
                           </span>
+                        ) : (
                           <button
-                            onClick={() => handleCrossClick('copy')}
-                            className="rounded bg-indigo-500/10 px-2 py-0.5 text-[10.5px] font-medium text-indigo-600 hover:bg-indigo-500/20 whitespace-nowrap"
+                            onClick={() => onNavigate?.({ view: 'publish-copywriting', productId: row.id })}
+                            title={`前往「產品文案」填寫「${f.label}」`}
+                            className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-rose-500/15 text-rose-600 hover:bg-rose-500/25 transition-colors"
                           >
-                            前往填寫
+                            <X className="h-4 w-4" />
                           </button>
-                        </li>
-                      ))}
-                      {failInfo.map(f => (
-                        <li key={f.key} className="flex items-center justify-between gap-2">
-                          <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                            <AlertTriangle className="h-3 w-3 text-amber-500 flex-shrink-0" />
-                            {f.label}
+                        )}
+                      </td>
+                    ))}
+
+                    {/* 產品信息 checks */}
+                    {INFO_LABELS.map((f, i) => (
+                      <td key={f.key} className={cn('px-2 py-3 text-center', i === 0 && 'border-l border-emerald-500/10')}>
+                        {row.info[f.key] ? (
+                          <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-600">
+                            <Check className="h-4 w-4" />
                           </span>
+                        ) : (
                           <button
-                            onClick={() => handleCrossClick('info')}
-                            className="rounded bg-amber-500/10 px-2 py-0.5 text-[10.5px] font-medium text-amber-700 hover:bg-amber-500/20 whitespace-nowrap"
+                            onClick={() => onNavigate?.({ view: 'publish-product-info', productId: row.id })}
+                            title={`前往「產品信息」填寫「${f.label}」`}
+                            className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-rose-500/15 text-rose-600 hover:bg-rose-500/25 transition-colors"
                           >
-                            前往填寫
+                            <X className="h-4 w-4" />
                           </button>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
+                        )}
+                      </td>
+                    ))}
+
+                    <td className="px-4 py-3 text-center">
+                      {rowPass
+                        ? <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10.5px] font-medium text-emerald-600">通過</span>
+                        : <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10.5px] font-medium text-amber-600">需修正</span>
+                      }
+                    </td>
+                  </tr>
                 );
               })}
-            </div>
-          )}
-        </aside>
+
+              {isLoading && (
+                <tr>
+                  <td colSpan={COPY_LABELS.length + INFO_LABELS.length + 3} className="px-6 py-12 text-center">
+                    <Loader2 className="mx-auto h-5 w-5 animate-spin text-primary" />
+                  </td>
+                </tr>
+              )}
+              {!isLoading && items.length === 0 && (
+                <tr>
+                  <td colSpan={COPY_LABELS.length + INFO_LABELS.length + 3} className="px-6 py-12 text-center text-[12px] text-muted-foreground/60">
+                    尚無待檢查產品 — 到「產品信息」按「完成」後，產品會送到此處
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

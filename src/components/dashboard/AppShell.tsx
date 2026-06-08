@@ -156,6 +156,8 @@ export function AppShell() {
   const [showPublishModal, setShowPublishModal] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [editingQuoteId, setEditingQuoteId] = useState<string | null>(null);
+  // Product to scroll-into-view when navigating from 發佈前檢查
+  const [focusProductId, setFocusProductId] = useState<string | null>(null);
   // Real total/selected counts reported up from ListedProductsView (所有產品)
   const [listedStats, setListedStats] = useState<{ total: number; selected: number; selectedIds: string[] }>({ total: 0, selected: 0, selectedIds: [] });
   const selectedProducts = useMemo(() =>
@@ -309,11 +311,18 @@ export function AppShell() {
           />
         );
       case "publish-copywriting":
-        return <PublishCopywritingView />;
+        return <PublishCopywritingView focusProductId={focusProductId} onFocusHandled={() => setFocusProductId(null)} />;
       case "publish-product-info":
-        return <PublishProductInfoView />;
+        return <PublishProductInfoView focusProductId={focusProductId} onFocusHandled={() => setFocusProductId(null)} />;
       case "publish-precheck":
-        return <PublishPrecheckView onNavigate={(view) => store.setCurrentView(view)} />;
+        return (
+          <PublishPrecheckView
+            onNavigate={({ view, productId }) => {
+              setFocusProductId(productId);
+              store.setCurrentView(view);
+            }}
+          />
+        );
       case "published-products":
         return <PublishedProductsView />;
       case "report-factory":

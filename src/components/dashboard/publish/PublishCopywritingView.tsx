@@ -1,4 +1,4 @@
-import { useState, useRef, useMemo } from 'react';
+import { useState, useRef, useMemo, useEffect } from 'react';
 import {
   FileText, Sparkles, ChevronLeft, ArrowRight, Loader2,
   UploadCloud, Search, X,
@@ -25,10 +25,16 @@ function slugify(s: string) {
   return (s || '').trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9一-鿿-]/g, '').slice(0, 60);
 }
 
-export function PublishCopywritingView() {
+interface Props {
+  focusProductId?: string | null;
+  onFocusHandled?: () => void;
+}
+
+export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props) {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const cardRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
   // Only show products where copywriting is NOT yet done
   const { rows, totalCount, isLoading, Toolbar, Pagination } = usePublishList({
@@ -59,6 +65,18 @@ export function PublishCopywritingView() {
   }), [rows]);
 
   const product = items.find((p) => p.id === activeId) ?? null;
+
+  // Scroll to focused product once items are loaded
+  useEffect(() => {
+    if (!focusProductId || items.length === 0) return;
+    const el = cardRefs.current[focusProductId];
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.classList.add('ring-2', 'ring-primary/40', 'border-primary/40');
+      setTimeout(() => el.classList.remove('ring-2', 'ring-primary/40', 'border-primary/40'), 2000);
+      onFocusHandled?.();
+    }
+  }, [focusProductId, items]);
 
   // editable draft state
   const [name, setName] = useState('');
@@ -138,6 +156,7 @@ export function PublishCopywritingView() {
               {items.map((p) => (
                 <button
                   key={p.id}
+                  ref={(el) => { cardRefs.current[p.id] = el; }}
                   onClick={() => openProduct(p)}
                   className="group flex items-center gap-4 rounded-2xl border border-border bg-card p-4 text-left transition-all hover:border-primary/40 hover:shadow-md"
                 >
