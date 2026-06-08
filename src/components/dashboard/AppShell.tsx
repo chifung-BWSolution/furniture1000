@@ -313,7 +313,7 @@ export function AppShell() {
       case "publish-product-info":
         return <PublishProductInfoView />;
       case "publish-precheck":
-        return <PublishPrecheckView />;
+        return <PublishPrecheckView onNavigate={(view) => store.setCurrentView(view)} />;
       case "published-products":
         return <PublishedProductsView />;
       case "report-factory":
