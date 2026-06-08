@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import TempoHost from "./.tempo/tempo-host";
 import "./index.css";
+import "./globals.css";
 
 const isTempoHostRoute = window.location.pathname.startsWith("/tempo-host");
 
