@@ -554,7 +554,8 @@ export function ProductDetailModal({
       const parsedCostPrice = costPrice ? parseFloat(costPrice) : null;
       const parsedSalePrice = salePrice ? parseFloat(salePrice) : null;
       // in_stock / customize: derive from productionType selection
-      const inStockValue = productionType === 'stock' ? true : (productionType === 'custom' ? false : null);
+      // 現貨=true, 全訂製=false, 未選擇=false (deselecting also clears stock flag)
+      const inStockValue = productionType === 'stock' ? true : false;
       const customizeValue = productionType === 'custom' ? (productionLeadTime || null) : null;
       const parsedProductionLeadTime = productionLeadTime ? parseInt(productionLeadTime) : null;
       const parsedShippingDays = shippingDays ? parseInt(shippingDays) : null;
