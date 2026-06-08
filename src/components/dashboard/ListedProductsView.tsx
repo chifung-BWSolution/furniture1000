@@ -166,6 +166,8 @@ export function ListedProductsView({
   const [level1Filter, setLevel1Filter] = useState<string>('');
   const [level2Filter, setLevel2Filter] = useState<string>('');
   const [categoryPairs, setCategoryPairs] = useState<{ level1: string; level2: string }[]>([]);
+  // Category product counts: { 'level1:工作臺': 42, 'level2:辦公桌': 12, ... }
+  const [categoryCounts, setCategoryCounts] = useState<Record<string, number>>({});
   const level1Options = useMemo(
     () => Array.from(new Set(categoryPairs.map((p) => p.level1))),
     [categoryPairs]
@@ -213,6 +215,38 @@ export function ListedProductsView({
             .filter((p) => p.level1)
         );
       }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Fetch category product counts (background, non-blocking)
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      // Fetch level1 counts
+      const { data: l1Data } = await supabase
+        .from('products')
+        .select('level1_category')
+        .not('level1_category', 'is', null)
+        .neq('level1_category', '');
+      if (cancelled || !l1Data) return;
+      const counts: Record<string, number> = {};
+      for (const row of l1Data) {
+        const key = `level1:${row.level1_category}`;
+        counts[key] = (counts[key] || 0) + 1;
+      }
+      // Fetch level2 counts
+      const { data: l2Data } = await supabase
+        .from('products')
+        .select('level1_category, level2_category')
+        .not('level2_category', 'is', null)
+        .neq('level2_category', '');
+      if (cancelled || !l2Data) return;
+      for (const row of l2Data) {
+        const key = `level2:${row.level1_category}:${row.level2_category}`;
+        counts[key] = (counts[key] || 0) + 1;
+      }
+      if (!cancelled) setCategoryCounts(counts);
     })();
     return () => { cancelled = true; };
   }, []);
@@ -1121,9 +1155,19 @@ export function ListedProductsView({
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="__all__">全部一級分類</SelectItem>
-                {level1Options.map((l1) => (
-                  <SelectItem key={l1} value={l1}>{l1}</SelectItem>
-                ))}
+                {level1Options.map((l1) => {
+                  const cnt = categoryCounts[`level1:${l1}`];
+                  return (
+                    <SelectItem key={l1} value={l1}>
+                      <span className="flex items-center justify-between gap-3 w-full">
+                        <span>{l1}</span>
+                        {cnt != null && (
+                          <span className="font-mono-data text-[10px] text-muted-foreground/70 ml-auto">{cnt}</span>
+                        )}
+                      </span>
+                    </SelectItem>
+                  );
+                })}
               </SelectContent>
             </Select>
 
@@ -1142,9 +1186,19 @@ export function ListedProductsView({
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="__all__">全部二級分類</SelectItem>
-                  {level2Options.map((l2) => (
-                    <SelectItem key={l2} value={l2}>{l2}</SelectItem>
-                  ))}
+                  {level2Options.map((l2) => {
+                    const cnt = categoryCounts[`level2:${level1Filter}:${l2}`];
+                    return (
+                      <SelectItem key={l2} value={l2}>
+                        <span className="flex items-center justify-between gap-3 w-full">
+                          <span>{l2}</span>
+                          {cnt != null && (
+                            <span className="font-mono-data text-[10px] text-muted-foreground/70 ml-auto">{cnt}</span>
+                          )}
+                        </span>
+                      </SelectItem>
+                    );
+                  })}
                 </SelectContent>
               </Select>
             )}
