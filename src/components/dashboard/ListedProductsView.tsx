@@ -110,6 +110,8 @@ interface ListedProduct {
   specifications?: string | null;
   deliveryTermId?: string | null;
   deliveryTermName?: string | null;
+  inStock?: boolean | null;
+  customize?: string | null;
   dimensionLMm?: number | null;
   dimensionWMm?: number | null;
   dimensionHMm?: number | null;
@@ -326,6 +328,7 @@ export function ListedProductsView({
         'material', 'model', 'specifications',
         'delivery_term_id', 'delivery_term_name',
         'dimension_l_mm', 'dimension_w_mm', 'dimension_h_mm',
+        'in_stock', 'customize',
       ].join(',');
       let dataQuery = supabase
         .from('products')
@@ -421,6 +424,8 @@ export function ListedProductsView({
         specifications: row.specifications || null,
         deliveryTermId: row.delivery_term_id || null,
         deliveryTermName: row.delivery_term_name || null,
+        inStock: row.in_stock != null ? Boolean(row.in_stock) : null,
+        customize: row.customize || null,
         dimensionLMm: row.dimension_l_mm != null ? parseInt(row.dimension_l_mm) : null,
         dimensionWMm: row.dimension_w_mm != null ? parseInt(row.dimension_w_mm) : null,
         dimensionHMm: row.dimension_h_mm != null ? parseInt(row.dimension_h_mm) : null,

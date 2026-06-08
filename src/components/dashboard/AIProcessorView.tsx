@@ -592,14 +592,13 @@ function mapCustomizeLeadTime(raw: unknown): string | null {
  * Map a raw cell value to in_stock boolean.
  * Returns true if the cell text indicates stock availability, false otherwise.
  */
-function mapInStock(raw: unknown): boolean | null {
-  if (raw === null || raw === undefined) return null;
+function mapInStock(raw: unknown, columnMapped: boolean): boolean {
+  // If the column is mapped but cell is empty → false (no stock info)
+  if (!columnMapped) return false;
+  if (raw === null || raw === undefined) return false;
   const s = String(raw).trim();
-  if (!s) return null;
-  if (/現貨|现货|stock|spot|有貨|有货|in.?stock/i.test(s)) return true;
-  // Any non-empty text that isn't stock-related → treat as "has content" = true
-  if (s.length > 0) return true;
-  return null;
+  // Any non-empty cell content = has stock = true
+  return s.length > 0;
 }
 
 // ─── PDF Catalog AI Analysis (V6 — Multi-Object Segmentation + Frontend Cropping) ──
@@ -2506,8 +2505,9 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         const imageUrl2 = getCellStr('image_url_2') || (row as any).productImageData2 || null;
         const imageUrl3 = getCellStr('image_url_3') || (row as any).productImageData3 || null;
         // in_stock: mapped column text → boolean
+        const inStockColMapped = fieldToCol['in_stock'] !== undefined;
         const inStockRaw = getCellStr('in_stock');
-        const inStock: boolean | null = inStockRaw ? mapInStock(inStockRaw) : null;
+        const inStock: boolean | null = inStockColMapped ? mapInStock(inStockRaw, true) : null;
         // customize: mapped column number/range → one of the 5 lead-time options
         const customizeRaw = getCellStr('customize');
         const customize: string | null = customizeRaw ? mapCustomizeLeadTime(customizeRaw) : null;
@@ -2822,8 +2822,9 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         const imageUrl2 = getCellStr('image_url_2') || (row as any).productImageData2 || null;
         const imageUrl3 = getCellStr('image_url_3') || (row as any).productImageData3 || null;
         // in_stock: mapped column text → boolean
+        const inStockColMapped = fieldToCol['in_stock'] !== undefined;
         const inStockRaw = getCellStr('in_stock');
-        const inStock: boolean | null = inStockRaw ? mapInStock(inStockRaw) : null;
+        const inStock: boolean | null = inStockColMapped ? mapInStock(inStockRaw, true) : null;
         // customize: mapped column number/range → one of the 5 lead-time options
         const customizeRaw = getCellStr('customize');
         const customize: string | null = customizeRaw ? mapCustomizeLeadTime(customizeRaw) : null;
