@@ -51,6 +51,7 @@ import {
   ShoppingCart,
   Archive,
   Trash2,
+  ZoomIn,
 } from 'lucide-react';
 import { ExcelImage, SheetTableData, parseSmartDimensions, cleanPrice } from '@/lib/excelParser';
 import { simplifiedToTraditional, containsSimplifiedChinese } from '@/lib/chineseConverter';
