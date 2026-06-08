@@ -1667,6 +1667,8 @@ export function ExcelPreviewTable({
                         <SelectContent className="max-h-[300px]">
                           <SelectItem value="product_image" className="text-sm">產品圖片 → image_url</SelectItem>
                           <SelectItem value="lifestyle_image" className="text-sm">效果圖 → lifestyle_image_url</SelectItem>
+                          <SelectItem value="image_url_2" className="text-sm">產品圖片2 → image_url_2</SelectItem>
+                          <SelectItem value="image_url_3" className="text-sm">產品圖片3 → image_url_3</SelectItem>
                           <SelectItem value="skip" className="text-sm">— 跳過 —</SelectItem>
                         </SelectContent>
                       </Select>
@@ -1681,31 +1683,61 @@ export function ExcelPreviewTable({
                       >
                         <SelectTrigger className="h-7 text-sm border-purple-600/50 bg-background/50 font-mono font-semibold text-purple-800 w-[68px]">
                           <span className="truncate text-sm">
-                            {currentMapping['__img_lifestyle'] === 'product_image' ? '產品圖' : currentMapping['__img_lifestyle'] === 'skip' ? '跳過' : '效果圖'}
+                            {currentMapping['__img_lifestyle'] === 'product_image' ? '產品圖' : currentMapping['__img_lifestyle'] === 'image_url_2' ? '圖片2' : currentMapping['__img_lifestyle'] === 'image_url_3' ? '圖片3' : currentMapping['__img_lifestyle'] === 'skip' ? '跳過' : '效果圖'}
                           </span>
                         </SelectTrigger>
                         <SelectContent className="max-h-[300px]">
                           <SelectItem value="lifestyle_image" className="text-sm">效果圖 → lifestyle_image_url</SelectItem>
                           <SelectItem value="product_image" className="text-sm">產品圖片 → image_url</SelectItem>
+                          <SelectItem value="image_url_2" className="text-sm">產品圖片2 → image_url_2</SelectItem>
+                          <SelectItem value="image_url_3" className="text-sm">產品圖片3 → image_url_3</SelectItem>
                           <SelectItem value="skip" className="text-sm">— 跳過 —</SelectItem>
                         </SelectContent>
                       </Select>
                     </TableHead>
                   )}
-                  {/* Product Image 2 column header */}
+                  {/* Product Image 2 column header with mapping dropdown */}
                   {hasAnyProductImage2 && (
                     <TableHead className="w-[72px] text-center p-1">
-                      <div className="h-7 flex items-center justify-center text-sm font-mono font-semibold text-teal-800 border border-teal-600/50 rounded bg-teal-500/5 px-1">
-                        產品圖2
-                      </div>
+                      <Select
+                        value={currentMapping['__img_product2'] || 'image_url_2'}
+                        onValueChange={(val) => handleMappingChange('__img_product2', val as StandardHeaderValue)}
+                      >
+                        <SelectTrigger className="h-7 text-sm border-teal-600/50 bg-background/50 font-mono font-semibold text-teal-800 w-[68px]">
+                          <span className="truncate text-sm">
+                            {currentMapping['__img_product2'] === 'product_image' ? '產品圖' : currentMapping['__img_product2'] === 'lifestyle_image' ? '效果圖' : currentMapping['__img_product2'] === 'image_url_3' ? '圖片3' : currentMapping['__img_product2'] === 'skip' ? '跳過' : '圖片2'}
+                          </span>
+                        </SelectTrigger>
+                        <SelectContent className="max-h-[300px]">
+                          <SelectItem value="image_url_2" className="text-sm">產品圖片2 → image_url_2</SelectItem>
+                          <SelectItem value="product_image" className="text-sm">產品圖片 → image_url</SelectItem>
+                          <SelectItem value="lifestyle_image" className="text-sm">效果圖 → lifestyle_image_url</SelectItem>
+                          <SelectItem value="image_url_3" className="text-sm">產品圖片3 → image_url_3</SelectItem>
+                          <SelectItem value="skip" className="text-sm">— 跳過 —</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </TableHead>
                   )}
-                  {/* Product Image 3 column header */}
+                  {/* Product Image 3 column header with mapping dropdown */}
                   {hasAnyProductImage3 && (
                     <TableHead className="w-[72px] text-center p-1">
-                      <div className="h-7 flex items-center justify-center text-sm font-mono font-semibold text-teal-700 border border-teal-500/50 rounded bg-teal-500/5 px-1">
-                        產品圖3
-                      </div>
+                      <Select
+                        value={currentMapping['__img_product3'] || 'image_url_3'}
+                        onValueChange={(val) => handleMappingChange('__img_product3', val as StandardHeaderValue)}
+                      >
+                        <SelectTrigger className="h-7 text-sm border-teal-500/50 bg-background/50 font-mono font-semibold text-teal-700 w-[68px]">
+                          <span className="truncate text-sm">
+                            {currentMapping['__img_product3'] === 'product_image' ? '產品圖' : currentMapping['__img_product3'] === 'lifestyle_image' ? '效果圖' : currentMapping['__img_product3'] === 'image_url_2' ? '圖片2' : currentMapping['__img_product3'] === 'skip' ? '跳過' : '圖片3'}
+                          </span>
+                        </SelectTrigger>
+                        <SelectContent className="max-h-[300px]">
+                          <SelectItem value="image_url_3" className="text-sm">產品圖片3 → image_url_3</SelectItem>
+                          <SelectItem value="product_image" className="text-sm">產品圖片 → image_url</SelectItem>
+                          <SelectItem value="lifestyle_image" className="text-sm">效果圖 → lifestyle_image_url</SelectItem>
+                          <SelectItem value="image_url_2" className="text-sm">產品圖片2 → image_url_2</SelectItem>
+                          <SelectItem value="skip" className="text-sm">— 跳過 —</SelectItem>
+                        </SelectContent>
+                      </Select>
                     </TableHead>
                   )}
                   {/* Data column dropdowns — with AI Product Name inserted after model_number/material */}

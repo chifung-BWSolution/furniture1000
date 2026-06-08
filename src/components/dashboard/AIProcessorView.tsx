@@ -2570,27 +2570,39 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         // Resolve image mapping: check if user swapped IMG-P and IMG-L targets
         const imgProductTarget = sheetMapping['__img_product'] || 'product_image';
         const imgLifestyleTarget = sheetMapping['__img_lifestyle'] || 'lifestyle_image';
-        
+        const imgProduct2Target = sheetMapping['__img_product2'] || 'image_url_2';
+        const imgProduct3Target = sheetMapping['__img_product3'] || 'image_url_3';
+
         // Apply imageOverrides from ExcelPreviewTable (key format: `${sheetName}:${rowIndex}:${type}`)
         const productOverrideKey = `${sheetName}:${row.rowIndex}:product`;
         const lifestyleOverrideKey = `${sheetName}:${row.rowIndex}:lifestyle`;
         const overriddenProductImage = imageOverrides?.[productOverrideKey] || null;
         const overriddenLifestyleImage = imageOverrides?.[lifestyleOverrideKey] || null;
 
-        // Use override first, then fall back to row data
-        let resolvedProductImage = overriddenProductImage || row.productImageData || undefined;
-        let resolvedLifestyleImage = overriddenLifestyleImage || row.lifestyleImageData || undefined;
-        
-        if (imgProductTarget === 'lifestyle_image' && imgLifestyleTarget === 'product_image') {
-          // User swapped the image assignments
-          const tempProduct = resolvedProductImage;
-          resolvedProductImage = resolvedLifestyleImage;
-          resolvedLifestyleImage = tempProduct;
-        } else if (imgProductTarget === 'skip') {
-          resolvedProductImage = undefined;
-        } else if (imgLifestyleTarget === 'skip') {
-          resolvedLifestyleImage = undefined;
-        }
+        // Resolved base images from row data
+        const rawImg1 = overriddenProductImage || row.productImageData || undefined;
+        const rawImg2 = row.productImageData2 || undefined;
+        const rawImg3 = row.productImageData3 || undefined;
+        const rawLifestyle = overriddenLifestyleImage || row.lifestyleImageData || undefined;
+
+        // Map each image slot to its target field based on user's dropdown selection
+        const imageSlots: Record<string, string | undefined> = {
+          product_image: undefined, lifestyle_image: undefined,
+          image_url_2: undefined, image_url_3: undefined,
+        };
+        const assign = (target: string, val: string | undefined) => {
+          if (target !== 'skip' && val && !imageSlots[target]) imageSlots[target] = val;
+        };
+        assign(imgProductTarget, rawImg1);
+        assign(imgLifestyleTarget, rawLifestyle);
+        assign(imgProduct2Target, rawImg2);
+        assign(imgProduct3Target, rawImg3);
+
+        let resolvedProductImage = imageSlots['product_image'];
+        let resolvedLifestyleImage = imageSlots['lifestyle_image'];
+        // Override imageUrl2/imageUrl3 from slot assignments if mapped
+        if (imageSlots['image_url_2']) imageUrl2 = imageSlots['image_url_2']!;
+        if (imageSlots['image_url_3']) imageUrl3 = imageSlots['image_url_3']!;
 
         return {
           id: `excel-preview-${row.rowIndex}-${idx}-${Math.random().toString(36).substring(7)}`,
