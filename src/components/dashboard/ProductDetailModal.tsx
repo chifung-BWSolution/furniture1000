@@ -833,7 +833,7 @@ export function ProductDetailModal({
                   {product.title}
                 </span>
                 {product.bwfMasterId && (
-                  <Badge className="gap-1 bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 font-mono-data text-[9px]">
+                  <Badge className="gap-1 bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 font-mono-data text-xs">
                     <Check className="h-2.5 w-2.5" />
                     已同步至全域
                   </Badge>
@@ -858,9 +858,9 @@ export function ProductDetailModal({
               <div className="px-6 py-2 border-b border-border bg-muted/30">
                 <div className="flex items-center gap-3">
                   <Loader2 className="h-3.5 w-3.5 animate-spin text-indigo-500" />
-                  <span className="font-body text-xs text-muted-foreground">正在上傳圖片...</span>
+                  <span className="font-body text-sm text-muted-foreground">正在上傳圖片...</span>
                   <Progress value={uploadProgress} className="flex-1 h-2" />
-                  <span className="font-mono-data text-[10px] text-muted-foreground">{uploadProgress}%</span>
+                  <span className="font-mono-data text-xs text-muted-foreground">{uploadProgress}%</span>
                 </div>
               </div>
             )}
@@ -897,12 +897,12 @@ export function ProductDetailModal({
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-1.5">
                       <ImageIcon className="h-3.5 w-3.5 text-muted-foreground" />
-                      <span className="font-body text-xs text-muted-foreground">
+                      <span className="font-body text-sm text-muted-foreground">
                         媒體 ({images.length})
                       </span>
                     </div>
                     {pendingNewFiles.length > 0 && (
-                      <Badge variant="outline" className="text-[9px] font-mono-data border-amber-500/30 text-amber-500">
+                      <Badge variant="outline" className="text-xs font-mono-data border-amber-500/30 text-amber-500">
                         +{pendingNewFiles.length} 待上傳
                       </Badge>
                     )}
@@ -965,7 +965,7 @@ export function ProductDetailModal({
 
                 {/* AI Image Generation Buttons */}
                 <div className="flex flex-col gap-2 pt-1">
-                  <span className="font-mono-data text-[10px] uppercase tracking-widest text-muted-foreground">AI 圖片生成</span>
+                  <span className="font-mono-data text-xs uppercase tracking-widest text-muted-foreground">AI 圖片生成</span>
                   <div className="flex flex-col gap-1.5">
                     <button
                       onClick={() => toast.info('AI 清晰圖片功能即將推出')}
@@ -1002,7 +1002,7 @@ export function ProductDetailModal({
                   <Badge
                     variant="outline"
                     className={cn(
-                      'font-mono-data text-[10px]',
+                      'font-mono-data text-xs',
                       product.status === 'success' && 'border-emerald-500/30 text-emerald-500',
                       product.status === 'draft' && 'border-muted-foreground/30 text-muted-foreground',
                       product.status === 'publishing' && 'border-amber-500/30 text-amber-500',
@@ -1018,7 +1018,7 @@ export function ProductDetailModal({
                         <Store className="h-3.5 w-3.5" />
                         <span>Shopify ID</span>
                       </div>
-                      <span className="font-mono-data text-[11px] text-emerald-500">
+                      <span className="font-mono-data text-xs text-emerald-500">
                         {product.shopifyProductId}
                       </span>
                     </div>
@@ -1030,7 +1030,7 @@ export function ProductDetailModal({
                         <Package className="h-3.5 w-3.5" />
                         <span>Master ID</span>
                       </div>
-                      <span className="font-mono-data text-[11px] text-indigo-400">
+                      <span className="font-mono-data text-xs text-indigo-400">
                         {product.bwfMasterId.slice(0, 12)}...
                       </span>
                     </div>
@@ -1041,7 +1041,7 @@ export function ProductDetailModal({
                       <Clock className="h-3.5 w-3.5" />
                       <span>建立時間</span>
                     </div>
-                    <span className="font-mono-data text-[11px]">
+                    <span className="font-mono-data text-xs">
                       {new Date(product.createdAt).toLocaleString()}
                     </span>
                   </div>
@@ -1054,7 +1054,7 @@ export function ProductDetailModal({
                       </div>
                       <div className="flex flex-wrap gap-1">
                         {product.tags.map((tag) => (
-                          <Badge key={tag} variant="secondary" className="text-[9px] font-mono-data px-1.5 py-0">
+                          <Badge key={tag} variant="secondary" className="text-xs font-mono-data px-1.5 py-0">
                             {tag}
                           </Badge>
                         ))}
@@ -1074,7 +1074,7 @@ export function ProductDetailModal({
                   </div>
                   <div className="grid gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="detail-title" className="font-body text-xs text-muted-foreground">
+                      <Label htmlFor="detail-title" className="font-body text-sm text-muted-foreground">
                         產品標題
                       </Label>
                       <Input
@@ -1087,7 +1087,7 @@ export function ProductDetailModal({
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="detail-description" className="font-body text-xs text-muted-foreground">
+                      <Label htmlFor="detail-description" className="font-body text-sm text-muted-foreground">
                         產品說明
                       </Label>
                       <Textarea
@@ -1100,7 +1100,7 @@ export function ProductDetailModal({
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="detail-category" className="font-body text-xs text-muted-foreground">
+                      <Label htmlFor="detail-category" className="font-body text-sm text-muted-foreground">
                         分類 / Collection
                       </Label>
                       <CascadingCategorySelector
@@ -1115,7 +1115,7 @@ export function ProductDetailModal({
 
                     {/* 現貨 / 全訂製 toggle + 生產天數 (全訂製限定) — 預設未選擇 */}
                     <div className="flex items-center gap-3 flex-wrap">
-                      <span className="font-body text-xs text-muted-foreground">產品類型：</span>
+                      <span className="font-body text-sm text-muted-foreground">產品類型：</span>
                       <div className="flex rounded-lg border border-border overflow-hidden">
                         <button
                           onClick={() => setProductionType(productionType === 'stock' ? null : 'stock')}
@@ -1141,7 +1141,7 @@ export function ProductDetailModal({
                         </button>
                       </div>
                       {productionType === null && (
-                        <span className="font-body text-[11px] text-muted-foreground/60 italic">未選擇</span>
+                        <span className="font-body text-sm text-muted-foreground/60 italic">未選擇</span>
                       )}
                       {/* 生產天數 — 只在全訂製時顯示，使用固定 5 選項 */}
                       {productionType === 'custom' && (
@@ -1175,7 +1175,7 @@ export function ProductDetailModal({
                   </div>
                   <div className="grid grid-cols-3 gap-4">
                     <div className="space-y-2">
-                      <Label className="font-body text-xs text-muted-foreground">
+                      <Label className="font-body text-sm text-muted-foreground">
                         長 (Length)
                       </Label>
                       <Input
@@ -1187,7 +1187,7 @@ export function ProductDetailModal({
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label className="font-body text-xs text-muted-foreground">
+                      <Label className="font-body text-sm text-muted-foreground">
                         闊 (Width)
                       </Label>
                       <Input
@@ -1199,7 +1199,7 @@ export function ProductDetailModal({
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label className="font-body text-xs text-muted-foreground">
+                      <Label className="font-body text-sm text-muted-foreground">
                         高 (Height)
                       </Label>
                       <Input
@@ -1227,11 +1227,11 @@ export function ProductDetailModal({
                   <div className="flex items-center gap-2 mb-1">
                     <DollarSign className="h-4 w-4 text-amber-500" />
                     <h3 className="font-display text-sm font-bold">價格與成本</h3>
-                    <span className="font-body text-[11px] text-muted-foreground">（已包含運輸/包裝費用）</span>
+                    <span className="font-body text-sm text-muted-foreground">（已包含運輸/包裝費用）</span>
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="detail-cost-price" className="font-body text-xs text-muted-foreground">
+                      <Label htmlFor="detail-cost-price" className="font-body text-sm text-muted-foreground">
                         成本價 (¥)
                       </Label>
                       <Input
@@ -1245,7 +1245,7 @@ export function ProductDetailModal({
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="detail-sale-price" className="font-body text-xs text-muted-foreground">
+                      <Label htmlFor="detail-sale-price" className="font-body text-sm text-muted-foreground">
                         售價 ($)
                       </Label>
                       <Input
@@ -1262,7 +1262,7 @@ export function ProductDetailModal({
                   {costPrice && salePrice && (
                     <div className="mt-3 rounded-lg bg-muted/50 border border-border p-3">
                       <div className="flex items-center justify-between">
-                        <span className="font-body text-xs text-muted-foreground">利潤率</span>
+                        <span className="font-body text-sm text-muted-foreground">利潤率</span>
                         <span className={cn(
                           'font-mono-data text-xs font-bold',
                           ((parseFloat(salePrice) - parseFloat(costPrice)) / parseFloat(salePrice) * 100) > 0
@@ -1286,7 +1286,7 @@ export function ProductDetailModal({
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="detail-factory-id" className="font-body text-xs text-muted-foreground">
+                      <Label htmlFor="detail-factory-id" className="font-body text-sm text-muted-foreground">
                         廠家代號
                       </Label>
                       <Input
@@ -1310,7 +1310,7 @@ export function ProductDetailModal({
                   </div>
                   <div className="grid grid-cols-3 gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="detail-shipping-days" className="font-body text-xs text-muted-foreground">
+                      <Label htmlFor="detail-shipping-days" className="font-body text-sm text-muted-foreground">
                         運輸天數
                       </Label>
                       <Input
@@ -1323,7 +1323,7 @@ export function ProductDetailModal({
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="detail-shipping-fee" className="font-body text-xs text-muted-foreground">
+                      <Label htmlFor="detail-shipping-fee" className="font-body text-sm text-muted-foreground">
                         運輸費 (¥)
                       </Label>
                       <Input
@@ -1337,7 +1337,7 @@ export function ProductDetailModal({
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label className="font-body text-xs text-muted-foreground">
+                      <Label className="font-body text-sm text-muted-foreground">
                         總交期 (自動計算)
                       </Label>
                       <div className="flex items-center h-9 px-3 rounded-md border border-border bg-muted/50">
@@ -1375,7 +1375,7 @@ export function ProductDetailModal({
                   <div className="rounded-lg bg-blue-500/5 border border-blue-500/20 p-3">
                     <div className="flex items-center gap-2">
                       <Clock className="h-3.5 w-3.5 text-blue-500" />
-                      <span className="font-body text-xs text-muted-foreground">貨期類型：</span>
+                      <span className="font-body text-sm text-muted-foreground">貨期類型：</span>
                       <span className="inline-flex items-center rounded-md bg-blue-500/10 px-2 py-0.5 font-mono-data text-xs font-medium text-blue-600 dark:text-blue-400 ring-1 ring-inset ring-blue-500/20">
                         {product.deliveryTermName}
                       </span>
@@ -1393,7 +1393,7 @@ export function ProductDetailModal({
                   </div>
                   <div className="grid gap-4">
                     <div className="space-y-2">
-                      <Label className="font-body text-xs text-muted-foreground">
+                      <Label className="font-body text-sm text-muted-foreground">
                         顏色（可多選）
                       </Label>
                       <MultiColorSelector
@@ -1404,7 +1404,7 @@ export function ProductDetailModal({
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="detail-remarks" className="font-body text-xs text-muted-foreground">
+                      <Label htmlFor="detail-remarks" className="font-body text-sm text-muted-foreground">
                         備註
                       </Label>
                       <Textarea
@@ -1429,7 +1429,7 @@ export function ProductDetailModal({
                           <p className="font-display text-xs font-bold text-indigo-400">
                             全域資料庫同步
                           </p>
-                          <p className="font-body text-[11px] text-muted-foreground">
+                          <p className="font-body text-sm text-muted-foreground">
                             此產品已同步至全域資料庫 (bwf_product_master)。儲存時將同時更新本地及全域資料，包括圖片媒體檔案。
                           </p>
                         </div>
@@ -1488,7 +1488,7 @@ export function ProductDetailModal({
               },
             ].map(({ group, scenes }) => (
               <div key={group} className="space-y-2">
-                <span className="font-mono-data text-[10px] uppercase tracking-widest text-muted-foreground">{group}</span>
+                <span className="font-mono-data text-xs uppercase tracking-widest text-muted-foreground">{group}</span>
                 <div className="flex flex-wrap gap-2">
                   {scenes.map(scene => {
                     const key = `${group}:${scene}`;
@@ -1517,7 +1517,7 @@ export function ProductDetailModal({
             ))}
           </div>
           <div className="flex items-center justify-between pt-2">
-            <span className="font-mono-data text-[11px] text-muted-foreground">
+            <span className="font-mono-data text-xs text-muted-foreground">
               已選 {selectedScenes.length} 個場景
             </span>
             <div className="flex gap-2">
