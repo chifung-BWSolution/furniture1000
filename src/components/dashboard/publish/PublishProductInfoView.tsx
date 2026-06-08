@@ -32,7 +32,7 @@ export function PublishProductInfoView() {
 
   const { rows, totalCount, isLoading, Toolbar, Pagination } = usePublishList({
     select: 'id,title,image_url,images,price,sale_price,cost_price,sku,tags,dimension_l_mm,dimension_w_mm,dimension_h_mm,level1_category,level2_category,delivery_term_name,model,factories_display_name',
-    applyBaseFilters: (q) => q.eq('in_shopify_queue', true).eq('copy_done', true).eq('info_done', false),
+    applyBaseFilters: (q) => q.eq('in_shopify_queue', true).eq('info_done', false),
     reloadKey,
   });
 

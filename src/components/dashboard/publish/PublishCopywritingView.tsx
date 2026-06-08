@@ -33,7 +33,7 @@ export function PublishCopywritingView() {
   // Only show products where copywriting is NOT yet done
   const { rows, totalCount, isLoading, Toolbar, Pagination } = usePublishList({
     select: 'id,title,description,image_url,images,image_url_2,image_url_3,factories_display_name,level1_category,level2_category',
-    applyBaseFilters: (q) => q.eq('in_shopify_queue', true).eq('copy_done', false),
+    applyBaseFilters: (q) => q.eq('in_shopify_queue', true).or('copy_done.is.null,copy_done.eq.false'),
     reloadKey,
   });
 
