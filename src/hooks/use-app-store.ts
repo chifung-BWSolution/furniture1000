@@ -264,7 +264,17 @@ export function useAppStore() {
     } catch { /* ignore */ }
     return DEFAULT_SETTINGS;
   });
-  const [currentView, setCurrentView] = useState<ViewType>('quick-quote');
+  const [currentView, setCurrentViewRaw] = useState<ViewType>(() => {
+    try {
+      const saved = sessionStorage.getItem('current-view') as ViewType | null;
+      if (saved) return saved;
+    } catch { /* ignore */ }
+    return 'quick-quote';
+  });
+  const setCurrentView = (view: ViewType) => {
+    try { sessionStorage.setItem('current-view', view); } catch { /* ignore */ }
+    setCurrentViewRaw(view);
+  };
   const [selectedProductIds, setSelectedProductIds] = useState<Set<string>>(new Set());
   const [filterProductId, setFilterProductId] = useState<string | null>(null);
   const [factoryDetailCode, setFactoryDetailCode] = useState<string | null>(null);
