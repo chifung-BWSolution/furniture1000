@@ -3284,12 +3284,19 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
           });
 
         if (productRows.length > 0) {
-          const { error: upsertErr } = await supabase
-            .from('products')
-            .upsert(productRows, { onConflict: 'id' });
-          if (upsertErr) {
-            console.error('[PreviewAction:catalog-only] Failed to persist products to DB:', upsertErr.message);
-            throw new Error(`產品目錄儲存失敗：${upsertErr.message}`);
+          // Batch upsert to avoid statement timeout with large base64 images
+          // Use smaller batches when images are present (base64 makes rows large)
+          const hasImages = productRows.some(r => r.image_url && r.image_url.startsWith('data:'));
+          const LOCAL_CHUNK = hasImages ? 3 : 10;
+          for (let ci = 0; ci < productRows.length; ci += LOCAL_CHUNK) {
+            const batch = productRows.slice(ci, ci + LOCAL_CHUNK);
+            const { error: upsertErr } = await supabase
+              .from('products')
+              .upsert(batch, { onConflict: 'id' });
+            if (upsertErr) {
+              console.error(`[PreviewAction:catalog-only] Batch ${Math.floor(ci/LOCAL_CHUNK)+1} failed:`, upsertErr.message);
+              throw new Error(`產品目錄儲存失敗：${upsertErr.message}`);
+            }
           }
           console.log(`[PreviewAction:catalog-only] ✅ ${productRows.length} products persisted to products table only (not added to Shopify queue)`);
 
