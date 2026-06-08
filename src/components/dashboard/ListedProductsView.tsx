@@ -1162,7 +1162,7 @@ export function ListedProductsView({
                       <span className="flex items-center justify-between gap-3 w-full">
                         <span>{l1}</span>
                         {cnt != null && (
-                          <span className="font-mono-data text-[10px] text-muted-foreground/70 ml-auto">{cnt}</span>
+                          <span className="font-mono-data text-xs font-semibold text-foreground/70 ml-auto">{cnt}</span>
                         )}
                       </span>
                     </SelectItem>
@@ -1193,7 +1193,7 @@ export function ListedProductsView({
                         <span className="flex items-center justify-between gap-3 w-full">
                           <span>{l2}</span>
                           {cnt != null && (
-                            <span className="font-mono-data text-[10px] text-muted-foreground/70 ml-auto">{cnt}</span>
+                            <span className="font-mono-data text-xs font-semibold text-foreground/70 ml-auto">{cnt}</span>
                           )}
                         </span>
                       </SelectItem>
