@@ -11,15 +11,15 @@ interface PrimaryTopNavProps {
 
 export function PrimaryTopNav({ activeSection, onSectionChange }: PrimaryTopNavProps) {
   return (
-    <header className="sticky top-0 z-40 flex h-16 shrink-0 items-center border-b border-border bg-background/95 px-6 backdrop-blur-xl">
+    <header className="sticky top-0 z-40 flex h-[68px] shrink-0 items-center border-b border-border bg-background/95 px-6 backdrop-blur-xl">
       {/* Logo */}
       <div className="flex shrink-0 items-center gap-3 mr-8">
         <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
           <ShoppingBag className="h-5 w-5 text-primary" />
         </div>
-        <div className="flex flex-col gap-0.5">
-          <div className="font-display text-[16px] font-bold leading-[1.2] tracking-tight">FDP Furniture Design Platform</div>
-          <div className="font-body text-[13px] leading-[1.3] text-muted-foreground">
+        <div className="flex flex-col" style={{ gap: '2px' }}>
+          <div style={{ fontFamily: 'inherit', fontSize: '16px', fontWeight: 700, lineHeight: '1.35', letterSpacing: '-0.01em' }}>FDP Furniture Design Platform</div>
+          <div style={{ fontSize: '13px', lineHeight: '1.4', color: 'var(--muted-foreground)' }}>
             傢私設計管理平台
           </div>
         </div>
