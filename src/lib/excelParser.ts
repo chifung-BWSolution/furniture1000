@@ -2271,6 +2271,10 @@ export interface RawTableRow {
   cells: (string | number | null)[];
   /** Product image (data URI) — inherited from merged cells */
   productImageData?: string | null;
+  /** Second product image (data URI) — when multiple images exist in the same image column range, ordered by column position */
+  productImageData2?: string | null;
+  /** Third product image (data URI) — when multiple images exist in the same image column range, ordered by column position */
+  productImageData3?: string | null;
   /** Lifestyle image (data URI) — inherited from merged cells */
   lifestyleImageData?: string | null;
   /** Whether this row appears to be a valid product row (has model/dims/price) */
@@ -2582,9 +2586,20 @@ export async function extractRawExcelTable(
     console.log(`[RawTable] Sheet "${sheetName}" classified images: ${sheetProductImages.length} product, ${sheetLifestyleImages.length} lifestyle`);
 
     const rowToProductImage = new Map<number, string>();
+    const rowToProductImage2 = new Map<number, string>();
+    const rowToProductImage3 = new Map<number, string>();
     const rowToLifestyleImage = new Map<number, string>();
 
-    for (const img of sheetProductImages) {
+    // Sort product images by column position (leftmost first) so image2/image3 are assigned
+    // in left-to-right column order when multiple images exist in the same row range.
+    const sortedProductImages = [...sheetProductImages].sort((a, b) => {
+      const colA = a.fromCol ?? 999;
+      const colB = b.fromCol ?? 999;
+      if (colA !== colB) return colA - colB;
+      return (a.fromRow ?? 0) - (b.fromRow ?? 0);
+    });
+
+    for (const img of sortedProductImages) {
       if (img.fromRow === undefined) continue;
       const fromRow = img.fromRow;
       const toRow = img.toRow ?? fromRow;
@@ -2592,6 +2607,10 @@ export async function extractRawExcelTable(
       for (let r = fromRow; r <= toRow; r++) {
         if (!rowToProductImage.has(r)) {
           rowToProductImage.set(r, dataUri);
+        } else if (!rowToProductImage2.has(r)) {
+          rowToProductImage2.set(r, dataUri);
+        } else if (!rowToProductImage3.has(r)) {
+          rowToProductImage3.set(r, dataUri);
         }
       }
     }
@@ -2632,7 +2651,27 @@ export async function extractRawExcelTable(
             }
           }
         }
-        
+
+        // Product image2 fill-down within merge range
+        const prodImg2 = rowToProductImage2.get(startRow);
+        if (prodImg2) {
+          for (let r = startRow + 1; r <= endRow; r++) {
+            if (!rowToProductImage2.has(r)) {
+              rowToProductImage2.set(r, prodImg2);
+            }
+          }
+        }
+
+        // Product image3 fill-down within merge range
+        const prodImg3 = rowToProductImage3.get(startRow);
+        if (prodImg3) {
+          for (let r = startRow + 1; r <= endRow; r++) {
+            if (!rowToProductImage3.has(r)) {
+              rowToProductImage3.set(r, prodImg3);
+            }
+          }
+        }
+
         // Lifestyle image fill-down within merge range
         const lifeImg = rowToLifestyleImage.get(startRow);
         if (lifeImg) {
@@ -2699,6 +2738,8 @@ export async function extractRawExcelTable(
         rowIndex: rowIdx,
         cells,
         productImageData: rowToProductImage.get(rowIdx) || null,
+        productImageData2: rowToProductImage2.get(rowIdx) || null,
+        productImageData3: rowToProductImage3.get(rowIdx) || null,
         lifestyleImageData: rowToLifestyleImage.get(rowIdx) || null,
         isProductRow,
         hasMinimalData,

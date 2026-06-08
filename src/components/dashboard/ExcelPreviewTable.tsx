@@ -110,6 +110,10 @@ export interface RawExtractedRow {
   cells: (string | number | null)[];
   /** Product image data URI (inherited from merged cells if applicable) */
   productImageData?: string | null;
+  /** Second product image data URI — populated when multiple images exist in the same row */
+  productImageData2?: string | null;
+  /** Third product image data URI — populated when multiple images exist in the same row */
+  productImageData3?: string | null;
   /** Lifestyle image data URI */
   lifestyleImageData?: string | null;
   /** Whether this row is flagged as a valid product row */
@@ -311,6 +315,8 @@ function autoDetectMappings(headers: string[], rows?: RawExtractedRow[], columnC
   // Pre-set image column mappings (special keys for the thumbnail columns)
   mapping['__img_product' as any] = 'product_image';
   mapping['__img_lifestyle' as any] = 'lifestyle_image';
+  mapping['__img_product2' as any] = 'image_url_2';
+  mapping['__img_product3' as any] = 'image_url_3';
   // Pre-set AI product name column mapping to 'title'
   mapping['__ai_product_name' as any] = 'title';
 
@@ -1310,6 +1316,14 @@ export function ExcelPreviewTable({
     () => displayRows.some(r => r.productImageData) || Object.keys(imageOverrides || {}).some(k => k.includes(`:product`)),
     [displayRows, imageOverrides]
   );
+  const hasAnyProductImage2 = useMemo(
+    () => displayRows.some(r => r.productImageData2),
+    [displayRows]
+  );
+  const hasAnyProductImage3 = useMemo(
+    () => displayRows.some(r => r.productImageData3),
+    [displayRows]
+  );
   const hasAnyLifestyleImage = useMemo(
     () => displayRows.some(r => r.lifestyleImageData) || Object.keys(imageOverrides || {}).some(k => k.includes(`:lifestyle`)),
     [displayRows, imageOverrides]
@@ -1678,6 +1692,22 @@ export function ExcelPreviewTable({
                       </Select>
                     </TableHead>
                   )}
+                  {/* Product Image 2 column header */}
+                  {hasAnyProductImage2 && (
+                    <TableHead className="w-[72px] text-center p-1">
+                      <div className="h-7 flex items-center justify-center text-sm font-mono font-semibold text-teal-800 border border-teal-600/50 rounded bg-teal-500/5 px-1">
+                        產品圖2
+                      </div>
+                    </TableHead>
+                  )}
+                  {/* Product Image 3 column header */}
+                  {hasAnyProductImage3 && (
+                    <TableHead className="w-[72px] text-center p-1">
+                      <div className="h-7 flex items-center justify-center text-sm font-mono font-semibold text-teal-700 border border-teal-500/50 rounded bg-teal-500/5 px-1">
+                        產品圖3
+                      </div>
+                    </TableHead>
+                  )}
                   {/* Data column dropdowns — with AI Product Name inserted after model_number/material */}
                   {visibleColumns.map((colIdx, arrIdx) => (
                     <React.Fragment key={colIdx}>
@@ -1822,6 +1852,16 @@ export function ExcelPreviewTable({
                       效果圖
                     </TableHead>
                   )}
+                  {hasAnyProductImage2 && (
+                    <TableHead className="w-[72px] bg-muted/50 text-center text-sm font-mono text-teal-700">
+                      產品圖2
+                    </TableHead>
+                  )}
+                  {hasAnyProductImage3 && (
+                    <TableHead className="w-[72px] bg-muted/50 text-center text-sm font-mono text-teal-600">
+                      產品圖3
+                    </TableHead>
+                  )}
                   {visibleColumns.map((colIdx, arrIdx) => (
                     <React.Fragment key={colIdx}>
                       {dimCombinedColIdxSet.has(colIdx) ? (
@@ -1953,6 +1993,42 @@ export function ExcelPreviewTable({
                               </div>
                             );
                           })()}
+                        </TableCell>
+                      )}
+                      {/* Product Image 2 Thumbnail (read-only, no override) */}
+                      {hasAnyProductImage2 && (
+                        <TableCell className="text-center p-1">
+                          {row.productImageData2 ? (
+                            <div className="w-12 h-12 mx-auto rounded border border-teal-500/30 overflow-hidden">
+                              <img
+                                src={row.productImageData2}
+                                alt={`Product 2 Row ${row.rowIndex}`}
+                                className="w-full h-full object-cover"
+                              />
+                            </div>
+                          ) : (
+                            <div className="w-12 h-12 flex items-center justify-center rounded border border-dashed border-border/20 mx-auto">
+                              <span className="text-muted-foreground/20 text-xs">—</span>
+                            </div>
+                          )}
+                        </TableCell>
+                      )}
+                      {/* Product Image 3 Thumbnail (read-only, no override) */}
+                      {hasAnyProductImage3 && (
+                        <TableCell className="text-center p-1">
+                          {row.productImageData3 ? (
+                            <div className="w-12 h-12 mx-auto rounded border border-teal-400/30 overflow-hidden">
+                              <img
+                                src={row.productImageData3}
+                                alt={`Product 3 Row ${row.rowIndex}`}
+                                className="w-full h-full object-cover"
+                              />
+                            </div>
+                          ) : (
+                            <div className="w-12 h-12 flex items-center justify-center rounded border border-dashed border-border/20 mx-auto">
+                              <span className="text-muted-foreground/20 text-xs">—</span>
+                            </div>
+                          )}
                         </TableCell>
                       )}
                       {/* Data cells — with AI Product Name inserted at correct position */}
