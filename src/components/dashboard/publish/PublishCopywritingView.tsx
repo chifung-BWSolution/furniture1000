@@ -1,7 +1,9 @@
-import { useState, useRef, useMemo, useEffect } from 'react';
+import { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import {
   FileText, Sparkles, ChevronLeft, ArrowRight, Loader2,
-  UploadCloud, Search, X,
+  UploadCloud, Search, X, Bold, Italic, Underline as UnderlineIcon,
+  List, ListOrdered, Image as ImageIcon, Palette,
+  AlignLeft, AlignCenter, AlignRight,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
@@ -215,27 +217,9 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
             />
           </Section>
 
-          {/* Shopify 產品說明 */}
+          {/* Shopify 產品說明 — rich editor */}
           <Section title="Shopify 產品說明" desc="支援直接貼上圖片，格式與 Shopify 後台一致">
-            <div className="rounded-xl border border-border bg-card">
-              {/* fake toolbar to mimic Shopify rich editor */}
-              <div className="flex items-center gap-1 border-b border-border px-3 py-2 text-[12px] text-muted-foreground">
-                <span className="rounded px-2 py-0.5 font-bold hover:bg-muted">B</span>
-                <span className="rounded px-2 py-0.5 italic hover:bg-muted">I</span>
-                <span className="rounded px-2 py-0.5 underline hover:bg-muted">U</span>
-                <span className="mx-1 h-4 w-px bg-border" />
-                <span className="rounded px-2 py-0.5 hover:bg-muted">• 列表</span>
-                <span className="rounded px-2 py-0.5 hover:bg-muted">🔗 連結</span>
-                <span className="rounded px-2 py-0.5 hover:bg-muted">🖼 圖片</span>
-              </div>
-              <textarea
-                value={desc}
-                onChange={(e) => setDesc(e.target.value)}
-                rows={8}
-                placeholder="輸入產品說明，可直接貼上圖片…"
-                className="w-full resize-y rounded-b-xl bg-transparent px-4 py-3 font-body text-[13.5px] leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:outline-none"
-              />
-            </div>
+            <RichEditor value={desc} onChange={setDesc} />
           </Section>
 
           {/* Shopify 產品圖片 */}
@@ -276,6 +260,186 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
           </Section>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── Rich Text Editor ─────────────────────────────────────────────────────────
+
+const ALLOWED_IMG_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml'];
+const MAX_IMG_BYTES = 5 * 1024 * 1024;
+
+const PRESET_COLORS = [
+  '#000000', '#434343', '#666666', '#999999', '#b7b7b7', '#cccccc', '#d9d9d9', '#ffffff',
+  '#ff0000', '#ff4500', '#ff9900', '#ffff00', '#00ff00', '#00ffff', '#4a86e8', '#9900ff',
+  '#e6194b', '#f58231', '#ffe119', '#3cb44b', '#42d4f4', '#4363d8', '#911eb4', '#f032e6',
+];
+
+function RichEditor({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const editorRef = useRef<HTMLDivElement>(null);
+  const imgInputRef = useRef<HTMLInputElement>(null);
+  const [showColorPicker, setShowColorPicker] = useState(false);
+  const colorPickerRef = useRef<HTMLDivElement>(null);
+  // Track saved selection for toolbar actions that open popovers
+  const savedRangeRef = useRef<Range | null>(null);
+
+  // Sync initial value into editor (only on mount / when activeId changes)
+  useEffect(() => {
+    if (editorRef.current && editorRef.current.innerHTML !== value) {
+      editorRef.current.innerHTML = value;
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const exec = useCallback((cmd: string, val?: string) => {
+    editorRef.current?.focus();
+    document.execCommand(cmd, false, val);
+    if (editorRef.current) onChange(editorRef.current.innerHTML);
+  }, [onChange]);
+
+  const saveSelection = () => {
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0) savedRangeRef.current = sel.getRangeAt(0).cloneRange();
+  };
+
+  const restoreSelection = () => {
+    const range = savedRangeRef.current;
+    if (!range) return;
+    const sel = window.getSelection();
+    if (sel) { sel.removeAllRanges(); sel.addRange(range); }
+  };
+
+  const handleImageFile = (file: File) => {
+    if (!ALLOWED_IMG_TYPES.includes(file.type)) { toast.error('格式不支援，請上傳 PNG、JPG、WEBP 或 SVG'); return; }
+    if (file.size > MAX_IMG_BYTES) { toast.error('圖片大小超過 5MB 上限'); return; }
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl = e.target?.result as string;
+      editorRef.current?.focus();
+      document.execCommand('insertHTML', false, `<img src="${dataUrl}" style="max-width:100%;height:auto;" />`);
+      if (editorRef.current) onChange(editorRef.current.innerHTML);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Close color picker on outside click
+  useEffect(() => {
+    if (!showColorPicker) return;
+    const handler = (e: MouseEvent) => {
+      if (colorPickerRef.current && !colorPickerRef.current.contains(e.target as Node)) {
+        setShowColorPicker(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showColorPicker]);
+
+  const ToolBtn = ({ onClick, title, children, active }: { onClick: () => void; title: string; children: React.ReactNode; active?: boolean }) => (
+    <button
+      type="button"
+      title={title}
+      onMouseDown={(e) => { e.preventDefault(); onClick(); }}
+      className={`flex items-center justify-center rounded p-1.5 transition-colors hover:bg-muted ${active ? 'bg-muted text-foreground' : 'text-muted-foreground'}`}
+    >
+      {children}
+    </button>
+  );
+
+  return (
+    <div className="rounded-xl border border-border bg-card">
+      {/* Toolbar */}
+      <div className="flex flex-wrap items-center gap-0.5 border-b border-border px-2 py-1.5">
+        {/* Bold / Italic / Underline */}
+        <ToolBtn title="粗體 (Ctrl+B)" onClick={() => exec('bold')}><Bold className="h-3.5 w-3.5" /></ToolBtn>
+        <ToolBtn title="斜體 (Ctrl+I)" onClick={() => exec('italic')}><Italic className="h-3.5 w-3.5" /></ToolBtn>
+        <ToolBtn title="底線 (Ctrl+U)" onClick={() => exec('underline')}><UnderlineIcon className="h-3.5 w-3.5" /></ToolBtn>
+
+        {/* Colour */}
+        <div className="relative">
+          <ToolBtn
+            title="文字顏色"
+            onClick={() => { saveSelection(); setShowColorPicker((v) => !v); }}
+          >
+            <Palette className="h-3.5 w-3.5" />
+          </ToolBtn>
+          {showColorPicker && (
+            <div
+              ref={colorPickerRef}
+              className="absolute left-0 top-full z-50 mt-1 rounded-xl border border-border bg-card p-3 shadow-xl"
+              style={{ width: 180 }}
+            >
+              <p className="mb-2 font-body text-[11px] text-muted-foreground">選擇顏色</p>
+              <div className="grid grid-cols-8 gap-1">
+                {PRESET_COLORS.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    title={c}
+                    style={{ background: c }}
+                    className="h-5 w-5 rounded-sm border border-border/50 hover:scale-110 transition-transform"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      restoreSelection();
+                      exec('foreColor', c);
+                      setShowColorPicker(false);
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <span className="mx-1 h-4 w-px bg-border" />
+
+        {/* Lists */}
+        <ToolBtn title="Bullet 列表" onClick={() => exec('insertUnorderedList')}><List className="h-3.5 w-3.5" /></ToolBtn>
+        <ToolBtn title="數字列表" onClick={() => exec('insertOrderedList')}><ListOrdered className="h-3.5 w-3.5" /></ToolBtn>
+
+        <span className="mx-1 h-4 w-px bg-border" />
+
+        {/* Alignment */}
+        <ToolBtn title="向左對齊" onClick={() => exec('justifyLeft')}><AlignLeft className="h-3.5 w-3.5" /></ToolBtn>
+        <ToolBtn title="置中對齊" onClick={() => exec('justifyCenter')}><AlignCenter className="h-3.5 w-3.5" /></ToolBtn>
+        <ToolBtn title="向右對齊" onClick={() => exec('justifyRight')}><AlignRight className="h-3.5 w-3.5" /></ToolBtn>
+
+        <span className="mx-1 h-4 w-px bg-border" />
+
+        {/* Image */}
+        <input
+          ref={imgInputRef}
+          type="file"
+          accept=".png,.jpg,.jpeg,.webp,.svg"
+          className="hidden"
+          onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImageFile(f); e.target.value = ''; }}
+        />
+        <ToolBtn title="插入圖片" onClick={() => imgInputRef.current?.click()}><ImageIcon className="h-3.5 w-3.5" /></ToolBtn>
+      </div>
+
+      {/* Editable area */}
+      <div
+        ref={editorRef}
+        contentEditable
+        suppressContentEditableWarning
+        onInput={() => { if (editorRef.current) onChange(editorRef.current.innerHTML); }}
+        onPaste={(e) => {
+          // Handle image paste
+          const items = e.clipboardData?.items;
+          if (items) {
+            for (const item of items) {
+              if (item.type.startsWith('image/')) {
+                e.preventDefault();
+                const file = item.getAsFile();
+                if (file) handleImageFile(file);
+                return;
+              }
+            }
+          }
+        }}
+        className="min-h-[180px] px-4 py-3 font-body text-[13.5px] leading-relaxed text-foreground focus:outline-none [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_img]:max-w-full [&_img]:h-auto"
+        data-placeholder="輸入產品說明，可直接貼上圖片…"
+        style={{ whiteSpace: 'pre-wrap' } as React.CSSProperties}
+      />
     </div>
   );
 }
