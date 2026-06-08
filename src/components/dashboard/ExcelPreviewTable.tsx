@@ -1306,7 +1306,7 @@ export function ExcelPreviewTable({
   const [imageModalOpen, setImageModalOpen] = useState(false);
   const [imageModalTarget, setImageModalTarget] = useState<{
     rowIndex: number;
-    type: 'product' | 'lifestyle';
+    type: 'product' | 'lifestyle' | 'product2' | 'product3';
     currentImage: string | null;
     mode: 'replace' | 'add';
   } | null>(null);
@@ -1335,13 +1335,17 @@ export function ExcelPreviewTable({
     return String.fromCharCode(64 + Math.floor(idx / 26)) + String.fromCharCode(65 + (idx % 26));
   };
 
-  const getImageForRow = useCallback((row: RawExtractedRow, type: 'product' | 'lifestyle') => {
+  const getImageForRow = useCallback((row: RawExtractedRow, type: 'product' | 'lifestyle' | 'product2' | 'product3') => {
     const key = `${activeSheet.sheetName}:${row.rowIndex}:${type}`;
     if (imageOverrides?.[key]) return imageOverrides[key];
-    return type === 'product' ? row.productImageData : row.lifestyleImageData;
+    if (type === 'product') return row.productImageData;
+    if (type === 'lifestyle') return row.lifestyleImageData;
+    if (type === 'product2') return row.productImageData2;
+    if (type === 'product3') return row.productImageData3;
+    return null;
   }, [activeSheet.sheetName, imageOverrides]);
 
-  const handleImageClick = useCallback((row: RawExtractedRow, type: 'product' | 'lifestyle') => {
+  const handleImageClick = useCallback((row: RawExtractedRow, type: 'product' | 'lifestyle' | 'product2' | 'product3') => {
     const currentImage = getImageForRow(row, type);
     setImageModalTarget({
       rowIndex: row.rowIndex,
@@ -2027,40 +2031,60 @@ export function ExcelPreviewTable({
                           })()}
                         </TableCell>
                       )}
-                      {/* Product Image 2 Thumbnail (read-only, no override) */}
+                      {/* Product Image 2 Thumbnail — clickable, supports override + paste */}
                       {hasAnyProductImage2 && (
                         <TableCell className="text-center p-1">
-                          {row.productImageData2 ? (
-                            <div className="w-12 h-12 mx-auto rounded border border-teal-500/30 overflow-hidden">
-                              <img
-                                src={row.productImageData2}
-                                alt={`Product 2 Row ${row.rowIndex}`}
-                                className="w-full h-full object-cover"
-                              />
-                            </div>
-                          ) : (
-                            <div className="w-12 h-12 flex items-center justify-center rounded border border-dashed border-border/20 mx-auto">
-                              <span className="text-muted-foreground/20 text-xs">—</span>
-                            </div>
-                          )}
+                          {(() => {
+                            const img2 = getImageForRow(row, 'product2');
+                            return img2 ? (
+                              <div
+                                className="w-12 h-12 mx-auto rounded border border-teal-500/30 overflow-hidden cursor-pointer hover:opacity-80 hover:border-teal-500 transition-all relative group"
+                                onClick={() => handleImageClick(row, 'product2')}
+                                title="點擊更換圖片 / Ctrl+V 貼上"
+                              >
+                                <img src={img2} alt={`Product 2 Row ${row.rowIndex}`} className="w-full h-full object-cover" />
+                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                  <ZoomIn className="w-4 h-4 text-white" />
+                                </div>
+                              </div>
+                            ) : (
+                              <div
+                                className="w-12 h-12 flex items-center justify-center rounded border border-dashed border-teal-500/30 mx-auto cursor-pointer hover:border-teal-500 hover:bg-teal-500/5 transition-all"
+                                onClick={() => handleImageClick(row, 'product2')}
+                                title="點擊新增圖片"
+                              >
+                                <span className="text-teal-500/40 text-xs">+</span>
+                              </div>
+                            );
+                          })()}
                         </TableCell>
                       )}
-                      {/* Product Image 3 Thumbnail (read-only, no override) */}
+                      {/* Product Image 3 Thumbnail — clickable, supports override + paste */}
                       {hasAnyProductImage3 && (
                         <TableCell className="text-center p-1">
-                          {row.productImageData3 ? (
-                            <div className="w-12 h-12 mx-auto rounded border border-teal-400/30 overflow-hidden">
-                              <img
-                                src={row.productImageData3}
-                                alt={`Product 3 Row ${row.rowIndex}`}
-                                className="w-full h-full object-cover"
-                              />
-                            </div>
-                          ) : (
-                            <div className="w-12 h-12 flex items-center justify-center rounded border border-dashed border-border/20 mx-auto">
-                              <span className="text-muted-foreground/20 text-xs">—</span>
-                            </div>
-                          )}
+                          {(() => {
+                            const img3 = getImageForRow(row, 'product3');
+                            return img3 ? (
+                              <div
+                                className="w-12 h-12 mx-auto rounded border border-teal-400/30 overflow-hidden cursor-pointer hover:opacity-80 hover:border-teal-400 transition-all relative group"
+                                onClick={() => handleImageClick(row, 'product3')}
+                                title="點擊更換圖片 / Ctrl+V 貼上"
+                              >
+                                <img src={img3} alt={`Product 3 Row ${row.rowIndex}`} className="w-full h-full object-cover" />
+                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                  <ZoomIn className="w-4 h-4 text-white" />
+                                </div>
+                              </div>
+                            ) : (
+                              <div
+                                className="w-12 h-12 flex items-center justify-center rounded border border-dashed border-teal-400/30 mx-auto cursor-pointer hover:border-teal-400 hover:bg-teal-400/5 transition-all"
+                                onClick={() => handleImageClick(row, 'product3')}
+                                title="點擊新增圖片"
+                              >
+                                <span className="text-teal-400/40 text-xs">+</span>
+                              </div>
+                            );
+                          })()}
                         </TableCell>
                       )}
                       {/* Data cells — with AI Product Name inserted at correct position */}

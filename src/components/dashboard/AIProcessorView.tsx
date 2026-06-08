@@ -2576,13 +2576,17 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         // Apply imageOverrides from ExcelPreviewTable (key format: `${sheetName}:${rowIndex}:${type}`)
         const productOverrideKey = `${sheetName}:${row.rowIndex}:product`;
         const lifestyleOverrideKey = `${sheetName}:${row.rowIndex}:lifestyle`;
+        const product2OverrideKey = `${sheetName}:${row.rowIndex}:product2`;
+        const product3OverrideKey = `${sheetName}:${row.rowIndex}:product3`;
         const overriddenProductImage = imageOverrides?.[productOverrideKey] || null;
         const overriddenLifestyleImage = imageOverrides?.[lifestyleOverrideKey] || null;
+        const overriddenProduct2Image = imageOverrides?.[product2OverrideKey] || null;
+        const overriddenProduct3Image = imageOverrides?.[product3OverrideKey] || null;
 
-        // Resolved base images from row data
+        // Resolved base images from row data (overrides take priority)
         const rawImg1 = overriddenProductImage || row.productImageData || undefined;
-        const rawImg2 = row.productImageData2 || undefined;
-        const rawImg3 = row.productImageData3 || undefined;
+        const rawImg2 = overriddenProduct2Image || row.productImageData2 || undefined;
+        const rawImg3 = overriddenProduct3Image || row.productImageData3 || undefined;
         const rawLifestyle = overriddenLifestyleImage || row.lifestyleImageData || undefined;
 
         // Map each image slot to its target field based on user's dropdown selection
