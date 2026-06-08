@@ -131,6 +131,28 @@ export function PublishPrecheckView({ onNavigate }: Props) {
   const passRate = totalChecks > 0 ? Math.round((passedChecks / totalChecks) * 100) : 0;
   const allPass = items.length > 0 && items.every(rowAllPass);
 
+  // Click ✗ on a copy field: reset copy_done=false so the product reappears in 產品文案
+  const handleCopyFix = async (productId: string) => {
+    try {
+      await supabase.from('products').update({ copy_done: false }).eq('id', productId);
+      setItems((prev) => prev.filter((r) => r.id !== productId));
+    } catch {
+      // navigate anyway
+    }
+    onNavigate?.({ view: 'publish-copywriting', productId });
+  };
+
+  // Click ✗ on an info field: reset info_done=false so the product reappears in 產品信息
+  const handleInfoFix = async (productId: string) => {
+    try {
+      await supabase.from('products').update({ info_done: false }).eq('id', productId);
+      setItems((prev) => prev.filter((r) => r.id !== productId));
+    } catch {
+      // navigate anyway
+    }
+    onNavigate?.({ view: 'publish-product-info', productId });
+  };
+
   const handleEnter = async () => {
     if (!allPass || items.length === 0) return;
     const ids = items.map((it) => it.id);
@@ -218,7 +240,6 @@ export function PublishPrecheckView({ onNavigate }: Props) {
                 >
                   產品信息
                 </th>
-                <th className="px-4 py-2 text-center font-medium border-b border-border/60" rowSpan={2}>結果</th>
               </tr>
               <tr>
                 {COPY_LABELS.map((f, i) => (
@@ -266,7 +287,7 @@ export function PublishPrecheckView({ onNavigate }: Props) {
                           </span>
                         ) : (
                           <button
-                            onClick={() => onNavigate?.({ view: 'publish-copywriting', productId: row.id })}
+                            onClick={() => handleCopyFix(row.id)}
                             title={`前往「產品文案」填寫「${f.label}」`}
                             className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-rose-500/15 text-rose-600 hover:bg-rose-500/25 transition-colors"
                           >
@@ -285,7 +306,7 @@ export function PublishPrecheckView({ onNavigate }: Props) {
                           </span>
                         ) : (
                           <button
-                            onClick={() => onNavigate?.({ view: 'publish-product-info', productId: row.id })}
+                            onClick={() => handleInfoFix(row.id)}
                             title={`前往「產品信息」填寫「${f.label}」`}
                             className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-rose-500/15 text-rose-600 hover:bg-rose-500/25 transition-colors"
                           >
@@ -294,27 +315,20 @@ export function PublishPrecheckView({ onNavigate }: Props) {
                         )}
                       </td>
                     ))}
-
-                    <td className="px-4 py-3 text-center">
-                      {rowPass
-                        ? <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10.5px] font-medium text-emerald-600">通過</span>
-                        : <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10.5px] font-medium text-amber-600">需修正</span>
-                      }
-                    </td>
                   </tr>
                 );
               })}
 
               {isLoading && (
                 <tr>
-                  <td colSpan={COPY_LABELS.length + INFO_LABELS.length + 3} className="px-6 py-12 text-center">
+                  <td colSpan={COPY_LABELS.length + INFO_LABELS.length + 2} className="px-6 py-12 text-center">
                     <Loader2 className="mx-auto h-5 w-5 animate-spin text-primary" />
                   </td>
                 </tr>
               )}
               {!isLoading && items.length === 0 && (
                 <tr>
-                  <td colSpan={COPY_LABELS.length + INFO_LABELS.length + 3} className="px-6 py-12 text-center text-[12px] text-muted-foreground/60">
+                  <td colSpan={COPY_LABELS.length + INFO_LABELS.length + 2} className="px-6 py-12 text-center text-[12px] text-muted-foreground/60">
                     尚無待檢查產品 — 到「產品信息」按「完成」後，產品會送到此處
                   </td>
                 </tr>
