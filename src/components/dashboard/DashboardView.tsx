@@ -47,7 +47,7 @@ async function fetchDashboardStats(): Promise<DashboardStats> {
   ] = await Promise.all([
     supabase.from('products').select('id, sale_price, price'),
     supabase.from('products').select('id').gte('created_at', gte).lt('created_at', lt),
-    supabase.from('products').select('id').eq('in_shopify_queue', true).eq('info_done', false),
+    supabase.from('products').select('id').eq('in_shopify_queue', true).eq('copy_done', false),
     supabase.from('products').select('id').eq('in_catalog', true),
     supabase.from('design_projects').select('id').gte('created_at', gte).lt('created_at', lt),
     supabase.from('project_invitations').select('id').gte('created_at', gte).lt('created_at', lt),

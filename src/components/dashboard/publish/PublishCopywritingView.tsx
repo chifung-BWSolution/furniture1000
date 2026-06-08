@@ -4,6 +4,7 @@ import {
   UploadCloud, Search, X,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { supabase } from '@/lib/supabase';
 import { usePublishList } from './usePublishList';
 
 interface CopyItem {
@@ -26,10 +27,14 @@ function slugify(s: string) {
 
 export function PublishCopywritingView() {
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
 
+  // Only show products where copywriting is NOT yet done
   const { rows, totalCount, isLoading, Toolbar, Pagination } = usePublishList({
     select: 'id,title,description,image_url,images,image_url_2,image_url_3,factories_display_name,level1_category,level2_category',
-    applyBaseFilters: (q) => q.eq('in_shopify_queue', true).eq('info_done', false),
+    applyBaseFilters: (q) => q.eq('in_shopify_queue', true).eq('copy_done', false),
+    reloadKey,
   });
 
   const items: CopyItem[] = useMemo(() => rows.map((r: any) => {
@@ -72,6 +77,33 @@ export function PublishCopywritingView() {
     setSeoTitle(p.seoTitle);
     setSeoDesc(p.seoDescription);
     setHandle(p.handle);
+  };
+
+  // Submit copywriting — save edits + set copy_done=true → moves product to 產品信息
+  const handleSubmit = async () => {
+    if (!activeId) return;
+    setIsSubmitting(true);
+    try {
+      const { error } = await supabase
+        .from('products')
+        .update({
+          title: name,
+          description: desc,
+          copy_done: true,
+        })
+        .eq('id', activeId);
+      if (error) {
+        toast.error('提交失敗', { description: error.message });
+        return;
+      }
+      toast.success('已提交到下一步', { description: '產品已移至「產品信息」頁面補充規格與價格' });
+      setActiveId(null);
+      setReloadKey((k) => k + 1);
+    } catch {
+      toast.error('提交時發生錯誤，請重試');
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const addImageFile = (file: File) => {
@@ -143,10 +175,12 @@ export function PublishCopywritingView() {
             <Sparkles className="h-3.5 w-3.5" /> AI 建議文案
           </button>
           <button
-            onClick={() => toast.success('已提交到下一步', { description: '前往「產品信息」補充規格與分類' })}
-            className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-primary to-primary/80 px-5 py-2.5 text-sm font-bold text-primary-foreground shadow-md transition-opacity hover:opacity-90"
+            onClick={handleSubmit}
+            disabled={isSubmitting}
+            className="flex items-center gap-2 rounded-xl bg-gradient-to-r from-primary to-primary/80 px-5 py-2.5 text-sm font-bold text-primary-foreground shadow-md transition-opacity hover:opacity-90 disabled:opacity-60"
           >
-            提交到下一步 <ArrowRight className="h-4 w-4" />
+            {isSubmitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+            提交到下一步
           </button>
         </div>
       </div>
