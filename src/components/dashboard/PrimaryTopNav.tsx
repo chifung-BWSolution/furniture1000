@@ -17,9 +17,9 @@ export function PrimaryTopNav({ activeSection, onSectionChange }: PrimaryTopNavP
         <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary/10">
           <ShoppingBag className="h-5 w-5 text-primary" />
         </div>
-        <div className="leading-tight">
-          <div className="font-display text-[14px] font-bold tracking-tight">FDP Furniture Design Platform</div>
-          <div className="font-mono-data text-[10px] text-muted-foreground tracking-[0.12em] uppercase">
+        <div className="flex flex-col gap-0.5">
+          <div className="font-display text-[16px] font-bold leading-[1.2] tracking-tight">FDP Furniture Design Platform</div>
+          <div className="font-body text-[13px] leading-[1.3] text-muted-foreground">
             傢私設計管理平台
           </div>
         </div>
