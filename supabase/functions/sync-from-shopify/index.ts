@@ -343,6 +343,45 @@ Deno.serve(async (req: Request) => {
       `[sync-from-shopify] Fetched ${allShopifyProducts.length} total products from Shopify`
     );
 
+    // ─── PREVIEW MODE: return product list without writing to DB ────────
+    // Triggered when body contains { preview_only: true } or { import: false }
+    let bodyData: Record<string, unknown> = {};
+    try {
+      if (req.method === "POST") {
+        const cloned = req.clone();
+        bodyData = await cloned.json().catch(() => ({}));
+      }
+    } catch { /* ignore */ }
+
+    if (bodyData?.preview_only === true) {
+      const preview = allShopifyProducts.map((p: Record<string, unknown>) => {
+        const variants = (p.variants as { price?: string }[]) ?? [];
+        const minPrice = variants.length
+          ? Math.min(...variants.map((v) => parseFloat(v.price ?? "0") || 0))
+          : 0;
+        const img = (p.images as { src?: string }[])?.[0]?.src ?? null;
+        return {
+          shopify_product_id: String(p.id),
+          title: p.title ?? "Untitled",
+          vendor: p.vendor ?? "",
+          product_type: p.product_type ?? "",
+          status: p.status ?? "active",
+          published_at: p.published_at ?? null,
+          image_url: img,
+          price: minPrice,
+          variants_count: variants.length,
+        };
+      });
+      return jsonResponse({ products: preview, total: preview.length });
+    }
+
+    // ─── SELECTIVE IMPORT MODE: import only specified product IDs ────────
+    let productIdsToImport: Set<string> | null = null;
+    if (Array.isArray(bodyData?.product_ids) && (bodyData.product_ids as string[]).length > 0) {
+      productIdsToImport = new Set(bodyData.product_ids as string[]);
+      console.log(`[sync-from-shopify] Selective import: ${productIdsToImport.size} products requested`);
+    }
+
     // Handle empty product list gracefully
     if (allShopifyProducts.length === 0) {
       console.log("[sync-from-shopify] No products found on Shopify store.");
@@ -410,6 +449,12 @@ Deno.serve(async (req: Request) => {
       try {
         const sp = shopifyProduct as Record<string, unknown>;
         const shopifyId = String(sp.id);
+
+        // Skip if selective import and this product wasn't selected
+        if (productIdsToImport !== null && !productIdsToImport.has(shopifyId)) {
+          skipped++;
+          continue;
+        }
         const title = (sp.title as string) || "Untitled";
         const bodyHtml = (sp.body_html as string) || "";
         const tags = ((sp.tags as string) || "")

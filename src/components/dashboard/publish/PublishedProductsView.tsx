@@ -59,7 +59,7 @@ export function PublishedProductsView() {
     setIsFetchingPreview(true);
     const toastId = toast.loading('正在讀取 Shopify 產品列表...');
     try {
-      const { data, error } = await supabase.functions.invoke('supabase-functions-fetch-shopify-products', { body: {} });
+      const { data, error } = await supabase.functions.invoke('supabase-functions-sync-from-shopify', { body: { preview_only: true } });
       if (error || data?.error) {
         toast.error('無法讀取 Shopify 產品', { id: toastId, description: error?.message || data?.error, duration: 8000 });
         return;
@@ -82,16 +82,21 @@ export function PublishedProductsView() {
     setIsImporting(true);
     const toastId = toast.loading(`正在導入 ${selectedImportIds.size} 件產品...`);
     try {
-      const { data, error } = await supabase.functions.invoke('supabase-functions-fetch-shopify-products', {
-        body: { import: true, product_ids: Array.from(selectedImportIds) },
+      const { data, error } = await supabase.functions.invoke('supabase-functions-sync-from-shopify', {
+        body: { product_ids: Array.from(selectedImportIds) },
       });
       if (error || data?.error) {
         toast.error('導入失敗', { id: toastId, description: error?.message || data?.error, duration: 8000 });
         return;
       }
-      toast.success(`✅ 已導入 ${data.imported} 件產品`, {
+      const s = data?.summary;
+      const parts: string[] = [];
+      if (s?.created > 0) parts.push(`新增 ${s.created} 件`);
+      if (s?.updated > 0) parts.push(`更新 ${s.updated} 件`);
+      if (s?.skipped > 0) parts.push(`略過 ${s.skipped} 件`);
+      toast.success(`✅ 從 Shopify 導入完成`, {
         id: toastId,
-        description: '產品資料已儲存至 shopify_products 資料表。',
+        description: parts.length ? parts.join('、') : `共處理 ${s?.total_shopify ?? selectedImportIds.size} 件產品`,
         duration: 6000,
       });
       setShowImportDialog(false);
