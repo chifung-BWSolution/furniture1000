@@ -179,7 +179,7 @@ export function PublishPrecheckView({ onNavigate }: Props) {
         <div className="flex items-center gap-2">
           <ShieldCheck className="h-4 w-4 text-primary" />
           <h2 className="font-display text-sm font-bold">發佈前檢查</h2>
-          <span className="ml-1 rounded-full bg-primary/10 px-2.5 py-0.5 font-mono-data text-[11px] font-semibold text-primary">
+          <span className="ml-1 rounded-full bg-primary/10 px-2.5 py-0.5 font-mono-data text-xs font-semibold text-primary">
             {items.length} 件待檢查
           </span>
         </div>
@@ -194,19 +194,19 @@ export function PublishPrecheckView({ onNavigate }: Props) {
       </div>
 
       {/* Pass-rate banner */}
-      <div className="shrink-0 border-b border-border bg-card px-8 py-5">
-        <div className="mx-auto flex max-w-6xl items-center gap-8">
+      <div className="shrink-0 border-b border-border bg-card px-6 py-4">
+        <div className="flex items-center gap-8">
           <div className="flex items-center gap-3">
             <div className={cn('flex h-14 w-14 items-center justify-center rounded-2xl', allPass ? 'bg-emerald-500/15' : 'bg-amber-500/15')}>
               {allPass ? <CheckCircle2 className="h-7 w-7 text-emerald-600" /> : <AlertTriangle className="h-7 w-7 text-amber-600" />}
             </div>
             <div>
               <p className="font-display text-3xl font-bold text-foreground">{passRate}%</p>
-              <p className="font-body text-[11px] text-muted-foreground">整體通過率</p>
+              <p className="font-body text-xs text-muted-foreground">整體通過率</p>
             </div>
           </div>
           <div className="flex-1">
-            <div className="mb-1.5 flex items-center justify-between text-[11px] text-muted-foreground">
+            <div className="mb-1.5 flex items-center justify-between text-xs text-muted-foreground">
               <span className="flex items-center gap-1.5"><span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />通過 {passedChecks}</span>
               <span className="flex items-center gap-1.5"><span className="inline-block h-2 w-2 rounded-full bg-rose-500" />需修正 {totalChecks - passedChecks}</span>
             </div>
@@ -221,10 +221,10 @@ export function PublishPrecheckView({ onNavigate }: Props) {
       </div>
 
       {/* Checklist table */}
-      <div className="flex-1 overflow-auto p-8">
-        <div className="mx-auto max-w-6xl overflow-hidden rounded-2xl border border-border bg-card">
+      <div className="flex-1 overflow-auto px-4 py-4">
+        <div className="overflow-hidden rounded-2xl border border-border bg-card">
           <table className="w-full text-sm">
-            <thead className="bg-muted/50 text-[11px] uppercase tracking-wider text-muted-foreground">
+            <thead className="bg-muted/50 text-xs uppercase tracking-wider text-muted-foreground">
               <tr>
                 <th className="px-4 py-2.5 text-left font-medium border-b border-border/60" rowSpan={2}>廠家名稱</th>
                 <th className="px-4 py-2.5 text-left font-medium border-b border-border/60" rowSpan={2}>產品名稱</th>
@@ -250,7 +250,7 @@ export function PublishPrecheckView({ onNavigate }: Props) {
                       i === 0 && 'border-l border-indigo-500/20'
                     )}
                   >
-                    <span className="inline-block text-[10px]">{f.label}</span>
+                    <span className="inline-block text-xs">{f.label}</span>
                   </th>
                 ))}
                 {INFO_LABELS.map((f, i) => (
@@ -261,7 +261,7 @@ export function PublishPrecheckView({ onNavigate }: Props) {
                       i === 0 && 'border-l border-emerald-500/20'
                     )}
                   >
-                    <span className="inline-block text-[10px]">{f.label}</span>
+                    <span className="inline-block text-xs">{f.label}</span>
                   </th>
                 ))}
               </tr>
@@ -272,10 +272,10 @@ export function PublishPrecheckView({ onNavigate }: Props) {
                 return (
                   <tr key={row.id} className={cn('hover:bg-muted/30', !rowPass && 'bg-amber-500/[0.03]')}>
                     <td className="px-4 py-3">
-                      <span className="font-body text-[12px] text-muted-foreground">{row.factoryName}</span>
+                      <span className="font-body text-sm text-muted-foreground">{row.factoryName}</span>
                     </td>
                     <td className="px-4 py-3">
-                      <span className="font-body text-[13px] font-medium text-foreground">{row.productName}</span>
+                      <span className="font-body text-sm font-medium text-foreground">{row.productName}</span>
                     </td>
 
                     {/* 產品文案 checks */}
