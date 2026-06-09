@@ -1028,6 +1028,8 @@ export function ExcelPreviewTable({
   // ─── Image Override State (declared early to avoid initialization errors) ──
   // Override image store: key = `${sheetName}:${rowIndex}:${type}`
   const [imageOverrides, setImageOverrides] = useState<Record<string, string>>({});
+  // ─── Dimension Override State (declared early to avoid TDZ errors) ──
+  const [dimOverrides, setDimOverrides] = useState<Record<string, string>>({});
 
   // Handler: generate catalog — passes mapping for current sheet PLUS multi-sheet mapping
   const handleGenerate = useCallback(() => {
@@ -1292,8 +1294,7 @@ export function ExcelPreviewTable({
   // key = `${rowIndex}:${colIdx}` for the cell currently being edited
   const [editingCell, setEditingCell] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
-  // Dimension overrides: key = `${rowIndex}:dim_l|dim_w|dim_h`, value = edited string
-  const [dimOverrides, setDimOverrides] = useState<Record<string, string>>({});
+  // Dimension cell editing state
   const [editingDimCell, setEditingDimCell] = useState<string | null>(null);
   const [editDimValue, setEditDimValue] = useState('');
 
