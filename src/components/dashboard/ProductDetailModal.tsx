@@ -553,10 +553,24 @@ export function ProductDetailModal({
     try {
       const parsedCostPrice = costPrice ? parseFloat(costPrice) : null;
       const parsedSalePrice = salePrice ? parseFloat(salePrice) : null;
-      // in_stock / customize: derive from productionType selection
-      // 現貨=true, 全訂製=false, 未選擇=false (deselecting also clears stock flag)
+      // in_stock: true=現貨, false=全訂製/未選
       const inStockValue = productionType === 'stock' ? true : false;
-      const customizeValue = productionType === 'custom' ? (productionLeadTime || null) : null;
+      // customize: text label for full-custom lead time (e.g. "16-25天")
+      // After migration 20250156, this column is text. Map the integer productionLeadTime to label.
+      const customizeLabel = productionType === 'custom' && productionLeadTime
+        ? (() => {
+            const n = parseInt(productionLeadTime);
+            if (n <= 7) return '3-7天';
+            if (n <= 15) return '8-15天';
+            if (n <= 25) return '16-25天';
+            if (n <= 40) return '26-40天';
+            return '41天以上';
+          })()
+        : null;
+      // Also keep production_date integer for lead-time calculations
+      const customLeadDays = productionType === 'custom' && productionLeadTime
+        ? parseInt(productionLeadTime) || null
+        : null;
       const parsedProductionLeadTime = productionLeadTime ? parseInt(productionLeadTime) : null;
       const parsedShippingDays = shippingDays ? parseInt(shippingDays) : null;
       const parsedShippingFee = shippingFee ? parseFloat(shippingFee) : null;
@@ -653,7 +667,7 @@ export function ProductDetailModal({
         cost_price: parsedCostPrice,
         price: parsedSalePrice ?? product.price,
         factory_id: factoryId || null,
-        production_date: parsedProductionLeadTime,
+        production_date: productionType === 'custom' ? customLeadDays : parsedProductionLeadTime,
         shipping_days: parsedShippingDays,
         shipping_fee: parsedShippingFee,
         total_lead_time: computedTotal,
@@ -663,7 +677,7 @@ export function ProductDetailModal({
         dimension_w_mm: parsedDimensionW,
         dimension_h_mm: parsedDimensionH,
         in_stock: inStockValue,
-        customize: customizeValue,
+        customize: customizeLabel,
         images: localImagesList,
         image_url: localImagesList[0]?.src || product.imageUrl || null,
       };
