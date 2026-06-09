@@ -555,8 +555,7 @@ export function ProductDetailModal({
       const parsedSalePrice = salePrice ? parseFloat(salePrice) : null;
       // in_stock: true=現貨, false=全訂製/未選
       const inStockValue = productionType === 'stock' ? true : false;
-      // customize: text label for full-custom lead time (e.g. "16-25天")
-      // After migration 20250156, this column is text. Map the integer productionLeadTime to label.
+      // customize (text): store the lead-time label for 全訂製 (e.g. "16-25天"), null otherwise
       const customizeLabel = productionType === 'custom' && productionLeadTime
         ? (() => {
             const n = parseInt(productionLeadTime);
@@ -567,10 +566,8 @@ export function ProductDetailModal({
             return '41天以上';
           })()
         : null;
-      // Also keep production_date integer for lead-time calculations
-      const customLeadDays = productionType === 'custom' && productionLeadTime
-        ? parseInt(productionLeadTime) || null
-        : null;
+      // production_date is a DATE column in the live DB — never write an integer to it
+      // We skip it entirely; lead time is captured in customize (text) + total_lead_time (int)
       const parsedProductionLeadTime = productionLeadTime ? parseInt(productionLeadTime) : null;
       const parsedShippingDays = shippingDays ? parseInt(shippingDays) : null;
       const parsedShippingFee = shippingFee ? parseFloat(shippingFee) : null;
@@ -667,7 +664,6 @@ export function ProductDetailModal({
         cost_price: parsedCostPrice,
         price: parsedSalePrice ?? product.price,
         factory_id: factoryId || null,
-        production_date: productionType === 'custom' ? customLeadDays : parsedProductionLeadTime,
         shipping_days: parsedShippingDays,
         shipping_fee: parsedShippingFee,
         total_lead_time: computedTotal,
