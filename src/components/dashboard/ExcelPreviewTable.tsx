@@ -175,9 +175,9 @@ export type PreviewAction = 'queue-shopify' | 'catalog-only' | 'discard';
 
 interface ExcelPreviewTableProps {
   previewData: ExcelPreviewData;
-  onGenerateCatalog: (mapping: ColumnMappingState, selectedRows: number[], multiSheetMapping?: MultiSheetColumnMapping, imageOverrides?: Record<string, string>, multiSheetDimUnits?: MultiSheetDimUnits) => void;
-  /** New three-way action handler: passes action type, mapping, selected rows, product names, image overrides, and multi-sheet mapping */
-  onAction?: (action: PreviewAction, mapping: ColumnMappingState, selectedRows: number[], productNames: Record<string, string>, multiSheetMapping?: MultiSheetColumnMapping, imageOverrides?: Record<string, string>, multiSheetDimUnits?: MultiSheetDimUnits) => void;
+  onGenerateCatalog: (mapping: ColumnMappingState, selectedRows: number[], multiSheetMapping?: MultiSheetColumnMapping, imageOverrides?: Record<string, string>, multiSheetDimUnits?: MultiSheetDimUnits, dimOverrides?: Record<string, string>) => void;
+  /** New three-way action handler: passes action type, mapping, selected rows, product names, image overrides, dim overrides, and multi-sheet mapping */
+  onAction?: (action: PreviewAction, mapping: ColumnMappingState, selectedRows: number[], productNames: Record<string, string>, multiSheetMapping?: MultiSheetColumnMapping, imageOverrides?: Record<string, string>, multiSheetDimUnits?: MultiSheetDimUnits, dimOverrides?: Record<string, string>) => void;
   /** Called when rows are discarded/removed from the preview — parent should remove from data */
   onRowsDiscarded?: (rowIndices: number[]) => void;
   /** Called when a cell value is edited inline — parent updates preview data */
@@ -1042,8 +1042,8 @@ export function ExcelPreviewTable({
       }
     }
     // Pass current sheet mapping for backward compat, plus multi-sheet mapping, imageOverrides, and dim units
-    onGenerateCatalog(currentMapping, allSelectedRows, multiSheetMappings, imageOverrides, multiSheetDimUnits);
-  }, [currentMapping, multiSheetSelections, multiSheetMappings, sheetDataList, onGenerateCatalog, imageOverrides, multiSheetDimUnits]);
+    onGenerateCatalog(currentMapping, allSelectedRows, multiSheetMappings, imageOverrides, multiSheetDimUnits, dimOverrides);
+  }, [currentMapping, multiSheetSelections, multiSheetMappings, sheetDataList, onGenerateCatalog, imageOverrides, multiSheetDimUnits, dimOverrides]);
 
   // ─── AI Product Name State (declared early to avoid initialization errors) ──
   const [productNames, setProductNames] = useState<Record<string, string>>({});
@@ -1106,12 +1106,12 @@ export function ExcelPreviewTable({
     if (allSelectedRows.length === 0) return;
 
     if (onAction) {
-      onAction(action, currentMapping, allSelectedRows, productNames, multiSheetMappings, imageOverrides, multiSheetDimUnits);
+      onAction(action, currentMapping, allSelectedRows, productNames, multiSheetMappings, imageOverrides, multiSheetDimUnits, dimOverrides);
     } else {
       // Fallback: use legacy onGenerateCatalog for backward compat
-      onGenerateCatalog(currentMapping, allSelectedRows, multiSheetMappings, imageOverrides, multiSheetDimUnits);
+      onGenerateCatalog(currentMapping, allSelectedRows, multiSheetMappings, imageOverrides, multiSheetDimUnits, dimOverrides);
     }
-  }, [currentMapping, multiSheetSelections, multiSheetMappings, sheetDataList, onAction, onGenerateCatalog, productNames, onRowsDiscarded, imageOverrides, multiSheetDimUnits]);
+  }, [currentMapping, multiSheetSelections, multiSheetMappings, sheetDataList, onAction, onGenerateCatalog, productNames, onRowsDiscarded, imageOverrides, multiSheetDimUnits, dimOverrides]);
 
   // Visible columns for current sheet
   const visibleColumns = useMemo(() => {
@@ -1292,6 +1292,10 @@ export function ExcelPreviewTable({
   // key = `${rowIndex}:${colIdx}` for the cell currently being edited
   const [editingCell, setEditingCell] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
+  // Dimension overrides: key = `${rowIndex}:dim_l|dim_w|dim_h`, value = edited string
+  const [dimOverrides, setDimOverrides] = useState<Record<string, string>>({});
+  const [editingDimCell, setEditingDimCell] = useState<string | null>(null);
+  const [editDimValue, setEditDimValue] = useState('');
 
   const startEdit = useCallback((rowIndex: number, colIdx: number, current: string) => {
     setEditingCell(`${rowIndex}:${colIdx}`);
@@ -1302,6 +1306,17 @@ export function ExcelPreviewTable({
     onCellEdit?.(activeSheet.sheetName, rowIndex, colIdx, editValue);
     setEditingCell(null);
   }, [onCellEdit, activeSheet.sheetName, editValue]);
+
+  const startDimEdit = useCallback((key: string, current: string) => {
+    setEditingDimCell(key);
+    setEditDimValue(current);
+  }, []);
+
+  const commitDimEdit = useCallback(() => {
+    if (!editingDimCell) return;
+    setDimOverrides(prev => ({ ...prev, [editingDimCell]: editDimValue }));
+    setEditingDimCell(null);
+  }, [editingDimCell, editDimValue]);
 
   // ─── Image Override State ──────────────────────────────────────────
   const [imageModalOpen, setImageModalOpen] = useState(false);
@@ -2098,35 +2113,57 @@ export function ExcelPreviewTable({
                         // ── VIRTUAL 3-COLUMN SPLIT for Combined Dimensions ──
                         // If this is any combined dimensions column, render 3 separate cells
                         if (dimCombinedColIdxSet.has(colIdx)) {
-                          const dimL = parsedDimensionCells[`${row.rowIndex}:dim_l`] || '';
-                          const dimW = parsedDimensionCells[`${row.rowIndex}:dim_w`] || '';
-                          const dimH = parsedDimensionCells[`${row.rowIndex}:dim_h`] || '';
-                          
+                          // Check dimOverrides first (user-edited values), then fall back to parsed
+                          const dimL = dimOverrides[`${row.rowIndex}:dim_l`] ?? parsedDimensionCells[`${row.rowIndex}:dim_l`] ?? '';
+                          const dimW = dimOverrides[`${row.rowIndex}:dim_w`] ?? parsedDimensionCells[`${row.rowIndex}:dim_w`] ?? '';
+                          const dimH = dimOverrides[`${row.rowIndex}:dim_h`] ?? parsedDimensionCells[`${row.rowIndex}:dim_h`] ?? '';
+
                           const nameKey = `${activeSheet.sheetName}:${row.rowIndex}`;
                           const generatedName = productNames[nameKey];
                           const isGeneratingName = generatingNames[nameKey];
                           const hasImage = !!(getImageForRow(row, 'product') || getImageForRow(row, 'lifestyle'));
-                          
+
+                          // Helper: render an editable dimension cell
+                          const renderDimCell = (dimKey: string, value: string, label: string) => {
+                            const fullKey = `${row.rowIndex}:${dimKey}`;
+                            const isEditing = editingDimCell === fullKey;
+                            return (
+                              <TableCell
+                                key={dimKey}
+                                className="text-sm font-[IBM_Plex_Mono] px-1 text-emerald-700 text-center min-w-[80px] cursor-pointer"
+                                title={`${label}: ${value || '—'} (點擊編輯)`}
+                              >
+                                {isEditing ? (
+                                  <input
+                                    autoFocus
+                                    type="number"
+                                    value={editDimValue}
+                                    onChange={e => setEditDimValue(e.target.value)}
+                                    onBlur={commitDimEdit}
+                                    onKeyDown={e => {
+                                      if (e.key === 'Enter') commitDimEdit();
+                                      if (e.key === 'Escape') setEditingDimCell(null);
+                                    }}
+                                    className="w-full text-center text-sm font-[IBM_Plex_Mono] bg-emerald-50 border border-emerald-400 rounded px-1 py-0.5 outline-none"
+                                    style={{ minWidth: 60 }}
+                                  />
+                                ) : (
+                                  <span
+                                    className={`block w-full text-center rounded px-1 py-0.5 hover:bg-emerald-50 hover:ring-1 hover:ring-emerald-300 transition-all ${dimOverrides[fullKey] ? 'text-emerald-600 font-bold' : ''}`}
+                                    onClick={() => startDimEdit(fullKey, value)}
+                                  >
+                                    {value || <span className="text-foreground/30">—</span>}
+                                  </span>
+                                )}
+                              </TableCell>
+                            );
+                          };
+
                           return (
                             <React.Fragment key={colIdx}>
-                              <TableCell
-                                className="text-sm font-[IBM_Plex_Mono] px-2 text-emerald-700 text-center"
-                                title={`Raw: ${rawDisplayVal} → L: ${dimL}`}
-                              >
-                                {dimL || <span className="text-foreground/30">—</span>}
-                              </TableCell>
-                              <TableCell
-                                className="text-sm font-[IBM_Plex_Mono] px-2 text-emerald-700 text-center"
-                                title={`Raw: ${rawDisplayVal} → W: ${dimW}`}
-                              >
-                                {dimW || <span className="text-foreground/30">—</span>}
-                              </TableCell>
-                              <TableCell
-                                className="text-sm font-[IBM_Plex_Mono] px-2 text-emerald-700 text-center"
-                                title={`Raw: ${rawDisplayVal} → H: ${dimH}`}
-                              >
-                                {dimH || <span className="text-foreground/30">—</span>}
-                              </TableCell>
+                              {renderDimCell('dim_l', dimL, '長度')}
+                              {renderDimCell('dim_w', dimW, '闊度')}
+                              {renderDimCell('dim_h', dimH, '高度')}
                               {/* AI Product Name cell inserted after the anchor column */}
                               {arrIdx === productNameInsertIndex - 1 && (
                                 <TableCell className="p-1 min-w-[220px]">

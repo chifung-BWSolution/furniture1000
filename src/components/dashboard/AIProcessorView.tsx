@@ -2387,7 +2387,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
   // NOTE: handleGenerate is defined after processFiles below
 
   // ─── Handle "Generate Catalog Result" from the Preview Table ────────
-  const handleGenerateFromPreview = useCallback(async (mapping: ColumnMappingState, selectedRows: number[], multiSheetMapping?: MultiSheetColumnMapping, imageOverrides?: Record<string, string>, multiSheetDimUnits?: MultiSheetDimUnits) => {
+  const handleGenerateFromPreview = useCallback(async (mapping: ColumnMappingState, selectedRows: number[], multiSheetMapping?: MultiSheetColumnMapping, imageOverrides?: Record<string, string>, multiSheetDimUnits?: MultiSheetDimUnits, dimOverrides?: Record<string, string>) => {
     if (!excelPreviewData) return;
     
     setIsGeneratingFromPreview(true);
@@ -2549,6 +2549,13 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         if (dimensionLMm !== null) dimensionLMm = Math.round(dimensionLMm);
         if (dimensionWMm !== null) dimensionWMm = Math.round(dimensionWMm);
         if (dimensionHMm !== null) dimensionHMm = Math.round(dimensionHMm);
+        // Apply user-edited dimension overrides (from ExcelPreviewTable dim cells)
+        const dOvL = dimOverrides?.[`${row.rowIndex}:dim_l`];
+        const dOvW = dimOverrides?.[`${row.rowIndex}:dim_w`];
+        const dOvH = dimOverrides?.[`${row.rowIndex}:dim_h`];
+        if (dOvL !== undefined) dimensionLMm = dOvL ? parseInt(dOvL) : null;
+        if (dOvW !== undefined) dimensionWMm = dOvW ? parseInt(dOvW) : null;
+        if (dOvH !== undefined) dimensionHMm = dOvH ? parseInt(dOvH) : null;
 
         // Fallback: parse from combined dimensions string using smart parser (unit-aware)
         // Trigger if ALL three dimension fields are still null and we have a combined string
@@ -2711,7 +2718,8 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
     productNames: Record<string, string>,
     multiSheetMapping?: MultiSheetColumnMapping,
     imageOverrides?: Record<string, string>,
-    multiSheetDimUnits?: MultiSheetDimUnits
+    multiSheetDimUnits?: MultiSheetDimUnits,
+    dimOverrides?: Record<string, string>
   ) => {
     if (!excelPreviewData) return;
 
@@ -2884,6 +2892,13 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         if (dimensionLMm !== null) dimensionLMm = Math.round(dimensionLMm);
         if (dimensionWMm !== null) dimensionWMm = Math.round(dimensionWMm);
         if (dimensionHMm !== null) dimensionHMm = Math.round(dimensionHMm);
+        // Apply user-edited dimension overrides (from ExcelPreviewTable dim cells)
+        const dOvL = dimOverrides?.[`${row.rowIndex}:dim_l`];
+        const dOvW = dimOverrides?.[`${row.rowIndex}:dim_w`];
+        const dOvH = dimOverrides?.[`${row.rowIndex}:dim_h`];
+        if (dOvL !== undefined) dimensionLMm = dOvL ? parseInt(dOvL) : null;
+        if (dOvW !== undefined) dimensionWMm = dOvW ? parseInt(dOvW) : null;
+        if (dOvH !== undefined) dimensionHMm = dOvH ? parseInt(dOvH) : null;
 
         // Fallback: parse from combined dimensions string using smart parser (unit-aware)
         // Trigger if ALL three dimension fields are still null and we have a combined string
