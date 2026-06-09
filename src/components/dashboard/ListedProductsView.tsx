@@ -232,10 +232,12 @@ export function ListedProductsView({
       if (cancelled || !l1Data) return;
       const counts: Record<string, number> = {};
       for (const row of l1Data) {
-        const key = `level1:${row.level1_category}`;
+        const l1 = (row.level1_category || '').trim();
+        if (!l1) continue;
+        const key = `level1:${l1}`;
         counts[key] = (counts[key] || 0) + 1;
       }
-      // Fetch level2 counts
+      // Fetch level2 counts — trim values to match trimmed options from product_category
       const { data: l2Data } = await supabase
         .from('products')
         .select('level1_category, level2_category')
@@ -243,7 +245,10 @@ export function ListedProductsView({
         .neq('level2_category', '');
       if (cancelled || !l2Data) return;
       for (const row of l2Data) {
-        const key = `level2:${row.level1_category}:${row.level2_category}`;
+        const l1 = (row.level1_category || '').trim();
+        const l2 = (row.level2_category || '').trim();
+        if (!l1 || !l2) continue;
+        const key = `level2:${l1}:${l2}`;
         counts[key] = (counts[key] || 0) + 1;
       }
       if (!cancelled) setCategoryCounts(counts);
