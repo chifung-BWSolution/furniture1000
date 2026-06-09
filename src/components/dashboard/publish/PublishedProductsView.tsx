@@ -2,10 +2,12 @@ import { useState, useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import {
   CheckCheck, Search, ArrowDownToLine, ArrowUpToLine, RotateCcw, Eye, ChevronDown,
+  CloudDownload, Loader2,
 } from 'lucide-react';
 import {
   MOCK_PUBLISHED, PUBLISH_STATE_META, type PublishState, type PublishedProduct,
 } from '@/constants/analytics-mock';
+import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 
 const STATE_FILTERS: { key: PublishState | 'all'; label: string }[] = [
@@ -26,6 +28,39 @@ export function PublishedProductsView() {
   const [stateFilter, setStateFilter] = useState<PublishState | 'all'>('all');
   const [factoryFilter, setFactoryFilter] = useState('全部');
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const handleSyncFromShopify = async () => {
+    setIsSyncing(true);
+    const toastId = toast.loading('正在從 Shopify 導入產品...', { description: '連接 Shopify 商店並下載所有產品資料。' });
+    try {
+      const { data, error } = await supabase.functions.invoke('supabase-functions-sync-from-shopify', {
+        body: {},
+      });
+      if (error) {
+        toast.error('導入失敗', { id: toastId, description: error.message, duration: 8000 });
+        return;
+      }
+      if (data?.error) {
+        toast.error('導入失敗', { id: toastId, description: data.error, duration: 8000 });
+        return;
+      }
+      const s = data?.summary;
+      const parts: string[] = [];
+      if (s?.created > 0) parts.push(`新增 ${s.created} 件`);
+      if (s?.updated > 0) parts.push(`更新 ${s.updated} 件`);
+      if (s?.skipped > 0) parts.push(`略過 ${s.skipped} 件`);
+      toast.success(`✅ 從 Shopify 導入完成`, {
+        id: toastId,
+        description: parts.length ? parts.join('、') : `共處理 ${s?.total_shopify ?? 0} 件產品`,
+        duration: 6000,
+      });
+    } catch (err) {
+      toast.error('導入失敗', { id: toastId, description: err instanceof Error ? err.message : '未知錯誤', duration: 8000 });
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   const factories = useMemo(() => ['全部', ...Array.from(new Set(MOCK_PUBLISHED.map((p) => p.factory)))], []);
 
@@ -67,6 +102,19 @@ export function PublishedProductsView() {
           </span>
         </div>
         <div className="flex items-center gap-2">
+          {/* 從 Shopify 導入按鈕 */}
+          <button
+            onClick={handleSyncFromShopify}
+            disabled={isSyncing}
+            className="flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isSyncing ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <CloudDownload className="h-3.5 w-3.5" />
+            )}
+            {isSyncing ? '導入中...' : '從 Shopify 導入'}
+          </button>
           {selected.size > 0 && (
             <button onClick={bulkDelist} className="flex items-center gap-1.5 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs font-medium text-rose-600 hover:bg-rose-500/20">
               <ArrowDownToLine className="h-3.5 w-3.5" /> 批量下架（{selected.size}）
