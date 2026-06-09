@@ -52,7 +52,19 @@ Deno.serve(async (req: Request) => {
   }
 
   const startTime = Date.now();
-  console.log("[refresh-shopify-tokens] === Starting token refresh (refresh_token flow) ===");
+  // Allow caller to force client_credentials grant (e.g. cron job passes {"grant_type":"client_credentials"})
+  let forceClientCredentials = false;
+  try {
+    if (req.method === "POST" && req.headers.get("content-type")?.includes("application/json")) {
+      const body = await req.json().catch(() => ({}));
+      if (body?.grant_type === "client_credentials") {
+        forceClientCredentials = true;
+      }
+    }
+  } catch { /* ignore parse errors */ }
+
+  console.log("[refresh-shopify-tokens] === Starting token refresh ===");
+  console.log("[refresh-shopify-tokens] Grant mode:", forceClientCredentials ? "client_credentials (forced)" : "refresh_token (preferred) + client_credentials (fallback)");
   console.log("[refresh-shopify-tokens] Timestamp:", new Date().toISOString());
 
   try {
@@ -143,15 +155,14 @@ Deno.serve(async (req: Request) => {
 
       console.log(`[refresh-shopify-tokens] ─── Processing ${storeDomain} ───`);
 
-      // Check if refresh_token exists
-      if (!conn.refresh_token) {
-        console.warn(`[refresh-shopify-tokens] ⚠️ No refresh_token stored for ${storeDomain}. Falling back to client_credentials grant.`);
-
-        // Fallback: try client_credentials grant (for legacy connections without refresh_token)
-        const fallbackResult = await attemptClientCredentialsGrant(
+      // Use client_credentials if forced by caller OR if no refresh_token is stored
+      if (forceClientCredentials || !conn.refresh_token) {
+        const reason = forceClientCredentials ? "grant_type=client_credentials requested by caller" : "no refresh_token stored";
+        console.log(`[refresh-shopify-tokens] Using client_credentials for ${storeDomain} (${reason})`);
+        const ccResult = await attemptClientCredentialsGrant(
           storeDomain, shopifyClientId, shopifyClientSecret, supabase, projectRef, serviceRoleKey
         );
-        results.push({ shop_domain: storeDomain, ...fallbackResult, grant_type: "client_credentials_fallback" });
+        results.push({ shop_domain: storeDomain, ...ccResult, grant_type: "client_credentials" });
         continue;
       }
 
