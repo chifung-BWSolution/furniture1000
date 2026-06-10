@@ -94,10 +94,11 @@ export function PublishPrecheckView({ onNavigate, onProductsReadyToPublish }: Pr
           'id,title,description,image_url,images,sale_price,price,' +
           'sku,model,delivery_term_name,tags,' +
           'dimension_l_mm,dimension_w_mm,dimension_h_mm,' +
-          'level1_category,level2_category,factories_display_name'
+          'level1_category,level2_category,factories_display_name,ready_to_publish'
         )
         .eq('in_shopify_queue', true)
         .eq('info_done', true)
+        .or('ready_to_publish.is.null,ready_to_publish.eq.false')
         .order('created_at', { ascending: false });
       if (cancelled) return;
 
