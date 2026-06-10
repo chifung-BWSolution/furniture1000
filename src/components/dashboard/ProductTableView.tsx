@@ -43,8 +43,6 @@ import {
   Loader2,
   Database,
   Sparkles,
-  ShieldCheck,
-  CloudDownload,
   Factory,
   Package,
   Upload,
@@ -764,19 +762,6 @@ export const ProductTableView = memo(function ProductTableView({
               </span>
             </div>
 
-            {/* Unsynced Count Badge */}
-            {(() => {
-              const unsyncedCount = products.filter(p => !p.bwfMasterId && p.source !== 'shopify').length;
-              return unsyncedCount > 0 ? (
-                <div className="flex items-center gap-1.5 rounded-md bg-amber-500/10 border border-amber-500/30 px-2.5 py-1">
-                  <Upload className="h-3 w-3 text-amber-500" />
-                  <span className="font-mono-data text-[11px] text-amber-500 font-medium">
-                    {unsyncedCount} 個未上傳
-                  </span>
-                </div>
-              ) : null;
-            })()}
-
             {filterProductId && (
               <div className="flex items-center gap-2 rounded-md bg-primary/10 px-3 py-1">
                 <Filter className="h-3.5 w-3.5 text-primary" />
@@ -792,14 +777,39 @@ export const ProductTableView = memo(function ProductTableView({
               </div>
             )}
 
-            {lastSyncTime && (
-              <span className="font-mono-data text-[10px] text-muted-foreground">
-                上次備份: {new Date(lastSyncTime).toLocaleTimeString()}
-              </span>
-            )}
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Upload to Shopify Button */}
+            {onUploadUnsyncedToMaster && (
+              <Button
+                variant="default"
+                size="sm"
+                onClick={async () => {
+                  const unsyncedCount = products.filter(p => !p.bwfMasterId && p.source !== 'shopify').length;
+                  if (unsyncedCount === 0) {
+                    toast.info('所有產品均已上傳到 Shopify');
+                    return;
+                  }
+                  const confirmed = window.confirm(`找到 ${unsyncedCount} 個未上傳的產品，確認要批量上傳到 Shopify 嗎？`);
+                  if (!confirmed) return;
+                  await onUploadUnsyncedToMaster();
+                }}
+                disabled={isPublishing}
+                className={cn(
+                  "gap-2 font-display text-xs font-bold bg-primary hover:bg-primary/90",
+                  isPublishing && "opacity-70"
+                )}
+              >
+                {isPublishing ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  <Upload className="h-3.5 w-3.5" />
+                )}
+                {isPublishing ? '上傳中...' : '上傳到 Shopify'}
+              </Button>
+            )}
+
             {/* Batch Delete Button */}
             <Button
               variant="destructive"
@@ -819,94 +829,6 @@ export const ProductTableView = memo(function ProductTableView({
                 </Badge>
               )}
             </Button>
-
-            {/* Safety badge */}
-            <Tooltip>
-              <TooltipTrigger>
-                <div className="flex items-center gap-1.5 rounded-md bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1">
-                  <ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />
-                  <span className="font-mono-data text-[10px] text-emerald-500 font-semibold">安全 UPSERT 模式</span>
-                </div>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="max-w-xs">
-                <p className="text-xs font-body">
-                  上傳只會在全域資料庫新增或更新產品記錄。現有的資料不會被刪除。
-                </p>
-              </TooltipContent>
-            </Tooltip>
-
-            {/* Backup Now Button */}
-            {onSyncFromShopify && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={async () => {
-                  const toastId = toast.loading('正在從 Shopify 同步...');
-                  try {
-                    const summary = await onSyncFromShopify();
-                    if (summary) {
-                      const parts: string[] = [];
-                      if (summary.created > 0) parts.push(`${summary.created} 已建立`);
-                      if (summary.updated > 0) parts.push(`${summary.updated} 已更新`);
-                      if (summary.skipped > 0) parts.push(`${summary.skipped} 已略過`);
-                      toast.success('同步完成', {
-                        id: toastId,
-                        description: `${summary.total_shopify} 個產品: ${parts.join('、')}`,
-                      });
-                    } else {
-                      toast.success('同步完成', { id: toastId });
-                    }
-                  } catch (err) {
-                    toast.error('同步失敗', {
-                      id: toastId,
-                      description: err instanceof Error ? err.message : '未知錯誤',
-                    });
-                  }
-                }}
-                disabled={isSyncing}
-                className={cn(
-                  "gap-2 font-display text-xs font-bold",
-                  isSyncing && "border-amber-500/40 text-amber-500"
-                )}
-              >
-                {isSyncing ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <CloudDownload className="h-3.5 w-3.5" />
-                )}
-                {isSyncing ? '備份中...' : '從 Shopify 備份'}
-              </Button>
-            )}
-
-            {/* Upload Unsynced to Master DB Button */}
-            {onUploadUnsyncedToMaster && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={async () => {
-                  const unsyncedCount = products.filter(p => !p.bwfMasterId && p.source !== 'shopify').length;
-                  if (unsyncedCount === 0) {
-                    toast.info('所有產品均已上傳到 Master DB');
-                    return;
-                  }
-                  const confirmed = window.confirm(`找到 ${unsyncedCount} 個未上傳到 Master DB 的產品，確認要批量上傳嗎？`);
-                  if (!confirmed) return;
-                  await onUploadUnsyncedToMaster();
-                }}
-                disabled={isPublishing}
-                className={cn(
-                  "gap-1.5 text-xs h-7",
-                  isPublishing && "border-amber-500/40 text-amber-500"
-                )}
-              >
-                {isPublishing ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Upload className="h-3.5 w-3.5" />
-                )}
-                {isPublishing ? '上傳中...' : '上傳未同步產品'}
-              </Button>
-            )}
           </div>
         </div>
 

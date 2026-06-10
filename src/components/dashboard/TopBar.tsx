@@ -41,7 +41,7 @@ export function TopBar({
   const showProductButtons = currentView === 'listed-products' || currentView === 'ready-to-publish' || currentView === 'product-catalog';
   // The upload-to-catalog action only appears on the 所有產品 / 待發佈 views
   const showUploadButton = currentView === 'listed-products' || currentView === 'ready-to-publish';
-  const uploadLabel = currentView === 'listed-products' ? '上傳到產品目錄' : '上傳到資料庫';
+  const uploadLabel = currentView === 'listed-products' ? '上傳到產品目錄' : '上傳到 Shopify';
 
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-border bg-background/80 px-6 backdrop-blur-xl">
@@ -76,8 +76,8 @@ export function TopBar({
             </div>
           )}
 
-          {/* Save Button */}
-          {showUploadButton && onSave && (
+          {/* Save Button — hidden on ready-to-publish page */}
+          {showUploadButton && onSave && currentView !== 'ready-to-publish' && (
             <Button
               onClick={onSave}
               disabled={isSaving || !hasUnsavedChanges}
