@@ -1168,7 +1168,10 @@ export function ListedProductsView({
               <SelectContent>
                 <SelectItem value="__all__">全部一級分類</SelectItem>
                 {level1Options.map((l1) => {
-                  const cnt = categoryCounts[`level1:${l1}`];
+                  // When this option is active and no level2 filter, totalCount is exact.
+                  const cnt = (l1 === level1Filter && !level2Filter)
+                    ? totalCount
+                    : categoryCounts[`level1:${l1}`];
                   return (
                     <SelectItem key={l1} value={l1}>
                       <span className="flex items-center justify-between gap-3 w-full">
@@ -1199,7 +1202,11 @@ export function ListedProductsView({
                 <SelectContent>
                   <SelectItem value="__all__">全部二級分類</SelectItem>
                   {level2Options.map((l2) => {
-                    const cnt = categoryCounts[`level2:${level1Filter}:${l2}`];
+                    // When this option is the active filter, use totalCount (exact from main query).
+                    // For other options, fall back to categoryCounts (approximate).
+                    const cnt = l2 === level2Filter
+                      ? totalCount
+                      : categoryCounts[`level2:${level1Filter}:${l2}`];
                     return (
                       <SelectItem key={l2} value={l2}>
                         <span className="flex items-center justify-between gap-3 w-full">
