@@ -219,49 +219,45 @@ export function ListedProductsView({
     return () => { cancelled = true; };
   }, []);
 
-  // Fetch category product counts (background, non-blocking)
+  // Fetch category product counts — use .limit(10000) to bypass the default 1000-row
+  // cap that caused truncated counts on large tables.
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      // Fetch level1 counts — apply the same visibility filter as the main product list
-      let l1Query = supabase
-        .from('products')
-        .select('level1_category')
-        .not('level1_category', 'is', null)
-        .neq('level1_category', '');
-      if (isCatalog) {
-        l1Query = l1Query.eq('in_catalog', true);
-      } else {
-        l1Query = l1Query.eq('in_catalog', false).eq('in_shopify_queue', false).eq('dismissed', false);
-      }
-      const { data: l1Data } = await l1Query;
-      if (cancelled || !l1Data) return;
+      const applyVisibility = (q: any) => isCatalog
+        ? q.eq('in_catalog', true)
+        : q.eq('in_catalog', false).eq('in_shopify_queue', false).eq('dismissed', false);
+
+      const [{ data: l1Rows }, { data: l2Rows }] = await Promise.all([
+        applyVisibility(
+          supabase
+            .from('products')
+            .select('level1_category')
+            .not('level1_category', 'is', null)
+            .neq('level1_category', '')
+        ).limit(10000),
+        applyVisibility(
+          supabase
+            .from('products')
+            .select('level1_category, level2_category')
+            .not('level2_category', 'is', null)
+            .neq('level2_category', '')
+        ).limit(10000),
+      ]);
+
+      if (cancelled) return;
+
       const counts: Record<string, number> = {};
-      for (const row of l1Data) {
+      for (const row of (l1Rows || [])) {
         const l1 = (row.level1_category || '').trim();
         if (!l1) continue;
-        const key = `level1:${l1}`;
-        counts[key] = (counts[key] || 0) + 1;
+        counts[`level1:${l1}`] = (counts[`level1:${l1}`] || 0) + 1;
       }
-      // Fetch level2 counts — trim values to match trimmed options from product_category
-      let l2Query = supabase
-        .from('products')
-        .select('level1_category, level2_category')
-        .not('level2_category', 'is', null)
-        .neq('level2_category', '');
-      if (isCatalog) {
-        l2Query = l2Query.eq('in_catalog', true);
-      } else {
-        l2Query = l2Query.eq('in_catalog', false).eq('in_shopify_queue', false).eq('dismissed', false);
-      }
-      const { data: l2Data } = await l2Query;
-      if (cancelled || !l2Data) return;
-      for (const row of l2Data) {
+      for (const row of (l2Rows || [])) {
         const l1 = (row.level1_category || '').trim();
         const l2 = (row.level2_category || '').trim();
         if (!l1 || !l2) continue;
-        const key = `level2:${l1}:${l2}`;
-        counts[key] = (counts[key] || 0) + 1;
+        counts[`level2:${l1}:${l2}`] = (counts[`level2:${l1}:${l2}`] || 0) + 1;
       }
       if (!cancelled) setCategoryCounts(counts);
     })();
