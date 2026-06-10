@@ -264,7 +264,35 @@ export function PublishedProductsView() {
     return true;
   }), [items, search, stateFilter, factoryFilter]);
 
+  // Call delist-from-shopify edge function to archive products in Shopify,
+  // then update the local shopify_products mirror table.
+  const callDelistEdgeFunction = async (shopifyProductIds: string[]): Promise<{ ok: boolean; error?: string }> => {
+    try {
+      const { data, error } = await supabase.functions.invoke('supabase-functions-delist-from-shopify', {
+        body: { shopify_product_ids: shopifyProductIds },
+      });
+      if (error) return { ok: false, error: error.message };
+      if (data?.error) return { ok: false, error: data.error };
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: err instanceof Error ? err.message : String(err) };
+    }
+  };
+
   const setProductState = async (row: DisplayProduct, state: PublishState, msg: string) => {
+    // If delisting, call Shopify API via edge function first
+    if (state === 'delisted' && row.shopify_product_id) {
+      const toastId = toast.loading('正在從 Shopify 下架...');
+      const result = await callDelistEdgeFunction([row.shopify_product_id]);
+      if (!result.ok) {
+        toast.error('下架失敗', { id: toastId, description: result.error });
+        return;
+      }
+      setItems((prev) => prev.map((p) => (p.id === row.id ? { ...p, state } : p)));
+      toast.success(msg, { id: toastId });
+      return;
+    }
+    // For other state changes (re-publish etc.), update local DB only
     const newStatus = state === 'published' ? 'active' : state === 'delisted' ? 'archived' : 'draft';
     const { error } = await supabase
       .from('shopify_products')
@@ -274,15 +302,26 @@ export function PublishedProductsView() {
     setItems((prev) => prev.map((p) => (p.id === row.id ? { ...p, state } : p)));
     toast.success(msg);
   };
+
   const toggle = (id: string) => setSelected((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+
   const bulkDelist = async () => {
     const ids = Array.from(selected);
     if (!ids.length) { toast.message('請先勾選產品'); return; }
-    const { error } = await supabase.from('shopify_products').update({ status: 'archived' }).in('id', ids);
-    if (error) { toast.error('批量下架失敗', { description: error.message }); return; }
+    // Collect Shopify product IDs for the selected rows
+    const shopifyIds = items
+      .filter(p => ids.includes(p.id) && p.shopify_product_id)
+      .map(p => p.shopify_product_id);
+    if (!shopifyIds.length) { toast.error('選中產品沒有 Shopify Product ID，無法下架'); return; }
+    const toastId = toast.loading(`正在從 Shopify 下架 ${shopifyIds.length} 件產品...`);
+    const result = await callDelistEdgeFunction(shopifyIds);
+    if (!result.ok) {
+      toast.error('批量下架失敗', { id: toastId, description: result.error });
+      return;
+    }
     setItems((prev) => prev.map((p) => ids.includes(p.id) ? { ...p, state: 'delisted' } : p));
     setSelected(new Set());
-    toast.success(`已下架 ${ids.length} 件產品`);
+    toast.success(`已從 Shopify 下架 ${shopifyIds.length} 件產品`, { id: toastId });
   };
 
   const counts = {
