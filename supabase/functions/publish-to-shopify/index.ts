@@ -8,7 +8,7 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const TARGET_STORE = "office-works-360.myshopify.com";
+// TARGET_STORE is no longer used — we dynamically fetch the active connection from shopify_connections.
 const TOKEN_STALENESS_THRESHOLD_MS = 60 * 60 * 1000; // 1 hour in milliseconds
 const STORAGE_BUCKET = "product-images";
 
@@ -315,12 +315,15 @@ Deno.serve(async (req: Request) => {
     let shopifyAccessToken = "";
     let shopifyStoreUrl = "";
 
-    console.log(`[publish-to-shopify] Fetching fresh token from shopify_connections for ${TARGET_STORE}...`);
+    // Fetch the active Shopify connection — no hardcoded store domain,
+    // pick the most recently updated active entry from shopify_connections.
+    console.log(`[publish-to-shopify] Fetching active Shopify connection from shopify_connections...`);
     const { data: conn, error: connErr } = await supabase
       .from("shopify_connections")
       .select("shop_domain, access_token, connected_at, updated_at, is_active")
-      .eq("shop_domain", TARGET_STORE)
       .eq("is_active", true)
+      .order("updated_at", { ascending: false })
+      .limit(1)
       .maybeSingle();
 
     if (connErr) {
@@ -341,7 +344,7 @@ Deno.serve(async (req: Request) => {
 
         if (ageMs > TOKEN_STALENESS_THRESHOLD_MS) {
           console.warn(
-            `[publish-to-shopify] ⚠️ TOKEN STALE: Token for ${TARGET_STORE} was last updated ${ageMinutes} minutes ago (threshold: 60 min). ` +
+            `[publish-to-shopify] ⚠️ TOKEN STALE: Token for ${conn.shop_domain} was last updated ${ageMinutes} minutes ago (threshold: 60 min). ` +
             `The refresh-shopify-tokens cron may have failed. Proceeding with potentially stale token.`
           );
         } else {
@@ -351,11 +354,11 @@ Deno.serve(async (req: Request) => {
         }
       } else {
         console.warn(
-          `[publish-to-shopify] ⚠️ No updated_at or connected_at timestamp found for ${TARGET_STORE}. Cannot verify token freshness.`
+          `[publish-to-shopify] ⚠️ No updated_at or connected_at timestamp found for ${conn.shop_domain}. Cannot verify token freshness.`
         );
       }
     } else {
-      console.warn(`[publish-to-shopify] ⚠️ No active connection found in DB for ${TARGET_STORE}`);
+      console.warn(`[publish-to-shopify] ⚠️ No active connection found in shopify_connections table`);
     }
 
     // ── Fallback: request body credentials (Settings UI) ─────────────────
@@ -381,9 +384,8 @@ Deno.serve(async (req: Request) => {
       return new Response(
         JSON.stringify({
           error:
-            "No Shopify credentials found. The shopify_connections table has no active entry for " +
-            TARGET_STORE +
-            ". Enter your credentials in Settings or ensure the refresh-shopify-tokens cron is running.",
+            "No Shopify credentials found. The shopify_connections table has no active entry (is_active=true). " +
+            "Please connect your Shopify store in Settings or ensure the OAuth flow has completed successfully.",
         }),
         {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
