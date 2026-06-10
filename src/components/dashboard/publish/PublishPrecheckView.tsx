@@ -92,7 +92,7 @@ export function PublishPrecheckView({ onNavigate, onProductsReadyToPublish }: Pr
         .from('products')
         .select(
           'id,title,description,image_url,images,sale_price,price,' +
-          'sku,model,delivery_term_name,tags,' +
+          'sku,model,in_stock,customize,tags,' +
           'dimension_l_mm,dimension_w_mm,dimension_h_mm,' +
           'level1_category,level2_category,factories_display_name,ready_to_publish'
         )
@@ -120,7 +120,7 @@ export function PublishPrecheckView({ onNavigate, onProductsReadyToPublish }: Pr
           info: {
             price:      Number(r.sale_price ?? r.price ?? 0) > 0,
             sku:        !!skuValue,
-            delivery:   !!(r.delivery_term_name),
+            delivery:   r.in_stock === true || !!(r.customize),
             dimensions: dimHasAny,
             category:   !!(r.level1_category),
             tags:       Array.isArray(r.tags) && r.tags.length > 0,

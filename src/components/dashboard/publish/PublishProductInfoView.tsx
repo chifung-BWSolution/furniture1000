@@ -3,9 +3,16 @@ import { cn } from '@/lib/utils';
 import {
   Boxes, Check, Loader2, Tag, Ruler, DollarSign, Truck, FolderTree, X,
 } from 'lucide-react';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { usePublishList } from './usePublishList';
+
+type ProductionType = 'stock' | 'custom' | null;
+
+const LEAD_TIME_OPTIONS = ['3-7天', '8-15天', '16-25天', '26-40天', '41天以上'] as const;
 
 interface InfoItem {
   id: string;
@@ -21,7 +28,8 @@ interface InfoItem {
   tags: string[];
   level1: string;
   level2: string;
-  deliveryTermName: string;
+  productionType: ProductionType;
+  leadTime: string;
 }
 
 interface Props {
@@ -37,29 +45,40 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   const { rows, totalCount, isLoading, Toolbar, Pagination } = usePublishList({
-    select: 'id,title,image_url,images,price,sale_price,cost_price,sku,tags,dimension_l_mm,dimension_w_mm,dimension_h_mm,level1_category,level2_category,delivery_term_name,model,factories_display_name',
+    select: 'id,title,image_url,images,price,sale_price,cost_price,sku,tags,dimension_l_mm,dimension_w_mm,dimension_h_mm,level1_category,level2_category,in_stock,customize,model,factories_display_name',
     applyBaseFilters: (q) => q.eq('in_shopify_queue', true).eq('info_done', false),
     reloadKey,
   });
 
   // 把唯讀的 rows 轉成本頁可編輯的 items 副本（換頁/篩選/重載時重置）
   useEffect(() => {
-    const mapped: InfoItem[] = rows.map((r: any) => ({
-      id: r.id,
-      title: r.title || '',
-      imageUrl: (Array.isArray(r.images) && r.images[0]?.src) || r.image_url || '',
-      factory: r.factories_display_name || '',
-      price: Number(r.sale_price ?? r.price ?? 0),
-      costPrice: r.cost_price != null ? Number(r.cost_price) : null,
-      dimL: r.dimension_l_mm ?? null,
-      dimW: r.dimension_w_mm ?? null,
-      dimH: r.dimension_h_mm ?? null,
-      sku: r.sku || r.model || '',
-      tags: Array.isArray(r.tags) ? r.tags : [],
-      level1: r.level1_category || '',
-      level2: r.level2_category || '',
-      deliveryTermName: r.delivery_term_name || '',
-    }));
+    const mapped: InfoItem[] = rows.map((r: any) => {
+      let productionType: ProductionType = null;
+      let leadTime = '';
+      if (r.in_stock === true) {
+        productionType = 'stock';
+      } else if (r.customize) {
+        productionType = 'custom';
+        leadTime = r.customize;
+      }
+      return {
+        id: r.id,
+        title: r.title || '',
+        imageUrl: (Array.isArray(r.images) && r.images[0]?.src) || r.image_url || '',
+        factory: r.factories_display_name || '',
+        price: Number(r.sale_price ?? r.price ?? 0),
+        costPrice: r.cost_price != null ? Number(r.cost_price) : null,
+        dimL: r.dimension_l_mm ?? null,
+        dimW: r.dimension_w_mm ?? null,
+        dimH: r.dimension_h_mm ?? null,
+        sku: r.sku || r.model || '',
+        tags: Array.isArray(r.tags) ? r.tags : [],
+        level1: r.level1_category || '',
+        level2: r.level2_category || '',
+        productionType,
+        leadTime,
+      };
+    });
     setItems(mapped);
     setSelected(new Set());
   }, [rows]);
@@ -110,7 +129,8 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
             dimension_h_mm: it.dimH,
             level1_category: it.level1 || null,
             level2_category: it.level2 || null,
-            delivery_term_name: it.deliveryTermName || null,
+            in_stock: it.productionType === 'stock' ? true : false,
+            customize: it.productionType === 'custom' && it.leadTime ? it.leadTime : null,
             info_done: true,
           })
           .eq('id', id);
@@ -203,9 +223,52 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
                     <Field label="產品編碼 (SKU)" icon={<Tag className="h-3 w-3" />}>
                       <input value={it.sku} onChange={(e) => patch(it.id, { sku: e.target.value })} className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono-data text-[12px] focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20" />
                     </Field>
-                    {/* delivery */}
+                    {/* delivery type selector */}
                     <Field label="送貨資訊" icon={<Truck className="h-3 w-3" />}>
-                      <input value={it.deliveryTermName} onChange={(e) => patch(it.id, { deliveryTermName: e.target.value })} placeholder="如：現貨 / 訂製 30 天" className="w-full rounded-lg border border-border bg-background px-3 py-2 font-body text-[13px] placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                      <div className="flex flex-col gap-2">
+                        <div className="flex rounded-lg border border-border overflow-hidden w-fit">
+                          <button
+                            onClick={() => patch(it.id, { productionType: it.productionType === 'stock' ? null : 'stock', leadTime: '' })}
+                            className={cn(
+                              'px-3 py-1.5 text-xs font-medium transition-colors',
+                              it.productionType === 'stock'
+                                ? 'bg-emerald-500 text-white'
+                                : 'bg-background text-muted-foreground hover:bg-muted'
+                            )}
+                          >
+                            現貨
+                          </button>
+                          <button
+                            onClick={() => patch(it.id, { productionType: it.productionType === 'custom' ? null : 'custom' })}
+                            className={cn(
+                              'px-3 py-1.5 text-xs font-medium transition-colors',
+                              it.productionType === 'custom'
+                                ? 'bg-amber-500 text-white'
+                                : 'bg-background text-muted-foreground hover:bg-muted'
+                            )}
+                          >
+                            全訂製
+                          </button>
+                        </div>
+                        {it.productionType === null && (
+                          <span className="font-body text-[11px] text-muted-foreground/60 italic">未選擇</span>
+                        )}
+                        {it.productionType === 'custom' && (
+                          <Select
+                            value={it.leadTime || ''}
+                            onValueChange={(v) => patch(it.id, { leadTime: v })}
+                          >
+                            <SelectTrigger className="h-8 w-full font-body text-xs">
+                              <SelectValue placeholder="選擇生產天數" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {LEAD_TIME_OPTIONS.map((opt) => (
+                                <SelectItem key={opt} value={opt}>{opt.replace('天', ' 天')}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        )}
+                      </div>
                     </Field>
                     {/* dimensions */}
                     <Field label="產品尺寸（長 / 闊 / 高 mm）" icon={<Ruler className="h-3 w-3" />}>

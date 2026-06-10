@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import {
-  CheckCheck, Search, ArrowDownToLine, ArrowUpToLine, RotateCcw, Eye, ChevronDown,
+  CheckCheck, Search, ArrowDownToLine, ArrowUpToLine, RotateCcw, ChevronDown,
   CloudDownload, Loader2, X, Store,
 } from 'lucide-react';
 import { PUBLISH_STATE_META, type PublishState } from '@/constants/analytics-mock';
@@ -341,53 +341,120 @@ export function PublishedProductsView() {
 
       {/* table */}
       <div className="flex-1 overflow-auto p-6">
-        <div className="mx-auto max-w-5xl overflow-hidden rounded-xl border border-border bg-card">
+        <div className="min-w-max overflow-hidden rounded-xl border border-border bg-card">
           <table className="w-full text-sm">
             <thead className="bg-muted/50 text-[11px] uppercase tracking-wider text-muted-foreground">
               <tr>
-                <th className="w-10 px-4 py-2.5"><input type="checkbox" className="rounded border-border" checked={filtered.length > 0 && filtered.every((p) => selected.has(p.id))} onChange={(e) => setSelected(e.target.checked ? new Set(filtered.map((p) => p.id)) : new Set())} /></th>
-                <th className="px-3 py-2.5 text-left font-medium">產品</th>
-                <th className="px-3 py-2.5 text-left font-medium">廠家</th>
-                <th className="px-3 py-2.5 text-left font-medium">狀態</th>
-                <th className="px-3 py-2.5 text-left font-medium">上架時間</th>
-                <th className="px-3 py-2.5 text-right font-medium">瀏覽</th>
-                <th className="px-3 py-2.5 text-left font-medium">最後修改</th>
-                <th className="px-3 py-2.5 text-right font-medium">操作</th>
+                <th className="w-10 px-4 py-2.5 sticky left-0 bg-muted/50 z-10">
+                  <input type="checkbox" className="rounded border-border" checked={filtered.length > 0 && filtered.every((p) => selected.has(p.id))} onChange={(e) => setSelected(e.target.checked ? new Set(filtered.map((p) => p.id)) : new Set())} />
+                </th>
+                <th className="px-3 py-2.5 text-left font-medium min-w-[200px] sticky left-10 bg-muted/50 z-10">產品</th>
+                <th className="px-3 py-2.5 text-left font-medium min-w-[140px]">描述</th>
+                <th className="px-3 py-2.5 text-left font-medium min-w-[120px]">材質描述</th>
+                <th className="px-3 py-2.5 text-left font-medium min-w-[110px]">標籤</th>
+                <th className="px-3 py-2.5 text-right font-medium min-w-[80px]">價格</th>
+                <th className="px-3 py-2.5 text-left font-medium min-w-[80px]">變體</th>
+                <th className="px-3 py-2.5 text-left font-medium min-w-[130px]">尺寸（LWH）</th>
+                <th className="px-3 py-2.5 text-left font-medium min-w-[110px]">廠家</th>
+                <th className="px-3 py-2.5 text-left font-medium min-w-[80px]">Factory ID</th>
+                <th className="px-3 py-2.5 text-right font-medium min-w-[70px]">成本</th>
+                <th className="px-3 py-2.5 text-right font-medium min-w-[80px]">售價</th>
+                <th className="px-3 py-2.5 text-left font-medium min-w-[70px]">狀態</th>
+                <th className="px-3 py-2.5 text-right font-medium min-w-[100px]">操作</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border/60">
-              {filtered.map((p) => (
-                <tr key={p.id} className="hover:bg-muted/30 cursor-pointer" onClick={() => { setDetailProduct(p); setActiveImageIdx(0); }}>
-                  <td className="px-4 py-2.5" onClick={e => e.stopPropagation()}><input type="checkbox" className="rounded border-border" checked={selected.has(p.id)} onChange={() => toggle(p.id)} /></td>
-                  <td className="px-3 py-2.5">
-                    <div className="flex items-center gap-3">
-                      {p.imageUrl ? (
-                        <img src={p.imageUrl} alt={p.title} loading="lazy" className="h-10 w-10 rounded-md object-cover bg-muted" />
-                      ) : (
-                        <div className="h-10 w-10 rounded-md bg-muted flex items-center justify-center"><Store className="h-4 w-4 text-muted-foreground/40" /></div>
-                      )}
-                      <span className="font-body text-[13px] font-medium text-foreground">{p.title}</span>
-                    </div>
-                  </td>
-                  <td className="px-3 py-2.5 text-muted-foreground">{p.factory}</td>
-                  <td className="px-3 py-2.5"><span className={cn('rounded-full border px-2 py-0.5 text-[10.5px] font-medium', PUBLISH_STATE_META[p.state].className)}>{PUBLISH_STATE_META[p.state].label}</span></td>
-                  <td className="px-3 py-2.5 font-mono-data text-[11.5px] text-muted-foreground">{fmtDate(p.publishedAt)}</td>
-                  <td className="px-3 py-2.5 text-right font-mono-data text-foreground"><span className="inline-flex items-center gap-1"><Eye className="h-3 w-3 text-muted-foreground" />{p.views.toLocaleString()}</span></td>
-                  <td className="px-3 py-2.5 text-muted-foreground">{p.lastEditor}</td>
-                  <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}>
-                    <div className="flex justify-end gap-1.5">
-                      {p.state === 'published' ? (
-                        <button onClick={() => setProductState(p, 'delisted', '已下架')} className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-rose-500 hover:bg-rose-500/10"><ArrowDownToLine className="h-3 w-3" /> 下架</button>
-                      ) : (
-                        <button onClick={() => setProductState(p, 'published', '已重新上架')} className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-emerald-600 hover:bg-emerald-500/10"><ArrowUpToLine className="h-3 w-3" /> 上架</button>
-                      )}
-                      <button onClick={() => toast.success('已還原至上一版本')} className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"><RotateCcw className="h-3 w-3" /> 還原</button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+              {filtered.map((p) => {
+                const r = p.raw;
+                const variants: ShopifyVariant[] = Array.isArray(r.variants) ? r.variants : [];
+                const tags: string[] = Array.isArray(r.tags) ? r.tags : [];
+                const bodyText = r.body_html ? r.body_html.replace(/<[^>]*>/g, '') : '';
+                const firstVariantPrice = variants[0]?.price ?? null;
+                return (
+                  <tr key={p.id} className="hover:bg-muted/30 cursor-pointer" onClick={() => { setDetailProduct(p); setActiveImageIdx(0); }}>
+                    <td className="px-4 py-2.5 sticky left-0 bg-card z-10" onClick={e => e.stopPropagation()}>
+                      <input type="checkbox" className="rounded border-border" checked={selected.has(p.id)} onChange={() => toggle(p.id)} />
+                    </td>
+                    {/* 產品 */}
+                    <td className="px-3 py-2.5 sticky left-10 bg-card z-10">
+                      <div className="flex items-center gap-2.5">
+                        {p.imageUrl ? (
+                          <img src={p.imageUrl} alt={p.title} loading="lazy" className="h-10 w-10 rounded-md object-cover bg-muted flex-shrink-0" />
+                        ) : (
+                          <div className="h-10 w-10 rounded-md bg-muted flex items-center justify-center flex-shrink-0"><Store className="h-4 w-4 text-muted-foreground/40" /></div>
+                        )}
+                        <span className="font-body text-[12px] font-medium text-foreground line-clamp-2 max-w-[140px]">{p.title}</span>
+                      </div>
+                    </td>
+                    {/* 描述 */}
+                    <td className="px-3 py-2.5">
+                      <span className="font-body text-[11px] text-muted-foreground line-clamp-3 max-w-[130px] block">{bodyText || '—'}</span>
+                    </td>
+                    {/* 材質描述 */}
+                    <td className="px-3 py-2.5">
+                      <span className="font-body text-[11px] text-muted-foreground line-clamp-3 max-w-[110px] block">—</span>
+                    </td>
+                    {/* 標籤 */}
+                    <td className="px-3 py-2.5">
+                      {tags.length > 0 ? (
+                        <div className="flex flex-wrap gap-1 max-w-[100px]">
+                          {tags.slice(0, 2).map((t, i) => (
+                            <span key={i} className="rounded-full bg-muted px-1.5 py-0.5 font-body text-[10px] text-foreground whitespace-nowrap">{t}</span>
+                          ))}
+                          {tags.length > 2 && <span className="rounded-full bg-muted px-1.5 py-0.5 font-body text-[10px] text-muted-foreground">+{tags.length - 2}</span>}
+                        </div>
+                      ) : <span className="text-muted-foreground/50 text-[11px]">—</span>}
+                    </td>
+                    {/* 價格 */}
+                    <td className="px-3 py-2.5 text-right font-mono-data text-[12px] font-bold text-foreground whitespace-nowrap">
+                      {fmtMoney(r.price)}
+                    </td>
+                    {/* 變體 */}
+                    <td className="px-3 py-2.5">
+                      <span className="font-mono-data text-[11px] text-muted-foreground">{variants.length} 個變體</span>
+                    </td>
+                    {/* 尺寸 (LWH) */}
+                    <td className="px-3 py-2.5">
+                      <span className="font-mono-data text-[11px] text-muted-foreground/50">—</span>
+                    </td>
+                    {/* 廠家 */}
+                    <td className="px-3 py-2.5">
+                      {r.vendor ? (
+                        <span className="inline-block rounded-md bg-violet-500/10 px-2 py-0.5 font-body text-[11px] text-violet-600 truncate max-w-[100px]">{r.vendor}</span>
+                      ) : <span className="text-muted-foreground/50 text-[11px]">—</span>}
+                    </td>
+                    {/* Factory ID */}
+                    <td className="px-3 py-2.5">
+                      <span className="font-mono-data text-[11px] text-muted-foreground/50">—</span>
+                    </td>
+                    {/* 成本 */}
+                    <td className="px-3 py-2.5 text-right font-mono-data text-[11px] text-muted-foreground/50">—</td>
+                    {/* 售價 */}
+                    <td className="px-3 py-2.5 text-right font-mono-data text-[12px] font-semibold text-emerald-600 whitespace-nowrap">
+                      {fmtMoney(firstVariantPrice ?? r.compare_at_price ?? r.price)}
+                    </td>
+                    {/* 狀態 */}
+                    <td className="px-3 py-2.5">
+                      <span className={cn('rounded-full border px-2 py-0.5 text-[10.5px] font-medium whitespace-nowrap', PUBLISH_STATE_META[p.state].className)}>
+                        {PUBLISH_STATE_META[p.state].label}
+                      </span>
+                    </td>
+                    {/* 操作 */}
+                    <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}>
+                      <div className="flex justify-end gap-1.5">
+                        {p.state === 'published' ? (
+                          <button onClick={() => setProductState(p, 'delisted', '已下架')} className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-rose-500 hover:bg-rose-500/10 whitespace-nowrap"><ArrowDownToLine className="h-3 w-3" /> 下架</button>
+                        ) : (
+                          <button onClick={() => setProductState(p, 'published', '已重新上架')} className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-emerald-600 hover:bg-emerald-500/10 whitespace-nowrap"><ArrowUpToLine className="h-3 w-3" /> 上架</button>
+                        )}
+                        <button onClick={() => toast.success('已還原至上一版本')} className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground whitespace-nowrap"><RotateCcw className="h-3 w-3" /> 還原</button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
               {filtered.length === 0 && (
-                <tr><td colSpan={8} className="px-6 py-10 text-center text-[12px] text-muted-foreground/60">
+                <tr><td colSpan={14} className="px-6 py-10 text-center text-[12px] text-muted-foreground/60">
                   {isLoading ? '載入中...' : '尚未從 Shopify 導入產品'}
                 </td></tr>
               )}
