@@ -245,7 +245,7 @@ export function PublishedProductsView() {
       {/* ── Shopify Import Dialog ─────────────────────────────────────── */}
       {showImportDialog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => !isImporting && setShowImportDialog(false)}>
-          <div className="relative flex flex-col bg-card border border-border rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] overflow-hidden" onClick={e => e.stopPropagation()}>
+          <div className="relative flex flex-col bg-card border border-border rounded-2xl shadow-2xl w-full max-w-[62rem] max-h-[85vh] overflow-hidden" onClick={e => e.stopPropagation()}>
             {/* Header */}
             <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
               <div className="flex items-center gap-2">
@@ -266,21 +266,6 @@ export function PublishedProductsView() {
                 <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
                 <input value={importSearch} onChange={e => setImportSearch(e.target.value)} placeholder="搜尋產品名稱或廠商..." className="h-8 w-full rounded-lg border border-border bg-background pl-8 pr-3 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-500/30" />
               </div>
-              <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={filteredPreview.length > 0 && filteredPreview.every(p => selectedImportIds.has(p.shopify_product_id))}
-                  onChange={e => {
-                    setSelectedImportIds(prev => {
-                      const n = new Set(prev);
-                      filteredPreview.forEach(p => e.target.checked ? n.add(p.shopify_product_id) : n.delete(p.shopify_product_id));
-                      return n;
-                    });
-                  }}
-                  className="rounded border-border"
-                />
-                全選
-              </label>
             </div>
 
             {/* Product list */}
@@ -288,7 +273,21 @@ export function PublishedProductsView() {
               <table className="w-full text-sm">
                 <thead className="sticky top-0 bg-background/95 backdrop-blur-sm border-b border-border">
                   <tr className="text-xs text-muted-foreground uppercase tracking-wider">
-                    <th className="w-10 px-4 py-2.5" />
+                    <th className="w-10 px-4 py-2.5">
+                      <input
+                        type="checkbox"
+                        checked={filteredPreview.length > 0 && filteredPreview.every(p => selectedImportIds.has(p.shopify_product_id))}
+                        onChange={e => {
+                          setSelectedImportIds(prev => {
+                            const n = new Set(prev);
+                            filteredPreview.forEach(p => e.target.checked ? n.add(p.shopify_product_id) : n.delete(p.shopify_product_id));
+                            return n;
+                          });
+                        }}
+                        className="rounded border-border"
+                        title="全選"
+                      />
+                    </th>
                     <th className="px-3 py-2.5 text-left font-medium">產品</th>
                     <th className="px-3 py-2.5 text-left font-medium">廠商</th>
                     <th className="px-3 py-2.5 text-left font-medium">類型</th>
@@ -318,7 +317,7 @@ export function PublishedProductsView() {
                       <td className="px-3 py-2.5 text-xs text-muted-foreground">{p.product_type || '—'}</td>
                       <td className="px-3 py-2.5 text-right font-mono-data text-xs">{p.price > 0 ? `$${p.price.toLocaleString()}` : '—'}</td>
                       <td className="px-3 py-2.5">
-                        <span className={cn('rounded-full px-2 py-0.5 text-[10px] font-medium border',
+                        <span className={cn('inline-block whitespace-nowrap rounded-full px-2 py-0.5 text-[10px] font-medium border',
                           p.status === 'active' ? 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20' :
                           p.status === 'draft' ? 'bg-amber-500/10 text-amber-600 border-amber-500/20' :
                           'bg-muted text-muted-foreground border-border'
