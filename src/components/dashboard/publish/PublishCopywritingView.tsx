@@ -263,8 +263,22 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
           </Section>
 
           {/* Shopify 產品說明 — rich editor */}
-          <Section title="Shopify 產品說明" desc="支援直接貼上圖片，格式與 Shopify 後台一致">
-            <RichEditor value={desc} onChange={setDesc} />
+          <Section
+            title="Shopify 產品說明"
+            desc="支援直接貼上圖片，格式與 Shopify 後台一致"
+            action={
+              <button
+                type="button"
+                onClick={handleGenerateDesc}
+                disabled={isGenerating}
+                className="flex items-center gap-1.5 rounded-lg border border-indigo-500/40 bg-indigo-500/10 px-3 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-500/20 disabled:opacity-60 transition-colors dark:text-indigo-400"
+              >
+                {isGenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}
+                {isGenerating ? 'AI 生成中...' : 'AI 生成'}
+              </button>
+            }
+          >
+            <RichEditor value={desc} onChange={setDesc} forceUpdateKey={isGenerating ? 'generating' : desc} />
           </Section>
 
           {/* Shopify 產品圖片 */}
@@ -320,7 +334,7 @@ const PRESET_COLORS = [
   '#e6194b', '#f58231', '#ffe119', '#3cb44b', '#42d4f4', '#4363d8', '#911eb4', '#f032e6',
 ];
 
-function RichEditor({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+function RichEditor({ value, onChange, forceUpdateKey }: { value: string; onChange: (v: string) => void; forceUpdateKey?: string }) {
   const editorRef = useRef<HTMLDivElement>(null);
   const imgInputRef = useRef<HTMLInputElement>(null);
   const [showColorPicker, setShowColorPicker] = useState(false);
@@ -335,6 +349,15 @@ function RichEditor({ value, onChange }: { value: string; onChange: (v: string) 
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Force-sync when AI generates new content (forceUpdateKey changes)
+  useEffect(() => {
+    if (!forceUpdateKey || forceUpdateKey === 'generating') return;
+    if (editorRef.current && editorRef.current.innerHTML !== value) {
+      editorRef.current.innerHTML = value;
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [forceUpdateKey]);
 
   const exec = useCallback((cmd: string, val?: string) => {
     editorRef.current?.focus();
@@ -489,12 +512,15 @@ function RichEditor({ value, onChange }: { value: string; onChange: (v: string) 
   );
 }
 
-function Section({ title, desc, children }: { title: string; desc?: string; children: React.ReactNode }) {
+function Section({ title, desc, action, children }: { title: string; desc?: string; action?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="rounded-2xl border border-border bg-card/40 p-5">
-      <div className="mb-3">
-        <h3 className="font-display text-sm font-bold text-foreground">{title}</h3>
-        {desc && <p className="mt-0.5 font-body text-[11.5px] text-muted-foreground">{desc}</p>}
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div>
+          <h3 className="font-display text-sm font-bold text-foreground">{title}</h3>
+          {desc && <p className="mt-0.5 font-body text-[11.5px] text-muted-foreground">{desc}</p>}
+        </div>
+        {action && <div className="shrink-0">{action}</div>}
       </div>
       {children}
     </div>
