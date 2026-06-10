@@ -898,52 +898,34 @@ export function useAppStore() {
       console.error('[uploadToMasterDb] Failed to set publishing status in DB:', statusErr.message);
     }
 
-    // Build payload for the master DB edge function
-    // Send local_id (frontend ID) for result tracking, and master_id (valid UUID) for upsert if available
+    // Build payload for publish-to-shopify edge function (publishes products to Shopify store)
     const payload = selectedProducts.map(p => ({
-      local_id: p.id,
-      master_id: p.bwfMasterId || null,
+      id: p.id,
       title: p.title,
-      description_html: p.descriptionHtml || p.description,
-      description: p.description,
-      tags: p.tags,
-      price: p.price,
-      compare_at_price: p.compareAtPrice || null,
-      collection: p.collection,
-      image_url: p.imageUrl,
+      description_html: p.descriptionHtml || p.description || '',
+      tags: p.tags || [],
+      price: p.price ?? 0,
+      compare_at_price: p.compareAtPrice ?? null,
+      collection: p.collection || '',
+      image_url: p.imageUrl || '',
       shopify_product_id: p.shopifyProductId || null,
+      variants: [],
       category: p.category || p.collection || '',
       factory_name: p.factoryName || p.factoriesDisplayName || '',
-      factory_id: p.factoryId || '',
       material: p.material || '',
-      dimension_l_mm: p.dimensionLMm || null,
-      dimension_w_mm: p.dimensionWMm || null,
-      dimension_h_mm: p.dimensionHMm || null,
-      cost_price: p.costPrice || null,
-      sale_price: 0,
-      shopify_price: 0,
-      shopify_compare_at_price: p.shopifyCompareAtPrice || p.compareAtPrice || null,
-      delivery_days: p.deliveryDays || null,
-      shopify_id: p.shopifyProductId || null,
-      production_lead_time: p.productionLeadTime ?? null,
-      total_lead_time: (p.productionLeadTime != null && p.shippingDays != null)
-        ? (p.productionLeadTime + p.shippingDays)
-        : (p.productionLeadTime ?? p.shippingDays ?? null),
-      shipping_days: p.shippingDays ?? null,
-      shipping_fee: p.shippingFee ?? null,
-      remarks: p.remarks || null,
-      color: p.color || null,
-      factory_highlight: p.factoryHighlight || [],
-      delivery_term_id: p.deliveryTermId || null,
-      delivery_term_name: p.deliveryTermName || null,
-      lifestyle_image_url: p.lifestyleImageUrl || null,
+      dimension_l_mm: p.dimensionLMm ?? null,
+      dimension_w_mm: p.dimensionWMm ?? null,
+      dimension_h_mm: p.dimensionHMm ?? null,
+      cost_price: p.costPrice ?? null,
+      sale_price: p.salePrice ?? 0,
+      delivery_days: p.deliveryDays ?? null,
     }));
 
     try {
-      console.log(`[uploadToMasterDb] Calling upload-to-master-db edge function with ${payload.length} products`);
-      console.log('[uploadToMasterDb] Payload sample:', JSON.stringify(payload[0], null, 2));
+      console.log(`[publishToShopify] Calling publish-to-shopify edge function with ${payload.length} products`);
+      console.log('[publishToShopify] Payload sample:', JSON.stringify(payload[0], null, 2));
 
-      const { data, error } = await supabase.functions.invoke('supabase-functions-upload-to-master-db', {
+      const { data, error } = await supabase.functions.invoke('supabase-functions-publish-to-shopify', {
         body: { products: payload },
       });
 
@@ -992,11 +974,10 @@ export function useAppStore() {
           .update({ status: 'error', error_message: detailedMsg })
           .in('id', selectedProductIds_arr);
       } else if (data?.results) {
-        // Update local state based on results from edge function
-        // Edge function now returns local_id instead of id
+        // publish-to-shopify returns results with { id, success, shopify_product_id, error, action }
         const resultsMap = new Map(
-          (data.results as { local_id: string; success: boolean; master_id?: string; error?: string }[])
-            .map((r) => [r.local_id, r])
+          (data.results as { id: string; success: boolean; shopify_product_id?: string; error?: string; action?: string }[])
+            .map((r) => [r.id, r])
         );
 
         const successIds: string[] = [];
@@ -1010,7 +991,7 @@ export function useAppStore() {
             return {
               ...p,
               status: 'success' as ProductStatus,
-              bwfMasterId: result.master_id || p.bwfMasterId,
+              shopifyProductId: result.shopify_product_id || p.shopifyProductId,
               errorMessage: undefined,
             };
           } else {
@@ -1023,7 +1004,7 @@ export function useAppStore() {
           }
         }));
 
-        // Update DB status for successes — persist bwf_master_id + synced_at per product
+        // Update DB status for successes — persist shopify_product_id + synced_at per product
         const syncTimestamp = new Date().toISOString();
         if (successIds.length > 0) {
           for (const sid of successIds) {
@@ -1033,40 +1014,44 @@ export function useAppStore() {
               .update({
                 status: 'success',
                 error_message: null,
-                bwf_master_id: result?.master_id || null,
+                shopify_product_id: result?.shopify_product_id || null,
                 synced_at: syncTimestamp,
                 ready_to_publish: false,
               })
               .eq('id', sid);
           }
-          // Mirror successfully uploaded products into shopify_products so they
+          // Mirror successfully published products into shopify_products so they
           // appear in the 已上載產品 page right away.
           const successProducts = selectedProducts.filter(p => successIds.includes(p.id));
-          const shopifyRows = successProducts.map(p => ({
-            shopify_product_id: p.shopifyProductId || `pending-${p.id}`,
-            title: p.title,
-            body_html: p.descriptionHtml || p.description || null,
-            vendor: p.factoryName || p.factoriesDisplayName || null,
-            product_type: p.collection || null,
-            handle: null,
-            status: 'active',
-            published_at: syncTimestamp,
-            image_url: p.imageUrl || null,
-            images: Array.isArray((p as any).images) ? (p as any).images : [],
-            variants: [],
-            tags: p.tags ?? [],
-            price: p.price ?? null,
-            compare_at_price: p.compareAtPrice ?? null,
-            shopify_created_at: syncTimestamp,
-            shopify_updated_at: syncTimestamp,
-            imported_at: syncTimestamp,
-          }));
+          const shopifyRows = successProducts.map(p => {
+            const result = resultsMap.get(p.id);
+            const sid = result?.shopify_product_id || p.shopifyProductId || `pending-${p.id}`;
+            return {
+              shopify_product_id: sid,
+              title: p.title,
+              body_html: p.descriptionHtml || p.description || null,
+              vendor: p.factoryName || p.factoriesDisplayName || null,
+              product_type: p.collection || null,
+              handle: null,
+              status: 'active',
+              published_at: syncTimestamp,
+              image_url: p.imageUrl || null,
+              images: Array.isArray((p as any).images) ? (p as any).images : [],
+              variants: [],
+              tags: p.tags ?? [],
+              price: p.price ?? null,
+              compare_at_price: p.compareAtPrice ?? null,
+              shopify_created_at: syncTimestamp,
+              shopify_updated_at: syncTimestamp,
+              imported_at: syncTimestamp,
+            };
+          });
           if (shopifyRows.length > 0) {
             const { error: spErr } = await supabase
               .from('shopify_products')
               .upsert(shopifyRows, { onConflict: 'shopify_product_id' });
             if (spErr) {
-              console.warn('[uploadToMasterDb] shopify_products mirror failed:', spErr.message);
+              console.warn('[publishToShopify] shopify_products mirror failed:', spErr.message);
             }
           }
           // Update local state synced_at as well
@@ -1092,7 +1077,7 @@ export function useAppStore() {
         if (data.summary) {
           const { success: sCount, errors: eCount } = data.summary;
           if (sCount > 0 && eCount === 0) {
-            toast.success('產品已成功備份至全域資料庫', {
+            toast.success('產品已成功發佈至 Shopify', {
               description: `${sCount} 個產品已上傳 — 正在前往產品目錄`,
               duration: 4000,
             });
@@ -1176,45 +1161,29 @@ export function useAppStore() {
       .eq('id', id);
 
     const payload = [{
-      local_id: product.id,
-      master_id: product.bwfMasterId || null,
+      id: product.id,
       title: product.title,
-      description_html: product.descriptionHtml || product.description,
-      description: product.description,
-      tags: product.tags,
-      price: product.price,
-      compare_at_price: product.compareAtPrice || null,
-      collection: product.collection,
-      image_url: product.imageUrl,
+      description_html: product.descriptionHtml || product.description || '',
+      tags: product.tags || [],
+      price: product.price ?? 0,
+      compare_at_price: product.compareAtPrice ?? null,
+      collection: product.collection || '',
+      image_url: product.imageUrl || '',
       shopify_product_id: product.shopifyProductId || null,
+      variants: [],
       category: product.category || product.collection || '',
       factory_name: product.factoryName || product.factoriesDisplayName || '',
-      factory_id: product.factoryId || '',
       material: product.material || '',
-      dimension_l_mm: product.dimensionLMm || null,
-      dimension_w_mm: product.dimensionWMm || null,
-      dimension_h_mm: product.dimensionHMm || null,
-      cost_price: product.costPrice || null,
-      sale_price: 0,
-      shopify_price: 0,
-      shopify_compare_at_price: product.shopifyCompareAtPrice || product.compareAtPrice || null,
-      delivery_days: product.deliveryDays || null,
-      shopify_id: product.shopifyProductId || null,
-      production_lead_time: product.productionLeadTime ?? null,
-      total_lead_time: (product.productionLeadTime != null && product.shippingDays != null)
-        ? (product.productionLeadTime + product.shippingDays)
-        : (product.productionLeadTime ?? product.shippingDays ?? null),
-      shipping_days: product.shippingDays ?? null,
-      shipping_fee: product.shippingFee ?? null,
-      remarks: product.remarks || null,
-      color: product.color || null,
-      delivery_term_id: product.deliveryTermId || null,
-      delivery_term_name: product.deliveryTermName || null,
-      lifestyle_image_url: product.lifestyleImageUrl || null,
+      dimension_l_mm: product.dimensionLMm ?? null,
+      dimension_w_mm: product.dimensionWMm ?? null,
+      dimension_h_mm: product.dimensionHMm ?? null,
+      cost_price: product.costPrice ?? null,
+      sale_price: product.salePrice ?? 0,
+      delivery_days: product.deliveryDays ?? null,
     }];
 
     try {
-      const { data, error } = await supabase.functions.invoke('supabase-functions-upload-to-master-db', {
+      const { data, error } = await supabase.functions.invoke('supabase-functions-publish-to-shopify', {
         body: { products: payload },
       });
 
@@ -1253,17 +1222,17 @@ export function useAppStore() {
         }));
         toast.error('重試上傳失敗', { description: detailedMsg });
       } else if (data?.results?.[0]) {
-        const result = data.results[0];
+        const result = data.results[0] as { id: string; success: boolean; shopify_product_id?: string; error?: string };
         setProducts(prev => prev.map(p => {
           if (p.id !== id) return p;
           return {
             ...p,
             status: result.success ? 'success' as ProductStatus : 'error' as ProductStatus,
-            bwfMasterId: result.master_id || p.bwfMasterId,
+            shopifyProductId: result.shopify_product_id || p.shopifyProductId,
             errorMessage: result.success ? undefined : result.error,
           };
         }));
-        // Persist status, bwf_master_id, and synced_at to local DB
+        // Persist status, shopify_product_id, and synced_at to local DB
         if (result.success) {
           const syncTimestamp = new Date().toISOString();
           await supabase
@@ -1271,7 +1240,7 @@ export function useAppStore() {
             .update({
               status: 'success',
               error_message: null,
-              bwf_master_id: result.master_id || null,
+              shopify_product_id: result.shopify_product_id || null,
               synced_at: syncTimestamp,
               ready_to_publish: false,
             })
@@ -1283,7 +1252,7 @@ export function useAppStore() {
           await supabase
             .from('shopify_products')
             .upsert({
-              shopify_product_id: product.shopifyProductId || `pending-${product.id}`,
+              shopify_product_id: result.shopify_product_id || product.shopifyProductId || `pending-${product.id}`,
               title: product.title,
               body_html: product.descriptionHtml || product.description || null,
               vendor: product.factoryName || product.factoriesDisplayName || null,
@@ -1300,7 +1269,7 @@ export function useAppStore() {
               shopify_updated_at: syncTimestamp,
               imported_at: syncTimestamp,
             }, { onConflict: 'shopify_product_id' });
-          toast.success('產品已成功備份至全域資料庫', {
+          toast.success('產品已成功發佈至 Shopify', {
             action: {
               label: '前往產品目錄',
               onClick: () => setCurrentView('listed-products'),
