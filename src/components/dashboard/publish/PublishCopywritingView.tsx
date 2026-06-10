@@ -21,6 +21,10 @@ interface CopyItem {
   seoTitle: string;
   seoDescription: string;
   handle: string;
+  tags: string[];
+  price: number | null;
+  salePrice: number | null;
+  sku: string;
 }
 
 function slugify(s: string) {
@@ -40,7 +44,7 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
 
   // Only show products where copywriting is NOT yet done
   const { rows, totalCount, isLoading, Toolbar, Pagination } = usePublishList({
-    select: 'id,title,description,image_url,images,image_url_2,image_url_3,factories_display_name,level1_category,level2_category',
+    select: 'id,title,description,image_url,images,image_url_2,image_url_3,factories_display_name,level1_category,level2_category,tags,sale_price,price,sku,model',
     applyBaseFilters: (q) => q.eq('in_shopify_queue', true).or('copy_done.is.null,copy_done.eq.false'),
     reloadKey,
   });
@@ -63,6 +67,10 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
       seoTitle: r.title || '',
       seoDescription: (r.description || '').slice(0, 160),
       handle: slugify(r.title || ''),
+      tags: Array.isArray(r.tags) ? r.tags : [],
+      price: r.price != null ? Number(r.price) : null,
+      salePrice: r.sale_price != null ? Number(r.sale_price) : null,
+      sku: r.sku || r.model || '',
     };
   }), [rows]);
 
@@ -100,10 +108,14 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
   };
 
   // Submit copywriting — save edits + set copy_done=true → moves product to 產品信息
+  // Also upsert into ready_to_shopify for downstream publishing
   const handleSubmit = async () => {
     if (!activeId) return;
+    const item = items.find((p) => p.id === activeId);
+    if (!item) return;
     setIsSubmitting(true);
     try {
+      // 1. Update products table
       const { error } = await supabase
         .from('products')
         .update({
@@ -117,7 +129,33 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
         toast.error('提交失敗', { description: error.message });
         return;
       }
-      toast.success('已提交到下一步', { description: '產品已移至「產品信息」頁面補充規格與價格' });
+
+      // 2. Upsert into ready_to_shopify (keyed by product_id)
+      const imageObjects = item.images.map((src, idx) => ({ src, position: idx + 1 }));
+      const { error: rtsError } = await supabase
+        .from('ready_to_shopify')
+        .upsert({
+          product_id: activeId,
+          title: name,
+          body_html: desc,
+          vendor: item.factory || null,
+          product_type: [item.level1, item.level2].filter(Boolean).join(' / ') || null,
+          handle: handle || slugify(name),
+          status: 'draft',
+          image_url: item.imageUrl || null,
+          images: imageObjects.length > 0 ? imageObjects : null,
+          tags: item.tags.length > 0 ? item.tags : null,
+          price: item.salePrice ?? item.price ?? null,
+          imported_at: new Date().toISOString(),
+        }, { onConflict: 'product_id' });
+
+      if (rtsError) {
+        // Non-blocking: warn but still proceed
+        toast.warning('產品文案已提交，但同步至 ready_to_shopify 失敗', { description: rtsError.message });
+      } else {
+        toast.success('已提交到下一步', { description: '產品已移至「產品信息」頁面，並同步至 ready_to_shopify' });
+      }
+
       setActiveId(null);
       setReloadKey((k) => k + 1);
     } catch {
