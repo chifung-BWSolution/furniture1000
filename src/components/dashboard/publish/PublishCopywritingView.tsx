@@ -3,7 +3,7 @@ import {
   FileText, Sparkles, ChevronLeft, ArrowRight, Loader2,
   UploadCloud, Search, X, Bold, Italic, Underline as UnderlineIcon,
   List, ListOrdered, Image as ImageIcon, Palette,
-  AlignLeft, AlignCenter, AlignRight,
+  AlignLeft, AlignCenter, AlignRight, Wand2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
@@ -131,6 +131,51 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
     reader.onload = () => setImgs((prev) => [...prev, reader.result as string]);
     reader.readAsDataURL(file);
   };
+
+  // AI generate description via gemini-proxy
+  const [isGenerating, setIsGenerating] = useState(false);
+  const handleGenerateDesc = useCallback(async () => {
+    if (!product) return;
+    setIsGenerating(true);
+    try {
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+      const categoryParts = [product.level1, product.level2].filter(Boolean).join(' › ');
+      const prompt = `你是一位專業的家具電商文案撰寫員。請根據以下產品資料，撰寫一段約100字的繁體中文產品介紹文案，風格專業親切，適合 Shopify 商品頁面使用。不需要標題，直接寫產品說明正文。
+
+產品名稱：${name || product.title}
+產品分類：${categoryParts || '家具'}
+
+文案要求：
+- 約100字，繁體中文
+- 說明產品用途、設計特點、適用場景
+- 語氣專業但親切
+- 不要使用「本產品」這類字眼`;
+
+      const res = await fetch(`${supabaseUrl}/functions/v1/supabase-functions-gemini-proxy`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${supabaseAnonKey}`,
+          'apikey': supabaseAnonKey,
+        },
+        body: JSON.stringify({
+          model: 'gemini-2.5-flash',
+          contents: [{ parts: [{ text: prompt }] }],
+        }),
+      });
+      if (!res.ok) throw new Error(`Gemini proxy error: ${res.status}`);
+      const data = await res.json();
+      const generated = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+      if (!generated) throw new Error('Gemini 沒有返回內容');
+      setDesc(generated);
+      toast.success('AI 文案已生成', { description: '可在下方編輯器中繼續修改' });
+    } catch (err) {
+      toast.error('AI 生成失敗', { description: err instanceof Error ? err.message : '請稍後再試' });
+    } finally {
+      setIsGenerating(false);
+    }
+  }, [product, name]);
 
   // ─── List view ───────────────────────────────────────────────────
   if (!product) {

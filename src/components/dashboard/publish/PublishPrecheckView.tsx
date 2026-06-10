@@ -72,6 +72,16 @@ export function PublishPrecheckView({ onNavigate }: Props) {
   const [items, setItems] = useState<CheckRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isEntering, setIsEntering] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  const toggleRow = (id: string) => setSelectedIds(prev => {
+    const n = new Set(prev);
+    n.has(id) ? n.delete(id) : n.add(id);
+    return n;
+  });
+  const toggleAll = (checked: boolean) => {
+    setSelectedIds(checked ? new Set(items.filter(rowAllPass).map(r => r.id)) : new Set());
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -154,8 +164,14 @@ export function PublishPrecheckView({ onNavigate }: Props) {
   };
 
   const handleEnter = async () => {
-    if (!allPass || items.length === 0) return;
-    const ids = items.map((it) => it.id);
+    const ids = Array.from(selectedIds).filter(id => {
+      const row = items.find(r => r.id === id);
+      return row && rowAllPass(row);
+    });
+    if (ids.length === 0) {
+      toast.message('請先勾選通過檢查的產品');
+      return;
+    }
     setIsEntering(true);
     try {
       const { error } = await supabase
@@ -163,7 +179,8 @@ export function PublishPrecheckView({ onNavigate }: Props) {
         .update({ ready_to_publish: true })
         .in('id', ids);
       if (error) throw new Error(error.message);
-      setItems([]);
+      setItems(prev => prev.filter(r => !ids.includes(r.id)));
+      setSelectedIds(new Set());
       toast.success('已送往準備上載', { description: `${ids.length} 件產品已進入準備上載` });
     } catch (e) {
       toast.error('操作失敗', { description: e instanceof Error ? e.message : '請稍後再試' });
@@ -171,6 +188,9 @@ export function PublishPrecheckView({ onNavigate }: Props) {
       setIsEntering(false);
     }
   };
+
+  const passingItems = items.filter(rowAllPass);
+  const allPassingSelected = passingItems.length > 0 && passingItems.every(r => selectedIds.has(r.id));
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">
@@ -184,12 +204,12 @@ export function PublishPrecheckView({ onNavigate }: Props) {
           </span>
         </div>
         <button
-          disabled={!allPass || items.length === 0 || isEntering}
+          disabled={selectedIds.size === 0 || isEntering}
           onClick={handleEnter}
           className="flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-bold text-primary-foreground shadow-md hover:opacity-90 disabled:opacity-50"
         >
           {isEntering ? <Loader2 className="h-4 w-4 animate-spin" /> : <UploadCloud className="h-4 w-4" />}
-          進入準備上載
+          進入準備上載{selectedIds.size > 0 ? `（${selectedIds.size}）` : ''}
         </button>
       </div>
 
@@ -226,6 +246,16 @@ export function PublishPrecheckView({ onNavigate }: Props) {
           <table className="w-full text-sm">
             <thead className="bg-muted/50 text-xs uppercase tracking-wider text-muted-foreground">
               <tr>
+                <th className="w-10 px-3 py-2.5 text-center font-medium border-b border-border/60" rowSpan={2}>
+                  <input
+                    type="checkbox"
+                    title="全選"
+                    className="rounded border-border"
+                    checked={allPassingSelected}
+                    onChange={e => toggleAll(e.target.checked)}
+                    disabled={passingItems.length === 0}
+                  />
+                </th>
                 <th className="px-4 py-2.5 text-left font-medium border-b border-border/60" rowSpan={2}>廠家名稱</th>
                 <th className="px-4 py-2.5 text-left font-medium border-b border-border/60" rowSpan={2}>產品名稱</th>
                 <th
@@ -271,6 +301,16 @@ export function PublishPrecheckView({ onNavigate }: Props) {
                 const rowPass = rowAllPass(row);
                 return (
                   <tr key={row.id} className={cn('hover:bg-muted/30', !rowPass && 'bg-amber-500/[0.03]')}>
+                    <td className="px-3 py-3 text-center">
+                      <input
+                        type="checkbox"
+                        className="rounded border-border disabled:opacity-30"
+                        checked={selectedIds.has(row.id)}
+                        onChange={() => toggleRow(row.id)}
+                        disabled={!rowPass}
+                        title={rowPass ? '選擇此產品' : '此產品仍有項目未通過'}
+                      />
+                    </td>
                     <td className="px-4 py-3">
                       <span className="font-body text-sm text-muted-foreground">{row.factoryName}</span>
                     </td>
@@ -321,14 +361,14 @@ export function PublishPrecheckView({ onNavigate }: Props) {
 
               {isLoading && (
                 <tr>
-                  <td colSpan={COPY_LABELS.length + INFO_LABELS.length + 2} className="px-6 py-12 text-center">
+                  <td colSpan={COPY_LABELS.length + INFO_LABELS.length + 3} className="px-6 py-12 text-center">
                     <Loader2 className="mx-auto h-5 w-5 animate-spin text-primary" />
                   </td>
                 </tr>
               )}
               {!isLoading && items.length === 0 && (
                 <tr>
-                  <td colSpan={COPY_LABELS.length + INFO_LABELS.length + 2} className="px-6 py-12 text-center text-[12px] text-muted-foreground/60">
+                  <td colSpan={COPY_LABELS.length + INFO_LABELS.length + 3} className="px-6 py-12 text-center text-[12px] text-muted-foreground/60">
                     尚無待檢查產品 — 到「產品信息」按「完成」後，產品會送到此處
                   </td>
                 </tr>

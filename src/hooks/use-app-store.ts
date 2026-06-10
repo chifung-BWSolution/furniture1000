@@ -1035,8 +1035,39 @@ export function useAppStore() {
                 error_message: null,
                 bwf_master_id: result?.master_id || null,
                 synced_at: syncTimestamp,
+                ready_to_publish: false,
               })
               .eq('id', sid);
+          }
+          // Mirror successfully uploaded products into shopify_products so they
+          // appear in the 已上載產品 page right away.
+          const successProducts = selectedProducts.filter(p => successIds.includes(p.id));
+          const shopifyRows = successProducts.map(p => ({
+            shopify_product_id: p.shopifyProductId || `pending-${p.id}`,
+            title: p.title,
+            body_html: p.descriptionHtml || p.description || null,
+            vendor: p.factoryName || p.factoriesDisplayName || null,
+            product_type: p.collection || null,
+            handle: null,
+            status: 'active',
+            published_at: syncTimestamp,
+            image_url: p.imageUrl || null,
+            images: Array.isArray((p as any).images) ? (p as any).images : [],
+            variants: [],
+            tags: p.tags ?? [],
+            price: p.price ?? null,
+            compare_at_price: p.compareAtPrice ?? null,
+            shopify_created_at: syncTimestamp,
+            shopify_updated_at: syncTimestamp,
+            imported_at: syncTimestamp,
+          }));
+          if (shopifyRows.length > 0) {
+            const { error: spErr } = await supabase
+              .from('shopify_products')
+              .upsert(shopifyRows, { onConflict: 'shopify_product_id' });
+            if (spErr) {
+              console.warn('[uploadToMasterDb] shopify_products mirror failed:', spErr.message);
+            }
           }
           // Update local state synced_at as well
           setProducts(prev => prev.map(p => {
@@ -1242,11 +1273,33 @@ export function useAppStore() {
               error_message: null,
               bwf_master_id: result.master_id || null,
               synced_at: syncTimestamp,
+              ready_to_publish: false,
             })
             .eq('id', id);
           setProducts(prev => prev.map(p =>
             p.id === id ? { ...p, syncedAt: syncTimestamp } : p
           ));
+          // Mirror into shopify_products so the product shows up in 已上載產品 page
+          await supabase
+            .from('shopify_products')
+            .upsert({
+              shopify_product_id: product.shopifyProductId || `pending-${product.id}`,
+              title: product.title,
+              body_html: product.descriptionHtml || product.description || null,
+              vendor: product.factoryName || product.factoriesDisplayName || null,
+              product_type: product.collection || null,
+              status: 'active',
+              published_at: syncTimestamp,
+              image_url: product.imageUrl || null,
+              images: Array.isArray((product as any).images) ? (product as any).images : [],
+              variants: [],
+              tags: product.tags ?? [],
+              price: product.price ?? null,
+              compare_at_price: product.compareAtPrice ?? null,
+              shopify_created_at: syncTimestamp,
+              shopify_updated_at: syncTimestamp,
+              imported_at: syncTimestamp,
+            }, { onConflict: 'shopify_product_id' });
           toast.success('產品已成功備份至全域資料庫', {
             action: {
               label: '前往產品目錄',
