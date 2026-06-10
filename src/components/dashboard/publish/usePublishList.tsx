@@ -110,7 +110,10 @@ export function usePublishList({ select, applyBaseFilters, reloadKey = 0 }: UseP
 
       const countQuery = buildFilters(supabase.from('products').select('id', { count: 'exact', head: true }));
       const dataQuery = buildFilters(
-        supabase.from('products').select(select).order('created_at', { ascending: false }).range(from, to)
+        supabase.from('products').select(select)
+          .order('copy_done_at', { ascending: false, nullsFirst: false })
+          .order('created_at', { ascending: false })
+          .range(from, to)
       );
 
       const [{ count }, { data }] = await Promise.all([countQuery, dataQuery]);

@@ -110,6 +110,7 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
           title: name,
           description: desc,
           copy_done: true,
+          copy_done_at: new Date().toISOString(),
         })
         .eq('id', activeId);
       if (error) {
