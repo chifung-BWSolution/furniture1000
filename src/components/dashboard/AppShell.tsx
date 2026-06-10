@@ -321,6 +321,10 @@ export function AppShell() {
               setFocusProductId(productId);
               store.setCurrentView(view);
             }}
+            onProductsReadyToPublish={async () => {
+              await store.reloadProducts();
+              store.setCurrentView('ready-to-publish');
+            }}
           />
         );
       case "published-products":

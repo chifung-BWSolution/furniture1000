@@ -64,11 +64,12 @@ interface NavigatePayload {
 
 interface Props {
   onNavigate?: (payload: NavigatePayload) => void;
+  onProductsReadyToPublish?: () => void | Promise<void>;
 }
 
 // ── Component ────────────────────────────────────────────────────────────────
 
-export function PublishPrecheckView({ onNavigate }: Props) {
+export function PublishPrecheckView({ onNavigate, onProductsReadyToPublish }: Props) {
   const [items, setItems] = useState<CheckRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isEntering, setIsEntering] = useState(false);
@@ -181,6 +182,7 @@ export function PublishPrecheckView({ onNavigate }: Props) {
       if (error) throw new Error(error.message);
       setItems(prev => prev.filter(r => !ids.includes(r.id)));
       setSelectedIds(new Set());
+      await onProductsReadyToPublish?.();
       toast.success('已送往準備上載', { description: `${ids.length} 件產品已進入準備上載` });
     } catch (e) {
       toast.error('操作失敗', { description: e instanceof Error ? e.message : '請稍後再試' });
