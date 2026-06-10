@@ -936,13 +936,39 @@ export function ListedProductsView({
     setSelectedIds((prev) => { const n = new Set(prev); n.delete(id); return n; });
   }, []);
 
+  // Upsert one or more products into ready_to_shopify
+  const upsertToReadyToShopify = useCallback(async (prods: ListedProduct[]) => {
+    const rows = prods.map((p) => ({
+      product_id: p.id,
+      title: p.title || null,
+      body_html: p.description || null,
+      vendor: p.factoriesDisplayName || null,
+      product_type: [p.level1Category, p.level2Category].filter(Boolean).join(' / ') || p.collection || null,
+      image_url: p.imageUrl || null,
+      images: Array.isArray(p.images) && p.images.length > 0
+        ? p.images.map((img, idx) => ({ src: img.src, position: idx + 1 }))
+        : null,
+      tags: Array.isArray(p.tags) && p.tags.length > 0 ? p.tags : null,
+      price: p.salePrice ?? p.price ?? null,
+      status: 'draft',
+      imported_at: new Date().toISOString(),
+    }));
+    const { error } = await supabase
+      .from('ready_to_shopify')
+      .upsert(rows, { onConflict: 'product_id' });
+    if (error) console.error('[ready_to_shopify] upsert error:', error.message);
+  }, []);
+
   const handleRowToShopify = useCallback(async (product: ListedProduct) => {
     dropRowLocally(product.id);
-    const res = await addToShopifyQueue([product.id]);
+    const [res] = await Promise.all([
+      addToShopifyQueue([product.id]),
+      upsertToReadyToShopify([product]),
+    ]);
     res.ok
       ? toast.success('已加入 Shopify', { description: `${product.title} — 已送往產品文案與產品目錄` })
       : toast.error('操作失敗', { description: res.error });
-  }, [dropRowLocally]);
+  }, [dropRowLocally, upsertToReadyToShopify]);
 
   const handleRowToCatalog = useCallback(async (product: ListedProduct) => {
     dropRowLocally(product.id);
@@ -1061,13 +1087,17 @@ export function ListedProductsView({
   const handleSendToPublishQueue = useCallback(async () => {
     if (selectedIds.size === 0) return;
     const ids = Array.from(selectedIds);
+    const selectedProducts = products.filter((p) => selectedIds.has(p.id));
     setIsQueuing(true);
     // 前端先樂觀移除選中的列，並清空選取
     setProducts((prev) => prev.filter((p) => !selectedIds.has(p.id)));
     setTotalCount((c) => Math.max(0, c - ids.length));
     setSelectedIds(new Set());
     try {
-      const res = await addToShopifyQueue(ids);
+      const [res] = await Promise.all([
+        addToShopifyQueue(ids),
+        upsertToReadyToShopify(selectedProducts),
+      ]);
       if (res.ok) {
         toast.success(`已將 ${ids.length} 件產品加入 Shopify`, {
           description: '已送往「網上發佈 > 產品文案」與「產品目錄」',
@@ -1079,7 +1109,7 @@ export function ListedProductsView({
     } finally {
       setIsQueuing(false);
     }
-  }, [selectedIds, fetchProducts]);
+  }, [selectedIds, products, fetchProducts, upsertToReadyToShopify]);
 
   // Handle product updated from detail modal
   const handleProductUpdated = useCallback((updatedProduct: ListedProduct) => {
