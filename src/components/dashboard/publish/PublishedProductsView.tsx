@@ -8,15 +8,44 @@ import { PUBLISH_STATE_META, type PublishState } from '@/constants/analytics-moc
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 
+interface ShopifyVariant {
+  id?: string | number;
+  title?: string;
+  option1?: string;
+  option2?: string;
+  option3?: string;
+  sku?: string;
+  price?: string | number;
+  compare_at_price?: string | number | null;
+  inventory_quantity?: number;
+}
+
+interface ShopifyImage {
+  id?: string | number;
+  src?: string;
+  alt?: string;
+  width?: number;
+  height?: number;
+  position?: number;
+}
+
 interface ShopifyPreviewProduct {
   shopify_product_id: string;
   title: string;
+  body_html?: string;
   vendor: string;
   product_type: string;
+  handle?: string;
   status: string;
   published_at: string | null;
   image_url: string | null;
+  images?: ShopifyImage[];
+  variants?: ShopifyVariant[];
+  tags?: string[];
   price: number;
+  compare_at_price?: number | null;
+  shopify_created_at?: string | null;
+  shopify_updated_at?: string | null;
   variants_count: number;
 }
 
@@ -24,14 +53,22 @@ interface ShopifyProductRow {
   id: string;
   shopify_product_id: string;
   title: string | null;
+  body_html?: string | null;
   vendor: string | null;
   product_type: string | null;
+  handle?: string | null;
   status: string | null;
   published_at: string | null;
   image_url: string | null;
+  images?: ShopifyImage[] | null;
+  variants?: ShopifyVariant[] | null;
+  tags?: string[] | null;
   price: number | null;
-  imported_at: string;
+  compare_at_price?: number | null;
+  shopify_created_at?: string | null;
   shopify_updated_at: string | null;
+  imported_at: string;
+  shop_domain?: string | null;
 }
 
 interface DisplayProduct {
@@ -44,6 +81,7 @@ interface DisplayProduct {
   publishedAt: string;
   views: number;
   lastEditor: string;
+  raw: ShopifyProductRow;
 }
 
 const STATE_FILTERS: { key: PublishState | 'all'; label: string }[] = [
@@ -77,7 +115,20 @@ function rowToDisplay(r: ShopifyProductRow): DisplayProduct {
     publishedAt: r.published_at || r.imported_at,
     views: 0,
     lastEditor: '—',
+    raw: r,
   };
+}
+
+function variantLabel(v: ShopifyVariant): string {
+  const opts = [v.option1, v.option2, v.option3].filter(Boolean).join(' / ');
+  return opts || v.title || 'Default';
+}
+
+function fmtMoney(n: number | string | null | undefined): string {
+  if (n == null || n === '') return '—';
+  const num = typeof n === 'string' ? parseFloat(n) : n;
+  if (!Number.isFinite(num)) return '—';
+  return `$${num.toLocaleString()}`;
 }
 
 export function PublishedProductsView() {
@@ -90,6 +141,8 @@ export function PublishedProductsView() {
   const [isFetchingPreview, setIsFetchingPreview] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [showImportDialog, setShowImportDialog] = useState(false);
+  const [detailProduct, setDetailProduct] = useState<DisplayProduct | null>(null);
+  const [activeImageIdx, setActiveImageIdx] = useState(0);
   const [previewProducts, setPreviewProducts] = useState<ShopifyPreviewProduct[]>([]);
   const [selectedImportIds, setSelectedImportIds] = useState<Set<string>>(new Set());
   const [importSearch, setImportSearch] = useState('');
@@ -98,7 +151,7 @@ export function PublishedProductsView() {
     setIsLoading(true);
     const { data, error } = await supabase
       .from('shopify_products')
-      .select('id, shopify_product_id, title, vendor, product_type, status, published_at, image_url, price, imported_at, shopify_updated_at')
+      .select('*')
       .order('imported_at', { ascending: false });
     if (error) {
       toast.error('讀取產品失敗', { description: error.message });
@@ -152,12 +205,20 @@ export function PublishedProductsView() {
         .map(p => ({
           shopify_product_id: p.shopify_product_id,
           title: p.title,
+          body_html: p.body_html || null,
           vendor: p.vendor || null,
           product_type: p.product_type || null,
+          handle: p.handle || null,
           status: p.status || null,
           published_at: p.published_at,
           image_url: p.image_url,
+          images: p.images ?? [],
+          variants: p.variants ?? [],
+          tags: p.tags ?? [],
           price: p.price || null,
+          compare_at_price: p.compare_at_price ?? null,
+          shopify_created_at: p.shopify_created_at ?? null,
+          shopify_updated_at: p.shopify_updated_at ?? null,
           imported_at: now,
         }));
 
@@ -296,8 +357,8 @@ export function PublishedProductsView() {
             </thead>
             <tbody className="divide-y divide-border/60">
               {filtered.map((p) => (
-                <tr key={p.id} className="hover:bg-muted/30">
-                  <td className="px-4 py-2.5"><input type="checkbox" className="rounded border-border" checked={selected.has(p.id)} onChange={() => toggle(p.id)} /></td>
+                <tr key={p.id} className="hover:bg-muted/30 cursor-pointer" onClick={() => { setDetailProduct(p); setActiveImageIdx(0); }}>
+                  <td className="px-4 py-2.5" onClick={e => e.stopPropagation()}><input type="checkbox" className="rounded border-border" checked={selected.has(p.id)} onChange={() => toggle(p.id)} /></td>
                   <td className="px-3 py-2.5">
                     <div className="flex items-center gap-3">
                       {p.imageUrl ? (
@@ -313,7 +374,7 @@ export function PublishedProductsView() {
                   <td className="px-3 py-2.5 font-mono-data text-[11.5px] text-muted-foreground">{fmtDate(p.publishedAt)}</td>
                   <td className="px-3 py-2.5 text-right font-mono-data text-foreground"><span className="inline-flex items-center gap-1"><Eye className="h-3 w-3 text-muted-foreground" />{p.views.toLocaleString()}</span></td>
                   <td className="px-3 py-2.5 text-muted-foreground">{p.lastEditor}</td>
-                  <td className="px-3 py-2.5">
+                  <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}>
                     <div className="flex justify-end gap-1.5">
                       {p.state === 'published' ? (
                         <button onClick={() => setProductState(p, 'delisted', '已下架')} className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-rose-500 hover:bg-rose-500/10"><ArrowDownToLine className="h-3 w-3" /> 下架</button>
@@ -447,6 +508,163 @@ export function PublishedProductsView() {
           </div>
         </div>
       )}
+
+      {/* ── Product Detail Dialog ─────────────────────────────────────── */}
+      {detailProduct && (() => {
+        const r = detailProduct.raw;
+        const imgs: ShopifyImage[] = Array.isArray(r.images) ? r.images : [];
+        const variants: ShopifyVariant[] = Array.isArray(r.variants) ? r.variants : [];
+        const heroImage = imgs[activeImageIdx]?.src || r.image_url || '';
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setDetailProduct(null)}>
+            <div className="relative flex flex-col bg-card border border-border rounded-2xl shadow-2xl w-full max-w-[72rem] max-h-[90vh] overflow-hidden" onClick={e => e.stopPropagation()}>
+              {/* Header */}
+              <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
+                <div className="flex items-center gap-2">
+                  <Store className="h-5 w-5 text-primary" />
+                  <h3 className="font-display text-base font-bold">產品詳情</h3>
+                  <span className={cn('rounded-full border px-2 py-0.5 text-[10.5px] font-medium', PUBLISH_STATE_META[detailProduct.state].className)}>
+                    {PUBLISH_STATE_META[detailProduct.state].label}
+                  </span>
+                </div>
+                <button onClick={() => setDetailProduct(null)} className="rounded-full p-1.5 hover:bg-muted transition-colors text-muted-foreground">
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="flex-1 overflow-y-auto">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-6">
+                  {/* Left: images */}
+                  <div className="flex flex-col gap-3">
+                    <div className="aspect-square w-full bg-muted rounded-xl overflow-hidden flex items-center justify-center">
+                      {heroImage ? (
+                        <img src={heroImage} alt={r.title || ''} className="w-full h-full object-cover" />
+                      ) : (
+                        <Store className="h-12 w-12 text-muted-foreground/40" />
+                      )}
+                    </div>
+                    {imgs.length > 1 && (
+                      <div className="flex flex-wrap gap-2">
+                        {imgs.map((im, idx) => (
+                          <button
+                            key={im.id ?? idx}
+                            onClick={() => setActiveImageIdx(idx)}
+                            className={cn('h-14 w-14 rounded-md overflow-hidden border-2 transition-colors',
+                              idx === activeImageIdx ? 'border-primary' : 'border-transparent hover:border-border')}
+                          >
+                            {im.src ? <img src={im.src} alt="" className="w-full h-full object-cover" /> : null}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Right: info */}
+                  <div className="flex flex-col gap-5">
+                    {/* Title block */}
+                    <div>
+                      <h2 className="font-display text-xl font-bold text-foreground leading-snug">{r.title || '(未命名)'}</h2>
+                      {r.handle && <p className="font-mono-data text-xs text-muted-foreground mt-1">/{r.handle}</p>}
+                    </div>
+
+                    {/* Price */}
+                    <div className="flex items-baseline gap-3">
+                      <span className="font-mono-data text-2xl font-bold text-emerald-600">{fmtMoney(r.price)}</span>
+                      {r.compare_at_price && Number(r.compare_at_price) > Number(r.price ?? 0) && (
+                        <span className="font-mono-data text-sm text-muted-foreground line-through">{fmtMoney(r.compare_at_price)}</span>
+                      )}
+                    </div>
+
+                    {/* 分類 */}
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+                      <DetailField label="廠商" value={r.vendor} />
+                      <DetailField label="產品分類" value={r.product_type} />
+                      <DetailField label="Shopify ID" value={r.shopify_product_id} mono />
+                      <DetailField label="狀態" value={r.status} />
+                      <DetailField label="上架時間" value={r.published_at ? fmtDate(r.published_at) : null} />
+                      <DetailField label="導入時間" value={fmtDate(r.imported_at)} />
+                      {r.shopify_created_at && <DetailField label="Shopify 建立" value={fmtDate(r.shopify_created_at)} />}
+                      {r.shopify_updated_at && <DetailField label="Shopify 更新" value={fmtDate(r.shopify_updated_at)} />}
+                      {r.shop_domain && <DetailField label="店舖" value={r.shop_domain} mono />}
+                    </div>
+
+                    {/* Tags */}
+                    {Array.isArray(r.tags) && r.tags.length > 0 && (
+                      <div>
+                        <h4 className="font-display text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-2">標籤</h4>
+                        <div className="flex flex-wrap gap-1.5">
+                          {r.tags.map((t, i) => (
+                            <span key={i} className="rounded-full bg-muted px-2.5 py-0.5 text-[11px] text-foreground">{t}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Variants */}
+                    {variants.length > 0 && (
+                      <div>
+                        <h4 className="font-display text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-2">
+                          規格 / Variants（{variants.length}）
+                        </h4>
+                        <div className="rounded-lg border border-border overflow-hidden">
+                          <table className="w-full text-xs">
+                            <thead className="bg-muted/40 text-[10.5px] uppercase tracking-wider text-muted-foreground">
+                              <tr>
+                                <th className="px-3 py-2 text-left font-medium">規格</th>
+                                <th className="px-3 py-2 text-left font-medium">SKU</th>
+                                <th className="px-3 py-2 text-right font-medium">價錢</th>
+                                <th className="px-3 py-2 text-right font-medium">庫存</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-border/60">
+                              {variants.map((v, i) => (
+                                <tr key={v.id ?? i} className="hover:bg-muted/30">
+                                  <td className="px-3 py-2 font-medium text-foreground">{variantLabel(v)}</td>
+                                  <td className="px-3 py-2 font-mono-data text-muted-foreground">{v.sku || '—'}</td>
+                                  <td className="px-3 py-2 text-right font-mono-data">{fmtMoney(v.price ?? null)}</td>
+                                  <td className="px-3 py-2 text-right font-mono-data text-muted-foreground">{v.inventory_quantity ?? '—'}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Description */}
+                    {r.body_html && (
+                      <div>
+                        <h4 className="font-display text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-2">產品描述</h4>
+                        <div
+                          className="prose prose-sm dark:prose-invert max-w-none text-sm text-foreground/90 [&_p]:my-1.5 [&_ul]:my-1.5 [&_ol]:my-1.5"
+                          dangerouslySetInnerHTML={{ __html: r.body_html }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="flex items-center justify-end gap-2 px-5 py-3.5 border-t border-border bg-muted/20 shrink-0">
+                <button onClick={() => setDetailProduct(null)} className="rounded-lg border border-border px-4 py-2 text-xs font-medium hover:bg-muted transition-colors">關閉</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
+  );
+}
+
+function DetailField({ label, value, mono }: { label: string; value: string | null | undefined; mono?: boolean }) {
+  return (
+    <>
+      <div className="text-muted-foreground">{label}</div>
+      <div className={cn('text-foreground font-medium break-all', mono && 'font-mono-data text-[11px]')}>
+        {value || <span className="text-muted-foreground/50">—</span>}
+      </div>
+    </>
   );
 }

@@ -107,20 +107,40 @@ Deno.serve(async (req: Request) => {
     // ─── PREVIEW MODE: return list without writing to DB ────────────────
     if (bodyData?.preview_only === true) {
       const preview = allShopifyProducts.map((p: Record<string, unknown>) => {
-        const variants = (p.variants as { price?: string }[]) ?? [];
-        const minPrice = variants.length
-          ? Math.min(...variants.map((v) => parseFloat(v.price ?? "0") || 0))
-          : 0;
-        const img = (p.images as { src?: string }[])?.[0]?.src ?? null;
+        const variants = (p.variants as Record<string, unknown>[]) ?? [];
+        const variantPrices = variants.map((v) => parseFloat(String(v.price ?? "0")) || 0);
+        const minPrice = variantPrices.length ? Math.min(...variantPrices) : 0;
+        const compareAt = variants.length && variants[0].compare_at_price
+          ? parseFloat(String(variants[0].compare_at_price)) || null : null;
+        const images = (p.images as Record<string, unknown>[]) ?? [];
+        const img = images[0]?.src as string ?? null;
+        const tags = ((p.tags as string) || "").split(",").map((t) => t.trim()).filter(Boolean);
         return {
           shopify_product_id: String(p.id),
           title: p.title ?? "Untitled",
+          body_html: p.body_html ?? "",
           vendor: p.vendor ?? "",
           product_type: p.product_type ?? "",
+          handle: p.handle ?? "",
           status: p.status ?? "active",
           published_at: p.published_at ?? null,
           image_url: img,
+          images: images.map((im) => ({
+            id: im.id, src: im.src, alt: im.alt || "", width: im.width, height: im.height, position: im.position,
+          })),
+          variants: variants.map((v) => ({
+            id: v.id, title: v.title,
+            option1: v.option1, option2: v.option2, option3: v.option3,
+            sku: v.sku || "",
+            price: parseFloat(String(v.price ?? "0")) || 0,
+            compare_at_price: v.compare_at_price ? parseFloat(String(v.compare_at_price)) || null : null,
+            inventory_quantity: v.inventory_quantity ?? 0,
+          })),
+          tags,
           price: minPrice,
+          compare_at_price: compareAt,
+          shopify_created_at: p.created_at ?? null,
+          shopify_updated_at: p.updated_at ?? null,
           variants_count: variants.length,
         };
       });
