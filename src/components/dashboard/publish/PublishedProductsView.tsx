@@ -1,12 +1,10 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import {
   CheckCheck, Search, ArrowDownToLine, ArrowUpToLine, RotateCcw, Eye, ChevronDown,
   CloudDownload, Loader2, X, Store,
 } from 'lucide-react';
-import {
-  MOCK_PUBLISHED, PUBLISH_STATE_META, type PublishState, type PublishedProduct,
-} from '@/constants/analytics-mock';
+import { PUBLISH_STATE_META, type PublishState } from '@/constants/analytics-mock';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 
@@ -22,6 +20,32 @@ interface ShopifyPreviewProduct {
   variants_count: number;
 }
 
+interface ShopifyProductRow {
+  id: string;
+  shopify_product_id: string;
+  title: string | null;
+  vendor: string | null;
+  product_type: string | null;
+  status: string | null;
+  published_at: string | null;
+  image_url: string | null;
+  price: number | null;
+  imported_at: string;
+  shopify_updated_at: string | null;
+}
+
+interface DisplayProduct {
+  id: string;
+  shopify_product_id: string;
+  title: string;
+  imageUrl: string;
+  factory: string;
+  state: PublishState;
+  publishedAt: string;
+  views: number;
+  lastEditor: string;
+}
+
 const STATE_FILTERS: { key: PublishState | 'all'; label: string }[] = [
   { key: 'all', label: '全部' },
   { key: 'published', label: '已發佈' },
@@ -30,12 +54,35 @@ const STATE_FILTERS: { key: PublishState | 'all'; label: string }[] = [
 ];
 
 function fmtDate(d: string) {
+  if (!d) return '—';
   const x = new Date(d);
+  if (isNaN(x.getTime())) return '—';
   return `${x.getFullYear()}/${String(x.getMonth() + 1).padStart(2, '0')}/${String(x.getDate()).padStart(2, '0')}`;
 }
 
+function shopifyStatusToState(status: string | null): PublishState {
+  if (status === 'active') return 'published';
+  if (status === 'archived') return 'delisted';
+  return 'unpublished';
+}
+
+function rowToDisplay(r: ShopifyProductRow): DisplayProduct {
+  return {
+    id: r.id,
+    shopify_product_id: r.shopify_product_id,
+    title: r.title || '(未命名)',
+    imageUrl: r.image_url || '',
+    factory: r.vendor || '—',
+    state: shopifyStatusToState(r.status),
+    publishedAt: r.published_at || r.imported_at,
+    views: 0,
+    lastEditor: '—',
+  };
+}
+
 export function PublishedProductsView() {
-  const [items, setItems] = useState<PublishedProduct[]>(MOCK_PUBLISHED);
+  const [items, setItems] = useState<DisplayProduct[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [stateFilter, setStateFilter] = useState<PublishState | 'all'>('all');
   const [factoryFilter, setFactoryFilter] = useState('全部');
@@ -46,6 +93,23 @@ export function PublishedProductsView() {
   const [previewProducts, setPreviewProducts] = useState<ShopifyPreviewProduct[]>([]);
   const [selectedImportIds, setSelectedImportIds] = useState<Set<string>>(new Set());
   const [importSearch, setImportSearch] = useState('');
+
+  const loadProducts = useCallback(async () => {
+    setIsLoading(true);
+    const { data, error } = await supabase
+      .from('shopify_products')
+      .select('id, shopify_product_id, title, vendor, product_type, status, published_at, image_url, price, imported_at, shopify_updated_at')
+      .order('imported_at', { ascending: false });
+    if (error) {
+      toast.error('讀取產品失敗', { description: error.message });
+      setItems([]);
+    } else {
+      setItems((data ?? []).map(rowToDisplay));
+    }
+    setIsLoading(false);
+  }, []);
+
+  useEffect(() => { loadProducts(); }, [loadProducts]);
 
   const filteredPreview = useMemo(() =>
     importSearch.trim()
@@ -76,30 +140,42 @@ export function PublishedProductsView() {
     }
   };
 
-  // Step 2: Import selected products to shopify_products table
+  // Step 2: Upsert selected products into shopify_products table
   const handleConfirmImport = async () => {
     if (selectedImportIds.size === 0) { toast.error('請先選擇產品'); return; }
     setIsImporting(true);
     const toastId = toast.loading(`正在導入 ${selectedImportIds.size} 件產品...`);
     try {
-      const { data, error } = await supabase.functions.invoke('supabase-functions-sync-from-shopify', {
-        body: { product_ids: Array.from(selectedImportIds) },
-      });
-      if (error || data?.error) {
-        toast.error('導入失敗', { id: toastId, description: error?.message || data?.error, duration: 8000 });
+      const now = new Date().toISOString();
+      const rows = previewProducts
+        .filter(p => selectedImportIds.has(p.shopify_product_id))
+        .map(p => ({
+          shopify_product_id: p.shopify_product_id,
+          title: p.title,
+          vendor: p.vendor || null,
+          product_type: p.product_type || null,
+          status: p.status || null,
+          published_at: p.published_at,
+          image_url: p.image_url,
+          price: p.price || null,
+          imported_at: now,
+        }));
+
+      const { error } = await supabase
+        .from('shopify_products')
+        .upsert(rows, { onConflict: 'shopify_product_id' });
+
+      if (error) {
+        toast.error('導入失敗', { id: toastId, description: error.message, duration: 8000 });
         return;
       }
-      const s = data?.summary;
-      const parts: string[] = [];
-      if (s?.created > 0) parts.push(`新增 ${s.created} 件`);
-      if (s?.updated > 0) parts.push(`更新 ${s.updated} 件`);
-      if (s?.skipped > 0) parts.push(`略過 ${s.skipped} 件`);
       toast.success(`✅ 從 Shopify 導入完成`, {
         id: toastId,
-        description: parts.length ? parts.join('、') : `共處理 ${s?.total_shopify ?? selectedImportIds.size} 件產品`,
+        description: `已儲存 ${rows.length} 件產品至 shopify_products`,
         duration: 6000,
       });
       setShowImportDialog(false);
+      await loadProducts();
     } catch (err) {
       toast.error('導入失敗', { id: toastId, description: err instanceof Error ? err.message : '未知錯誤' });
     } finally {
@@ -115,23 +191,34 @@ export function PublishedProductsView() {
     });
   };
 
-  const factories = useMemo(() => ['全部', ...Array.from(new Set(MOCK_PUBLISHED.map((p) => p.factory)))], []);
+  const factories = useMemo(
+    () => ['全部', ...Array.from(new Set(items.map((p) => p.factory).filter(f => f && f !== '—')))],
+    [items]
+  );
 
   const filtered = useMemo(() => items.filter((p) => {
-    if (search && !p.title.includes(search)) return false;
+    if (search && !p.title.toLowerCase().includes(search.toLowerCase())) return false;
     if (stateFilter !== 'all' && p.state !== stateFilter) return false;
     if (factoryFilter !== '全部' && p.factory !== factoryFilter) return false;
     return true;
   }), [items, search, stateFilter, factoryFilter]);
 
-  const setState = (id: string, state: PublishState, msg: string) => {
-    setItems((prev) => prev.map((p) => (p.id === id ? { ...p, state } : p)));
+  const setProductState = async (row: DisplayProduct, state: PublishState, msg: string) => {
+    const newStatus = state === 'published' ? 'active' : state === 'delisted' ? 'archived' : 'draft';
+    const { error } = await supabase
+      .from('shopify_products')
+      .update({ status: newStatus })
+      .eq('id', row.id);
+    if (error) { toast.error('更新失敗', { description: error.message }); return; }
+    setItems((prev) => prev.map((p) => (p.id === row.id ? { ...p, state } : p)));
     toast.success(msg);
   };
   const toggle = (id: string) => setSelected((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
-  const bulkDelist = () => {
+  const bulkDelist = async () => {
     const ids = Array.from(selected);
     if (!ids.length) { toast.message('請先勾選產品'); return; }
+    const { error } = await supabase.from('shopify_products').update({ status: 'archived' }).in('id', ids);
+    if (error) { toast.error('批量下架失敗', { description: error.message }); return; }
     setItems((prev) => prev.map((p) => ids.includes(p.id) ? { ...p, state: 'delisted' } : p));
     setSelected(new Set());
     toast.success(`已下架 ${ids.length} 件產品`);
@@ -213,7 +300,11 @@ export function PublishedProductsView() {
                   <td className="px-4 py-2.5"><input type="checkbox" className="rounded border-border" checked={selected.has(p.id)} onChange={() => toggle(p.id)} /></td>
                   <td className="px-3 py-2.5">
                     <div className="flex items-center gap-3">
-                      <img src={p.imageUrl} alt={p.title} loading="lazy" className="h-10 w-10 rounded-md object-cover bg-muted" />
+                      {p.imageUrl ? (
+                        <img src={p.imageUrl} alt={p.title} loading="lazy" className="h-10 w-10 rounded-md object-cover bg-muted" />
+                      ) : (
+                        <div className="h-10 w-10 rounded-md bg-muted flex items-center justify-center"><Store className="h-4 w-4 text-muted-foreground/40" /></div>
+                      )}
                       <span className="font-body text-[13px] font-medium text-foreground">{p.title}</span>
                     </div>
                   </td>
@@ -225,9 +316,9 @@ export function PublishedProductsView() {
                   <td className="px-3 py-2.5">
                     <div className="flex justify-end gap-1.5">
                       {p.state === 'published' ? (
-                        <button onClick={() => setState(p.id, 'delisted', '已下架')} className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-rose-500 hover:bg-rose-500/10"><ArrowDownToLine className="h-3 w-3" /> 下架</button>
+                        <button onClick={() => setProductState(p, 'delisted', '已下架')} className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-rose-500 hover:bg-rose-500/10"><ArrowDownToLine className="h-3 w-3" /> 下架</button>
                       ) : (
-                        <button onClick={() => setState(p.id, 'published', '已重新上架')} className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-emerald-600 hover:bg-emerald-500/10"><ArrowUpToLine className="h-3 w-3" /> 上架</button>
+                        <button onClick={() => setProductState(p, 'published', '已重新上架')} className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-emerald-600 hover:bg-emerald-500/10"><ArrowUpToLine className="h-3 w-3" /> 上架</button>
                       )}
                       <button onClick={() => toast.success('已還原至上一版本')} className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"><RotateCcw className="h-3 w-3" /> 還原</button>
                     </div>
@@ -235,7 +326,9 @@ export function PublishedProductsView() {
                 </tr>
               ))}
               {filtered.length === 0 && (
-                <tr><td colSpan={8} className="px-6 py-10 text-center text-[12px] text-muted-foreground/60">找不到符合條件的產品</td></tr>
+                <tr><td colSpan={8} className="px-6 py-10 text-center text-[12px] text-muted-foreground/60">
+                  {isLoading ? '載入中...' : '尚未從 Shopify 導入產品'}
+                </td></tr>
               )}
             </tbody>
           </table>
@@ -260,7 +353,7 @@ export function PublishedProductsView() {
               </button>
             </div>
 
-            {/* Search + select all */}
+            {/* Search */}
             <div className="flex items-center gap-3 px-5 py-3 border-b border-border shrink-0 bg-muted/20">
               <div className="relative flex-1">
                 <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />

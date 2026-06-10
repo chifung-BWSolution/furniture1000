@@ -223,12 +223,18 @@ export function ListedProductsView({
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      // Fetch level1 counts
-      const { data: l1Data } = await supabase
+      // Fetch level1 counts — apply the same visibility filter as the main product list
+      let l1Query = supabase
         .from('products')
         .select('level1_category')
         .not('level1_category', 'is', null)
         .neq('level1_category', '');
+      if (isCatalog) {
+        l1Query = l1Query.eq('in_catalog', true);
+      } else {
+        l1Query = l1Query.eq('in_catalog', false).eq('in_shopify_queue', false).eq('dismissed', false);
+      }
+      const { data: l1Data } = await l1Query;
       if (cancelled || !l1Data) return;
       const counts: Record<string, number> = {};
       for (const row of l1Data) {
@@ -238,11 +244,17 @@ export function ListedProductsView({
         counts[key] = (counts[key] || 0) + 1;
       }
       // Fetch level2 counts — trim values to match trimmed options from product_category
-      const { data: l2Data } = await supabase
+      let l2Query = supabase
         .from('products')
         .select('level1_category, level2_category')
         .not('level2_category', 'is', null)
         .neq('level2_category', '');
+      if (isCatalog) {
+        l2Query = l2Query.eq('in_catalog', true);
+      } else {
+        l2Query = l2Query.eq('in_catalog', false).eq('in_shopify_queue', false).eq('dismissed', false);
+      }
+      const { data: l2Data } = await l2Query;
       if (cancelled || !l2Data) return;
       for (const row of l2Data) {
         const l1 = (row.level1_category || '').trim();
@@ -254,7 +266,7 @@ export function ListedProductsView({
       if (!cancelled) setCategoryCounts(counts);
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [isCatalog]);
 
   // Fetch unique factory names for filter — DEFERRED: only runs the first time
   // the user opens the factory dropdown, so it never competes with the
