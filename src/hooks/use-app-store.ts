@@ -929,20 +929,35 @@ export function useAppStore() {
       console.error('[uploadToMasterDb] Failed to set publishing status in DB:', statusErr.message);
     }
 
-    // Build payload for publish-to-shopify edge function (publishes products to Shopify store)
+    // Build payload for publish-to-shopify edge function
+    // Field mapping (products → shopify_products / Shopify API):
+    //   title              → title / title
+    //   descriptionHtml    → body_html / body_html
+    //   factoriesDisplayName → vendor / vendor
+    //   collection         → product_type / product_type
+    //   imageUrl           → image_url / images[0]
+    //   images             → images / images (additional)
+    //   tags               → tags / tags
+    //   price / salePrice  → price / variants[].price
     const payload = selectedProducts.map(p => ({
       id: p.id,
       title: p.title,
       description_html: p.descriptionHtml || p.description || '',
       tags: p.tags || [],
-      price: p.price ?? 0,
+      price: p.salePrice ?? p.price ?? 0,
       compare_at_price: p.compareAtPrice ?? null,
       collection: p.collection || '',
       image_url: p.imageUrl || '',
+      // Additional product images (beyond the primary image_url)
+      images: (p as any).images || [],
       shopify_product_id: p.shopifyProductId || null,
-      variants: [],
+      variants: (p.variants && p.variants.length > 0) ? p.variants : [],
+      // Shopify vendor = factory display name
+      vendor: p.factoriesDisplayName || p.factoryName || '',
+      // Shopify product_type = collection
+      product_type: p.collection || '',
       category: p.category || p.collection || '',
-      factory_name: p.factoryName || p.factoriesDisplayName || '',
+      factory_name: p.factoriesDisplayName || p.factoryName || '',
       material: p.material || '',
       dimension_l_mm: p.dimensionLMm ?? null,
       dimension_w_mm: p.dimensionWMm ?? null,

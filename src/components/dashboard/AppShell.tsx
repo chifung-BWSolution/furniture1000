@@ -245,7 +245,7 @@ export function AppShell() {
             onDeleteProduct={store.deleteProduct}
             onClearFilter={handleClearFilter}
             onSyncFromShopify={store.syncFromShopify}
-            onUploadUnsyncedToMaster={store.uploadUnsyncedToMaster}
+            onUploadUnsyncedToMaster={store.publishSelected}
             isSyncing={store.isSyncing}
             isPublishing={store.isPublishing}
             lastSyncTime={store.lastSyncTime}

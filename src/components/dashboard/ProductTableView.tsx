@@ -780,25 +780,22 @@ export const ProductTableView = memo(function ProductTableView({
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Upload to Shopify Button */}
+            {/* Upload to Shopify Button — uploads selected products */}
             {onUploadUnsyncedToMaster && (
               <Button
                 variant="default"
                 size="sm"
                 onClick={async () => {
-                  const unsyncedCount = products.filter(p => !p.bwfMasterId && p.source !== 'shopify').length;
-                  if (unsyncedCount === 0) {
-                    toast.info('所有產品均已上傳到 Shopify');
+                  if (selectedIds.size === 0) {
+                    toast.info('請先勾選要上傳的產品');
                     return;
                   }
-                  const confirmed = window.confirm(`找到 ${unsyncedCount} 個未上傳的產品，確認要批量上傳到 Shopify 嗎？`);
-                  if (!confirmed) return;
                   await onUploadUnsyncedToMaster();
                 }}
-                disabled={isPublishing}
+                disabled={isPublishing || selectedIds.size === 0}
                 className={cn(
                   "gap-2 font-display text-xs font-bold bg-primary hover:bg-primary/90",
-                  isPublishing && "opacity-70"
+                  (isPublishing || selectedIds.size === 0) && "opacity-60"
                 )}
               >
                 {isPublishing ? (
@@ -806,7 +803,7 @@ export const ProductTableView = memo(function ProductTableView({
                 ) : (
                   <Upload className="h-3.5 w-3.5" />
                 )}
-                {isPublishing ? '上傳中...' : '上傳到 Shopify'}
+                {isPublishing ? '上傳中...' : `上傳到 Shopify${selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}`}
               </Button>
             )}
 

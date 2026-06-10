@@ -74,6 +74,8 @@ interface ProductPayload {
   compare_at_price?: number | null;
   collection: string;
   image_url: string;
+  // Additional images beyond the primary image_url
+  images?: { src?: string; url?: string }[];
   shopify_product_id?: string | null;
   variants: {
     id: string;
@@ -84,6 +86,10 @@ interface ProductPayload {
     compare_at_price?: number | null;
     inventory: number;
   }[];
+  // Shopify vendor = factory display name
+  vendor?: string;
+  // Shopify product_type = collection / category
+  product_type?: string;
   category?: string;
   factory_name?: string;
   material?: string;
@@ -512,11 +518,19 @@ Deno.serve(async (req: Request) => {
         }
 
         // ── Build Shopify product payload ──────────────────────────────────
+        // Field mapping:
+        //   product.title            → title
+        //   product.description_html → body_html
+        //   product.vendor / factory_name → vendor
+        //   product.product_type / collection → product_type
+        //   product.tags             → tags
+        //   product.image_url        → images[0]
+        //   product.images[]         → images[1..n]
         const shopifyProduct: Record<string, unknown> = {
           title: product.title || "Untitled Product",
           body_html: product.description_html || `<p>${product.title || "Untitled Product"}</p>`,
-          vendor: "AI Product Suite",
-          product_type: product.collection || "",
+          vendor: product.vendor || product.factory_name || "",
+          product_type: product.product_type || product.collection || "",
           tags: Array.isArray(product.tags) ? product.tags.join(", ") : "",
           status: "active",
           variants: sanitizedVariants,
@@ -526,12 +540,26 @@ Deno.serve(async (req: Request) => {
           ],
         };
 
-        // Only include images if we have a valid resolved URL
+        // Build images array: primary image_url first, then additional images
+        const allImages: { src: string }[] = [];
         if (resolvedImageUrl) {
-          shopifyProduct.images = [{ src: resolvedImageUrl }];
-          console.log(`[publish-to-shopify] ✅ Including image in payload: ${resolvedImageUrl.substring(0, 80)}...`);
+          allImages.push({ src: resolvedImageUrl });
+          console.log(`[publish-to-shopify] ✅ Primary image: ${resolvedImageUrl.substring(0, 80)}...`);
+        }
+        // Add additional images (skip duplicates of primary)
+        if (Array.isArray(product.images)) {
+          for (const img of product.images) {
+            const imgSrc = img?.src || img?.url || (typeof img === "string" ? img : null);
+            if (imgSrc && typeof imgSrc === "string" && imgSrc.startsWith("http") && imgSrc !== resolvedImageUrl) {
+              allImages.push({ src: imgSrc });
+              console.log(`[publish-to-shopify] ✅ Additional image: ${imgSrc.substring(0, 80)}...`);
+            }
+          }
+        }
+        if (allImages.length > 0) {
+          shopifyProduct.images = allImages;
         } else {
-          console.log(`[publish-to-shopify] ℹ️ Publishing "${product.title}" WITHOUT images (will sync title/price/description)`);
+          console.log(`[publish-to-shopify] ℹ️ Publishing "${product.title}" WITHOUT images`);
         }
 
         // ── Log the exact payload being sent ─────────────────────────────
@@ -824,6 +852,40 @@ Deno.serve(async (req: Request) => {
             source: "local",
           })
           .eq("id", product.id);
+
+        // ── Write to shopify_products mirror table ────────────────────────
+        // Mirrors the published product so it appears in "已上載產品" page.
+        try {
+          const shopifyCreatedProduct = (shopifyData as Record<string, Record<string, unknown>>).product;
+          const spImages = (shopifyCreatedProduct.images as Record<string, unknown>[]) || [];
+          const spVariants = (shopifyCreatedProduct.variants as Record<string, unknown>[]) || [];
+          const spPrice = spVariants[0]?.price != null ? Number(spVariants[0].price) : (product.price ?? 0);
+          const spCompareAt = spVariants[0]?.compare_at_price != null ? Number(spVariants[0].compare_at_price) : null;
+
+          await supabase.from("shopify_products").upsert({
+            shopify_product_id: shopifyProductId,
+            title: product.title || null,
+            body_html: product.description_html || null,
+            vendor: product.vendor || product.factory_name || null,
+            product_type: product.product_type || product.collection || null,
+            handle: String(shopifyCreatedProduct.handle || ""),
+            status: "active",
+            published_at: new Date().toISOString(),
+            image_url: resolvedImageUrl || product.image_url || null,
+            images: spImages.length > 0 ? spImages : null,
+            variants: spVariants.length > 0 ? spVariants : null,
+            tags: Array.isArray(product.tags) ? product.tags : [],
+            price: spPrice,
+            compare_at_price: spCompareAt,
+            shopify_created_at: String(shopifyCreatedProduct.created_at || new Date().toISOString()),
+            shopify_updated_at: String(shopifyCreatedProduct.updated_at || new Date().toISOString()),
+            imported_at: new Date().toISOString(),
+            shop_domain: storeHost,
+          }, { onConflict: "shopify_product_id" });
+          console.log(`[publish-to-shopify] ✅ shopify_products mirror written for Shopify ID: ${shopifyProductId}`);
+        } catch (spErr) {
+          console.warn(`[publish-to-shopify] ⚠️ shopify_products mirror write failed (non-blocking):`, spErr instanceof Error ? spErr.message : String(spErr));
+        }
 
         // ── DUAL WRITE: Upsert into bwf_product_master ────────────────────
         // Action A: Primary project (local bwf_product_master)
