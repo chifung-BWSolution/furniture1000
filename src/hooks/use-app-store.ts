@@ -384,6 +384,37 @@ export function useAppStore() {
   }, []);
 
   // Reload products from Supabase (used after publish/sync)
+  // Load ALL products with ready_to_publish=true, bypassing the 100-row pagination
+  // so they show in the 準備上載 page even if the product is older than the first page.
+  const reloadReadyToPublish = useCallback(async () => {
+    try {
+      const { data: rtpRows } = await supabase
+        .from('products')
+        .select('*')
+        .eq('ready_to_publish', true);
+      if (!rtpRows || rtpRows.length === 0) return;
+      const ids = rtpRows.map((r: any) => r.id);
+      const { data: variantRows } = await supabase
+        .from('product_variants')
+        .select('*')
+        .in('product_id', ids);
+      const variantsByProduct: Record<string, any[]> = {};
+      (variantRows || []).forEach((v: any) => {
+        (variantsByProduct[v.product_id] ??= []).push(v);
+      });
+      const loaded = rtpRows.map((row: any) =>
+        dbRowToProduct(row, variantsByProduct[row.id] || [])
+      );
+      setProducts(prev => {
+        const byId = new Map(prev.map(p => [p.id, p]));
+        loaded.forEach(p => byId.set(p.id, p));
+        return Array.from(byId.values());
+      });
+    } catch (err) {
+      console.warn('[Supabase] Reload ready-to-publish error:', err);
+    }
+  }, []);
+
   const reloadProducts = useCallback(async () => {
     try {
       // Refresh total count
@@ -1595,6 +1626,7 @@ export function useAppStore() {
     toggleDarkMode,
     saveProducts,
     reloadProducts,
+    reloadReadyToPublish,
   };
 }
 

@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, lazy, Suspense } from "react";
+import { useState, useCallback, useMemo, useEffect, lazy, Suspense } from "react";
 import { useAppStore } from "@/hooks/use-app-store";
 import { SidebarNav } from "./SidebarNav";
 import { PrimaryTopNav } from "./PrimaryTopNav";
@@ -170,6 +170,15 @@ export function AppShell() {
     [store.products]
   );
 
+  // Refresh ready-to-publish list whenever entering the page so older products
+  // (outside the first 100-row pagination window) still appear.
+  useEffect(() => {
+    if (store.currentView === 'ready-to-publish') {
+      store.reloadReadyToPublish();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [store.currentView]);
+
   const handleBulkPublish = useCallback(async () => {
     // 所有產品頁：「上傳到產品目錄」— 把已選產品標記 in_catalog（寫入 Supabase，跨裝置共用）
     if (store.currentView === 'listed-products') {
@@ -322,7 +331,7 @@ export function AppShell() {
               store.setCurrentView(view);
             }}
             onProductsReadyToPublish={async () => {
-              await store.reloadProducts();
+              await store.reloadReadyToPublish();
               store.setCurrentView('ready-to-publish');
             }}
           />
