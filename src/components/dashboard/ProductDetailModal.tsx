@@ -433,12 +433,41 @@ export function ProductDetailModal({
       setDimensionL(product.dimensionLMm != null ? product.dimensionLMm.toString() : '');
       setDimensionW(product.dimensionWMm != null ? product.dimensionWMm.toString() : '');
       setDimensionH(product.dimensionHMm != null ? product.dimensionHMm.toString() : '');
-      // Read from in_stock / customize fields; null = not yet selected
+      // Read from in_stock / customize / deliveryTermName; null = not yet selected
       const inStock = (product as any).inStock ?? (product as any).in_stock;
       const customize = (product as any).customize;
-      if (inStock === true) setProductionType('stock');
-      else if (customize) setProductionType('custom');
-      else setProductionType(null);
+      const deliveryTermName: string = product.deliveryTermName || '';
+
+      if (inStock === true) {
+        setProductionType('stock');
+        setProductionLeadTime('');
+      } else if (customize) {
+        setProductionType('custom');
+        setProductionLeadTime(customize); // customize stores the label e.g. "8-15天"
+      } else if (deliveryTermName) {
+        // Auto-derive productionType + leadTime bracket from deliveryTermName
+        // e.g. "全訂製 8-15天" or just "15天" from the term name
+        const termLower = deliveryTermName.toLowerCase();
+        if (/現貨|in.?stock|spot/i.test(termLower)) {
+          setProductionType('stock');
+          setProductionLeadTime('');
+        } else {
+          // Extract the largest number from the string to map to a bracket
+          const nums = (deliveryTermName.match(/\d+/g) || []).map(Number).filter(n => !isNaN(n));
+          const maxDays = nums.length ? Math.max(...nums) : 0;
+          let bracket = '';
+          if (maxDays > 0 && maxDays <= 7)   bracket = '3-7天';
+          else if (maxDays <= 15)              bracket = '8-15天';
+          else if (maxDays <= 25)              bracket = '16-25天';
+          else if (maxDays <= 40)              bracket = '26-40天';
+          else if (maxDays > 40)               bracket = '41天以上';
+          setProductionType('custom');
+          setProductionLeadTime(bracket);
+        }
+      } else {
+        setProductionType(null);
+        setProductionLeadTime('');
+      }
 
       // Initialize images
       const productImages: ProductImage[] = product.images && product.images.length > 0
@@ -1126,7 +1155,7 @@ export function ProductDetailModal({
 
                     {/* 現貨 / 全訂製 toggle + 生產天數 (全訂製限定) — 預設未選擇 */}
                     <div className="flex items-center gap-3 flex-wrap">
-                      <span className="font-body text-sm text-muted-foreground">產品類型：</span>
+                      <span className="font-body text-sm text-muted-foreground">貨期類型：</span>
                       <div className="flex rounded-lg border border-border overflow-hidden">
                         <button
                           onClick={() => setProductionType(productionType === 'stock' ? null : 'stock')}
