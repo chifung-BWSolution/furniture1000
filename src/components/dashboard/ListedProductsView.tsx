@@ -332,12 +332,11 @@ export function ListedProductsView({
       const from = (currentPage - 1) * pageSize;
       const to = from + pageSize - 1;
 
-      // Build base query for count — 'estimated' is far faster than 'exact' on
-      // large tables (uses planner stats instead of scanning every row).
-      // catalog mode uses 'exact' (small set); all-products uses 'estimated' (fast on large table)
+      // Always use 'exact' count — 'estimated' uses planner stats and is inaccurate
+      // when filters are applied (e.g. level2_category), giving wrong totals.
       let countQuery = supabase
         .from('products')
-        .select('id', { count: isCatalog ? 'exact' : 'estimated', head: true });
+        .select('id', { count: 'exact', head: true });
 
       if (debouncedSearch.trim()) {
         countQuery = countQuery.ilike('title', `%${debouncedSearch.trim()}%`);

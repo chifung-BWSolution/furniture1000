@@ -59,20 +59,22 @@ export function TopBar({
       {/* Right — Stats & CTA (only on product catalog views) */}
       {showProductButtons && (
         <div className="flex items-center gap-4">
-          {/* Product count pills — 總共產品 / 已選產品 */}
-          <div className="hidden items-center gap-2 md:flex">
-            <span className="inline-flex items-center gap-1.5 rounded-md bg-muted px-2.5 py-1 text-[11px] font-semibold text-muted-foreground font-mono-data">
-              {currentView === 'listed-products' ? '待處理產品' : '總共產品'}
-              <span className="text-foreground">{totalProducts.toLocaleString()}</span>
-            </span>
-            <span className={cn(
-              'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-semibold font-mono-data',
-              selectedCount > 0 ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
-            )}>
-              已選產品
-              <span className={selectedCount > 0 ? 'text-primary' : 'text-foreground'}>{selectedCount.toLocaleString()}</span>
-            </span>
-          </div>
+          {/* Product count pills — 總共產品 / 已選產品 (隱藏待處理產品頁，數字已在工具列顯示) */}
+          {currentView !== 'listed-products' && (
+            <div className="hidden items-center gap-2 md:flex">
+              <span className="inline-flex items-center gap-1.5 rounded-md bg-muted px-2.5 py-1 text-[11px] font-semibold text-muted-foreground font-mono-data">
+                總共產品
+                <span className="text-foreground">{totalProducts.toLocaleString()}</span>
+              </span>
+              <span className={cn(
+                'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-semibold font-mono-data',
+                selectedCount > 0 ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
+              )}>
+                已選產品
+                <span className={selectedCount > 0 ? 'text-primary' : 'text-foreground'}>{selectedCount.toLocaleString()}</span>
+              </span>
+            </div>
+          )}
 
           {/* Save Button */}
           {showUploadButton && onSave && (
