@@ -50,17 +50,21 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
   });
 
   const items: CopyItem[] = useMemo(() => rows.map((r: any) => {
-    const imgs = [
-      (Array.isArray(r.images) && r.images[0]?.src) || r.image_url || '',
-      r.image_url_2 || '',
-      r.image_url_3 || '',
-    ].filter(Boolean);
+    const primaryImg = (Array.isArray(r.images) && r.images[0]?.src) || r.image_url || '';
+    const extraImgs = [r.image_url_2, r.image_url_3].filter(Boolean) as string[];
+    // Also pull additional images from the images JSONB array (index 1+)
+    if (Array.isArray(r.images)) {
+      r.images.slice(1).forEach((img: any) => {
+        const src = img?.src || img;
+        if (src && typeof src === 'string' && !extraImgs.includes(src)) extraImgs.push(src);
+      });
+    }
     return {
       id: r.id,
       title: r.title || '',
       description: r.description || '',
-      imageUrl: imgs[0] || '',
-      images: imgs,
+      imageUrl: primaryImg,
+      images: extraImgs,
       factory: r.factories_display_name || '',
       level1: r.level1_category || '',
       level2: r.level2_category || '',
@@ -91,24 +95,77 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
   // editable draft state
   const [name, setName] = useState('');
   const [desc, setDesc] = useState('');
-  const [imgs, setImgs] = useState<string[]>([]);
+  // primaryImg: the main product image (image_url)
+  const [primaryImg, setPrimaryImg] = useState<string>('');
+  // extraImgs: additional images (images jsonb array)
+  const [extraImgs, setExtraImgs] = useState<string[]>([]);
   const [seoTitle, setSeoTitle] = useState('');
   const [seoDesc, setSeoDesc] = useState('');
   const [handle, setHandle] = useState('');
-  const fileRef = useRef<HTMLInputElement>(null);
+  const primaryFileRef = useRef<HTMLInputElement>(null);
+  const extraFileRef = useRef<HTMLInputElement>(null);
 
-  const openProduct = (p: CopyItem) => {
+  // Load saved ready_to_shopify data when opening a product
+  const openProduct = useCallback(async (p: CopyItem) => {
     setActiveId(p.id);
     setName(p.title);
     setDesc(p.description);
-    setImgs(p.images);
+    setPrimaryImg(p.imageUrl);
+    setExtraImgs(p.images);
     setSeoTitle(p.seoTitle);
     setSeoDesc(p.seoDescription);
     setHandle(p.handle);
-  };
 
-  // Submit copywriting — save edits + set copy_done=true → moves product to 產品信息
-  // Also upsert into ready_to_shopify for downstream publishing
+    // Fetch previously saved data from ready_to_shopify
+    const { data: rts } = await supabase
+      .from('ready_to_shopify')
+      .select('title,body_html,image_url,images,shopify_page_title,shopify_page_description,shopify_url,handle')
+      .eq('product_id', p.id)
+      .maybeSingle();
+
+    if (rts) {
+      if (rts.title) setName(rts.title);
+      if (rts.body_html) setDesc(rts.body_html);
+      if (rts.image_url) setPrimaryImg(rts.image_url);
+      if (Array.isArray(rts.images) && rts.images.length > 0) {
+        setExtraImgs(rts.images.map((img: any) => img?.src || img).filter(Boolean));
+      }
+      if (rts.shopify_page_title) setSeoTitle(rts.shopify_page_title);
+      if (rts.shopify_page_description) setSeoDesc(rts.shopify_page_description);
+      if (rts.shopify_url) setHandle(rts.shopify_url);
+      else if (rts.handle) setHandle(rts.handle);
+    }
+  }, []);
+
+  // Drag-to-swap state
+  const [dragSrc, setDragSrc] = useState<{ zone: 'primary' | 'extra'; index?: number } | null>(null);
+
+  // Handle drop: swap primary <-> extra or reorder within extra
+  const handleDrop = useCallback((target: { zone: 'primary' | 'extra'; index?: number }) => {
+    if (!dragSrc) return;
+    if (dragSrc.zone === target.zone && dragSrc.index === target.index) return;
+
+    if (dragSrc.zone === 'primary' && target.zone === 'extra' && target.index !== undefined) {
+      // Swap primary with an extra image
+      const targetSrc = extraImgs[target.index];
+      setExtraImgs((prev) => prev.map((img, i) => i === target.index ? primaryImg : img));
+      setPrimaryImg(targetSrc);
+    } else if (dragSrc.zone === 'extra' && target.zone === 'primary' && dragSrc.index !== undefined) {
+      // Swap an extra image with primary
+      const srcImg = extraImgs[dragSrc.index];
+      setExtraImgs((prev) => prev.map((img, i) => i === dragSrc.index ? primaryImg : img));
+      setPrimaryImg(srcImg);
+    } else if (dragSrc.zone === 'extra' && target.zone === 'extra' && dragSrc.index !== undefined && target.index !== undefined) {
+      // Reorder within extra images
+      const newExtra = [...extraImgs];
+      const [moved] = newExtra.splice(dragSrc.index, 1);
+      newExtra.splice(target.index, 0, moved);
+      setExtraImgs(newExtra);
+    }
+    setDragSrc(null);
+  }, [dragSrc, primaryImg, extraImgs]);
+
+  // Submit — save edits + set copy_done=true → moves product to 產品信息
   const handleSubmit = async () => {
     if (!activeId) return;
     const item = items.find((p) => p.id === activeId);
@@ -130,8 +187,9 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
         return;
       }
 
-      // 2. Upsert into ready_to_shopify (keyed by product_id)
-      const imageObjects = item.images.map((src, idx) => ({ src, position: idx + 1 }));
+      // 2. Upsert ALL fields into ready_to_shopify
+      // image_url = primary image, images = extra images array
+      const imagesJson = extraImgs.map((src, idx) => ({ src, position: idx + 1 }));
       const { error: rtsError } = await supabase
         .from('ready_to_shopify')
         .upsert({
@@ -142,18 +200,23 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
           product_type: [item.level1, item.level2].filter(Boolean).join(' / ') || null,
           handle: handle || slugify(name),
           status: 'draft',
-          image_url: item.imageUrl || null,
-          images: imageObjects.length > 0 ? imageObjects : null,
+          // Primary image → image_url
+          image_url: primaryImg || null,
+          // Additional images → images (jsonb)
+          images: imagesJson.length > 0 ? imagesJson : null,
           tags: item.tags.length > 0 ? item.tags : null,
           price: item.salePrice ?? item.price ?? null,
+          // SEO fields
+          shopify_page_title: seoTitle || name || null,
+          shopify_page_description: seoDesc || null,
+          shopify_url: handle || slugify(name) || null,
           imported_at: new Date().toISOString(),
         }, { onConflict: 'product_id' });
 
       if (rtsError) {
-        // Non-blocking: warn but still proceed
         toast.warning('產品文案已提交，但同步至 ready_to_shopify 失敗', { description: rtsError.message });
       } else {
-        toast.success('已提交到下一步', { description: '產品已移至「產品信息」頁面，並同步至 ready_to_shopify' });
+        toast.success('已提交到下一步', { description: '產品已移至「產品信息」，資料已同步至 ready_to_shopify' });
       }
 
       setActiveId(null);
@@ -165,9 +228,15 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
     }
   };
 
-  const addImageFile = (file: File) => {
+  const addPrimaryFile = (file: File) => {
     const reader = new FileReader();
-    reader.onload = () => setImgs((prev) => [...prev, reader.result as string]);
+    reader.onload = () => setPrimaryImg(reader.result as string);
+    reader.readAsDataURL(file);
+  };
+
+  const addExtraFile = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = () => setExtraImgs((prev) => [...prev, reader.result as string]);
     reader.readAsDataURL(file);
   };
 
@@ -320,38 +389,121 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
             <RichEditor value={desc} onChange={setDesc} forceUpdateKey={isGenerating ? 'generating' : desc} />
           </Section>
 
-          {/* Shopify 產品圖片 */}
-          <Section title="Shopify 產品圖片" desc="請至少上傳 1 張產品主圖、2 張不同角度圖、1 張產品情景圖">
-            <input ref={fileRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) addImageFile(f); e.target.value = ''; }} />
-            <div className="flex flex-wrap gap-3">
-              {imgs.map((src, i) => (
-                <div key={i} className="group relative h-28 w-28 overflow-hidden rounded-xl border border-border bg-muted">
-                  <img src={src} alt={`圖 ${i + 1}`} className="h-full w-full object-cover" />
-                  {i === 0 && <span className="absolute left-1 top-1 rounded bg-primary px-1.5 py-0.5 text-[9px] font-bold text-primary-foreground">主圖</span>}
-                  <button onClick={() => setImgs((prev) => prev.filter((_, idx) => idx !== i))} className="absolute right-1 top-1 hidden rounded-full bg-black/60 p-0.5 text-white group-hover:block"><X className="h-3 w-3" /></button>
+          {/* Shopify 產品圖片 — 左主圖 / 右其他圖，支援拖拉交換 */}
+          <Section
+            title="Shopify 產品圖片"
+            desc="左側為產品主圖（image_url），右側為其他圖片（images）。拖拉圖片可互換位置。"
+          >
+            <input ref={primaryFileRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) addPrimaryFile(f); e.target.value = ''; }} />
+            <input ref={extraFileRef} type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) addExtraFile(f); e.target.value = ''; }} />
+
+            <div className="flex gap-6">
+              {/* Left: Primary image (single) */}
+              <div className="flex flex-col gap-2">
+                <span className="font-body text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">產品主圖</span>
+                {primaryImg ? (
+                  <div
+                    className="group relative h-40 w-40 overflow-hidden rounded-xl border-2 border-primary/40 bg-muted cursor-grab active:cursor-grabbing"
+                    draggable
+                    onDragStart={() => setDragSrc({ zone: 'primary' })}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={() => handleDrop({ zone: 'primary' })}
+                  >
+                    <img src={primaryImg} alt="主圖" className="h-full w-full object-cover pointer-events-none" />
+                    <span className="absolute left-1.5 top-1.5 rounded bg-primary px-1.5 py-0.5 text-[9px] font-bold text-primary-foreground">主圖</span>
+                    <button
+                      onClick={() => setPrimaryImg('')}
+                      className="absolute right-1 top-1 hidden rounded-full bg-black/60 p-0.5 text-white group-hover:block"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => primaryFileRef.current?.click()}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={() => handleDrop({ zone: 'primary' })}
+                    className="flex h-40 w-40 flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-primary/40 text-primary transition-colors hover:bg-primary/5"
+                  >
+                    <UploadCloud className="h-6 w-6" />
+                    <span className="text-[10.5px] font-medium">上傳主圖</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Divider */}
+              <div className="flex items-stretch">
+                <div className="w-px bg-border my-2" />
+              </div>
+
+              {/* Right: Extra images (multiple) */}
+              <div className="flex flex-col gap-2 flex-1">
+                <span className="font-body text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                  其他圖片 <span className="text-muted-foreground/50 normal-case font-normal">（可多張）</span>
+                </span>
+                <div className="flex flex-wrap gap-3">
+                  {extraImgs.map((src, i) => (
+                    <div
+                      key={i}
+                      className="group relative h-28 w-28 overflow-hidden rounded-xl border border-border bg-muted cursor-grab active:cursor-grabbing"
+                      draggable
+                      onDragStart={() => setDragSrc({ zone: 'extra', index: i })}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={() => handleDrop({ zone: 'extra', index: i })}
+                    >
+                      <img src={src} alt={`圖 ${i + 2}`} className="h-full w-full object-cover pointer-events-none" />
+                      <button
+                        onClick={() => setExtraImgs((prev) => prev.filter((_, idx) => idx !== i))}
+                        className="absolute right-1 top-1 hidden rounded-full bg-black/60 p-0.5 text-white group-hover:block"
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  ))}
+                  <button
+                    onClick={() => extraFileRef.current?.click()}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={() => handleDrop({ zone: 'extra', index: extraImgs.length })}
+                    className="flex h-28 w-28 flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-border text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
+                  >
+                    <UploadCloud className="h-5 w-5" />
+                    <span className="text-[10.5px]">新增圖片</span>
+                  </button>
                 </div>
-              ))}
-              <button onClick={() => fileRef.current?.click()} className="flex h-28 w-28 flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-border text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary">
-                <UploadCloud className="h-6 w-6" />
-                <span className="text-[10.5px]">上傳圖片</span>
-              </button>
+                <p className="text-[11px] text-muted-foreground/60">
+                  共 {1 + extraImgs.length} 張 · 拖拉可互換主圖與其他圖片位置
+                </p>
+              </div>
             </div>
-            <p className="mt-2 text-[11px] text-muted-foreground/70">已上傳 {imgs.length} 張 · 建議共 4 張（主圖 + 2 角度 + 情景）</p>
           </Section>
 
           {/* Shopify 搜尋引擎產品資訊 */}
           <Section title="Shopify 搜尋引擎產品資訊" desc="控制產品在 Google 搜尋結果的顯示">
             <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
               <Field label="頁面標題" icon={<Search className="h-3 w-3" />}>
-                <input value={seoTitle} onChange={(e) => setSeoTitle(e.target.value)} className="w-full rounded-lg border border-border bg-card px-3 py-2 font-body text-[13px] focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                <input
+                  value={seoTitle}
+                  onChange={(e) => setSeoTitle(e.target.value)}
+                  className="w-full rounded-lg border border-border bg-card px-3 py-2 font-body text-[13px] focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                />
               </Field>
               <Field label="Meta 描述" hint={`${seoDesc.length}/160`}>
-                <textarea value={seoDesc} onChange={(e) => setSeoDesc(e.target.value)} maxLength={160} rows={2} className="w-full resize-none rounded-lg border border-border bg-card px-3 py-2 font-body text-[13px] focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                <textarea
+                  value={seoDesc}
+                  onChange={(e) => setSeoDesc(e.target.value)}
+                  maxLength={160}
+                  rows={2}
+                  className="w-full resize-none rounded-lg border border-border bg-card px-3 py-2 font-body text-[13px] focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                />
               </Field>
               <Field label="網址控制代碼">
                 <div className="flex items-center rounded-lg border border-border bg-card focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/20">
                   <span className="pl-3 font-mono-data text-[11px] text-muted-foreground/60">/products/</span>
-                  <input value={handle} onChange={(e) => setHandle(e.target.value)} className="w-full bg-transparent px-1 py-2 font-mono-data text-[12px] focus:outline-none" />
+                  <input
+                    value={handle}
+                    onChange={(e) => setHandle(e.target.value)}
+                    className="w-full bg-transparent px-1 py-2 font-mono-data text-[12px] focus:outline-none"
+                  />
                 </div>
               </Field>
             </div>
@@ -378,10 +530,8 @@ function RichEditor({ value, onChange, forceUpdateKey }: { value: string; onChan
   const imgInputRef = useRef<HTMLInputElement>(null);
   const [showColorPicker, setShowColorPicker] = useState(false);
   const colorPickerRef = useRef<HTMLDivElement>(null);
-  // Track saved selection for toolbar actions that open popovers
   const savedRangeRef = useRef<Range | null>(null);
 
-  // Sync initial value into editor (only on mount / when activeId changes)
   useEffect(() => {
     if (editorRef.current && editorRef.current.innerHTML !== value) {
       editorRef.current.innerHTML = value;
@@ -389,7 +539,6 @@ function RichEditor({ value, onChange, forceUpdateKey }: { value: string; onChan
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Force-sync when AI generates new content (forceUpdateKey changes)
   useEffect(() => {
     if (!forceUpdateKey || forceUpdateKey === 'generating') return;
     if (editorRef.current && editorRef.current.innerHTML !== value) {
@@ -429,7 +578,6 @@ function RichEditor({ value, onChange, forceUpdateKey }: { value: string; onChan
     reader.readAsDataURL(file);
   };
 
-  // Close color picker on outside click
   useEffect(() => {
     if (!showColorPicker) return;
     const handler = (e: MouseEvent) => {
@@ -454,83 +602,47 @@ function RichEditor({ value, onChange, forceUpdateKey }: { value: string; onChan
 
   return (
     <div className="rounded-xl border border-border bg-card">
-      {/* Toolbar */}
       <div className="flex flex-wrap items-center gap-0.5 border-b border-border px-2 py-1.5">
-        {/* Bold / Italic / Underline */}
         <ToolBtn title="粗體 (Ctrl+B)" onClick={() => exec('bold')}><Bold className="h-3.5 w-3.5" /></ToolBtn>
         <ToolBtn title="斜體 (Ctrl+I)" onClick={() => exec('italic')}><Italic className="h-3.5 w-3.5" /></ToolBtn>
         <ToolBtn title="底線 (Ctrl+U)" onClick={() => exec('underline')}><UnderlineIcon className="h-3.5 w-3.5" /></ToolBtn>
-
-        {/* Colour */}
         <div className="relative">
-          <ToolBtn
-            title="文字顏色"
-            onClick={() => { saveSelection(); setShowColorPicker((v) => !v); }}
-          >
+          <ToolBtn title="文字顏色" onClick={() => { saveSelection(); setShowColorPicker((v) => !v); }}>
             <Palette className="h-3.5 w-3.5" />
           </ToolBtn>
           {showColorPicker && (
-            <div
-              ref={colorPickerRef}
-              className="absolute left-0 top-full z-50 mt-1 rounded-xl border border-border bg-card p-3 shadow-xl"
-              style={{ width: 180 }}
-            >
+            <div ref={colorPickerRef} className="absolute left-0 top-full z-50 mt-1 rounded-xl border border-border bg-card p-3 shadow-xl" style={{ width: 180 }}>
               <p className="mb-2 font-body text-[11px] text-muted-foreground">選擇顏色</p>
               <div className="grid grid-cols-8 gap-1">
                 {PRESET_COLORS.map((c) => (
-                  <button
-                    key={c}
-                    type="button"
-                    title={c}
-                    style={{ background: c }}
+                  <button key={c} type="button" title={c} style={{ background: c }}
                     className="h-5 w-5 rounded-sm border border-border/50 hover:scale-110 transition-transform"
-                    onMouseDown={(e) => {
-                      e.preventDefault();
-                      restoreSelection();
-                      exec('foreColor', c);
-                      setShowColorPicker(false);
-                    }}
+                    onMouseDown={(e) => { e.preventDefault(); restoreSelection(); exec('foreColor', c); setShowColorPicker(false); }}
                   />
                 ))}
               </div>
             </div>
           )}
         </div>
-
         <span className="mx-1 h-4 w-px bg-border" />
-
-        {/* Lists */}
         <ToolBtn title="Bullet 列表" onClick={() => exec('insertUnorderedList')}><List className="h-3.5 w-3.5" /></ToolBtn>
         <ToolBtn title="數字列表" onClick={() => exec('insertOrderedList')}><ListOrdered className="h-3.5 w-3.5" /></ToolBtn>
-
         <span className="mx-1 h-4 w-px bg-border" />
-
-        {/* Alignment */}
         <ToolBtn title="向左對齊" onClick={() => exec('justifyLeft')}><AlignLeft className="h-3.5 w-3.5" /></ToolBtn>
         <ToolBtn title="置中對齊" onClick={() => exec('justifyCenter')}><AlignCenter className="h-3.5 w-3.5" /></ToolBtn>
         <ToolBtn title="向右對齊" onClick={() => exec('justifyRight')}><AlignRight className="h-3.5 w-3.5" /></ToolBtn>
-
         <span className="mx-1 h-4 w-px bg-border" />
-
-        {/* Image */}
-        <input
-          ref={imgInputRef}
-          type="file"
-          accept=".png,.jpg,.jpeg,.webp,.svg"
-          className="hidden"
+        <input ref={imgInputRef} type="file" accept=".png,.jpg,.jpeg,.webp,.svg" className="hidden"
           onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImageFile(f); e.target.value = ''; }}
         />
         <ToolBtn title="插入圖片" onClick={() => imgInputRef.current?.click()}><ImageIcon className="h-3.5 w-3.5" /></ToolBtn>
       </div>
-
-      {/* Editable area */}
       <div
         ref={editorRef}
         contentEditable
         suppressContentEditableWarning
         onInput={() => { if (editorRef.current) onChange(editorRef.current.innerHTML); }}
         onPaste={(e) => {
-          // Handle image paste
           const items = e.clipboardData?.items;
           if (items) {
             for (const item of items) {
