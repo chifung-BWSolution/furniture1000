@@ -488,7 +488,7 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
           <img
             src={lightboxSrc}
             alt="放大圖片"
-            className="max-h-[90vh] max-w-[90vw] rounded-xl object-contain shadow-2xl"
+            className="w-[800px] h-[800px] max-w-[90vw] max-h-[90vw] rounded-xl object-contain shadow-2xl bg-black/20"
             onClick={(e) => e.stopPropagation()}
           />
         </div>
