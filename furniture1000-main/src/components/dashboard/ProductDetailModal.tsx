@@ -408,6 +408,9 @@ export function ProductDetailModal({
   const [categoryList, setCategoryList] = useState<{ id: string; name: string; parent_id: string | null; level: number; sort_order: number }[]>([]);
   const [categoryListLoading, setCategoryListLoading] = useState(false);
 
+  // Shopify product_type from ready_to_shopify
+  const [shopifyProductType, setShopifyProductType] = useState<string | null>(null);
+
   // Image/Media state
   const [images, setImages] = useState<ProductImage[]>([]);
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
@@ -486,29 +489,37 @@ export function ProductDetailModal({
     }
   }, [product]);
 
-  // Fetch categories directly from product_category table when modal opens
+  // Fetch categories + shopify product_type when modal opens
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     (async () => {
       setCategoryListLoading(true);
       try {
-        const { data, error } = await supabase
-          .from('product_category')
-          .select('id, name, parent_id, level, sort_order')
-          .order('sort_order', { ascending: true });
-        if (!cancelled && data) {
-          setCategoryList(data);
+        const [catResult, shopifyResult] = await Promise.all([
+          supabase
+            .from('product_category')
+            .select('id, name, parent_id, level, sort_order')
+            .order('sort_order', { ascending: true }),
+          supabase
+            .from('ready_to_shopify')
+            .select('product_type')
+            .eq('product_id', product.id)
+            .maybeSingle(),
+        ]);
+        if (!cancelled) {
+          if (catResult.data) setCategoryList(catResult.data);
+          if (catResult.error) console.warn('[ProductDetailModal] Failed to fetch categories:', catResult.error);
+          setShopifyProductType(shopifyResult.data?.product_type ?? null);
         }
-        if (error) console.warn('[ProductDetailModal] Failed to fetch categories:', error);
       } catch (err) {
-        console.warn('[ProductDetailModal] Category fetch error:', err);
+        console.warn('[ProductDetailModal] Fetch error:', err);
       } finally {
         if (!cancelled) setCategoryListLoading(false);
       }
     })();
     return () => { cancelled = true; };
-  }, [open]);
+  }, [open, product.id]);
 
   // Auto-calculate total lead time
   const computedTotalLeadTime = (() => {
@@ -1150,26 +1161,13 @@ export function ProductDetailModal({
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="detail-category" className="font-body text-sm text-muted-foreground">
+                      <Label className="font-body text-sm text-muted-foreground">
                         分類 / Collection
                       </Label>
-                      <div className="flex flex-col gap-1">
-                        <CascadingCategorySelector
-                          categories={categoryList}
-                          value={level2Category || level1Category}
-                          onSelectionChange={(sel: CategorySelection) => {
-                            setLevel1Category(sel.level1);
-                            setLevel2Category(sel.level2);
-                          }}
-                          placeholder={categoryListLoading ? '載入中...' : '選擇類目'}
-                          showClear
-                          triggerClassName="font-body text-xs h-9"
-                        />
-                        {level1Category && (
-                          <p className="font-body text-[11px] text-muted-foreground/70">
-                            {level1Category}{level2Category ? ` › ${level2Category}` : ''}
-                          </p>
-                        )}
+                      <div className="flex items-center h-9 px-3 rounded-md border border-border bg-muted/50">
+                        <span className="font-body text-xs text-foreground">
+                          {categoryListLoading ? '載入中...' : (shopifyProductType || '—')}
+                        </span>
                       </div>
                     </div>
 
@@ -1430,18 +1428,28 @@ export function ProductDetailModal({
                   )}
                 </section>
 
-                {/* Delivery Term */}
-                {product?.deliveryTermName && (
-                  <div className="rounded-lg bg-blue-500/5 border border-blue-500/20 p-3">
-                    <div className="flex items-center gap-2">
-                      <Clock className="h-3.5 w-3.5 text-blue-500" />
-                      <span className="font-body text-sm text-muted-foreground">貨期類型：</span>
-                      <span className="inline-flex items-center rounded-md bg-blue-500/10 px-2 py-0.5 font-mono-data text-xs font-medium text-blue-600 dark:text-blue-400 ring-1 ring-inset ring-blue-500/20">
-                        {product.deliveryTermName}
-                      </span>
+                {/* Delivery Term — derived from in_stock / customize */}
+                {(() => {
+                  const inStock = (product as any).inStock ?? (product as any).in_stock;
+                  const customize = (product as any).customize;
+                  const label = inStock === true
+                    ? '現貨'
+                    : customize
+                    ? customize
+                    : product?.deliveryTermName || null;
+                  if (!label) return null;
+                  return (
+                    <div className="rounded-lg bg-blue-500/5 border border-blue-500/20 p-3">
+                      <div className="flex items-center gap-2">
+                        <Clock className="h-3.5 w-3.5 text-blue-500" />
+                        <span className="font-body text-sm text-muted-foreground">貨期類型：</span>
+                        <span className="inline-flex items-center rounded-md bg-blue-500/10 px-2 py-0.5 font-mono-data text-xs font-medium text-blue-600 dark:text-blue-400 ring-1 ring-inset ring-blue-500/20">
+                          {label}
+                        </span>
+                      </div>
                     </div>
-                  </div>
-                )}
+                  );
+                })()}
 
                 <Separator />
 
