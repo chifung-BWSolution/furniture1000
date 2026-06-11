@@ -419,9 +419,12 @@ export function useAppStore() {
         const product = dbRowToProduct(row, variantsByProduct[row.id] || []);
         const rts = rtsByProductId[row.id];
         if (rts) {
-          // Override description with shopify_page_description if available
+          // Override description + descriptionHtml with shopify_page_description if available.
+          // ProductDetailModal uses descriptionHtml first (line 426), so both must be set
+          // to ensure the modal's 「產品說明」shows the page description, not the raw material text.
           if (rts.shopify_page_description) {
             product.description = rts.shopify_page_description;
+            product.descriptionHtml = rts.shopify_page_description;
           }
 
           // Use ready_to_shopify image_url as primary (supports both HTTP URL and base64)
