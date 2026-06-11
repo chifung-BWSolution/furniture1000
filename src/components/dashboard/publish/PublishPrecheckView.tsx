@@ -91,7 +91,7 @@ export function PublishPrecheckView({ onNavigate, onProductsReadyToPublish }: Pr
       const { data } = await supabase
         .from('products')
         .select(
-          'id,title,description,image_url,images,sale_price,price,' +
+          'id,title,description,image_url,sale_price,price,' +
           'sku,model,in_stock,customize,tags,' +
           'dimension_l_mm,dimension_w_mm,dimension_h_mm,' +
           'level1_category,level2_category,factories_display_name,ready_to_publish'
@@ -103,7 +103,7 @@ export function PublishPrecheckView({ onNavigate, onProductsReadyToPublish }: Pr
       if (cancelled) return;
 
       const mapped: CheckRow[] = (data || []).map((r: any) => {
-        const hasImages = !!((Array.isArray(r.images) && r.images[0]?.src) || r.image_url);
+        const hasImages = !!r.image_url;
         const skuValue = r.sku || r.model || '';
         const dimHasAny = r.dimension_l_mm != null || r.dimension_w_mm != null || r.dimension_h_mm != null;
 

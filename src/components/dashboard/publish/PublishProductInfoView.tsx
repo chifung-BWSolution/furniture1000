@@ -47,7 +47,7 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   const { rows, totalCount, isLoading, Toolbar, Pagination } = usePublishList({
-    select: 'id,title,image_url,images,price,sale_price,cost_price,sku,tags,dimension_l_mm,dimension_w_mm,dimension_h_mm,level1_category,level2_category,in_stock,customize,model,factories_display_name',
+    select: 'id,title,image_url,price,sale_price,cost_price,sku,tags,dimension_l_mm,dimension_w_mm,dimension_h_mm,level1_category,level2_category,in_stock,customize,model,factories_display_name',
     applyBaseFilters: (q) => q.eq('in_shopify_queue', true).eq('info_done', false),
     reloadKey,
   });
@@ -83,7 +83,7 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
       return {
         id: r.id,
         title: r.title || '',
-        imageUrl: (Array.isArray(r.images) && r.images[0]?.src) || r.image_url || '',
+        imageUrl: r.image_url || '',
         factory: r.factories_display_name || '',
         price: Number(r.sale_price ?? r.price ?? 0),
         costPrice: r.cost_price != null ? Number(r.cost_price) : null,

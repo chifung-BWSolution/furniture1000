@@ -43,29 +43,24 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
   const [reloadKey, setReloadKey] = useState(0);
   const cardRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
-  // Only show products where copywriting is NOT yet done
+  // Only show products where copywriting is NOT yet done.
+  // NOTE: do NOT select the heavy `images` JSONB column here — it stores base64
+  // data-URLs that can be ~1MB each, making the list query take minutes. The
+  // list only needs the lightweight `image_url` thumbnail; full images are
+  // loaded lazily when a product is opened (openProduct).
   const { rows, totalCount, isLoading, Toolbar, Pagination } = usePublishList({
-    select: 'id,title,description,image_url,images,image_url_2,image_url_3,factories_display_name,level1_category,level2_category,tags,sale_price,price,sku,model',
+    select: 'id,title,description,image_url,factories_display_name,level1_category,level2_category,tags,sale_price,price,sku,model',
     applyBaseFilters: (q) => q.eq('in_shopify_queue', true).or('copy_done.is.null,copy_done.eq.false'),
     reloadKey,
   });
 
   const items: CopyItem[] = useMemo(() => rows.map((r: any) => {
-    const primaryImg = (Array.isArray(r.images) && r.images[0]?.src) || r.image_url || '';
-    const extraImgs = [r.image_url_2, r.image_url_3].filter(Boolean) as string[];
-    // Also pull additional images from the images JSONB array (index 1+)
-    if (Array.isArray(r.images)) {
-      r.images.slice(1).forEach((img: any) => {
-        const src = img?.src || img;
-        if (src && typeof src === 'string' && !extraImgs.includes(src)) extraImgs.push(src);
-      });
-    }
     return {
       id: r.id,
       title: r.title || '',
       description: r.description || '',
-      imageUrl: primaryImg,
-      images: extraImgs,
+      imageUrl: r.image_url || '',
+      images: [], // populated lazily in openProduct
       factory: r.factories_display_name || '',
       level1: r.level1_category || '',
       level2: r.level2_category || '',
@@ -113,12 +108,32 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
     setName(p.title);
     setDesc(p.description);
     setPrimaryImg(p.imageUrl);
-    setExtraImgs(p.images);
+    setExtraImgs([]); // will be filled by the lazy fetch below
     setSeoTitle(p.seoTitle);
     setSeoDesc(p.seoDescription);
     setHandle(p.handle);
 
-    // Fetch previously saved data from ready_to_shopify
+    // Lazily fetch the heavy image columns for THIS product only (not loaded in list)
+    const { data: prod } = await supabase
+      .from('products')
+      .select('image_url,images,image_url_2,image_url_3')
+      .eq('id', p.id)
+      .maybeSingle();
+
+    if (prod) {
+      const primaryImg = (Array.isArray(prod.images) && prod.images[0]?.src) || prod.image_url || p.imageUrl || '';
+      const extraImgs = [prod.image_url_2, prod.image_url_3].filter(Boolean) as string[];
+      if (Array.isArray(prod.images)) {
+        prod.images.slice(1).forEach((img: any) => {
+          const src = img?.src || img;
+          if (src && typeof src === 'string' && !extraImgs.includes(src)) extraImgs.push(src);
+        });
+      }
+      if (primaryImg) setPrimaryImg(primaryImg);
+      setExtraImgs(extraImgs);
+    }
+
+    // Fetch previously saved data from ready_to_shopify (overrides products)
     const { data: rts } = await supabase
       .from('ready_to_shopify')
       .select('title,body_html,image_url,images,shopify_page_title,shopify_page_description,shopify_url,handle')
