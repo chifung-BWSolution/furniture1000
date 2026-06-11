@@ -419,23 +419,25 @@ export function useAppStore() {
         const product = dbRowToProduct(row, variantsByProduct[row.id] || []);
         const rts = rtsByProductId[row.id];
         if (rts) {
-          // Use ready_to_shopify image_url if it's an HTTP URL (not base64)
-          if (rts.image_url && rts.image_url.startsWith('http')) {
-            product.imageUrl = rts.image_url;
-          }
           // Override description with shopify_page_description if available
           if (rts.shopify_page_description) {
             product.description = rts.shopify_page_description;
           }
-          // Attach additional images from ready_to_shopify.images
-          if (Array.isArray(rts.images) && rts.images.length > 0) {
-            (product as any).images = rts.images.map((img: any) => ({
-              src: img?.src || img?.url || (typeof img === 'string' ? img : ''),
-              alt: img?.alt || '',
-            })).filter((img: any) => img.src);
-          } else if (product.imageUrl) {
-            (product as any).images = [{ src: product.imageUrl, alt: product.title }];
+
+          // Use ready_to_shopify image_url as primary (supports both HTTP URL and base64)
+          const primarySrc = rts.image_url || product.imageUrl || '';
+          if (primarySrc) product.imageUrl = primarySrc;
+
+          // Build full images array: primary first, then additional images from ready_to_shopify.images
+          const allImages: { src: string; alt: string }[] = [];
+          if (primarySrc) allImages.push({ src: primarySrc, alt: product.title });
+          if (Array.isArray(rts.images)) {
+            for (const img of rts.images) {
+              const src = img?.src || img?.url || (typeof img === 'string' ? img : '');
+              if (src && src !== primarySrc) allImages.push({ src, alt: img?.alt || '' });
+            }
           }
+          if (allImages.length > 0) (product as any).images = allImages;
         }
         return product;
       });
