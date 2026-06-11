@@ -271,9 +271,9 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
       // Strip HTML tags from current desc for use as reference material
       const rawDesc = desc.replace(/<[^>]*>/g, '').trim();
 
-      const prompt = `你是一位資深的商業傢私品牌文案總監，專注為香港及大灣區 B2B 客戶撰寫高端家具電商文案。
+      const prompt = `你是一位資深的商業傢私品牌文案總監，專注為香港及大灣區 B2B 客戶撰寫高端家具電商文案。全部內容必須使用香港繁體中文（如「傢私」、「梳化」、「閣下」等港式用語）。
 
-請根據以下產品資料，把現有的「產品說明原文」重新改寫成一段約 300 字的繁體中文商業文案，直接輸出正文，不要標題、不要分點列表、不要任何格式符號。
+請根據以下產品資料，把現有的「產品說明原文」重新改寫成一篇約 300 字的專業商業文案。
 
 【產品名稱】${name || product.title}
 【產品分類】${categoryParts || '家具'}
@@ -281,14 +281,27 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
 【產品說明原文（素材參考）】
 ${rawDesc || '（暫無原文，請根據產品名稱及分類發揮）'}
 
-【文案要求】
-- 約 300 字，繁體中文
-- 以專業商業傢私角度撰寫，語氣自信、簡潔、有質感
-- 開首直接說明產品定位及核心賣點
-- 中段結合「${scenes}」的使用場景，說明產品如何提升空間質感及使用者體驗
-- 末段強調產品材質工藝或耐用性，增加購買信心
-- 不要使用「本產品」、「該產品」等字眼，直接用產品名稱或「它」
-- 不要 markdown 格式，純文字段落`;
+【輸出格式要求】請嚴格按以下結構輸出，共 5 段：
+
+第1段（引言）：1-2 句，以引人入勝的方式點出產品定位及核心價值，突出「${scenes}」的使用場景。
+
+第2段（小標題 + emoji + 內文）：
+格式：[相關emoji] [2-4字小標題]\n[2-3句內文，說明產品第一大賣點，提取原文素材]
+
+第3段（小標題 + emoji + 內文）：
+格式：[相關emoji] [2-4字小標題]\n[2-3句內文，說明產品第二大賣點，提取原文素材]
+
+第4段（小標題 + emoji + 內文）：
+格式：[相關emoji] [2-4字小標題]\n[2-3句內文，說明產品第三大賣點，提取原文素材]
+
+第5段（結語）：1-2 句，以有力的結語收結，強調產品對「${scenes}」空間的提升價值。
+
+【額外要求】
+- 香港繁體中文，語氣自信、有質感、略帶文學性
+- emoji 要與內容相關（如 ✨🪑☁️🏗️💼 等）
+- 小標題簡潔有力，2-4 個字
+- 不使用「本產品」、「該產品」，直接用產品名稱或「它」
+- 不使用 markdown（**粗體**、##標題 等），只用純文字加 emoji`;
 
       const res = await fetch(`${supabaseUrl}/functions/v1/supabase-functions-gemini-proxy`, {
         method: 'POST',
