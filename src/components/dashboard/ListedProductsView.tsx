@@ -436,13 +436,13 @@ export function ListedProductsView({
       // 重複商品模式：先按 product_sku 排列（NULL 最後），相同 sku 聚在一起；
       // sku 為 NULL 的再按 title 升序。一般模式用使用者選的排序。
       const baseDataQuery = supabase.from('products').select(LIST_COLUMNS);
-      let dataQuery = showDuplicates
+      let dataQuery = (showDuplicates
         ? baseDataQuery
             .order('product_sku', { ascending: true, nullsFirst: false })
             .order('title', { ascending: true })
         : baseDataQuery
-            .order(sortField, { ascending: sortOrder === 'asc' });
-        .range(from, to);
+            .order(sortField, { ascending: sortOrder === 'asc' })
+      ).range(from, to);
 
       if (debouncedSearch.trim()) {
         dataQuery = dataQuery.ilike('title', `%${debouncedSearch.trim()}%`);
