@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import {
-  Boxes, Check, ChevronLeft, Loader2, Tag, Ruler, DollarSign, Truck, FolderTree, X,
+  Boxes, Check, ChevronLeft, Loader2, Tag, Ruler, DollarSign, Truck, FolderTree, X, ZoomIn,
 } from 'lucide-react';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -76,22 +76,31 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
     reloadKey,
   });
 
-  // Fetch cost from ready_to_shopify for each product (keyed by product_id)
+  // Fetch cost + image_url from ready_to_shopify for each product
   const [costMap, setCostMap] = useState<Record<string, number | null>>({});
+  const [rtsImageMap, setRtsImageMap] = useState<Record<string, string>>({});
   useEffect(() => {
     if (rows.length === 0) return;
     const ids = rows.map((r: any) => r.id);
     supabase
       .from('ready_to_shopify')
-      .select('product_id, cost')
+      .select('product_id, cost, image_url')
       .in('product_id', ids)
       .then(({ data }) => {
         if (!data) return;
-        const map: Record<string, number | null> = {};
-        for (const row of data) map[row.product_id] = row.cost != null ? Number(row.cost) : null;
-        setCostMap(map);
+        const costM: Record<string, number | null> = {};
+        const imgM: Record<string, string> = {};
+        for (const row of data) {
+          costM[row.product_id] = row.cost != null ? Number(row.cost) : null;
+          if (row.image_url) imgM[row.product_id] = row.image_url;
+        }
+        setCostMap(costM);
+        setRtsImageMap(imgM);
       });
   }, [rows]);
+
+  // Lightbox state for enlarged image
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
 
   // 把唯讀的 rows 轉成本頁可編輯的 items 副本（換頁/篩選/重載時重置）
   useEffect(() => {
@@ -294,7 +303,21 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
                   {/* card head */}
                   <div className="flex items-center gap-3 border-b border-border/60 px-5 py-3">
                     <input type="checkbox" checked={isSel} onChange={() => toggle(it.id)} className="h-4 w-4 rounded border-border accent-emerald-600" />
-                    <img src={it.imageUrl} alt={it.title} loading="lazy" className="h-12 w-12 rounded-lg object-cover bg-muted" />
+                    {/* Use ready_to_shopify image_url (base64 → img) if available, fallback to products.image_url */}
+                    <div
+                      className="group relative h-12 w-12 flex-shrink-0 cursor-zoom-in"
+                      onClick={() => { const src = rtsImageMap[it.id] || it.imageUrl; if (src) setLightboxSrc(src); }}
+                    >
+                      <img
+                        src={rtsImageMap[it.id] || it.imageUrl}
+                        alt={it.title}
+                        loading="lazy"
+                        className="h-12 w-12 rounded-lg object-cover bg-muted"
+                      />
+                      <div className="absolute inset-0 hidden group-hover:flex items-center justify-center rounded-lg bg-black/30">
+                        <ZoomIn className="h-4 w-4 text-white" />
+                      </div>
+                    </div>
                     <div className="min-w-0 flex-1">
                       <h3 className="font-display text-[14px] font-bold text-foreground line-clamp-1">{it.title}</h3>
                       <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
@@ -451,6 +474,27 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
         )}
       </div>
       {Pagination}
+
+      {/* Lightbox overlay */}
+      {lightboxSrc && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
+          onClick={() => setLightboxSrc(null)}
+        >
+          <button
+            onClick={() => setLightboxSrc(null)}
+            className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20"
+          >
+            <X className="h-4 w-4" />
+          </button>
+          <img
+            src={lightboxSrc}
+            alt="放大圖片"
+            className="max-h-[90vh] max-w-[90vw] rounded-xl object-contain shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   );
 }
