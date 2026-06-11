@@ -815,20 +815,33 @@ function ImageUploadDialog({ onConfirm, onClose }: { onConfirm: (srcs: string[])
   const [slots, setSlots] = useState<ImageSlot[]>([{ src: '' }]);
   const [activeSlot, setActiveSlot] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
+  // Per-slot error message (e.g. size exceeded)
+  const [slotError, setSlotError] = useState<string>('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const pasteAreaRef = useRef<HTMLDivElement>(null);
 
-  // Focus paste area on mount / slot switch
-  useEffect(() => { pasteAreaRef.current?.focus(); }, [activeSlot]);
+  // Focus paste area on mount / slot switch, clear error on slot change
+  useEffect(() => {
+    pasteAreaRef.current?.focus();
+    setSlotError('');
+  }, [activeSlot]);
 
   const setSrc = (idx: number, src: string) => setSlots((prev) => prev.map((s, i) => i === idx ? { src } : s));
 
   const processAndSet = async (file: File | Blob) => {
+    // Check size before processing
+    if (file.size > MAX_IMG_BYTES) {
+      const mb = (file.size / 1024 / 1024).toFixed(1);
+      setSlotError(`圖片檔案大小為 ${mb}MB，已超過 5MB 上限，請重新選擇較小的圖片`);
+      setSrc(activeSlot, '');
+      return;
+    }
+    setSlotError('');
     setIsProcessing(true);
     try {
       const src = await resizeImage(file);
       setSrc(activeSlot, src);
-    } catch { toast.error('圖片處理失敗'); }
+    } catch { setSlotError('圖片處理失敗，請重試'); }
     finally { setIsProcessing(false); }
   };
 
@@ -849,6 +862,13 @@ function ImageUploadDialog({ onConfirm, onClose }: { onConfirm: (srcs: string[])
     const file = e.target.files?.[0];
     if (!file) return;
     e.target.value = '';
+    if (file.size > MAX_IMG_BYTES) {
+      const mb = (file.size / 1024 / 1024).toFixed(1);
+      setSlotError(`圖片檔案大小為 ${mb}MB，已超過 5MB 上限，請重新選擇較小的圖片`);
+      setSrc(activeSlot, '');
+      return;
+    }
+    setSlotError('');
     const src = await processImageFile(file);
     if (src) setSrc(activeSlot, src);
   };
@@ -863,7 +883,7 @@ function ImageUploadDialog({ onConfirm, onClose }: { onConfirm: (srcs: string[])
   const handleDrop = async (e: React.DragEvent) => {
     e.preventDefault();
     const file = e.dataTransfer.files?.[0];
-    if (file) { const src = await processImageFile(file); if (src) setSrc(activeSlot, src); }
+    if (file) await processAndSet(file);
   };
 
   const addSlot = () => {
@@ -928,18 +948,38 @@ function ImageUploadDialog({ onConfirm, onClose }: { onConfirm: (srcs: string[])
             onPaste={(e) => handlePaste(e)}
             className={cn(
               'relative flex flex-col items-center justify-center rounded-xl border-2 border-dashed transition-colors outline-none cursor-pointer',
-              slots[activeSlot]?.src ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-border hover:border-primary/40 hover:bg-muted/30',
+              slotError
+                ? 'border-rose-500/50 bg-rose-500/5'
+                : slots[activeSlot]?.src
+                  ? 'border-emerald-500/40 bg-emerald-500/5'
+                  : 'border-border hover:border-primary/40 hover:bg-muted/30',
               'min-h-[220px]'
             )}
-            onClick={() => { if (!slots[activeSlot]?.src) fileInputRef.current?.click(); }}
+            onClick={() => { if (!slots[activeSlot]?.src && !slotError) fileInputRef.current?.click(); }}
           >
             {isProcessing ? (
               <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            ) : slotError ? (
+              <div className="flex flex-col items-center gap-3 px-6 text-center pointer-events-none select-none">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full bg-rose-500/10">
+                  <X className="h-6 w-6 text-rose-500" />
+                </div>
+                <div>
+                  <p className="font-body text-sm font-semibold text-rose-600">超過 5MB 上限</p>
+                  <p className="font-body text-[12px] text-rose-500/80 mt-1">{slotError}</p>
+                </div>
+                <button
+                  className="pointer-events-auto mt-1 rounded-lg border border-rose-500/30 bg-rose-500/10 px-4 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-500/20 transition-colors"
+                  onClick={(e) => { e.stopPropagation(); setSlotError(''); fileInputRef.current?.click(); }}
+                >
+                  重新選擇圖片
+                </button>
+              </div>
             ) : slots[activeSlot]?.src ? (
               <>
                 <img src={slots[activeSlot].src} alt="" className="max-h-[200px] max-w-full rounded-lg object-contain" />
                 <button
-                  onClick={(e) => { e.stopPropagation(); setSrc(activeSlot, ''); }}
+                  onClick={(e) => { e.stopPropagation(); setSrc(activeSlot, ''); setSlotError(''); }}
                   className="absolute top-2 right-2 rounded-full bg-black/60 p-1 text-white hover:bg-black/80"
                 >
                   <X className="h-3 w-3" />
