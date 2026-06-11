@@ -154,6 +154,8 @@ function dbRowToProduct(row: any, variants: any[]): Product {
     dimensionHMm: row.dimension_h_mm != null ? parseInt(row.dimension_h_mm) : null,
     deliveryTermId: row.delivery_term_id || null,
     deliveryTermName: row.delivery_term_name || null,
+    inStock: row.in_stock != null ? Boolean(row.in_stock) : null,
+    customize: row.customize || null,
     readyToPublish: row.ready_to_publish === true,
     variants: variants.map(v => ({
       id: v.id,

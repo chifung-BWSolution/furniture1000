@@ -178,11 +178,15 @@ const ProductTableRow = memo(function ProductTableRow({
         )}
       </td>
 
-      {/* Delivery Term (送貨資訊) */}
+      {/* Delivery Term (送貨資訊) — in_stock=true 顯示「現貨」，否則顯示 customize */}
       <td className="px-4 py-3">
-        {product.deliveryTermName ? (
-          <span className="inline-flex items-center rounded-md bg-blue-500/10 px-2 py-0.5 font-mono-data text-xs font-medium text-blue-600 dark:text-blue-400 ring-1 ring-inset ring-blue-500/20">
-            {product.deliveryTermName}
+        {product.inStock === true ? (
+          <span className="inline-flex items-center rounded-md bg-emerald-500/10 px-2 py-0.5 font-mono-data text-xs font-medium text-emerald-600 dark:text-emerald-400 ring-1 ring-inset ring-emerald-500/20">
+            現貨
+          </span>
+        ) : product.customize ? (
+          <span className="inline-flex items-center rounded-md bg-amber-500/10 px-2 py-0.5 font-mono-data text-xs font-medium text-amber-600 dark:text-amber-400 ring-1 ring-inset ring-amber-500/20">
+            {product.customize}
           </span>
         ) : (
           <span className="font-mono-data text-[10px] text-muted-foreground/50">—</span>
