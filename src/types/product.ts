@@ -20,6 +20,7 @@ export interface ProductVariant {
   sku: string;
   price: number;
   inventory: number;
+  option1?: string;
 }
 
 export interface Product {
