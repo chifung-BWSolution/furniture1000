@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { Progress } from '@/components/ui/progress';
 import { MultiColorSelector } from './MultiColorSelector';
-import { CascadingCategorySelector } from './CascadingCategorySelector';
+import { CascadingCategorySelector, type CategorySelection } from './CascadingCategorySelector';
 import {
   Select,
   SelectContent,
@@ -88,6 +88,8 @@ interface ProductForDetail {
   bwfMasterId?: string | null;
   remarks?: string | null;
   category?: string | null;
+  level1Category?: string | null;
+  level2Category?: string | null;
   deliveryTermId?: string | null;
   deliveryTermName?: string | null;
   dimensionLMm?: number | null;
@@ -384,7 +386,8 @@ export function ProductDetailModal({
   // Form state
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const [category, setCategory] = useState('');
+  const [level1Category, setLevel1Category] = useState('');
+  const [level2Category, setLevel2Category] = useState('');
   const [costPrice, setCostPrice] = useState('');
   const [salePrice, setSalePrice] = useState('');
   const [factoryId, setFactoryId] = useState('');
@@ -421,7 +424,8 @@ export function ProductDetailModal({
     if (product) {
       setTitle(product.title || '');
       setDescription(product.descriptionHtml || product.description || '');
-      setCategory(product.category || product.collection || '');
+      setLevel1Category(product.level1Category || '');
+      setLevel2Category(product.level2Category || '');
       setCostPrice(product.costPrice != null ? product.costPrice.toString() : '');
       setSalePrice(product.price != null ? product.price.toString() : '');
       setFactoryId(product.factoryId || '');
@@ -482,18 +486,19 @@ export function ProductDetailModal({
     }
   }, [product]);
 
-  // Fetch categories when modal opens
+  // Fetch categories directly from product_category table when modal opens
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     (async () => {
       setCategoryListLoading(true);
       try {
-        const { data, error } = await supabase.functions.invoke('supabase-functions-manage-categories', {
-          body: { action: 'list' },
-        });
-        if (!cancelled && data?.categories) {
-          setCategoryList(data.categories);
+        const { data, error } = await supabase
+          .from('product_category')
+          .select('id, name, parent_id, level, sort_order')
+          .order('sort_order', { ascending: true });
+        if (!cancelled && data) {
+          setCategoryList(data);
         }
         if (error) console.warn('[ProductDetailModal] Failed to fetch categories:', error);
       } catch (err) {
@@ -688,8 +693,10 @@ export function ProductDetailModal({
         title,
         description: description,
         description_html: description,
-        collection: category,
-        category: category,
+        collection: level2Category || level1Category || null,
+        category: level2Category || level1Category || null,
+        level1_category: level1Category || null,
+        level2_category: level2Category || null,
         cost_price: parsedCostPrice,
         price: parsedSalePrice ?? product.price,
         factory_id: factoryId || null,
@@ -732,7 +739,7 @@ export function ProductDetailModal({
             product: {
               title,
               description: description,
-              category,
+              category: level2Category || level1Category || null,
               factory_id: factoryId || null,
               cost_price: parsedCostPrice,
               sale_price: parsedSalePrice ?? product.price,
@@ -773,8 +780,10 @@ export function ProductDetailModal({
         title,
         description,
         descriptionHtml: description,
-        collection: category,
-        category,
+        collection: level2Category || level1Category || null,
+        category: level2Category || level1Category || null,
+        level1Category,
+        level2Category,
         costPrice: parsedCostPrice,
         price: parsedSalePrice ?? product.price,
         factoryId: factoryId || null,
@@ -827,7 +836,7 @@ export function ProductDetailModal({
       setUploadProgress(0);
     }
   }, [
-    title, description, category, costPrice, salePrice, factoryId,
+    title, description, level1Category, level2Category, costPrice, salePrice, factoryId,
     productionLeadTime, shippingDays, shippingFee, color, remarks,
     dimensionL, dimensionW, dimensionH,
     images, pendingNewFiles, pendingDeletePaths,
@@ -1143,14 +1152,24 @@ export function ProductDetailModal({
                       <Label htmlFor="detail-category" className="font-body text-sm text-muted-foreground">
                         分類 / Collection
                       </Label>
-                      <CascadingCategorySelector
-                        categories={categoryList}
-                        value={category}
-                        onValueChange={setCategory}
-                        placeholder={categoryListLoading ? '載入中...' : '選擇類目'}
-                        showClear
-                        triggerClassName="font-body text-xs h-9"
-                      />
+                      <div className="flex flex-col gap-1">
+                        <CascadingCategorySelector
+                          categories={categoryList}
+                          value={level2Category || level1Category}
+                          onSelectionChange={(sel: CategorySelection) => {
+                            setLevel1Category(sel.level1);
+                            setLevel2Category(sel.level2);
+                          }}
+                          placeholder={categoryListLoading ? '載入中...' : '選擇類目'}
+                          showClear
+                          triggerClassName="font-body text-xs h-9"
+                        />
+                        {level1Category && (
+                          <p className="font-body text-[11px] text-muted-foreground/70">
+                            {level1Category}{level2Category ? ` › ${level2Category}` : ''}
+                          </p>
+                        )}
+                      </div>
                     </div>
 
                     {/* 現貨 / 全訂製 toggle + 生產天數 (全訂製限定) — 預設未選擇 */}
