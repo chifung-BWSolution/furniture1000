@@ -1,9 +1,7 @@
 import { useState, useCallback, useEffect, useRef, useMemo, memo } from 'react';
 import { cn } from '@/lib/utils';
 import { Product, ProductVariant } from '@/types/product';
-import { StatusBadge } from './StatusBadge';
 import { TagSelector } from './TagSelector';
-import { ColorSelector } from './ColorSelector';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -33,18 +31,15 @@ import {
 } from '@/components/ui/tooltip';
 import { ProductDetailModal } from './ProductDetailModal';
 import {
-  RotateCcw,
   X,
   Plus,
   ChevronDown,
   ChevronLeft,
   Filter,
   Trash2,
-  ExternalLink,
   Loader2,
   Database,
   Sparkles,
-  Factory,
   Package,
   Upload,
 } from 'lucide-react';
@@ -137,28 +132,6 @@ const ProductTableRow = memo(function ProductTableRow({
         </div>
       </td>
 
-      {/* Price (產品價錢) */}
-      <td className="px-4 py-3">
-        {isEditingThis && editingCell!.field === 'price' ? (
-          <Input
-            autoFocus
-            type="number"
-            step="0.01"
-            value={editValue}
-            onChange={e => onEditValueChange(e.target.value)}
-            onBlur={onSaveEdit}
-            className="h-8 w-24 font-mono-data text-xs bg-background"
-          />
-        ) : (
-          <button
-            onClick={() => onStartEditing(product.id, 'price', product.price.toString())}
-            className="font-mono-data text-sm font-bold"
-          >
-            ${product.price.toFixed(2)}
-          </button>
-        )}
-      </td>
-
       {/* SKU (產品編碼) */}
       <td className="px-4 py-3">
         {isEditingThis && editingCell!.field === 'sku' ? (
@@ -176,90 +149,6 @@ const ProductTableRow = memo(function ProductTableRow({
           >
             {product.sku ? product.sku : <span className="text-muted-foreground/50">—</span>}
           </button>
-        )}
-      </td>
-
-      {/* Delivery Term (送貨資訊) — in_stock=true 顯示「現貨」，否則顯示 customize */}
-      <td className="px-4 py-3">
-        {product.inStock === true ? (
-          <span className="inline-flex items-center rounded-md bg-emerald-500/10 px-2 py-0.5 font-mono-data text-xs font-medium text-emerald-600 dark:text-emerald-400 ring-1 ring-inset ring-emerald-500/20">
-            現貨
-          </span>
-        ) : product.customize ? (
-          <span className="inline-flex items-center rounded-md bg-amber-500/10 px-2 py-0.5 font-mono-data text-xs font-medium text-amber-600 dark:text-amber-400 ring-1 ring-inset ring-amber-500/20">
-            {product.customize}
-          </span>
-        ) : (
-          <span className="font-mono-data text-[10px] text-muted-foreground/50">—</span>
-        )}
-      </td>
-
-      {/* Dimensions (產品尺寸 LWH) */}
-      <td className="px-4 py-3">
-        {(product.dimensionLMm || product.dimensionWMm || product.dimensionHMm) ? (
-          <span className="font-mono-data text-[10px] text-foreground whitespace-nowrap">
-            {product.dimensionLMm ?? '—'} × {product.dimensionWMm ?? '—'} × {product.dimensionHMm ?? '—'} mm
-          </span>
-        ) : (
-          <span className="font-mono-data text-[10px] text-muted-foreground/50">—</span>
-        )}
-      </td>
-
-      {/* Tags (產品標籤) — using TagSelector with official product tags */}
-      <td className="px-4 py-3">
-        <TagSelector
-          selectedTags={product.tags}
-          onChange={(tags) => onUpdateProduct(product.id, { tags })}
-          compact
-          maxVisible={3}
-        />
-      </td>
-
-      {/* Material (材質描述) */}
-      <td className="max-w-[160px] px-4 py-3">
-        <div className="text-left">
-          <span className={cn(
-            'text-xs text-muted-foreground font-body',
-            'line-clamp-2'
-          )}>
-            {product.material || '—'}
-          </span>
-        </div>
-      </td>
-
-      {/* Variants */}
-      <td className="px-4 py-3">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => onOpenVariantModal(product)}
-          className="h-7 gap-1 text-[10px] font-mono-data"
-        >
-          {product.variants.length} 個變體
-          <ChevronDown className="h-3 w-3" />
-        </Button>
-      </td>
-
-      {/* Factory / Manufacturer */}
-      <td className="px-4 py-3">
-        {product.factoriesDisplayName ? (
-          <Badge className="gap-1 bg-violet-500/10 text-violet-400 border border-violet-500/20 font-mono-data text-[10px] max-w-[120px] truncate">
-            <Factory className="h-2.5 w-2.5 flex-shrink-0" />
-            <span className="truncate">{product.factoriesDisplayName}</span>
-          </Badge>
-        ) : (
-          <span className="font-mono-data text-[10px] text-muted-foreground/50">—</span>
-        )}
-      </td>
-
-      {/* Factory ID */}
-      <td className="px-4 py-3">
-        {product.factoryId ? (
-          <Badge className="gap-1 bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-mono-data text-[10px] max-w-[100px] truncate">
-            <span className="truncate">{product.factoryId}</span>
-          </Badge>
-        ) : (
-          <span className="font-mono-data text-[10px] text-muted-foreground/50">—</span>
         )}
       </td>
 
@@ -318,204 +207,50 @@ const ProductTableRow = memo(function ProductTableRow({
         )}
       </td>
 
-      {/* Production Days */}
+      {/* Dimensions (產品尺寸 LWH) */}
       <td className="px-4 py-3">
-        {isEditingThis && editingCell!.field === 'productionLeadTime' ? (
-          <Input
-            autoFocus
-            type="number"
-            value={editValue}
-            onChange={e => onEditValueChange(e.target.value)}
-            onBlur={onSaveEdit}
-            className="h-8 w-20 font-mono-data text-xs bg-background"
-          />
+        {(product.dimensionLMm || product.dimensionWMm || product.dimensionHMm) ? (
+          <span className="font-mono-data text-[10px] text-foreground whitespace-nowrap">
+            {product.dimensionLMm ?? '—'} × {product.dimensionWMm ?? '—'} × {product.dimensionHMm ?? '—'} mm
+          </span>
         ) : (
-          <button
-            onClick={() => onStartEditing(product.id, 'productionLeadTime', (product.productionLeadTime ?? '').toString())}
-            className="font-mono-data text-xs"
-          >
-            {product.productionLeadTime != null ? `${product.productionLeadTime} 天` : <span className="text-muted-foreground/50">—</span>}
-          </button>
+          <span className="font-mono-data text-[10px] text-muted-foreground/50">—</span>
         )}
       </td>
 
-      {/* Shipping Days */}
+      {/* Tags (產品標籤) — using TagSelector with official product tags */}
       <td className="px-4 py-3">
-        {isEditingThis && editingCell!.field === 'shippingDays' ? (
-          <Input
-            autoFocus
-            type="number"
-            value={editValue}
-            onChange={e => onEditValueChange(e.target.value)}
-            onBlur={onSaveEdit}
-            className="h-8 w-20 font-mono-data text-xs bg-background"
-          />
-        ) : (
-          <button
-            onClick={() => onStartEditing(product.id, 'shippingDays', (product.shippingDays ?? '').toString())}
-            className="font-mono-data text-xs"
-          >
-            {product.shippingDays != null ? `${product.shippingDays} 天` : <span className="text-muted-foreground/50">—</span>}
-          </button>
-        )}
-      </td>
-
-      {/* Total Lead Time (auto-computed: productionLeadTime + shippingDays) */}
-      <td className="px-4 py-3">
-        {(() => {
-          const prod = product.productionLeadTime;
-          const ship = product.shippingDays;
-          if (prod != null && ship != null) {
-            return (
-              <span className="font-mono-data text-xs font-bold text-primary">
-                {prod + ship} 天
-              </span>
-            );
-          } else if (prod != null || ship != null) {
-            return (
-              <Tooltip>
-                <TooltipTrigger>
-                  <span className="font-mono-data text-xs text-amber-500">
-                    {(prod ?? 0) + (ship ?? 0)} 天
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p className="font-mono-data text-[11px]">
-                    {prod == null ? '缺少生產天數' : '缺少船期天數'}，顯示部分合計
-                  </p>
-                </TooltipContent>
-              </Tooltip>
-            );
-          }
-          return <span className="font-mono-data text-[10px] text-muted-foreground/50">—</span>;
-        })()}
-      </td>
-
-      {/* Shipping Fee */}
-      <td className="px-4 py-3">
-        {isEditingThis && editingCell!.field === 'shippingFee' ? (
-          <Input
-            autoFocus
-            type="number"
-            step="0.01"
-            value={editValue}
-            onChange={e => onEditValueChange(e.target.value)}
-            onBlur={onSaveEdit}
-            className="h-8 w-24 font-mono-data text-xs bg-background"
-          />
-        ) : (
-          <button
-            onClick={() => onStartEditing(product.id, 'shippingFee', (product.shippingFee ?? '').toString())}
-            className="font-mono-data text-xs"
-          >
-            {product.shippingFee != null ? `$${product.shippingFee.toFixed(2)}` : <span className="text-muted-foreground/50">—</span>}
-          </button>
-        )}
-      </td>
-
-      {/* Remarks */}
-      <td className="max-w-[150px] px-4 py-3">
-        {isEditingThis && editingCell!.field === 'remarks' ? (
-          <div className="space-y-1">
-            <Input
-              autoFocus
-              value={editValue}
-              onChange={e => onEditValueChange(e.target.value)}
-              onBlur={onSaveEdit}
-              className="h-8 font-body text-xs bg-background"
-            />
-          </div>
-        ) : (
-          <button
-            onClick={() => onStartEditing(product.id, 'remarks', product.remarks || '')}
-            className="text-left"
-          >
-            {product.remarks ? (
-              <span className="font-body text-xs text-muted-foreground line-clamp-1">{product.remarks}</span>
-            ) : (
-              <span className="font-mono-data text-[10px] text-muted-foreground/50">—</span>
-            )}
-          </button>
-        )}
-      </td>
-
-      {/* Color */}
-      <td className="px-4 py-3">
-        <ColorSelector
-          value={product.color || ''}
-          onChange={(val) => onUpdateProduct(product.id, { color: val || null })}
+        <TagSelector
+          selectedTags={product.tags}
+          onChange={(tags) => onUpdateProduct(product.id, { tags })}
           compact
+          maxVisible={3}
         />
       </td>
 
-      {/* Source */}
+      {/* Variants */}
       <td className="px-4 py-3">
-        {product.source === 'shopify' ? (
-          <Badge className="gap-1 bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 font-mono-data text-[10px]">
-            <Database className="h-2.5 w-2.5" />
-            Shopify
-          </Badge>
-        ) : (
-          <Badge className="gap-1 bg-primary/10 text-primary border border-primary/20 font-mono-data text-[10px]">
-            <Sparkles className="h-2.5 w-2.5" />
-            本地
-          </Badge>
-        )}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => onOpenVariantModal(product)}
+          className="h-7 gap-1 text-[10px] font-mono-data"
+        >
+          {product.variants.length} 個變體
+          <ChevronDown className="h-3 w-3" />
+        </Button>
       </td>
 
-      {/* Category */}
+      {/* Delivery Term (送貨資訊) — in_stock=true 顯示「現貨」，否則顯示 customize */}
       <td className="px-4 py-3">
-        {product.category ? (
-          <Badge variant="outline" className="font-mono-data text-[10px] border-indigo-500/30 text-indigo-400 bg-indigo-500/5">
-            {product.category}
-          </Badge>
-        ) : (
-          <span className="text-muted-foreground/40 font-mono-data text-[10px]">未分類</span>
-        )}
-      </td>
-
-      {/* Status */}
-      <td className="px-4 py-3">
-        <div className="flex items-center gap-2">
-          <StatusBadge status={product.status} />
-          {product.status === 'error' && !product.shopifyProductId && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={() => onRetryPublish(product.id)}
-                  className="flex h-6 w-6 items-center justify-center rounded-md text-rose-500 transition-colors hover:bg-rose-500/10"
-                >
-                  <RotateCcw className="h-3.5 w-3.5" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="left" className="max-w-xs">
-                <p className="font-mono-data text-[11px]">
-                  {product.errorMessage || '未知錯誤。點擊重試。'}
-                </p>
-              </TooltipContent>
-            </Tooltip>
-          )}
-        </div>
-      </td>
-
-      {/* Shopify Link */}
-      <td className="px-4 py-3">
-        {product.shopifyProductId ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Badge
-                className="gap-1 cursor-pointer bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 hover:bg-emerald-500/20 font-mono-data text-[10px]"
-              >
-                <ExternalLink className="h-2.5 w-2.5" />
-                {product.shopifyProductId.slice(-8)}
-              </Badge>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p className="font-mono-data text-[11px]">
-                Shopify 產品 ID: {product.shopifyProductId}
-              </p>
-            </TooltipContent>
-          </Tooltip>
+        {product.inStock === true ? (
+          <span className="inline-flex items-center rounded-md bg-emerald-500/10 px-2 py-0.5 font-mono-data text-xs font-medium text-emerald-600 dark:text-emerald-400 ring-1 ring-inset ring-emerald-500/20">
+            現貨
+          </span>
+        ) : product.customize ? (
+          <span className="inline-flex items-center rounded-md bg-amber-500/10 px-2 py-0.5 font-mono-data text-xs font-medium text-amber-600 dark:text-amber-400 ring-1 ring-inset ring-amber-500/20">
+            {product.customize}
+          </span>
         ) : (
           <span className="font-mono-data text-[10px] text-muted-foreground/50">—</span>
         )}
@@ -872,7 +607,7 @@ export const ProductTableView = memo(function ProductTableView({
 
         {/* Table */}
         <div className="flex-1 overflow-auto">
-          <table className="w-full min-w-[2350px]">
+          <table className="w-full min-w-[1200px]">
             <thead className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm">
               <tr className="border-b border-border">
                 <th className="w-12 px-4 py-3">
@@ -893,47 +628,7 @@ export const ProductTableView = memo(function ProductTableView({
                 </th>
                 <th className="px-4 py-3 text-left">
                   <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    產品價錢
-                  </span>
-                </th>
-                <th className="px-4 py-3 text-left">
-                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
                     產品編碼 (SKU)
-                  </span>
-                </th>
-                <th className="px-4 py-3 text-left">
-                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    送貨資訊
-                  </span>
-                </th>
-                <th className="px-4 py-3 text-left">
-                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    產品尺寸（長 / 闊 / 高 mm）
-                  </span>
-                </th>
-                <th className="px-4 py-3 text-left">
-                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    產品標籤
-                  </span>
-                </th>
-                <th className="px-4 py-3 text-left">
-                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    材質描述
-                  </span>
-                </th>
-                <th className="px-4 py-3 text-left">
-                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    變體
-                  </span>
-                </th>
-                <th className="px-4 py-3 text-left">
-                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    廠家
-                  </span>
-                </th>
-                <th className="px-4 py-3 text-left">
-                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    Factory ID
                   </span>
                 </th>
                 <th className="px-4 py-3 text-left">
@@ -948,52 +643,22 @@ export const ProductTableView = memo(function ProductTableView({
                 </th>
                 <th className="px-4 py-3 text-left">
                   <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    生產天數
+                    產品尺寸（長 / 闊 / 高 mm）
                   </span>
                 </th>
                 <th className="px-4 py-3 text-left">
                   <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    船期
+                    產品標籤
                   </span>
                 </th>
                 <th className="px-4 py-3 text-left">
                   <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    預計總貨期
+                    變體
                   </span>
                 </th>
                 <th className="px-4 py-3 text-left">
                   <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    運費
-                  </span>
-                </th>
-                <th className="px-4 py-3 text-left">
-                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    備註
-                  </span>
-                </th>
-                <th className="px-4 py-3 text-left">
-                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    顏色
-                  </span>
-                </th>
-                <th className="px-4 py-3 text-left">
-                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    來源
-                  </span>
-                </th>
-                <th className="px-4 py-3 text-left">
-                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    類目
-                  </span>
-                </th>
-                <th className="px-4 py-3 text-left">
-                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    狀態
-                  </span>
-                </th>
-                <th className="px-4 py-3 text-left">
-                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    Shopify
+                    送貨資訊
                   </span>
                 </th>
                 <th className="w-16 px-4 py-3" />
