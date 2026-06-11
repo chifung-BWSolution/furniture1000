@@ -108,7 +108,8 @@ export function usePublishList({ select, applyBaseFilters, reloadKey = 0 }: UseP
         return q;
       };
 
-      const countQuery = buildFilters(supabase.from('products').select('id', { count: 'exact', head: true }));
+      // Data query — runs alone so the list renders ASAP. The exact count can be
+      // slow on large tables (OR filter + full scan); we no longer block on it.
       const dataQuery = buildFilters(
         supabase.from('products').select(select)
           .order('copy_done_at', { ascending: false, nullsFirst: false })
@@ -116,12 +117,16 @@ export function usePublishList({ select, applyBaseFilters, reloadKey = 0 }: UseP
           .range(from, to)
       );
 
-      const [{ count }, { data }] = await Promise.all([countQuery, dataQuery]);
-      setTotalCount(count || 0);
+      const { data } = await dataQuery;
       setRows(data || []);
+      setIsLoading(false);
+
+      // Count query — fire-and-forget, updates the badge when it returns.
+      buildFilters(supabase.from('products').select('id', { count: 'exact', head: true }))
+        .then(({ count }: { count: number | null }) => setTotalCount(count || 0))
+        .catch(() => { /* ignore count errors */ });
     } catch {
       setRows([]);
-    } finally {
       setIsLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
