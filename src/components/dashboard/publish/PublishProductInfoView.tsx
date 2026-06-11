@@ -46,6 +46,30 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
   const [reloadKey, setReloadKey] = useState(0);
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
+  // Load level1/level2 category pairs from product_category for the dropdowns
+  const [categoryPairs, setCategoryPairs] = useState<{ level1: string; level2: string }[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from('product_category')
+        .select('level1, level2, sort_order')
+        .order('sort_order', { ascending: true });
+      if (!cancelled && data) {
+        setCategoryPairs(
+          data
+            .map((r: any) => ({ level1: String(r.level1 ?? '').trim(), level2: String(r.level2 ?? '').trim() }))
+            .filter((p) => p.level1)
+        );
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const level1Options = Array.from(new Set(categoryPairs.map((p) => p.level1)));
+  const getLevel2Options = (l1: string) =>
+    Array.from(new Set(categoryPairs.filter((p) => p.level1 === l1 && p.level2).map((p) => p.level2)));
+
   const { rows, totalCount, isLoading, Toolbar, Pagination } = usePublishList({
     select: 'id,title,image_url,price,sale_price,cost_price,sku,tags,dimension_l_mm,dimension_w_mm,dimension_h_mm,level1_category,level2_category,in_stock,customize,model,factories_display_name',
     applyBaseFilters: (q) => q.eq('in_shopify_queue', true).eq('info_done', false),
@@ -367,11 +391,38 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
                         ))}
                       </div>
                     </Field>
-                    {/* category */}
+                    {/* category — dropdowns from product_category */}
                     <Field label="產品分類（一級 / 二級）" icon={<FolderTree className="h-3 w-3" />}>
                       <div className="flex items-center gap-1.5">
-                        <input value={it.level1} onChange={(e) => patch(it.id, { level1: e.target.value })} placeholder="一級" className="w-full rounded-lg border border-border bg-background px-2 py-2 font-body text-[12px] placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20" />
-                        <input value={it.level2} onChange={(e) => patch(it.id, { level2: e.target.value })} placeholder="二級" className="w-full rounded-lg border border-border bg-background px-2 py-2 font-body text-[12px] placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20" />
+                        {/* 一級 */}
+                        <Select
+                          value={it.level1 || ''}
+                          onValueChange={(v) => patch(it.id, { level1: v, level2: '' })}
+                        >
+                          <SelectTrigger className="h-9 w-full font-body text-[12px]">
+                            <SelectValue placeholder="一級" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {level1Options.map((l1) => (
+                              <SelectItem key={l1} value={l1}>{l1}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        {/* 二級 */}
+                        <Select
+                          value={it.level2 || ''}
+                          onValueChange={(v) => patch(it.id, { level2: v })}
+                          disabled={!it.level1 || getLevel2Options(it.level1).length === 0}
+                        >
+                          <SelectTrigger className="h-9 w-full font-body text-[12px]">
+                            <SelectValue placeholder="二級" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {getLevel2Options(it.level1).map((l2) => (
+                              <SelectItem key={l2} value={l2}>{l2}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
                       </div>
                     </Field>
                     {/* tags */}
