@@ -396,17 +396,46 @@ export function useAppStore() {
         .eq('ready_to_publish', true);
       if (!rtpRows || rtpRows.length === 0) return;
       const ids = rtpRows.map((r: any) => r.id);
-      const { data: variantRows } = await supabase
-        .from('product_variants')
-        .select('*')
-        .in('product_id', ids);
+
+      // Fetch ready_to_shopify image data in parallel with variants —
+      // image_url here is an HTTP URL (not base64), images is the additional images array.
+      const [{ data: variantRows }, { data: rtsRows }] = await Promise.all([
+        supabase.from('product_variants').select('*').in('product_id', ids),
+        supabase.from('ready_to_shopify').select('product_id,image_url,images').in('product_id', ids),
+      ]);
+
       const variantsByProduct: Record<string, any[]> = {};
       (variantRows || []).forEach((v: any) => {
         (variantsByProduct[v.product_id] ??= []).push(v);
       });
-      const loaded = rtpRows.map((row: any) =>
-        dbRowToProduct(row, variantsByProduct[row.id] || [])
-      );
+
+      // Build a map of ready_to_shopify image data keyed by product_id
+      const rtsByProductId: Record<string, { image_url: string | null; images: any[] | null }> = {};
+      (rtsRows || []).forEach((r: any) => {
+        rtsByProductId[r.product_id] = { image_url: r.image_url, images: r.images };
+      });
+
+      const loaded = rtpRows.map((row: any) => {
+        const product = dbRowToProduct(row, variantsByProduct[row.id] || []);
+        const rts = rtsByProductId[row.id];
+        if (rts) {
+          // Use ready_to_shopify image_url if it's an HTTP URL (not base64)
+          if (rts.image_url && rts.image_url.startsWith('http')) {
+            product.imageUrl = rts.image_url;
+          }
+          // Attach additional images from ready_to_shopify.images
+          if (Array.isArray(rts.images) && rts.images.length > 0) {
+            (product as any).images = rts.images.map((img: any) => ({
+              src: img?.src || img?.url || (typeof img === 'string' ? img : ''),
+              alt: img?.alt || '',
+            })).filter((img: any) => img.src);
+          } else if (product.imageUrl) {
+            (product as any).images = [{ src: product.imageUrl, alt: product.title }];
+          }
+        }
+        return product;
+      });
+
       setProducts(prev => {
         const byId = new Map(prev.map(p => [p.id, p]));
         loaded.forEach(p => byId.set(p.id, p));
