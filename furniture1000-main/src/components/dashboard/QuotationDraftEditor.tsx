@@ -69,6 +69,7 @@ interface QuotationItem {
   dimensionHMm?: number | null;
   deliveryTermName?: string;
   isCustomTerm?: boolean;
+  isAlternative?: boolean;
 }
 
 interface QuotationDraftEditorProps {
@@ -734,7 +735,7 @@ export function QuotationDraftEditor({
   };
 
   const subtotal = items.reduce(
-    (sum, item) => sum + item.unitPrice * item.quantity,
+    (sum, item) => item.isAlternative ? sum : sum + item.unitPrice * item.quantity,
     0,
   );
   const discountValue = (() => {
@@ -1001,6 +1002,7 @@ export function QuotationDraftEditor({
         dimensionHMm: item.dimensionHMm,
         deliveryTermName: item.deliveryTermName,
         isCustomTerm: item.isCustomTerm,
+        isAlternative: item.isAlternative,
       })),
     subtotal,
     discountNote,
@@ -1416,7 +1418,10 @@ export function QuotationDraftEditor({
                           成本價
                         </th>
                         <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "80px" }}>
-                          單價
+                          <div className="flex flex-col items-start gap-0.5">
+                            <span className="text-[10px] text-muted-foreground/60 font-normal">備選</span>
+                            <span>單價</span>
+                          </div>
                         </th>
                         <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "60px" }}>
                           數量
@@ -1604,20 +1609,33 @@ export function QuotationDraftEditor({
                           </td>
                           {/* 單價 */}
                           <td className="py-2 pr-2">
-                            <input
-                              type="number"
-                              value={item.unitPrice || ""}
-                              placeholder="0"
-                              min={0}
-                              onChange={(e) =>
-                                updateItem(
-                                  item.id,
-                                  "unitPrice",
-                                  parseFloat(e.target.value) || 0,
-                                )
-                              }
-                              className="w-20 rounded-md border border-border bg-background px-2 py-1.5 font-mono-data text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
-                            />
+                            <div className="flex flex-col gap-1">
+                              <label className="flex items-center gap-1 cursor-pointer select-none">
+                                <input
+                                  type="checkbox"
+                                  checked={!!item.isAlternative}
+                                  onChange={(e) =>
+                                    updateItem(item.id, "isAlternative", e.target.checked)
+                                  }
+                                  className="h-3 w-3 accent-amber-500"
+                                />
+                                <span className={`font-body text-[10px] ${item.isAlternative ? "text-amber-600 font-medium" : "text-muted-foreground/60"}`}>備選</span>
+                              </label>
+                              <input
+                                type="number"
+                                value={item.unitPrice || ""}
+                                placeholder="0"
+                                min={0}
+                                onChange={(e) =>
+                                  updateItem(
+                                    item.id,
+                                    "unitPrice",
+                                    parseFloat(e.target.value) || 0,
+                                  )
+                                }
+                                className={`w-20 rounded-md border px-2 py-1.5 font-mono-data text-xs placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/30 ${item.isAlternative ? "border-amber-300 bg-amber-50/60 text-amber-700 line-through focus:border-amber-400" : "border-border bg-background text-foreground focus:border-primary/50"}`}
+                              />
+                            </div>
                           </td>
                           {/* 數量 */}
                           <td className="py-2 pr-2">
@@ -1659,12 +1677,15 @@ export function QuotationDraftEditor({
                           </td>
                           {/* 小計 */}
                           <td className="py-2 pr-2">
-                            <span className="font-mono-data text-xs font-medium text-foreground">
-                              $
-                              {(
-                                item.unitPrice * item.quantity
-                              ).toLocaleString()}
-                            </span>
+                            {item.isAlternative ? (
+                              <span className="font-mono-data text-xs text-amber-500 line-through opacity-60">
+                                ${(item.unitPrice * item.quantity).toLocaleString()}
+                              </span>
+                            ) : (
+                              <span className="font-mono-data text-xs font-medium text-foreground">
+                                ${(item.unitPrice * item.quantity).toLocaleString()}
+                              </span>
+                            )}
                           </td>
                           <td className="py-2">
                             <button
