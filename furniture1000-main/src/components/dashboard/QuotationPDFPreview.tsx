@@ -261,16 +261,16 @@ const styles: Record<string, any> = {
   sectionTitle: { fontSize: 9, fontWeight: 700, marginTop: 16, marginBottom: 4, lineHeight: 1.4 },
   sectionText: { fontSize: 7.5, lineHeight: 1.8, marginBottom: 2 },
   boldText: { fontWeight: 700 },
-  termsTitle: { fontSize: 9, fontWeight: 700, marginTop: 6, marginBottom: 4, textDecoration: 'underline', lineHeight: 1.4 },
-  termItem: { fontSize: 7, lineHeight: 1.5, marginBottom: 1, textAlign: 'left' },
-  termSubTitle: { fontSize: 8, fontWeight: 700, marginTop: 5, marginBottom: 2, lineHeight: 1.4 },
-  signatureSection: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 16, paddingTop: 8 },
+  termsTitle: { fontSize: 8.5, fontWeight: 700, marginTop: 4, marginBottom: 3, textDecoration: 'underline', lineHeight: 1.3 },
+  termItem: { fontSize: 6.5, lineHeight: 1.4, marginBottom: 0.5, textAlign: 'left' },
+  termSubTitle: { fontSize: 7.5, fontWeight: 700, marginTop: 4, marginBottom: 1.5, lineHeight: 1.3 },
+  signatureSection: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10, paddingTop: 6 },
   signatureBlock: { width: '45%' },
-  signatureTitle: { fontSize: 9, fontWeight: 700, marginBottom: 4, lineHeight: 1.4 },
-  signatureLabel: { fontSize: 8, lineHeight: 1.4 },
-  signatureMiddle: { height: 45, position: 'relative' },
-  signatureLine: { borderBottomWidth: 0.5, borderColor: '#333', marginBottom: 4 },
-  signatureDate: { fontSize: 7, color: '#666', lineHeight: 1.4 },
+  signatureTitle: { fontSize: 8.5, fontWeight: 700, marginBottom: 3, lineHeight: 1.3 },
+  signatureLabel: { fontSize: 7.5, lineHeight: 1.3 },
+  signatureMiddle: { height: 36, position: 'relative' },
+  signatureLine: { borderBottomWidth: 0.5, borderColor: '#333', marginBottom: 3 },
+  signatureDate: { fontSize: 7, color: '#666', lineHeight: 1.3 },
   stamp: { width: 64, height: 64, objectFit: 'contain', position: 'absolute', bottom: 0, right: 0, opacity: 0.85 },
 };
 
@@ -460,9 +460,9 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
       </Page>
 
       {/* Page 2 - Terms & Conditions */}
-      <Page size="A4" style={{ ...styles.page, paddingBottom: 30 }}>
-        <View style={styles.headerRow}>
-          <Image src={logoUrl} style={styles.logo} />
+      <Page size="A4" style={{ ...styles.page, paddingTop: 20, paddingBottom: 25 }}>
+        <View style={{ ...styles.headerRow, marginBottom: 8 }}>
+          <Image src={logoUrl} style={{ ...styles.logo, width: 100, height: 28 }} />
         </View>
 
         <Text style={styles.termsTitle}>{'\u689D\u6B3E\u53CA\u4ED8\u6B3E'}</Text>
