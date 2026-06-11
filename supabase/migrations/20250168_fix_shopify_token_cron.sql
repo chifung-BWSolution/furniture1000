@@ -1,6 +1,6 @@
 -- Fix hourly Shopify token refresh cron job
 -- Replaces all previous cron schedules with a single correct one
--- Uses correct Supabase project (kqwktnplkqucsbasyfjl) and Vault for service key
+-- Uses correct Supabase project (riaubhtruisbwdlwjzur) and Vault for service key
 --
 -- BEFORE RUNNING: execute the following in SQL Editor to store the service role key:
 --   SELECT vault.create_secret('<YOUR_SERVICE_ROLE_KEY>', 'service_role_key');
@@ -50,7 +50,7 @@ SELECT cron.schedule(
   '0 * * * *',
   $$
   SELECT net.http_post(
-    url     := 'https://kqwktnplkqucsbasyfjl.supabase.co/functions/v1/supabase-functions-refresh-shopify-token',
+    url     := 'https://riaubhtruisbwdlwjzur.supabase.co/functions/v1/supabase-functions-refresh-shopify-token',
     headers := jsonb_build_object(
       'Content-Type',  'application/json',
       'Authorization', 'Bearer ' || (
