@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef, useMemo, memo } from 'react';
 import { cn } from '@/lib/utils';
+import { supabase } from '@/lib/supabase';
 import { Product, ProductVariant } from '@/types/product';
 import { StatusBadge } from './StatusBadge';
 import { TagSelector } from './TagSelector';
@@ -57,6 +58,7 @@ interface ProductTableRowProps {
   globalIndex: number;
   editingCell: { id: string; field: string } | null;
   editValue: string;
+  shopifyPageDescription?: string | null;
   onCheckboxClick: (e: React.MouseEvent, productId: string, index: number) => void;
   onRowClick: (e: React.MouseEvent, product: Product) => void;
   onStartEditing: (id: string, field: string, value: string) => void;
@@ -74,6 +76,7 @@ const ProductTableRow = memo(function ProductTableRow({
   globalIndex,
   editingCell,
   editValue,
+  shopifyPageDescription,
   onCheckboxClick,
   onRowClick,
   onStartEditing,
@@ -125,38 +128,16 @@ const ProductTableRow = memo(function ProductTableRow({
         </div>
       </td>
 
-      {/* Description */}
+      {/* Description — from ready_to_shopify.shopify_page_description */}
       <td className="max-w-[200px] px-4 py-3">
         <div className="text-left">
           <span className={cn(
             'text-xs text-muted-foreground font-body',
             'line-clamp-2'
           )}>
-            {product.description}
+            {shopifyPageDescription || '—'}
           </span>
         </div>
-      </td>
-
-      {/* Price (產品價錢) */}
-      <td className="px-4 py-3">
-        {isEditingThis && editingCell!.field === 'price' ? (
-          <Input
-            autoFocus
-            type="number"
-            step="0.01"
-            value={editValue}
-            onChange={e => onEditValueChange(e.target.value)}
-            onBlur={onSaveEdit}
-            className="h-8 w-24 font-mono-data text-xs bg-background"
-          />
-        ) : (
-          <button
-            onClick={() => onStartEditing(product.id, 'price', product.price.toString())}
-            className="font-mono-data text-sm font-bold"
-          >
-            ${product.price.toFixed(2)}
-          </button>
-        )}
       </td>
 
       {/* SKU (產品編碼) */}
@@ -176,90 +157,6 @@ const ProductTableRow = memo(function ProductTableRow({
           >
             {product.sku ? product.sku : <span className="text-muted-foreground/50">—</span>}
           </button>
-        )}
-      </td>
-
-      {/* Delivery Term (送貨資訊) — in_stock=true 顯示「現貨」，否則顯示 customize */}
-      <td className="px-4 py-3">
-        {product.inStock === true ? (
-          <span className="inline-flex items-center rounded-md bg-emerald-500/10 px-2 py-0.5 font-mono-data text-xs font-medium text-emerald-600 dark:text-emerald-400 ring-1 ring-inset ring-emerald-500/20">
-            現貨
-          </span>
-        ) : product.customize ? (
-          <span className="inline-flex items-center rounded-md bg-amber-500/10 px-2 py-0.5 font-mono-data text-xs font-medium text-amber-600 dark:text-amber-400 ring-1 ring-inset ring-amber-500/20">
-            {product.customize}
-          </span>
-        ) : (
-          <span className="font-mono-data text-[10px] text-muted-foreground/50">—</span>
-        )}
-      </td>
-
-      {/* Dimensions (產品尺寸 LWH) */}
-      <td className="px-4 py-3">
-        {(product.dimensionLMm || product.dimensionWMm || product.dimensionHMm) ? (
-          <span className="font-mono-data text-[10px] text-foreground whitespace-nowrap">
-            {product.dimensionLMm ?? '—'} × {product.dimensionWMm ?? '—'} × {product.dimensionHMm ?? '—'} mm
-          </span>
-        ) : (
-          <span className="font-mono-data text-[10px] text-muted-foreground/50">—</span>
-        )}
-      </td>
-
-      {/* Tags (產品標籤) — using TagSelector with official product tags */}
-      <td className="px-4 py-3">
-        <TagSelector
-          selectedTags={product.tags}
-          onChange={(tags) => onUpdateProduct(product.id, { tags })}
-          compact
-          maxVisible={3}
-        />
-      </td>
-
-      {/* Material (材質描述) */}
-      <td className="max-w-[160px] px-4 py-3">
-        <div className="text-left">
-          <span className={cn(
-            'text-xs text-muted-foreground font-body',
-            'line-clamp-2'
-          )}>
-            {product.material || '—'}
-          </span>
-        </div>
-      </td>
-
-      {/* Variants */}
-      <td className="px-4 py-3">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => onOpenVariantModal(product)}
-          className="h-7 gap-1 text-[10px] font-mono-data"
-        >
-          {product.variants.length} 個變體
-          <ChevronDown className="h-3 w-3" />
-        </Button>
-      </td>
-
-      {/* Factory / Manufacturer */}
-      <td className="px-4 py-3">
-        {product.factoriesDisplayName ? (
-          <Badge className="gap-1 bg-violet-500/10 text-violet-400 border border-violet-500/20 font-mono-data text-[10px] max-w-[120px] truncate">
-            <Factory className="h-2.5 w-2.5 flex-shrink-0" />
-            <span className="truncate">{product.factoriesDisplayName}</span>
-          </Badge>
-        ) : (
-          <span className="font-mono-data text-[10px] text-muted-foreground/50">—</span>
-        )}
-      </td>
-
-      {/* Factory ID */}
-      <td className="px-4 py-3">
-        {product.factoryId ? (
-          <Badge className="gap-1 bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-mono-data text-[10px] max-w-[100px] truncate">
-            <span className="truncate">{product.factoryId}</span>
-          </Badge>
-        ) : (
-          <span className="font-mono-data text-[10px] text-muted-foreground/50">—</span>
         )}
       </td>
 
@@ -318,98 +215,75 @@ const ProductTableRow = memo(function ProductTableRow({
         )}
       </td>
 
-      {/* Production Days */}
+      {/* Dimensions (產品尺寸 LWH) */}
       <td className="px-4 py-3">
-        {isEditingThis && editingCell!.field === 'productionLeadTime' ? (
-          <Input
-            autoFocus
-            type="number"
-            value={editValue}
-            onChange={e => onEditValueChange(e.target.value)}
-            onBlur={onSaveEdit}
-            className="h-8 w-20 font-mono-data text-xs bg-background"
-          />
+        {(product.dimensionLMm || product.dimensionWMm || product.dimensionHMm) ? (
+          <span className="font-mono-data text-[10px] text-foreground whitespace-nowrap">
+            {product.dimensionLMm ?? '—'} × {product.dimensionWMm ?? '—'} × {product.dimensionHMm ?? '—'} mm
+          </span>
         ) : (
-          <button
-            onClick={() => onStartEditing(product.id, 'productionLeadTime', (product.productionLeadTime ?? '').toString())}
-            className="font-mono-data text-xs"
-          >
-            {product.productionLeadTime != null ? `${product.productionLeadTime} 天` : <span className="text-muted-foreground/50">—</span>}
-          </button>
+          <span className="font-mono-data text-[10px] text-muted-foreground/50">—</span>
         )}
       </td>
 
-      {/* Shipping Days */}
+      {/* Tags (產品標籤) — using TagSelector with official product tags */}
       <td className="px-4 py-3">
-        {isEditingThis && editingCell!.field === 'shippingDays' ? (
-          <Input
-            autoFocus
-            type="number"
-            value={editValue}
-            onChange={e => onEditValueChange(e.target.value)}
-            onBlur={onSaveEdit}
-            className="h-8 w-20 font-mono-data text-xs bg-background"
-          />
+        <TagSelector
+          selectedTags={product.tags}
+          onChange={(tags) => onUpdateProduct(product.id, { tags })}
+          compact
+          maxVisible={3}
+        />
+      </td>
+
+      {/* Variants */}
+      <td className="px-4 py-3">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => onOpenVariantModal(product)}
+          className="h-7 gap-1 text-[10px] font-mono-data"
+        >
+          {product.variants.length} 個變體
+          <ChevronDown className="h-3 w-3" />
+        </Button>
+      </td>
+
+      {/* Delivery Term (送貨資訊) — in_stock=true 顯示「現貨」，否則顯示 customize */}
+      <td className="px-4 py-3">
+        {product.inStock === true ? (
+          <span className="inline-flex items-center rounded-md bg-emerald-500/10 px-2 py-0.5 font-mono-data text-xs font-medium text-emerald-600 dark:text-emerald-400 ring-1 ring-inset ring-emerald-500/20">
+            現貨
+          </span>
+        ) : product.customize ? (
+          <span className="inline-flex items-center rounded-md bg-amber-500/10 px-2 py-0.5 font-mono-data text-xs font-medium text-amber-600 dark:text-amber-400 ring-1 ring-inset ring-amber-500/20">
+            {product.customize}
+          </span>
         ) : (
-          <button
-            onClick={() => onStartEditing(product.id, 'shippingDays', (product.shippingDays ?? '').toString())}
-            className="font-mono-data text-xs"
-          >
-            {product.shippingDays != null ? `${product.shippingDays} 天` : <span className="text-muted-foreground/50">—</span>}
-          </button>
+          <span className="font-mono-data text-[10px] text-muted-foreground/50">—</span>
         )}
       </td>
 
-      {/* Total Lead Time (auto-computed: productionLeadTime + shippingDays) */}
+      {/* Factory / Manufacturer */}
       <td className="px-4 py-3">
-        {(() => {
-          const prod = product.productionLeadTime;
-          const ship = product.shippingDays;
-          if (prod != null && ship != null) {
-            return (
-              <span className="font-mono-data text-xs font-bold text-primary">
-                {prod + ship} 天
-              </span>
-            );
-          } else if (prod != null || ship != null) {
-            return (
-              <Tooltip>
-                <TooltipTrigger>
-                  <span className="font-mono-data text-xs text-amber-500">
-                    {(prod ?? 0) + (ship ?? 0)} 天
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p className="font-mono-data text-[11px]">
-                    {prod == null ? '缺少生產天數' : '缺少船期天數'}，顯示部分合計
-                  </p>
-                </TooltipContent>
-              </Tooltip>
-            );
-          }
-          return <span className="font-mono-data text-[10px] text-muted-foreground/50">—</span>;
-        })()}
+        {product.factoriesDisplayName ? (
+          <Badge className="gap-1 bg-violet-500/10 text-violet-400 border border-violet-500/20 font-mono-data text-[10px] max-w-[120px] truncate">
+            <Factory className="h-2.5 w-2.5 flex-shrink-0" />
+            <span className="truncate">{product.factoriesDisplayName}</span>
+          </Badge>
+        ) : (
+          <span className="font-mono-data text-[10px] text-muted-foreground/50">—</span>
+        )}
       </td>
 
-      {/* Shipping Fee */}
+      {/* Factory ID */}
       <td className="px-4 py-3">
-        {isEditingThis && editingCell!.field === 'shippingFee' ? (
-          <Input
-            autoFocus
-            type="number"
-            step="0.01"
-            value={editValue}
-            onChange={e => onEditValueChange(e.target.value)}
-            onBlur={onSaveEdit}
-            className="h-8 w-24 font-mono-data text-xs bg-background"
-          />
+        {product.factoryId ? (
+          <Badge className="gap-1 bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-mono-data text-[10px] max-w-[100px] truncate">
+            <span className="truncate">{product.factoryId}</span>
+          </Badge>
         ) : (
-          <button
-            onClick={() => onStartEditing(product.id, 'shippingFee', (product.shippingFee ?? '').toString())}
-            className="font-mono-data text-xs"
-          >
-            {product.shippingFee != null ? `$${product.shippingFee.toFixed(2)}` : <span className="text-muted-foreground/50">—</span>}
-          </button>
+          <span className="font-mono-data text-[10px] text-muted-foreground/50">—</span>
         )}
       </td>
 
@@ -580,6 +454,8 @@ export const ProductTableView = memo(function ProductTableView({
   const [activeTab, setActiveTab] = useState<TableTab>('local');
   const [showBatchDeleteModal, setShowBatchDeleteModal] = useState(false);
   const [detailProduct, setDetailProduct] = useState<Product | null>(null);
+  // shopify_page_description map: product_id → description from ready_to_shopify
+  const [descMap, setDescMap] = useState<Record<string, string>>({});
   const [currentPage, setCurrentPage] = useState(0);
   const PAGE_SIZE = 25;
 
@@ -632,6 +508,24 @@ export const ProductTableView = memo(function ProductTableView({
   useEffect(() => {
     setCurrentPage(0);
   }, [activeTab, filterProductId]);
+
+  // Fetch shopify_page_description from ready_to_shopify for current page
+  useEffect(() => {
+    if (paginatedProducts.length === 0) return;
+    const ids = paginatedProducts.map((p) => p.id);
+    supabase
+      .from('ready_to_shopify')
+      .select('product_id, shopify_page_description')
+      .in('product_id', ids)
+      .then(({ data }) => {
+        if (!data) return;
+        const m: Record<string, string> = {};
+        for (const row of data) {
+          if (row.shopify_page_description) m[row.product_id] = row.shopify_page_description;
+        }
+        setDescMap((prev) => ({ ...prev, ...m }));
+      });
+  }, [paginatedProducts]);
 
   // Handle checkbox click with shift-click range selection support
   const selectedIdsRef = useRef(selectedIds);
@@ -893,47 +787,7 @@ export const ProductTableView = memo(function ProductTableView({
                 </th>
                 <th className="px-4 py-3 text-left">
                   <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    產品價錢
-                  </span>
-                </th>
-                <th className="px-4 py-3 text-left">
-                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
                     產品編碼 (SKU)
-                  </span>
-                </th>
-                <th className="px-4 py-3 text-left">
-                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    送貨資訊
-                  </span>
-                </th>
-                <th className="px-4 py-3 text-left">
-                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    產品尺寸（長 / 闊 / 高 mm）
-                  </span>
-                </th>
-                <th className="px-4 py-3 text-left">
-                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    產品標籤
-                  </span>
-                </th>
-                <th className="px-4 py-3 text-left">
-                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    材質描述
-                  </span>
-                </th>
-                <th className="px-4 py-3 text-left">
-                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    變體
-                  </span>
-                </th>
-                <th className="px-4 py-3 text-left">
-                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    廠家
-                  </span>
-                </th>
-                <th className="px-4 py-3 text-left">
-                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    Factory ID
                   </span>
                 </th>
                 <th className="px-4 py-3 text-left">
@@ -948,22 +802,32 @@ export const ProductTableView = memo(function ProductTableView({
                 </th>
                 <th className="px-4 py-3 text-left">
                   <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    生產天數
+                    產品尺寸（長 / 闊 / 高 mm）
                   </span>
                 </th>
                 <th className="px-4 py-3 text-left">
                   <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    船期
+                    產品標籤
                   </span>
                 </th>
                 <th className="px-4 py-3 text-left">
                   <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    預計總貨期
+                    變體
                   </span>
                 </th>
                 <th className="px-4 py-3 text-left">
                   <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    運費
+                    送貨資訊
+                  </span>
+                </th>
+                <th className="px-4 py-3 text-left">
+                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                    廠家
+                  </span>
+                </th>
+                <th className="px-4 py-3 text-left">
+                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                    Factory ID
                   </span>
                 </th>
                 <th className="px-4 py-3 text-left">
@@ -1008,6 +872,7 @@ export const ProductTableView = memo(function ProductTableView({
                   globalIndex={currentPage * PAGE_SIZE + i}
                   editingCell={editingCell?.id === product.id ? editingCell : null}
                   editValue={editingCell?.id === product.id ? editValue : ''}
+                  shopifyPageDescription={descMap[product.id] ?? null}
                   onCheckboxClick={handleCheckboxClick}
                   onRowClick={handleRowClick}
                   onStartEditing={startEditing}
