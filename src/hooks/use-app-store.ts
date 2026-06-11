@@ -401,7 +401,7 @@ export function useAppStore() {
       // image_url here is an HTTP URL (not base64), images is the additional images array.
       const [{ data: variantRows }, { data: rtsRows }] = await Promise.all([
         supabase.from('product_variants').select('*').in('product_id', ids),
-        supabase.from('ready_to_shopify').select('product_id,image_url,images,shopify_page_description').in('product_id', ids),
+        supabase.from('ready_to_shopify').select('product_id,image_url,images,body_html').in('product_id', ids),
       ]);
 
       const variantsByProduct: Record<string, any[]> = {};
@@ -410,21 +410,20 @@ export function useAppStore() {
       });
 
       // Build a map of ready_to_shopify data keyed by product_id
-      const rtsByProductId: Record<string, { image_url: string | null; images: any[] | null; shopify_page_description: string | null }> = {};
+      const rtsByProductId: Record<string, { image_url: string | null; images: any[] | null; body_html: string | null }> = {};
       (rtsRows || []).forEach((r: any) => {
-        rtsByProductId[r.product_id] = { image_url: r.image_url, images: r.images, shopify_page_description: r.shopify_page_description };
+        rtsByProductId[r.product_id] = { image_url: r.image_url, images: r.images, body_html: r.body_html };
       });
 
       const loaded = rtpRows.map((row: any) => {
         const product = dbRowToProduct(row, variantsByProduct[row.id] || []);
         const rts = rtsByProductId[row.id];
         if (rts) {
-          // Override description + descriptionHtml with shopify_page_description if available.
-          // ProductDetailModal uses descriptionHtml first (line 426), so both must be set
-          // to ensure the modal's 「產品說明」shows the page description, not the raw material text.
-          if (rts.shopify_page_description) {
-            product.description = rts.shopify_page_description;
-            product.descriptionHtml = rts.shopify_page_description;
+          // Override description + descriptionHtml with body_html (Shopify 產品說明).
+          // ProductDetailModal uses descriptionHtml first, so both must be set.
+          if (rts.body_html) {
+            product.description = rts.body_html;
+            product.descriptionHtml = rts.body_html;
           }
 
           // Use ready_to_shopify image_url as primary (supports both HTTP URL and base64)
