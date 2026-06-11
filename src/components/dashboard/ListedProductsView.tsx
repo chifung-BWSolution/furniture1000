@@ -115,6 +115,7 @@ interface ListedProduct {
   dimensionLMm?: number | null;
   dimensionWMm?: number | null;
   dimensionHMm?: number | null;
+  productSku?: string | null;
 }
 
 interface ListedProductsViewProps {
@@ -162,6 +163,10 @@ export function ListedProductsView({
   const [factoryFilterOpen, setFactoryFilterOpen] = useState(false);
   const [selectedFactories, setSelectedFactories] = useState<string[]>([]);
   const [availableFactories, setAvailableFactories] = useState<string[]>([]);
+  // 重複商品篩選：只顯示 product_sku 重複或為空的產品
+  const [showDuplicates, setShowDuplicates] = useState(false);
+  // Set of duplicate product_sku values (fetched when showDuplicates is toggled on)
+  const [duplicateSkus, setDuplicateSkus] = useState<Set<string> | null>(null);
   // 一級/二級分類篩選（讀 product_category 表）
   const [level1Filter, setLevel1Filter] = useState<string>('');
   const [level2Filter, setLevel2Filter] = useState<string>('');
@@ -331,6 +336,37 @@ export function ListedProductsView({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [factoryFilterOpen]);
 
+  // Fetch duplicate product_sku values when the 重複商品 filter is turned on
+  useEffect(() => {
+    if (!showDuplicates) { setDuplicateSkus(null); return; }
+    let cancelled = false;
+    (async () => {
+      // Find all product_sku values that appear more than once (within the same catalog mode)
+      let q = supabase
+        .from('products')
+        .select('product_sku')
+        .not('product_sku', 'is', null)
+        .neq('product_sku', '');
+      if (isCatalog) {
+        q = q.eq('in_catalog', true);
+      } else {
+        q = q.eq('in_catalog', false).eq('in_shopify_queue', false).eq('dismissed', false);
+      }
+      const { data } = await q;
+      if (cancelled || !data) return;
+      // Count occurrences
+      const counts: Record<string, number> = {};
+      for (const row of data) {
+        const sku = row.product_sku as string;
+        counts[sku] = (counts[sku] || 0) + 1;
+      }
+      const dups = new Set(Object.entries(counts).filter(([, n]) => n > 1).map(([sku]) => sku));
+      setDuplicateSkus(dups);
+      setCurrentPage(1);
+    })();
+    return () => { cancelled = true; };
+  }, [showDuplicates, isCatalog]);
+
   // Fetch products from Supabase — ALL products, sorted by created_at DESC by default
   const fetchProducts = useCallback(async () => {
     setIsLoading(true);
@@ -373,6 +409,16 @@ export function ListedProductsView({
         countQuery = countQuery.eq('in_catalog', false).eq('in_shopify_queue', false).eq('dismissed', false);
       }
 
+      // 重複商品篩選：product_sku 為空，或屬於重複的 sku 集合
+      if (showDuplicates && duplicateSkus !== null) {
+        const dupArr = Array.from(duplicateSkus);
+        if (dupArr.length > 0) {
+          countQuery = countQuery.or(`product_sku.is.null,product_sku.eq.,product_sku.in.(${dupArr.map(s => `"${s}"`).join(',')})`);
+        } else {
+          countQuery = countQuery.or('product_sku.is.null,product_sku.eq.');
+        }
+      }
+
       // Build data query — explicit columns (avoid heavy JSONB like description_html when not needed for list view)
       const LIST_COLUMNS = [
         'id', 'title', 'description', 'tags', 'price', 'compare_at_price',
@@ -385,7 +431,7 @@ export function ListedProductsView({
         'material', 'model', 'specifications',
         'delivery_term_id', 'delivery_term_name',
         'dimension_l_mm', 'dimension_w_mm', 'dimension_h_mm',
-        'in_stock', 'customize',
+        'in_stock', 'customize', 'product_sku',
       ].join(',');
       let dataQuery = supabase
         .from('products')
@@ -419,6 +465,16 @@ export function ListedProductsView({
       } else {
         // 所有產品頁：排除已加入目錄 / Shopify 佇列 / 已忽略的產品
         dataQuery = dataQuery.eq('in_catalog', false).eq('in_shopify_queue', false).eq('dismissed', false);
+      }
+
+      // 重複商品篩選
+      if (showDuplicates && duplicateSkus !== null) {
+        const dupArr = Array.from(duplicateSkus);
+        if (dupArr.length > 0) {
+          dataQuery = dataQuery.or(`product_sku.is.null,product_sku.eq.,product_sku.in.(${dupArr.map(s => `"${s}"`).join(',')})`);
+        } else {
+          dataQuery = dataQuery.or('product_sku.is.null,product_sku.eq.');
+        }
       }
 
       // Run count + data IN PARALLEL — they no longer block each other.
@@ -486,6 +542,7 @@ export function ListedProductsView({
         dimensionLMm: row.dimension_l_mm != null ? parseInt(row.dimension_l_mm) : null,
         dimensionWMm: row.dimension_w_mm != null ? parseInt(row.dimension_w_mm) : null,
         dimensionHMm: row.dimension_h_mm != null ? parseInt(row.dimension_h_mm) : null,
+        productSku: row.product_sku || null,
         // variants 先留空，下方背景非阻塞補上，讓首屏立即顯示
         variants: [],
       }));
@@ -528,7 +585,7 @@ export function ListedProductsView({
     } finally {
       setIsLoading(false);
     }
-  }, [currentPage, pageSize, sortField, sortOrder, debouncedSearch, shopifyFilter, selectedFactories, level1Filter, level2Filter, isCatalog]);
+  }, [currentPage, pageSize, sortField, sortOrder, debouncedSearch, shopifyFilter, selectedFactories, level1Filter, level2Filter, isCatalog, showDuplicates, duplicateSkus]);
 
   // Fetch on mount and when deps change
   useEffect(() => {
@@ -804,7 +861,7 @@ export function ListedProductsView({
   // Clear selection when products change (e.g. page change, search)
   useEffect(() => {
     setSelectedIds(new Set());
-  }, [currentPage, debouncedSearch, sortField, sortOrder, pageSize, shopifyFilter, selectedFactories, level1Filter, level2Filter]);
+  }, [currentPage, debouncedSearch, sortField, sortOrder, pageSize, shopifyFilter, selectedFactories, level1Filter, level2Filter, showDuplicates]);
 
   // Delete selected products — master DB + local DB
   const handleDeleteSelected = useCallback(async () => {
@@ -1345,6 +1402,18 @@ export function ListedProductsView({
                 </div>
               )}
             </div>
+            {/* 重複商品 Filter */}
+            <Button
+              variant={showDuplicates ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setShowDuplicates((v) => !v)}
+              className={cn(
+                'h-8 gap-1.5 text-xs font-body',
+                showDuplicates && 'bg-rose-500 hover:bg-rose-600 text-white border-rose-500'
+              )}
+            >
+              重複商品
+            </Button>
           </div>
 
           <div className="flex items-center gap-2">
@@ -1765,6 +1834,11 @@ export function ListedProductsView({
                       標籤
                     </span>
                   </th>
+                  <th className="px-3 py-3 text-left">
+                    <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                      SKU No.
+                    </span>
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -2045,6 +2119,20 @@ export function ListedProductsView({
                           </Badge>
                         )}
                       </div>
+                    </td>
+
+                    {/* SKU No. (product_sku) */}
+                    <td className="px-3 py-3">
+                      {product.productSku ? (
+                        <span className={cn(
+                          'font-mono-data text-[11px]',
+                          showDuplicates && 'text-rose-500 font-semibold'
+                        )}>
+                          {product.productSku}
+                        </span>
+                      ) : (
+                        <span className="font-mono-data text-[10px] text-muted-foreground/40">—</span>
+                      )}
                     </td>
 
                   </motion.tr>
