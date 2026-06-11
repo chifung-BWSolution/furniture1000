@@ -136,29 +136,7 @@ const ProductTableRow = memo(function ProductTableRow({
         </div>
       </td>
 
-      {/* Material (材質描述) */}
-      <td className="max-w-[160px] px-4 py-3">
-        <div className="text-left">
-          <span className={cn(
-            'text-xs text-muted-foreground font-body',
-            'line-clamp-2'
-          )}>
-            {product.material || '—'}
-          </span>
-        </div>
-      </td>
-
-      {/* Tags — using TagSelector with official product tags */}
-      <td className="px-4 py-3">
-        <TagSelector
-          selectedTags={product.tags}
-          onChange={(tags) => onUpdateProduct(product.id, { tags })}
-          compact
-          maxVisible={3}
-        />
-      </td>
-
-      {/* Price */}
+      {/* Price (產品價錢) */}
       <td className="px-4 py-3">
         {isEditingThis && editingCell!.field === 'price' ? (
           <Input
@@ -180,6 +158,70 @@ const ProductTableRow = memo(function ProductTableRow({
         )}
       </td>
 
+      {/* SKU (產品編碼) */}
+      <td className="px-4 py-3">
+        {isEditingThis && editingCell!.field === 'sku' ? (
+          <Input
+            autoFocus
+            value={editValue}
+            onChange={e => onEditValueChange(e.target.value)}
+            onBlur={onSaveEdit}
+            className="h-8 w-32 font-mono-data text-xs bg-background"
+          />
+        ) : (
+          <button
+            onClick={() => onStartEditing(product.id, 'sku', product.sku || '')}
+            className="font-mono-data text-xs"
+          >
+            {product.sku ? product.sku : <span className="text-muted-foreground/50">—</span>}
+          </button>
+        )}
+      </td>
+
+      {/* Delivery Term (送貨資訊) */}
+      <td className="px-4 py-3">
+        {product.deliveryTermName ? (
+          <span className="inline-flex items-center rounded-md bg-blue-500/10 px-2 py-0.5 font-mono-data text-xs font-medium text-blue-600 dark:text-blue-400 ring-1 ring-inset ring-blue-500/20">
+            {product.deliveryTermName}
+          </span>
+        ) : (
+          <span className="font-mono-data text-[10px] text-muted-foreground/50">—</span>
+        )}
+      </td>
+
+      {/* Dimensions (產品尺寸 LWH) */}
+      <td className="px-4 py-3">
+        {(product.dimensionLMm || product.dimensionWMm || product.dimensionHMm) ? (
+          <span className="font-mono-data text-[10px] text-foreground whitespace-nowrap">
+            {product.dimensionLMm ?? '—'} × {product.dimensionWMm ?? '—'} × {product.dimensionHMm ?? '—'} mm
+          </span>
+        ) : (
+          <span className="font-mono-data text-[10px] text-muted-foreground/50">—</span>
+        )}
+      </td>
+
+      {/* Tags (產品標籤) — using TagSelector with official product tags */}
+      <td className="px-4 py-3">
+        <TagSelector
+          selectedTags={product.tags}
+          onChange={(tags) => onUpdateProduct(product.id, { tags })}
+          compact
+          maxVisible={3}
+        />
+      </td>
+
+      {/* Material (材質描述) */}
+      <td className="max-w-[160px] px-4 py-3">
+        <div className="text-left">
+          <span className={cn(
+            'text-xs text-muted-foreground font-body',
+            'line-clamp-2'
+          )}>
+            {product.material || '—'}
+          </span>
+        </div>
+      </td>
+
       {/* Variants */}
       <td className="px-4 py-3">
         <Button
@@ -191,17 +233,6 @@ const ProductTableRow = memo(function ProductTableRow({
           {product.variants.length} 個變體
           <ChevronDown className="h-3 w-3" />
         </Button>
-      </td>
-
-      {/* Dimensions (LWH) */}
-      <td className="px-4 py-3">
-        {(product.dimensionLMm || product.dimensionWMm || product.dimensionHMm) ? (
-          <span className="font-mono-data text-[10px] text-foreground whitespace-nowrap">
-            {product.dimensionLMm ?? '—'} × {product.dimensionWMm ?? '—'} × {product.dimensionHMm ?? '—'} mm
-          </span>
-        ) : (
-          <span className="font-mono-data text-[10px] text-muted-foreground/50">—</span>
-        )}
       </td>
 
       {/* Factory / Manufacturer */}
@@ -353,17 +384,6 @@ const ProductTableRow = memo(function ProductTableRow({
           }
           return <span className="font-mono-data text-[10px] text-muted-foreground/50">—</span>;
         })()}
-      </td>
-
-      {/* Delivery Term Name */}
-      <td className="px-4 py-3">
-        {product.deliveryTermName ? (
-          <span className="inline-flex items-center rounded-md bg-blue-500/10 px-2 py-0.5 font-mono-data text-xs font-medium text-blue-600 dark:text-blue-400 ring-1 ring-inset ring-blue-500/20">
-            {product.deliveryTermName}
-          </span>
-        ) : (
-          <span className="font-mono-data text-[10px] text-muted-foreground/50">—</span>
-        )}
       </td>
 
       {/* Shipping Fee */}
@@ -870,27 +890,37 @@ export const ProductTableView = memo(function ProductTableView({
                 </th>
                 <th className="px-4 py-3 text-left">
                   <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                    產品價錢
+                  </span>
+                </th>
+                <th className="px-4 py-3 text-left">
+                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                    產品編碼 (SKU)
+                  </span>
+                </th>
+                <th className="px-4 py-3 text-left">
+                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                    送貨資訊
+                  </span>
+                </th>
+                <th className="px-4 py-3 text-left">
+                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                    產品尺寸（長 / 闊 / 高 mm）
+                  </span>
+                </th>
+                <th className="px-4 py-3 text-left">
+                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                    產品標籤
+                  </span>
+                </th>
+                <th className="px-4 py-3 text-left">
+                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
                     材質描述
                   </span>
                 </th>
                 <th className="px-4 py-3 text-left">
                   <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    標籤
-                  </span>
-                </th>
-                <th className="px-4 py-3 text-left">
-                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    價格
-                  </span>
-                </th>
-                <th className="px-4 py-3 text-left">
-                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
                     變體
-                  </span>
-                </th>
-                <th className="px-4 py-3 text-left">
-                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    尺寸 (LWH)
                   </span>
                 </th>
                 <th className="px-4 py-3 text-left">
@@ -926,11 +956,6 @@ export const ProductTableView = memo(function ProductTableView({
                 <th className="px-4 py-3 text-left">
                   <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
                     預計總貨期
-                  </span>
-                </th>
-                <th className="px-4 py-3 text-left">
-                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    貨期類型
                   </span>
                 </th>
                 <th className="px-4 py-3 text-left">
