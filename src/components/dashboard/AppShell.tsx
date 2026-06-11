@@ -165,7 +165,7 @@ export function AppShell() {
     store.products.filter((p) => store.selectedProductIds.has(p.id)),
     [store.products, store.selectedProductIds]
   );
-  // 準備上載頁：只顯示發佈前檢查通過後標記 readyToPublish 的產品
+  // 準備上載頁：顯示所有有 ready_to_shopify 記錄且 info_done=true 的產品
   const readyToPublishProducts = useMemo(() =>
     store.products.filter((p) => p.readyToPublish),
     [store.products]

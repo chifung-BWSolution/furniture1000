@@ -386,19 +386,28 @@ export function useAppStore() {
   }, []);
 
   // Reload products from Supabase (used after publish/sync)
-  // Load ALL products with ready_to_publish=true, bypassing the 100-row pagination
-  // so they show in the 準備上載 page even if the product is older than the first page.
+  // Source of truth: ready_to_shopify table — any product with a record there
+  // (and info_done=true in products) belongs in the 準備上載 page.
   const reloadReadyToPublish = useCallback(async () => {
     try {
+      // Step 1: get all product_ids that have a ready_to_shopify record
+      const { data: rtsIdRows } = await supabase
+        .from('ready_to_shopify')
+        .select('product_id');
+      if (!rtsIdRows || rtsIdRows.length === 0) return;
+      const rtsIds = rtsIdRows.map((r: any) => r.product_id).filter(Boolean);
+      if (rtsIds.length === 0) return;
+
+      // Step 2: fetch matching products (must have info_done=true to be in 準備上載)
       const { data: rtpRows } = await supabase
         .from('products')
         .select('*')
-        .eq('ready_to_publish', true);
+        .in('id', rtsIds)
+        .eq('info_done', true);
       if (!rtpRows || rtpRows.length === 0) return;
       const ids = rtpRows.map((r: any) => r.id);
 
-      // Fetch ready_to_shopify image data in parallel with variants —
-      // image_url here is an HTTP URL (not base64), images is the additional images array.
+      // Fetch ready_to_shopify data in parallel with variants
       const [{ data: variantRows }, { data: rtsRows }] = await Promise.all([
         supabase.from('product_variants').select('*').in('product_id', ids),
         supabase.from('ready_to_shopify').select('product_id,image_url,images,body_html').in('product_id', ids),
@@ -417,6 +426,8 @@ export function useAppStore() {
 
       const loaded = rtpRows.map((row: any) => {
         const product = dbRowToProduct(row, variantsByProduct[row.id] || []);
+        // Ensure product shows in 準備上載 filter (readyToPublish=true)
+        product.readyToPublish = true;
         const rts = rtsByProductId[row.id];
         if (rts) {
           // Override description + descriptionHtml with body_html (Shopify 產品說明).
