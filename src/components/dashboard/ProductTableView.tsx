@@ -838,14 +838,24 @@ export const ProductTableView = memo(function ProductTableView({
                         key={p.id}
                         type="button"
                         onClick={() => {
+                          const dims = [p.dimensionLMm, p.dimensionWMm, p.dimensionHMm].filter(Boolean).join('x') || '';
+                          const existingSkus = new Set(products.flatMap(prod => prod.variants.map(v => v.sku)));
+                          let sku = p.sku || '';
+                          if (!sku) {
+                            let candidate = '';
+                            do {
+                              candidate = `SKU-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+                            } while (existingSkus.has(candidate));
+                            sku = candidate;
+                          }
                           const newVariant: ProductVariant = {
                             id: p.id,
-                            size: [p.dimensionLMm, p.dimensionWMm, p.dimensionHMm].filter(Boolean).join('x') || '',
+                            size: dims,
                             color: p.color || '',
-                            sku: p.sku || `SKU-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
-                            price: p.salePrice ?? p.price,
-                            inventory: 0,
-                            option1: p.title,
+                            sku,
+                            price: p.salePrice ?? NaN,
+                            inventory: 100,
+                            option1: dims,
                           };
                           const updatedVariants = [...variantModal.product.variants, newVariant];
                           onUpdateProduct(variantModal.product.id, { variants: updatedVariants });
