@@ -522,35 +522,65 @@ ${rawDesc || '（暫無原文，請根據產品名稱及分類發揮）'}
             </div>
           </Section>
 
-          {/* Shopify 搜尋引擎產品資訊 */}
+          {/* Shopify 搜尋引擎產品資訊 — Shopify-style vertical layout */}
           <Section title="Shopify 搜尋引擎產品資訊" desc="控制產品在 Google 搜尋結果的顯示">
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
-              <Field label="頁面標題" icon={<Search className="h-3 w-3" />}>
+            <div className="space-y-5">
+              {/* 頁面標題 */}
+              <div>
+                <label className="mb-1.5 flex items-center gap-1.5 font-body text-[13px] font-medium text-foreground">
+                  <Search className="h-3.5 w-3.5 text-muted-foreground" />
+                  頁面標題
+                </label>
                 <input
                   value={seoTitle}
                   onChange={(e) => setSeoTitle(e.target.value)}
-                  className="w-full rounded-lg border border-border bg-card px-3 py-2 font-body text-[13px] focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  maxLength={70}
+                  className="w-full rounded-lg border border-border bg-card px-3 py-2.5 font-body text-[13px] focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
                 />
-              </Field>
-              <Field label="Meta 描述" hint={`${seoDesc.length}/160`}>
+                <p className="mt-1 font-body text-[11px] text-muted-foreground/60">
+                  已使用 {seoTitle.length}/70 個字元
+                </p>
+              </div>
+
+              {/* Meta 描述 — 6 行高 */}
+              <div>
+                <label className="mb-1.5 block font-body text-[13px] font-medium text-foreground">
+                  Meta 描述
+                </label>
                 <textarea
                   value={seoDesc}
                   onChange={(e) => setSeoDesc(e.target.value)}
                   maxLength={160}
-                  rows={2}
-                  className="w-full resize-none rounded-lg border border-border bg-card px-3 py-2 font-body text-[13px] focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  rows={6}
+                  className="w-full resize-y rounded-lg border border-border bg-card px-3 py-2.5 font-body text-[13px] leading-relaxed focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
                 />
-              </Field>
-              <Field label="網址控制代碼">
+                <p className="mt-1 font-body text-[11px] text-muted-foreground/60">
+                  已使用 {seoDesc.length}/160 個字元
+                </p>
+              </div>
+
+              {/* 網址控制代碼 */}
+              <div>
+                <label className="mb-1.5 block font-body text-[13px] font-medium text-foreground">
+                  網址控制代碼
+                </label>
                 <div className="flex items-center rounded-lg border border-border bg-card focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/20">
-                  <span className="pl-3 font-mono-data text-[11px] text-muted-foreground/60">/products/</span>
+                  <span className="select-none border-r border-border/60 px-3 py-2.5 font-mono-data text-[12px] text-muted-foreground/60 whitespace-nowrap bg-muted/30 rounded-l-lg">
+                    /products/
+                  </span>
                   <input
                     value={handle}
                     onChange={(e) => setHandle(e.target.value)}
-                    className="w-full bg-transparent px-1 py-2 font-mono-data text-[12px] focus:outline-none"
+                    className="w-full bg-transparent px-3 py-2.5 font-mono-data text-[12px] focus:outline-none"
+                    placeholder="your-product-url"
                   />
                 </div>
-              </Field>
+                {handle && (
+                  <p className="mt-1 font-mono-data text-[11px] text-muted-foreground/50">
+                    https://www.bwoffice.asia/products/{handle}
+                  </p>
+                )}
+              </div>
             </div>
           </Section>
         </div>
