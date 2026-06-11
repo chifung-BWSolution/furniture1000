@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import {
-  Boxes, Check, Loader2, Tag, Ruler, DollarSign, Truck, FolderTree, X,
+  Boxes, Check, ChevronLeft, Loader2, Tag, Ruler, DollarSign, Truck, FolderTree, X,
 } from 'lucide-react';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -128,6 +128,28 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
     setTagDraft((prev) => ({ ...prev, [id]: '' }));
   };
 
+  // 退回上一步：將所選產品的 copy_done 設回 false，使其重新出現在「產品文案」
+  const [isReverting, setIsReverting] = useState(false);
+  const handleRevert = async () => {
+    if (selected.size === 0) { toast.message('請先勾選產品'); return; }
+    const ids = Array.from(selected);
+    setIsReverting(true);
+    try {
+      const { error } = await supabase
+        .from('products')
+        .update({ copy_done: false, copy_done_at: null })
+        .in('id', ids);
+      if (error) throw new Error(error.message);
+      setSelected(new Set());
+      setReloadKey((k) => k + 1);
+      toast.success('已退回產品文案', { description: `${ids.length} 件產品已退回「產品文案」頁面重新編輯` });
+    } catch (e) {
+      toast.error('退回失敗', { description: e instanceof Error ? e.message : '請稍後再試' });
+    } finally {
+      setIsReverting(false);
+    }
+  };
+
   const [isSaving, setIsSaving] = useState(false);
   const handleComplete = async () => {
     if (selected.size === 0) { toast.message('請先勾選產品'); return; }
@@ -200,6 +222,14 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
           )}
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={handleRevert}
+            disabled={selected.size === 0 || isReverting}
+            className="flex items-center gap-1.5 rounded-lg border border-amber-500/40 px-3 py-2 text-xs font-medium text-amber-600 hover:bg-amber-500/10 disabled:opacity-40 dark:text-amber-400"
+          >
+            {isReverting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ChevronLeft className="h-3.5 w-3.5" />}
+            退回上一步{selected.size > 0 ? `（${selected.size}）` : ''}
+          </button>
           {items.length > 0 && (
             <button
               onClick={() => setSelected(new Set(items.map((it) => it.id)))}
