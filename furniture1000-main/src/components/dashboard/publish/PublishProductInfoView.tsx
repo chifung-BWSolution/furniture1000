@@ -301,20 +301,28 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
                   {/* card head */}
                   <div className="flex items-center gap-3 border-b border-border/60 px-5 py-3">
                     <input type="checkbox" checked={isSel} onChange={() => toggle(it.id)} className="h-4 w-4 rounded border-border accent-emerald-600" />
-                    {/* Use ready_to_shopify image_url (base64 → img) if available, fallback to products.image_url */}
+                    {/* Only use ready_to_shopify.image_url (base64) — no fallback to products.image_url */}
                     <div
-                      className="group relative h-12 w-12 flex-shrink-0 cursor-zoom-in"
-                      onClick={() => { const src = rtsImageMap[it.id] || it.imageUrl; if (src) setLightboxSrc(src); }}
+                      className={cn('group relative h-12 w-12 flex-shrink-0 rounded-lg bg-muted', rtsImageMap[it.id] ? 'cursor-zoom-in' : '')}
+                      onClick={() => { if (rtsImageMap[it.id]) setLightboxSrc(rtsImageMap[it.id]); }}
                     >
-                      <img
-                        src={rtsImageMap[it.id] || it.imageUrl}
-                        alt={it.title}
-                        loading="lazy"
-                        className="h-12 w-12 rounded-lg object-cover bg-muted"
-                      />
-                      <div className="absolute inset-0 hidden group-hover:flex items-center justify-center rounded-lg bg-black/30">
-                        <ZoomIn className="h-4 w-4 text-white" />
-                      </div>
+                      {rtsImageMap[it.id] ? (
+                        <>
+                          <img
+                            src={rtsImageMap[it.id]}
+                            alt={it.title}
+                            loading="lazy"
+                            className="h-12 w-12 rounded-lg object-cover"
+                          />
+                          <div className="absolute inset-0 hidden group-hover:flex items-center justify-center rounded-lg bg-black/30">
+                            <ZoomIn className="h-4 w-4 text-white" />
+                          </div>
+                        </>
+                      ) : (
+                        <div className="h-12 w-12 rounded-lg bg-muted flex items-center justify-center">
+                          <ZoomIn className="h-4 w-4 text-muted-foreground/30" />
+                        </div>
+                      )}
                     </div>
                     <div className="min-w-0 flex-1">
                       <h3 className="font-display text-[14px] font-bold text-foreground line-clamp-1">{it.shopifyTitle || it.title}</h3>
