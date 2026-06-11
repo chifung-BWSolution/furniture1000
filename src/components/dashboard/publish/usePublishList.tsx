@@ -108,16 +108,27 @@ export function usePublishList({ select, applyBaseFilters, reloadKey = 0 }: UseP
         return q;
       };
 
-      // Data query — runs alone so the list renders ASAP. The exact count can be
-      // slow on large tables (OR filter + full scan); we no longer block on it.
-      const dataQuery = buildFilters(
+      // Data query — try ordering by copy_done_at first (requires the column to exist).
+      // If the column doesn't exist yet (migration not yet run), fall back to created_at only.
+      let data: any[] | null = null;
+      const { data: d1, error: e1 } = await buildFilters(
         supabase.from('products').select(select)
           .order('copy_done_at', { ascending: false, nullsFirst: false })
           .order('created_at', { ascending: false })
           .range(from, to)
       );
-
-      const { data } = await dataQuery;
+      if (e1) {
+        // copy_done_at column likely missing — fall back
+        console.warn('[usePublishList] copy_done_at order failed, falling back to created_at:', e1.message);
+        const { data: d2 } = await buildFilters(
+          supabase.from('products').select(select)
+            .order('created_at', { ascending: false })
+            .range(from, to)
+        );
+        data = d2;
+      } else {
+        data = d1;
+      }
       setRows(data || []);
       setIsLoading(false);
 
