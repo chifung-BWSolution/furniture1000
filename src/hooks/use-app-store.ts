@@ -1179,9 +1179,18 @@ export function useAppStore() {
               },
             });
           } else {
+            // Surface the actual first error from the edge function so the
+            // root cause (token / scope / Shopify API) is visible to the user.
+            const firstErr = (data.results as { success: boolean; error?: string }[])
+              .find((r) => !r.success && r.error)?.error;
             toast.error('上傳失敗', {
-              description: `${eCount} 個產品上傳失敗`,
+              description: firstErr
+                ? `${eCount} 個產品上傳失敗：${firstErr.slice(0, 300)}`
+                : `${eCount} 個產品上傳失敗`,
+              duration: 12000,
             });
+            console.error('[publishToShopify] First product error:', firstErr);
+            console.error('[publishToShopify] All results:', JSON.stringify(data.results, null, 2));
           }
         }
       } else if (data?.error) {
