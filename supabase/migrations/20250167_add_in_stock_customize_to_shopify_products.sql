@@ -8,5 +8,6 @@ alter table public.shopify_products
 update public.shopify_products sp
 set in_stock = p.in_stock,
     customize = p.customize
+-- shopify_products.id is uuid while products.id is text — cast to compare.
 from public.products p
-where sp.id = p.id;
+where sp.id::text = p.id;
