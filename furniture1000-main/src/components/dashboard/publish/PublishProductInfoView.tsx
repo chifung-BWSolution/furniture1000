@@ -485,12 +485,17 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
           >
             <X className="h-4 w-4" />
           </button>
-          <img
-            src={lightboxSrc}
-            alt="放大圖片"
-            className="w-[800px] h-[800px] max-w-[90vw] max-h-[90vw] rounded-xl object-contain shadow-2xl bg-black/20"
+          <div
+            style={{ width: 'min(800px, 90vw)', height: 'min(800px, 90vh)' }}
+            className="rounded-xl bg-black/20 shadow-2xl overflow-hidden flex items-center justify-center"
             onClick={(e) => e.stopPropagation()}
-          />
+          >
+            <img
+              src={lightboxSrc}
+              alt="放大圖片"
+              className="w-full h-full object-contain"
+            />
+          </div>
         </div>
       )}
     </div>
