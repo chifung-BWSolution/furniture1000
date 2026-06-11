@@ -546,7 +546,7 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
 
         {/* Customer signature only — kept on the same page as the terms.
             minPresenceAhead reserves space so it isn't pushed to a new page. */}
-        <View style={styles.signatureSection} wrap={false} minPresenceAhead={120}>
+        <View style={styles.signatureSection} wrap={false}>
           <View style={styles.signatureBlock}>
             <Text style={styles.signatureTitle}>{'\u5BA2\u6236\u78BA\u8A8D'}</Text>
             <Text style={styles.signatureLabel}>{'\u5BA2\u6236\u6388\u6B0A\u4EBA\u59D3\u540D\u53CA\u7C3D\u540D'}</Text>
