@@ -261,14 +261,14 @@ const styles: Record<string, any> = {
   sectionTitle: { fontSize: 9, fontWeight: 700, marginTop: 16, marginBottom: 4, lineHeight: 1.4 },
   sectionText: { fontSize: 7.5, lineHeight: 1.8, marginBottom: 2 },
   boldText: { fontWeight: 700 },
-  termsTitle: { fontSize: 9, fontWeight: 700, marginTop: 12, marginBottom: 6, textDecoration: 'underline', lineHeight: 1.4 },
-  termItem: { fontSize: 7, lineHeight: 1.7, marginBottom: 1.5, textAlign: 'left' },
-  termSubTitle: { fontSize: 8, fontWeight: 700, marginTop: 8, marginBottom: 3, lineHeight: 1.4 },
-  signatureSection: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 36, paddingTop: 12 },
+  termsTitle: { fontSize: 9, fontWeight: 700, marginTop: 6, marginBottom: 4, textDecoration: 'underline', lineHeight: 1.4 },
+  termItem: { fontSize: 7, lineHeight: 1.5, marginBottom: 1, textAlign: 'left' },
+  termSubTitle: { fontSize: 8, fontWeight: 700, marginTop: 5, marginBottom: 2, lineHeight: 1.4 },
+  signatureSection: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 16, paddingTop: 8 },
   signatureBlock: { width: '45%' },
-  signatureTitle: { fontSize: 9, fontWeight: 700, marginBottom: 6, lineHeight: 1.4 },
+  signatureTitle: { fontSize: 9, fontWeight: 700, marginBottom: 4, lineHeight: 1.4 },
   signatureLabel: { fontSize: 8, lineHeight: 1.4 },
-  signatureMiddle: { height: 70, position: 'relative' },
+  signatureMiddle: { height: 45, position: 'relative' },
   signatureLine: { borderBottomWidth: 0.5, borderColor: '#333', marginBottom: 4 },
   signatureDate: { fontSize: 7, color: '#666', lineHeight: 1.4 },
   stamp: { width: 64, height: 64, objectFit: 'contain', position: 'absolute', bottom: 0, right: 0, opacity: 0.85 },
@@ -460,7 +460,7 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
       </Page>
 
       {/* Page 2 - Terms & Conditions */}
-      <Page size="A4" style={styles.page}>
+      <Page size="A4" style={{ ...styles.page, paddingBottom: 30 }}>
         <View style={styles.headerRow}>
           <Image src={logoUrl} style={styles.logo} />
         </View>
@@ -546,7 +546,7 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
 
         {/* Customer signature only — kept on the same page as the terms.
             minPresenceAhead reserves space so it isn't pushed to a new page. */}
-        <View style={styles.signatureSection} wrap={false} minPresenceAhead={80}>
+        <View style={styles.signatureSection} wrap={false} minPresenceAhead={120}>
           <View style={styles.signatureBlock}>
             <Text style={styles.signatureTitle}>{'\u5BA2\u6236\u78BA\u8A8D'}</Text>
             <Text style={styles.signatureLabel}>{'\u5BA2\u6236\u6388\u6B0A\u4EBA\u59D3\u540D\u53CA\u7C3D\u540D'}</Text>
