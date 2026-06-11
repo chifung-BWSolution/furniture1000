@@ -544,16 +544,13 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
           </>
         )}
 
-        {/* Customer signature only — kept on the same page as the terms.
-            minPresenceAhead reserves space so it isn't pushed to a new page. */}
-        <View style={styles.signatureSection} wrap={false}>
-          <View style={styles.signatureBlock}>
-            <Text style={styles.signatureTitle}>{'\u5BA2\u6236\u78BA\u8A8D'}</Text>
-            <Text style={styles.signatureLabel}>{'\u5BA2\u6236\u6388\u6B0A\u4EBA\u59D3\u540D\u53CA\u7C3D\u540D'}</Text>
-            <View style={styles.signatureMiddle} />
-            <View style={styles.signatureLine} />
-            <Text style={styles.signatureDate}>{'\u7C3D\u7F72\u65E5\u671F:'}</Text>
-          </View>
+        {/* Customer signature -- absolutely positioned at bottom, always on same page as terms */}
+        <View style={{ position: 'absolute', bottom: 38, left: 40 }}>
+          <Text style={styles.signatureTitle}>{'客戶確認'}</Text>
+          <Text style={styles.signatureLabel}>{'客戶授權人姓名及簽名'}</Text>
+          <View style={{ height: 32 }} />
+          <View style={{ borderBottomWidth: 0.5, borderColor: '#333', marginBottom: 3, width: 180 }} />
+          <Text style={styles.signatureDate}>{'簽署日期:'}</Text>
         </View>
 
         <Text
