@@ -18,7 +18,7 @@ export function PrimaryTopNav({ activeSection, onSectionChange }: PrimaryTopNavP
           <ShoppingBag className="h-5 w-5 text-primary" />
         </div>
         <div className="flex flex-col" style={{ gap: '2px' }}>
-          <div style={{ fontFamily: 'inherit', fontSize: '16px', fontWeight: 700, lineHeight: '1.35', letterSpacing: '-0.01em' }}>FDP Furniture Design Platform</div>
+          <div style={{ fontFamily: 'inherit', fontSize: '16px', fontWeight: 700, lineHeight: '1.35', letterSpacing: '-0.01em' }}>FDS Furniture Design Platform</div>
           <div style={{ fontSize: '13px', lineHeight: '1.4', color: 'var(--muted-foreground)' }}>
             傢私設計管理平台
           </div>
