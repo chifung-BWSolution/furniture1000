@@ -693,8 +693,9 @@ export function ProductDetailModal({
         title,
         description: description,
         description_html: description,
-        collection: level2Category || level1Category || null,
-        category: level2Category || level1Category || null,
+        // collection has a NOT NULL constraint — fall back to existing value or empty string
+        collection: level2Category || level1Category || product.collection || '',
+        category: level2Category || level1Category || product.category || '',
         level1_category: level1Category || null,
         level2_category: level2Category || null,
         cost_price: parsedCostPrice,
