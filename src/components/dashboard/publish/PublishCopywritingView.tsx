@@ -330,6 +330,66 @@ ${rawDesc || '（暫無原文，請根據產品名稱及分類發揮）'}
     }
   }, [product, name, desc]);
 
+  // AI generate Meta Description from product description
+  const [isGeneratingMeta, setIsGeneratingMeta] = useState(false);
+  const handleGenerateMeta = useCallback(async () => {
+    if (!product) return;
+    const rawDesc = desc.replace(/<[^>]*>/g, '').trim();
+    if (!rawDesc) {
+      toast.error('請先填寫「Shopify 產品說明」，作為 Meta 描述的生成依據');
+      return;
+    }
+    setIsGeneratingMeta(true);
+    try {
+      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+      const productTitle = name || product.title;
+
+      const prompt = `你是一位 SEO 專家，專門為香港電商網站撰寫高品質的 Meta Description。
+
+請根據以下產品資訊，撰寫一段繁體中文的 Meta Description：
+
+【產品名稱】${productTitle}
+【產品說明內容】
+${rawDesc}
+
+【SEO Meta Description 三大原則】
+1. 字數精簡：建議控制在 80 個中文字（約 160 英文字元）以內，刪除冗言贅字
+2. 從讀者角度出發：思考什麼樣的敘述會讓讀者有興趣點開網頁，避免無意義的關鍵字堆疊
+3. 獨一無二：針對這個產品的獨特賣點撰寫，讓描述有別於其他產品頁面
+
+【輸出要求】
+- 只輸出 Meta Description 正文，不要加標題、不要加引號
+- 繁體中文，語氣自然親切
+- 直接點出產品核心價值及適用場景
+- 控制在 80 個中文字以內`;
+
+      const res = await fetch(`${supabaseUrl}/functions/v1/supabase-functions-gemini-proxy`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${supabaseAnonKey}`,
+          'apikey': supabaseAnonKey,
+        },
+        body: JSON.stringify({
+          model: 'gemini-2.5-flash',
+          contents: [{ parts: [{ text: prompt }] }],
+        }),
+      });
+      if (!res.ok) throw new Error(`Gemini proxy error: ${res.status}`);
+      const data = await res.json();
+      const generated = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+      if (!generated) throw new Error('Gemini 沒有返回內容');
+      // Trim to 160 chars to respect maxLength
+      setSeoDesc(generated.slice(0, 160));
+      toast.success('Meta 描述已生成', { description: '可繼續手動調整' });
+    } catch (err) {
+      toast.error('AI 生成失敗', { description: err instanceof Error ? err.message : '請稍後再試' });
+    } finally {
+      setIsGeneratingMeta(false);
+    }
+  }, [product, name, desc]);
+
   // ─── List view ───────────────────────────────────────────────────
   if (!product) {
     return (
@@ -544,9 +604,20 @@ ${rawDesc || '（暫無原文，請根據產品名稱及分類發揮）'}
 
               {/* Meta 描述 — 6 行高 */}
               <div>
-                <label className="mb-1.5 block font-body text-[13px] font-medium text-foreground">
-                  Meta 描述
-                </label>
+                <div className="mb-1.5 flex items-center justify-between gap-3">
+                  <label className="font-body text-[13px] font-medium text-foreground">
+                    Meta 描述
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleGenerateMeta}
+                    disabled={isGeneratingMeta}
+                    className="flex items-center gap-1.5 rounded-lg border border-indigo-500/40 bg-indigo-500/10 px-3 py-1.5 text-xs font-medium text-indigo-600 hover:bg-indigo-500/20 disabled:opacity-60 transition-colors dark:text-indigo-400"
+                  >
+                    {isGeneratingMeta ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}
+                    {isGeneratingMeta ? 'AI 生成中...' : 'AI 生成'}
+                  </button>
+                </div>
                 <textarea
                   value={seoDesc}
                   onChange={(e) => setSeoDesc(e.target.value)}
