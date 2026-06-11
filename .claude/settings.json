@@ -1,11 +1,25 @@
 {
   "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(git commit *)",
+            "command": "cd \"C:/Users/frank/Downloads/furniture1000-main 0611\" && git push origin main 2>/dev/null || true",
+            "statusMessage": "Auto-pushing to GitHub...",
+            "async": true
+          }
+        ]
+      }
+    ],
     "Stop": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"/c/Users/Administrator/Downloads/furniture1000-main 0602\" && git push origin main 2>/dev/null || true",
+            "command": "cd \"C:/Users/frank/Downloads/furniture1000-main 0611\" && git push origin main 2>/dev/null || true",
             "statusMessage": "Pushing to GitHub..."
           }
         ]
