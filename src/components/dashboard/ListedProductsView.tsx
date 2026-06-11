@@ -961,6 +961,8 @@ export function ListedProductsView({
         : null,
       tags: Array.isArray(p.tags) && p.tags.length > 0 ? p.tags : null,
       price: p.salePrice ?? p.price ?? null,
+      // cost = products.cost_price (成本，供產品信息頁參考)
+      cost: p.costPrice ?? null,
       status: 'draft',
       imported_at: new Date().toISOString(),
     }));

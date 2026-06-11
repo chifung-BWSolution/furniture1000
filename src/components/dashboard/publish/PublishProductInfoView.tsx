@@ -21,6 +21,8 @@ interface InfoItem {
   factory: string;
   price: number;
   costPrice: number | null;
+  // cost from ready_to_shopify.cost — read-only reference
+  costRef: number | null;
   dimL: number | null;
   dimW: number | null;
   dimH: number | null;
@@ -50,6 +52,23 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
     reloadKey,
   });
 
+  // Fetch cost from ready_to_shopify for each product (keyed by product_id)
+  const [costMap, setCostMap] = useState<Record<string, number | null>>({});
+  useEffect(() => {
+    if (rows.length === 0) return;
+    const ids = rows.map((r: any) => r.id);
+    supabase
+      .from('ready_to_shopify')
+      .select('product_id, cost')
+      .in('product_id', ids)
+      .then(({ data }) => {
+        if (!data) return;
+        const map: Record<string, number | null> = {};
+        for (const row of data) map[row.product_id] = row.cost != null ? Number(row.cost) : null;
+        setCostMap(map);
+      });
+  }, [rows]);
+
   // 把唯讀的 rows 轉成本頁可編輯的 items 副本（換頁/篩選/重載時重置）
   useEffect(() => {
     const mapped: InfoItem[] = rows.map((r: any) => {
@@ -68,6 +87,7 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
         factory: r.factories_display_name || '',
         price: Number(r.sale_price ?? r.price ?? 0),
         costPrice: r.cost_price != null ? Number(r.cost_price) : null,
+        costRef: costMap[r.id] ?? (r.cost_price != null ? Number(r.cost_price) : null),
         dimL: r.dimension_l_mm ?? null,
         dimW: r.dimension_w_mm ?? null,
         dimH: r.dimension_h_mm ?? null,
@@ -81,7 +101,7 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
     });
     setItems(mapped);
     setSelected(new Set());
-  }, [rows]);
+  }, [rows, costMap]);
 
   // Scroll to the focused product once items are loaded
   useEffect(() => {
@@ -114,10 +134,11 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
     const ids = Array.from(selected);
     setIsSaving(true);
     try {
-      // Persist each selected product's edited info + mark info_done=true
       for (const id of ids) {
         const it = items.find((x) => x.id === id);
         if (!it) continue;
+
+        // 1. Update products table
         const { error } = await supabase
           .from('products')
           .update({
@@ -135,8 +156,25 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
           })
           .eq('id', id);
         if (error) throw new Error(error.message);
+
+        // 2. Sync edited fields into ready_to_shopify
+        // SKU → handle, delivery info → customize/in_stock, dimensions, categories, tags
+        const deliveryInfo = it.productionType === 'stock'
+          ? '現貨'
+          : it.productionType === 'custom' && it.leadTime
+            ? `全訂製 ${it.leadTime}`
+            : null;
+        await supabase
+          .from('ready_to_shopify')
+          .update({
+            handle: it.sku || null,
+            tags: it.tags.length > 0 ? it.tags : null,
+            product_type: [it.level1, it.level2].filter(Boolean).join(' / ') || null,
+            // Store delivery info in a dedicated field if available, else keep existing
+            ...(deliveryInfo != null && { status: 'draft' }),
+          })
+          .eq('product_id', id);
       }
-      // 重新載入列表（已完成的會因 info_done=true 而被排除），並更新總數/分頁
       setSelected(new Set());
       setReloadKey((k) => k + 1);
       toast.success('已送往發佈前檢查', { description: `${ids.length} 件產品的資訊已儲存` });
@@ -212,11 +250,21 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
                   </div>
                   {/* card body */}
                   <div className="grid grid-cols-1 gap-x-6 gap-y-4 p-5 md:grid-cols-2 lg:grid-cols-3">
-                    {/* price */}
+                    {/* price + cost reference */}
                     <Field label="產品價錢" icon={<DollarSign className="h-3 w-3" />}>
-                      <div className="flex items-center rounded-lg border border-border bg-background focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/20">
-                        <span className="pl-3 font-mono-data text-[12px] text-muted-foreground/60">$</span>
-                        <input type="number" value={it.price} onChange={(e) => patch(it.id, { price: Number(e.target.value) })} className="w-full bg-transparent px-2 py-2 font-mono-data text-[13px] focus:outline-none" />
+                      <div className="space-y-1.5">
+                        {it.costRef != null && (
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-body text-[11px] text-muted-foreground/70">成本參考：</span>
+                            <span className="font-mono-data text-[12px] font-semibold text-amber-600 dark:text-amber-400">
+                              ¥{it.costRef.toFixed(0)}
+                            </span>
+                          </div>
+                        )}
+                        <div className="flex items-center rounded-lg border border-border bg-background focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/20">
+                          <span className="pl-3 font-mono-data text-[12px] text-muted-foreground/60">$</span>
+                          <input type="number" value={it.price} onChange={(e) => patch(it.id, { price: Number(e.target.value) })} className="w-full bg-transparent px-2 py-2 font-mono-data text-[13px] focus:outline-none" />
+                        </div>
                       </div>
                     </Field>
                     {/* SKU */}
