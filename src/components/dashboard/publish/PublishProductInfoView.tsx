@@ -249,22 +249,24 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
                     </div>
                   </div>
                   {/* card body */}
-                  <div className="grid grid-cols-1 gap-x-6 gap-y-4 p-5 md:grid-cols-2 lg:grid-cols-3">
-                    {/* price + cost reference */}
+                  <div className="grid grid-cols-1 gap-x-6 gap-y-4 p-5 items-start md:grid-cols-2 lg:grid-cols-4">
+                    {/* price */}
                     <Field label="產品價錢" icon={<DollarSign className="h-3 w-3" />}>
-                      <div className="space-y-1.5">
-                        {it.costRef != null && (
-                          <div className="flex items-center gap-1.5">
-                            <span className="font-body text-[11px] text-muted-foreground/70">成本參考：</span>
-                            <span className="font-mono-data text-[12px] font-semibold text-amber-600 dark:text-amber-400">
-                              ¥{it.costRef.toFixed(0)}
-                            </span>
-                          </div>
+                      <div className="flex items-center rounded-lg border border-border bg-background focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/20">
+                        <span className="pl-3 font-mono-data text-[12px] text-muted-foreground/60">$</span>
+                        <input type="number" value={it.price} onChange={(e) => patch(it.id, { price: Number(e.target.value) })} className="w-full bg-transparent px-2 py-2 font-mono-data text-[13px] focus:outline-none" />
+                      </div>
+                    </Field>
+                    {/* cost reference — read-only */}
+                    <Field label="成本參考" icon={<DollarSign className="h-3 w-3" />}>
+                      <div className="flex h-[38px] items-center rounded-lg border border-border/50 bg-muted/30 px-3">
+                        {it.costRef != null ? (
+                          <span className="font-mono-data text-[13px] font-semibold text-amber-600 dark:text-amber-400">
+                            ¥{it.costRef.toFixed(0)}
+                          </span>
+                        ) : (
+                          <span className="font-body text-[12px] text-muted-foreground/40">—</span>
                         )}
-                        <div className="flex items-center rounded-lg border border-border bg-background focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/20">
-                          <span className="pl-3 font-mono-data text-[12px] text-muted-foreground/60">$</span>
-                          <input type="number" value={it.price} onChange={(e) => patch(it.id, { price: Number(e.target.value) })} className="w-full bg-transparent px-2 py-2 font-mono-data text-[13px] focus:outline-none" />
-                        </div>
                       </div>
                     </Field>
                     {/* SKU */}
