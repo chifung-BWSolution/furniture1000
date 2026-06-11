@@ -401,7 +401,7 @@ export function useAppStore() {
       // image_url here is an HTTP URL (not base64), images is the additional images array.
       const [{ data: variantRows }, { data: rtsRows }] = await Promise.all([
         supabase.from('product_variants').select('*').in('product_id', ids),
-        supabase.from('ready_to_shopify').select('product_id,image_url,images').in('product_id', ids),
+        supabase.from('ready_to_shopify').select('product_id,image_url,images,shopify_page_description').in('product_id', ids),
       ]);
 
       const variantsByProduct: Record<string, any[]> = {};
@@ -409,10 +409,10 @@ export function useAppStore() {
         (variantsByProduct[v.product_id] ??= []).push(v);
       });
 
-      // Build a map of ready_to_shopify image data keyed by product_id
-      const rtsByProductId: Record<string, { image_url: string | null; images: any[] | null }> = {};
+      // Build a map of ready_to_shopify data keyed by product_id
+      const rtsByProductId: Record<string, { image_url: string | null; images: any[] | null; shopify_page_description: string | null }> = {};
       (rtsRows || []).forEach((r: any) => {
-        rtsByProductId[r.product_id] = { image_url: r.image_url, images: r.images };
+        rtsByProductId[r.product_id] = { image_url: r.image_url, images: r.images, shopify_page_description: r.shopify_page_description };
       });
 
       const loaded = rtpRows.map((row: any) => {
@@ -422,6 +422,10 @@ export function useAppStore() {
           // Use ready_to_shopify image_url if it's an HTTP URL (not base64)
           if (rts.image_url && rts.image_url.startsWith('http')) {
             product.imageUrl = rts.image_url;
+          }
+          // Override description with shopify_page_description if available
+          if (rts.shopify_page_description) {
+            product.description = rts.shopify_page_description;
           }
           // Attach additional images from ready_to_shopify.images
           if (Array.isArray(rts.images) && rts.images.length > 0) {
