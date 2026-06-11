@@ -617,14 +617,21 @@ export function QuotationDraftEditor({
         .join(""),
     ].join("");
 
+  // Detect if saved terms still use old (incorrect) numbering, e.g. "3.1 本報價".
+  // If so, discard saved terms and fall back to corrected DEFAULT_TERMS.
+  const savedTransportIsOld =
+    typeof savedTermsContent?.transport === 'string' &&
+    savedTermsContent.transport.trimStart().startsWith('3.');
+  const effectiveSavedTerms = savedTransportIsOld ? undefined : savedTermsContent;
+
   const [termsContent, setTermsContent] = useState({
-    transport: savedTermsContent?.transport || DEFAULT_TERMS.transport,
-    extraFees: savedTermsContent?.extraFees || DEFAULT_TERMS.extraFees,
-    warranty: savedTermsContent?.warranty || DEFAULT_TERMS.warranty,
-    other: savedTermsContent?.other || DEFAULT_TERMS.other,
-    payment: savedTermsContent?.payment || DEFAULT_TERMS.payment,
+    transport: effectiveSavedTerms?.transport || DEFAULT_TERMS.transport,
+    extraFees: effectiveSavedTerms?.extraFees || DEFAULT_TERMS.extraFees,
+    warranty: effectiveSavedTerms?.warranty || DEFAULT_TERMS.warranty,
+    other: effectiveSavedTerms?.other || DEFAULT_TERMS.other,
+    payment: effectiveSavedTerms?.payment || DEFAULT_TERMS.payment,
     fullHtml:
-      savedTermsContent?.fullHtml || buildDefaultFullHtml(DEFAULT_TERMS),
+      effectiveSavedTerms?.fullHtml || buildDefaultFullHtml(DEFAULT_TERMS),
   });
   const [termsEditMode, setTermsEditMode] = useState(false);
   const [termsSaving, setTermsSaving] = useState(false);
