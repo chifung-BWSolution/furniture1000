@@ -219,41 +219,52 @@ export function ListedProductsView({
     return () => { cancelled = true; };
   }, []);
 
-  // Fetch category product counts — use .limit(10000) to bypass the default 1000-row
-  // cap that caused truncated counts on large tables.
+  // Fetch category product counts — paginated to bypass Supabase's 1000-row server cap.
   useEffect(() => {
     let cancelled = false;
     (async () => {
+      const BATCH = 1000;
+
       const applyVisibility = (q: any) => isCatalog
         ? q.eq('in_catalog', true)
         : q.eq('in_catalog', false).eq('in_shopify_queue', false).eq('dismissed', false);
 
-      const [{ data: l1Rows }, { data: l2Rows }] = await Promise.all([
-        applyVisibility(
-          supabase
-            .from('products')
-            .select('level1_category')
-            .not('level1_category', 'is', null)
-            .neq('level1_category', '')
-        ).limit(10000),
-        applyVisibility(
-          supabase
-            .from('products')
-            .select('level1_category, level2_category')
-            .not('level2_category', 'is', null)
-            .neq('level2_category', '')
-        ).limit(10000),
+      // Paginated fetch helper
+      const fetchAllPages = async (columns: string, extraFilter: (q: any) => any) => {
+        const rows: any[] = [];
+        let page = 0;
+        while (true) {
+          const { data } = await applyVisibility(
+            extraFilter(
+              supabase.from('products').select(columns)
+            )
+          ).range(page * BATCH, (page + 1) * BATCH - 1);
+          if (!data || data.length === 0) break;
+          rows.push(...data);
+          if (data.length < BATCH) break;
+          page++;
+        }
+        return rows;
+      };
+
+      const [l1Rows, l2Rows] = await Promise.all([
+        fetchAllPages('level1_category', (q) =>
+          q.not('level1_category', 'is', null).neq('level1_category', '')
+        ),
+        fetchAllPages('level1_category,level2_category', (q) =>
+          q.not('level2_category', 'is', null).neq('level2_category', '')
+        ),
       ]);
 
       if (cancelled) return;
 
       const counts: Record<string, number> = {};
-      for (const row of (l1Rows || [])) {
+      for (const row of l1Rows) {
         const l1 = (row.level1_category || '').trim();
         if (!l1) continue;
         counts[`level1:${l1}`] = (counts[`level1:${l1}`] || 0) + 1;
       }
-      for (const row of (l2Rows || [])) {
+      for (const row of l2Rows) {
         const l1 = (row.level1_category || '').trim();
         const l2 = (row.level2_category || '').trim();
         if (!l1 || !l2) continue;
