@@ -19,7 +19,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "cd \"C:/Users/frank/Downloads/furniture1000-main 0611\" && git push origin main 2>/dev/null || true",
+            "command": "cd \"C:/Users/frank/Downloads/furniture1000-main 0611\" && git push origin main 2>/dev/null || true && echo '{\"systemMessage\": \"我做到野啦 git git git\"}'",
             "statusMessage": "Pushing to GitHub..."
           }
         ]
