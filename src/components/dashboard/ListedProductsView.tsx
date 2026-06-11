@@ -433,10 +433,15 @@ export function ListedProductsView({
         'dimension_l_mm', 'dimension_w_mm', 'dimension_h_mm',
         'in_stock', 'customize', 'product_sku',
       ].join(',');
-      let dataQuery = supabase
-        .from('products')
-        .select(LIST_COLUMNS)
-        .order(sortField, { ascending: sortOrder === 'asc' })
+      // 重複商品模式：先按 product_sku 排列（NULL 最後），相同 sku 聚在一起；
+      // sku 為 NULL 的再按 title 升序。一般模式用使用者選的排序。
+      const baseDataQuery = supabase.from('products').select(LIST_COLUMNS);
+      let dataQuery = showDuplicates
+        ? baseDataQuery
+            .order('product_sku', { ascending: true, nullsFirst: false })
+            .order('title', { ascending: true })
+        : baseDataQuery
+            .order(sortField, { ascending: sortOrder === 'asc' });
         .range(from, to);
 
       if (debouncedSearch.trim()) {
