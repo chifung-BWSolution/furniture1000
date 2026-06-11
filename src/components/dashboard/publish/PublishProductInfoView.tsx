@@ -175,6 +175,8 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
             in_stock: it.productionType === 'stock' ? true : false,
             customize: it.productionType === 'custom' && it.leadTime ? it.leadTime : null,
             info_done: true,
+            // Skip precheck — go directly to 準備上載
+            ready_to_publish: true,
           })
           .eq('id', id);
         if (error) throw new Error(error.message);
@@ -199,7 +201,7 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
       }
       setSelected(new Set());
       setReloadKey((k) => k + 1);
-      toast.success('已送往發佈前檢查', { description: `${ids.length} 件產品的資訊已儲存` });
+      toast.success('已送往準備上載', { description: `${ids.length} 件產品的資訊已儲存，現可在「準備上載」頁面上傳到 Shopify` });
     } catch (e) {
       toast.error('儲存失敗', { description: e instanceof Error ? e.message : '請稍後再試' });
     } finally {
