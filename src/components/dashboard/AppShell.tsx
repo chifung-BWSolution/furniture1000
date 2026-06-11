@@ -246,6 +246,19 @@ export function AppShell() {
             onClearFilter={handleClearFilter}
             onSyncFromShopify={store.syncFromShopify}
             onUploadUnsyncedToMaster={store.publishSelected}
+            onRevertToInfo={async (ids) => {
+              const { error } = await import('@/lib/supabase').then(m =>
+                m.supabase.from('products').update({ ready_to_publish: false, info_done: false }).in('id', ids)
+              );
+              if (error) {
+                const { toast } = await import('sonner');
+                toast.error('退回失敗', { description: error.message });
+              } else {
+                store.reloadReadyToPublish();
+                const { toast } = await import('sonner');
+                toast.success(`已退回 ${ids.length} 件產品至「產品信息」`);
+              }
+            }}
             isSyncing={store.isSyncing}
             isPublishing={store.isPublishing}
             lastSyncTime={store.lastSyncTime}

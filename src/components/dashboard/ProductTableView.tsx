@@ -37,6 +37,7 @@ import {
   X,
   Plus,
   ChevronDown,
+  ChevronLeft,
   Filter,
   Trash2,
   ExternalLink,
@@ -546,6 +547,7 @@ interface ProductTableViewProps {
   onClearFilter: () => void;
   onSyncFromShopify?: () => Promise<any>;
   onUploadUnsyncedToMaster?: () => Promise<any>;
+  onRevertToInfo?: (ids: string[]) => Promise<void>;
   isSyncing?: boolean;
   isPublishing?: boolean;
   lastSyncTime?: string | null;
@@ -566,6 +568,7 @@ export const ProductTableView = memo(function ProductTableView({
   onClearFilter,
   onSyncFromShopify,
   onUploadUnsyncedToMaster,
+  onRevertToInfo,
   isSyncing,
   isPublishing,
   lastSyncTime,
@@ -804,30 +807,26 @@ export const ProductTableView = memo(function ProductTableView({
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Upload to Shopify Button — uploads selected products */}
-            {onUploadUnsyncedToMaster && (
+            {/* Revert to 產品信息 Button */}
+            {onRevertToInfo && (
               <Button
-                variant="default"
+                variant="outline"
                 size="sm"
                 onClick={async () => {
                   if (selectedIds.size === 0) {
-                    toast.info('請先勾選要上傳的產品');
+                    toast.info('請先勾選要退回的產品');
                     return;
                   }
-                  await onUploadUnsyncedToMaster();
+                  await onRevertToInfo(Array.from(selectedIds));
                 }}
-                disabled={isPublishing || selectedIds.size === 0}
+                disabled={selectedIds.size === 0}
                 className={cn(
-                  "gap-2 font-display text-xs font-bold bg-primary hover:bg-primary/90",
-                  (isPublishing || selectedIds.size === 0) && "opacity-60"
+                  "gap-2 font-display text-xs font-bold border-amber-500/40 text-amber-600 hover:bg-amber-500/10 dark:text-amber-400",
+                  selectedIds.size === 0 && "opacity-50"
                 )}
               >
-                {isPublishing ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Upload className="h-3.5 w-3.5" />
-                )}
-                {isPublishing ? '上傳中...' : `上傳到 Shopify${selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}`}
+                <ChevronLeft className="h-3.5 w-3.5" />
+                {`退回上一步${selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}`}
               </Button>
             )}
 
