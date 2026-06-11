@@ -11,10 +11,19 @@ interface Category {
   sort_order: number;
 }
 
+export interface CategorySelection {
+  level1: string;
+  level2: string;
+}
+
 interface CascadingCategorySelectorProps {
   categories: Category[];
+  /** Selected value — pass level2 name (or level1 name when no level2 chosen) */
   value: string;
-  onValueChange: (value: string) => void;
+  /** Legacy single-string callback — still supported for backward compat */
+  onValueChange?: (value: string) => void;
+  /** Preferred callback — provides both level1 and level2 names */
+  onSelectionChange?: (sel: CategorySelection) => void;
   placeholder?: string;
   showClear?: boolean;
   triggerClassName?: string;
@@ -26,6 +35,7 @@ export function CascadingCategorySelector({
   categories,
   value,
   onValueChange,
+  onSelectionChange,
   placeholder = '選擇類目',
   showClear = false,
   triggerClassName,
@@ -88,23 +98,29 @@ export function CascadingCategorySelector({
     if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
   };
 
+  // Emit selection to both callbacks
+  const emitSelection = (level1Name: string, level2Name: string) => {
+    const displayName = level2Name || level1Name;
+    onValueChange?.(displayName);
+    onSelectionChange?.({ level1: level1Name, level2: level2Name });
+  };
+
   // Handle level-1 click - if no children, select directly
   const handleLevel1Click = (cat: Category) => {
     const children = level2Map.get(cat.id);
     if (!children || children.length === 0) {
-      // No subcategories, select the level-1 category directly
-      onValueChange(cat.name);
+      emitSelection(cat.name, '');
       setIsOpen(false);
       setHoveredLevel1(null);
     } else {
-      // Has subcategories, show them (for click on mobile or non-hover devices)
       setHoveredLevel1(cat.id);
     }
   };
 
   // Handle level-2 click
   const handleLevel2Click = (cat: Category) => {
-    onValueChange(cat.name);
+    const parent = categories.find((c) => c.id === cat.parent_id);
+    emitSelection(parent?.name || '', cat.name);
     setIsOpen(false);
     setHoveredLevel1(null);
   };
@@ -112,7 +128,8 @@ export function CascadingCategorySelector({
   // Handle clear
   const handleClear = (e: React.MouseEvent) => {
     e.stopPropagation();
-    onValueChange('__clear__');
+    onValueChange?.('__clear__');
+    onSelectionChange?.({ level1: '', level2: '' });
     setIsOpen(false);
   };
 
@@ -164,7 +181,7 @@ export function CascadingCategorySelector({
               {showClear && (
                 <button
                   type="button"
-                  onClick={() => { onValueChange('__clear__'); setIsOpen(false); }}
+                  onClick={() => { onValueChange?.('__clear__'); onSelectionChange?.({ level1: '', level2: '' }); setIsOpen(false); }}
                   className="w-full flex items-center px-2 py-1.5 text-xs text-muted-foreground hover:bg-accent rounded-sm transition-colors"
                 >
                   清除分類

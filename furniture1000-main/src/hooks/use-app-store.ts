@@ -154,6 +154,9 @@ function dbRowToProduct(row: any, variants: any[]): Product {
     dimensionHMm: row.dimension_h_mm != null ? parseInt(row.dimension_h_mm) : null,
     deliveryTermId: row.delivery_term_id || null,
     deliveryTermName: row.delivery_term_name || null,
+    inStock: row.in_stock != null ? Boolean(row.in_stock) : null,
+    customize: row.customize || null,
+    readyToPublish: row.ready_to_publish === true,
     variants: variants.map(v => ({
       id: v.id,
       size: v.size,
@@ -263,9 +266,20 @@ export function useAppStore() {
     } catch { /* ignore */ }
     return DEFAULT_SETTINGS;
   });
-  const [currentView, setCurrentView] = useState<ViewType>('quick-quote');
+  const [currentView, setCurrentViewRaw] = useState<ViewType>(() => {
+    try {
+      const saved = sessionStorage.getItem('current-view') as ViewType | null;
+      if (saved) return saved;
+    } catch { /* ignore */ }
+    return 'quick-quote';
+  });
+  const setCurrentView = (view: ViewType) => {
+    try { sessionStorage.setItem('current-view', view); } catch { /* ignore */ }
+    setCurrentViewRaw(view);
+  };
   const [selectedProductIds, setSelectedProductIds] = useState<Set<string>>(new Set());
   const [filterProductId, setFilterProductId] = useState<string | null>(null);
+  const [factoryDetailCode, setFactoryDetailCode] = useState<string | null>(null);
   const [isDarkMode, setIsDarkMode] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
@@ -289,19 +303,25 @@ export function useAppStore() {
     async function loadProducts() {
       setIsLoading(true);
       try {
-        // Fetch total count for stats
-        const { count: totalCount } = await supabase
-          .from('products')
-          .select('id', { count: 'exact', head: true });
-        setTotalProductCount(totalCount || 0);
-
         // Limit initial load to 100 products for performance
         const PAGE_LIMIT = 100;
-        const { data: productRows, error: prodErr } = await supabase
+
+        // Run count (estimated — uses planner stats, far faster than 'exact'
+        // on a large table) and the product page IN PARALLEL so they don't
+        // block each other.
+        const countPromise = supabase
+          .from('products')
+          .select('id', { count: 'estimated', head: true });
+        const dataPromise = supabase
           .from('products')
           .select('*')
           .order('created_at', { ascending: false })
           .range(0, PAGE_LIMIT - 1);
+
+        const [{ count: totalCount }, { data: productRows, error: prodErr }] =
+          await Promise.all([countPromise, dataPromise]);
+
+        setTotalProductCount(totalCount || 0);
 
         if (prodErr) {
           console.warn('[Supabase] Error loading products, using sample data:', prodErr.message);
@@ -322,35 +342,42 @@ export function useAppStore() {
           return;
         }
 
-        // Only fetch variants for loaded products (not all variants in DB)
+        // Render products immediately with empty variants — unblocks the whole
+        // app shell now instead of waiting for the variants round-trip.
+        const loaded = productRows.map((row: any) => dbRowToProduct(row, []));
+        setProducts(loaded);
+        setIsLoading(false);
+
+        // Fetch variants in the background and patch them in afterwards.
         const productIds = productRows.map((p: any) => p.id);
-        const { data: variantRows, error: varErr } = await supabase
+        supabase
           .from('product_variants')
           .select('*')
-          .in('product_id', productIds);
-
-        if (varErr) {
-          console.warn('[Supabase] Error loading variants, using sample data:', varErr.message);
-          setProducts(SAMPLE_PRODUCTS);
-          setIsLoading(false);
-          return;
-        }
-
-        const variantsByProduct: Record<string, any[]> = {};
-        (variantRows || []).forEach((v: any) => {
-          if (!variantsByProduct[v.product_id]) variantsByProduct[v.product_id] = [];
-          variantsByProduct[v.product_id].push(v);
-        });
-
-        const loaded = productRows.map((row: any) =>
-          dbRowToProduct(row, variantsByProduct[row.id] || [])
-        );
-
-        setProducts(loaded);
+          .in('product_id', productIds)
+          .then(({ data: variantRows }) => {
+            if (!variantRows || variantRows.length === 0) return;
+            const variantsByProduct: Record<string, any[]> = {};
+            variantRows.forEach((v: any) => {
+              (variantsByProduct[v.product_id] ||= []).push(v);
+            });
+            setProducts((prev) =>
+              prev.map((p) =>
+                variantsByProduct[p.id]
+                  ? {
+                      ...p,
+                      variants: variantsByProduct[p.id].map((v: any) => ({
+                        id: v.id, size: v.size, color: v.color, sku: v.sku,
+                        price: parseFloat(v.price), inventory: v.inventory,
+                      })),
+                    }
+                  : p
+              )
+            );
+          });
+        return;
       } catch (err) {
         console.warn('[Supabase] Unexpected error, using sample data:', err);
         setProducts(SAMPLE_PRODUCTS);
-      } finally {
         setIsLoading(false);
       }
     }
@@ -359,6 +386,74 @@ export function useAppStore() {
   }, []);
 
   // Reload products from Supabase (used after publish/sync)
+  // Load ALL products with ready_to_publish=true, bypassing the 100-row pagination
+  // so they show in the 準備上載 page even if the product is older than the first page.
+  const reloadReadyToPublish = useCallback(async () => {
+    try {
+      const { data: rtpRows } = await supabase
+        .from('products')
+        .select('*')
+        .eq('ready_to_publish', true);
+      if (!rtpRows || rtpRows.length === 0) return;
+      const ids = rtpRows.map((r: any) => r.id);
+
+      // Fetch ready_to_shopify image data in parallel with variants —
+      // image_url here is an HTTP URL (not base64), images is the additional images array.
+      const [{ data: variantRows }, { data: rtsRows }] = await Promise.all([
+        supabase.from('product_variants').select('*').in('product_id', ids),
+        supabase.from('ready_to_shopify').select('product_id,image_url,images,body_html').in('product_id', ids),
+      ]);
+
+      const variantsByProduct: Record<string, any[]> = {};
+      (variantRows || []).forEach((v: any) => {
+        (variantsByProduct[v.product_id] ??= []).push(v);
+      });
+
+      // Build a map of ready_to_shopify data keyed by product_id
+      const rtsByProductId: Record<string, { image_url: string | null; images: any[] | null; body_html: string | null }> = {};
+      (rtsRows || []).forEach((r: any) => {
+        rtsByProductId[r.product_id] = { image_url: r.image_url, images: r.images, body_html: r.body_html };
+      });
+
+      const loaded = rtpRows.map((row: any) => {
+        const product = dbRowToProduct(row, variantsByProduct[row.id] || []);
+        const rts = rtsByProductId[row.id];
+        if (rts) {
+          // Override description + descriptionHtml with body_html (Shopify 產品說明).
+          // ProductDetailModal uses descriptionHtml first, so both must be set.
+          if (rts.body_html) {
+            product.description = rts.body_html;
+            product.descriptionHtml = rts.body_html;
+          }
+
+          // Use ready_to_shopify image_url as primary (supports both HTTP URL and base64)
+          const primarySrc = rts.image_url || product.imageUrl || '';
+          if (primarySrc) product.imageUrl = primarySrc;
+
+          // Build full images array: primary first, then additional images from ready_to_shopify.images
+          const allImages: { src: string; alt: string }[] = [];
+          if (primarySrc) allImages.push({ src: primarySrc, alt: product.title });
+          if (Array.isArray(rts.images)) {
+            for (const img of rts.images) {
+              const src = img?.src || img?.url || (typeof img === 'string' ? img : '');
+              if (src && src !== primarySrc) allImages.push({ src, alt: img?.alt || '' });
+            }
+          }
+          if (allImages.length > 0) (product as any).images = allImages;
+        }
+        return product;
+      });
+
+      setProducts(prev => {
+        const byId = new Map(prev.map(p => [p.id, p]));
+        loaded.forEach(p => byId.set(p.id, p));
+        return Array.from(byId.values());
+      });
+    } catch (err) {
+      console.warn('[Supabase] Reload ready-to-publish error:', err);
+    }
+  }, []);
+
   const reloadProducts = useCallback(async () => {
     try {
       // Refresh total count
@@ -873,52 +968,49 @@ export function useAppStore() {
       console.error('[uploadToMasterDb] Failed to set publishing status in DB:', statusErr.message);
     }
 
-    // Build payload for the master DB edge function
-    // Send local_id (frontend ID) for result tracking, and master_id (valid UUID) for upsert if available
+    // Build payload for publish-to-shopify edge function
+    // Field mapping (products → shopify_products / Shopify API):
+    //   title              → title / title
+    //   descriptionHtml    → body_html / body_html
+    //   factoriesDisplayName → vendor / vendor
+    //   collection         → product_type / product_type
+    //   imageUrl           → image_url / images[0]
+    //   images             → images / images (additional)
+    //   tags               → tags / tags
+    //   price / salePrice  → price / variants[].price
     const payload = selectedProducts.map(p => ({
-      local_id: p.id,
-      master_id: p.bwfMasterId || null,
+      id: p.id,
       title: p.title,
-      description_html: p.descriptionHtml || p.description,
-      description: p.description,
-      tags: p.tags,
-      price: p.price,
-      compare_at_price: p.compareAtPrice || null,
-      collection: p.collection,
-      image_url: p.imageUrl,
+      description_html: p.descriptionHtml || p.description || '',
+      tags: p.tags || [],
+      price: p.salePrice ?? p.price ?? 0,
+      compare_at_price: p.compareAtPrice ?? null,
+      collection: p.collection || '',
+      image_url: p.imageUrl || '',
+      // Additional product images (beyond the primary image_url)
+      images: (p as any).images || [],
       shopify_product_id: p.shopifyProductId || null,
+      variants: (p.variants && p.variants.length > 0) ? p.variants : [],
+      // Shopify vendor = factory display name
+      vendor: p.factoriesDisplayName || p.factoryName || '',
+      // Shopify product_type = collection
+      product_type: p.collection || '',
       category: p.category || p.collection || '',
-      factory_name: p.factoryName || p.factoriesDisplayName || '',
-      factory_id: p.factoryId || '',
+      factory_name: p.factoriesDisplayName || p.factoryName || '',
       material: p.material || '',
-      dimension_l_mm: p.dimensionLMm || null,
-      dimension_w_mm: p.dimensionWMm || null,
-      dimension_h_mm: p.dimensionHMm || null,
-      cost_price: p.costPrice || null,
-      sale_price: 0,
-      shopify_price: 0,
-      shopify_compare_at_price: p.shopifyCompareAtPrice || p.compareAtPrice || null,
-      delivery_days: p.deliveryDays || null,
-      shopify_id: p.shopifyProductId || null,
-      production_lead_time: p.productionLeadTime ?? null,
-      total_lead_time: (p.productionLeadTime != null && p.shippingDays != null)
-        ? (p.productionLeadTime + p.shippingDays)
-        : (p.productionLeadTime ?? p.shippingDays ?? null),
-      shipping_days: p.shippingDays ?? null,
-      shipping_fee: p.shippingFee ?? null,
-      remarks: p.remarks || null,
-      color: p.color || null,
-      factory_highlight: p.factoryHighlight || [],
-      delivery_term_id: p.deliveryTermId || null,
-      delivery_term_name: p.deliveryTermName || null,
-      lifestyle_image_url: p.lifestyleImageUrl || null,
+      dimension_l_mm: p.dimensionLMm ?? null,
+      dimension_w_mm: p.dimensionWMm ?? null,
+      dimension_h_mm: p.dimensionHMm ?? null,
+      cost_price: p.costPrice ?? null,
+      sale_price: p.salePrice ?? 0,
+      delivery_days: p.deliveryDays ?? null,
     }));
 
     try {
-      console.log(`[uploadToMasterDb] Calling upload-to-master-db edge function with ${payload.length} products`);
-      console.log('[uploadToMasterDb] Payload sample:', JSON.stringify(payload[0], null, 2));
+      console.log(`[publishToShopify] Calling publish-to-shopify edge function with ${payload.length} products`);
+      console.log('[publishToShopify] Payload sample:', JSON.stringify(payload[0], null, 2));
 
-      const { data, error } = await supabase.functions.invoke('supabase-functions-upload-to-master-db', {
+      const { data, error } = await supabase.functions.invoke('supabase-functions-publish-to-shopify', {
         body: { products: payload },
       });
 
@@ -967,11 +1059,10 @@ export function useAppStore() {
           .update({ status: 'error', error_message: detailedMsg })
           .in('id', selectedProductIds_arr);
       } else if (data?.results) {
-        // Update local state based on results from edge function
-        // Edge function now returns local_id instead of id
+        // publish-to-shopify returns results with { id, success, shopify_product_id, error, action }
         const resultsMap = new Map(
-          (data.results as { local_id: string; success: boolean; master_id?: string; error?: string }[])
-            .map((r) => [r.local_id, r])
+          (data.results as { id: string; success: boolean; shopify_product_id?: string; error?: string; action?: string }[])
+            .map((r) => [r.id, r])
         );
 
         const successIds: string[] = [];
@@ -985,7 +1076,7 @@ export function useAppStore() {
             return {
               ...p,
               status: 'success' as ProductStatus,
-              bwfMasterId: result.master_id || p.bwfMasterId,
+              shopifyProductId: result.shopify_product_id || p.shopifyProductId,
               errorMessage: undefined,
             };
           } else {
@@ -998,7 +1089,7 @@ export function useAppStore() {
           }
         }));
 
-        // Update DB status for successes — persist bwf_master_id + synced_at per product
+        // Update DB status for successes — persist shopify_product_id + synced_at per product
         const syncTimestamp = new Date().toISOString();
         if (successIds.length > 0) {
           for (const sid of successIds) {
@@ -1008,10 +1099,45 @@ export function useAppStore() {
               .update({
                 status: 'success',
                 error_message: null,
-                bwf_master_id: result?.master_id || null,
+                shopify_product_id: result?.shopify_product_id || null,
                 synced_at: syncTimestamp,
+                ready_to_publish: false,
               })
               .eq('id', sid);
+          }
+          // Mirror successfully published products into shopify_products so they
+          // appear in the 已上載產品 page right away.
+          const successProducts = selectedProducts.filter(p => successIds.includes(p.id));
+          const shopifyRows = successProducts.map(p => {
+            const result = resultsMap.get(p.id);
+            const sid = result?.shopify_product_id || p.shopifyProductId || `pending-${p.id}`;
+            return {
+              shopify_product_id: sid,
+              title: p.title,
+              body_html: p.descriptionHtml || p.description || null,
+              vendor: p.factoryName || p.factoriesDisplayName || null,
+              product_type: p.collection || null,
+              handle: null,
+              status: 'active',
+              published_at: syncTimestamp,
+              image_url: p.imageUrl || null,
+              images: Array.isArray((p as any).images) ? (p as any).images : [],
+              variants: [],
+              tags: p.tags ?? [],
+              price: p.price ?? null,
+              compare_at_price: p.compareAtPrice ?? null,
+              shopify_created_at: syncTimestamp,
+              shopify_updated_at: syncTimestamp,
+              imported_at: syncTimestamp,
+            };
+          });
+          if (shopifyRows.length > 0) {
+            const { error: spErr } = await supabase
+              .from('shopify_products')
+              .upsert(shopifyRows, { onConflict: 'shopify_product_id' });
+            if (spErr) {
+              console.warn('[publishToShopify] shopify_products mirror failed:', spErr.message);
+            }
           }
           // Update local state synced_at as well
           setProducts(prev => prev.map(p => {
@@ -1036,7 +1162,7 @@ export function useAppStore() {
         if (data.summary) {
           const { success: sCount, errors: eCount } = data.summary;
           if (sCount > 0 && eCount === 0) {
-            toast.success('產品已成功備份至全域資料庫', {
+            toast.success('產品已成功發佈至 Shopify', {
               description: `${sCount} 個產品已上傳 — 正在前往產品目錄`,
               duration: 4000,
             });
@@ -1053,9 +1179,18 @@ export function useAppStore() {
               },
             });
           } else {
+            // Surface the actual first error from the edge function so the
+            // root cause (token / scope / Shopify API) is visible to the user.
+            const firstErr = (data.results as { success: boolean; error?: string }[])
+              .find((r) => !r.success && r.error)?.error;
             toast.error('上傳失敗', {
-              description: `${eCount} 個產品上傳失敗`,
+              description: firstErr
+                ? `${eCount} 個產品上傳失敗：${firstErr.slice(0, 300)}`
+                : `${eCount} 個產品上傳失敗`,
+              duration: 12000,
             });
+            console.error('[publishToShopify] First product error:', firstErr);
+            console.error('[publishToShopify] All results:', JSON.stringify(data.results, null, 2));
           }
         }
       } else if (data?.error) {
@@ -1120,45 +1255,29 @@ export function useAppStore() {
       .eq('id', id);
 
     const payload = [{
-      local_id: product.id,
-      master_id: product.bwfMasterId || null,
+      id: product.id,
       title: product.title,
-      description_html: product.descriptionHtml || product.description,
-      description: product.description,
-      tags: product.tags,
-      price: product.price,
-      compare_at_price: product.compareAtPrice || null,
-      collection: product.collection,
-      image_url: product.imageUrl,
+      description_html: product.descriptionHtml || product.description || '',
+      tags: product.tags || [],
+      price: product.price ?? 0,
+      compare_at_price: product.compareAtPrice ?? null,
+      collection: product.collection || '',
+      image_url: product.imageUrl || '',
       shopify_product_id: product.shopifyProductId || null,
+      variants: [],
       category: product.category || product.collection || '',
       factory_name: product.factoryName || product.factoriesDisplayName || '',
-      factory_id: product.factoryId || '',
       material: product.material || '',
-      dimension_l_mm: product.dimensionLMm || null,
-      dimension_w_mm: product.dimensionWMm || null,
-      dimension_h_mm: product.dimensionHMm || null,
-      cost_price: product.costPrice || null,
-      sale_price: 0,
-      shopify_price: 0,
-      shopify_compare_at_price: product.shopifyCompareAtPrice || product.compareAtPrice || null,
-      delivery_days: product.deliveryDays || null,
-      shopify_id: product.shopifyProductId || null,
-      production_lead_time: product.productionLeadTime ?? null,
-      total_lead_time: (product.productionLeadTime != null && product.shippingDays != null)
-        ? (product.productionLeadTime + product.shippingDays)
-        : (product.productionLeadTime ?? product.shippingDays ?? null),
-      shipping_days: product.shippingDays ?? null,
-      shipping_fee: product.shippingFee ?? null,
-      remarks: product.remarks || null,
-      color: product.color || null,
-      delivery_term_id: product.deliveryTermId || null,
-      delivery_term_name: product.deliveryTermName || null,
-      lifestyle_image_url: product.lifestyleImageUrl || null,
+      dimension_l_mm: product.dimensionLMm ?? null,
+      dimension_w_mm: product.dimensionWMm ?? null,
+      dimension_h_mm: product.dimensionHMm ?? null,
+      cost_price: product.costPrice ?? null,
+      sale_price: product.salePrice ?? 0,
+      delivery_days: product.deliveryDays ?? null,
     }];
 
     try {
-      const { data, error } = await supabase.functions.invoke('supabase-functions-upload-to-master-db', {
+      const { data, error } = await supabase.functions.invoke('supabase-functions-publish-to-shopify', {
         body: { products: payload },
       });
 
@@ -1197,17 +1316,17 @@ export function useAppStore() {
         }));
         toast.error('重試上傳失敗', { description: detailedMsg });
       } else if (data?.results?.[0]) {
-        const result = data.results[0];
+        const result = data.results[0] as { id: string; success: boolean; shopify_product_id?: string; error?: string };
         setProducts(prev => prev.map(p => {
           if (p.id !== id) return p;
           return {
             ...p,
             status: result.success ? 'success' as ProductStatus : 'error' as ProductStatus,
-            bwfMasterId: result.master_id || p.bwfMasterId,
+            shopifyProductId: result.shopify_product_id || p.shopifyProductId,
             errorMessage: result.success ? undefined : result.error,
           };
         }));
-        // Persist status, bwf_master_id, and synced_at to local DB
+        // Persist status, shopify_product_id, and synced_at to local DB
         if (result.success) {
           const syncTimestamp = new Date().toISOString();
           await supabase
@@ -1215,14 +1334,36 @@ export function useAppStore() {
             .update({
               status: 'success',
               error_message: null,
-              bwf_master_id: result.master_id || null,
+              shopify_product_id: result.shopify_product_id || null,
               synced_at: syncTimestamp,
+              ready_to_publish: false,
             })
             .eq('id', id);
           setProducts(prev => prev.map(p =>
             p.id === id ? { ...p, syncedAt: syncTimestamp } : p
           ));
-          toast.success('產品已成功備份至全域資料庫', {
+          // Mirror into shopify_products so the product shows up in 已上載產品 page
+          await supabase
+            .from('shopify_products')
+            .upsert({
+              shopify_product_id: result.shopify_product_id || product.shopifyProductId || `pending-${product.id}`,
+              title: product.title,
+              body_html: product.descriptionHtml || product.description || null,
+              vendor: product.factoryName || product.factoriesDisplayName || null,
+              product_type: product.collection || null,
+              status: 'active',
+              published_at: syncTimestamp,
+              image_url: product.imageUrl || null,
+              images: Array.isArray((product as any).images) ? (product as any).images : [],
+              variants: [],
+              tags: product.tags ?? [],
+              price: product.price ?? null,
+              compare_at_price: product.compareAtPrice ?? null,
+              shopify_created_at: syncTimestamp,
+              shopify_updated_at: syncTimestamp,
+              imported_at: syncTimestamp,
+            }, { onConflict: 'shopify_product_id' });
+          toast.success('產品已成功發佈至 Shopify', {
             action: {
               label: '前往產品目錄',
               onClick: () => setCurrentView('listed-products'),
@@ -1518,6 +1659,8 @@ export function useAppStore() {
     currentView,
     selectedProductIds,
     filterProductId,
+    factoryDetailCode,
+    setFactoryDetailCode,
     isDarkMode,
     stats,
     isLoading,
@@ -1546,6 +1689,7 @@ export function useAppStore() {
     toggleDarkMode,
     saveProducts,
     reloadProducts,
+    reloadReadyToPublish,
   };
 }
 

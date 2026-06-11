@@ -37,14 +37,13 @@ import {
   X,
   Plus,
   ChevronDown,
+  ChevronLeft,
   Filter,
   Trash2,
   ExternalLink,
   Loader2,
   Database,
   Sparkles,
-  ShieldCheck,
-  CloudDownload,
   Factory,
   Package,
   Upload,
@@ -138,29 +137,7 @@ const ProductTableRow = memo(function ProductTableRow({
         </div>
       </td>
 
-      {/* Material (材質描述) */}
-      <td className="max-w-[160px] px-4 py-3">
-        <div className="text-left">
-          <span className={cn(
-            'text-xs text-muted-foreground font-body',
-            'line-clamp-2'
-          )}>
-            {product.material || '—'}
-          </span>
-        </div>
-      </td>
-
-      {/* Tags — using TagSelector with official product tags */}
-      <td className="px-4 py-3">
-        <TagSelector
-          selectedTags={product.tags}
-          onChange={(tags) => onUpdateProduct(product.id, { tags })}
-          compact
-          maxVisible={3}
-        />
-      </td>
-
-      {/* Price */}
+      {/* Price (產品價錢) */}
       <td className="px-4 py-3">
         {isEditingThis && editingCell!.field === 'price' ? (
           <Input
@@ -182,6 +159,74 @@ const ProductTableRow = memo(function ProductTableRow({
         )}
       </td>
 
+      {/* SKU (產品編碼) */}
+      <td className="px-4 py-3">
+        {isEditingThis && editingCell!.field === 'sku' ? (
+          <Input
+            autoFocus
+            value={editValue}
+            onChange={e => onEditValueChange(e.target.value)}
+            onBlur={onSaveEdit}
+            className="h-8 w-32 font-mono-data text-xs bg-background"
+          />
+        ) : (
+          <button
+            onClick={() => onStartEditing(product.id, 'sku', product.sku || '')}
+            className="font-mono-data text-xs"
+          >
+            {product.sku ? product.sku : <span className="text-muted-foreground/50">—</span>}
+          </button>
+        )}
+      </td>
+
+      {/* Delivery Term (送貨資訊) — in_stock=true 顯示「現貨」，否則顯示 customize */}
+      <td className="px-4 py-3">
+        {product.inStock === true ? (
+          <span className="inline-flex items-center rounded-md bg-emerald-500/10 px-2 py-0.5 font-mono-data text-xs font-medium text-emerald-600 dark:text-emerald-400 ring-1 ring-inset ring-emerald-500/20">
+            現貨
+          </span>
+        ) : product.customize ? (
+          <span className="inline-flex items-center rounded-md bg-amber-500/10 px-2 py-0.5 font-mono-data text-xs font-medium text-amber-600 dark:text-amber-400 ring-1 ring-inset ring-amber-500/20">
+            {product.customize}
+          </span>
+        ) : (
+          <span className="font-mono-data text-[10px] text-muted-foreground/50">—</span>
+        )}
+      </td>
+
+      {/* Dimensions (產品尺寸 LWH) */}
+      <td className="px-4 py-3">
+        {(product.dimensionLMm || product.dimensionWMm || product.dimensionHMm) ? (
+          <span className="font-mono-data text-[10px] text-foreground whitespace-nowrap">
+            {product.dimensionLMm ?? '—'} × {product.dimensionWMm ?? '—'} × {product.dimensionHMm ?? '—'} mm
+          </span>
+        ) : (
+          <span className="font-mono-data text-[10px] text-muted-foreground/50">—</span>
+        )}
+      </td>
+
+      {/* Tags (產品標籤) — using TagSelector with official product tags */}
+      <td className="px-4 py-3">
+        <TagSelector
+          selectedTags={product.tags}
+          onChange={(tags) => onUpdateProduct(product.id, { tags })}
+          compact
+          maxVisible={3}
+        />
+      </td>
+
+      {/* Material (材質描述) */}
+      <td className="max-w-[160px] px-4 py-3">
+        <div className="text-left">
+          <span className={cn(
+            'text-xs text-muted-foreground font-body',
+            'line-clamp-2'
+          )}>
+            {product.material || '—'}
+          </span>
+        </div>
+      </td>
+
       {/* Variants */}
       <td className="px-4 py-3">
         <Button
@@ -193,17 +238,6 @@ const ProductTableRow = memo(function ProductTableRow({
           {product.variants.length} 個變體
           <ChevronDown className="h-3 w-3" />
         </Button>
-      </td>
-
-      {/* Dimensions (LWH) */}
-      <td className="px-4 py-3">
-        {(product.dimensionLMm || product.dimensionWMm || product.dimensionHMm) ? (
-          <span className="font-mono-data text-[10px] text-foreground whitespace-nowrap">
-            {product.dimensionLMm ?? '—'} × {product.dimensionWMm ?? '—'} × {product.dimensionHMm ?? '—'} mm
-          </span>
-        ) : (
-          <span className="font-mono-data text-[10px] text-muted-foreground/50">—</span>
-        )}
       </td>
 
       {/* Factory / Manufacturer */}
@@ -355,17 +389,6 @@ const ProductTableRow = memo(function ProductTableRow({
           }
           return <span className="font-mono-data text-[10px] text-muted-foreground/50">—</span>;
         })()}
-      </td>
-
-      {/* Delivery Term Name */}
-      <td className="px-4 py-3">
-        {product.deliveryTermName ? (
-          <span className="inline-flex items-center rounded-md bg-blue-500/10 px-2 py-0.5 font-mono-data text-xs font-medium text-blue-600 dark:text-blue-400 ring-1 ring-inset ring-blue-500/20">
-            {product.deliveryTermName}
-          </span>
-        ) : (
-          <span className="font-mono-data text-[10px] text-muted-foreground/50">—</span>
-        )}
       </td>
 
       {/* Shipping Fee */}
@@ -524,6 +547,7 @@ interface ProductTableViewProps {
   onClearFilter: () => void;
   onSyncFromShopify?: () => Promise<any>;
   onUploadUnsyncedToMaster?: () => Promise<any>;
+  onRevertToInfo?: (ids: string[]) => Promise<void>;
   isSyncing?: boolean;
   isPublishing?: boolean;
   lastSyncTime?: string | null;
@@ -544,6 +568,7 @@ export const ProductTableView = memo(function ProductTableView({
   onClearFilter,
   onSyncFromShopify,
   onUploadUnsyncedToMaster,
+  onRevertToInfo,
   isSyncing,
   isPublishing,
   lastSyncTime,
@@ -764,19 +789,6 @@ export const ProductTableView = memo(function ProductTableView({
               </span>
             </div>
 
-            {/* Unsynced Count Badge */}
-            {(() => {
-              const unsyncedCount = products.filter(p => !p.bwfMasterId && p.source !== 'shopify').length;
-              return unsyncedCount > 0 ? (
-                <div className="flex items-center gap-1.5 rounded-md bg-amber-500/10 border border-amber-500/30 px-2.5 py-1">
-                  <Upload className="h-3 w-3 text-amber-500" />
-                  <span className="font-mono-data text-[11px] text-amber-500 font-medium">
-                    {unsyncedCount} 個未上傳
-                  </span>
-                </div>
-              ) : null;
-            })()}
-
             {filterProductId && (
               <div className="flex items-center gap-2 rounded-md bg-primary/10 px-3 py-1">
                 <Filter className="h-3.5 w-3.5 text-primary" />
@@ -792,14 +804,32 @@ export const ProductTableView = memo(function ProductTableView({
               </div>
             )}
 
-            {lastSyncTime && (
-              <span className="font-mono-data text-[10px] text-muted-foreground">
-                上次備份: {new Date(lastSyncTime).toLocaleTimeString()}
-              </span>
-            )}
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Revert to 產品信息 Button */}
+            {onRevertToInfo && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={async () => {
+                  if (selectedIds.size === 0) {
+                    toast.info('請先勾選要退回的產品');
+                    return;
+                  }
+                  await onRevertToInfo(Array.from(selectedIds));
+                }}
+                disabled={selectedIds.size === 0}
+                className={cn(
+                  "gap-2 font-display text-xs font-bold border-amber-500/40 text-amber-600 hover:bg-amber-500/10 dark:text-amber-400",
+                  selectedIds.size === 0 && "opacity-50"
+                )}
+              >
+                <ChevronLeft className="h-3.5 w-3.5" />
+                {`退回上一步${selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}`}
+              </Button>
+            )}
+
             {/* Batch Delete Button */}
             <Button
               variant="destructive"
@@ -819,94 +849,6 @@ export const ProductTableView = memo(function ProductTableView({
                 </Badge>
               )}
             </Button>
-
-            {/* Safety badge */}
-            <Tooltip>
-              <TooltipTrigger>
-                <div className="flex items-center gap-1.5 rounded-md bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1">
-                  <ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />
-                  <span className="font-mono-data text-[10px] text-emerald-500 font-semibold">安全 UPSERT 模式</span>
-                </div>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="max-w-xs">
-                <p className="text-xs font-body">
-                  上傳只會在全域資料庫新增或更新產品記錄。現有的資料不會被刪除。
-                </p>
-              </TooltipContent>
-            </Tooltip>
-
-            {/* Backup Now Button */}
-            {onSyncFromShopify && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={async () => {
-                  const toastId = toast.loading('正在從 Shopify 同步...');
-                  try {
-                    const summary = await onSyncFromShopify();
-                    if (summary) {
-                      const parts: string[] = [];
-                      if (summary.created > 0) parts.push(`${summary.created} 已建立`);
-                      if (summary.updated > 0) parts.push(`${summary.updated} 已更新`);
-                      if (summary.skipped > 0) parts.push(`${summary.skipped} 已略過`);
-                      toast.success('同步完成', {
-                        id: toastId,
-                        description: `${summary.total_shopify} 個產品: ${parts.join('、')}`,
-                      });
-                    } else {
-                      toast.success('同步完成', { id: toastId });
-                    }
-                  } catch (err) {
-                    toast.error('同步失敗', {
-                      id: toastId,
-                      description: err instanceof Error ? err.message : '未知錯誤',
-                    });
-                  }
-                }}
-                disabled={isSyncing}
-                className={cn(
-                  "gap-2 font-display text-xs font-bold",
-                  isSyncing && "border-amber-500/40 text-amber-500"
-                )}
-              >
-                {isSyncing ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <CloudDownload className="h-3.5 w-3.5" />
-                )}
-                {isSyncing ? '備份中...' : '從 Shopify 備份'}
-              </Button>
-            )}
-
-            {/* Upload Unsynced to Master DB Button */}
-            {onUploadUnsyncedToMaster && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={async () => {
-                  const unsyncedCount = products.filter(p => !p.bwfMasterId && p.source !== 'shopify').length;
-                  if (unsyncedCount === 0) {
-                    toast.info('所有產品均已上傳到 Master DB');
-                    return;
-                  }
-                  const confirmed = window.confirm(`找到 ${unsyncedCount} 個未上傳到 Master DB 的產品，確認要批量上傳嗎？`);
-                  if (!confirmed) return;
-                  await onUploadUnsyncedToMaster();
-                }}
-                disabled={isPublishing}
-                className={cn(
-                  "gap-1.5 text-xs h-7",
-                  isPublishing && "border-amber-500/40 text-amber-500"
-                )}
-              >
-                {isPublishing ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Upload className="h-3.5 w-3.5" />
-                )}
-                {isPublishing ? '上傳中...' : '上傳未同步產品'}
-              </Button>
-            )}
           </div>
         </div>
 
@@ -951,27 +893,37 @@ export const ProductTableView = memo(function ProductTableView({
                 </th>
                 <th className="px-4 py-3 text-left">
                   <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                    產品價錢
+                  </span>
+                </th>
+                <th className="px-4 py-3 text-left">
+                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                    產品編碼 (SKU)
+                  </span>
+                </th>
+                <th className="px-4 py-3 text-left">
+                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                    送貨資訊
+                  </span>
+                </th>
+                <th className="px-4 py-3 text-left">
+                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                    產品尺寸（長 / 闊 / 高 mm）
+                  </span>
+                </th>
+                <th className="px-4 py-3 text-left">
+                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                    產品標籤
+                  </span>
+                </th>
+                <th className="px-4 py-3 text-left">
+                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
                     材質描述
                   </span>
                 </th>
                 <th className="px-4 py-3 text-left">
                   <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    標籤
-                  </span>
-                </th>
-                <th className="px-4 py-3 text-left">
-                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    價格
-                  </span>
-                </th>
-                <th className="px-4 py-3 text-left">
-                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
                     變體
-                  </span>
-                </th>
-                <th className="px-4 py-3 text-left">
-                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    尺寸 (LWH)
                   </span>
                 </th>
                 <th className="px-4 py-3 text-left">
@@ -1007,11 +959,6 @@ export const ProductTableView = memo(function ProductTableView({
                 <th className="px-4 py-3 text-left">
                   <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
                     預計總貨期
-                  </span>
-                </th>
-                <th className="px-4 py-3 text-left">
-                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    貨期類型
                   </span>
                 </th>
                 <th className="px-4 py-3 text-left">

@@ -1,7 +1,7 @@
 import {
   Layers, Users, Calculator, Package, Globe, BarChart3, Settings as SettingsIcon,
   LayoutDashboard, Search, UserPlus, CheckCircle2,
-  Building2, Factory, Zap, FileBarChart, ClipboardList, SlidersHorizontal,
+  Building2, Zap, FileBarChart, ClipboardList, SlidersHorizontal,
   FileUp, FolderTree, BookOpen, Boxes,
   FileText, ShieldCheck, UploadCloud, CheckCheck,
   Building, BarChart2, TrendingUp,
@@ -51,7 +51,6 @@ export const NAV_CONFIG: PrimaryItem[] = [
     label: '傢俬報價',
     icon: Calculator,
     children: [
-      { view: 'factory-catalog-quote', label: '廠家目錄', icon: Factory },
       { view: 'quick-quote', label: '快速報價', icon: Zap },
       { view: 'product-report', label: '產品報告', icon: FileBarChart },
       { view: 'quotation-list', label: '報價一覽', icon: ClipboardList },
@@ -67,8 +66,8 @@ export const NAV_CONFIG: PrimaryItem[] = [
       { view: 'advanced-search', label: '進階搜尋', icon: Search },
       { view: 'manufacturer-catalog', label: '廠家目錄', icon: BookOpen },
       { view: 'ai-processor', label: '上載PDF', icon: FileUp },
-      { view: 'listed-products', label: '所有產品', icon: Boxes },
-      { view: 'category-management', label: '產品分類', icon: FolderTree },
+      { view: 'listed-products', label: '待處理產品', icon: Boxes },
+      { view: 'product-catalog', label: '產品目錄', icon: BookOpen },
     ],
   },
   {
@@ -77,9 +76,10 @@ export const NAV_CONFIG: PrimaryItem[] = [
     icon: Globe,
     children: [
       { view: 'publish-copywriting', label: '產品文案', icon: FileText },
-      { view: 'publish-precheck', label: '發佈前檢查', icon: ShieldCheck },
+      { view: 'publish-product-info', label: '產品信息', icon: Boxes },
       { view: 'ready-to-publish', label: '準備上載', icon: UploadCloud },
       { view: 'published-products', label: '已上載產品', icon: CheckCheck },
+      { view: 'category-management', label: '產品分類', icon: FolderTree },
     ],
   },
   {
@@ -99,6 +99,7 @@ export const NAV_CONFIG: PrimaryItem[] = [
     children: [
       { view: 'user-management', label: '用戶管理', icon: UserCog },
       { view: 'login-history', label: '登入紀錄', icon: History },
+      { view: 'category-registry', label: '產品分類', icon: FolderTree },
       { view: 'settings', label: '系統設定', icon: SettingsIcon },
     ],
   },

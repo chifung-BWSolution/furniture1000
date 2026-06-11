@@ -51,11 +51,10 @@ import {
   ShoppingCart,
   Archive,
   Trash2,
+  ZoomIn,
 } from 'lucide-react';
 import { ExcelImage, SheetTableData, parseSmartDimensions, cleanPrice } from '@/lib/excelParser';
 import { simplifiedToTraditional, containsSimplifiedChinese } from '@/lib/chineseConverter';
-import { supabase } from '@/lib/supabase';
-import { toast } from 'sonner';
 // supabase relay import removed — using direct fetch to bypass relay size limits
 
 // ─── Standard Headers (bwf_product_master schema fields) ──────────
@@ -73,6 +72,10 @@ export const STANDARD_HEADERS = [
   // ── Image fields ──
   { value: 'product_image', label: 'Product Image (產品圖片) → image_url', labelZh: '產品圖片' },
   { value: 'lifestyle_image', label: 'Lifestyle Image (效果圖) → lifestyle_image_url', labelZh: '效果圖' },
+  { value: 'image_url_2', label: 'Product Image 2 (產品圖片2) → image_url_2', labelZh: '產品圖片2' },
+  { value: 'image_url_3', label: 'Product Image 3 (產品圖片3) → image_url_3', labelZh: '產品圖片3' },
+  // ── Specifications ──
+  { value: 'specifications', label: '規格 Specifications → specifications', labelZh: '規格 Specifications' },
   // ── Material & Physical ──
   { value: 'material', label: 'Material (材質描述) → material', labelZh: '材質描述' },
   { value: 'color', label: 'Color (顏色) → color', labelZh: '顏色' },
@@ -85,7 +88,7 @@ export const STANDARD_HEADERS = [
   { value: 'collection', label: 'Collection/Category (系列) → category', labelZh: '系列' },
   { value: 'factory_name', label: 'Factory Name (工廠名) → factory_name', labelZh: '工廠名' },
   // ── Lead time & Shipping ──
-  { value: 'production_lead_time', label: 'Production Lead Time (生產週期) → production_lead_time', labelZh: '生產週期' },
+  { value: 'production_lead_time', label: 'Production Time (生產時間) → production_time', labelZh: '生產時間' },
   { value: 'delivery_days', label: 'Delivery Days (交貨天數) → delivery_days', labelZh: '交貨天數' },
   { value: 'shipping_days', label: 'Shipping Days (運輸天數) → shipping_days', labelZh: '運輸天數' },
   { value: 'shipping_fee', label: 'Shipping Fee (運費) → shipping_fee', labelZh: '運費' },
@@ -93,6 +96,9 @@ export const STANDARD_HEADERS = [
   { value: 'remarks', label: 'Remarks (備註) → remarks', labelZh: '備註' },
   { value: 'delivery_term_ref', label: 'Delivery Term Ref (參考貨期) → delivery_term_name/id', labelZh: '參考貨期' },
   { value: 'index_number', label: 'Row Index (序號) — skip in DB', labelZh: '序號' },
+  // ── Stock / Customize ──
+  { value: 'in_stock', label: 'In Stock (現貨) → in_stock', labelZh: '現貨' },
+  { value: 'customize', label: 'Customize Lead Time (訂製天數) → customize', labelZh: '訂製天數' },
 ] as const;
 
 export type StandardHeaderValue = (typeof STANDARD_HEADERS)[number]['value'];
@@ -105,6 +111,10 @@ export interface RawExtractedRow {
   cells: (string | number | null)[];
   /** Product image data URI (inherited from merged cells if applicable) */
   productImageData?: string | null;
+  /** Second product image data URI — populated when multiple images exist in the same row */
+  productImageData2?: string | null;
+  /** Third product image data URI — populated when multiple images exist in the same row */
+  productImageData3?: string | null;
   /** Lifestyle image data URI */
   lifestyleImageData?: string | null;
   /** Whether this row is flagged as a valid product row */
@@ -165,11 +175,13 @@ export type PreviewAction = 'queue-shopify' | 'catalog-only' | 'discard';
 
 interface ExcelPreviewTableProps {
   previewData: ExcelPreviewData;
-  onGenerateCatalog: (mapping: ColumnMappingState, selectedRows: number[], multiSheetMapping?: MultiSheetColumnMapping, imageOverrides?: Record<string, string>, multiSheetDimUnits?: MultiSheetDimUnits) => void;
-  /** New three-way action handler: passes action type, mapping, selected rows, product names, image overrides, and multi-sheet mapping */
-  onAction?: (action: PreviewAction, mapping: ColumnMappingState, selectedRows: number[], productNames: Record<string, string>, multiSheetMapping?: MultiSheetColumnMapping, imageOverrides?: Record<string, string>, multiSheetDimUnits?: MultiSheetDimUnits) => void;
+  onGenerateCatalog: (mapping: ColumnMappingState, selectedRows: number[], multiSheetMapping?: MultiSheetColumnMapping, imageOverrides?: Record<string, string>, multiSheetDimUnits?: MultiSheetDimUnits, dimOverrides?: Record<string, string>) => void;
+  /** New three-way action handler: passes action type, mapping, selected rows, product names, image overrides, dim overrides, and multi-sheet mapping */
+  onAction?: (action: PreviewAction, mapping: ColumnMappingState, selectedRows: number[], productNames: Record<string, string>, multiSheetMapping?: MultiSheetColumnMapping, imageOverrides?: Record<string, string>, multiSheetDimUnits?: MultiSheetDimUnits, dimOverrides?: Record<string, string>) => void;
   /** Called when rows are discarded/removed from the preview — parent should remove from data */
   onRowsDiscarded?: (rowIndices: number[]) => void;
+  /** Called when a cell value is edited inline — parent updates preview data */
+  onCellEdit?: (sheetName: string, rowIndex: number, colIdx: number, value: string) => void;
   onCancel: () => void;
   isGenerating: boolean;
 }
@@ -196,7 +208,7 @@ function detectDimensionsColumnFromData(
   }
   // Headers that LOOK like dimensions (numbers × numbers in cells) but are NOT product dimensions:
   // 包装规格/包裝規格 = packaging spec; 纸箱/紙箱 = carton box; 净重 = net weight; 毛重 = gross weight; etc.
-  const EXCLUDE_HEADER_RE = /包[装裝]|包裝規格|纸箱|紙箱|净重|淨重|毛重|重量|箱規|箱规|carton|packaging|gross\s*weight|net\s*weight/i;
+  const EXCLUDE_HEADER_RE = /包[装裝]|包装|包裝|包裝規格|纸箱|紙箱|净重|淨重|毛重|浮重|重量|箱[規规]|箱體|箱体|外[箱盒]|carton|packaging|gross\s*weight|net\s*weight/i;
   // A cell counts as a dimension if it matches either the positional form
   // (e.g. "550*600*830") or the labeled-Chinese form (e.g. "座高：46\n座宽：48").
   const DIM_RE = /\d{2,4}\s*[*×xX/]\s*\d{2,4}(?:\s*[*×xX/]\s*\d{2,4})?/;
@@ -241,7 +253,7 @@ function autoDetectMappings(headers: string[], rows?: RawExtractedRow[], columnC
     { field: 'lifestyle_image', regex: /效果图|效果圖|lifestyle|scene\s*image|场景图|場景圖/i },
     { field: 'material', regex: /material|材質|材质|用料|fabric|面料|材质描述/i },
     { field: 'color', regex: /color|colour|顏色|颜色|色/i },
-    { field: 'dimensions', regex: /dimension|尺寸|size|規格|规格|長寬高|长宽高|L\*W\*H|W\*D\*H/i },
+    { field: 'dimensions', regex: /^(?!.*(?:包[装裝]|carton|packaging|毛重|淨重|净重|箱[規规]|外[箱盒])).*(?:dimension|尺寸|size|規格|规格|長寬高|长宽高|L\*W\*H|W\*D\*H)/i },
     { field: 'dim_length_mm', regex: /^(L|length|長|长|長度|长度|長度?\s*[\(（]?\s*[mc]m\s*[\)）]?|长度?\s*[\(（]?\s*[mc]m\s*[\)）]?)$/i },
     { field: 'dim_width_mm', regex: /^(W|width|寬|宽|寬度|宽度|闊|闊度?\s*[\(（]?\s*[mc]m\s*[\)）]?|寬度?\s*[\(（]?\s*[mc]m\s*[\)）]?|宽度?\s*[\(（]?\s*[mc]m\s*[\)）]?)$/i },
     { field: 'dim_height_mm', regex: /^(H|height|高|高度|高度?\s*[\(（]?\s*[mc]m\s*[\)）]?)$/i },
@@ -261,7 +273,7 @@ function autoDetectMappings(headers: string[], rows?: RawExtractedRow[], columnC
   // match 規格/重量/說明 patterns and be misclassified as dimensions/remarks/description).
   // 配置说明 = "configuration notes" — CYJ casual-chair sheets use this for build details
   // we don't want imported.
-  const ALWAYS_SKIP_RE = /包[装裝]|纸箱|紙箱|carton|gross\s*weight|net\s*weight|^配置|配置说明|配置說明/i;
+  const ALWAYS_SKIP_RE = /包[装裝]|包装|包裝|纸箱|紙箱|carton|gross\s*weight|net\s*weight|^配置|配置说明|配置說明|箱[規规]|箱體|箱体|外[箱盒]|淨重|净重|毛重|浮重/i;
 
   for (let i = 0; i < headers.length; i++) {
     const headerText = (headers[i] || '').trim();
@@ -304,6 +316,8 @@ function autoDetectMappings(headers: string[], rows?: RawExtractedRow[], columnC
   // Pre-set image column mappings (special keys for the thumbnail columns)
   mapping['__img_product' as any] = 'product_image';
   mapping['__img_lifestyle' as any] = 'lifestyle_image';
+  mapping['__img_product2' as any] = 'image_url_2';
+  mapping['__img_product3' as any] = 'image_url_3';
   // Pre-set AI product name column mapping to 'title'
   mapping['__ai_product_name' as any] = 'title';
 
@@ -319,58 +333,149 @@ interface ImageOverrideModalProps {
   mode: 'replace' | 'add';
 }
 
+const ALLOWED_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml'];
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5 MB
+
 function ImageOverrideModal({ isOpen, onClose, currentImage, onConfirm, mode }: ImageOverrideModalProps) {
   const [previewImage, setPreviewImage] = useState<string | null>(currentImage);
   const [isDragging, setIsDragging] = useState(false);
+  const [fileError, setFileError] = useState<string | null>(null);
+  const [isPasting, setIsPasting] = useState(false);
+  // In 'add' mode start with no image; in 'replace' mode start with current image
   const [isReplacing, setIsReplacing] = useState(mode === 'add');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dropZoneRef = useRef<HTMLDivElement>(null);
+  const modalRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setPreviewImage(currentImage);
     setIsReplacing(mode === 'add');
+    setFileError(null);
+    // Proactively query clipboard-read permission when modal opens
+    if (isOpen && navigator.permissions) {
+      navigator.permissions.query({ name: 'clipboard-read' as PermissionName }).then((result) => {
+        if (result.state === 'prompt') {
+          // Pre-request permission by doing a silent read attempt
+          navigator.clipboard?.read?.().catch(() => {});
+        }
+      }).catch(() => {});
+    }
   }, [currentImage, mode, isOpen]);
 
-  // Handle clipboard paste
-  useEffect(() => {
-    if (!isOpen) return;
-    const handlePaste = (e: ClipboardEvent) => {
-      const items = e.clipboardData?.items;
-      if (!items) return;
-      for (const item of items) {
-        if (item.type.startsWith('image/')) {
-          e.preventDefault();
-          const file = item.getAsFile();
-          if (file) {
-            const reader = new FileReader();
-            reader.onload = (ev) => {
-              setPreviewImage(ev.target?.result as string);
-              setIsReplacing(true);
-            };
-            reader.readAsDataURL(file);
+  const loadFile = useCallback((file: File) => {
+    setFileError(null);
+    if (!ALLOWED_IMAGE_TYPES.includes(file.type)) {
+      setFileError('格式不支援，請上傳 PNG、JPG、WEBP 或 SVG 圖片');
+      return;
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      setFileError('圖片大小超過 5MB 上限');
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const rawDataUrl = ev.target?.result as string;
+      // Resize to max 1200px at high quality — preserves clarity for display
+      // while keeping the data URI well under the 2MB Supabase payload limit
+      const MAX_DISPLAY_DIM = 1200;
+      const DISPLAY_QUALITY = 0.92;
+      const img = new Image();
+      img.onload = () => {
+        let { width, height } = img;
+        if (width > MAX_DISPLAY_DIM || height > MAX_DISPLAY_DIM) {
+          const ratio = Math.min(MAX_DISPLAY_DIM / width, MAX_DISPLAY_DIM / height);
+          width = Math.round(width * ratio);
+          height = Math.round(height * ratio);
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0, width, height);
+          const resized = canvas.toDataURL('image/jpeg', DISPLAY_QUALITY);
+          setPreviewImage(resized);
+        } else {
+          setPreviewImage(rawDataUrl);
+        }
+        setIsReplacing(true);
+      };
+      img.onerror = () => {
+        // Fallback: use raw if canvas fails
+        setPreviewImage(rawDataUrl);
+        setIsReplacing(true);
+      };
+      img.src = rawDataUrl;
+    };
+    reader.readAsDataURL(file);
+  }, []);
+
+  // Read image from OS clipboard via Clipboard API (works for Excel/external app copies)
+  const readClipboardImage = useCallback(async () => {
+    setFileError(null);
+    setIsPasting(true);
+    try {
+      // First try the modern Clipboard API (supports images copied from Excel/OS)
+      if (navigator.clipboard && 'read' in navigator.clipboard) {
+        const items = await navigator.clipboard.read();
+        for (const item of items) {
+          const imageType = item.types.find(t => t.startsWith('image/'));
+          if (imageType) {
+            const blob = await item.getType(imageType);
+            const file = new File([blob], 'pasted-image.png', { type: imageType });
+            loadFile(file);
+            return;
           }
-          break;
         }
       }
+      setFileError('剪貼板中沒有圖片，請先在 Excel 中複製圖片（右鍵 → 複製）');
+    } catch (err: any) {
+      if (err?.name === 'NotAllowedError') {
+        setFileError('請在瀏覽器地址欄左側的鎖頭圖示 → 剪貼板 → 設為「允許」，然後重試。');
+      } else {
+        setFileError('無法讀取剪貼板，請使用「更換」按鈕選擇圖片檔案，或在瀏覽器設定中允許剪貼板權限。');
+      }
+    } finally {
+      setIsPasting(false);
+    }
+  }, [loadFile]);
+
+  // Ctrl+V keydown — trigger clipboard read (works when paste event fails)
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
+        e.preventDefault();
+        readClipboardImage();
+      }
     };
-    document.addEventListener('paste', handlePaste);
-    return () => document.removeEventListener('paste', handlePaste);
-  }, [isOpen]);
+    // paste event fallback (for images copied within browser)
+    const handlePaste = (e: ClipboardEvent) => {
+      const items = Array.from(e.clipboardData?.items ?? []);
+      const imageItem = items.find(i => i.type.startsWith('image/'));
+      if (imageItem) {
+        e.preventDefault();
+        const file = imageItem.getAsFile();
+        if (file) { loadFile(file); return; }
+      }
+      // No image in clipboardData.items — try Clipboard API
+      readClipboardImage();
+    };
+    document.addEventListener('keydown', handleKeyDown, true);
+    document.addEventListener('paste', handlePaste, true);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown, true);
+      document.removeEventListener('paste', handlePaste, true);
+    };
+  }, [isOpen, loadFile, readClipboardImage]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
-    const files = e.dataTransfer.files;
-    if (files.length > 0 && files[0].type.startsWith('image/')) {
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        setPreviewImage(ev.target?.result as string);
-        setIsReplacing(true);
-      };
-      reader.readAsDataURL(files[0]);
-    }
-  }, []);
+    const file = e.dataTransfer.files?.[0];
+    if (file) loadFile(file);
+  }, [loadFile]);
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -386,20 +491,13 @@ function ImageOverrideModal({ isOpen, onClose, currentImage, onConfirm, mode }: 
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file && file.type.startsWith('image/')) {
-      const reader = new FileReader();
-      reader.onload = (ev) => {
-        setPreviewImage(ev.target?.result as string);
-        setIsReplacing(true);
-      };
-      reader.readAsDataURL(file);
-    }
-  }, []);
+    if (file) loadFile(file);
+    // reset so same file can be selected again
+    e.target.value = '';
+  }, [loadFile]);
 
   const handleConfirm = () => {
-    if (previewImage) {
-      onConfirm(previewImage);
-    }
+    if (previewImage) onConfirm(previewImage);
     onClose();
   };
 
@@ -411,9 +509,21 @@ function ImageOverrideModal({ isOpen, onClose, currentImage, onConfirm, mode }: 
       onClick={onClose}
     >
       <div
-        className="relative bg-card border border-border rounded-2xl shadow-2xl p-6 max-w-lg w-full mx-4 space-y-4"
+        ref={modalRef}
+        className="relative bg-card border border-border rounded-2xl shadow-2xl p-6 max-w-lg w-full mx-4 space-y-4 outline-none"
         onClick={(e) => e.stopPropagation()}
+        tabIndex={0}
+        autoFocus
       >
+        {/* Always-present hidden file input */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".png,.jpg,.jpeg,.webp,.svg,image/png,image/jpeg,image/webp,image/svg+xml"
+          onChange={handleFileSelect}
+          className="hidden"
+        />
+
         {/* Header */}
         <div className="flex items-center justify-between">
           <h3 className="font-[Syne] font-bold text-lg text-foreground">
@@ -429,14 +539,30 @@ function ImageOverrideModal({ isOpen, onClose, currentImage, onConfirm, mode }: 
 
         {/* Image Preview / Drop Zone */}
         {(!isReplacing && previewImage) ? (
+          // ── replace mode: show current image + paste button ──
           <div className="flex flex-col items-center gap-3">
             <img
               src={previewImage}
               alt="Current image"
-              className="max-h-[300px] max-w-full rounded-xl object-contain border border-white/10"
+              className="max-h-[240px] max-w-full rounded-xl object-contain border border-white/10"
             />
+            <button
+              onClick={readClipboardImage}
+              disabled={isPasting}
+              className="flex items-center gap-2 rounded-lg border border-indigo-500/40 bg-indigo-500/10 px-4 py-2 text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:bg-indigo-500/20 transition-colors disabled:opacity-50"
+            >
+              {isPasting ? (
+                <><RefreshCw className="w-3.5 h-3.5 animate-spin" /> 讀取剪貼板中...</>
+              ) : (
+                <><kbd className="px-1.5 py-0.5 rounded bg-muted border border-border text-xs font-mono">Ctrl+V</kbd> 貼上圖片（從 Excel/截圖）</>
+              )}
+            </button>
+            <p className="text-xs text-muted-foreground/50">
+              在 Excel 右鍵複製圖片後，按上方按鈕或直接按 Ctrl+V
+            </p>
           </div>
         ) : (
+          // ── add / replacing: drop zone ──
           <div
             ref={dropZoneRef}
             onDrop={handleDrop}
@@ -463,35 +589,47 @@ function ImageOverrideModal({ isOpen, onClose, currentImage, onConfirm, mode }: 
                 <Upload className="w-8 h-8 text-muted-foreground/50" />
                 <div className="text-center space-y-1">
                   <p className="text-sm font-[Manrope] text-muted-foreground">
-                    拖放圖片到此處 或 點擊選擇
+                    點擊選擇 或 拖放圖片到此處
                   </p>
                   <p className="text-xs text-muted-foreground/60">
-                    也支援 <kbd className="px-1 py-0.5 rounded bg-muted border border-border text-xs">Ctrl+V</kbd> 貼上剪貼簿圖片
+                    也支援 <kbd className="px-1 py-0.5 rounded bg-muted border border-border text-xs">Ctrl+V</kbd> 貼上
+                  </p>
+                  <p className="text-xs text-muted-foreground/50">
+                    PNG · JPG · WEBP · SVG，上限 5MB
                   </p>
                 </div>
               </div>
             )}
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/*"
-              onChange={handleFileSelect}
-              className="hidden"
-            />
           </div>
+        )}
+
+        {/* Error message */}
+        {fileError && (
+          <p className="text-xs text-rose-500 text-center">{fileError}</p>
         )}
 
         {/* Action Buttons */}
         <div className="flex items-center justify-end gap-2 pt-2">
           {mode === 'replace' && !isReplacing && (
-            <Button
-              variant="outline"
-              onClick={() => setIsReplacing(true)}
-              className="gap-2 text-sm"
-            >
-              <RefreshCw className="w-4 h-4" />
-              更換
-            </Button>
+            <>
+              <Button
+                variant="outline"
+                onClick={readClipboardImage}
+                disabled={isPasting}
+                className="gap-2 text-sm"
+              >
+                {isPasting ? <RefreshCw className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
+                貼上
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => fileInputRef.current?.click()}
+                className="gap-2 text-sm"
+              >
+                <RefreshCw className="w-4 h-4" />
+                更換
+              </Button>
+            </>
           )}
           <Button
             onClick={handleConfirm}
@@ -642,6 +780,7 @@ export function ExcelPreviewTable({
   onGenerateCatalog,
   onAction,
   onRowsDiscarded,
+  onCellEdit,
   onCancel,
   isGenerating,
 }: ExcelPreviewTableProps) {
@@ -889,6 +1028,8 @@ export function ExcelPreviewTable({
   // ─── Image Override State (declared early to avoid initialization errors) ──
   // Override image store: key = `${sheetName}:${rowIndex}:${type}`
   const [imageOverrides, setImageOverrides] = useState<Record<string, string>>({});
+  // ─── Dimension Override State (declared early to avoid TDZ errors) ──
+  const [dimOverrides, setDimOverrides] = useState<Record<string, string>>({});
 
   // Handler: generate catalog — passes mapping for current sheet PLUS multi-sheet mapping
   const handleGenerate = useCallback(() => {
@@ -903,8 +1044,8 @@ export function ExcelPreviewTable({
       }
     }
     // Pass current sheet mapping for backward compat, plus multi-sheet mapping, imageOverrides, and dim units
-    onGenerateCatalog(currentMapping, allSelectedRows, multiSheetMappings, imageOverrides, multiSheetDimUnits);
-  }, [currentMapping, multiSheetSelections, multiSheetMappings, sheetDataList, onGenerateCatalog, imageOverrides, multiSheetDimUnits]);
+    onGenerateCatalog(currentMapping, allSelectedRows, multiSheetMappings, imageOverrides, multiSheetDimUnits, dimOverrides);
+  }, [currentMapping, multiSheetSelections, multiSheetMappings, sheetDataList, onGenerateCatalog, imageOverrides, multiSheetDimUnits, dimOverrides]);
 
   // ─── AI Product Name State (declared early to avoid initialization errors) ──
   const [productNames, setProductNames] = useState<Record<string, string>>({});
@@ -914,53 +1055,19 @@ export function ExcelPreviewTable({
   // Handler: three-way action buttons
   const handleAction = useCallback((action: PreviewAction) => {
     if (action === 'discard') {
-      // Collect selected rows + data for saving to products_rejected
+      // Collect all selected row indices across all sheets
       const discardedRows: number[] = [];
-      const rowsToSave: Array<{ raw_row_data: Record<string, unknown>; rejection_source: string }> = [];
-
       for (const sd of sheetDataList) {
         const sel = multiSheetSelections[sd.sheetName];
-        if (!sel) continue;
-        for (const rowIdx of sel) {
-          discardedRows.push(rowIdx);
-          const row = sd.rows.find(r => r.rowIndex === rowIdx);
-          if (row) {
-            const mappedCells: Record<string, unknown> = {};
-            sd.headerLabels.forEach((header, colIdx) => {
-              mappedCells[header || `col_${colIdx}`] = row.cells[colIdx] ?? null;
-            });
-            rowsToSave.push({
-              raw_row_data: {
-                sheet: sd.sheetName,
-                row_index: rowIdx,
-                cells: row.cells,
-                header_map: mappedCells,
-                has_image: !!(row.productImageData || row.lifestyleImageData),
-              },
-              rejection_source: 'excel_preview',
-            });
+        if (sel) {
+          for (const rowIdx of sel) {
+            discardedRows.push(rowIdx);
           }
         }
       }
-
+      
       if (discardedRows.length === 0) return;
-
-      // Save to products_rejected (fire-and-forget)
-      if (rowsToSave.length > 0) {
-        supabase
-          .from('products_rejected')
-          .insert(rowsToSave)
-          .then(({ error }) => {
-            if (error) {
-              toast.error('「暫不考慮」記錄儲存失敗', { description: error.message });
-            } else {
-              toast.success(`已將 ${rowsToSave.length} 筆資料標記為「暫不考慮」`, {
-                description: '資料已儲存至 products_rejected 記錄。',
-              });
-            }
-          });
-      }
-
+      
       // Clear selections ONLY for the discarded rows (not all sheets)
       const discardedSet = new Set(discardedRows);
       setMultiSheetSelections(prev => {
@@ -979,7 +1086,7 @@ export function ExcelPreviewTable({
         }
         return next;
       });
-
+      
       // Notify parent to remove these rows from preview data (burn-down)
       if (onRowsDiscarded) {
         onRowsDiscarded(discardedRows);
@@ -1001,12 +1108,12 @@ export function ExcelPreviewTable({
     if (allSelectedRows.length === 0) return;
 
     if (onAction) {
-      onAction(action, currentMapping, allSelectedRows, productNames, multiSheetMappings, imageOverrides, multiSheetDimUnits);
+      onAction(action, currentMapping, allSelectedRows, productNames, multiSheetMappings, imageOverrides, multiSheetDimUnits, dimOverrides);
     } else {
       // Fallback: use legacy onGenerateCatalog for backward compat
-      onGenerateCatalog(currentMapping, allSelectedRows, multiSheetMappings, imageOverrides, multiSheetDimUnits);
+      onGenerateCatalog(currentMapping, allSelectedRows, multiSheetMappings, imageOverrides, multiSheetDimUnits, dimOverrides);
     }
-  }, [currentMapping, multiSheetSelections, multiSheetMappings, sheetDataList, onAction, onGenerateCatalog, productNames, onRowsDiscarded, imageOverrides, multiSheetDimUnits]);
+  }, [currentMapping, multiSheetSelections, multiSheetMappings, sheetDataList, onAction, onGenerateCatalog, productNames, onRowsDiscarded, imageOverrides, multiSheetDimUnits, dimOverrides]);
 
   // Visible columns for current sheet
   const visibleColumns = useMemo(() => {
@@ -1034,11 +1141,12 @@ export function ExcelPreviewTable({
     const dimWMmCol = Object.entries(currentMapping).find(([k, v]) => v === 'dim_width_mm' && !k.startsWith('__'))?.[0];
     const dimHMmCol = Object.entries(currentMapping).find(([k, v]) => v === 'dim_height_mm' && !k.startsWith('__'))?.[0];
 
-    // If there's a combined dimensions column, parse it for each row and provide
-    // virtual L/W/H values for display in that column's cell
-    if (dimCombinedCol !== undefined) {
-      const colIdx = Number(dimCombinedCol);
-      // Get the header text for smart unit detection
+    // If there are combined dimensions columns, parse each for all rows
+    const allDimCombinedCols = Object.entries(currentMapping)
+      .filter(([k, v]) => v === 'dimensions' && !k.startsWith('__'))
+      .map(([k]) => Number(k));
+
+    for (const colIdx of allDimCombinedCols) {
       const headerText = activeSheet.headerLabels[colIdx] || '';
 
       for (const row of displayRows) {
@@ -1048,16 +1156,13 @@ export function ExcelPreviewTable({
         if (!rawStr) continue;
 
         const parsed = parseSmartDimensions(rawStr, headerText, dimUnitOverride);
-        // Store parsed values keyed by row:field
-        // For the combined column cell itself, show "長×闊×高" parsed with mm labels
         const parts: string[] = [];
         if (parsed.l !== null) parts.push(`長:${parsed.l}`);
         if (parsed.w !== null) parts.push(`闊:${parsed.w}`);
         if (parsed.h !== null) parts.push(`高:${parsed.h}`);
         result[`${row.rowIndex}:dim_combined_display:${colIdx}`] = parts.length > 0 ? parts.join(' × ') + ' mm' : rawStr;
-        
-        // Also store individual L/W/H so if there's no separate dim_*_mm columns,
-        // we can display them as virtual resolved values
+
+        // Store individual L/W/H — last written wins (later column overrides earlier)
         if (parsed.l !== null) result[`${row.rowIndex}:dim_l`] = String(parsed.l);
         if (parsed.w !== null) result[`${row.rowIndex}:dim_w`] = String(parsed.w);
         if (parsed.h !== null) result[`${row.rowIndex}:dim_h`] = String(parsed.h);
@@ -1167,21 +1272,58 @@ export function ExcelPreviewTable({
   }, [currentMapping, displayRows]);
 
   // ── Virtual Dimension Columns (3 columns replacing combined) ─────────
-  // When a column is mapped to 'dimensions' (combined), we inject 3 virtual columns
+  // When columns are mapped to 'dimensions' (combined), we inject 3 virtual columns
   // for 長度 (mm), 闊度 (mm), 高度 (mm) INSTEAD of showing the combined cell.
-  const dimCombinedColIdx = useMemo(() => {
-    const entry = Object.entries(currentMapping).find(([k, v]) => v === 'dimensions' && !k.startsWith('__'));
-    return entry ? Number(entry[0]) : null;
+  // Supports multiple dimension columns (e.g. Col I and Col K both set to 'dimensions').
+  const dimCombinedColIdxSet = useMemo(() => {
+    const idxs = Object.entries(currentMapping)
+      .filter(([k, v]) => v === 'dimensions' && !k.startsWith('__'))
+      .map(([k]) => Number(k));
+    return new Set(idxs);
   }, [currentMapping]);
+  // Keep singular alias for backward-compat with existing code
+  const dimCombinedColIdx = useMemo(() => {
+    const first = [...dimCombinedColIdxSet][0];
+    return first !== undefined ? first : null;
+  }, [dimCombinedColIdxSet]);
 
   // Enlarged image state
   const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
+
+  // ─── Inline cell editing ───────────────────────────────────────────
+  // key = `${rowIndex}:${colIdx}` for the cell currently being edited
+  const [editingCell, setEditingCell] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState('');
+  // Dimension cell editing state
+  const [editingDimCell, setEditingDimCell] = useState<string | null>(null);
+  const [editDimValue, setEditDimValue] = useState('');
+
+  const startEdit = useCallback((rowIndex: number, colIdx: number, current: string) => {
+    setEditingCell(`${rowIndex}:${colIdx}`);
+    setEditValue(current);
+  }, []);
+
+  const commitEdit = useCallback((rowIndex: number, colIdx: number) => {
+    onCellEdit?.(activeSheet.sheetName, rowIndex, colIdx, editValue);
+    setEditingCell(null);
+  }, [onCellEdit, activeSheet.sheetName, editValue]);
+
+  const startDimEdit = useCallback((key: string, current: string) => {
+    setEditingDimCell(key);
+    setEditDimValue(current);
+  }, []);
+
+  const commitDimEdit = useCallback(() => {
+    if (!editingDimCell) return;
+    setDimOverrides(prev => ({ ...prev, [editingDimCell]: editDimValue }));
+    setEditingDimCell(null);
+  }, [editingDimCell, editDimValue]);
 
   // ─── Image Override State ──────────────────────────────────────────
   const [imageModalOpen, setImageModalOpen] = useState(false);
   const [imageModalTarget, setImageModalTarget] = useState<{
     rowIndex: number;
-    type: 'product' | 'lifestyle';
+    type: 'product' | 'lifestyle' | 'product2' | 'product3';
     currentImage: string | null;
     mode: 'replace' | 'add';
   } | null>(null);
@@ -1190,6 +1332,14 @@ export function ExcelPreviewTable({
   const hasAnyProductImage = useMemo(
     () => displayRows.some(r => r.productImageData) || Object.keys(imageOverrides || {}).some(k => k.includes(`:product`)),
     [displayRows, imageOverrides]
+  );
+  const hasAnyProductImage2 = useMemo(
+    () => displayRows.some(r => r.productImageData2),
+    [displayRows]
+  );
+  const hasAnyProductImage3 = useMemo(
+    () => displayRows.some(r => r.productImageData3),
+    [displayRows]
   );
   const hasAnyLifestyleImage = useMemo(
     () => displayRows.some(r => r.lifestyleImageData) || Object.keys(imageOverrides || {}).some(k => k.includes(`:lifestyle`)),
@@ -1202,13 +1352,17 @@ export function ExcelPreviewTable({
     return String.fromCharCode(64 + Math.floor(idx / 26)) + String.fromCharCode(65 + (idx % 26));
   };
 
-  const getImageForRow = useCallback((row: RawExtractedRow, type: 'product' | 'lifestyle') => {
+  const getImageForRow = useCallback((row: RawExtractedRow, type: 'product' | 'lifestyle' | 'product2' | 'product3') => {
     const key = `${activeSheet.sheetName}:${row.rowIndex}:${type}`;
     if (imageOverrides?.[key]) return imageOverrides[key];
-    return type === 'product' ? row.productImageData : row.lifestyleImageData;
+    if (type === 'product') return row.productImageData;
+    if (type === 'lifestyle') return row.lifestyleImageData;
+    if (type === 'product2') return row.productImageData2;
+    if (type === 'product3') return row.productImageData3;
+    return null;
   }, [activeSheet.sheetName, imageOverrides]);
 
-  const handleImageClick = useCallback((row: RawExtractedRow, type: 'product' | 'lifestyle') => {
+  const handleImageClick = useCallback((row: RawExtractedRow, type: 'product' | 'lifestyle' | 'product2' | 'product3') => {
     const currentImage = getImageForRow(row, type);
     setImageModalTarget({
       rowIndex: row.rowIndex,
@@ -1227,22 +1381,22 @@ export function ExcelPreviewTable({
 
 
 
-  // Get model number for a row (from the mapped column)
+  // Get model number for a row (from the mapped column) — converted to Traditional Chinese
   const getModelNumber = useCallback((row: RawExtractedRow): string => {
     const modelColIdx = Object.entries(currentMapping).find(([_, v]) => v === 'model_number')?.[0];
     if (modelColIdx && !modelColIdx.startsWith('__')) {
       const val = row.cells[Number(modelColIdx)];
-      return val ? String(val).trim() : '';
+      return val ? simplifiedToTraditional(String(val).trim()) : '';
     }
     return '';
   }, [currentMapping]);
 
-  // Get title for a row (from the mapped column)
+  // Get title for a row (from the mapped column) — converted to Traditional Chinese
   const getTitle = useCallback((row: RawExtractedRow): string => {
     const titleColIdx = Object.entries(currentMapping).find(([_, v]) => v === 'title')?.[0];
     if (titleColIdx && !titleColIdx.startsWith('__')) {
       const val = row.cells[Number(titleColIdx)];
-      return val ? String(val).trim() : '';
+      return val ? simplifiedToTraditional(String(val).trim()) : '';
     }
     return '';
   }, [currentMapping]);
@@ -1468,7 +1622,7 @@ export function ExcelPreviewTable({
         {mappedCount === 0 && (
           <span className="text-sm text-foreground/50 italic">尚未映射任何欄位</span>
         )}
-        {dimCombinedColIdx !== null && (
+        {dimCombinedColIdxSet.size > 0 && (
           <div className="ml-auto flex items-center gap-1.5 rounded-md border border-emerald-600/50 bg-emerald-500/5 px-2 py-1">
             <span className="text-sm font-mono text-emerald-800 font-medium">尺寸原始單位:</span>
             <Select value={currentDimUnit} onValueChange={(v) => handleDimUnitChange(v as DimUnit)}>
@@ -1494,7 +1648,7 @@ export function ExcelPreviewTable({
           variant="ghost"
           size="sm"
           onClick={handleResetMappings}
-          className={cn("text-sm", dimCombinedColIdx === null && "ml-auto")}
+          className={cn("text-sm", dimCombinedColIdxSet.size === 0 && "ml-auto")}
         >
           <RotateCcw className="w-3 h-3 mr-1" />
           重置映射
@@ -1534,6 +1688,8 @@ export function ExcelPreviewTable({
                         <SelectContent className="max-h-[300px]">
                           <SelectItem value="product_image" className="text-sm">產品圖片 → image_url</SelectItem>
                           <SelectItem value="lifestyle_image" className="text-sm">效果圖 → lifestyle_image_url</SelectItem>
+                          <SelectItem value="image_url_2" className="text-sm">產品圖片2 → image_url_2</SelectItem>
+                          <SelectItem value="image_url_3" className="text-sm">產品圖片3 → image_url_3</SelectItem>
                           <SelectItem value="skip" className="text-sm">— 跳過 —</SelectItem>
                         </SelectContent>
                       </Select>
@@ -1548,12 +1704,58 @@ export function ExcelPreviewTable({
                       >
                         <SelectTrigger className="h-7 text-sm border-purple-600/50 bg-background/50 font-mono font-semibold text-purple-800 w-[68px]">
                           <span className="truncate text-sm">
-                            {currentMapping['__img_lifestyle'] === 'product_image' ? '產品圖' : currentMapping['__img_lifestyle'] === 'skip' ? '跳過' : '效果圖'}
+                            {currentMapping['__img_lifestyle'] === 'product_image' ? '產品圖' : currentMapping['__img_lifestyle'] === 'image_url_2' ? '圖片2' : currentMapping['__img_lifestyle'] === 'image_url_3' ? '圖片3' : currentMapping['__img_lifestyle'] === 'skip' ? '跳過' : '效果圖'}
                           </span>
                         </SelectTrigger>
                         <SelectContent className="max-h-[300px]">
                           <SelectItem value="lifestyle_image" className="text-sm">效果圖 → lifestyle_image_url</SelectItem>
                           <SelectItem value="product_image" className="text-sm">產品圖片 → image_url</SelectItem>
+                          <SelectItem value="image_url_2" className="text-sm">產品圖片2 → image_url_2</SelectItem>
+                          <SelectItem value="image_url_3" className="text-sm">產品圖片3 → image_url_3</SelectItem>
+                          <SelectItem value="skip" className="text-sm">— 跳過 —</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </TableHead>
+                  )}
+                  {/* Product Image 2 column header with mapping dropdown */}
+                  {hasAnyProductImage2 && (
+                    <TableHead className="w-[72px] text-center p-1">
+                      <Select
+                        value={currentMapping['__img_product2'] || 'image_url_2'}
+                        onValueChange={(val) => handleMappingChange('__img_product2', val as StandardHeaderValue)}
+                      >
+                        <SelectTrigger className="h-7 text-sm border-teal-600/50 bg-background/50 font-mono font-semibold text-teal-800 w-[68px]">
+                          <span className="truncate text-sm">
+                            {currentMapping['__img_product2'] === 'product_image' ? '產品圖' : currentMapping['__img_product2'] === 'lifestyle_image' ? '效果圖' : currentMapping['__img_product2'] === 'image_url_3' ? '圖片3' : currentMapping['__img_product2'] === 'skip' ? '跳過' : '圖片2'}
+                          </span>
+                        </SelectTrigger>
+                        <SelectContent className="max-h-[300px]">
+                          <SelectItem value="image_url_2" className="text-sm">產品圖片2 → image_url_2</SelectItem>
+                          <SelectItem value="product_image" className="text-sm">產品圖片 → image_url</SelectItem>
+                          <SelectItem value="lifestyle_image" className="text-sm">效果圖 → lifestyle_image_url</SelectItem>
+                          <SelectItem value="image_url_3" className="text-sm">產品圖片3 → image_url_3</SelectItem>
+                          <SelectItem value="skip" className="text-sm">— 跳過 —</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </TableHead>
+                  )}
+                  {/* Product Image 3 column header with mapping dropdown */}
+                  {hasAnyProductImage3 && (
+                    <TableHead className="w-[72px] text-center p-1">
+                      <Select
+                        value={currentMapping['__img_product3'] || 'image_url_3'}
+                        onValueChange={(val) => handleMappingChange('__img_product3', val as StandardHeaderValue)}
+                      >
+                        <SelectTrigger className="h-7 text-sm border-teal-500/50 bg-background/50 font-mono font-semibold text-teal-700 w-[68px]">
+                          <span className="truncate text-sm">
+                            {currentMapping['__img_product3'] === 'product_image' ? '產品圖' : currentMapping['__img_product3'] === 'lifestyle_image' ? '效果圖' : currentMapping['__img_product3'] === 'image_url_2' ? '圖片2' : currentMapping['__img_product3'] === 'skip' ? '跳過' : '圖片3'}
+                          </span>
+                        </SelectTrigger>
+                        <SelectContent className="max-h-[300px]">
+                          <SelectItem value="image_url_3" className="text-sm">產品圖片3 → image_url_3</SelectItem>
+                          <SelectItem value="product_image" className="text-sm">產品圖片 → image_url</SelectItem>
+                          <SelectItem value="lifestyle_image" className="text-sm">效果圖 → lifestyle_image_url</SelectItem>
+                          <SelectItem value="image_url_2" className="text-sm">產品圖片2 → image_url_2</SelectItem>
                           <SelectItem value="skip" className="text-sm">— 跳過 —</SelectItem>
                         </SelectContent>
                       </Select>
@@ -1562,8 +1764,8 @@ export function ExcelPreviewTable({
                   {/* Data column dropdowns — with AI Product Name inserted after model_number/material */}
                   {visibleColumns.map((colIdx, arrIdx) => (
                     <React.Fragment key={colIdx}>
-                      {/* If this is the combined dimensions column, render 3 virtual column headers instead */}
-                      {colIdx === dimCombinedColIdx ? (
+                      {/* If this is a combined dimensions column, render 3 virtual column headers instead */}
+                      {dimCombinedColIdxSet.has(colIdx) ? (
                         <>
                           <TableHead className="min-w-[100px] p-1">
                             <div className="h-7 flex items-center justify-center text-sm font-mono font-semibold text-emerald-800 border border-emerald-600/50 rounded bg-emerald-500/5 px-1 relative group">
@@ -1703,9 +1905,19 @@ export function ExcelPreviewTable({
                       效果圖
                     </TableHead>
                   )}
+                  {hasAnyProductImage2 && (
+                    <TableHead className="w-[72px] bg-muted/50 text-center text-sm font-mono text-teal-700">
+                      產品圖2
+                    </TableHead>
+                  )}
+                  {hasAnyProductImage3 && (
+                    <TableHead className="w-[72px] bg-muted/50 text-center text-sm font-mono text-teal-600">
+                      產品圖3
+                    </TableHead>
+                  )}
                   {visibleColumns.map((colIdx, arrIdx) => (
                     <React.Fragment key={colIdx}>
-                      {colIdx === dimCombinedColIdx ? (
+                      {dimCombinedColIdxSet.has(colIdx) ? (
                         <>
                           <TableHead className="text-sm font-mono text-emerald-700 px-2">
                             <span className="text-indigo-700">{colLetter(colIdx)}:</span>{' '}
@@ -1747,7 +1959,7 @@ export function ExcelPreviewTable({
                 {displayRows.length === 0 && (
                   <TableRow>
                     <TableCell
-                      colSpan={visibleColumns.length + 4 + (hasAnyProductImage ? 1 : 0) + (hasAnyLifestyleImage ? 1 : 0) + (dimCombinedColIdx !== null ? 2 : 0)}
+                      colSpan={visibleColumns.length + 4 + (hasAnyProductImage ? 1 : 0) + (hasAnyLifestyleImage ? 1 : 0) + (dimCombinedColIdxSet.size * 2)}
                       className="text-center py-12 text-foreground/60 font-[Manrope]"
                     >
                       <div className="flex flex-col items-center gap-2">
@@ -1836,6 +2048,62 @@ export function ExcelPreviewTable({
                           })()}
                         </TableCell>
                       )}
+                      {/* Product Image 2 Thumbnail — clickable, supports override + paste */}
+                      {hasAnyProductImage2 && (
+                        <TableCell className="text-center p-1">
+                          {(() => {
+                            const img2 = getImageForRow(row, 'product2');
+                            return img2 ? (
+                              <div
+                                className="w-12 h-12 mx-auto rounded border border-teal-500/30 overflow-hidden cursor-pointer hover:opacity-80 hover:border-teal-500 transition-all relative group"
+                                onClick={() => handleImageClick(row, 'product2')}
+                                title="點擊更換圖片 / Ctrl+V 貼上"
+                              >
+                                <img src={img2} alt={`Product 2 Row ${row.rowIndex}`} className="w-full h-full object-cover" />
+                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                  <ZoomIn className="w-4 h-4 text-white" />
+                                </div>
+                              </div>
+                            ) : (
+                              <div
+                                className="w-12 h-12 flex items-center justify-center rounded border border-dashed border-teal-500/30 mx-auto cursor-pointer hover:border-teal-500 hover:bg-teal-500/5 transition-all"
+                                onClick={() => handleImageClick(row, 'product2')}
+                                title="點擊新增圖片"
+                              >
+                                <span className="text-teal-500/40 text-xs">+</span>
+                              </div>
+                            );
+                          })()}
+                        </TableCell>
+                      )}
+                      {/* Product Image 3 Thumbnail — clickable, supports override + paste */}
+                      {hasAnyProductImage3 && (
+                        <TableCell className="text-center p-1">
+                          {(() => {
+                            const img3 = getImageForRow(row, 'product3');
+                            return img3 ? (
+                              <div
+                                className="w-12 h-12 mx-auto rounded border border-teal-400/30 overflow-hidden cursor-pointer hover:opacity-80 hover:border-teal-400 transition-all relative group"
+                                onClick={() => handleImageClick(row, 'product3')}
+                                title="點擊更換圖片 / Ctrl+V 貼上"
+                              >
+                                <img src={img3} alt={`Product 3 Row ${row.rowIndex}`} className="w-full h-full object-cover" />
+                                <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                  <ZoomIn className="w-4 h-4 text-white" />
+                                </div>
+                              </div>
+                            ) : (
+                              <div
+                                className="w-12 h-12 flex items-center justify-center rounded border border-dashed border-teal-400/30 mx-auto cursor-pointer hover:border-teal-400 hover:bg-teal-400/5 transition-all"
+                                onClick={() => handleImageClick(row, 'product3')}
+                                title="點擊新增圖片"
+                              >
+                                <span className="text-teal-400/40 text-xs">+</span>
+                              </div>
+                            );
+                          })()}
+                        </TableCell>
+                      )}
                       {/* Data cells — with AI Product Name inserted at correct position */}
                       {visibleColumns.map((colIdx, arrIdx) => {
                         const value = row.cells[colIdx];
@@ -1844,37 +2112,59 @@ export function ExcelPreviewTable({
                         const isMapped = mapping && mapping !== 'skip';
                         
                         // ── VIRTUAL 3-COLUMN SPLIT for Combined Dimensions ──
-                        // If this is the combined dimensions column, render 3 separate cells
-                        if (colIdx === dimCombinedColIdx) {
-                          const dimL = parsedDimensionCells[`${row.rowIndex}:dim_l`] || '';
-                          const dimW = parsedDimensionCells[`${row.rowIndex}:dim_w`] || '';
-                          const dimH = parsedDimensionCells[`${row.rowIndex}:dim_h`] || '';
-                          
+                        // If this is any combined dimensions column, render 3 separate cells
+                        if (dimCombinedColIdxSet.has(colIdx)) {
+                          // Check dimOverrides first (user-edited values), then fall back to parsed
+                          const dimL = dimOverrides[`${row.rowIndex}:dim_l`] ?? parsedDimensionCells[`${row.rowIndex}:dim_l`] ?? '';
+                          const dimW = dimOverrides[`${row.rowIndex}:dim_w`] ?? parsedDimensionCells[`${row.rowIndex}:dim_w`] ?? '';
+                          const dimH = dimOverrides[`${row.rowIndex}:dim_h`] ?? parsedDimensionCells[`${row.rowIndex}:dim_h`] ?? '';
+
                           const nameKey = `${activeSheet.sheetName}:${row.rowIndex}`;
                           const generatedName = productNames[nameKey];
                           const isGeneratingName = generatingNames[nameKey];
                           const hasImage = !!(getImageForRow(row, 'product') || getImageForRow(row, 'lifestyle'));
-                          
+
+                          // Helper: render an editable dimension cell
+                          const renderDimCell = (dimKey: string, value: string, label: string) => {
+                            const fullKey = `${row.rowIndex}:${dimKey}`;
+                            const isEditing = editingDimCell === fullKey;
+                            return (
+                              <TableCell
+                                key={dimKey}
+                                className="text-sm font-[IBM_Plex_Mono] px-1 text-emerald-700 text-center min-w-[80px] cursor-pointer"
+                                title={`${label}: ${value || '—'} (點擊編輯)`}
+                              >
+                                {isEditing ? (
+                                  <input
+                                    autoFocus
+                                    type="number"
+                                    value={editDimValue}
+                                    onChange={e => setEditDimValue(e.target.value)}
+                                    onBlur={commitDimEdit}
+                                    onKeyDown={e => {
+                                      if (e.key === 'Enter') commitDimEdit();
+                                      if (e.key === 'Escape') setEditingDimCell(null);
+                                    }}
+                                    className="w-full text-center text-sm font-[IBM_Plex_Mono] bg-emerald-50 border border-emerald-400 rounded px-1 py-0.5 outline-none"
+                                    style={{ minWidth: 60 }}
+                                  />
+                                ) : (
+                                  <span
+                                    className={`block w-full text-center rounded px-1 py-0.5 hover:bg-emerald-50 hover:ring-1 hover:ring-emerald-300 transition-all ${dimOverrides[fullKey] ? 'text-emerald-600 font-bold' : ''}`}
+                                    onClick={() => startDimEdit(fullKey, value)}
+                                  >
+                                    {value || <span className="text-foreground/30">—</span>}
+                                  </span>
+                                )}
+                              </TableCell>
+                            );
+                          };
+
                           return (
                             <React.Fragment key={colIdx}>
-                              <TableCell
-                                className="text-sm font-[IBM_Plex_Mono] px-2 text-emerald-700 text-center"
-                                title={`Raw: ${rawDisplayVal} → L: ${dimL}`}
-                              >
-                                {dimL || <span className="text-foreground/30">—</span>}
-                              </TableCell>
-                              <TableCell
-                                className="text-sm font-[IBM_Plex_Mono] px-2 text-emerald-700 text-center"
-                                title={`Raw: ${rawDisplayVal} → W: ${dimW}`}
-                              >
-                                {dimW || <span className="text-foreground/30">—</span>}
-                              </TableCell>
-                              <TableCell
-                                className="text-sm font-[IBM_Plex_Mono] px-2 text-emerald-700 text-center"
-                                title={`Raw: ${rawDisplayVal} → H: ${dimH}`}
-                              >
-                                {dimH || <span className="text-foreground/30">—</span>}
-                              </TableCell>
+                              {renderDimCell('dim_l', dimL, '長度')}
+                              {renderDimCell('dim_w', dimW, '闊度')}
+                              {renderDimCell('dim_h', dimH, '高度')}
                               {/* AI Product Name cell inserted after the anchor column */}
                               {arrIdx === productNameInsertIndex - 1 && (
                                 <TableCell className="p-1 min-w-[220px]">
@@ -1969,25 +2259,38 @@ export function ExcelPreviewTable({
                         const isGeneratingName = generatingNames[nameKey];
                         const hasImage = !!(getImageForRow(row, 'product') || getImageForRow(row, 'lifestyle'));
 
+                        const cellKey = `${row.rowIndex}:${colIdx}`;
+                        const isEditingThis = editingCell === cellKey;
+
                         return (
                           <React.Fragment key={colIdx}>
                             <TableCell
                               className={cn(
-                                'text-sm font-[IBM_Plex_Mono] px-2 max-w-[200px] truncate',
+                                'text-sm font-[IBM_Plex_Mono] px-2 max-w-[200px]',
+                                !isEditingThis && 'truncate cursor-text hover:bg-indigo-500/5',
                                 isMapped && 'text-foreground',
                                 !isMapped && 'text-foreground/50',
                                 isDimensionField && isMapped && displayVal && 'text-emerald-700',
                                 isPriceField && isMapped && displayVal && rawDisplayVal !== displayVal && 'text-amber-600',
                               )}
-                              title={
-                                isDimensionField && rawDisplayVal !== displayVal
-                                  ? `Raw: ${rawDisplayVal} → Parsed: ${displayVal}`
-                                  : isPriceField && rawDisplayVal !== displayVal
-                                    ? `Raw: ${rawDisplayVal} → Max: ${displayVal}`
-                                    : displayVal
-                              }
+                              title={isEditingThis ? undefined : '點擊編輯'}
+                              onClick={() => { if (!isEditingThis) startEdit(row.rowIndex, colIdx, rawDisplayVal); }}
                             >
-                              {displayVal || <span className="text-foreground/30">—</span>}
+                              {isEditingThis ? (
+                                <input
+                                  autoFocus
+                                  value={editValue}
+                                  onChange={(e) => setEditValue(e.target.value)}
+                                  onBlur={() => commitEdit(row.rowIndex, colIdx)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') commitEdit(row.rowIndex, colIdx);
+                                    if (e.key === 'Escape') setEditingCell(null);
+                                  }}
+                                  className="w-full min-w-[120px] rounded border border-indigo-400 bg-background px-1.5 py-1 text-sm font-[IBM_Plex_Mono] focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+                                />
+                              ) : (
+                                displayVal || <span className="text-foreground/30">—</span>
+                              )}
                             </TableCell>
                             {/* AI Product Name cell inserted after the anchor column */}
                             {arrIdx === productNameInsertIndex - 1 && (
@@ -2113,7 +2416,7 @@ export function ExcelPreviewTable({
             {totalSelected} rows selected{hasMultipleSheets ? ` across ${sheetDataList.filter(sd => (multiSheetSelections[sd.sheetName]?.size || 0) > 0).length} sheets` : ''}
           </span>
           
-          {/* Button C: Discard / Ignore */}
+          {/* Button C: Delete selected rows from preview (no save) */}
           <Button
             variant="ghost"
             onClick={() => handleAction('discard')}
@@ -2121,8 +2424,8 @@ export function ExcelPreviewTable({
             className="text-sm gap-1.5 text-muted-foreground hover:text-rose-400 hover:bg-rose-500/10"
           >
             <Trash2 className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">暫不考慮</span>
-            <span className="sm:hidden">忽略</span>
+            <span className="hidden sm:inline">刪除</span>
+            <span className="sm:hidden">刪除</span>
           </Button>
 
           {/* Button B: Upload to Catalog Only */}
@@ -2141,27 +2444,6 @@ export function ExcelPreviewTable({
                 <Archive className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">上傳到產品目錄</span>
                 <span className="sm:hidden">目錄</span>
-              </span>
-            )}
-          </Button>
-
-          {/* Button A: Queue for Shopify (save to BOTH master + shopify queue) */}
-          <Button
-            onClick={() => handleAction('queue-shopify')}
-            disabled={isGenerating || mappedCount < 2 || totalSelected === 0}
-            className="bg-indigo-600 hover:bg-indigo-500 text-white gap-1.5 text-sm font-[Syne] font-semibold"
-          >
-            {isGenerating ? (
-              <span className="contents">
-                <Loader2 className="w-4 h-4 animate-spin" />
-                處理中...
-              </span>
-            ) : (
-              <span className="contents">
-                <ShoppingCart className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">待上傳到 Shopify</span>
-                <span className="sm:hidden">Shopify</span>
-                <ArrowRight className="w-3.5 h-3.5" />
               </span>
             )}
           </Button>

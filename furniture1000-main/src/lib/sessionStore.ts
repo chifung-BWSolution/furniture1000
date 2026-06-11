@@ -64,6 +64,11 @@ export async function saveSession(data: any): Promise<void> {
  * Load the Excel preview session from IndexedDB (with images).
  * Falls back to localStorage if IndexedDB is unavailable or empty.
  */
+// Above this many image-bearing rows, restoring all base64 images into memory
+// risks crashing the browser tab. Past the cap we restore the table WITHOUT
+// images (row data + mapping preserved; thumbnails just won't pre-fill).
+const RESTORE_IMAGE_ROW_CAP = 60;
+
 export async function loadSession(): Promise<any | null> {
   if (isIndexedDBAvailable()) {
     try {
@@ -74,10 +79,13 @@ export async function loadSession(): Promise<any | null> {
         console.log(`[IndexedDB] Restore successful. Table is ready.`, {
           rows: data?.rows?.length,
           totalImages: imageCount + topLevelImages,
-          rowsWithProductImage: (data?.rows || []).filter((r: any) => r.productImageData).length,
-          rowsWithLifestyleImage: (data?.rows || []).filter((r: any) => r.lifestyleImageData).length,
           manufacturer: data?._manufacturer,
         });
+        // Memory guard: a huge image-heavy session would OOM the tab on restore.
+        if (imageCount > RESTORE_IMAGE_ROW_CAP || topLevelImages > RESTORE_IMAGE_ROW_CAP) {
+          console.warn(`[IndexedDB] Session too large to restore images (${imageCount} rows / ${topLevelImages} top-level) — restoring without images to avoid OOM.`);
+          return stripImagesForLocalStorage(data);
+        }
         return data;
       }
     } catch (e) {

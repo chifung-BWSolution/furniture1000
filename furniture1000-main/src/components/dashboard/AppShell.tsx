@@ -1,5 +1,6 @@
-import { useState, useCallback, useMemo, lazy, Suspense } from "react";
+import { useState, useCallback, useMemo, useEffect, lazy, Suspense } from "react";
 import { useAppStore } from "@/hooks/use-app-store";
+import { unsavedGuard } from "@/lib/unsavedGuard";
 import { SidebarNav } from "./SidebarNav";
 import { PrimaryTopNav } from "./PrimaryTopNav";
 import { TopBar } from "./TopBar";
@@ -9,7 +10,9 @@ import { SettingsView } from "./SettingsView";
 import { PublishModal } from "./PublishModal";
 import { Construction } from "lucide-react";
 import { findSection, getSection } from "./navConfig";
-import { type PrimarySection } from "@/types/product";
+import { type PrimarySection, type ViewType } from "@/types/product";
+import { addToCatalog } from "@/lib/catalogStore";
+import { toast } from "sonner";
 
 // Lazy-loaded heavy views (contain large dependencies like pdfjs-dist, @react-pdf/renderer, etc.)
 const AIProcessorView = lazy(() =>
@@ -21,6 +24,9 @@ const ListedProductsView = lazy(() =>
 const ManufacturerDirectoryView = lazy(() =>
   import("./ManufacturerDirectoryView").then((mod) => ({ default: mod.ManufacturerDirectoryView }))
 );
+const FactoryDetailView = lazy(() =>
+  import("./FactoryDetailPage").then((mod) => ({ default: mod.FactoryDetailView }))
+);
 const QuickQuoteView = lazy(() =>
   import("./QuickQuoteView").then((mod) => ({ default: mod.QuickQuoteView }))
 );
@@ -30,6 +36,94 @@ const QuotationListView = lazy(() =>
 const CategoryManagementView = lazy(() =>
   import("./CategoryManagementView").then((mod) => ({ default: mod.CategoryManagementView }))
 );
+const ProductCategoryView = lazy(() =>
+  import("./ProductCategoryView").then((mod) => ({ default: mod.ProductCategoryView }))
+);
+// 網上發佈 (Online Publication)
+const PublishCopywritingView = lazy(() =>
+  import("./publish/PublishCopywritingView").then((mod) => ({ default: mod.PublishCopywritingView }))
+);
+const PublishProductInfoView = lazy(() =>
+  import("./publish/PublishProductInfoView").then((mod) => ({ default: mod.PublishProductInfoView }))
+);
+const PublishPrecheckView = lazy(() =>
+  import("./publish/PublishPrecheckView").then((mod) => ({ default: mod.PublishPrecheckView }))
+);
+const PublishedProductsView = lazy(() =>
+  import("./publish/PublishedProductsView").then((mod) => ({ default: mod.PublishedProductsView }))
+);
+// 分析報表 (Analytics Reports)
+const FactoryReportView = lazy(() =>
+  import("./reports/FactoryReportView").then((mod) => ({ default: mod.FactoryReportView }))
+);
+const ProductReportView = lazy(() =>
+  import("./reports/ProductReportView").then((mod) => ({ default: mod.ProductReportView }))
+);
+const SalesReportView = lazy(() =>
+  import("./reports/SalesReportView").then((mod) => ({ default: mod.SalesReportView }))
+);
+// 設定 (Settings)
+const UserManagementView = lazy(() =>
+  import("./admin/UserManagementView").then((mod) => ({ default: mod.UserManagementView }))
+);
+const LoginHistoryView = lazy(() =>
+  import("./admin/LoginHistoryView").then((mod) => ({ default: mod.LoginHistoryView }))
+);
+// 傢俬方案 (Furniture Scheme)
+const DesignProjectsView = lazy(() =>
+  import("./solutions/DesignProjectsView").then((mod) => ({ default: mod.DesignProjectsView }))
+);
+const ProductSearchView = lazy(() =>
+  import("./solutions/ProductSearchView").then((mod) => ({ default: mod.ProductSearchView }))
+);
+const InviteClientsView = lazy(() =>
+  import("./solutions/InviteClientsView").then((mod) => ({ default: mod.InviteClientsView }))
+);
+const ConfirmedProjectsView = lazy(() =>
+  import("./solutions/ConfirmedProjectsView").then((mod) => ({ default: mod.ConfirmedProjectsView }))
+);
+// 客戶專區 (Client Zone)
+const CustomerDesignProjectsView = lazy(() =>
+  import("./customers/CustomerDesignProjectsView").then((mod) => ({ default: mod.CustomerDesignProjectsView }))
+);
+const CustomerProductSearchView = lazy(() =>
+  import("./customers/CustomerProductSearchView").then((mod) => ({ default: mod.CustomerProductSearchView }))
+);
+const CustomerConfirmedProductsView = lazy(() =>
+  import("./customers/CustomerConfirmedProductsView").then((mod) => ({ default: mod.CustomerConfirmedProductsView }))
+);
+const CustomerCompanyInfoView = lazy(() =>
+  import("./customers/CustomerCompanyInfoView").then((mod) => ({ default: mod.CustomerCompanyInfoView }))
+);
+
+// Views that fetch their own data independently of the app store's product
+// load — they must not be gated by store.isLoading, so they render immediately.
+const SELF_LOADING_VIEWS = new Set<ViewType>([
+  "listed-products",
+  "product-catalog",
+  "manufacturer-catalog",
+  "factory-detail",
+  "category-management",
+  "category-registry",
+  "quotation-list",
+  "design-projects",
+  "product-search",
+  "invite-clients",
+  "confirmed-projects",
+  "customer-design-projects",
+  "customer-product-search",
+  "customer-confirmed-products",
+  "customer-company-info",
+  "publish-copywriting",
+  "publish-product-info",
+  "publish-precheck",
+  "published-products",
+  "report-factory",
+  "report-product",
+  "report-sales",
+  "user-management",
+  "login-history",
+]);
 
 function PlaceholderView({
   title,
@@ -63,16 +157,48 @@ export function AppShell() {
   const [showPublishModal, setShowPublishModal] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [editingQuoteId, setEditingQuoteId] = useState<string | null>(null);
+  // Product to scroll-into-view when navigating from 發佈前檢查
+  const [focusProductId, setFocusProductId] = useState<string | null>(null);
+  // Real total/selected counts reported up from ListedProductsView (所有產品)
+  const [listedStats, setListedStats] = useState<{ total: number; selected: number; selectedIds: string[] }>({ total: 0, selected: 0, selectedIds: [] });
   const selectedProducts = useMemo(() =>
     store.products.filter((p) => store.selectedProductIds.has(p.id)),
     [store.products, store.selectedProductIds]
   );
+  // 準備上載頁：只顯示發佈前檢查通過後標記 readyToPublish 的產品
+  const readyToPublishProducts = useMemo(() =>
+    store.products.filter((p) => p.readyToPublish),
+    [store.products]
+  );
 
-  const handleBulkPublish = useCallback(() => {
+  // Refresh ready-to-publish list whenever entering the page so older products
+  // (outside the first 100-row pagination window) still appear.
+  useEffect(() => {
+    if (store.currentView === 'ready-to-publish') {
+      store.reloadReadyToPublish();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [store.currentView]);
+
+  const handleBulkPublish = useCallback(async () => {
+    // 所有產品頁：「上傳到產品目錄」— 把已選產品標記 in_catalog（寫入 Supabase，跨裝置共用）
+    if (store.currentView === 'listed-products') {
+      if (listedStats.selectedIds.length === 0) {
+        toast.message('請先勾選產品');
+        return;
+      }
+      const res = await addToCatalog(listedStats.selectedIds);
+      if (res.ok) {
+        toast.success('已加入產品目錄', { description: `${listedStats.selectedIds.length} 件已寫入，所有裝置可見` });
+      } else {
+        toast.error('加入失敗', { description: res.error });
+      }
+      return;
+    }
     if (store.selectedProductIds.size > 0) {
       setShowPublishModal(true);
     }
-  }, [store.selectedProductIds]);
+  }, [store.selectedProductIds, store.currentView, listedStats.selectedIds]);
 
   const handleClearFilter = useCallback(() => {
     store.setFilterProductId(null);
@@ -93,10 +219,8 @@ export function AppShell() {
       case "dashboard":
         return (
           <DashboardView
-            products={store.products}
-            stats={store.stats}
-            onProductClick={store.navigateToProduct}
             onNavigateToAI={() => store.setCurrentView("ai-processor")}
+            onNavigateToCopywriting={() => store.setCurrentView("publish-copywriting")}
           />
         );
       case "ai-processor":
@@ -111,7 +235,7 @@ export function AppShell() {
       case "ready-to-publish":
         return (
           <ProductTableView
-            products={store.products}
+            products={readyToPublishProducts}
             selectedIds={store.selectedProductIds}
             filterProductId={store.filterProductId}
             onToggleSelect={store.toggleProductSelection}
@@ -122,7 +246,20 @@ export function AppShell() {
             onDeleteProduct={store.deleteProduct}
             onClearFilter={handleClearFilter}
             onSyncFromShopify={store.syncFromShopify}
-            onUploadUnsyncedToMaster={store.uploadUnsyncedToMaster}
+            onUploadUnsyncedToMaster={store.publishSelected}
+            onRevertToInfo={async (ids) => {
+              const { error } = await import('@/lib/supabase').then(m =>
+                m.supabase.from('products').update({ ready_to_publish: false, info_done: false }).in('id', ids)
+              );
+              if (error) {
+                const { toast } = await import('sonner');
+                toast.error('退回失敗', { description: error.message });
+              } else {
+                store.reloadReadyToPublish();
+                const { toast } = await import('sonner');
+                toast.success(`已退回 ${ids.length} 件產品至「產品信息」`);
+              }
+            }}
             isSyncing={store.isSyncing}
             isPublishing={store.isPublishing}
             lastSyncTime={store.lastSyncTime}
@@ -131,13 +268,22 @@ export function AppShell() {
       case "listed-products":
         return (
           <ListedProductsView
+            mode="all"
             onSyncFromShopify={store.syncFromShopify}
             isSyncing={store.isSyncing}
             lastSyncTime={store.lastSyncTime}
+            onStatsChange={setListedStats}
             onSendToPublishQueue={(products) => {
               store.addProducts(products);
               store.setCurrentView("ready-to-publish");
             }}
+          />
+        );
+      case "product-catalog":
+        return (
+          <ListedProductsView
+            mode="catalog"
+            onStatsChange={setListedStats}
           />
         );
       case "settings":
@@ -149,41 +295,22 @@ export function AppShell() {
         );
       case "manufacturer-catalog":
         return <ManufacturerDirectoryView />;
+      case "factory-detail":
+        return store.factoryDetailCode ? (
+          <FactoryDetailView
+            factoryCode={store.factoryDetailCode}
+            onBack={() => store.setCurrentView("manufacturer-catalog")}
+          />
+        ) : null;
       case "design-projects":
-        return (
-          <PlaceholderView
-            title="設計專案"
-            description="管理您的室內設計項目，追蹤進度並協調團隊合作。"
-          />
-        );
+        return <DesignProjectsView />;
       case "product-search":
-        return (
-          <PlaceholderView
-            title="產品搜尋"
-            description="搜尋產品數據庫，快速找到符合設計需求的傢俬產品。"
-          />
-        );
+        return <ProductSearchView />;
       case "invite-clients":
-        return (
-          <PlaceholderView
-            title="邀請客戶"
-            description="向客戶發送邀請，讓他們查看和確認設計方案。"
-          />
-        );
+        return <InviteClientsView />;
       case "confirmed-projects":
-        return (
-          <PlaceholderView
-            title="已確定方案"
-            description="查看所有已被客戶確認的設計方案和訂單狀態。"
-          />
-        );
-      case "factory-catalog-quote":
-        return (
-          <PlaceholderView
-            title="廠家目錄"
-            description="瀏覽廠家產品目錄，取得最新報價資訊。"
-          />
-        );
+        return <ConfirmedProjectsView />;
+
       case "advanced-search":
         return (
           <PlaceholderView
@@ -192,33 +319,13 @@ export function AppShell() {
           />
         );
       case "customer-design-projects":
-        return (
-          <PlaceholderView
-            title="設計專案（客戶）"
-            description="客戶端的設計專案視圖與審批進度。"
-          />
-        );
+        return <CustomerDesignProjectsView />;
       case "customer-product-search":
-        return (
-          <PlaceholderView
-            title="產品搜尋（客戶）"
-            description="客戶可搜尋並挑選方案內的傢俬產品。"
-          />
-        );
+        return <CustomerProductSearchView />;
       case "customer-confirmed-products":
-        return (
-          <PlaceholderView
-            title="確定產品"
-            description="客戶確認採購的產品清單。"
-          />
-        );
+        return <CustomerConfirmedProductsView />;
       case "customer-company-info":
-        return (
-          <PlaceholderView
-            title="公司資料"
-            description="客戶公司聯絡與發票資料。"
-          />
-        );
+        return <CustomerCompanyInfoView />;
       case "quotation-settings":
         return (
           <PlaceholderView
@@ -227,61 +334,34 @@ export function AppShell() {
           />
         );
       case "publish-copywriting":
-        return (
-          <PlaceholderView
-            title="產品文案"
-            description="AI 撰寫產品標題、描述與賣點文案。"
-          />
-        );
+        return <PublishCopywritingView focusProductId={focusProductId} onFocusHandled={() => setFocusProductId(null)} />;
+      case "publish-product-info":
+        return <PublishProductInfoView focusProductId={focusProductId} onFocusHandled={() => setFocusProductId(null)} />;
       case "publish-precheck":
         return (
-          <PlaceholderView
-            title="發佈前檢查"
-            description="檢查圖片、SEO、價格、庫存等上架前必填欄位。"
+          <PublishPrecheckView
+            onNavigate={({ view, productId }) => {
+              setFocusProductId(productId);
+              store.setCurrentView(view);
+            }}
+            onProductsReadyToPublish={async () => {
+              await store.reloadReadyToPublish();
+              store.setCurrentView('ready-to-publish');
+            }}
           />
         );
       case "published-products":
-        return (
-          <PlaceholderView
-            title="已上載產品"
-            description="所有已成功上架到 Shopify 的產品。"
-          />
-        );
+        return <PublishedProductsView />;
       case "report-factory":
-        return (
-          <PlaceholderView
-            title="廠家報告"
-            description="按廠家匯總的產品數、銷售與交期分析。"
-          />
-        );
+        return <FactoryReportView />;
       case "report-product":
-        return (
-          <PlaceholderView
-            title="產品報告"
-            description="產品銷售、庫存與表現分析報告。"
-          />
-        );
+        return <ProductReportView />;
       case "report-sales":
-        return (
-          <PlaceholderView
-            title="銷售報告"
-            description="期間銷售趨勢、客戶分佈與成交報告。"
-          />
-        );
+        return <SalesReportView />;
       case "user-management":
-        return (
-          <PlaceholderView
-            title="用戶管理"
-            description="管理團隊成員的角色與存取權限。"
-          />
-        );
+        return <UserManagementView />;
       case "login-history":
-        return (
-          <PlaceholderView
-            title="登入紀錄"
-            description="檢視用戶登入歷史與安全事件。"
-          />
-        );
+        return <LoginHistoryView />;
       case "quick-quote":
         return (
           <QuickQuoteView
@@ -311,6 +391,8 @@ export function AppShell() {
         );
       case "category-management":
         return <CategoryManagementView />;
+      case "category-registry":
+        return <ProductCategoryView />;
       default:
         return null;
     }
@@ -319,6 +401,12 @@ export function AppShell() {
   const activeSection: PrimarySection = findSection(store.currentView);
 
   const handleViewChange = (view: typeof store.currentView) => {
+    // Guard: warn before leaving an unsaved 報價單草稿 (生成報價單) page
+    if (view !== store.currentView && unsavedGuard.isDirty) {
+      const ok = window.confirm(unsavedGuard.message);
+      if (!ok) return;
+      unsavedGuard.clear();
+    }
     if (store.currentView === 'category-management' && view !== 'category-management') {
       store.reloadProducts();
     }
@@ -357,8 +445,8 @@ export function AppShell() {
         <main className="flex flex-1 flex-col min-w-0 overflow-hidden">
         <TopBar
           currentView={store.currentView}
-          selectedCount={store.selectedProductIds.size}
-          totalProducts={store.products.length}
+          selectedCount={store.currentView === 'listed-products' ? listedStats.selected : store.selectedProductIds.size}
+          totalProducts={store.currentView === 'listed-products' ? listedStats.total : store.currentView === 'ready-to-publish' ? readyToPublishProducts.length : store.products.length}
           onBulkPublish={handleBulkPublish}
           onSave={store.saveProducts}
           isSaving={store.isSaving}
@@ -368,7 +456,7 @@ export function AppShell() {
         />
 
         <div className="flex-1 overflow-hidden">
-          {store.isLoading ? (
+          {store.isLoading && !SELF_LOADING_VIEWS.has(store.currentView) ? (
             <div className="flex h-full items-center justify-center">
               <div className="flex flex-col items-center gap-3">
                 <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />

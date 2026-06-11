@@ -37,8 +37,11 @@ export function TopBar({
   const meta = getViewMeta(currentView);
   const viewInfo = { label: meta.viewLabel, parent: meta.sectionLabel };
 
-  // Only show product-related buttons on product catalog views
-  const showProductButtons = currentView === 'listed-products' || currentView === 'ready-to-publish';
+  // Show stats (總共/已選) on product list views
+  const showProductButtons = currentView === 'listed-products' || currentView === 'ready-to-publish' || currentView === 'product-catalog';
+  // The upload-to-catalog action only appears on the 所有產品 / 待發佈 views
+  const showUploadButton = currentView === 'listed-products' || currentView === 'ready-to-publish';
+  const uploadLabel = currentView === 'listed-products' ? '上傳到產品目錄' : '上傳到 Shopify';
 
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-border bg-background/80 px-6 backdrop-blur-xl">
@@ -56,38 +59,25 @@ export function TopBar({
       {/* Right — Stats & CTA (only on product catalog views) */}
       {showProductButtons && (
         <div className="flex items-center gap-4">
-          {/* Product stats pills */}
-          <div className="hidden items-center gap-2 md:flex">
-            <span className="font-mono-data text-[11px] text-muted-foreground tracking-wider">
-              {totalProducts} 個產品
-            </span>
-            <div className="h-4 w-px bg-border" />
-            <div className="flex items-center gap-1.5">
-              <span className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground font-mono-data">
-                <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground" />
-                {stats.drafts}
+          {/* Product count pills — 總共產品 / 已選產品 (隱藏待處理產品頁，數字已在工具列顯示) */}
+          {currentView !== 'listed-products' && (
+            <div className="hidden items-center gap-2 md:flex">
+              <span className="inline-flex items-center gap-1.5 rounded-md bg-muted px-2.5 py-1 text-[11px] font-semibold text-muted-foreground font-mono-data">
+                總共產品
+                <span className="text-foreground">{totalProducts.toLocaleString()}</span>
               </span>
-              {stats.publishing > 0 && (
-                <span className="inline-flex items-center gap-1 rounded-md bg-amber-500/10 px-2 py-0.5 text-[10px] font-semibold text-amber-500 font-mono-data">
-                  <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-status-pulse" />
-                  {stats.publishing}
-                </span>
-              )}
-              <span className="inline-flex items-center gap-1 rounded-md bg-emerald-500/10 px-2 py-0.5 text-[10px] font-semibold text-emerald-500 font-mono-data">
-                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                {stats.success}
+              <span className={cn(
+                'inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-semibold font-mono-data',
+                selectedCount > 0 ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'
+              )}>
+                已選產品
+                <span className={selectedCount > 0 ? 'text-primary' : 'text-foreground'}>{selectedCount.toLocaleString()}</span>
               </span>
-              {stats.errors > 0 && (
-                <span className="inline-flex items-center gap-1 rounded-md bg-rose-500/10 px-2 py-0.5 text-[10px] font-semibold text-rose-500 font-mono-data">
-                  <span className="h-1.5 w-1.5 rounded-full bg-rose-500" />
-                  {stats.errors}
-                </span>
-              )}
             </div>
-          </div>
+          )}
 
-          {/* Save Button */}
-          {onSave && (
+          {/* Save Button — hidden on ready-to-publish page */}
+          {showUploadButton && onSave && currentView !== 'ready-to-publish' && (
             <Button
               onClick={onSave}
               disabled={isSaving || !hasUnsavedChanges}
@@ -109,28 +99,30 @@ export function TopBar({
             </Button>
           )}
 
-          {/* Upload to Database Button */}
-          <Button
-            onClick={onBulkPublish}
-            disabled={selectedCount === 0 || isPublishing}
-            className={cn(
-              'relative gap-2 bg-primary font-display font-bold text-primary-foreground transition-all duration-300',
-              selectedCount > 0 && !isPublishing && 'animate-pulse-glow hover:scale-[0.98] active:scale-[0.96]',
-              (selectedCount === 0 || isPublishing) && 'opacity-60'
-            )}
-          >
-            {isPublishing ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Database className="h-4 w-4" />
-            )}
-            {isPublishing ? '上傳中...' : '上傳到資料庫'}
-            {selectedCount > 0 && !isPublishing && (
-              <Badge className="ml-1 h-5 min-w-5 bg-white/20 text-[10px] text-white hover:bg-white/20">
-                {selectedCount}
-              </Badge>
-            )}
-          </Button>
+          {/* Upload Button (所有產品 → 上傳到產品目錄) */}
+          {showUploadButton && (
+            <Button
+              onClick={onBulkPublish}
+              disabled={selectedCount === 0 || isPublishing}
+              className={cn(
+                'relative gap-2 bg-primary font-display font-bold text-primary-foreground transition-all duration-300',
+                selectedCount > 0 && !isPublishing && 'animate-pulse-glow hover:scale-[0.98] active:scale-[0.96]',
+                (selectedCount === 0 || isPublishing) && 'opacity-60'
+              )}
+            >
+              {isPublishing ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Database className="h-4 w-4" />
+              )}
+              {isPublishing ? '上傳中...' : uploadLabel}
+              {selectedCount > 0 && !isPublishing && (
+                <Badge className="ml-1 h-5 min-w-5 bg-white/20 text-[10px] text-white hover:bg-white/20">
+                  {selectedCount}
+                </Badge>
+              )}
+            </Button>
+          )}
         </div>
       )}
     </header>

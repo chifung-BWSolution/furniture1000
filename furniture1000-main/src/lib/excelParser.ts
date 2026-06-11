@@ -1046,12 +1046,10 @@ const FACTORY_RULES: FactoryParsingRule[] = [
     factoryNames: ['CYJ', '優健家具', '优健家具', '優健', '优健', 'Youjian', 'youjian'],
     parseDimensions: parseAdvancedDimensions,
     unitMultiplier: 1, // already in MM
-    description: 'CYJ/優健家具: image col B (1), dimensions col F (5) in mm, 2 numbers = L+H',
+    description: 'CYJ/優健家具: auto-detect image cols, dimensions in mm, all product data exported',
     propagateMergedCells: true,
-    // Layout (0-based): row 4 = header, row 5+ = products. Image at col B (1), dimensions at col F (5).
-    forceHeaderRowIndex: 3,    // header row 4 (1-based) → idx 3, so first data row = idx 4 (Excel row 5)
-    forceImageCol: 1,          // Column B = product image
-    forceDimensionsCol: 5,     // Column F = 产品尺寸
+    // Do NOT force header row — let auto-detection find it per file (different 優健 files have different layouts)
+    // Do NOT force image col — multiple image columns may exist; let generic detection handle all of them
     strictImageColumns: false,
   },
   // Add more factory rules here as needed
@@ -2273,6 +2271,10 @@ export interface RawTableRow {
   cells: (string | number | null)[];
   /** Product image (data URI) — inherited from merged cells */
   productImageData?: string | null;
+  /** Second product image (data URI) — when multiple images exist in the same image column range, ordered by column position */
+  productImageData2?: string | null;
+  /** Third product image (data URI) — when multiple images exist in the same image column range, ordered by column position */
+  productImageData3?: string | null;
   /** Lifestyle image (data URI) — inherited from merged cells */
   lifestyleImageData?: string | null;
   /** Whether this row appears to be a valid product row (has model/dims/price) */
@@ -2584,9 +2586,20 @@ export async function extractRawExcelTable(
     console.log(`[RawTable] Sheet "${sheetName}" classified images: ${sheetProductImages.length} product, ${sheetLifestyleImages.length} lifestyle`);
 
     const rowToProductImage = new Map<number, string>();
+    const rowToProductImage2 = new Map<number, string>();
+    const rowToProductImage3 = new Map<number, string>();
     const rowToLifestyleImage = new Map<number, string>();
 
-    for (const img of sheetProductImages) {
+    // Sort product images by column position (leftmost first) so image2/image3 are assigned
+    // in left-to-right column order when multiple images exist in the same row range.
+    const sortedProductImages = [...sheetProductImages].sort((a, b) => {
+      const colA = a.fromCol ?? 999;
+      const colB = b.fromCol ?? 999;
+      if (colA !== colB) return colA - colB;
+      return (a.fromRow ?? 0) - (b.fromRow ?? 0);
+    });
+
+    for (const img of sortedProductImages) {
       if (img.fromRow === undefined) continue;
       const fromRow = img.fromRow;
       const toRow = img.toRow ?? fromRow;
@@ -2594,6 +2607,10 @@ export async function extractRawExcelTable(
       for (let r = fromRow; r <= toRow; r++) {
         if (!rowToProductImage.has(r)) {
           rowToProductImage.set(r, dataUri);
+        } else if (!rowToProductImage2.has(r)) {
+          rowToProductImage2.set(r, dataUri);
+        } else if (!rowToProductImage3.has(r)) {
+          rowToProductImage3.set(r, dataUri);
         }
       }
     }
@@ -2634,7 +2651,27 @@ export async function extractRawExcelTable(
             }
           }
         }
-        
+
+        // Product image2 fill-down within merge range
+        const prodImg2 = rowToProductImage2.get(startRow);
+        if (prodImg2) {
+          for (let r = startRow + 1; r <= endRow; r++) {
+            if (!rowToProductImage2.has(r)) {
+              rowToProductImage2.set(r, prodImg2);
+            }
+          }
+        }
+
+        // Product image3 fill-down within merge range
+        const prodImg3 = rowToProductImage3.get(startRow);
+        if (prodImg3) {
+          for (let r = startRow + 1; r <= endRow; r++) {
+            if (!rowToProductImage3.has(r)) {
+              rowToProductImage3.set(r, prodImg3);
+            }
+          }
+        }
+
         // Lifestyle image fill-down within merge range
         const lifeImg = rowToLifestyleImage.get(startRow);
         if (lifeImg) {
@@ -2701,6 +2738,8 @@ export async function extractRawExcelTable(
         rowIndex: rowIdx,
         cells,
         productImageData: rowToProductImage.get(rowIdx) || null,
+        productImageData2: rowToProductImage2.get(rowIdx) || null,
+        productImageData3: rowToProductImage3.get(rowIdx) || null,
         lifestyleImageData: rowToLifestyleImage.get(rowIdx) || null,
         isProductRow,
         hasMinimalData,
