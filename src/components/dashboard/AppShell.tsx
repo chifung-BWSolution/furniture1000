@@ -1,5 +1,6 @@
 import { useState, useCallback, useMemo, useEffect, lazy, Suspense } from "react";
 import { useAppStore } from "@/hooks/use-app-store";
+import { unsavedGuard } from "@/lib/unsavedGuard";
 import { SidebarNav } from "./SidebarNav";
 import { PrimaryTopNav } from "./PrimaryTopNav";
 import { TopBar } from "./TopBar";
@@ -400,6 +401,12 @@ export function AppShell() {
   const activeSection: PrimarySection = findSection(store.currentView);
 
   const handleViewChange = (view: typeof store.currentView) => {
+    // Guard: warn before leaving an unsaved 報價單草稿 (生成報價單) page
+    if (view !== store.currentView && unsavedGuard.isDirty) {
+      const ok = window.confirm(unsavedGuard.message);
+      if (!ok) return;
+      unsavedGuard.clear();
+    }
     if (store.currentView === 'category-management' && view !== 'category-management') {
       store.reloadProducts();
     }

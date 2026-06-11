@@ -26,6 +26,7 @@ import {
   deleteDraft,
   type DraftData,
 } from "@/lib/draftStore";
+import { unsavedGuard } from "@/lib/unsavedGuard";
 
 const LazyQuotationPDFPreviewModal = lazy(() =>
   import("@/components/dashboard/QuotationPDFPreview").then((mod) => ({
@@ -783,9 +784,45 @@ export function QuotationDraftEditor({
   const [isSavingDraft, setIsSavingDraft] = useState(false);
   const [draftSavedAt, setDraftSavedAt] = useState<number | null>(null);
   const [draftLoaded, setDraftLoaded] = useState(false);
+  // True once 已儲存 or 版本審核 has been done with the current content; cleared on edit.
+  const [persisted, setPersisted] = useState(false);
 
   // Derive the draft key: use existing quoteId or "NEW"
   const draftKey = existingQuote?.quoteId || "NEW";
+
+  // 報價內容 is considered "有數據" if any row has a product name.
+  const hasQuoteData = items.some((it) => (it.name || "").trim());
+
+  // Unsaved-work guard: dirty when there is quote data that has NOT been saved
+  // (已儲存) or submitted for review (版本審核). Registered to a module-level guard
+  // that AppShell + beforeunload check before navigating away.
+  const isDirty = draftLoaded && hasQuoteData && !persisted;
+
+  useEffect(() => {
+    unsavedGuard.set(
+      isDirty,
+      '報價內容尚未儲存。離開前請按「已儲存」或「版本審核」，否則內容將會遺失。',
+    );
+    return () => unsavedGuard.clear();
+  }, [isDirty]);
+
+  // Warn on browser tab close / refresh while dirty.
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (unsavedGuard.isDirty) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, []);
+
+  // Any edit to quote content re-arms the dirty state.
+  useEffect(() => {
+    setPersisted(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, companyInfo, clientInfo, quoteMeta, deliveryDetails, termsContent, discountNote, installationFee]);
 
   // Load draft from IndexedDB on mount (only for NEW quotes without existingQuote)
   // For existing quotes, QuickQuoteView handles loading the draft before passing projectData.
@@ -908,6 +945,7 @@ export function QuotationDraftEditor({
       await saveDraft(buildDraftData());
       const now = Date.now();
       setDraftSavedAt(now);
+      setPersisted(true);
       toast.success("草稿已儲存到本地", {
         description: `儲存時間: ${new Date(now).toLocaleString("zh-HK")}`,
       });
@@ -2023,6 +2061,9 @@ export function QuotationDraftEditor({
         onClose={() => setShowSubmitModal(false)}
         onSuccess={(quoteId) => {
           setShowSubmitModal(false);
+          // Mark as persisted so the unsaved-work guard no longer blocks navigation.
+          setPersisted(true);
+          unsavedGuard.clear();
           // Clean up local draft after successful submission
           deleteDraft(draftKey).catch(() => {});
           if (quoteId) deleteDraft(quoteId).catch(() => {});
