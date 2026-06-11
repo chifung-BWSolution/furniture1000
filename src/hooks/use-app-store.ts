@@ -386,28 +386,20 @@ export function useAppStore() {
   }, []);
 
   // Reload products from Supabase (used after publish/sync)
-  // Source of truth: ready_to_shopify table — any product with a record there
-  // (and info_done=true in products) belongs in the 準備上載 page.
+  // 準備上載 = products that completed both 產品文案 (copy_done) and 產品信息 (info_done).
+  // Fetches ALL such products regardless of pagination window.
   const reloadReadyToPublish = useCallback(async () => {
     try {
-      // Step 1: get all product_ids that have a ready_to_shopify record
-      const { data: rtsIdRows } = await supabase
-        .from('ready_to_shopify')
-        .select('product_id');
-      if (!rtsIdRows || rtsIdRows.length === 0) return;
-      const rtsIds = rtsIdRows.map((r: any) => r.product_id).filter(Boolean);
-      if (rtsIds.length === 0) return;
-
-      // Step 2: fetch matching products (must have info_done=true to be in 準備上載)
+      // Direct query: products that completed the full publish workflow
       const { data: rtpRows } = await supabase
         .from('products')
         .select('*')
-        .in('id', rtsIds)
+        .eq('copy_done', true)
         .eq('info_done', true);
       if (!rtpRows || rtpRows.length === 0) return;
       const ids = rtpRows.map((r: any) => r.id);
 
-      // Fetch ready_to_shopify data in parallel with variants
+      // Fetch ready_to_shopify data in parallel with variants for enrichment
       const [{ data: variantRows }, { data: rtsRows }] = await Promise.all([
         supabase.from('product_variants').select('*').in('product_id', ids),
         supabase.from('ready_to_shopify').select('product_id,image_url,images,body_html').in('product_id', ids),
