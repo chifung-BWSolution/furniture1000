@@ -3,8 +3,9 @@ import {
   FileText, Sparkles, ChevronLeft, ArrowRight, Loader2,
   UploadCloud, Search, X, Bold, Italic, Underline as UnderlineIcon,
   List, ListOrdered, Image as ImageIcon, Palette,
-  AlignLeft, AlignCenter, AlignRight, Wand2,
+  AlignLeft, AlignCenter, AlignRight, Wand2, Plus, Check,
 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { usePublishList } from './usePublishList';
@@ -104,6 +105,7 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
   const [handle, setHandle] = useState('');
   const primaryFileRef = useRef<HTMLInputElement>(null);
   const extraFileRef = useRef<HTMLInputElement>(null);
+  const [showImageUploadDialog, setShowImageUploadDialog] = useState(false);
 
   // Load saved ready_to_shopify data when opening a product
   const openProduct = useCallback(async (p: CopyItem) => {
@@ -504,7 +506,7 @@ ${rawDesc || '（暫無原文，請根據產品名稱及分類發揮）'}
                     </div>
                   ))}
                   <button
-                    onClick={() => extraFileRef.current?.click()}
+                    onClick={() => setShowImageUploadDialog(true)}
                     onDragOver={(e) => e.preventDefault()}
                     onDrop={() => handleDrop({ zone: 'extra', index: extraImgs.length })}
                     className="flex h-28 w-28 flex-col items-center justify-center gap-1.5 rounded-xl border-2 border-dashed border-border text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
@@ -553,6 +555,14 @@ ${rawDesc || '（暫無原文，請根據產品名稱及分類發揮）'}
           </Section>
         </div>
       </div>
+
+      {/* Image Upload Dialog */}
+      {showImageUploadDialog && (
+        <ImageUploadDialog
+          onConfirm={(srcs) => setExtraImgs((prev) => [...prev, ...srcs])}
+          onClose={() => setShowImageUploadDialog(false)}
+        />
+      )}
     </div>
   );
 }
@@ -560,7 +570,6 @@ ${rawDesc || '（暫無原文，請根據產品名稱及分類發揮）'}
 // ─── Rich Text Editor ─────────────────────────────────────────────────────────
 
 const ALLOWED_IMG_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/svg+xml'];
-const MAX_IMG_BYTES = 5 * 1024 * 1024;
 
 const PRESET_COLORS = [
   '#000000', '#434343', '#666666', '#999999', '#b7b7b7', '#cccccc', '#d9d9d9', '#ffffff',
@@ -729,6 +738,215 @@ function Field({ label, hint, icon, children }: { label: string; hint?: string; 
         {hint && <span className="font-mono-data text-[10px] text-muted-foreground/60">{hint}</span>}
       </div>
       {children}
+    </div>
+  );
+}
+
+// ─── Image resize helper ──────────────────────────────────────────────────────
+const MAX_IMG_SIZE = 1200;
+const MAX_IMG_BYTES = 5 * 1024 * 1024;
+
+async function resizeImage(file: File | Blob): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let { width, height } = img;
+      if (width > MAX_IMG_SIZE || height > MAX_IMG_SIZE) {
+        if (width > height) { height = Math.round((height / width) * MAX_IMG_SIZE); width = MAX_IMG_SIZE; }
+        else { width = Math.round((width / height) * MAX_IMG_SIZE); height = MAX_IMG_SIZE; }
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width; canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) { reject(new Error('canvas unavailable')); return; }
+      ctx.drawImage(img, 0, 0, width, height);
+      resolve(canvas.toDataURL('image/jpeg', 0.92));
+    };
+    img.onerror = reject;
+    img.src = url;
+  });
+}
+
+async function processImageFile(file: File): Promise<string | null> {
+  if (!file.type.startsWith('image/')) { toast.error('格式不支援，請上傳圖片檔案'); return null; }
+  if (file.size > MAX_IMG_BYTES) { toast.error('圖片超過 5MB 上限'); return null; }
+  return resizeImage(file);
+}
+
+// ─── Image Upload Dialog ──────────────────────────────────────────────────────
+
+interface ImageSlot {
+  src: string;
+}
+
+function ImageUploadDialog({ onConfirm, onClose }: { onConfirm: (srcs: string[]) => void; onClose: () => void }) {
+  const [slots, setSlots] = useState<ImageSlot[]>([{ src: '' }]);
+  const [activeSlot, setActiveSlot] = useState(0);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const pasteAreaRef = useRef<HTMLDivElement>(null);
+
+  // Focus paste area on mount / slot switch
+  useEffect(() => { pasteAreaRef.current?.focus(); }, [activeSlot]);
+
+  const setSrc = (idx: number, src: string) => setSlots((prev) => prev.map((s, i) => i === idx ? { src } : s));
+
+  const processAndSet = async (file: File | Blob) => {
+    setIsProcessing(true);
+    try {
+      const src = await resizeImage(file);
+      setSrc(activeSlot, src);
+    } catch { toast.error('圖片處理失敗'); }
+    finally { setIsProcessing(false); }
+  };
+
+  const handlePaste = useCallback(async (e: ClipboardEvent | React.ClipboardEvent) => {
+    const items = (e as any).clipboardData?.items || (e as ClipboardEvent).clipboardData?.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault?.();
+        const file = item.getAsFile();
+        if (file) await processAndSet(file);
+        return;
+      }
+    }
+  }, [activeSlot]);
+
+  const handleFileInput = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    const src = await processImageFile(file);
+    if (src) setSrc(activeSlot, src);
+  };
+
+  // Global paste listener
+  useEffect(() => {
+    const handler = (e: ClipboardEvent) => handlePaste(e);
+    document.addEventListener('paste', handler);
+    return () => document.removeEventListener('paste', handler);
+  }, [handlePaste]);
+
+  const handleDrop = async (e: React.DragEvent) => {
+    e.preventDefault();
+    const file = e.dataTransfer.files?.[0];
+    if (file) { const src = await processImageFile(file); if (src) setSrc(activeSlot, src); }
+  };
+
+  const addSlot = () => {
+    setSlots((prev) => [...prev, { src: '' }]);
+    setActiveSlot(slots.length);
+  };
+
+  const removeSlot = (idx: number) => {
+    if (slots.length === 1) { setSrc(0, ''); return; }
+    setSlots((prev) => prev.filter((_, i) => i !== idx));
+    setActiveSlot(Math.max(0, idx - 1));
+  };
+
+  const confirmedSrcs = slots.map((s) => s.src).filter(Boolean);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
+      <div
+        className="relative flex flex-col bg-card border border-border rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
+          <div>
+            <h3 className="font-display text-sm font-bold">新增其他圖片</h3>
+            <p className="font-body text-[11px] text-muted-foreground mt-0.5">支援 Ctrl+V 貼上 · 最大 5MB · 自動縮放至 1200×1200</p>
+          </div>
+          <button onClick={onClose} className="rounded-full p-1.5 hover:bg-muted text-muted-foreground"><X className="h-4 w-4" /></button>
+        </div>
+
+        {/* Slot tabs */}
+        <div className="flex items-center gap-1.5 px-5 pt-3 shrink-0 flex-wrap">
+          {slots.map((s, i) => (
+            <button
+              key={i}
+              onClick={() => setActiveSlot(i)}
+              className={cn(
+                'flex items-center gap-1 rounded-full px-3 py-1 text-[11px] font-medium border transition-colors',
+                activeSlot === i ? 'border-primary bg-primary/10 text-primary' : 'border-border text-muted-foreground hover:bg-muted'
+              )}
+            >
+              {s.src ? <Check className="h-2.5 w-2.5 text-emerald-500" /> : null}
+              圖片 {i + 1}
+              {slots.length > 1 && (
+                <X className="h-2.5 w-2.5 ml-0.5 hover:text-rose-500" onClick={(e) => { e.stopPropagation(); removeSlot(i); }} />
+              )}
+            </button>
+          ))}
+          <button onClick={addSlot} className="flex items-center gap-1 rounded-full px-3 py-1 text-[11px] font-medium border border-dashed border-border text-muted-foreground hover:border-primary/50 hover:text-primary transition-colors">
+            <Plus className="h-2.5 w-2.5" /> 新分頁
+          </button>
+        </div>
+
+        {/* Paste / drop area */}
+        <div className="flex-1 overflow-auto px-5 py-4">
+          <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handleFileInput} />
+          <div
+            ref={pasteAreaRef}
+            tabIndex={0}
+            onDrop={handleDrop}
+            onDragOver={(e) => e.preventDefault()}
+            onPaste={(e) => handlePaste(e)}
+            className={cn(
+              'relative flex flex-col items-center justify-center rounded-xl border-2 border-dashed transition-colors outline-none cursor-pointer',
+              slots[activeSlot]?.src ? 'border-emerald-500/40 bg-emerald-500/5' : 'border-border hover:border-primary/40 hover:bg-muted/30',
+              'min-h-[220px]'
+            )}
+            onClick={() => { if (!slots[activeSlot]?.src) fileInputRef.current?.click(); }}
+          >
+            {isProcessing ? (
+              <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+            ) : slots[activeSlot]?.src ? (
+              <>
+                <img src={slots[activeSlot].src} alt="" className="max-h-[200px] max-w-full rounded-lg object-contain" />
+                <button
+                  onClick={(e) => { e.stopPropagation(); setSrc(activeSlot, ''); }}
+                  className="absolute top-2 right-2 rounded-full bg-black/60 p-1 text-white hover:bg-black/80"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </>
+            ) : (
+              <div className="flex flex-col items-center gap-3 text-muted-foreground pointer-events-none select-none">
+                <UploadCloud className="h-10 w-10 opacity-40" />
+                <div className="text-center">
+                  <p className="font-body text-sm font-medium">按 Ctrl+V 貼上圖片</p>
+                  <p className="font-body text-[11px] opacity-60 mt-1">或拖拉圖片至此</p>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between px-5 py-3.5 border-t border-border bg-muted/20 shrink-0">
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="flex items-center gap-1.5 rounded-lg border border-border px-4 py-2 text-xs font-medium hover:bg-muted transition-colors"
+          >
+            <UploadCloud className="h-3.5 w-3.5" /> 從本地上傳
+          </button>
+          <div className="flex items-center gap-2">
+            <span className="font-mono-data text-[11px] text-muted-foreground">{confirmedSrcs.length} 張已就緒</span>
+            <button
+              onClick={() => { if (confirmedSrcs.length > 0) { onConfirm(confirmedSrcs); onClose(); } }}
+              disabled={confirmedSrcs.length === 0}
+              className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-40"
+            >
+              <Check className="h-3.5 w-3.5" /> 完成（{confirmedSrcs.length}）
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
