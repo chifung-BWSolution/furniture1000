@@ -37,6 +37,9 @@ import {
   ChevronRight,
   ZoomIn,
   ImageIcon,
+  Sparkles,
+  Layers,
+  Clapperboard,
 } from 'lucide-react';
 import {
   Dialog,
@@ -99,6 +102,7 @@ interface ProductDetailModalProps {
   open: boolean;
   onClose: () => void;
   onProductUpdated: (updatedProduct: ProductForDetail) => void;
+  showAIImageTools?: boolean;
 }
 
 // ─── Lightbox Component ────────────────────────────────────────────────
@@ -379,6 +383,7 @@ export function ProductDetailModal({
   open,
   onClose,
   onProductUpdated,
+  showAIImageTools = false,
 }: ProductDetailModalProps) {
   // Form state
   const [title, setTitle] = useState('');
@@ -398,6 +403,8 @@ export function ProductDetailModal({
   const [dimensionH, setDimensionH] = useState('');
   const [productionType, setProductionType] = useState<'stock' | 'custom' | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [showSceneDialog, setShowSceneDialog] = useState(false);
+  const [selectedScenes, setSelectedScenes] = useState<string[]>([]);
 
   // Category dropdown state
   const [categoryList, setCategoryList] = useState<{ id: string; name: string; parent_id: string | null; level: number; sort_order: number }[]>([]);
@@ -1010,6 +1017,38 @@ export function ProductDetailModal({
 
                 <Separator />
 
+                {/* AI Image Generation Buttons — shown only in 產品目錄 */}
+                {showAIImageTools && (
+                  <div className="flex flex-col gap-2 pt-1">
+                    <span className="font-mono-data text-xs uppercase tracking-widest text-muted-foreground">AI 圖片生成</span>
+                    <div className="flex flex-col gap-1.5">
+                      <button
+                        onClick={() => toast.info('AI 清晰圖片功能即將推出')}
+                        className="flex items-center gap-2 rounded-lg border border-indigo-500/30 bg-indigo-500/5 px-3 py-2 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:bg-indigo-500/10 transition-colors text-left"
+                      >
+                        <Sparkles className="h-3.5 w-3.5 flex-shrink-0" />
+                        AI 清晰圖片
+                      </button>
+                      <button
+                        onClick={() => toast.info('不同角度生成功能即將推出')}
+                        className="flex items-center gap-2 rounded-lg border border-violet-500/30 bg-violet-500/5 px-3 py-2 text-xs font-medium text-violet-600 dark:text-violet-400 hover:bg-violet-500/10 transition-colors text-left"
+                      >
+                        <Layers className="h-3.5 w-3.5 flex-shrink-0" />
+                        不同角度生成
+                      </button>
+                      <button
+                        onClick={() => setShowSceneDialog(true)}
+                        className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-xs font-medium text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 transition-colors text-left"
+                      >
+                        <Clapperboard className="h-3.5 w-3.5 flex-shrink-0" />
+                        場景圖生成
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {showAIImageTools && <Separator />}
+
                 {/* Quick Meta */}
                 <div className="space-y-3">
                   <div className="flex items-center gap-2 text-xs text-muted-foreground font-body">
@@ -1487,6 +1526,81 @@ export function ProductDetailModal({
         </motion.div>
       )}
 
+      {/* Scene Generation Dialog */}
+      {showAIImageTools && (
+        <Dialog open={showSceneDialog} onOpenChange={setShowSceneDialog}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="font-display flex items-center gap-2">
+                <Clapperboard className="h-4 w-4 text-emerald-500" />
+                場景圖生成
+              </DialogTitle>
+              <DialogDescription className="font-body text-sm">
+                選擇場景（可多選），AI 將為產品生成對應環境的效果圖
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              {[
+                { group: '辦公區室', scenes: ['老闆房', '大會議室', '小會議室', 'Pantry', '水吧', '接待區'] },
+                { group: '學校場所', scenes: ['課室', '禮堂', '飯堂'] },
+                { group: '診所/醫療場所', scenes: ['診症室', '等候區', '護士站'] },
+              ].map(({ group, scenes }) => (
+                <div key={group} className="space-y-2">
+                  <span className="font-mono-data text-xs uppercase tracking-widest text-muted-foreground">{group}</span>
+                  <div className="flex flex-wrap gap-2">
+                    {scenes.map(scene => {
+                      const key = `${group}:${scene}`;
+                      const selected = selectedScenes.includes(key);
+                      return (
+                        <button
+                          key={key}
+                          onClick={() =>
+                            setSelectedScenes(prev =>
+                              selected ? prev.filter(s => s !== key) : [...prev, key]
+                            )
+                          }
+                          className={cn(
+                            'rounded-full border px-3 py-1 text-xs font-body transition-colors',
+                            selected
+                              ? 'border-emerald-500 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                              : 'border-border text-muted-foreground hover:border-emerald-500/50 hover:bg-muted'
+                          )}
+                        >
+                          {scene}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center justify-between pt-2">
+              <span className="font-mono-data text-xs text-muted-foreground">
+                已選 {selectedScenes.length} 個場景
+              </span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => { setShowSceneDialog(false); setSelectedScenes([]); }}
+                  className="rounded-md border border-border px-3 py-1.5 text-xs font-display font-bold hover:bg-muted transition-colors"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={() => {
+                    if (selectedScenes.length === 0) { toast.error('請至少選擇一個場景'); return; }
+                    toast.info(`場景圖生成功能即將推出（已選：${selectedScenes.map(s => s.split(':')[1]).join('、')}）`);
+                    setShowSceneDialog(false);
+                    setSelectedScenes([]);
+                  }}
+                  className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-display font-bold text-white hover:bg-emerald-500 transition-colors"
+                >
+                  生成場景圖
+                </button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </AnimatePresence>
   );
 }

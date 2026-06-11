@@ -2463,6 +2463,7 @@ export function ListedProductsView({
               handleProductUpdated(updated as unknown as ListedProduct);
               setDetailProduct(null);
             }}
+            showAIImageTools={isCatalog}
           />
         )}
       </div>
