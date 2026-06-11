@@ -240,7 +240,25 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
     reader.readAsDataURL(file);
   };
 
+  // Derive suitable usage scenes from category
+  const deriveScenes = (level1: string, level2: string): string => {
+    const combined = `${level1} ${level2}`.toLowerCase();
+    if (/大班椅|行政椅|老闆椅|executive/.test(combined)) return '辦公室行政房、老闆房、高管辦公室';
+    if (/辦公椅|電腦椅|工作椅|mesh|網背/.test(combined)) return '開放式辦公室、工作站、共享辦公空間';
+    if (/會議椅|培訓椅|training/.test(combined)) return '會議室、培訓中心、多功能廳';
+    if (/沙發|接待|lounge|休閑/.test(combined)) return '辦公室接待區、客廳、酒店大堂';
+    if (/課室|學生|學校|school|classroom/.test(combined)) return '學校課室、補習社、教育中心';
+    if (/實驗室|lab/.test(combined)) return '實驗室、科研中心、醫療機構';
+    if (/餐廳|dining|餐飲/.test(combined)) return '餐廳、咖啡廳、食堂';
+    if (/班台|辦公桌|executive desk|工作臺/.test(combined)) return '辦公室、行政房、工作空間';
+    if (/儲物|storage|書櫃|文件/.test(combined)) return '辦公室、圖書館、學校、家居';
+    if (/前台|接待台|reception/.test(combined)) return '公司前台、酒店接待處、服務台';
+    if (/茶几|coffee table|角幾/.test(combined)) return '客廳、辦公室休息區、酒店大堂';
+    return '辦公室、商業空間、公共場所';
+  };
+
   // AI generate description via gemini-proxy
+  // Rewrites existing desc into a ~300-word professional copywriting piece
   const [isGenerating, setIsGenerating] = useState(false);
   const handleGenerateDesc = useCallback(async () => {
     if (!product) return;
@@ -249,16 +267,28 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
       const categoryParts = [product.level1, product.level2].filter(Boolean).join(' › ');
-      const prompt = `你是一位專業的家具電商文案撰寫員。請根據以下產品資料，撰寫一段約100字的繁體中文產品介紹文案，風格專業親切，適合 Shopify 商品頁面使用。不需要標題，直接寫產品說明正文。
+      const scenes = deriveScenes(product.level1, product.level2);
+      // Strip HTML tags from current desc for use as reference material
+      const rawDesc = desc.replace(/<[^>]*>/g, '').trim();
 
-產品名稱：${name || product.title}
-產品分類：${categoryParts || '家具'}
+      const prompt = `你是一位資深的商業傢私品牌文案總監，專注為香港及大灣區 B2B 客戶撰寫高端家具電商文案。
 
-文案要求：
-- 約100字，繁體中文
-- 說明產品用途、設計特點、適用場景
-- 語氣專業但親切
-- 不要使用「本產品」這類字眼`;
+請根據以下產品資料，把現有的「產品說明原文」重新改寫成一段約 300 字的繁體中文商業文案，直接輸出正文，不要標題、不要分點列表、不要任何格式符號。
+
+【產品名稱】${name || product.title}
+【產品分類】${categoryParts || '家具'}
+【適用情景】${scenes}
+【產品說明原文（素材參考）】
+${rawDesc || '（暫無原文，請根據產品名稱及分類發揮）'}
+
+【文案要求】
+- 約 300 字，繁體中文
+- 以專業商業傢私角度撰寫，語氣自信、簡潔、有質感
+- 開首直接說明產品定位及核心賣點
+- 中段結合「${scenes}」的使用場景，說明產品如何提升空間質感及使用者體驗
+- 末段強調產品材質工藝或耐用性，增加購買信心
+- 不要使用「本產品」、「該產品」等字眼，直接用產品名稱或「它」
+- 不要 markdown 格式，純文字段落`;
 
       const res = await fetch(`${supabaseUrl}/functions/v1/supabase-functions-gemini-proxy`, {
         method: 'POST',
@@ -277,13 +307,13 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
       const generated = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
       if (!generated) throw new Error('Gemini 沒有返回內容');
       setDesc(generated);
-      toast.success('AI 文案已生成', { description: '可在下方編輯器中繼續修改' });
+      toast.success('AI 文案已生成', { description: '已根據產品分類及情景生成約 300 字文案，可繼續編輯' });
     } catch (err) {
       toast.error('AI 生成失敗', { description: err instanceof Error ? err.message : '請稍後再試' });
     } finally {
       setIsGenerating(false);
     }
-  }, [product, name]);
+  }, [product, name, desc]);
 
   // ─── List view ───────────────────────────────────────────────────
   if (!product) {
