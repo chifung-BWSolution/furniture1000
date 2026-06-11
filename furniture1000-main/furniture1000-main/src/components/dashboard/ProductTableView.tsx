@@ -48,6 +48,10 @@ import {
   Factory,
   Package,
   Upload,
+  Search,
+  Check,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -552,6 +556,11 @@ export const ProductTableView = memo(function ProductTableView({
   const [editValue, setEditValue] = useState('');
   // expandedDesc removed — description now opens modal on click
   const [variantModal, setVariantModal] = useState<{ product: Product } | null>(null);
+  const [showProductPicker, setShowProductPicker] = useState(false);
+  const [pickerSearch, setPickerSearch] = useState('');
+  const [pickerFactoryFilter, setPickerFactoryFilter] = useState('');
+  const [pickerPage, setPickerPage] = useState(0);
+  const PICKER_PAGE_SIZE = 10;
   const [activeTab, setActiveTab] = useState<TableTab>('local');
   const [showBatchDeleteModal, setShowBatchDeleteModal] = useState(false);
   const [detailProduct, setDetailProduct] = useState<Product | null>(null);
@@ -1130,14 +1139,14 @@ export const ProductTableView = memo(function ProductTableView({
         </div>
 
         {/* Variant Modal */}
-        <Dialog open={!!variantModal} onOpenChange={() => setVariantModal(null)}>
-          <DialogContent className="max-w-lg">
+        <Dialog open={!!variantModal} onOpenChange={() => { setVariantModal(null); setShowProductPicker(false); setPickerSearch(''); setPickerFactoryFilter(''); setPickerPage(0); }}>
+          <DialogContent className="max-w-2xl">
             <DialogHeader>
               <DialogTitle className="font-display">
                 變體 — {variantModal?.product.title}
               </DialogTitle>
               <DialogDescription className="font-body text-xs">
-                管理每個變體的尺寸、顏色和庫存
+                管理每個變體的 ID、SKU、售價、尺寸、Option1 和庫存
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-3 mt-2">
@@ -1153,31 +1162,123 @@ export const ProductTableView = memo(function ProductTableView({
                     onUpdateProduct(variantModal.product.id, { variants: updatedVariants });
                     setVariantModal({ product: { ...variantModal.product, variants: updatedVariants } });
                   }}
+                  onDelete={() => {
+                    if (!variantModal) return;
+                    const updatedVariants = variantModal.product.variants.filter(existing => existing.id !== v.id);
+                    onUpdateProduct(variantModal.product.id, { variants: updatedVariants });
+                    setVariantModal({ product: { ...variantModal.product, variants: updatedVariants } });
+                  }}
                 />
               ))}
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => {
-                  if (!variantModal) return;
-                  const newVariant: ProductVariant = {
-                    id: Math.random().toString(36).substring(7),
-                    size: '',
-                    color: '',
-                    sku: `SKU-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
-                    price: variantModal.product.price,
-                    inventory: 0,
-                  };
-                  const updatedVariants = [...variantModal.product.variants, newVariant];
-                  onUpdateProduct(variantModal.product.id, { variants: updatedVariants });
-                  setVariantModal({ product: { ...variantModal.product, variants: updatedVariants } });
-                }}
+                onClick={() => { setShowProductPicker(true); setPickerSearch(''); setPickerFactoryFilter(''); setPickerPage(0); }}
                 className="gap-1.5 text-xs font-body"
               >
                 <Plus className="h-3 w-3" />
-                新增變體
+                加入產品
               </Button>
             </div>
+
+            {/* Inline Product Picker */}
+            {showProductPicker && variantModal && (() => {
+              const otherProducts = products.filter(p => p.id !== variantModal.product.id);
+              const allFactories = [...new Set(otherProducts.map(p => p.factoryName || p.factoriesDisplayName || '').filter(Boolean))];
+              const filtered = otherProducts.filter(p => {
+                const matchSearch = !pickerSearch.trim() || p.title.toLowerCase().includes(pickerSearch.toLowerCase());
+                const matchFactory = !pickerFactoryFilter || (p.factoryName || p.factoriesDisplayName || '') === pickerFactoryFilter;
+                return matchSearch && matchFactory;
+              });
+              const totalPickerPages = Math.ceil(filtered.length / PICKER_PAGE_SIZE);
+              const paginated = filtered.slice(pickerPage * PICKER_PAGE_SIZE, (pickerPage + 1) * PICKER_PAGE_SIZE);
+              return (
+                <div className="mt-3 rounded-xl border border-border bg-muted/20 p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="font-display text-sm font-semibold">選擇產品</span>
+                    <button type="button" onClick={() => setShowProductPicker(false)} className="rounded p-1 hover:bg-accent text-muted-foreground">
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                  {/* Search & Filter */}
+                  <div className="flex gap-2">
+                    <div className="relative flex-1">
+                      <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/60" />
+                      <Input
+                        value={pickerSearch}
+                        onChange={e => { setPickerSearch(e.target.value); setPickerPage(0); }}
+                        placeholder="搜尋產品名稱..."
+                        className="pl-8 h-8 text-xs font-body"
+                      />
+                    </div>
+                    <select
+                      value={pickerFactoryFilter}
+                      onChange={e => { setPickerFactoryFilter(e.target.value); setPickerPage(0); }}
+                      className="rounded-md border border-border bg-background px-2 py-1 font-body text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/30 h-8"
+                    >
+                      <option value="">所有廠家</option>
+                      {allFactories.map(f => <option key={f} value={f}>{f}</option>)}
+                    </select>
+                  </div>
+                  {/* Product List */}
+                  <div className="space-y-1 max-h-48 overflow-y-auto">
+                    {paginated.length === 0 ? (
+                      <div className="py-6 text-center text-xs text-muted-foreground font-body">找不到產品</div>
+                    ) : paginated.map(p => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => {
+                          const newVariant: ProductVariant = {
+                            id: p.id,
+                            size: `${p.dimensionLMm || ''}${p.dimensionLMm ? 'x' : ''}${p.dimensionWMm || ''}${p.dimensionWMm ? 'x' : ''}${p.dimensionHMm || ''}`.replace(/x$/, '') || '',
+                            color: p.color || '',
+                            sku: p.sku || `SKU-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
+                            price: p.salePrice ?? p.price,
+                            inventory: 0,
+                            option1: p.title,
+                          };
+                          const updatedVariants = [...variantModal.product.variants, newVariant];
+                          onUpdateProduct(variantModal.product.id, { variants: updatedVariants });
+                          setVariantModal({ product: { ...variantModal.product, variants: updatedVariants } });
+                          setShowProductPicker(false);
+                        }}
+                        className="w-full flex items-center gap-3 rounded-lg px-3 py-2 text-left hover:bg-accent transition-colors"
+                      >
+                        <div className="h-8 w-8 shrink-0 rounded overflow-hidden border border-border bg-muted/30">
+                          {p.imageUrl ? (
+                            <img src={p.imageUrl} alt="" className="h-full w-full object-cover" />
+                          ) : (
+                            <div className="flex h-full w-full items-center justify-center">
+                              <Package className="h-3 w-3 text-muted-foreground/40" />
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="font-body text-xs font-medium truncate">{p.title}</div>
+                          <div className="font-mono-data text-[10px] text-muted-foreground">{p.factoryName || p.factoriesDisplayName || '—'} · {p.category || '—'}</div>
+                        </div>
+                        <div className="font-mono-data text-xs text-foreground shrink-0">
+                          {p.salePrice != null ? `$${p.salePrice.toLocaleString()}` : p.price ? `$${p.price.toLocaleString()}` : '—'}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                  {/* Pagination */}
+                  {totalPickerPages > 1 && (
+                    <div className="flex items-center justify-center gap-2">
+                      <button type="button" disabled={pickerPage === 0} onClick={() => setPickerPage(p => Math.max(0, p - 1))} className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs font-body hover:bg-accent disabled:opacity-40">
+                        <ChevronLeft className="h-3 w-3" />上一頁
+                      </button>
+                      <span className="font-mono-data text-xs text-muted-foreground">{pickerPage + 1} / {totalPickerPages}</span>
+                      <button type="button" disabled={pickerPage >= totalPickerPages - 1} onClick={() => setPickerPage(p => Math.min(totalPickerPages - 1, p + 1))} className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs font-body hover:bg-accent disabled:opacity-40">
+                        下一頁<ChevronRight className="h-3 w-3" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </DialogContent>
         </Dialog>
 
@@ -1259,64 +1360,88 @@ export const ProductTableView = memo(function ProductTableView({
 function VariantRow({
   variant,
   onUpdate,
+  onDelete,
 }: {
   variant: ProductVariant;
   onUpdate: (updates: Partial<ProductVariant>) => void;
+  onDelete: () => void;
 }) {
   return (
-    <div className="grid grid-cols-5 gap-2 rounded-lg border border-border bg-muted/30 p-3">
-      <div className="space-y-1">
-        <label className="font-mono-data text-[9px] uppercase tracking-widest text-muted-foreground">
-          尺寸
-        </label>
-        <Input
-          value={variant.size}
-          onChange={e => onUpdate({ size: e.target.value })}
-          className="h-7 text-xs font-mono-data bg-background"
-        />
+    <div className="rounded-lg border border-border bg-muted/30 p-3">
+      <div className="grid grid-cols-6 gap-2">
+        <div className="space-y-1">
+          <label className="font-mono-data text-[9px] uppercase tracking-widest text-muted-foreground">
+            ID
+          </label>
+          <Input
+            value={variant.id}
+            onChange={e => onUpdate({ id: e.target.value })}
+            className="h-7 text-xs font-mono-data bg-background"
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="font-mono-data text-[9px] uppercase tracking-widest text-muted-foreground">
+            SKU
+          </label>
+          <Input
+            value={variant.sku}
+            onChange={e => onUpdate({ sku: e.target.value })}
+            className="h-7 text-xs font-mono-data bg-background"
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="font-mono-data text-[9px] uppercase tracking-widest text-muted-foreground">
+            售價
+          </label>
+          <Input
+            type="number"
+            step="0.01"
+            value={variant.price}
+            onChange={e => onUpdate({ price: parseFloat(e.target.value) || 0 })}
+            className="h-7 text-xs font-mono-data bg-background"
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="font-mono-data text-[9px] uppercase tracking-widest text-muted-foreground">
+            尺寸
+          </label>
+          <Input
+            value={variant.size}
+            onChange={e => onUpdate({ size: e.target.value })}
+            className="h-7 text-xs font-mono-data bg-background"
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="font-mono-data text-[9px] uppercase tracking-widest text-muted-foreground">
+            Option1
+          </label>
+          <Input
+            value={variant.option1 ?? ''}
+            onChange={e => onUpdate({ option1: e.target.value })}
+            className="h-7 text-xs font-mono-data bg-background"
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="font-mono-data text-[9px] uppercase tracking-widest text-muted-foreground">
+            庫存
+          </label>
+          <Input
+            type="number"
+            value={variant.inventory}
+            onChange={e => onUpdate({ inventory: parseInt(e.target.value) || 0 })}
+            className="h-7 text-xs font-mono-data bg-background"
+          />
+        </div>
       </div>
-      <div className="space-y-1">
-        <label className="font-mono-data text-[9px] uppercase tracking-widest text-muted-foreground">
-          顏色
-        </label>
-        <Input
-          value={variant.color}
-          onChange={e => onUpdate({ color: e.target.value })}
-          className="h-7 text-xs font-mono-data bg-background"
-        />
-      </div>
-      <div className="space-y-1">
-        <label className="font-mono-data text-[9px] uppercase tracking-widest text-muted-foreground">
-          SKU
-        </label>
-        <Input
-          value={variant.sku}
-          onChange={e => onUpdate({ sku: e.target.value })}
-          className="h-7 text-xs font-mono-data bg-background"
-        />
-      </div>
-      <div className="space-y-1">
-        <label className="font-mono-data text-[9px] uppercase tracking-widest text-muted-foreground">
-          價格
-        </label>
-        <Input
-          type="number"
-          step="0.01"
-          value={variant.price}
-          onChange={e => onUpdate({ price: parseFloat(e.target.value) || 0 })}
-          className="h-7 text-xs font-mono-data bg-background"
-        />
-      </div>
-      <div className="space-y-1">
-        <label className="font-mono-data text-[9px] uppercase tracking-widest text-muted-foreground">
-          庫存
-        </label>
-        <Input
-          type="number"
-          value={variant.inventory}
-          onChange={e => onUpdate({ inventory: parseInt(e.target.value) || 0 })}
-          className="h-7 text-xs font-mono-data bg-background"
-        />
+      <div className="mt-2 flex justify-end">
+        <button
+          type="button"
+          onClick={onDelete}
+          className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-body text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+        >
+          <X className="h-3 w-3" />
+          移除
+        </button>
       </div>
     </div>
   );
