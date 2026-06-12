@@ -47,6 +47,7 @@ import {
   Check,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { supabase } from '@/lib/supabase';
 
 // ─── Memoized Table Row ─────────────────────────────────────────────────────
 interface ProductTableRowProps {
@@ -753,12 +754,52 @@ export const ProductTableView = memo(function ProductTableView({
         <Dialog open={!!variantModal} onOpenChange={() => { setVariantModal(null); setShowProductPicker(false); setPickerSearch(''); setPickerFactoryFilter(''); setPickerPage(0); }}>
           <DialogContent className="max-w-2xl">
             <DialogHeader>
-              <DialogTitle className="font-display">
-                變體 — {variantModal?.product.title}
-              </DialogTitle>
-              <DialogDescription className="font-body text-xs">
-                管理每個變體的 ID、SKU、售價、尺寸、Option1 和庫存
-              </DialogDescription>
+              <div className="flex items-start justify-between pr-6">
+                <div>
+                  <DialogTitle className="font-display">
+                    變體 — {variantModal?.product.title}
+                  </DialogTitle>
+                  <DialogDescription className="font-body text-xs">
+                    管理每個變體的 ID、SKU、售價、尺寸、Option1 和庫存
+                  </DialogDescription>
+                </div>
+                <Button
+                  size="sm"
+                  className="shrink-0 gap-1.5 font-display text-xs"
+                  onClick={async () => {
+                    if (!variantModal) return;
+                    const variants = variantModal.product.variants;
+                    const shopifyVariants = variants.map(v => ({
+                      id: v.id,
+                      sku: v.sku,
+                      price: v.price,
+                      title: v.option1 || v.size || '',
+                      option1: v.option1 || v.size || '',
+                      option2: null,
+                      option3: null,
+                      compare_at_price: null,
+                      inventory_quantity: v.inventory ?? 0,
+                    }));
+                    const { error } = await supabase
+                      .from('ready_to_shopify')
+                      .update({ variants: shopifyVariants })
+                      .eq('product_id', variantModal.product.id);
+                    if (error) {
+                      toast.error('儲存失敗', { description: error.message });
+                    } else {
+                      toast.success('變體已儲存', { description: `已將 ${variants.length} 個變體儲存至 ready_to_shopify` });
+                      setVariantModal(null);
+                      setShowProductPicker(false);
+                      setPickerSearch('');
+                      setPickerFactoryFilter('');
+                      setPickerPage(0);
+                    }
+                  }}
+                >
+                  <Check className="h-3.5 w-3.5" />
+                  完成
+                </Button>
+              </div>
             </DialogHeader>
             <div className="space-y-3 mt-2">
               {variantModal?.product.variants.map((v) => (
@@ -794,7 +835,8 @@ export const ProductTableView = memo(function ProductTableView({
 
             {/* Inline Product Picker */}
             {showProductPicker && variantModal && (() => {
-              const otherProducts = products.filter(p => p.id !== variantModal.product.id);
+              const addedVariantIds = new Set(variantModal.product.variants.map(v => v.id));
+              const otherProducts = products.filter(p => p.id !== variantModal.product.id && !addedVariantIds.has(p.id));
               const allFactories = [...new Set(otherProducts.map(p => p.factoryName || p.factoriesDisplayName || '').filter(Boolean))];
               const filtered = otherProducts.filter(p => {
                 const matchSearch = !pickerSearch.trim() || p.title.toLowerCase().includes(pickerSearch.toLowerCase());
