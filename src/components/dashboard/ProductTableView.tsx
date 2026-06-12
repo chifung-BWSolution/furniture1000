@@ -287,7 +287,7 @@ interface ProductTableViewProps {
   onClearFilter: () => void;
   onSyncFromShopify?: () => Promise<any>;
   onUploadUnsyncedToMaster?: () => Promise<any>;
-  onRevertToInfo?: (ids: string[]) => Promise<void>;
+  onRevertToInfo?: (ids: string[], reasons: { labels: string[]; other: string }) => Promise<void>;
   onVariantsSaved?: () => void;
   isSyncing?: boolean;
   isPublishing?: boolean;
@@ -320,6 +320,10 @@ export const ProductTableView = memo(function ProductTableView({
   // expandedDesc removed — description now opens modal on click
   const [variantModal, setVariantModal] = useState<{ product: Product } | null>(null);
   const [showProductPicker, setShowProductPicker] = useState(false);
+  const [showRevertDialog, setShowRevertDialog] = useState(false);
+  const [revertReasons, setRevertReasons] = useState<string[]>([]);
+  const [revertOther, setRevertOther] = useState('');
+  const REVERT_OPTIONS = ['產品情景圖修改', '產品圖片角度不足', '產品說明修正', '其他'];
   const [pickerSearch, setPickerSearch] = useState('');
   const [pickerFactoryFilter, setPickerFactoryFilter] = useState('');
   const [pickerPage, setPickerPage] = useState(0);
@@ -570,17 +574,19 @@ export const ProductTableView = memo(function ProductTableView({
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Revert to 產品信息 Button */}
+            {/* Revert to 產品文案 Button */}
             {onRevertToInfo && (
               <Button
                 variant="outline"
                 size="sm"
-                onClick={async () => {
+                onClick={() => {
                   if (selectedIds.size === 0) {
                     toast.info('請先勾選要退回的產品');
                     return;
                   }
-                  await onRevertToInfo(Array.from(selectedIds));
+                  setRevertReasons([]);
+                  setRevertOther('');
+                  setShowRevertDialog(true);
                 }}
                 disabled={selectedIds.size === 0}
                 className={cn(
@@ -989,6 +995,59 @@ export const ProductTableView = memo(function ProductTableView({
                 </div>
               );
             })()}
+          </DialogContent>
+        </Dialog>
+
+        {/* Revert Reason Dialog */}
+        <Dialog open={showRevertDialog} onOpenChange={setShowRevertDialog}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="font-display">退回原因（可選）</DialogTitle>
+              <DialogDescription className="font-body text-xs">
+                選擇退回原因，可多選。退回後產品將移至「產品文案」頁面並顯示退回原因標籤。
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3 mt-2">
+              {REVERT_OPTIONS.map(opt => (
+                <label key={opt} className="flex items-center gap-3 cursor-pointer group">
+                  <input
+                    type="checkbox"
+                    checked={revertReasons.includes(opt)}
+                    onChange={e => {
+                      setRevertReasons(prev =>
+                        e.target.checked ? [...prev, opt] : prev.filter(r => r !== opt)
+                      );
+                    }}
+                    className="h-4 w-4 rounded border-border accent-primary"
+                  />
+                  <span className="font-body text-sm text-foreground group-hover:text-primary transition-colors">{opt}</span>
+                </label>
+              ))}
+              {revertReasons.includes('其他') && (
+                <textarea
+                  value={revertOther}
+                  onChange={e => setRevertOther(e.target.value.slice(0, 200))}
+                  placeholder="請輸入其他原因（最多約 100 個中文字）"
+                  rows={3}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 font-body text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/40 resize-none"
+                />
+              )}
+            </div>
+            <div className="flex justify-end gap-2 mt-4">
+              <Button variant="outline" size="sm" className="font-display text-xs" onClick={() => setShowRevertDialog(false)}>
+                取消
+              </Button>
+              <Button
+                size="sm"
+                className="font-display text-xs bg-amber-500 hover:bg-amber-600 text-white"
+                onClick={async () => {
+                  setShowRevertDialog(false);
+                  await onRevertToInfo?.(Array.from(selectedIds), { labels: revertReasons, other: revertOther.trim() });
+                }}
+              >
+                確認退回 ({selectedIds.size})
+              </Button>
+            </div>
           </DialogContent>
         </Dialog>
 
