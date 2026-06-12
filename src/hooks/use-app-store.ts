@@ -386,24 +386,30 @@ export function useAppStore() {
   }, []);
 
   // Reload products from Supabase (used after publish/sync)
-  // 準備上載 = products that completed both 產品文案 (copy_done) and 產品信息 (info_done).
+  // 準備上載 = products that have a record in ready_to_shopify (i.e. completed 產品文案).
   // Fetches ALL such products regardless of pagination window.
   const reloadReadyToPublish = useCallback(async () => {
     try {
-      // Direct query: products that completed the full publish workflow
+      // Query all records from ready_to_shopify — this is the source of truth
+      const { data: rtsAll } = await supabase
+        .from('ready_to_shopify')
+        .select('product_id,image_url,images,body_html');
+      if (!rtsAll || rtsAll.length === 0) return;
+      const ids = rtsAll.map((r: any) => r.product_id).filter(Boolean);
+      if (ids.length === 0) return;
+
+      // Fetch the corresponding product rows
       const { data: rtpRows } = await supabase
         .from('products')
         .select('*')
-        .eq('copy_done', true)
-        .eq('info_done', true);
+        .in('id', ids);
       if (!rtpRows || rtpRows.length === 0) return;
-      const ids = rtpRows.map((r: any) => r.id);
 
-      // Fetch ready_to_shopify data in parallel with variants for enrichment
-      const [{ data: variantRows }, { data: rtsRows }] = await Promise.all([
-        supabase.from('product_variants').select('*').in('product_id', ids),
-        supabase.from('ready_to_shopify').select('product_id,image_url,images,body_html').in('product_id', ids),
-      ]);
+      // Fetch variants for enrichment
+      const { data: variantRows } = await supabase
+        .from('product_variants')
+        .select('*')
+        .in('product_id', ids);
 
       const variantsByProduct: Record<string, any[]> = {};
       (variantRows || []).forEach((v: any) => {
@@ -412,7 +418,7 @@ export function useAppStore() {
 
       // Build a map of ready_to_shopify data keyed by product_id
       const rtsByProductId: Record<string, { image_url: string | null; images: any[] | null; body_html: string | null }> = {};
-      (rtsRows || []).forEach((r: any) => {
+      rtsAll.forEach((r: any) => {
         rtsByProductId[r.product_id] = { image_url: r.image_url, images: r.images, body_html: r.body_html };
       });
 
