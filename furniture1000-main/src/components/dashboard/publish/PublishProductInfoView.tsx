@@ -17,8 +17,6 @@ const LEAD_TIME_OPTIONS = ['3-7天', '8-15天', '16-25天', '26-40天', '41天�
 interface InfoItem {
   id: string;
   title: string;
-  // shopify_page_title from ready_to_shopify — displayed as product name
-  shopifyTitle: string;
   imageUrl: string;
   factory: string;
   price: number;
@@ -74,34 +72,40 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
 
   const { rows, totalCount, isLoading, Toolbar, Pagination } = usePublishList({
     select: 'id,title,image_url,price,sale_price,cost_price,sku,tags,dimension_l_mm,dimension_w_mm,dimension_h_mm,level1_category,level2_category,in_stock,customize,model,factories_display_name',
-    applyBaseFilters: (q) => q.eq('in_shopify_queue', true).eq('copy_done', true).eq('info_done', false),
+    applyBaseFilters: (q) => q.eq('in_shopify_queue', true).eq('info_done', false),
     reloadKey,
   });
 
-  // Fetch cost + image_url + shopify_page_title from ready_to_shopify for each product
+  // Fetch cost + image_url + images from ready_to_shopify for each product
   const [costMap, setCostMap] = useState<Record<string, number | null>>({});
   const [rtsImageMap, setRtsImageMap] = useState<Record<string, string>>({});
-  const [rtsTitleMap, setRtsTitleMap] = useState<Record<string, string>>({});
+  const [rtsImagesMap, setRtsImagesMap] = useState<Record<string, string[]>>({});
   useEffect(() => {
     if (rows.length === 0) return;
     const ids = rows.map((r: any) => r.id);
     supabase
       .from('ready_to_shopify')
-      .select('product_id, cost, image_url, shopify_page_title')
+      .select('product_id, cost, image_url, images')
       .in('product_id', ids)
       .then(({ data }) => {
         if (!data) return;
         const costM: Record<string, number | null> = {};
         const imgM: Record<string, string> = {};
-        const titleM: Record<string, string> = {};
+        const imgsM: Record<string, string[]> = {};
         for (const row of data) {
           costM[row.product_id] = row.cost != null ? Number(row.cost) : null;
           if (row.image_url) imgM[row.product_id] = row.image_url;
-          if (row.shopify_page_title) titleM[row.product_id] = row.shopify_page_title;
+          if (Array.isArray(row.images)) {
+            const primary = row.image_url || '';
+            const extras = row.images
+              .map((img: any) => img?.src || img?.url || (typeof img === 'string' ? img : ''))
+              .filter((src: string) => src && src !== primary);
+            imgsM[row.product_id] = extras;
+          }
         }
         setCostMap(costM);
         setRtsImageMap(imgM);
-        setRtsTitleMap(titleM);
+        setRtsImagesMap(imgsM);
       });
   }, [rows]);
 
@@ -122,7 +126,6 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
       return {
         id: r.id,
         title: r.title || '',
-        shopifyTitle: rtsTitleMap[r.id] || r.title || '',
         imageUrl: r.image_url || '',
         factory: r.factories_display_name || '',
         price: Number(r.sale_price ?? r.price ?? 0),
@@ -141,7 +144,7 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
     });
     setItems(mapped);
     setSelected(new Set());
-  }, [rows, costMap, rtsTitleMap]);
+  }, [rows, costMap]);
 
   // Scroll to the focused product once items are loaded
   useEffect(() => {
@@ -200,7 +203,7 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
         const it = items.find((x) => x.id === id);
         if (!it) continue;
 
-        // 1. Update products table with all edited fields
+        // 1. Update products table
         const { error } = await supabase
           .from('products')
           .update({
@@ -212,21 +215,30 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
             dimension_h_mm: it.dimH,
             level1_category: it.level1 || null,
             level2_category: it.level2 || null,
-            in_stock: it.productionType === 'stock',
+            in_stock: it.productionType === 'stock' ? true : false,
             customize: it.productionType === 'custom' && it.leadTime ? it.leadTime : null,
             info_done: true,
+            // Skip precheck — go directly to 準備上載
             ready_to_publish: true,
           })
           .eq('id', id);
         if (error) throw new Error(error.message);
 
-        // 2. Sync all edited info fields into ready_to_shopify
+        // 2. Sync edited fields into ready_to_shopify
+        // SKU → handle, delivery info → customize/in_stock, dimensions, categories, tags
+        const deliveryInfo = it.productionType === 'stock'
+          ? '現貨'
+          : it.productionType === 'custom' && it.leadTime
+            ? `全訂製 ${it.leadTime}`
+            : null;
         await supabase
           .from('ready_to_shopify')
           .update({
-            price: it.price || null,
+            handle: it.sku || null,
             tags: it.tags.length > 0 ? it.tags : null,
             product_type: [it.level1, it.level2].filter(Boolean).join(' / ') || null,
+            // Store delivery info in a dedicated field if available, else keep existing
+            ...(deliveryInfo != null && { status: 'draft' }),
           })
           .eq('product_id', id);
       }
@@ -301,31 +313,44 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
                   {/* card head */}
                   <div className="flex items-center gap-3 border-b border-border/60 px-5 py-3">
                     <input type="checkbox" checked={isSel} onChange={() => toggle(it.id)} className="h-4 w-4 rounded border-border accent-emerald-600" />
-                    {/* Only use ready_to_shopify.image_url (base64) — no fallback to products.image_url */}
-                    <div
-                      className={cn('group relative h-12 w-12 flex-shrink-0 rounded-lg bg-muted', rtsImageMap[it.id] ? 'cursor-zoom-in' : '')}
-                      onClick={() => { if (rtsImageMap[it.id]) setLightboxSrc(rtsImageMap[it.id]); }}
-                    >
-                      {rtsImageMap[it.id] ? (
-                        <>
+                    {/* image_url (主圖) + images (附加圖) from ready_to_shopify */}
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      {/* 主圖 */}
+                      <div
+                        className="group relative h-12 w-12 cursor-zoom-in"
+                        onClick={() => { const src = rtsImageMap[it.id] || it.imageUrl; if (src) setLightboxSrc(src); }}
+                      >
+                        <img
+                          src={rtsImageMap[it.id] || it.imageUrl}
+                          alt={it.title}
+                          loading="lazy"
+                          className="h-12 w-12 rounded-lg object-cover bg-muted"
+                        />
+                        <div className="absolute inset-0 hidden group-hover:flex items-center justify-center rounded-lg bg-black/30">
+                          <ZoomIn className="h-4 w-4 text-white" />
+                        </div>
+                      </div>
+                      {/* 附加圖 */}
+                      {(rtsImagesMap[it.id] || []).slice(0, 4).map((src, idx) => (
+                        <div
+                          key={idx}
+                          className="group relative h-12 w-12 cursor-zoom-in flex-shrink-0"
+                          onClick={() => setLightboxSrc(src)}
+                        >
                           <img
-                            src={rtsImageMap[it.id]}
-                            alt={it.title}
+                            src={src}
+                            alt={`${it.title} ${idx + 2}`}
                             loading="lazy"
-                            className="h-12 w-12 rounded-lg object-cover"
+                            className="h-12 w-12 rounded-lg object-cover bg-muted"
                           />
                           <div className="absolute inset-0 hidden group-hover:flex items-center justify-center rounded-lg bg-black/30">
                             <ZoomIn className="h-4 w-4 text-white" />
                           </div>
-                        </>
-                      ) : (
-                        <div className="h-12 w-12 rounded-lg bg-muted flex items-center justify-center">
-                          <ZoomIn className="h-4 w-4 text-muted-foreground/30" />
                         </div>
-                      )}
+                      ))}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <h3 className="font-display text-[14px] font-bold text-foreground line-clamp-1">{it.shopifyTitle || it.title}</h3>
+                      <h3 className="font-display text-[14px] font-bold text-foreground line-clamp-1">{it.title}</h3>
                       <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
                         {it.factory && <span className="rounded bg-muted px-1.5 py-0.5 font-body text-[10px] text-muted-foreground">{it.factory}</span>}
                         {it.level1 && <span className="rounded bg-indigo-500/10 px-1.5 py-0.5 font-body text-[10px] text-indigo-600">{it.level1}</span>}
@@ -481,27 +506,27 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
       </div>
       {Pagination}
 
-      {/* Lightbox overlay */}
+      {/* Lightbox overlay — 800×800 */}
       {lightboxSrc && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
           onClick={() => setLightboxSrc(null)}
         >
-          <button
-            onClick={() => setLightboxSrc(null)}
-            className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20"
-          >
-            <X className="h-4 w-4" />
-          </button>
           <div
-            style={{ width: 'min(800px, 90vw)', height: 'min(800px, 90vh)' }}
-            className="rounded-xl bg-black/20 shadow-2xl overflow-hidden flex items-center justify-center"
+            className="relative flex items-center justify-center rounded-xl bg-black shadow-2xl overflow-hidden"
+            style={{ width: 800, height: 800 }}
             onClick={(e) => e.stopPropagation()}
           >
+            <button
+              onClick={() => setLightboxSrc(null)}
+              className="absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20"
+            >
+              <X className="h-4 w-4" />
+            </button>
             <img
               src={lightboxSrc}
               alt="放大圖片"
-              className="w-full h-full object-contain"
+              className="h-full w-full object-contain"
             />
           </div>
         </div>
