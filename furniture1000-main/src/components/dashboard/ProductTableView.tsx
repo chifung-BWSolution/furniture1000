@@ -38,15 +38,12 @@ import {
   ChevronRight,
   Filter,
   Trash2,
-  Loader2,
-  Database,
-  Sparkles,
   Package,
-  Upload,
   Search,
   Check,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { supabase } from '@/lib/supabase';
 
 // ─── Memoized Table Row ─────────────────────────────────────────────────────
 interface ProductTableRowProps {
@@ -291,8 +288,6 @@ interface ProductTableViewProps {
   lastSyncTime?: string | null;
 }
 
-type TableTab = 'local' | 'shopify' | 'all';
-
 export const ProductTableView = memo(function ProductTableView({
   products,
   selectedIds,
@@ -313,14 +308,13 @@ export const ProductTableView = memo(function ProductTableView({
 }: ProductTableViewProps) {
   const [editingCell, setEditingCell] = useState<{ id: string; field: string } | null>(null);
   const [editValue, setEditValue] = useState('');
-  // expandedDesc removed — description now opens modal on click
   const [variantModal, setVariantModal] = useState<{ product: Product } | null>(null);
   const [showProductPicker, setShowProductPicker] = useState(false);
   const [pickerSearch, setPickerSearch] = useState('');
   const [pickerFactoryFilter, setPickerFactoryFilter] = useState('');
   const [pickerPage, setPickerPage] = useState(0);
   const PICKER_PAGE_SIZE = 10;
-  const [activeTab, setActiveTab] = useState<TableTab>('local');
+  const [searchQuery, setSearchQuery] = useState('');
   const [showBatchDeleteModal, setShowBatchDeleteModal] = useState(false);
   const [detailProduct, setDetailProduct] = useState<Product | null>(null);
   const [currentPage, setCurrentPage] = useState(0);
@@ -345,18 +339,14 @@ export const ProductTableView = memo(function ProductTableView({
     [products, filterProductId]
   );
 
-  // Separate local AI drafts from synced Shopify products
-  const localProducts = useMemo(() => baseProducts.filter(p => p.source === 'local' || !p.source), [baseProducts]);
-  const shopifyProducts = useMemo(() => baseProducts.filter(p => p.source === 'shopify'), [baseProducts]);
-  
-  const filteredProducts = useMemo(() =>
-    activeTab === 'all'
-      ? baseProducts
-      : activeTab === 'shopify'
-        ? shopifyProducts
-        : localProducts,
-    [activeTab, baseProducts, shopifyProducts, localProducts]
-  );
+  const filteredProducts = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return baseProducts;
+    return baseProducts.filter(p =>
+      p.title?.toLowerCase().includes(q) ||
+      (p.sku ?? '').toLowerCase().includes(q)
+    );
+  }, [baseProducts, searchQuery]);
 
   const allFilteredIds = useMemo(() => filteredProducts.map(p => p.id), [filteredProducts]);
   const allSelected = useMemo(
@@ -371,10 +361,10 @@ export const ProductTableView = memo(function ProductTableView({
     [filteredProducts, currentPage]
   );
 
-  // Reset page when tab or filter changes
+  // Reset page when search or filter changes
   useEffect(() => {
     setCurrentPage(0);
-  }, [activeTab, filterProductId]);
+  }, [searchQuery, filterProductId]);
 
   // Handle checkbox click with shift-click range selection support
   const selectedIdsRef = useRef(selectedIds);
@@ -473,62 +463,33 @@ export const ProductTableView = memo(function ProductTableView({
   return (
     <TooltipProvider>
       <div className="flex h-full flex-col">
-        {/* Tab Bar + Sync Controls */}
+        {/* Search Bar + Controls */}
         <div className="flex items-center justify-between border-b border-border bg-muted/30 px-6 py-2">
           <div className="flex items-center gap-3">
-            {/* Source Tabs */}
-            <div className="flex items-center rounded-lg border border-border bg-background p-0.5">
-              <button
-                onClick={() => setActiveTab('local')}
-                className={cn(
-                  'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-display font-bold transition-all',
-                  activeTab === 'local'
-                    ? 'bg-primary text-primary-foreground shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground'
-                )}
-              >
-                <Sparkles className="h-3 w-3" />
-                本地 AI 草稿
-                <Badge variant="secondary" className="ml-1 h-4 min-w-4 px-1 text-[9px]">
-                  {localProducts.length}
-                </Badge>
-              </button>
-              <button
-                onClick={() => setActiveTab('shopify')}
-                className={cn(
-                  'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-display font-bold transition-all',
-                  activeTab === 'shopify'
-                    ? 'bg-emerald-600 text-white shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground'
-                )}
-              >
-                <Database className="h-3 w-3" />
-                已同步 Shopify
-                <Badge variant="secondary" className="ml-1 h-4 min-w-4 px-1 text-[9px]">
-                  {shopifyProducts.length}
-                </Badge>
-              </button>
-              <button
-                onClick={() => setActiveTab('all')}
-                className={cn(
-                  'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-display font-bold transition-all',
-                  activeTab === 'all'
-                    ? 'bg-foreground text-background shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground'
-                )}
-              >
-                全部
-                <Badge variant="secondary" className="ml-1 h-4 min-w-4 px-1 text-[9px]">
-                  {baseProducts.length}
-                </Badge>
-              </button>
+            {/* Search Input */}
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/60" />
+              <Input
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="搜尋產品名稱或 SKU..."
+                className="pl-8 h-8 w-64 text-xs font-body bg-background"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground/60 hover:text-foreground"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
             </div>
 
             {/* Product Count */}
             <div className="flex items-center gap-1.5 rounded-md bg-muted/60 border border-border/50 px-2.5 py-1">
               <Package className="h-3 w-3 text-muted-foreground" />
               <span className="font-mono-data text-[11px] text-muted-foreground font-medium">
-                {products.length} 個產品
+                {searchQuery ? `${filteredProducts.length} / ${products.length} 個產品` : `${products.length} 個產品`}
               </span>
             </div>
 
@@ -594,24 +555,6 @@ export const ProductTableView = memo(function ProductTableView({
             </Button>
           </div>
         </div>
-
-        {/* Section info banner */}
-        {activeTab === 'local' && (
-          <div className="flex items-center gap-2 border-b border-border bg-primary/5 px-6 py-1.5">
-            <Sparkles className="h-3 w-3 text-primary" />
-            <span className="text-[11px] text-primary font-body">
-              這些是 AI 生成及本地建立的產品。選擇項目以上傳到<strong>全域資料庫</strong>。
-            </span>
-          </div>
-        )}
-        {activeTab === 'shopify' && (
-          <div className="flex items-center gap-2 border-b border-border bg-emerald-500/5 px-6 py-1.5">
-            <Database className="h-3 w-3 text-emerald-500" />
-            <span className="text-[11px] text-emerald-500 font-body">
-              Shopify 安全備份副本。此為唯讀參考 — 請直接在 Shopify 管理後台編輯。
-            </span>
-          </div>
-        )}
 
         {/* Table */}
         <div className="flex-1 overflow-auto">
@@ -697,24 +640,19 @@ export const ProductTableView = memo(function ProductTableView({
 
           {filteredProducts.length === 0 && (
             <div className="flex flex-col items-center justify-center py-20">
-              {activeTab === 'shopify' ? (
+              {searchQuery ? (
                 <>
-                  <Database className="mb-3 h-8 w-8 text-muted-foreground/40" />
-                  <p className="font-display text-sm text-muted-foreground">尚未備份 Shopify 產品</p>
+                  <Search className="mb-3 h-8 w-8 text-muted-foreground/40" />
+                  <p className="font-display text-sm text-muted-foreground">找不到符合的產品</p>
                   <p className="mt-1 text-xs text-muted-foreground/70 font-body">
-                    點擊「從 Shopify 備份」建立目錄的安全副本
-                  </p>
-                </>
-              ) : activeTab === 'local' ? (
-                <>
-                  <Sparkles className="mb-3 h-8 w-8 text-muted-foreground/40" />
-                  <p className="font-display text-sm text-muted-foreground">暫無本地 AI 草稿</p>
-                  <p className="mt-1 text-xs text-muted-foreground/70 font-body">
-                    透過 AI 處理器處理產品以建立新草稿
+                    請嘗試其他產品名稱或 SKU
                   </p>
                 </>
               ) : (
-                <p className="font-display text-sm text-muted-foreground">找不到產品</p>
+                <>
+                  <Package className="mb-3 h-8 w-8 text-muted-foreground/40" />
+                  <p className="font-display text-sm text-muted-foreground">暫無產品</p>
+                </>
               )}
             </div>
           )}
@@ -753,12 +691,52 @@ export const ProductTableView = memo(function ProductTableView({
         <Dialog open={!!variantModal} onOpenChange={() => { setVariantModal(null); setShowProductPicker(false); setPickerSearch(''); setPickerFactoryFilter(''); setPickerPage(0); }}>
           <DialogContent className="max-w-2xl">
             <DialogHeader>
-              <DialogTitle className="font-display">
-                變體 — {variantModal?.product.title}
-              </DialogTitle>
-              <DialogDescription className="font-body text-xs">
-                管理每個變體的 ID、SKU、售價、尺寸、Option1 和庫存
-              </DialogDescription>
+              <div className="flex items-start justify-between pr-6">
+                <div>
+                  <DialogTitle className="font-display">
+                    變體 — {variantModal?.product.title}
+                  </DialogTitle>
+                  <DialogDescription className="font-body text-xs">
+                    管理每個變體的 ID、SKU、售價、尺寸、Option1 和庫存
+                  </DialogDescription>
+                </div>
+                <Button
+                  size="sm"
+                  className="shrink-0 gap-1.5 font-display text-xs"
+                  onClick={async () => {
+                    if (!variantModal) return;
+                    const variants = variantModal.product.variants;
+                    const shopifyVariants = variants.map(v => ({
+                      id: v.id,
+                      sku: v.sku,
+                      price: v.price,
+                      title: v.option1 || v.size || '',
+                      option1: v.option1 || v.size || '',
+                      option2: null,
+                      option3: null,
+                      compare_at_price: null,
+                      inventory_quantity: v.inventory ?? 0,
+                    }));
+                    const { error } = await supabase
+                      .from('ready_to_shopify')
+                      .update({ variants: shopifyVariants })
+                      .eq('product_id', variantModal.product.id);
+                    if (error) {
+                      toast.error('儲存失敗', { description: error.message });
+                    } else {
+                      toast.success('變體已儲存', { description: `已將 ${variants.length} 個變體儲存至 ready_to_shopify` });
+                      setVariantModal(null);
+                      setShowProductPicker(false);
+                      setPickerSearch('');
+                      setPickerFactoryFilter('');
+                      setPickerPage(0);
+                    }
+                  }}
+                >
+                  <Check className="h-3.5 w-3.5" />
+                  完成
+                </Button>
+              </div>
             </DialogHeader>
             <div className="space-y-3 mt-2">
               {variantModal?.product.variants.map((v) => (
@@ -794,7 +772,8 @@ export const ProductTableView = memo(function ProductTableView({
 
             {/* Inline Product Picker */}
             {showProductPicker && variantModal && (() => {
-              const otherProducts = products.filter(p => p.id !== variantModal.product.id);
+              const addedVariantIds = new Set(variantModal.product.variants.map(v => v.id));
+              const otherProducts = products.filter(p => p.id !== variantModal.product.id && !addedVariantIds.has(p.id));
               const allFactories = [...new Set(otherProducts.map(p => p.factoryName || p.factoriesDisplayName || '').filter(Boolean))];
               const filtered = otherProducts.filter(p => {
                 const matchSearch = !pickerSearch.trim() || p.title.toLowerCase().includes(pickerSearch.toLowerCase());
@@ -838,14 +817,24 @@ export const ProductTableView = memo(function ProductTableView({
                         key={p.id}
                         type="button"
                         onClick={() => {
+                          const dims = [p.dimensionLMm, p.dimensionWMm, p.dimensionHMm].filter(Boolean).join('x') || '';
+                          const existingSkus = new Set(products.flatMap(prod => prod.variants.map(v => v.sku)));
+                          let sku = p.sku || '';
+                          if (!sku) {
+                            let candidate = '';
+                            do {
+                              candidate = `SKU-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+                            } while (existingSkus.has(candidate));
+                            sku = candidate;
+                          }
                           const newVariant: ProductVariant = {
                             id: p.id,
-                            size: [p.dimensionLMm, p.dimensionWMm, p.dimensionHMm].filter(Boolean).join('x') || '',
+                            size: dims,
                             color: p.color || '',
-                            sku: p.sku || `SKU-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
-                            price: p.salePrice ?? p.price,
-                            inventory: 0,
-                            option1: p.title,
+                            sku,
+                            price: p.salePrice ?? NaN,
+                            inventory: 100,
+                            option1: dims,
                           };
                           const updatedVariants = [...variantModal.product.variants, newVariant];
                           onUpdateProduct(variantModal.product.id, { variants: updatedVariants });
