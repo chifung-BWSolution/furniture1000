@@ -68,7 +68,7 @@ import { toast } from 'sonner';
 import { getChineseColorLabel, getColorHex, multiColorToChineseDisplay } from '@/constants/color-map';
 import { ProductDetailModal } from './ProductDetailModal';
 
-type SortField = 'created_at' | 'title';
+type SortField = 'created_at' | 'title' | 'product_sku';
 type SortOrder = 'asc' | 'desc';
 type PageSize = 20 | 50 | 100 | 200 | 500;
 
@@ -433,15 +433,14 @@ export function ListedProductsView({
         'dimension_l_mm', 'dimension_w_mm', 'dimension_h_mm',
         'in_stock', 'customize', 'product_sku',
       ].join(',');
-      // 重複商品模式：先按 product_sku 排列（NULL 最後），相同 sku 聚在一起；
-      // sku 為 NULL 的再按 title 升序。一般模式用使用者選的排序。
+      // 重複商品模式且未選擇系列排序：先按 product_sku 聚集，NULL 最後；一般模式或系列排序用使用者選的排序。
       const baseDataQuery = supabase.from('products').select(LIST_COLUMNS);
-      let dataQuery = (showDuplicates
+      let dataQuery = (showDuplicates && sortField !== 'product_sku'
         ? baseDataQuery
             .order('product_sku', { ascending: true, nullsFirst: false })
             .order('title', { ascending: true })
         : baseDataQuery
-            .order(sortField, { ascending: sortOrder === 'asc' })
+            .order(sortField, { ascending: sortOrder === 'asc', nullsFirst: false })
       ).range(from, to);
 
       if (debouncedSearch.trim()) {
@@ -1419,6 +1418,28 @@ export function ListedProductsView({
             >
               重複商品
             </Button>
+
+            {/* Sort order selector */}
+            <Select
+              value={`${sortField}_${sortOrder}`}
+              onValueChange={(v) => {
+                const lastUnderscore = v.lastIndexOf('_');
+                const field = v.slice(0, lastUnderscore) as SortField;
+                const order = v.slice(lastUnderscore + 1) as SortOrder;
+                setSortField(field);
+                setSortOrder(order);
+              }}
+            >
+              <SelectTrigger className="h-8 w-[190px] text-xs font-body">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="product_sku_asc" className="text-xs font-body">按系列排列（從 A 到 Z）</SelectItem>
+                <SelectItem value="product_sku_desc" className="text-xs font-body">按系列排列（從 Z 到 A）</SelectItem>
+                <SelectItem value="created_at_desc" className="text-xs font-body">按日期排列（從近到遠）</SelectItem>
+                <SelectItem value="created_at_asc" className="text-xs font-body">按日期排列（從遠到近）</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
 
           <div className="flex items-center gap-2">
@@ -1972,10 +1993,10 @@ export function ListedProductsView({
                       )}
                     </td>
 
-                    {/* 系列 (model) */}
+                    {/* 系列 (product_sku) */}
                     <td className="px-3 py-3">
-                      {product.model ? (
-                        <span className="font-mono-data text-[11px] text-foreground">{product.model}</span>
+                      {product.productSku ? (
+                        <span className="font-mono-data text-[11px] text-foreground">{product.productSku}</span>
                       ) : (
                         <span className="text-[10px] text-muted-foreground">—</span>
                       )}
