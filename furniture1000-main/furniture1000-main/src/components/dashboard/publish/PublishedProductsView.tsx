@@ -426,8 +426,20 @@ export function PublishedProductsView() {
                       </div>
                     </td>
                     {/* 描述 */}
-                    <td className="px-3 py-2.5">
-                      <span className="font-body text-[11px] text-muted-foreground max-w-[130px] block" style={{overflow:'hidden',display:'-webkit-box',WebkitBoxOrient:'vertical',WebkitLineClamp:6}}>{bodyText || '—'}</span>
+                    <td className="px-3 py-2.5" style={{ maxWidth: '140px' }}>
+                      <div
+                        className="font-body text-muted-foreground"
+                        style={{
+                          fontSize: '11px',
+                          lineHeight: '1.4',
+                          height: '92px',
+                          overflow: 'hidden',
+                          maxWidth: '130px',
+                          wordBreak: 'break-word',
+                        }}
+                      >
+                        {bodyText || '—'}
+                      </div>
                     </td>
                     {/* 材質描述 */}
                     <td className="px-3 py-2.5">

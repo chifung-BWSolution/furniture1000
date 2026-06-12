@@ -426,16 +426,16 @@ export function PublishedProductsView() {
                       </div>
                     </td>
                     {/* 描述 */}
-                    <td className="px-3 py-2.5">
+                    <td className="px-3 py-2.5" style={{ maxWidth: '140px' }}>
                       <div
-                        className="font-body text-[11px] text-muted-foreground max-w-[130px] overflow-hidden"
+                        className="font-body text-muted-foreground"
                         style={{
-                          display: '-webkit-box',
-                          WebkitLineClamp: 6,
-                          WebkitBoxOrient: 'vertical',
-                          overflow: 'hidden',
+                          fontSize: '11px',
                           lineHeight: '1.4',
-                          maxHeight: 'calc(1.4em * 6)',
+                          height: '92px',
+                          overflow: 'hidden',
+                          maxWidth: '130px',
+                          wordBreak: 'break-word',
                         }}
                       >
                         {bodyText || '—'}
