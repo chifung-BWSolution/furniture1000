@@ -81,6 +81,7 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
   // Fetch cost + image_url + images from ready_to_shopify for each product
   const [costMap, setCostMap] = useState<Record<string, number | null>>({});
   const [rtsImageMap, setRtsImageMap] = useState<Record<string, string>>({});
+  // All srcs from ready_to_shopify.images (no filtering — show everything)
   const [rtsImagesMap, setRtsImagesMap] = useState<Record<string, string[]>>({});
   useEffect(() => {
     if (rows.length === 0) return;
@@ -89,7 +90,8 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
       .from('ready_to_shopify')
       .select('product_id, cost, image_url, images')
       .in('product_id', ids)
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        if (error) console.error('[PublishProductInfoView] rts fetch error:', error);
         if (!data) return;
         const costM: Record<string, number | null> = {};
         const imgM: Record<string, string> = {};
@@ -97,12 +99,15 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
         for (const row of data) {
           costM[row.product_id] = row.cost != null ? Number(row.cost) : null;
           if (row.image_url) imgM[row.product_id] = row.image_url;
-          if (Array.isArray(row.images)) {
-            const primary = row.image_url || '';
-            const extras = row.images
-              .map((img: any) => img?.src || img?.url || (typeof img === 'string' ? img : ''))
-              .filter((src: string) => src && src !== primary);
-            imgsM[row.product_id] = extras;
+          // Extract all srcs from images jsonb — no filtering
+          if (Array.isArray(row.images) && row.images.length > 0) {
+            const srcs = row.images
+              .map((img: any) => {
+                if (typeof img === 'string') return img;
+                return img?.src || img?.url || img?.source_url || '';
+              })
+              .filter((s: string) => s.length > 0);
+            if (srcs.length > 0) imgsM[row.product_id] = srcs;
           }
         }
         setCostMap(costM);
@@ -344,8 +349,8 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
                           <ZoomIn className="h-4 w-4 text-white" />
                         </div>
                       </div>
-                      {/* 附加圖：優先用 ready_to_shopify.images，否則用 products.images */}
-                      {(rtsImagesMap[it.id]?.length ? rtsImagesMap[it.id] : it.productExtraImages).slice(0, 5).map((src, idx) => (
+                      {/* 附加圖：ready_to_shopify.images 全部顯示，若無則用 products.images */}
+                      {(rtsImagesMap[it.id]?.length ? rtsImagesMap[it.id] : it.productExtraImages).map((src, idx) => (
                         <div
                           key={idx}
                           className="group relative h-12 w-12 cursor-zoom-in flex-shrink-0"
