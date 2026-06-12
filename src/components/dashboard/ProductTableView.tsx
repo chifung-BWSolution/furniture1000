@@ -459,8 +459,24 @@ export const ProductTableView = memo(function ProductTableView({
   }, [onSelectAll, allFilteredIds]);
 
   const handleOpenVariantModal = useCallback((product: Product) => {
-    setVariantModal({ product });
-  }, []);
+    // If the product has no variants yet, seed the first row from the product itself
+    let productWithSelf = product;
+    if (product.variants.length === 0) {
+      const dims = [product.dimensionLMm, product.dimensionWMm, product.dimensionHMm].filter(Boolean).join('x') || '';
+      const selfVariant: ProductVariant = {
+        id: product.id,
+        size: dims,
+        color: product.color || '',
+        sku: product.sku || '',
+        price: product.salePrice ?? product.price ?? 0,
+        inventory: 100,
+        option1: dims,
+      };
+      productWithSelf = { ...product, variants: [selfVariant] };
+      onUpdateProduct(product.id, { variants: [selfVariant] });
+    }
+    setVariantModal({ product: productWithSelf });
+  }, [onUpdateProduct]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -768,7 +784,14 @@ export const ProductTableView = memo(function ProductTableView({
                   className="shrink-0 gap-1.5 font-display text-xs"
                   onClick={async () => {
                     if (!variantModal) return;
+                    const hostId = variantModal.product.id;
                     const variants = variantModal.product.variants;
+
+                    // variant IDs that are OTHER products merged into this one
+                    const mergedProductIds = variants
+                      .map(v => v.id)
+                      .filter(vid => vid !== hostId);
+
                     const shopifyVariants = variants.map(v => ({
                       id: v.id,
                       sku: v.sku,
@@ -780,20 +803,41 @@ export const ProductTableView = memo(function ProductTableView({
                       compare_at_price: null,
                       inventory_quantity: v.inventory ?? 0,
                     }));
+
+                    // 1. Save variants to the host product's ready_to_shopify row
                     const { error } = await supabase
                       .from('ready_to_shopify')
                       .update({ variants: shopifyVariants })
-                      .eq('product_id', variantModal.product.id);
+                      .eq('product_id', hostId);
                     if (error) {
                       toast.error('儲存失敗', { description: error.message });
-                    } else {
-                      toast.success('變體已儲存', { description: `已將 ${variants.length} 個變體儲存至 ready_to_shopify` });
-                      setVariantModal(null);
-                      setShowProductPicker(false);
-                      setPickerSearch('');
-                      setPickerFactoryFilter('');
-                      setPickerPage(0);
+                      return;
                     }
+
+                    // 2. Remove merged products from ready_to_shopify so they
+                    //    no longer appear in 準備上載 as standalone items
+                    if (mergedProductIds.length > 0) {
+                      await supabase
+                        .from('ready_to_shopify')
+                        .delete()
+                        .in('product_id', mergedProductIds);
+
+                      // Also clear readyToPublish flag in local state
+                      mergedProductIds.forEach(pid => {
+                        onUpdateProduct(pid, { readyToPublish: false } as any);
+                      });
+                    }
+
+                    toast.success('變體已儲存', {
+                      description: mergedProductIds.length > 0
+                        ? `已儲存 ${variants.length} 個變體，${mergedProductIds.length} 件已合併產品從準備上載移除`
+                        : `已將 ${variants.length} 個變體儲存至 ready_to_shopify`,
+                    });
+                    setVariantModal(null);
+                    setShowProductPicker(false);
+                    setPickerSearch('');
+                    setPickerFactoryFilter('');
+                    setPickerPage(0);
                   }}
                 >
                   <Check className="h-3.5 w-3.5" />
@@ -802,10 +846,11 @@ export const ProductTableView = memo(function ProductTableView({
               </div>
             </DialogHeader>
             <div className="space-y-3 mt-2">
-              {variantModal?.product.variants.map((v) => (
+              {variantModal?.product.variants.map((v, idx) => (
                 <VariantRow
                   key={v.id}
                   variant={v}
+                  isHost={idx === 0}
                   onUpdate={(updates) => {
                     if (!variantModal) return;
                     const updatedVariants = variantModal.product.variants.map(
@@ -1019,15 +1064,23 @@ export const ProductTableView = memo(function ProductTableView({
 
 function VariantRow({
   variant,
+  isHost,
   onUpdate,
   onDelete,
 }: {
   variant: ProductVariant;
+  isHost?: boolean;
   onUpdate: (updates: Partial<ProductVariant>) => void;
   onDelete: () => void;
 }) {
   return (
-    <div className="rounded-lg border border-border bg-muted/30 p-3">
+    <div className={cn('rounded-lg border p-3', isHost ? 'border-primary/40 bg-primary/5' : 'border-border bg-muted/30')}>
+      {isHost && (
+        <div className="mb-2 flex items-center gap-1.5">
+          <span className="rounded-full bg-primary/15 px-2 py-0.5 font-body text-[10px] font-semibold text-primary">主產品</span>
+          <span className="font-body text-[10px] text-muted-foreground">此為上傳到 Shopify 的主體產品</span>
+        </div>
+      )}
       <div className="grid grid-cols-6 gap-2">
         <div className="space-y-1">
           <label className="font-mono-data text-[9px] uppercase tracking-widest text-muted-foreground">
@@ -1093,16 +1146,18 @@ function VariantRow({
           />
         </div>
       </div>
-      <div className="mt-2 flex justify-end">
-        <button
-          type="button"
-          onClick={onDelete}
-          className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-body text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
-        >
-          <X className="h-3 w-3" />
-          移除
-        </button>
-      </div>
+      {!isHost && (
+        <div className="mt-2 flex justify-end">
+          <button
+            type="button"
+            onClick={onDelete}
+            className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-body text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+          >
+            <X className="h-3 w-3" />
+            移除
+          </button>
+        </div>
+      )}
     </div>
   );
 }
