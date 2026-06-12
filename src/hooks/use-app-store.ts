@@ -394,9 +394,16 @@ export function useAppStore() {
       const { data: rtsAll } = await supabase
         .from('ready_to_shopify')
         .select('product_id,image_url,images,body_html,variants');
-      if (!rtsAll || rtsAll.length === 0) return;
+      if (!rtsAll || rtsAll.length === 0) {
+        // All products were reverted — clear readyToPublish for all
+        setProducts(prev => prev.map(p => p.readyToPublish ? { ...p, readyToPublish: false } : p));
+        return;
+      }
       const ids = rtsAll.map((r: any) => r.product_id).filter(Boolean);
-      if (ids.length === 0) return;
+      if (ids.length === 0) {
+        setProducts(prev => prev.map(p => p.readyToPublish ? { ...p, readyToPublish: false } : p));
+        return;
+      }
 
       // Fetch the corresponding product rows
       const { data: rtpRows } = await supabase
@@ -466,8 +473,15 @@ export function useAppStore() {
         return product;
       });
 
+      const activeIdSet = new Set(ids);
       setProducts(prev => {
         const byId = new Map(prev.map(p => [p.id, p]));
+        // Clear readyToPublish for products no longer in ready_to_shopify
+        for (const [id, p] of byId) {
+          if (p.readyToPublish && !activeIdSet.has(id)) {
+            byId.set(id, { ...p, readyToPublish: false });
+          }
+        }
         loaded.forEach(p => byId.set(p.id, p));
         return Array.from(byId.values());
       });
