@@ -427,7 +427,7 @@ export function PublishedProductsView() {
                     </td>
                     {/* 描述 */}
                     <td className="px-3 py-2.5">
-                      <span className="font-body text-[11px] text-muted-foreground line-clamp-3 max-w-[130px] block">{bodyText || '—'}</span>
+                      <span className="font-body text-[11px] text-muted-foreground line-clamp-6 max-w-[130px] block">{bodyText || '—'}</span>
                     </td>
                     {/* 材質描述 */}
                     <td className="px-3 py-2.5">
