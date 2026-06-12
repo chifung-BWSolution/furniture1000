@@ -201,13 +201,10 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
           copy_done: false,
           copy_done_at: null,
           info_done: false,
-          in_shopify_queue: false,
           revert_reason: revertReason,
         })
         .in('id', ids);
       if (error) throw new Error(error.message);
-      // Remove from ready_to_shopify so they disappear from 準備上載 too
-      await supabase.from('ready_to_shopify').delete().in('product_id', ids);
       setShowRevertDialog(false);
       setSelected(new Set());
       setReloadKey((k) => k + 1);
