@@ -6,6 +6,10 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { usePublishList } from './usePublishList';
@@ -170,21 +174,46 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
     setTagDraft((prev) => ({ ...prev, [id]: '' }));
   };
 
-  // 退回上一步：將所選產品的 copy_done 設回 false，使其重新出現在「產品文案」
+  // 退回上一步 — dialog state
+  const REVERT_OPTIONS = ['產品情景圖修改', '產品圖片角度不足', '產品說明修正', '其他'] as const;
+  const [showRevertDialog, setShowRevertDialog] = useState(false);
+  const [revertReasons, setRevertReasons] = useState<string[]>([]);
+  const [revertOther, setRevertOther] = useState('');
   const [isReverting, setIsReverting] = useState(false);
-  const handleRevert = async () => {
+
+  const handleRevert = () => {
     if (selected.size === 0) { toast.message('請先勾選產品'); return; }
+    setRevertReasons([]);
+    setRevertOther('');
+    setShowRevertDialog(true);
+  };
+
+  const handleConfirmRevert = async () => {
     const ids = Array.from(selected);
     setIsReverting(true);
     try {
+      const revertReason = (revertReasons.length > 0 || revertOther.trim())
+        ? { labels: revertReasons, other: revertOther.trim() || null }
+        : null;
       const { error } = await supabase
         .from('products')
-        .update({ copy_done: false, copy_done_at: null })
+        .update({
+          copy_done: false,
+          copy_done_at: null,
+          info_done: false,
+          in_shopify_queue: false,
+          revert_reason: revertReason,
+        })
         .in('id', ids);
       if (error) throw new Error(error.message);
+      // Remove from ready_to_shopify so they disappear from 準備上載 too
+      await supabase.from('ready_to_shopify').delete().in('product_id', ids);
+      setShowRevertDialog(false);
       setSelected(new Set());
       setReloadKey((k) => k + 1);
-      toast.success('已退回產品文案', { description: `${ids.length} 件產品已退回「產品文案」頁面重新編輯` });
+      toast.success(`已退回 ${ids.length} 件產品至「產品文案」`, {
+        description: revertReason?.labels.length ? `原因：${revertReason.labels.join('、')}` : undefined,
+      });
     } catch (e) {
       toast.error('退回失敗', { description: e instanceof Error ? e.message : '請稍後再試' });
     } finally {
@@ -532,6 +561,58 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
           />
         </div>
       )}
+
+      {/* Revert Reason Dialog */}
+      <Dialog open={showRevertDialog} onOpenChange={setShowRevertDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-display">退回原因（可選）</DialogTitle>
+            <DialogDescription className="font-body text-sm">
+              選擇退回原因，可多選。退回後產品將移至「產品文案」頁面並顯示退回原因標籤。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-2 py-2">
+            {REVERT_OPTIONS.map(opt => (
+              <label key={opt} className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-border px-3 py-2.5 hover:bg-accent">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 accent-amber-500"
+                  checked={revertReasons.includes(opt)}
+                  onChange={() =>
+                    setRevertReasons(prev =>
+                      prev.includes(opt) ? prev.filter(r => r !== opt) : [...prev, opt]
+                    )
+                  }
+                />
+                <span className="font-body text-sm">{opt}</span>
+              </label>
+            ))}
+            {revertReasons.includes('其他') && (
+              <textarea
+                value={revertOther}
+                onChange={e => setRevertOther(e.target.value.slice(0, 200))}
+                placeholder="請輸入其他原因（最多 100 個中文字）"
+                rows={3}
+                className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 font-body text-sm focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
+              />
+            )}
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" size="sm" className="font-display text-xs" onClick={() => setShowRevertDialog(false)}>
+              取消
+            </Button>
+            <Button
+              size="sm"
+              className="font-display text-xs bg-amber-500 hover:bg-amber-600 text-white"
+              disabled={isReverting}
+              onClick={handleConfirmRevert}
+            >
+              {isReverting ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null}
+              確認退回 ({selected.size})
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
