@@ -18,6 +18,8 @@ interface InfoItem {
   id: string;
   title: string;
   imageUrl: string;
+  /** Extra images from products.images (fallback if ready_to_shopify has none) */
+  productExtraImages: string[];
   factory: string;
   price: number;
   costPrice: number | null;
@@ -71,7 +73,7 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
     Array.from(new Set(categoryPairs.filter((p) => p.level1 === l1 && p.level2).map((p) => p.level2)));
 
   const { rows, totalCount, isLoading, Toolbar, Pagination } = usePublishList({
-    select: 'id,title,image_url,price,sale_price,cost_price,sku,tags,dimension_l_mm,dimension_w_mm,dimension_h_mm,level1_category,level2_category,in_stock,customize,model,factories_display_name',
+    select: 'id,title,image_url,images,price,sale_price,cost_price,sku,tags,dimension_l_mm,dimension_w_mm,dimension_h_mm,level1_category,level2_category,in_stock,customize,model,factories_display_name',
     applyBaseFilters: (q) => q.eq('in_shopify_queue', true).eq('info_done', false),
     reloadKey,
   });
@@ -123,10 +125,22 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
         productionType = 'custom';
         leadTime = r.customize;
       }
+      // Extra images from products.images (skip index 0 which is image_url)
+      const productExtraImages: string[] = [];
+      if (Array.isArray(r.images)) {
+        const primarySrc = r.image_url || '';
+        r.images.forEach((img: any) => {
+          const src = img?.src || img?.url || (typeof img === 'string' ? img : '');
+          if (src && src !== primarySrc && !productExtraImages.includes(src)) {
+            productExtraImages.push(src);
+          }
+        });
+      }
       return {
         id: r.id,
         title: r.title || '',
         imageUrl: r.image_url || '',
+        productExtraImages,
         factory: r.factories_display_name || '',
         price: Number(r.sale_price ?? r.price ?? 0),
         costPrice: r.cost_price != null ? Number(r.cost_price) : null,
@@ -330,8 +344,8 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
                           <ZoomIn className="h-4 w-4 text-white" />
                         </div>
                       </div>
-                      {/* 附加圖 */}
-                      {(rtsImagesMap[it.id] || []).slice(0, 4).map((src, idx) => (
+                      {/* 附加圖：優先用 ready_to_shopify.images，否則用 products.images */}
+                      {(rtsImagesMap[it.id]?.length ? rtsImagesMap[it.id] : it.productExtraImages).slice(0, 5).map((src, idx) => (
                         <div
                           key={idx}
                           className="group relative h-12 w-12 cursor-zoom-in flex-shrink-0"
