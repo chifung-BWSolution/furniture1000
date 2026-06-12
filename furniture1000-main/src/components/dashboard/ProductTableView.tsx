@@ -286,6 +286,8 @@ interface ProductTableViewProps {
   isSyncing?: boolean;
   isPublishing?: boolean;
   lastSyncTime?: string | null;
+  /** 傳入 true 時，ProductDetailModal 改動標題會寫入 ready_to_shopify，不改 products 表 */
+  readyToPublishMode?: boolean;
 }
 
 export const ProductTableView = memo(function ProductTableView({
@@ -305,6 +307,7 @@ export const ProductTableView = memo(function ProductTableView({
   isSyncing,
   isPublishing,
   lastSyncTime,
+  readyToPublishMode = false,
 }: ProductTableViewProps) {
   const [editingCell, setEditingCell] = useState<{ id: string; field: string } | null>(null);
   const [editValue, setEditValue] = useState('');
@@ -947,6 +950,7 @@ export const ProductTableView = memo(function ProductTableView({
             onProductUpdated={(updated) => {
               handleProductUpdatedFromModal(updated);
             }}
+            readyToPublishMode={readyToPublishMode}
           />
         )}
       </div>

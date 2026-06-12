@@ -386,22 +386,23 @@ export function useAppStore() {
   }, []);
 
   // Reload products from Supabase (used after publish/sync)
-  // Load ALL products with ready_to_publish=true, bypassing the 100-row pagination
-  // so they show in the 準備上載 page even if the product is older than the first page.
+  // 準備上載 = products that completed both 產品文案 (copy_done) and 產品信息 (info_done).
+  // Fetches ALL such products regardless of pagination window.
   const reloadReadyToPublish = useCallback(async () => {
     try {
+      // Direct query: products that completed the full publish workflow
       const { data: rtpRows } = await supabase
         .from('products')
         .select('*')
-        .eq('ready_to_publish', true);
+        .eq('copy_done', true)
+        .eq('info_done', true);
       if (!rtpRows || rtpRows.length === 0) return;
       const ids = rtpRows.map((r: any) => r.id);
 
-      // Fetch ready_to_shopify image data in parallel with variants —
-      // image_url here is an HTTP URL (not base64), images is the additional images array.
+      // Fetch ready_to_shopify data in parallel with variants for enrichment
       const [{ data: variantRows }, { data: rtsRows }] = await Promise.all([
         supabase.from('product_variants').select('*').in('product_id', ids),
-        supabase.from('ready_to_shopify').select('product_id,image_url,images,body_html').in('product_id', ids),
+        supabase.from('ready_to_shopify').select('product_id,image_url,images,body_html,shopify_page_title').in('product_id', ids),
       ]);
 
       const variantsByProduct: Record<string, any[]> = {};
@@ -410,15 +411,22 @@ export function useAppStore() {
       });
 
       // Build a map of ready_to_shopify data keyed by product_id
-      const rtsByProductId: Record<string, { image_url: string | null; images: any[] | null; body_html: string | null }> = {};
+      const rtsByProductId: Record<string, { image_url: string | null; images: any[] | null; body_html: string | null; shopify_page_title: string | null }> = {};
       (rtsRows || []).forEach((r: any) => {
-        rtsByProductId[r.product_id] = { image_url: r.image_url, images: r.images, body_html: r.body_html };
+        rtsByProductId[r.product_id] = { image_url: r.image_url, images: r.images, body_html: r.body_html, shopify_page_title: r.shopify_page_title };
       });
 
       const loaded = rtpRows.map((row: any) => {
         const product = dbRowToProduct(row, variantsByProduct[row.id] || []);
+        // Ensure product shows in 準備上載 filter (readyToPublish=true)
+        product.readyToPublish = true;
         const rts = rtsByProductId[row.id];
         if (rts) {
+          // Override title with shopify_page_title from ready_to_shopify if present
+          if (rts.shopify_page_title) {
+            product.title = rts.shopify_page_title;
+          }
+
           // Override description + descriptionHtml with body_html (Shopify 產品說明).
           // ProductDetailModal uses descriptionHtml first, so both must be set.
           if (rts.body_html) {

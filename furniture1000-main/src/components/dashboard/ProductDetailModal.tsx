@@ -102,6 +102,9 @@ interface ProductDetailModalProps {
   open: boolean;
   onClose: () => void;
   onProductUpdated: (updatedProduct: ProductForDetail) => void;
+  showAIImageTools?: boolean;
+  /** 準備上載模式：標題改動儲存到 ready_to_shopify.shopify_page_title，不改 products 表 */
+  readyToPublishMode?: boolean;
 }
 
 // ─── Lightbox Component ────────────────────────────────────────────────
@@ -382,6 +385,8 @@ export function ProductDetailModal({
   open,
   onClose,
   onProductUpdated,
+  showAIImageTools = false,
+  readyToPublishMode = false,
 }: ProductDetailModalProps) {
   // Form state
   const [title, setTitle] = useState('');
@@ -400,16 +405,13 @@ export function ProductDetailModal({
   const [dimensionW, setDimensionW] = useState('');
   const [dimensionH, setDimensionH] = useState('');
   const [productionType, setProductionType] = useState<'stock' | 'custom' | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
   const [showSceneDialog, setShowSceneDialog] = useState(false);
   const [selectedScenes, setSelectedScenes] = useState<string[]>([]);
-  const [isSaving, setIsSaving] = useState(false);
 
   // Category dropdown state
   const [categoryList, setCategoryList] = useState<{ id: string; name: string; parent_id: string | null; level: number; sort_order: number }[]>([]);
   const [categoryListLoading, setCategoryListLoading] = useState(false);
-
-  // Shopify product_type from ready_to_shopify
-  const [shopifyProductType, setShopifyProductType] = useState<string | null>(null);
 
   // Image/Media state
   const [images, setImages] = useState<ProductImage[]>([]);
@@ -489,37 +491,29 @@ export function ProductDetailModal({
     }
   }, [product]);
 
-  // Fetch categories + shopify product_type when modal opens
+  // Fetch categories directly from product_category table when modal opens
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
     (async () => {
       setCategoryListLoading(true);
       try {
-        const [catResult, shopifyResult] = await Promise.all([
-          supabase
-            .from('product_category')
-            .select('id, name, parent_id, level, sort_order')
-            .order('sort_order', { ascending: true }),
-          supabase
-            .from('ready_to_shopify')
-            .select('product_type')
-            .eq('product_id', product.id)
-            .maybeSingle(),
-        ]);
-        if (!cancelled) {
-          if (catResult.data) setCategoryList(catResult.data);
-          if (catResult.error) console.warn('[ProductDetailModal] Failed to fetch categories:', catResult.error);
-          setShopifyProductType(shopifyResult.data?.product_type ?? null);
+        const { data, error } = await supabase
+          .from('product_category')
+          .select('id, name, parent_id, level, sort_order')
+          .order('sort_order', { ascending: true });
+        if (!cancelled && data) {
+          setCategoryList(data);
         }
+        if (error) console.warn('[ProductDetailModal] Failed to fetch categories:', error);
       } catch (err) {
-        console.warn('[ProductDetailModal] Fetch error:', err);
+        console.warn('[ProductDetailModal] Category fetch error:', err);
       } finally {
         if (!cancelled) setCategoryListLoading(false);
       }
     })();
     return () => { cancelled = true; };
-  }, [open, product.id]);
+  }, [open]);
 
   // Auto-calculate total lead time
   const computedTotalLeadTime = (() => {
@@ -701,7 +695,8 @@ export function ProductDetailModal({
       }));
 
       const localUpdate: Record<string, unknown> = {
-        title,
+        // 準備上載模式：標題不寫入 products，改寫到 ready_to_shopify（見下方）
+        ...(readyToPublishMode ? {} : { title }),
         description: description,
         description_html: description,
         // collection has a NOT NULL constraint — fall back to existing value or empty string
@@ -740,6 +735,17 @@ export function ProductDetailModal({
         });
         setIsSaving(false);
         return;
+      }
+
+      // ─── Step 1b: 準備上載模式 — 標題寫入 ready_to_shopify ─────────
+      if (readyToPublishMode) {
+        const { error: rtsError } = await supabase
+          .from('ready_to_shopify')
+          .update({ shopify_page_title: title })
+          .eq('product_id', product.id);
+        if (rtsError) {
+          console.warn('[ProductDetail] ready_to_shopify title update error:', rtsError);
+        }
       }
 
       // ─── Step 2: If product has a bwfMasterId, sync to master DB ────
@@ -852,7 +858,7 @@ export function ProductDetailModal({
     productionLeadTime, shippingDays, shippingFee, color, remarks,
     dimensionL, dimensionW, dimensionH,
     images, pendingNewFiles, pendingDeletePaths,
-    product, onProductUpdated, onClose,
+    product, onProductUpdated, onClose, readyToPublishMode,
   ]);
 
   // Get the selected display image
@@ -1024,35 +1030,39 @@ export function ProductDetailModal({
                   />
                 </div>
 
-                {/* AI Image Generation Buttons */}
-                <div className="flex flex-col gap-2 pt-1">
-                  <span className="font-mono-data text-xs uppercase tracking-widest text-muted-foreground">AI 圖片生成</span>
-                  <div className="flex flex-col gap-1.5">
-                    <button
-                      onClick={() => toast.info('AI 清晰圖片功能即將推出')}
-                      className="flex items-center gap-2 rounded-lg border border-indigo-500/30 bg-indigo-500/5 px-3 py-2 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:bg-indigo-500/10 transition-colors text-left"
-                    >
-                      <Sparkles className="h-3.5 w-3.5 flex-shrink-0" />
-                      AI 清晰圖片
-                    </button>
-                    <button
-                      onClick={() => toast.info('不同角度生成功能即將推出')}
-                      className="flex items-center gap-2 rounded-lg border border-violet-500/30 bg-violet-500/5 px-3 py-2 text-xs font-medium text-violet-600 dark:text-violet-400 hover:bg-violet-500/10 transition-colors text-left"
-                    >
-                      <Layers className="h-3.5 w-3.5 flex-shrink-0" />
-                      不同角度生成
-                    </button>
-                    <button
-                      onClick={() => setShowSceneDialog(true)}
-                      className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-xs font-medium text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 transition-colors text-left"
-                    >
-                      <Clapperboard className="h-3.5 w-3.5 flex-shrink-0" />
-                      場景圖生成
-                    </button>
-                  </div>
-                </div>
-
                 <Separator />
+
+                {/* AI Image Generation Buttons — shown only in 產品目錄 */}
+                {showAIImageTools && (
+                  <div className="flex flex-col gap-2 pt-1">
+                    <span className="font-mono-data text-xs uppercase tracking-widest text-muted-foreground">AI 圖片生成</span>
+                    <div className="flex flex-col gap-1.5">
+                      <button
+                        onClick={() => toast.info('AI 清晰圖片功能即將推出')}
+                        className="flex items-center gap-2 rounded-lg border border-indigo-500/30 bg-indigo-500/5 px-3 py-2 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:bg-indigo-500/10 transition-colors text-left"
+                      >
+                        <Sparkles className="h-3.5 w-3.5 flex-shrink-0" />
+                        AI 清晰圖片
+                      </button>
+                      <button
+                        onClick={() => toast.info('不同角度生成功能即將推出')}
+                        className="flex items-center gap-2 rounded-lg border border-violet-500/30 bg-violet-500/5 px-3 py-2 text-xs font-medium text-violet-600 dark:text-violet-400 hover:bg-violet-500/10 transition-colors text-left"
+                      >
+                        <Layers className="h-3.5 w-3.5 flex-shrink-0" />
+                        不同角度生成
+                      </button>
+                      <button
+                        onClick={() => setShowSceneDialog(true)}
+                        className="flex items-center gap-2 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-xs font-medium text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 transition-colors text-left"
+                      >
+                        <Clapperboard className="h-3.5 w-3.5 flex-shrink-0" />
+                        場景圖生成
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {showAIImageTools && <Separator />}
 
                 {/* Quick Meta */}
                 <div className="space-y-3">
@@ -1161,13 +1171,26 @@ export function ProductDetailModal({
                     </div>
 
                     <div className="space-y-2">
-                      <Label className="font-body text-sm text-muted-foreground">
+                      <Label htmlFor="detail-category" className="font-body text-sm text-muted-foreground">
                         分類 / Collection
                       </Label>
-                      <div className="flex items-center h-9 px-3 rounded-md border border-border bg-muted/50">
-                        <span className="font-body text-xs text-foreground">
-                          {categoryListLoading ? '載入中...' : (shopifyProductType || '—')}
-                        </span>
+                      <div className="flex flex-col gap-1">
+                        <CascadingCategorySelector
+                          categories={categoryList}
+                          value={level2Category || level1Category}
+                          onSelectionChange={(sel: CategorySelection) => {
+                            setLevel1Category(sel.level1);
+                            setLevel2Category(sel.level2);
+                          }}
+                          placeholder={categoryListLoading ? '載入中...' : '選擇類目'}
+                          showClear
+                          triggerClassName="font-body text-xs h-9"
+                        />
+                        {level1Category && (
+                          <p className="font-body text-[11px] text-muted-foreground/70">
+                            {level1Category}{level2Category ? ` › ${level2Category}` : ''}
+                          </p>
+                        )}
                       </div>
                     </div>
 
@@ -1428,28 +1451,18 @@ export function ProductDetailModal({
                   )}
                 </section>
 
-                {/* Delivery Term — derived from in_stock / customize */}
-                {(() => {
-                  const inStock = (product as any).inStock ?? (product as any).in_stock;
-                  const customize = (product as any).customize;
-                  const label = inStock === true
-                    ? '現貨'
-                    : customize
-                    ? customize
-                    : product?.deliveryTermName || null;
-                  if (!label) return null;
-                  return (
-                    <div className="rounded-lg bg-blue-500/5 border border-blue-500/20 p-3">
-                      <div className="flex items-center gap-2">
-                        <Clock className="h-3.5 w-3.5 text-blue-500" />
-                        <span className="font-body text-sm text-muted-foreground">貨期類型：</span>
-                        <span className="inline-flex items-center rounded-md bg-blue-500/10 px-2 py-0.5 font-mono-data text-xs font-medium text-blue-600 dark:text-blue-400 ring-1 ring-inset ring-blue-500/20">
-                          {label}
-                        </span>
-                      </div>
+                {/* Delivery Term */}
+                {product?.deliveryTermName && (
+                  <div className="rounded-lg bg-blue-500/5 border border-blue-500/20 p-3">
+                    <div className="flex items-center gap-2">
+                      <Clock className="h-3.5 w-3.5 text-blue-500" />
+                      <span className="font-body text-sm text-muted-foreground">貨期類型：</span>
+                      <span className="inline-flex items-center rounded-md bg-blue-500/10 px-2 py-0.5 font-mono-data text-xs font-medium text-blue-600 dark:text-blue-400 ring-1 ring-inset ring-blue-500/20">
+                        {product.deliveryTermName}
+                      </span>
                     </div>
-                  );
-                })()}
+                  </div>
+                )}
 
                 <Separator />
 
@@ -1529,87 +1542,80 @@ export function ProductDetailModal({
       )}
 
       {/* Scene Generation Dialog */}
-      <Dialog open={showSceneDialog} onOpenChange={setShowSceneDialog}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle className="font-display flex items-center gap-2">
-              <Clapperboard className="h-4 w-4 text-emerald-500" />
-              場景圖生成
-            </DialogTitle>
-            <DialogDescription className="font-body text-sm">
-              選擇場景（可多選），AI 將為產品生成對應環境的效果圖
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            {[
-              {
-                group: '辦公區室',
-                scenes: ['老闆房', '大會議室', '小會議室', 'Pantry', '水吧', '接待區'],
-              },
-              {
-                group: '學校場所',
-                scenes: ['課室', '禮堂', '飯堂'],
-              },
-              {
-                group: '診所/醫療場所',
-                scenes: ['診症室', '等候區', '護士站'],
-              },
-            ].map(({ group, scenes }) => (
-              <div key={group} className="space-y-2">
-                <span className="font-mono-data text-xs uppercase tracking-widest text-muted-foreground">{group}</span>
-                <div className="flex flex-wrap gap-2">
-                  {scenes.map(scene => {
-                    const key = `${group}:${scene}`;
-                    const selected = selectedScenes.includes(key);
-                    return (
-                      <button
-                        key={key}
-                        onClick={() =>
-                          setSelectedScenes(prev =>
-                            selected ? prev.filter(s => s !== key) : [...prev, key]
-                          )
-                        }
-                        className={cn(
-                          'rounded-full border px-3 py-1 text-xs font-body transition-colors',
-                          selected
-                            ? 'border-emerald-500 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                            : 'border-border text-muted-foreground hover:border-emerald-500/50 hover:bg-muted'
-                        )}
-                      >
-                        {scene}
-                      </button>
-                    );
-                  })}
+      {showAIImageTools && (
+        <Dialog open={showSceneDialog} onOpenChange={setShowSceneDialog}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="font-display flex items-center gap-2">
+                <Clapperboard className="h-4 w-4 text-emerald-500" />
+                場景圖生成
+              </DialogTitle>
+              <DialogDescription className="font-body text-sm">
+                選擇場景（可多選），AI 將為產品生成對應環境的效果圖
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-2">
+              {[
+                { group: '辦公區室', scenes: ['老闆房', '大會議室', '小會議室', 'Pantry', '水吧', '接待區'] },
+                { group: '學校場所', scenes: ['課室', '禮堂', '飯堂'] },
+                { group: '診所/醫療場所', scenes: ['診症室', '等候區', '護士站'] },
+              ].map(({ group, scenes }) => (
+                <div key={group} className="space-y-2">
+                  <span className="font-mono-data text-xs uppercase tracking-widest text-muted-foreground">{group}</span>
+                  <div className="flex flex-wrap gap-2">
+                    {scenes.map(scene => {
+                      const key = `${group}:${scene}`;
+                      const selected = selectedScenes.includes(key);
+                      return (
+                        <button
+                          key={key}
+                          onClick={() =>
+                            setSelectedScenes(prev =>
+                              selected ? prev.filter(s => s !== key) : [...prev, key]
+                            )
+                          }
+                          className={cn(
+                            'rounded-full border px-3 py-1 text-xs font-body transition-colors',
+                            selected
+                              ? 'border-emerald-500 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                              : 'border-border text-muted-foreground hover:border-emerald-500/50 hover:bg-muted'
+                          )}
+                        >
+                          {scene}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
-          <div className="flex items-center justify-between pt-2">
-            <span className="font-mono-data text-xs text-muted-foreground">
-              已選 {selectedScenes.length} 個場景
-            </span>
-            <div className="flex gap-2">
-              <button
-                onClick={() => { setShowSceneDialog(false); setSelectedScenes([]); }}
-                className="rounded-md border border-border px-3 py-1.5 text-xs font-display font-bold hover:bg-muted transition-colors"
-              >
-                取消
-              </button>
-              <button
-                onClick={() => {
-                  if (selectedScenes.length === 0) { toast.error('請至少選擇一個場景'); return; }
-                  toast.info(`場景圖生成功能即將推出（已選：${selectedScenes.map(s => s.split(':')[1]).join('、')}）`);
-                  setShowSceneDialog(false);
-                  setSelectedScenes([]);
-                }}
-                className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-display font-bold text-white hover:bg-emerald-500 transition-colors"
-              >
-                生成場景圖
-              </button>
+              ))}
             </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+            <div className="flex items-center justify-between pt-2">
+              <span className="font-mono-data text-xs text-muted-foreground">
+                已選 {selectedScenes.length} 個場景
+              </span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => { setShowSceneDialog(false); setSelectedScenes([]); }}
+                  className="rounded-md border border-border px-3 py-1.5 text-xs font-display font-bold hover:bg-muted transition-colors"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={() => {
+                    if (selectedScenes.length === 0) { toast.error('請至少選擇一個場景'); return; }
+                    toast.info(`場景圖生成功能即將推出（已選：${selectedScenes.map(s => s.split(':')[1]).join('、')}）`);
+                    setShowSceneDialog(false);
+                    setSelectedScenes([]);
+                  }}
+                  className="rounded-md bg-emerald-600 px-3 py-1.5 text-xs font-display font-bold text-white hover:bg-emerald-500 transition-colors"
+                >
+                  生成場景圖
+                </button>
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
     </AnimatePresence>
   );
 }
