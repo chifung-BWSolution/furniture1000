@@ -393,7 +393,7 @@ export function useAppStore() {
       // Query all records from ready_to_shopify — this is the source of truth
       const { data: rtsAll } = await supabase
         .from('ready_to_shopify')
-        .select('product_id,image_url,images,body_html');
+        .select('product_id,image_url,images,body_html,variants');
       if (!rtsAll || rtsAll.length === 0) return;
       const ids = rtsAll.map((r: any) => r.product_id).filter(Boolean);
       if (ids.length === 0) return;
@@ -417,9 +417,9 @@ export function useAppStore() {
       });
 
       // Build a map of ready_to_shopify data keyed by product_id
-      const rtsByProductId: Record<string, { image_url: string | null; images: any[] | null; body_html: string | null }> = {};
+      const rtsByProductId: Record<string, { image_url: string | null; images: any[] | null; body_html: string | null; variants: any[] | null }> = {};
       rtsAll.forEach((r: any) => {
-        rtsByProductId[r.product_id] = { image_url: r.image_url, images: r.images, body_html: r.body_html };
+        rtsByProductId[r.product_id] = { image_url: r.image_url, images: r.images, body_html: r.body_html, variants: r.variants ?? null };
       });
 
       const loaded = rtpRows.map((row: any) => {
@@ -449,6 +449,19 @@ export function useAppStore() {
             }
           }
           if (allImages.length > 0) (product as any).images = allImages;
+
+          // Restore saved variants from ready_to_shopify.variants (Shopify format → ProductVariant[])
+          if (Array.isArray(rts.variants) && rts.variants.length > 0) {
+            product.variants = rts.variants.map((v: any) => ({
+              id: String(v.id ?? ''),
+              sku: v.sku ?? '',
+              price: typeof v.price === 'number' ? v.price : parseFloat(v.price) || 0,
+              size: v.option1 ?? v.title ?? '',
+              color: '',
+              inventory: v.inventory_quantity ?? 0,
+              option1: v.option1 ?? v.title ?? '',
+            }));
+          }
         }
         return product;
       });
