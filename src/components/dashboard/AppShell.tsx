@@ -260,6 +260,7 @@ export function AppShell() {
                 toast.success(`已退回 ${ids.length} 件產品至「產品信息」`);
               }
             }}
+            onVariantsSaved={() => store.reloadReadyToPublish()}
             isSyncing={store.isSyncing}
             isPublishing={store.isPublishing}
             lastSyncTime={store.lastSyncTime}

@@ -240,7 +240,8 @@ const ProductTableRow = memo(function ProductTableRow({
           onClick={() => onOpenVariantModal(product)}
           className="h-7 gap-1 text-[10px] font-mono-data"
         >
-          {product.variants.length} 個變體
+          {/* extra variants = all rows excluding the host product itself */}
+          {product.variants.filter(v => v.id !== product.id).length} 個變體
           <ChevronDown className="h-3 w-3" />
         </Button>
       </td>
@@ -287,6 +288,7 @@ interface ProductTableViewProps {
   onSyncFromShopify?: () => Promise<any>;
   onUploadUnsyncedToMaster?: () => Promise<any>;
   onRevertToInfo?: (ids: string[]) => Promise<void>;
+  onVariantsSaved?: () => void;
   isSyncing?: boolean;
   isPublishing?: boolean;
   lastSyncTime?: string | null;
@@ -308,6 +310,7 @@ export const ProductTableView = memo(function ProductTableView({
   onSyncFromShopify,
   onUploadUnsyncedToMaster,
   onRevertToInfo,
+  onVariantsSaved,
   isSyncing,
   isPublishing,
   lastSyncTime,
@@ -459,22 +462,22 @@ export const ProductTableView = memo(function ProductTableView({
   }, [onSelectAll, allFilteredIds]);
 
   const handleOpenVariantModal = useCallback((product: Product) => {
-    // If the product has no variants yet, seed the first row from the product itself
-    let productWithSelf = product;
-    if (product.variants.length === 0) {
-      const dims = [product.dimensionLMm, product.dimensionWMm, product.dimensionHMm].filter(Boolean).join('x') || '';
-      const selfVariant: ProductVariant = {
-        id: product.id,
-        size: dims,
-        color: product.color || '',
-        sku: product.sku || '',
-        price: product.salePrice ?? product.price ?? 0,
-        inventory: 100,
-        option1: dims,
-      };
-      productWithSelf = { ...product, variants: [selfVariant] };
-      onUpdateProduct(product.id, { variants: [selfVariant] });
-    }
+    const dims = [product.dimensionLMm, product.dimensionWMm, product.dimensionHMm].filter(Boolean).join('x') || '';
+    const selfVariant: ProductVariant = {
+      id: product.id,
+      size: dims,
+      color: product.color || '',
+      sku: product.sku || '',
+      price: product.salePrice ?? product.price ?? 0,
+      inventory: 100,
+      option1: dims,
+    };
+    // Always put the host product as the first row.
+    // Keep any previously-added non-host variants after it.
+    const otherVariants = product.variants.filter(v => v.id !== product.id);
+    const variants = [selfVariant, ...otherVariants];
+    const productWithSelf = { ...product, variants };
+    onUpdateProduct(product.id, { variants });
     setVariantModal({ product: productWithSelf });
   }, [onUpdateProduct]);
 
@@ -838,6 +841,8 @@ export const ProductTableView = memo(function ProductTableView({
                     setPickerSearch('');
                     setPickerFactoryFilter('');
                     setPickerPage(0);
+                    // Trigger parent to reload 準備上載 list so merged products disappear
+                    onVariantsSaved?.();
                   }}
                 >
                   <Check className="h-3.5 w-3.5" />
