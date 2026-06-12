@@ -189,12 +189,11 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
   };
 
   const handleConfirmRevert = async () => {
+    if (revertReasons.length === 0 && !revertOther.trim()) return;
     const ids = Array.from(selected);
     setIsReverting(true);
     try {
-      const revertReason = (revertReasons.length > 0 || revertOther.trim())
-        ? { labels: revertReasons, other: revertOther.trim() || null }
-        : null;
+      const revertReason = { labels: revertReasons, other: revertOther.trim() || null };
       const { error } = await supabase
         .from('products')
         .update({
@@ -563,9 +562,9 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
       <Dialog open={showRevertDialog} onOpenChange={setShowRevertDialog}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle className="font-display">退回原因（可選）</DialogTitle>
+            <DialogTitle className="font-display">退回原因（必選）</DialogTitle>
             <DialogDescription className="font-body text-sm">
-              選擇退回原因，可多選。退回後產品將移至「產品文案」頁面並顯示退回原因標籤。
+              請選擇退回原因（至少選一項）。退回後產品將移至「產品文案」頁面並顯示退回原因標籤。
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-2 py-2">
@@ -601,7 +600,7 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
             <Button
               size="sm"
               className="font-display text-xs bg-amber-500 hover:bg-amber-600 text-white"
-              disabled={isReverting}
+              disabled={isReverting || (revertReasons.length === 0 && !revertOther.trim())}
               onClick={handleConfirmRevert}
             >
               {isReverting ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null}
