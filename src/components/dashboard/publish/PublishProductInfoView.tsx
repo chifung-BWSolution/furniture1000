@@ -76,26 +76,35 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
     reloadKey,
   });
 
-  // Fetch cost + image_url from ready_to_shopify for each product
+  // Fetch cost + image_url + images from ready_to_shopify for each product
   const [costMap, setCostMap] = useState<Record<string, number | null>>({});
   const [rtsImageMap, setRtsImageMap] = useState<Record<string, string>>({});
+  const [rtsImagesMap, setRtsImagesMap] = useState<Record<string, { src: string; alt: string }[]>>({});
   useEffect(() => {
     if (rows.length === 0) return;
     const ids = rows.map((r: any) => r.id);
     supabase
       .from('ready_to_shopify')
-      .select('product_id, cost, image_url')
+      .select('product_id, cost, image_url, images')
       .in('product_id', ids)
       .then(({ data }) => {
         if (!data) return;
         const costM: Record<string, number | null> = {};
         const imgM: Record<string, string> = {};
+        const imgsM: Record<string, { src: string; alt: string }[]> = {};
         for (const row of data) {
           costM[row.product_id] = row.cost != null ? Number(row.cost) : null;
           if (row.image_url) imgM[row.product_id] = row.image_url;
+          if (Array.isArray(row.images) && row.images.length > 0) {
+            imgsM[row.product_id] = row.images.map((img: any) => ({
+              src: img?.src || img?.url || (typeof img === 'string' ? img : ''),
+              alt: img?.alt || '',
+            })).filter((img: { src: string; alt: string }) => img.src && img.src !== row.image_url);
+          }
         }
         setCostMap(costM);
         setRtsImageMap(imgM);
+        setRtsImagesMap(imgsM);
       });
   }, [rows]);
 
@@ -304,6 +313,7 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
                   <div className="flex items-center gap-3 border-b border-border/60 px-5 py-3">
                     <input type="checkbox" checked={isSel} onChange={() => toggle(it.id)} className="h-4 w-4 rounded border-border accent-emerald-600" />
                     {/* Use ready_to_shopify image_url (base64 → img) if available, fallback to products.image_url */}
+                    {/* Primary image */}
                     <div
                       className="group relative h-12 w-12 flex-shrink-0 cursor-zoom-in"
                       onClick={() => { const src = rtsImageMap[it.id] || it.imageUrl; if (src) setLightboxSrc(src); }}
@@ -318,6 +328,33 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
                         <ZoomIn className="h-4 w-4 text-white" />
                       </div>
                     </div>
+                    {/* Additional images from ready_to_shopify.images */}
+                    {(rtsImagesMap[it.id] ?? []).length > 0 && (
+                      <div className="flex flex-shrink-0 items-center gap-1">
+                        {(rtsImagesMap[it.id] ?? []).slice(0, 6).map((img, idx) => (
+                          <div
+                            key={idx}
+                            className="group relative h-12 w-12 cursor-zoom-in flex-shrink-0"
+                            onClick={() => { if (img.src) setLightboxSrc(img.src); }}
+                          >
+                            <img
+                              src={img.src}
+                              alt={img.alt || it.title}
+                              loading="lazy"
+                              className="h-12 w-12 rounded-lg object-cover bg-muted"
+                            />
+                            <div className="absolute inset-0 hidden group-hover:flex items-center justify-center rounded-lg bg-black/30">
+                              <ZoomIn className="h-3 w-3 text-white" />
+                            </div>
+                          </div>
+                        ))}
+                        {(rtsImagesMap[it.id] ?? []).length > 6 && (
+                          <span className="rounded bg-muted px-1.5 py-0.5 font-body text-[10px] text-muted-foreground">
+                            +{(rtsImagesMap[it.id] ?? []).length - 6}
+                          </span>
+                        )}
+                      </div>
+                    )}
                     <div className="min-w-0 flex-1">
                       <h3 className="font-display text-[14px] font-bold text-foreground line-clamp-1">{it.title}</h3>
                       <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
