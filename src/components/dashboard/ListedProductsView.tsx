@@ -407,8 +407,9 @@ export function ListedProductsView({
       if (isCatalog) {
         countQuery = countQuery.eq('in_catalog', true);
       } else {
-        // 所有產品頁：排除已加入目錄 / Shopify 佇列 / 已忽略的產品
-        countQuery = countQuery.eq('in_catalog', false).eq('in_shopify_queue', false).eq('dismissed', false);
+        countQuery = countQuery
+          .or('in_shopify_queue.eq.true,info_done.eq.true,ready_to_publish.eq.true,copy_done.eq.true')
+          .is('copy_queued_at', null);
       }
 
       // 重複商品篩選：product_sku 為空，或屬於重複的 sku 集合
