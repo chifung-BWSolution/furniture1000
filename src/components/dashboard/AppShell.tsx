@@ -165,11 +165,8 @@ export function AppShell() {
     store.products.filter((p) => store.selectedProductIds.has(p.id)),
     [store.products, store.selectedProductIds]
   );
-  // 準備上載頁：顯示所有有 ready_to_shopify 記錄且 info_done=true 的產品
-  const readyToPublishProducts = useMemo(() =>
-    store.products.filter((p) => p.readyToPublish),
-    [store.products]
-  );
+  // 準備上載頁：直接使用 reloadReadyToPublish 填充的專用列表（不依賴主 products 狀態）
+  const readyToPublishProducts = store.readyToPublishList;
 
   // Refresh ready-to-publish list whenever entering the page so older products
   // (outside the first 100-row pagination window) still appear.

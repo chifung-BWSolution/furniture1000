@@ -288,6 +288,7 @@ export function useAppStore() {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [totalProductCount, setTotalProductCount] = useState(0);
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
+  const [readyToPublishList, setReadyToPublishList] = useState<Product[]>([]);
   const initialLoadDone = useRef(false);
 
   // Sync dark mode class on mount
@@ -387,36 +388,46 @@ export function useAppStore() {
 
   // Reload products from Supabase (used after publish/sync)
   // 準備上載 = products that have a record in ready_to_shopify (i.e. completed 產品文案).
-  // Fetches ALL such products regardless of pagination window.
+  // Stores results in dedicated readyToPublishList so main loadProducts() can never clobber them.
   const reloadReadyToPublish = useCallback(async () => {
     try {
       // Query all records from ready_to_shopify — this is the source of truth
-      const { data: rtsAll } = await supabase
+      const { data: rtsAll, error: rtsErr } = await supabase
         .from('ready_to_shopify')
         .select('product_id,image_url,images,body_html,variants');
+      if (rtsErr) {
+        console.warn('[reloadReadyToPublish] ready_to_shopify query error:', rtsErr.message);
+      }
       if (!rtsAll || rtsAll.length === 0) {
-        // All products were reverted — clear readyToPublish for all
-        setProducts(prev => prev.map(p => p.readyToPublish ? { ...p, readyToPublish: false } : p));
+        setReadyToPublishList([]);
         return;
       }
       const ids = rtsAll.map((r: any) => r.product_id).filter(Boolean);
       if (ids.length === 0) {
-        setProducts(prev => prev.map(p => p.readyToPublish ? { ...p, readyToPublish: false } : p));
+        setReadyToPublishList([]);
         return;
       }
 
-      // Fetch the corresponding product rows
-      const { data: rtpRows } = await supabase
-        .from('products')
-        .select('*')
-        .in('id', ids);
-      if (!rtpRows || rtpRows.length === 0) return;
+      // Fetch the corresponding product rows in batches of 100 (Supabase IN limit)
+      const BATCH = 100;
+      const allRtpRows: any[] = [];
+      for (let i = 0; i < ids.length; i += BATCH) {
+        const { data: batch } = await supabase
+          .from('products')
+          .select('*')
+          .in('id', ids.slice(i, i + BATCH));
+        if (batch) allRtpRows.push(...batch);
+      }
+      if (allRtpRows.length === 0) {
+        setReadyToPublishList([]);
+        return;
+      }
 
       // Fetch variants for enrichment
       const { data: variantRows } = await supabase
         .from('product_variants')
         .select('*')
-        .in('product_id', ids);
+        .in('product_id', ids.slice(0, BATCH));
 
       const variantsByProduct: Record<string, any[]> = {};
       (variantRows || []).forEach((v: any) => {
@@ -429,24 +440,18 @@ export function useAppStore() {
         rtsByProductId[r.product_id] = { image_url: r.image_url, images: r.images, body_html: r.body_html, variants: r.variants ?? null };
       });
 
-      const loaded = rtpRows.map((row: any) => {
+      const loaded = allRtpRows.map((row: any) => {
         const product = dbRowToProduct(row, variantsByProduct[row.id] || []);
-        // Ensure product shows in 準備上載 filter (readyToPublish=true)
         product.readyToPublish = true;
         const rts = rtsByProductId[row.id];
         if (rts) {
-          // Override description + descriptionHtml with body_html (Shopify 產品說明).
-          // ProductDetailModal uses descriptionHtml first, so both must be set.
           if (rts.body_html) {
             product.description = rts.body_html;
             product.descriptionHtml = rts.body_html;
           }
-
-          // Use ready_to_shopify image_url as primary (supports both HTTP URL and base64)
           const primarySrc = rts.image_url || product.imageUrl || '';
           if (primarySrc) product.imageUrl = primarySrc;
 
-          // Build full images array: primary first, then additional images from ready_to_shopify.images
           const allImages: { src: string; alt: string }[] = [];
           if (primarySrc) allImages.push({ src: primarySrc, alt: product.title });
           if (Array.isArray(rts.images)) {
@@ -457,7 +462,6 @@ export function useAppStore() {
           }
           if (allImages.length > 0) (product as any).images = allImages;
 
-          // Restore saved variants from ready_to_shopify.variants (Shopify format → ProductVariant[])
           if (Array.isArray(rts.variants) && rts.variants.length > 0) {
             product.variants = rts.variants.map((v: any) => ({
               id: String(v.id ?? ''),
@@ -473,18 +477,7 @@ export function useAppStore() {
         return product;
       });
 
-      const activeIdSet = new Set(ids);
-      setProducts(prev => {
-        const byId = new Map(prev.map(p => [p.id, p]));
-        // Clear readyToPublish for products no longer in ready_to_shopify
-        for (const [id, p] of byId) {
-          if (p.readyToPublish && !activeIdSet.has(id)) {
-            byId.set(id, { ...p, readyToPublish: false });
-          }
-        }
-        loaded.forEach(p => byId.set(p.id, p));
-        return Array.from(byId.values());
-      });
+      setReadyToPublishList(loaded);
     } catch (err) {
       console.warn('[Supabase] Reload ready-to-publish error:', err);
     }
@@ -1691,6 +1684,7 @@ export function useAppStore() {
 
   return {
     products,
+    readyToPublishList,
     settings,
     currentView,
     selectedProductIds,
