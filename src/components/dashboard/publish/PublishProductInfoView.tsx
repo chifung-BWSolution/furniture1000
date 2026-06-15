@@ -199,6 +199,7 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
         .update({
           copy_done: false,
           copy_done_at: null,
+          copy_queued_at: new Date().toISOString(),
           info_done: false,
           revert_reason: revertReason,
         })

@@ -46,7 +46,7 @@ export async function addToShopifyQueue(ids: string[]): Promise<{ ok: boolean; c
   try {
     const { error } = await supabase
       .from('products')
-      .update({ in_shopify_queue: true, in_catalog: true })
+      .update({ in_shopify_queue: true, in_catalog: true, copy_queued_at: new Date().toISOString() })
       .in('id', ids);
     if (error) return { ok: false, count: 0, error: error.message };
     return { ok: true, count: ids.length };

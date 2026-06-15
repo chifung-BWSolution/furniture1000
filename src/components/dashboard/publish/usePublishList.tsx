@@ -108,18 +108,18 @@ export function usePublishList({ select, applyBaseFilters, reloadKey = 0 }: UseP
         return q;
       };
 
-      // Data query — try ordering by copy_done_at first (requires the column to exist).
-      // If the column doesn't exist yet (migration not yet run), fall back to created_at only.
+      // Data query — sort by copy_queued_at DESC (most recently queued/reverted first),
+      // falling back to created_at if the column doesn't exist yet.
       let data: any[] | null = null;
       const { data: d1, error: e1 } = await buildFilters(
         supabase.from('products').select(select)
-          .order('copy_done_at', { ascending: false, nullsFirst: false })
+          .order('copy_queued_at', { ascending: false, nullsFirst: false })
           .order('created_at', { ascending: false })
           .range(from, to)
       );
       if (e1) {
-        // copy_done_at column likely missing — fall back
-        console.warn('[usePublishList] copy_done_at order failed, falling back to created_at:', e1.message);
+        // copy_queued_at column likely missing — fall back
+        console.warn('[usePublishList] copy_queued_at order failed, falling back to created_at:', e1.message);
         const { data: d2 } = await buildFilters(
           supabase.from('products').select(select)
             .order('created_at', { ascending: false })
