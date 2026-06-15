@@ -789,47 +789,6 @@ Deno.serve(async (req: Request) => {
           console.warn(`[publish-to-shopify] ⚠️ shopify_products mirror write failed (non-blocking):`, spErr instanceof Error ? spErr.message : String(spErr));
         }
 
-        // ── DUAL WRITE: Upsert into bwf_product_master ────────────────────
-        // Action A: Primary project (local bwf_product_master)
-        // Action B: Global Master project (permanent archive at kqwktnplkqucsbasyfjl)
-        const masterRecord = {
-          shopify_id: shopifyProductId,
-          title: product.title || null,
-          category: product.category || product.collection || null,
-          factory_name: product.factory_name || null,
-          image_url: resolvedImageUrl || product.image_url || null,
-          description: product.description_html || null,
-          material: product.material || null,
-          dimension_l_mm: product.dimension_l_mm || null,
-          dimension_w_mm: product.dimension_w_mm || null,
-          dimension_h_mm: product.dimension_h_mm || null,
-          cost_price: product.cost_price || null,
-          sale_price: product.sale_price || product.price || null,
-          shopify_price: shopifyReturnedPrice,
-          shopify_compare_at_price: shopifyReturnedCompareAt,
-          delivery_days: product.delivery_days || null,
-        };
-
-        // Action A: Primary project local bwf_product_master
-        try {
-          const { error: localMasterErr } = await supabase
-            .from("bwf_product_master")
-            .upsert(masterRecord, { onConflict: "shopify_id" });
-
-          if (localMasterErr) {
-            console.error(`[publish-to-shopify] ⚠️ PRIMARY bwf_product_master upsert error for "${product.title}":`, localMasterErr.message);
-          } else {
-            console.log(`[publish-to-shopify] ✅ PRIMARY bwf_product_master upserted for Shopify ID: ${shopifyProductId}`);
-          }
-        } catch (localMasterCatchErr) {
-          console.error(`[publish-to-shopify] ⚠️ PRIMARY bwf_product_master upsert exception:`, localMasterCatchErr);
-        }
-
-        // Action B: Global Master project (permanent archive)
-        if (masterSupabase) {
-          await upsertToMaster(masterSupabase, masterRecord);
-        }
-
         results.push({
           id: product.id,
           success: true,
