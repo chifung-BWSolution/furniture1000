@@ -387,37 +387,32 @@ export function useAppStore() {
   }, []);
 
   // Reload products from Supabase (used after publish/sync)
-  // 準備上載 = all rows in ready_to_shopify table (self-contained product data, no product_id FK).
-  // Strategy: fetch lightweight columns first (no image_url/images — they are base64 and can be
-  // 500 KB+ each, causing the response to exceed limits for 200+ rows). Then patch images in
-  // small batches of 20 in the background so the list renders immediately.
+  // 準備上載 = all rows in ready_to_shopify (has product_id FK → products table).
+  // Strategy:
+  //   Step 1 – lightweight RTS fetch (no images) → render list immediately
+  //   Step 2 – batch-fetch products rows for SKU/cost/dimensions/tags → patch in
+  //   Step 3 – batch-fetch images 20 at a time → patch thumbnails progressively
   const reloadReadyToPublish = useCallback(async () => {
     try {
-      // ── Step 1: lightweight fetch (no image data) ──────────────────────────
+      // ── Step 1: lightweight RTS fetch (no image_url/images) ───────────────
       const PAGE = 200;
       let allRows: any[] = [];
       let from = 0;
       while (true) {
         const { data, error } = await supabase
           .from('ready_to_shopify')
-          .select('id,title,body_html,vendor,product_type,variants,tags,price,compare_at_price,shopify_product_id,status')
+          .select('id,product_id,title,body_html,vendor,product_type,variants,tags,price,compare_at_price,shopify_product_id,status')
           .range(from, from + PAGE - 1);
-        if (error) {
-          console.warn('[reloadReadyToPublish] query error:', error.message);
-          break;
-        }
+        if (error) { console.warn('[reloadReadyToPublish] query error:', error.message); break; }
         if (!data || data.length === 0) break;
         allRows = allRows.concat(data);
         if (data.length < PAGE) break;
         from += PAGE;
       }
 
-      if (allRows.length === 0) {
-        setReadyToPublishList([]);
-        return;
-      }
+      if (allRows.length === 0) { setReadyToPublishList([]); return; }
 
-      const rowToProduct = (row: any, imageUrl = ''): Product => {
+      const rowToProduct = (row: any, extra?: any): Product => {
         const variants: ProductVariant[] = Array.isArray(row.variants) && row.variants.length > 0
           ? row.variants.map((v: any) => ({
               id: String(v.id ?? Math.random().toString(36).slice(2)),
@@ -428,10 +423,12 @@ export function useAppStore() {
               inventory: v.inventory_quantity ?? 0,
             }))
           : [];
-        const tags: string[] = Array.isArray(row.tags)
-          ? row.tags
-          : typeof row.tags === 'string' && row.tags
-            ? row.tags.split(',').map((t: string) => t.trim()).filter(Boolean)
+        // tags: prefer products table (has real tags), fallback to RTS
+        const rawTags = extra?.tags ?? row.tags;
+        const tags: string[] = Array.isArray(rawTags)
+          ? rawTags
+          : typeof rawTags === 'string' && rawTags
+            ? rawTags.split(',').map((t: string) => t.trim()).filter(Boolean)
             : [];
         return {
           id: row.id,
@@ -443,25 +440,89 @@ export function useAppStore() {
           compareAtPrice: row.compare_at_price != null ? parseFloat(row.compare_at_price) : undefined,
           collection: row.product_type || '',
           status: 'draft' as ProductStatus,
-          imageUrl,
+          imageUrl: '',
           shopifyProductId: row.shopify_product_id || null,
           factoriesDisplayName: row.vendor || '',
           createdAt: new Date().toISOString(),
           source: 'local' as ProductSource,
           variants,
           readyToPublish: true,
+          // Fields from products table (populated in step 2)
+          sku: extra?.sku ?? undefined,
+          costPrice: extra?.cost_price != null ? parseFloat(extra.cost_price) : null,
+          salePrice: extra?.sale_price != null ? parseFloat(extra.sale_price) : 0,
+          dimensionLMm: extra?.dimension_l_mm ?? null,
+          dimensionWMm: extra?.dimension_w_mm ?? null,
+          dimensionHMm: extra?.dimension_h_mm ?? null,
+          category: extra?.category ?? undefined,
+          material: extra?.material ?? '',
+          factoryId: extra?.factory_id ?? null,
+          bwfMasterId: extra?.bwf_master_id ?? null,
+          productionLeadTime: extra?.production_date ?? null,
+          shippingDays: extra?.shipping_days ?? null,
+          shippingFee: extra?.shipping_fee ?? null,
+          remarks: extra?.remarks ?? null,
         } as Product;
       };
 
-      // Render list immediately with no images so user sees products right away
+      // Render list immediately (no SKU/cost/images yet)
       const loaded = allRows.map(row => rowToProduct(row));
       setReadyToPublishList(loaded);
-      console.log(`[reloadReadyToPublish] Loaded ${loaded.length} products (images pending)`);
+      console.log(`[reloadReadyToPublish] Loaded ${loaded.length} products (enrichment pending)`);
 
-      // ── Step 2: patch images in background batches of 20 ──────────────────
+      // ── Step 2: fetch products rows for SKU/cost/dimensions/tags ──────────
+      const productIds = allRows.map((r: any) => r.product_id).filter(Boolean);
+      const PROD_BATCH = 100;
+      const productMap: Record<string, any> = {};
+      for (let i = 0; i < productIds.length; i += PROD_BATCH) {
+        const { data: pRows } = await supabase
+          .from('products')
+          .select('id,sku,cost_price,sale_price,dimension_l_mm,dimension_w_mm,dimension_h_mm,tags,category,material,factory_id,bwf_master_id,production_date,shipping_days,shipping_fee,remarks')
+          .in('id', productIds.slice(i, i + PROD_BATCH));
+        (pRows || []).forEach((p: any) => { productMap[p.id] = p; });
+      }
+
+      // Build rtsId → productId map
+      const rtsToProductId: Record<string, string> = {};
+      allRows.forEach((r: any) => { if (r.product_id) rtsToProductId[r.id] = r.product_id; });
+
+      setReadyToPublishList(prev =>
+        prev.map(p => {
+          const prodId = rtsToProductId[p.id];
+          const extra = prodId ? productMap[prodId] : null;
+          if (!extra) return p;
+          const rawTags = extra.tags;
+          const tags: string[] = Array.isArray(rawTags) ? rawTags
+            : typeof rawTags === 'string' && rawTags
+              ? rawTags.split(',').map((t: string) => t.trim()).filter(Boolean)
+              : p.tags;
+          return {
+            ...p,
+            tags,
+            sku: extra.sku || p.sku,
+            costPrice: extra.cost_price != null ? parseFloat(extra.cost_price) : p.costPrice,
+            salePrice: extra.sale_price != null ? parseFloat(extra.sale_price) : p.salePrice,
+            dimensionLMm: extra.dimension_l_mm ?? p.dimensionLMm,
+            dimensionWMm: extra.dimension_w_mm ?? p.dimensionWMm,
+            dimensionHMm: extra.dimension_h_mm ?? p.dimensionHMm,
+            category: extra.category || p.category,
+            material: extra.material || p.material,
+            factoryId: extra.factory_id || p.factoryId,
+            bwfMasterId: extra.bwf_master_id || p.bwfMasterId,
+            productionLeadTime: extra.production_date ?? p.productionLeadTime,
+            shippingDays: extra.shipping_days ?? p.shippingDays,
+            shippingFee: extra.shipping_fee ?? p.shippingFee,
+            remarks: extra.remarks ?? p.remarks,
+          };
+        })
+      );
+      console.log(`[reloadReadyToPublish] SKU/cost/dimensions patched`);
+
+      // ── Step 3: patch images in background batches of 20 ──────────────────
       const IMG_BATCH = 20;
-      for (let i = 0; i < allRows.length; i += IMG_BATCH) {
-        const batchIds = allRows.slice(i, i + IMG_BATCH).map((r: any) => r.id);
+      const rtsIds = allRows.map((r: any) => r.id);
+      for (let i = 0; i < rtsIds.length; i += IMG_BATCH) {
+        const batchIds = rtsIds.slice(i, i + IMG_BATCH);
         const { data: imgRows } = await supabase
           .from('ready_to_shopify')
           .select('id,image_url,images')
