@@ -652,14 +652,16 @@ export function PublishedProductsView() {
       {/* ── Product Detail Dialog ─────────────────────────────────────── */}
       {detailProduct && (() => {
         const r = detailProduct.raw;
-        // Build full gallery: image_url first, then images[] (deduplicated)
-        const extraImgs: ShopifyImage[] = Array.isArray(r.images) ? r.images : [];
-        const allImgs: ShopifyImage[] = [];
-        if (r.image_url) allImgs.push({ src: r.image_url, alt: r.title || '' });
-        for (const im of extraImgs) {
-          if (im.src && im.src !== r.image_url) allImgs.push(im);
-        }
+        // Gallery: use images[] (sorted by position) as the full strip.
+        // images[] already contains ALL images including the main one.
+        // Fall back to image_url-only entry when images[] is absent/empty.
+        const rawImgs: ShopifyImage[] = Array.isArray(r.images) ? r.images : [];
+        const sortedImgs = [...rawImgs].sort((a, b) => (a.position ?? 99) - (b.position ?? 99));
+        const allImgs: ShopifyImage[] = sortedImgs.length > 0
+          ? sortedImgs
+          : (r.image_url ? [{ src: r.image_url, alt: r.title || '' }] : []);
         const variants: ShopifyVariant[] = Array.isArray(r.variants) ? r.variants : [];
+        // Hero: selected thumbnail, else images[0], else image_url
         const heroImage = allImgs[activeImageIdx]?.src || r.image_url || '';
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setDetailProduct(null)}>
