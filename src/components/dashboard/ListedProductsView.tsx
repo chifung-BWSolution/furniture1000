@@ -232,7 +232,8 @@ export function ListedProductsView({
 
       const applyVisibility = (q: any) => isCatalog
         ? q.eq('in_catalog', true)
-        : q.eq('in_catalog', false).eq('in_shopify_queue', false).eq('dismissed', false);
+        : q.or('in_shopify_queue.eq.true,info_done.eq.true,ready_to_publish.eq.true,copy_done.eq.true')
+            .is('copy_queued_at', null);
 
       // Paginated fetch helper
       const fetchAllPages = async (columns: string, extraFilter: (q: any) => any) => {
