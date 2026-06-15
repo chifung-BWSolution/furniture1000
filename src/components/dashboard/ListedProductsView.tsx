@@ -351,7 +351,8 @@ export function ListedProductsView({
       if (isCatalog) {
         q = q.eq('in_catalog', true);
       } else {
-        q = q.eq('in_catalog', false).eq('in_shopify_queue', false).eq('dismissed', false);
+        q = q.or('in_shopify_queue.eq.true,info_done.eq.true,ready_to_publish.eq.true,copy_done.eq.true')
+             .is('copy_queued_at', null);
       }
       const { data } = await q;
       if (cancelled || !data) return;
