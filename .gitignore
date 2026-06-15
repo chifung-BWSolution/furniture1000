@@ -33,6 +33,4 @@ core
 tempo/.tempo/
 tempo/node_modules/
 tempo/dist/
-# Temp / local query files
-localnull.json
-mq.json
+furniture1000-main/
