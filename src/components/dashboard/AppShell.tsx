@@ -161,10 +161,15 @@ export function AppShell() {
   const [focusProductId, setFocusProductId] = useState<string | null>(null);
   // Real total/selected counts reported up from ListedProductsView (所有產品)
   const [listedStats, setListedStats] = useState<{ total: number; selected: number; selectedIds: string[] }>({ total: 0, selected: 0, selectedIds: [] });
-  const selectedProducts = useMemo(() =>
-    store.products.filter((p) => store.selectedProductIds.has(p.id)),
-    [store.products, store.selectedProductIds]
-  );
+  const selectedProducts = useMemo(() => {
+    const all = [...store.products, ...store.readyToPublishList];
+    const seen = new Set<string>();
+    return all.filter(p => {
+      if (!store.selectedProductIds.has(p.id) || seen.has(p.id)) return false;
+      seen.add(p.id);
+      return true;
+    });
+  }, [store.products, store.readyToPublishList, store.selectedProductIds]);
   // 準備上載頁：直接使用 reloadReadyToPublish 填充的專用列表（不依賴主 products 狀態）
   const readyToPublishProducts = store.readyToPublishList;
 

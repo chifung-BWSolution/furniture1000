@@ -997,7 +997,11 @@ export function useAppStore() {
     const ids = Array.from(selectedProductIds);
     setIsPublishing(true);
 
-    const selectedProducts = products.filter(p => ids.includes(p.id));
+    // Search both the main list and the ready-to-publish list (they are separate state)
+    const allAvailable = [...products, ...readyToPublishList];
+    const seen = new Set<string>();
+    const dedupedAvailable = allAvailable.filter(p => { if (seen.has(p.id)) return false; seen.add(p.id); return true; });
+    const selectedProducts = dedupedAvailable.filter(p => ids.includes(p.id));
 
     if (selectedProducts.length === 0) {
       console.warn('[uploadToMasterDb] No products selected');
@@ -1337,7 +1341,7 @@ export function useAppStore() {
       setIsPublishing(false);
       await reloadProducts();
     }
-  }, [selectedProductIds, products, reloadProducts]);
+  }, [selectedProductIds, products, readyToPublishList, reloadProducts]);
 
   // Retry upload to Global Master Database (single product)
   const retryPublish = useCallback(async (id: string) => {
