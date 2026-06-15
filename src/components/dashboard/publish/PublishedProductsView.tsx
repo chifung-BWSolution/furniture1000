@@ -700,12 +700,12 @@ export function PublishedProductsView() {
                         {allImgs.map((im, idx) => (
                           <button
                             key={im.id ?? idx}
-                            onClick={() => setActiveImageIdx(idx)}
+                            onClick={() => { setActiveImageIdx(idx); if (im.src) setLightboxSrc(im.src); }}
                             className={cn(
-                              'h-16 w-16 rounded-md overflow-hidden border-2 transition-colors flex-shrink-0',
+                              'h-16 w-16 rounded-md overflow-hidden border-2 transition-colors flex-shrink-0 cursor-zoom-in',
                               idx === activeImageIdx ? 'border-primary' : 'border-transparent hover:border-border'
                             )}
-                            title={`圖片 ${idx + 1} — 點擊查看`}
+                            title={`圖片 ${idx + 1} — 點擊放大`}
                           >
                             {im.src ? (
                               <img src={im.src} alt="" className="w-full h-full object-cover" />
