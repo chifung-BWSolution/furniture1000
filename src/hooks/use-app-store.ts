@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { Product, ProductStatus, ProductSource, AppSettings, ViewType } from '@/types/product';
+import { Product, ProductVariant, ProductStatus, ProductSource, AppSettings, ViewType } from '@/types/product';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 
@@ -387,97 +387,86 @@ export function useAppStore() {
   }, []);
 
   // Reload products from Supabase (used after publish/sync)
-  // 準備上載 = products that have a record in ready_to_shopify (i.e. completed 產品文案).
+  // 準備上載 = all rows in ready_to_shopify table (self-contained product data, no product_id FK).
   // Stores results in dedicated readyToPublishList so main loadProducts() can never clobber them.
   const reloadReadyToPublish = useCallback(async () => {
     try {
-      // Query all records from ready_to_shopify — this is the source of truth
-      const { data: rtsAll, error: rtsErr } = await supabase
-        .from('ready_to_shopify')
-        .select('product_id,image_url,images,body_html,variants');
-      if (rtsErr) {
-        console.warn('[reloadReadyToPublish] ready_to_shopify query error:', rtsErr.message);
-      }
-      if (!rtsAll || rtsAll.length === 0) {
-        setReadyToPublishList([]);
-        return;
-      }
-      const ids = rtsAll.map((r: any) => r.product_id).filter(Boolean);
-      if (ids.length === 0) {
-        setReadyToPublishList([]);
-        return;
+      // Paginate through all ready_to_shopify rows (max 1000 per request)
+      const PAGE = 1000;
+      let allRows: any[] = [];
+      let from = 0;
+      while (true) {
+        const { data, error } = await supabase
+          .from('ready_to_shopify')
+          .select('id,title,body_html,vendor,product_type,image_url,images,variants,tags,price,compare_at_price,shopify_product_id,status')
+          .range(from, from + PAGE - 1);
+        if (error) {
+          console.warn('[reloadReadyToPublish] query error:', error.message);
+          break;
+        }
+        if (!data || data.length === 0) break;
+        allRows = allRows.concat(data);
+        if (data.length < PAGE) break;
+        from += PAGE;
       }
 
-      // Fetch the corresponding product rows in batches of 100 (Supabase IN limit)
-      const BATCH = 100;
-      const allRtpRows: any[] = [];
-      for (let i = 0; i < ids.length; i += BATCH) {
-        const { data: batch } = await supabase
-          .from('products')
-          .select('*')
-          .in('id', ids.slice(i, i + BATCH));
-        if (batch) allRtpRows.push(...batch);
-      }
-      if (allRtpRows.length === 0) {
+      if (allRows.length === 0) {
         setReadyToPublishList([]);
         return;
       }
 
-      // Fetch variants for enrichment
-      const { data: variantRows } = await supabase
-        .from('product_variants')
-        .select('*')
-        .in('product_id', ids.slice(0, BATCH));
-
-      const variantsByProduct: Record<string, any[]> = {};
-      (variantRows || []).forEach((v: any) => {
-        (variantsByProduct[v.product_id] ??= []).push(v);
-      });
-
-      // Build a map of ready_to_shopify data keyed by product_id
-      const rtsByProductId: Record<string, { image_url: string | null; images: any[] | null; body_html: string | null; variants: any[] | null }> = {};
-      rtsAll.forEach((r: any) => {
-        rtsByProductId[r.product_id] = { image_url: r.image_url, images: r.images, body_html: r.body_html, variants: r.variants ?? null };
-      });
-
-      const loaded = allRtpRows.map((row: any) => {
-        const product = dbRowToProduct(row, variantsByProduct[row.id] || []);
-        product.readyToPublish = true;
-        const rts = rtsByProductId[row.id];
-        if (rts) {
-          if (rts.body_html) {
-            product.description = rts.body_html;
-            product.descriptionHtml = rts.body_html;
+      // Convert ready_to_shopify rows directly to Product objects
+      const loaded: Product[] = allRows.map((row: any) => {
+        const primarySrc: string = row.image_url || '';
+        const allImages: { src: string; alt: string }[] = [];
+        if (primarySrc) allImages.push({ src: primarySrc, alt: row.title || '' });
+        if (Array.isArray(row.images)) {
+          for (const img of row.images) {
+            const src: string = img?.src || img?.url || (typeof img === 'string' ? img : '');
+            if (src && src !== primarySrc) allImages.push({ src, alt: img?.alt || '' });
           }
-          const primarySrc = rts.image_url || product.imageUrl || '';
-          if (primarySrc) product.imageUrl = primarySrc;
+        }
 
-          const allImages: { src: string; alt: string }[] = [];
-          if (primarySrc) allImages.push({ src: primarySrc, alt: product.title });
-          if (Array.isArray(rts.images)) {
-            for (const img of rts.images) {
-              const src = img?.src || img?.url || (typeof img === 'string' ? img : '');
-              if (src && src !== primarySrc) allImages.push({ src, alt: img?.alt || '' });
-            }
-          }
-          if (allImages.length > 0) (product as any).images = allImages;
-
-          if (Array.isArray(rts.variants) && rts.variants.length > 0) {
-            product.variants = rts.variants.map((v: any) => ({
-              id: String(v.id ?? ''),
+        const variants: ProductVariant[] = Array.isArray(row.variants) && row.variants.length > 0
+          ? row.variants.map((v: any) => ({
+              id: String(v.id ?? Math.random().toString(36).slice(2)),
               sku: v.sku ?? '',
               price: typeof v.price === 'number' ? v.price : parseFloat(v.price) || 0,
               size: v.option1 ?? v.title ?? '',
-              color: '',
+              color: v.option2 ?? '',
               inventory: v.inventory_quantity ?? 0,
-              option1: v.option1 ?? v.title ?? '',
-            }));
-          }
-        }
-        return product;
+            }))
+          : [];
+
+        const tags: string[] = Array.isArray(row.tags)
+          ? row.tags
+          : typeof row.tags === 'string' && row.tags
+            ? row.tags.split(',').map((t: string) => t.trim()).filter(Boolean)
+            : [];
+
+        return {
+          id: row.id,
+          title: row.title || '',
+          description: row.body_html || '',
+          descriptionHtml: row.body_html || '',
+          tags,
+          price: row.price != null ? parseFloat(row.price) : 0,
+          compareAtPrice: row.compare_at_price != null ? parseFloat(row.compare_at_price) : undefined,
+          collection: row.product_type || '',
+          status: 'draft' as ProductStatus,
+          imageUrl: primarySrc,
+          shopifyProductId: row.shopify_product_id || null,
+          factoriesDisplayName: row.vendor || '',
+          createdAt: new Date().toISOString(),
+          source: 'local' as ProductSource,
+          variants,
+          readyToPublish: true,
+          images: allImages.length > 0 ? allImages : undefined,
+        } as Product & { images?: { src: string; alt: string }[] };
       });
 
       setReadyToPublishList(loaded);
+      console.log(`[reloadReadyToPublish] Loaded ${loaded.length} products from ready_to_shopify`);
     } catch (err) {
       console.warn('[Supabase] Reload ready-to-publish error:', err);
     }
