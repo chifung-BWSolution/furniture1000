@@ -242,8 +242,7 @@ const styles: Record<string, any> = {
   tableRow: { display: 'flex', flexDirection: 'row', borderBottomWidth: 0.5, borderColor: '#ddd', minHeight: 60, alignItems: 'stretch' },
   colIndex: { width: '5%', display: 'flex', justifyContent: 'center', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd', paddingVertical: 4 },
   colDesc: { width: '12%', paddingLeft: 4, paddingRight: 4, paddingTop: 4, paddingBottom: 4, display: 'flex', flexDirection: 'column', justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
-  colMaterial: { width: '22%', paddingLeft: 4, paddingRight: 4, paddingTop: 4, paddingBottom: 4, display: 'flex', flexDirection: 'column', justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
-  colAlternative: { width: '4%', display: 'flex', justifyContent: 'center', alignItems: 'center', textAlign: 'center', borderRightWidth: 0.5, borderColor: '#ddd', paddingVertical: 4 },
+  colMaterial: { width: '26%', paddingLeft: 4, paddingRight: 4, paddingTop: 4, paddingBottom: 4, display: 'flex', flexDirection: 'column', justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
   colRemarks: { width: '9%', paddingLeft: 4, paddingRight: 4, paddingTop: 4, paddingBottom: 4, display: 'flex', flexDirection: 'column', justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
   colImage: { width: '15%', paddingLeft: 4, paddingRight: 4, paddingTop: 4, paddingBottom: 4, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
   colQty: { width: '5%', display: 'flex', justifyContent: 'center', alignItems: 'center', textAlign: 'center', borderRightWidth: 0.5, borderColor: '#ddd', paddingVertical: 4 },
@@ -261,16 +260,16 @@ const styles: Record<string, any> = {
   sectionTitle: { fontSize: 9, fontWeight: 700, marginTop: 16, marginBottom: 4, lineHeight: 1.4 },
   sectionText: { fontSize: 7.5, lineHeight: 1.8, marginBottom: 2 },
   boldText: { fontWeight: 700 },
-  termsTitle: { fontSize: 8.5, fontWeight: 700, marginTop: 4, marginBottom: 3, textDecoration: 'underline', lineHeight: 1.3 },
-  termItem: { fontSize: 6.5, lineHeight: 1.4, marginBottom: 0.5, textAlign: 'left' },
-  termSubTitle: { fontSize: 7.5, fontWeight: 700, marginTop: 4, marginBottom: 1.5, lineHeight: 1.3 },
-  signatureSection: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10, paddingTop: 6 },
+  termsTitle: { fontSize: 9, fontWeight: 700, marginTop: 12, marginBottom: 6, textDecoration: 'underline', lineHeight: 1.4 },
+  termItem: { fontSize: 7, lineHeight: 1.7, marginBottom: 1.5, textAlign: 'left' },
+  termSubTitle: { fontSize: 8, fontWeight: 700, marginTop: 8, marginBottom: 3, lineHeight: 1.4 },
+  signatureSection: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 36, paddingTop: 12 },
   signatureBlock: { width: '45%' },
-  signatureTitle: { fontSize: 8.5, fontWeight: 700, marginBottom: 3, lineHeight: 1.3 },
-  signatureLabel: { fontSize: 7.5, lineHeight: 1.3 },
-  signatureMiddle: { height: 36, position: 'relative' },
-  signatureLine: { borderBottomWidth: 0.5, borderColor: '#333', marginBottom: 3 },
-  signatureDate: { fontSize: 7, color: '#666', lineHeight: 1.3 },
+  signatureTitle: { fontSize: 9, fontWeight: 700, marginBottom: 6, lineHeight: 1.4 },
+  signatureLabel: { fontSize: 8, lineHeight: 1.4 },
+  signatureMiddle: { height: 70, position: 'relative' },
+  signatureLine: { borderBottomWidth: 0.5, borderColor: '#333', marginBottom: 4 },
+  signatureDate: { fontSize: 7, color: '#666', lineHeight: 1.4 },
   stamp: { width: 64, height: 64, objectFit: 'contain', position: 'absolute', bottom: 0, right: 0, opacity: 0.85 },
 };
 
@@ -343,7 +342,6 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
             <View style={styles.colIndex}><Text style={styles.tableHeaderText}>{'\u5E8F\u865F'}</Text></View>
             <View style={styles.colDesc}><Text style={styles.tableHeaderText}>{'\u8AAA\u660E'}</Text></View>
             <View style={styles.colMaterial}><Text style={styles.tableHeaderText}>{'\u6750\u8CEA\u53CA\u660E\u7D30'}</Text></View>
-            <View style={styles.colAlternative}><Text style={styles.tableHeaderText}>{'\u5099\u9078'}</Text></View>
             <View style={styles.colRemarks}><Text style={styles.tableHeaderText}>{'\u5099\u6CE8'}</Text></View>
             <View style={styles.colImage}><Text style={styles.tableHeaderText}>{'\u5716\u4F8B'}</Text></View>
             <View style={styles.colQty}><Text style={styles.tableHeaderText}>{'\u6578\u91CF'}</Text></View>
@@ -354,7 +352,7 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
 
           {items.map((item, idx) => {
             if (item?.isCustomTerm) {
-              // Description spans 說明→圖例 (5 cols: 12+22+4+9+15 = 62%); 數量/單位/單價/總價 keep their widths so columns align with product rows
+              // Description spans 說明→圖例 (4 cols: 12+26+9+15 = 62%); 數量/單位/單價/總價 keep their widths so columns align with product rows
               return (
                 <View style={{ display: 'flex', flexDirection: 'row', borderBottomWidth: 0.5, borderColor: '#ddd', minHeight: 28, alignItems: 'stretch' }} key={idx} wrap={false}>
                   <View style={styles.colIndex}><Text style={styles.tableCellText}>{idx + 1}</Text></View>
@@ -389,13 +387,6 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
                       </Text>
                     ) : null}
                   </View>
-                </View>
-                <View style={styles.colAlternative}>
-                  {item?.isAlternative ? (
-                    <Text style={{ fontSize: 7, color: '#b45309', textAlign: 'center', lineHeight: 1.3 }}>{'✓'}</Text>
-                  ) : (
-                    <Text style={{ fontSize: 7, color: '#ccc', textAlign: 'center', lineHeight: 1.3 }}>{'-'}</Text>
-                  )}
                 </View>
                 <View style={styles.colRemarks}>
                   <View style={{ width: '100%' }}>
@@ -460,9 +451,9 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
       </Page>
 
       {/* Page 2 - Terms & Conditions */}
-      <Page size="A4" style={{ ...styles.page, paddingTop: 20, paddingBottom: 25 }}>
-        <View style={{ ...styles.headerRow, marginBottom: 8 }}>
-          <Image src={logoUrl} style={{ ...styles.logo, width: 100, height: 28 }} />
+      <Page size="A4" style={styles.page}>
+        <View style={styles.headerRow}>
+          <Image src={logoUrl} style={styles.logo} />
         </View>
 
         <Text style={styles.termsTitle}>{'\u689D\u6B3E\u53CA\u4ED8\u6B3E'}</Text>
@@ -544,13 +535,16 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
           </>
         )}
 
-        {/* Customer signature -- absolutely positioned at bottom, always on same page as terms */}
-        <View style={{ position: 'absolute', bottom: 38, left: 40 }}>
-          <Text style={styles.signatureTitle}>{'客戶確認'}</Text>
-          <Text style={styles.signatureLabel}>{'客戶授權人姓名及簽名'}</Text>
-          <View style={{ height: 32 }} />
-          <View style={{ borderBottomWidth: 0.5, borderColor: '#333', marginBottom: 3, width: 180 }} />
-          <Text style={styles.signatureDate}>{'簽署日期:'}</Text>
+        {/* Customer signature only — kept on the same page as the terms.
+            minPresenceAhead reserves space so it isn't pushed to a new page. */}
+        <View style={styles.signatureSection} wrap={false} minPresenceAhead={80}>
+          <View style={styles.signatureBlock}>
+            <Text style={styles.signatureTitle}>{'\u5BA2\u6236\u78BA\u8A8D'}</Text>
+            <Text style={styles.signatureLabel}>{'\u5BA2\u6236\u6388\u6B0A\u4EBA\u59D3\u540D\u53CA\u7C3D\u540D'}</Text>
+            <View style={styles.signatureMiddle} />
+            <View style={styles.signatureLine} />
+            <Text style={styles.signatureDate}>{'\u7C3D\u7F72\u65E5\u671F:'}</Text>
+          </View>
         </View>
 
         <Text

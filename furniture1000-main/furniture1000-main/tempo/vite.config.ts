@@ -1,6 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import tailwindcss from "@tailwindcss/vite";
+import tailwindcss from "tailwindcss";
+import autoprefixer from "autoprefixer";
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
 import tsconfigPaths from "vite-tsconfig-paths";
@@ -12,8 +13,12 @@ export default defineConfig(async () => {
 
   return {
     root: tempoRoot,
+    css: {
+      postcss: {
+        plugins: [tailwindcss({ config: path.resolve(tempoRoot, "../tailwind.config.js") }), autoprefixer()],
+      },
+    },
     plugins: [
-      tailwindcss(),
       tempoVitePlugin(),
       react(),
       tsconfigPaths({

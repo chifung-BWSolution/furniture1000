@@ -73,8 +73,13 @@ export interface Product {
   deliveryTermId?: string | null;
   deliveryTermName?: string | null;
   deliveryTerm?: DeliveryTerm | null;
+  /** 現貨 / 全訂製 — in_stock=true 顯示「現貨」，否則顯示 customize 內容 */
+  inStock?: boolean | null;
+  customize?: string | null;
   /** Lifestyle / scene image URL (效果圖) */
   lifestyleImageUrl?: string | null;
+  /** 發佈前檢查通過後，按「進入準備上載」設為 true，準備上載頁只顯示此類產品 */
+  readyToPublish?: boolean;
 }
 
 export interface AppSettings {
@@ -91,8 +96,10 @@ export type ViewType =
   | 'dashboard'
   | 'advanced-search'
   | 'manufacturer-catalog'
+  | 'factory-detail'
   | 'ai-processor'
   | 'listed-products'
+  | 'product-catalog'
   | 'category-management'
   // 傢俬方案
   | 'design-projects'
@@ -105,13 +112,13 @@ export type ViewType =
   | 'customer-confirmed-products'
   | 'customer-company-info'
   // 傢俬報價
-  | 'factory-catalog-quote'
   | 'quick-quote'
   | 'product-report'
   | 'quotation-list'
   | 'quotation-settings'
   // 網上發佈
   | 'publish-copywriting'
+  | 'publish-product-info'
   | 'publish-precheck'
   | 'ready-to-publish'
   | 'published-products'
@@ -122,7 +129,8 @@ export type ViewType =
   // 設定
   | 'settings'
   | 'user-management'
-  | 'login-history';
+  | 'login-history'
+  | 'category-registry';
 
 export type PrimarySection =
   | 'solutions'

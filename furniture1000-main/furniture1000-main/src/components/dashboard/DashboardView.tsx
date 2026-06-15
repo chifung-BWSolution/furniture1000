@@ -1,201 +1,258 @@
-import { cn } from '@/lib/utils';
-import { Product } from '@/types/product';
-import { StatusBadge } from './StatusBadge';
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import {
-  Package,
-  TrendingUp,
-  AlertTriangle,
-  CheckCircle2,
-  Clock,
-  Sparkles,
-  ArrowRight,
-} from 'lucide-react';
+import { supabase } from '@/lib/supabase';
+import { Loader2, ArrowRight } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 interface DashboardViewProps {
-  products: Product[];
-  stats: {
-    total: number;
-    drafts: number;
-    publishing: number;
-    success: number;
-    errors: number;
-  };
-  onProductClick: (productId: string) => void;
   onNavigateToAI: () => void;
+  onNavigateToCopywriting?: () => void;
 }
 
-export function DashboardView({ products, stats, onProductClick, onNavigateToAI }: DashboardViewProps) {
-  const pendingProducts = products.filter(p => p.status === 'draft' || p.status === 'error');
+interface DashboardStats {
+  uploadedThisMonth: number;
+  tierA: number;
+  tierB: number;
+  tierC: number;
+  copywritingPending: number;
+  catalogCount: number;
+  projectsThisMonth: number;
+  invitesThisMonth: number;
+  quotesThisMonth: number;
+}
+
+function deriveTier(price: number): 'A' | 'B' | 'C' {
+  if (price >= 4000) return 'A';
+  if (price >= 1500) return 'B';
+  return 'C';
+}
+
+function thisMonthRange(): { gte: string; lt: string } {
+  const now = new Date();
+  const start = new Date(now.getFullYear(), now.getMonth(), 1);
+  const end = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  return { gte: start.toISOString(), lt: end.toISOString() };
+}
+
+async function fetchDashboardStats(): Promise<DashboardStats> {
+  const { gte, lt } = thisMonthRange();
+  const [
+    { data: allProducts },
+    { data: monthProducts },
+    { data: copywritingRows },
+    { data: catalogRows },
+    { data: projects },
+    { data: invites },
+    { data: quotes },
+  ] = await Promise.all([
+    supabase.from('products').select('id, sale_price, price'),
+    supabase.from('products').select('id').gte('created_at', gte).lt('created_at', lt),
+    supabase.from('products').select('id').eq('in_shopify_queue', true).eq('copy_done', false),
+    supabase.from('products').select('id').eq('in_catalog', true),
+    supabase.from('design_projects').select('id').gte('created_at', gte).lt('created_at', lt),
+    supabase.from('project_invitations').select('id').gte('created_at', gte).lt('created_at', lt),
+    supabase.from('bwf_quote').select('id').gte('created_at', gte).lt('created_at', lt),
+  ]);
+
+  let tierA = 0, tierB = 0, tierC = 0;
+  for (const p of (allProducts ?? [])) {
+    const price = Number(p.sale_price ?? p.price ?? 0);
+    const tier = deriveTier(price);
+    if (tier === 'A') tierA++;
+    else if (tier === 'B') tierB++;
+    else tierC++;
+  }
+
+  return {
+    uploadedThisMonth: (monthProducts ?? []).length,
+    tierA,
+    tierB,
+    tierC,
+    copywritingPending: (copywritingRows ?? []).length,
+    catalogCount: (catalogRows ?? []).length,
+    projectsThisMonth: (projects ?? []).length,
+    invitesThisMonth: (invites ?? []).length,
+    quotesThisMonth: (quotes ?? []).length,
+  };
+}
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <p style={{ fontSize: 12 }} className="mb-3 font-semibold uppercase tracking-widest text-muted-foreground">
+      {children}
+    </p>
+  );
+}
+
+interface NumCardProps {
+  label: string;
+  value: number;
+  sub?: string;
+  valueColor?: string;
+  onClick?: () => void;
+  delay?: number;
+}
+
+function NumCard({ label, value, sub, valueColor = 'text-foreground', onClick, delay = 0 }: NumCardProps) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay, duration: 0.28 }}
+      onClick={onClick}
+      className={cn(
+        'flex flex-col gap-2 rounded-xl border border-border bg-card px-5 py-4',
+        onClick && 'cursor-pointer hover:border-primary/40 hover:bg-muted/30 transition-colors'
+      )}
+    >
+      <div className="flex items-center justify-between">
+        <p style={{ fontSize: 13 }} className="font-medium text-foreground">{label}</p>
+        {onClick && <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />}
+      </div>
+      {sub && <p style={{ fontSize: 12 }} className="text-muted-foreground -mt-1">{sub}</p>}
+      <p style={{ fontSize: 28 }} className={cn('font-bold font-mono-data tabular-nums leading-none', valueColor)}>
+        {value}
+      </p>
+    </motion.div>
+  );
+}
+
+interface TierCardProps {
+  tier: 'A' | 'B' | 'C';
+  range: string;
+  count: number;
+  pct: number;
+  delay?: number;
+}
+
+const TIER_COLORS: Record<string, string> = {
+  A: 'text-primary',
+  B: 'text-amber-500',
+  C: 'text-muted-foreground',
+};
+
+function TierCard({ tier, range, count, pct, delay = 0 }: TierCardProps) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay, duration: 0.28 }}
+      className="flex flex-col gap-3 rounded-xl border border-border bg-card px-5 py-4"
+    >
+      <div>
+        <p style={{ fontSize: 14 }} className={cn('font-bold', TIER_COLORS[tier])}>{tier} 類</p>
+        <p style={{ fontSize: 12 }} className="text-muted-foreground">{range}</p>
+      </div>
+      <div className="flex items-end justify-between">
+        <p style={{ fontSize: 28 }} className="font-bold font-mono-data tabular-nums leading-none text-foreground">
+          {count}
+        </p>
+        <p style={{ fontSize: 16 }} className={cn('font-semibold font-mono-data', TIER_COLORS[tier])}>
+          {pct}%
+        </p>
+      </div>
+    </motion.div>
+  );
+}
+
+export function DashboardView({ onNavigateToAI, onNavigateToCopywriting }: DashboardViewProps) {
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetchDashboardStats()
+      .then(setStats)
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
+
+  const tierTotal = (stats?.tierA ?? 0) + (stats?.tierB ?? 0) + (stats?.tierC ?? 0);
+  const tierAPercent = tierTotal > 0 ? Math.round(((stats?.tierA ?? 0) / tierTotal) * 100) : 0;
+  const tierBPercent = tierTotal > 0 ? Math.round(((stats?.tierB ?? 0) / tierTotal) * 100) : 0;
+  const tierCPercent = tierTotal > 0 ? Math.round(((stats?.tierC ?? 0) / tierTotal) * 100) : 0;
 
   return (
     <div className="h-full overflow-y-auto">
-    <div className="space-y-8 p-6">
-      {/* Stats Cards */}
-      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        {[
-          {
-            label: '全部產品',
-            value: stats.total,
-            icon: Package,
-            color: 'text-primary',
-            bg: 'bg-primary/10',
-          },
-          {
-            label: '準備發佈',
-            value: stats.drafts,
-            icon: Clock,
-            color: 'text-muted-foreground',
-            bg: 'bg-muted',
-          },
-          {
-            label: '已發佈',
-            value: stats.success,
-            icon: CheckCircle2,
-            color: 'text-emerald-500',
-            bg: 'bg-emerald-500/10',
-          },
-          {
-            label: '錯誤',
-            value: stats.errors,
-            icon: AlertTriangle,
-            color: 'text-rose-500',
-            bg: 'bg-rose-500/10',
-          },
-        ].map((stat, i) => (
-          <motion.div
-            key={stat.label}
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: i * 0.08, duration: 0.4 }}
-            className="rounded-xl border border-border bg-card p-5 transition-all hover:shadow-lg hover:shadow-primary/5"
-          >
-            <div className="flex items-center justify-between">
-              <span className="font-body text-xs text-muted-foreground">{stat.label}</span>
-              <div className={cn('flex h-8 w-8 items-center justify-center rounded-lg', stat.bg)}>
-                <stat.icon className={cn('h-4 w-4', stat.color)} />
-              </div>
-            </div>
-            <p className="mt-2 font-mono-data text-3xl font-bold tracking-tight">{stat.value}</p>
-          </motion.div>
-        ))}
-      </div>
+      <div className="p-6 space-y-7">
 
-      {/* Quick Actions */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <motion.button
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.35, duration: 0.4 }}
-          onClick={onNavigateToAI}
-          className="group flex items-center gap-4 rounded-xl border border-border bg-card p-6 text-left transition-all hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5"
-        >
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 transition-transform group-hover:scale-110">
-            <Sparkles className="h-6 w-6 text-primary" />
+        {/* 第一行：產品概覽 3 格 + A/B/C 3 格 = 同一行 6 欄 */}
+        <div>
+          <SectionLabel>產品概覽 · A / B / C 類別分布</SectionLabel>
+          <div className="grid grid-cols-6 gap-3">
+            <NumCard
+              label="本月上載產品"
+              value={stats?.uploadedThisMonth ?? 0}
+              delay={0}
+            />
+            <NumCard
+              label="待填寫產品文案"
+              sub="已加入佇列，文案未填"
+              value={stats?.copywritingPending ?? 0}
+              valueColor="text-amber-500"
+              onClick={onNavigateToCopywriting}
+              delay={0.04}
+            />
+            <NumCard
+              label="產品目錄"
+              sub="已加入目錄的產品"
+              value={stats?.catalogCount ?? 0}
+              valueColor="text-emerald-600"
+              delay={0.08}
+            />
+            <TierCard tier="A" range="≥ $4,000"         count={stats?.tierA ?? 0} pct={tierAPercent} delay={0.12} />
+            <TierCard tier="B" range="$1,500 – $3,999"  count={stats?.tierB ?? 0} pct={tierBPercent} delay={0.16} />
+            <TierCard tier="C" range="< $1,500"          count={stats?.tierC ?? 0} pct={tierCPercent} delay={0.20} />
           </div>
-          <div className="flex-1">
-            <h3 className="font-display text-sm font-bold">處理新產品</h3>
-            <p className="mt-0.5 text-xs text-muted-foreground font-body">
-              上傳目錄及圖片進行 AI 分析
-            </p>
-          </div>
-          <ArrowRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-1 group-hover:text-primary" />
-        </motion.button>
-
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.4, duration: 0.4 }}
-          className="flex items-center gap-4 rounded-xl border border-border bg-card p-6"
-        >
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-emerald-500/10">
-            <TrendingUp className="h-6 w-6 text-emerald-500" />
-          </div>
-          <div className="flex-1">
-            <h3 className="font-display text-sm font-bold">流水線狀態</h3>
-            <div className="mt-2 flex items-center gap-3">
-              <div className="flex-1">
-                <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-                  <div
-                    className="h-full rounded-full bg-gradient-to-r from-primary to-emerald-500 transition-all duration-700"
-                    style={{
-                      width: `${stats.total > 0 ? ((stats.success / stats.total) * 100) : 0}%`,
-                    }}
-                  />
-                </div>
-              </div>
-              <span className="font-mono-data text-xs text-muted-foreground">
-                {stats.total > 0 ? Math.round((stats.success / stats.total) * 100) : 0}%
-              </span>
-            </div>
-          </div>
-        </motion.div>
-      </div>
-
-      {/* Product Cards — Bento Grid */}
-      <div>
-        <div className="mb-4 flex items-center justify-between">
-          <h3 className="font-display text-base font-bold">待處理產品</h3>
-          <span className="font-mono-data text-xs text-muted-foreground">
-            {pendingProducts.length} 個項目
-          </span>
         </div>
 
-        {pendingProducts.length === 0 ? (
-          <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-border py-16">
-            <Package className="mb-3 h-10 w-10 text-muted-foreground/40" />
-            <p className="font-body text-sm text-muted-foreground">暫無待處理產品</p>
-            <p className="mt-1 text-xs text-muted-foreground/70">
-              透過 AI 處理器處理新項目
-            </p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-            {pendingProducts.map((product, i) => (
-              <motion.button
-                key={product.id}
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.1 + i * 0.04, duration: 0.4 }}
-                onClick={() => onProductClick(product.id)}
-                className={cn(
-                  'group relative flex flex-col overflow-hidden rounded-xl border border-border bg-card text-left transition-all duration-300',
-                  'hover:-translate-y-0.5 hover:border-primary/20 hover:shadow-xl hover:shadow-primary/5'
-                )}
-              >
-                {/* Image */}
-                <div className="relative aspect-[4/3] w-full overflow-hidden bg-muted">
-                  {product.imageUrl ? (
-                    <img
-                      src={product.imageUrl}
-                      alt={product.title}
-                      className="h-full w-full object-cover bg-white transition-transform duration-500 group-hover:scale-105"
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).style.display = 'none';
-                      }}
-                    />
-                  ) : null}
+        {/* 第二行：本月業務 3 格 + 快捷操作 2 格（佔剩餘空間） */}
+        <div>
+          <SectionLabel>本月業務 · 快捷操作</SectionLabel>
+          <div className="grid grid-cols-6 gap-3">
+            <NumCard label="專案成立" value={stats?.projectsThisMonth ?? 0} valueColor="text-violet-600" delay={0.24} />
+            <NumCard label="客戶邀請" value={stats?.invitesThisMonth ?? 0}  valueColor="text-sky-600"    delay={0.28} />
+            <NumCard label="報價單"   value={stats?.quotesThisMonth ?? 0}   valueColor="text-rose-500"  delay={0.32} />
 
-                </div>
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.36, duration: 0.28 }}
+              onClick={onNavigateToAI}
+              className="col-span-1 flex flex-col justify-between gap-2 rounded-xl border border-border bg-card px-5 py-4 cursor-pointer hover:border-primary/40 hover:bg-muted/30 transition-colors"
+            >
+              <div className="flex items-center justify-between">
+                <p style={{ fontSize: 13 }} className="font-medium text-foreground">處理新產品</p>
+                <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
+              </div>
+              <p style={{ fontSize: 12 }} className="text-muted-foreground">上傳目錄及圖片進行 AI 分析</p>
+            </motion.div>
 
-                {/* Content */}
-                <div className="flex flex-1 flex-col p-3">
-                  <h4 className="font-display text-xs font-bold leading-tight line-clamp-1">
-                    {product.title}
-                  </h4>
-                  <div className="mt-2 flex items-center justify-between">
-                    <span className="font-mono-data text-sm font-bold text-primary">
-                      ${product.price.toFixed(2)}
-                    </span>
-                    <StatusBadge status={product.status} />
-                  </div>
-                </div>
-              </motion.button>
-            ))}
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.40, duration: 0.28 }}
+              onClick={onNavigateToCopywriting}
+              className="col-span-2 flex flex-col justify-between gap-2 rounded-xl border border-border bg-card px-5 py-4 cursor-pointer hover:border-amber-500/40 hover:bg-muted/30 transition-colors"
+            >
+              <div className="flex items-center justify-between">
+                <p style={{ fontSize: 13 }} className="font-medium text-foreground">填寫產品文案</p>
+                <ArrowRight className="h-3.5 w-3.5 text-muted-foreground" />
+              </div>
+              <p style={{ fontSize: 12 }} className="text-muted-foreground">
+                {stats?.copywritingPending ?? 0} 件待填寫
+              </p>
+            </motion.div>
           </div>
-        )}
+        </div>
+
       </div>
-    </div>
     </div>
   );
 }

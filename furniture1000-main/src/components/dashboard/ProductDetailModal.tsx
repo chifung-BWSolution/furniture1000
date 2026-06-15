@@ -103,8 +103,6 @@ interface ProductDetailModalProps {
   onClose: () => void;
   onProductUpdated: (updatedProduct: ProductForDetail) => void;
   showAIImageTools?: boolean;
-  /** 準備上載模式：標題改動儲存到 ready_to_shopify.shopify_page_title，不改 products 表 */
-  readyToPublishMode?: boolean;
 }
 
 // ─── Lightbox Component ────────────────────────────────────────────────
@@ -386,7 +384,6 @@ export function ProductDetailModal({
   onClose,
   onProductUpdated,
   showAIImageTools = false,
-  readyToPublishMode = false,
 }: ProductDetailModalProps) {
   // Form state
   const [title, setTitle] = useState('');
@@ -695,8 +692,7 @@ export function ProductDetailModal({
       }));
 
       const localUpdate: Record<string, unknown> = {
-        // 準備上載模式：標題不寫入 products，改寫到 ready_to_shopify（見下方）
-        ...(readyToPublishMode ? {} : { title }),
+        title,
         description: description,
         description_html: description,
         // collection has a NOT NULL constraint — fall back to existing value or empty string
@@ -735,17 +731,6 @@ export function ProductDetailModal({
         });
         setIsSaving(false);
         return;
-      }
-
-      // ─── Step 1b: 準備上載模式 — 標題寫入 ready_to_shopify ─────────
-      if (readyToPublishMode) {
-        const { error: rtsError } = await supabase
-          .from('ready_to_shopify')
-          .update({ shopify_page_title: title })
-          .eq('product_id', product.id);
-        if (rtsError) {
-          console.warn('[ProductDetail] ready_to_shopify title update error:', rtsError);
-        }
       }
 
       // ─── Step 2: If product has a bwfMasterId, sync to master DB ────
@@ -858,7 +843,7 @@ export function ProductDetailModal({
     productionLeadTime, shippingDays, shippingFee, color, remarks,
     dimensionL, dimensionW, dimensionH,
     images, pendingNewFiles, pendingDeletePaths,
-    product, onProductUpdated, onClose, readyToPublishMode,
+    product, onProductUpdated, onClose,
   ]);
 
   // Get the selected display image

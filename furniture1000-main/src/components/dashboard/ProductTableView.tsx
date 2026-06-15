@@ -38,7 +38,11 @@ import {
   ChevronRight,
   Filter,
   Trash2,
+  Loader2,
+  Database,
+  Sparkles,
   Package,
+  Upload,
   Search,
   Check,
 } from 'lucide-react';
@@ -236,7 +240,8 @@ const ProductTableRow = memo(function ProductTableRow({
           onClick={() => onOpenVariantModal(product)}
           className="h-7 gap-1 text-[10px] font-mono-data"
         >
-          {product.variants.length} 個變體
+          {/* extra variants = all rows excluding the host product itself */}
+          {product.variants.filter(v => v.id !== product.id).length} 個變體
           <ChevronDown className="h-3 w-3" />
         </Button>
       </td>
@@ -282,13 +287,14 @@ interface ProductTableViewProps {
   onClearFilter: () => void;
   onSyncFromShopify?: () => Promise<any>;
   onUploadUnsyncedToMaster?: () => Promise<any>;
-  onRevertToInfo?: (ids: string[]) => Promise<void>;
+  onRevertToInfo?: (ids: string[], reasons: { labels: string[]; other: string }) => Promise<void>;
+  onVariantsSaved?: () => void;
   isSyncing?: boolean;
   isPublishing?: boolean;
   lastSyncTime?: string | null;
-  /** 傳入 true 時，ProductDetailModal 改動標題會寫入 ready_to_shopify，不改 products 表 */
-  readyToPublishMode?: boolean;
 }
+
+type TableTab = 'local' | 'shopify' | 'all';
 
 export const ProductTableView = memo(function ProductTableView({
   products,
@@ -304,20 +310,25 @@ export const ProductTableView = memo(function ProductTableView({
   onSyncFromShopify,
   onUploadUnsyncedToMaster,
   onRevertToInfo,
+  onVariantsSaved,
   isSyncing,
   isPublishing,
   lastSyncTime,
-  readyToPublishMode = false,
 }: ProductTableViewProps) {
   const [editingCell, setEditingCell] = useState<{ id: string; field: string } | null>(null);
   const [editValue, setEditValue] = useState('');
+  // expandedDesc removed — description now opens modal on click
   const [variantModal, setVariantModal] = useState<{ product: Product } | null>(null);
   const [showProductPicker, setShowProductPicker] = useState(false);
+  const [showRevertDialog, setShowRevertDialog] = useState(false);
+  const [revertReasons, setRevertReasons] = useState<string[]>([]);
+  const [revertOther, setRevertOther] = useState('');
+  const REVERT_OPTIONS = ['產品情景圖修改', '產品圖片角度不足', '產品說明修正', '其他'];
   const [pickerSearch, setPickerSearch] = useState('');
   const [pickerFactoryFilter, setPickerFactoryFilter] = useState('');
   const [pickerPage, setPickerPage] = useState(0);
   const PICKER_PAGE_SIZE = 10;
-  const [searchQuery, setSearchQuery] = useState('');
+  const [activeTab, setActiveTab] = useState<TableTab>('local');
   const [showBatchDeleteModal, setShowBatchDeleteModal] = useState(false);
   const [detailProduct, setDetailProduct] = useState<Product | null>(null);
   const [currentPage, setCurrentPage] = useState(0);
@@ -342,14 +353,18 @@ export const ProductTableView = memo(function ProductTableView({
     [products, filterProductId]
   );
 
-  const filteredProducts = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    if (!q) return baseProducts;
-    return baseProducts.filter(p =>
-      p.title?.toLowerCase().includes(q) ||
-      (p.sku ?? '').toLowerCase().includes(q)
-    );
-  }, [baseProducts, searchQuery]);
+  // Separate local AI drafts from synced Shopify products
+  const localProducts = useMemo(() => baseProducts.filter(p => p.source === 'local' || !p.source), [baseProducts]);
+  const shopifyProducts = useMemo(() => baseProducts.filter(p => p.source === 'shopify'), [baseProducts]);
+  
+  const filteredProducts = useMemo(() =>
+    activeTab === 'all'
+      ? baseProducts
+      : activeTab === 'shopify'
+        ? shopifyProducts
+        : localProducts,
+    [activeTab, baseProducts, shopifyProducts, localProducts]
+  );
 
   const allFilteredIds = useMemo(() => filteredProducts.map(p => p.id), [filteredProducts]);
   const allSelected = useMemo(
@@ -364,10 +379,10 @@ export const ProductTableView = memo(function ProductTableView({
     [filteredProducts, currentPage]
   );
 
-  // Reset page when search or filter changes
+  // Reset page when tab or filter changes
   useEffect(() => {
     setCurrentPage(0);
-  }, [searchQuery, filterProductId]);
+  }, [activeTab, filterProductId]);
 
   // Handle checkbox click with shift-click range selection support
   const selectedIdsRef = useRef(selectedIds);
@@ -451,8 +466,24 @@ export const ProductTableView = memo(function ProductTableView({
   }, [onSelectAll, allFilteredIds]);
 
   const handleOpenVariantModal = useCallback((product: Product) => {
-    setVariantModal({ product });
-  }, []);
+    const dims = [product.dimensionLMm, product.dimensionWMm, product.dimensionHMm].filter(Boolean).join('x') || '';
+    const selfVariant: ProductVariant = {
+      id: product.id,
+      size: dims,
+      color: product.color || '',
+      sku: product.sku || '',
+      price: product.salePrice ?? product.price ?? 0,
+      inventory: 100,
+      option1: dims,
+    };
+    // Always put the host product as the first row.
+    // Keep any previously-added non-host variants after it.
+    const otherVariants = product.variants.filter(v => v.id !== product.id);
+    const variants = [selfVariant, ...otherVariants];
+    const productWithSelf = { ...product, variants };
+    onUpdateProduct(product.id, { variants });
+    setVariantModal({ product: productWithSelf });
+  }, [onUpdateProduct]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -466,33 +497,62 @@ export const ProductTableView = memo(function ProductTableView({
   return (
     <TooltipProvider>
       <div className="flex h-full flex-col">
-        {/* Search Bar + Controls */}
+        {/* Tab Bar + Sync Controls */}
         <div className="flex items-center justify-between border-b border-border bg-muted/30 px-6 py-2">
           <div className="flex items-center gap-3">
-            {/* Search Input */}
-            <div className="relative">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/60" />
-              <Input
-                value={searchQuery}
-                onChange={e => setSearchQuery(e.target.value)}
-                placeholder="搜尋產品名稱或 SKU..."
-                className="pl-8 h-8 w-64 text-xs font-body bg-background"
-              />
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery('')}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground/60 hover:text-foreground"
-                >
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              )}
+            {/* Source Tabs */}
+            <div className="flex items-center rounded-lg border border-border bg-background p-0.5">
+              <button
+                onClick={() => setActiveTab('local')}
+                className={cn(
+                  'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-display font-bold transition-all',
+                  activeTab === 'local'
+                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
+                )}
+              >
+                <Sparkles className="h-3 w-3" />
+                本地 AI 草稿
+                <Badge variant="secondary" className="ml-1 h-4 min-w-4 px-1 text-[9px]">
+                  {localProducts.length}
+                </Badge>
+              </button>
+              <button
+                onClick={() => setActiveTab('shopify')}
+                className={cn(
+                  'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-display font-bold transition-all',
+                  activeTab === 'shopify'
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
+                )}
+              >
+                <Database className="h-3 w-3" />
+                已同步 Shopify
+                <Badge variant="secondary" className="ml-1 h-4 min-w-4 px-1 text-[9px]">
+                  {shopifyProducts.length}
+                </Badge>
+              </button>
+              <button
+                onClick={() => setActiveTab('all')}
+                className={cn(
+                  'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-display font-bold transition-all',
+                  activeTab === 'all'
+                    ? 'bg-foreground text-background shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground'
+                )}
+              >
+                全部
+                <Badge variant="secondary" className="ml-1 h-4 min-w-4 px-1 text-[9px]">
+                  {baseProducts.length}
+                </Badge>
+              </button>
             </div>
 
             {/* Product Count */}
             <div className="flex items-center gap-1.5 rounded-md bg-muted/60 border border-border/50 px-2.5 py-1">
               <Package className="h-3 w-3 text-muted-foreground" />
               <span className="font-mono-data text-[11px] text-muted-foreground font-medium">
-                {searchQuery ? `${filteredProducts.length} / ${products.length} 個產品` : `${products.length} 個產品`}
+                {products.length} 個產品
               </span>
             </div>
 
@@ -514,17 +574,19 @@ export const ProductTableView = memo(function ProductTableView({
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Revert to 產品信息 Button */}
+            {/* Revert to 產品文案 Button */}
             {onRevertToInfo && (
               <Button
                 variant="outline"
                 size="sm"
-                onClick={async () => {
+                onClick={() => {
                   if (selectedIds.size === 0) {
                     toast.info('請先勾選要退回的產品');
                     return;
                   }
-                  await onRevertToInfo(Array.from(selectedIds));
+                  setRevertReasons([]);
+                  setRevertOther('');
+                  setShowRevertDialog(true);
                 }}
                 disabled={selectedIds.size === 0}
                 className={cn(
@@ -558,6 +620,24 @@ export const ProductTableView = memo(function ProductTableView({
             </Button>
           </div>
         </div>
+
+        {/* Section info banner */}
+        {activeTab === 'local' && (
+          <div className="flex items-center gap-2 border-b border-border bg-primary/5 px-6 py-1.5">
+            <Sparkles className="h-3 w-3 text-primary" />
+            <span className="text-[11px] text-primary font-body">
+              這些是 AI 生成及本地建立的產品。選擇項目以上傳到<strong>全域資料庫</strong>。
+            </span>
+          </div>
+        )}
+        {activeTab === 'shopify' && (
+          <div className="flex items-center gap-2 border-b border-border bg-emerald-500/5 px-6 py-1.5">
+            <Database className="h-3 w-3 text-emerald-500" />
+            <span className="text-[11px] text-emerald-500 font-body">
+              Shopify 安全備份副本。此為唯讀參考 — 請直接在 Shopify 管理後台編輯。
+            </span>
+          </div>
+        )}
 
         {/* Table */}
         <div className="flex-1 overflow-auto">
@@ -643,19 +723,24 @@ export const ProductTableView = memo(function ProductTableView({
 
           {filteredProducts.length === 0 && (
             <div className="flex flex-col items-center justify-center py-20">
-              {searchQuery ? (
+              {activeTab === 'shopify' ? (
                 <>
-                  <Search className="mb-3 h-8 w-8 text-muted-foreground/40" />
-                  <p className="font-display text-sm text-muted-foreground">找不到符合的產品</p>
+                  <Database className="mb-3 h-8 w-8 text-muted-foreground/40" />
+                  <p className="font-display text-sm text-muted-foreground">尚未備份 Shopify 產品</p>
                   <p className="mt-1 text-xs text-muted-foreground/70 font-body">
-                    請嘗試其他產品名稱或 SKU
+                    點擊「從 Shopify 備份」建立目錄的安全副本
+                  </p>
+                </>
+              ) : activeTab === 'local' ? (
+                <>
+                  <Sparkles className="mb-3 h-8 w-8 text-muted-foreground/40" />
+                  <p className="font-display text-sm text-muted-foreground">暫無本地 AI 草稿</p>
+                  <p className="mt-1 text-xs text-muted-foreground/70 font-body">
+                    透過 AI 處理器處理產品以建立新草稿
                   </p>
                 </>
               ) : (
-                <>
-                  <Package className="mb-3 h-8 w-8 text-muted-foreground/40" />
-                  <p className="font-display text-sm text-muted-foreground">暫無產品</p>
-                </>
+                <p className="font-display text-sm text-muted-foreground">找不到產品</p>
               )}
             </div>
           )}
@@ -708,7 +793,14 @@ export const ProductTableView = memo(function ProductTableView({
                   className="shrink-0 gap-1.5 font-display text-xs"
                   onClick={async () => {
                     if (!variantModal) return;
+                    const hostId = variantModal.product.id;
                     const variants = variantModal.product.variants;
+
+                    // variant IDs that are OTHER products merged into this one
+                    const mergedProductIds = variants
+                      .map(v => v.id)
+                      .filter(vid => vid !== hostId);
+
                     const shopifyVariants = variants.map(v => ({
                       id: v.id,
                       sku: v.sku,
@@ -720,20 +812,43 @@ export const ProductTableView = memo(function ProductTableView({
                       compare_at_price: null,
                       inventory_quantity: v.inventory ?? 0,
                     }));
+
+                    // 1. Save variants to the host product's ready_to_shopify row
                     const { error } = await supabase
                       .from('ready_to_shopify')
                       .update({ variants: shopifyVariants })
-                      .eq('product_id', variantModal.product.id);
+                      .eq('product_id', hostId);
                     if (error) {
                       toast.error('儲存失敗', { description: error.message });
-                    } else {
-                      toast.success('變體已儲存', { description: `已將 ${variants.length} 個變體儲存至 ready_to_shopify` });
-                      setVariantModal(null);
-                      setShowProductPicker(false);
-                      setPickerSearch('');
-                      setPickerFactoryFilter('');
-                      setPickerPage(0);
+                      return;
                     }
+
+                    // 2. Remove merged products from ready_to_shopify so they
+                    //    no longer appear in 準備上載 as standalone items
+                    if (mergedProductIds.length > 0) {
+                      await supabase
+                        .from('ready_to_shopify')
+                        .delete()
+                        .in('product_id', mergedProductIds);
+
+                      // Also clear readyToPublish flag in local state
+                      mergedProductIds.forEach(pid => {
+                        onUpdateProduct(pid, { readyToPublish: false } as any);
+                      });
+                    }
+
+                    toast.success('變體已儲存', {
+                      description: mergedProductIds.length > 0
+                        ? `已儲存 ${variants.length} 個變體，${mergedProductIds.length} 件已合併產品從準備上載移除`
+                        : `已將 ${variants.length} 個變體儲存至 ready_to_shopify`,
+                    });
+                    setVariantModal(null);
+                    setShowProductPicker(false);
+                    setPickerSearch('');
+                    setPickerFactoryFilter('');
+                    setPickerPage(0);
+                    // Trigger parent to reload 準備上載 list so merged products disappear
+                    onVariantsSaved?.();
                   }}
                 >
                   <Check className="h-3.5 w-3.5" />
@@ -742,10 +857,11 @@ export const ProductTableView = memo(function ProductTableView({
               </div>
             </DialogHeader>
             <div className="space-y-3 mt-2">
-              {variantModal?.product.variants.map((v) => (
+              {variantModal?.product.variants.map((v, idx) => (
                 <VariantRow
                   key={v.id}
                   variant={v}
+                  isHost={idx === 0}
                   onUpdate={(updates) => {
                     if (!variantModal) return;
                     const updatedVariants = variantModal.product.variants.map(
@@ -882,6 +998,59 @@ export const ProductTableView = memo(function ProductTableView({
           </DialogContent>
         </Dialog>
 
+        {/* Revert Reason Dialog */}
+        <Dialog open={showRevertDialog} onOpenChange={setShowRevertDialog}>
+          <DialogContent className="max-w-md">
+            <DialogHeader>
+              <DialogTitle className="font-display">退回原因（可選）</DialogTitle>
+              <DialogDescription className="font-body text-xs">
+                選擇退回原因，可多選。退回後產品將移至「產品文案」頁面並顯示退回原因標籤。
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-3 mt-2">
+              {REVERT_OPTIONS.map(opt => (
+                <label key={opt} className="flex items-center gap-3 cursor-pointer group">
+                  <input
+                    type="checkbox"
+                    checked={revertReasons.includes(opt)}
+                    onChange={e => {
+                      setRevertReasons(prev =>
+                        e.target.checked ? [...prev, opt] : prev.filter(r => r !== opt)
+                      );
+                    }}
+                    className="h-4 w-4 rounded border-border accent-primary"
+                  />
+                  <span className="font-body text-sm text-foreground group-hover:text-primary transition-colors">{opt}</span>
+                </label>
+              ))}
+              {revertReasons.includes('其他') && (
+                <textarea
+                  value={revertOther}
+                  onChange={e => setRevertOther(e.target.value.slice(0, 200))}
+                  placeholder="請輸入其他原因（最多約 100 個中文字）"
+                  rows={3}
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 font-body text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/40 resize-none"
+                />
+              )}
+            </div>
+            <div className="flex justify-end gap-2 mt-4">
+              <Button variant="outline" size="sm" className="font-display text-xs" onClick={() => setShowRevertDialog(false)}>
+                取消
+              </Button>
+              <Button
+                size="sm"
+                className="font-display text-xs bg-amber-500 hover:bg-amber-600 text-white"
+                onClick={async () => {
+                  setShowRevertDialog(false);
+                  await onRevertToInfo?.(Array.from(selectedIds), { labels: revertReasons, other: revertOther.trim() });
+                }}
+              >
+                確認退回 ({selectedIds.size})
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
         {/* Batch Delete Confirmation Modal */}
         <AlertDialog open={showBatchDeleteModal} onOpenChange={setShowBatchDeleteModal}>
           <AlertDialogContent className="max-w-md border-destructive/20">
@@ -950,7 +1119,6 @@ export const ProductTableView = memo(function ProductTableView({
             onProductUpdated={(updated) => {
               handleProductUpdatedFromModal(updated);
             }}
-            readyToPublishMode={readyToPublishMode}
           />
         )}
       </div>
@@ -960,15 +1128,23 @@ export const ProductTableView = memo(function ProductTableView({
 
 function VariantRow({
   variant,
+  isHost,
   onUpdate,
   onDelete,
 }: {
   variant: ProductVariant;
+  isHost?: boolean;
   onUpdate: (updates: Partial<ProductVariant>) => void;
   onDelete: () => void;
 }) {
   return (
-    <div className="rounded-lg border border-border bg-muted/30 p-3">
+    <div className={cn('rounded-lg border p-3', isHost ? 'border-primary/40 bg-primary/5' : 'border-border bg-muted/30')}>
+      {isHost && (
+        <div className="mb-2 flex items-center gap-1.5">
+          <span className="rounded-full bg-primary/15 px-2 py-0.5 font-body text-[10px] font-semibold text-primary">主產品</span>
+          <span className="font-body text-[10px] text-muted-foreground">此為上傳到 Shopify 的主體產品</span>
+        </div>
+      )}
       <div className="grid grid-cols-6 gap-2">
         <div className="space-y-1">
           <label className="font-mono-data text-[9px] uppercase tracking-widest text-muted-foreground">
@@ -1034,16 +1210,18 @@ function VariantRow({
           />
         </div>
       </div>
-      <div className="mt-2 flex justify-end">
-        <button
-          type="button"
-          onClick={onDelete}
-          className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-body text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
-        >
-          <X className="h-3 w-3" />
-          移除
-        </button>
-      </div>
+      {!isHost && (
+        <div className="mt-2 flex justify-end">
+          <button
+            type="button"
+            onClick={onDelete}
+            className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-body text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+          >
+            <X className="h-3 w-3" />
+            移除
+          </button>
+        </div>
+      )}
     </div>
   );
 }

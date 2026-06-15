@@ -26,6 +26,7 @@ import {
   FileStack,
   Grid3X3,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   Ruler,
   Layers,
@@ -40,6 +41,7 @@ import {
 import { Product } from '@/types/product';
 import { OFFICIAL_PRODUCT_TAGS } from '@/constants/product-tags';
 import { MANUFACTURERS } from '@/constants/manufacturers';
+import { COLOR_MAP, matchMultipleColors, autoMatchColor } from '@/constants/color-map';
 import { TagSelector } from './TagSelector';
 import { ColorSelector } from './ColorSelector';
 import { CascadingCategorySelector } from './CascadingCategorySelector';
@@ -47,7 +49,7 @@ import { supabase } from '@/lib/supabase';
 import { fetchFactories, fetchFactoriesWithIds, FactoryItem } from '@/lib/factorySupabase';
 import { parseExcelFile, extractImagesFromWorkbook, extractRawExcelTable, ExcelProduct, ExcelImage, getFactoryRule, RawTableExtraction, cleanPrice, parseSmartDimensions, parseDeliveryTerm } from '@/lib/excelParser';
 import { ExcelPreviewTable, ExcelPreviewData, ColumnMappingState, StandardHeaderValue, MultiSheetColumnMapping, MultiSheetDimUnits, DimUnit, PreviewAction } from '@/components/dashboard/ExcelPreviewTable';
-import { simplifiedToTraditional } from '@/lib/chineseConverter';
+import { simplifiedToTraditional, convertRowToTraditional } from '@/lib/chineseConverter';
 import { useFactoryLearning, CorrectableField } from '@/hooks/use-factory-learning';
 import { toast } from 'sonner';
 import { saveSession, loadSession, clearSession, clearMappings } from '@/lib/sessionStore';
@@ -73,8 +75,10 @@ async function getPdfjs() {
 /** Render a single PDF page to a base64 JPEG image */
 // V20 FIX 2: Increased scale from 2.0 → 3.0 for high-quality rendering
 // Low scale causes bounding_box math to fall into empty sub-pixels → blank crops
-const PDF_RENDER_SCALE = 3.0;
-const PDF_JPEG_QUALITY = 0.90; // Increased from 0.85 for better fidelity
+// 2.0x balances clarity vs memory. At 3.0x a single A4 canvas is ~35MB and
+// rendering many pages can OOM the browser tab/window. 2.0x ≈ 55% less memory.
+const PDF_RENDER_SCALE = 2.0;
+const PDF_JPEG_QUALITY = 0.88;
 
 async function renderPdfPageToImage(
   pdfData: ArrayBuffer,
@@ -189,10 +193,14 @@ interface CatalogProduct {
   factoriesDisplayName?: string;
   costPrice?: number | null;
   productionLeadTime?: number | null;
+  productionTime?: string | null;
   deliveryDays?: number | null;
   shippingDays?: number | null;
   shippingFee?: number | null;
   remarks?: string | null;
+  specifications?: string | null;
+  imageUrl2?: string | null;
+  imageUrl3?: string | null;
   color?: string | null;
   bbox_quality?: 'ok' | 'too_thin' | 'too_wide' | 'too_tall' | 'failed' | 'invalid'; // Red Border Debug quality flag
   grid_position?: string; // e.g. "r0c1" from Gemini's grid detection
@@ -510,8 +518,9 @@ async function analyzeImageWithAI(
 // ─── PDF Catalog: Batch Processing Constants ─────────────────
 // ONE page per request — absolute safest for high-res furniture catalogs
 const PAGES_PER_BATCH = 1;
-// How many single-page requests to send in parallel (safe concurrency)
-const PARALLEL_CONCURRENCY = 3;
+// How many single-page requests to send in parallel. Lowered 3→2 to cap how
+// many large page canvases live in memory at once (avoids browser OOM crashes).
+const PARALLEL_CONCURRENCY = 2;
 const INTER_BATCH_DELAY_MS = 500; // shorter delay since requests are tiny now
 
 function estimatePDFPages(fileSizeBytes: number): number {
@@ -520,6 +529,76 @@ function estimatePDFPages(fileSizeBytes: number): number {
 
 function generateUploadSessionId(): string {
   return `session_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
+}
+
+/**
+ * Normalize a raw production-time cell into one of the 4 allowed options:
+ * 'in stock' | 'within 7days' | '7-22days' | '23days or above'.
+ * Accepts plain numbers (days), Chinese/English keywords, or "X天/天/日/days".
+ * Returns null when nothing usable is found.
+ */
+function normalizeProductionTime(raw: unknown): string | null {
+  if (raw === null || raw === undefined) return null;
+  const s = String(raw).trim();
+  if (!s) return null;
+  const lower = s.toLowerCase();
+
+  // 現貨 / in stock
+  if (/現貨|现货|stock|spot/.test(lower) || /現貨|现货/.test(s)) return 'in stock';
+
+  // pull the largest number of days from the string (handles ranges like "7-22天")
+  const nums = (s.match(/\d+(?:\.\d+)?/g) || []).map(Number).filter((n) => !isNaN(n));
+  const days = nums.length ? Math.max(...nums) : NaN;
+
+  if (!isNaN(days)) {
+    if (days <= 0) return 'in stock';
+    if (days <= 7) return 'within 7days';
+    if (days <= 22) return '7-22days';
+    return '23days or above';
+  }
+
+  // keyword fallbacks
+  if (/within\s*7|7\s*days?\s*內|一週|一周/.test(lower)) return 'within 7days';
+  if (/23|above|以上|個月|个月|month/.test(lower)) return '23days or above';
+  return null;
+}
+
+/**
+ * Map a raw cell value to one of the 5 fixed customize lead-time options.
+ * Rules:
+ *  - If text contains 現貨/stock → null (not a customize value; use in_stock=true instead)
+ *  - Extract the LAST number from the raw string (handles ranges like "10-20" → 20)
+ *  - Map to nearest bracket: ≤7→3-7天, ≤15→8-15天, ≤25→16-25天, ≤40→26-40天, >40→41天以上
+ *  - If value < 3 (smaller than smallest option), snap to 3-7天
+ */
+function mapCustomizeLeadTime(raw: unknown): string | null {
+  if (raw === null || raw === undefined) return null;
+  const s = String(raw).trim();
+  if (!s) return null;
+  // 現貨 / in stock → not a customize value
+  if (/現貨|现货|stock|spot/i.test(s)) return null;
+  // Extract all numbers; use the LAST one (handles "10-20" → 20, "18-20" → 20)
+  const nums = (s.match(/\d+(?:\.\d+)?/g) || []).map(Number).filter(n => !isNaN(n));
+  if (!nums.length) return null;
+  const days = nums[nums.length - 1]; // take the last number
+  if (days <= 7) return '3-7天';   // includes days < 3 (snap to minimum)
+  if (days <= 15) return '8-15天';
+  if (days <= 25) return '16-25天';
+  if (days <= 40) return '26-40天';
+  return '41天以上';
+}
+
+/**
+ * Map a raw cell value to in_stock boolean.
+ * Returns true if the cell text indicates stock availability, false otherwise.
+ */
+function mapInStock(raw: unknown, columnMapped: boolean): boolean {
+  // If the column is mapped but cell is empty → false (no stock info)
+  if (!columnMapped) return false;
+  if (raw === null || raw === undefined) return false;
+  const s = String(raw).trim();
+  // Any non-empty cell content = has stock = true
+  return s.length > 0;
 }
 
 // ─── PDF Catalog AI Analysis (V6 — Multi-Object Segmentation + Frontend Cropping) ──
@@ -1915,20 +1994,44 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
   const [selectedProductCategory, setSelectedProductCategory] = useState<string>('');
   const [categoryList, setCategoryList] = useState<{ id: string; name: string; parent_id: string | null; level: number; sort_order: number }[]>([]);
   const [categoryListLoading, setCategoryListLoading] = useState(false);
+  // raw 一級/二級 pairs from product_category — used to resolve level1/level2 on upload
+  const [categoryPairs, setCategoryPairs] = useState<{ level1: string; level2: string }[]>([]);
 
-  // Fetch categories from bwf_product_categories on mount
+  // Fetch categories from the product_category table (設定 > 產品分類) on mount.
+  // Build the cascading-selector shape: level-1 = unique 一級分類, level-2 = 二級分類.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       setCategoryListLoading(true);
       try {
-        const { data, error } = await supabase.functions.invoke('supabase-functions-manage-categories', {
-          body: { action: 'list' },
-        });
-        if (!cancelled && data?.categories) {
-          setCategoryList(data.categories);
+        const { data, error } = await supabase
+          .from('product_category')
+          .select('level1, level2, sort_order')
+          .order('sort_order', { ascending: true });
+        if (error) {
+          console.warn('[AIProcessorView] Failed to fetch product_category:', error.message);
         }
-        if (error) console.warn('[AIProcessorView] Failed to fetch categories:', error);
+        if (!cancelled && data) {
+          const pairs = data.map((r: any) => ({ level1: String(r.level1 ?? '').trim(), level2: String(r.level2 ?? '').trim() }))
+            .filter((p) => p.level1);
+          setCategoryPairs(pairs);
+
+          // build flat list for CascadingCategorySelector
+          const built: { id: string; name: string; parent_id: string | null; level: number; sort_order: number }[] = [];
+          const level1Ids = new Map<string, string>();
+          let order = 0;
+          for (const p of pairs) {
+            if (!level1Ids.has(p.level1)) {
+              const id = 'L1::' + p.level1;
+              level1Ids.set(p.level1, id);
+              built.push({ id, name: p.level1, parent_id: null, level: 1, sort_order: order++ });
+            }
+            if (p.level2) {
+              built.push({ id: 'L2::' + p.level1 + '::' + p.level2, name: p.level2, parent_id: level1Ids.get(p.level1)!, level: 2, sort_order: order++ });
+            }
+          }
+          setCategoryList(built);
+        }
       } catch (err) {
         console.warn('[AIProcessorView] Category fetch error:', err);
       } finally {
@@ -1937,6 +2040,18 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
     })();
     return () => { cancelled = true; };
   }, []);
+
+  // Resolve a selected category name (could be a 一級 or 二級 name) → { level1, level2 }
+  const resolveCategoryLevels = useCallback((selected: string): { level1: string | null; level2: string | null } => {
+    if (!selected) return { level1: null, level2: null };
+    // match as 二級分類 first
+    const asL2 = categoryPairs.find((p) => p.level2 === selected);
+    if (asL2) return { level1: asL2.level1, level2: asL2.level2 };
+    // else match as 一級分類
+    const asL1 = categoryPairs.find((p) => p.level1 === selected);
+    if (asL1) return { level1: asL1.level1, level2: null };
+    return { level1: null, level2: null };
+  }, [categoryPairs]);
 
   // ─── Session Recovery Guard (IndexedDB) ───────────────────────────────────
   // This runs on mount. Loads the full session (including images) from IndexedDB.
@@ -2080,11 +2195,44 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
     });
   }, []);
 
+  // ── Edit a preview cell in place — updates both top-level rows and per-sheet rows
+  // so the edited value flows through to upload. ──
+  const handleCellEdit = useCallback((sheetName: string, rowIndex: number, colIdx: number, value: string) => {
+    setExcelPreviewData(prev => {
+      if (!prev) return prev;
+      const patchRows = (rows: typeof prev.rows) =>
+        rows.map(r => {
+          if (r.rowIndex !== rowIndex) return r;
+          const cells = [...r.cells];
+          cells[colIdx] = value;
+          return { ...r, cells };
+        });
+      const newSheets = prev.sheets?.map(s =>
+        s.sheetName === sheetName ? { ...s, rows: patchRows(s.rows) } : s
+      );
+      // Keep top-level rows in sync (single-sheet fallback also covered)
+      const newRows = newSheets
+        ? newSheets.flatMap(s => s.rows)
+        : patchRows(prev.rows);
+      return { ...prev, rows: newRows, sheets: newSheets };
+    });
+  }, []);
+
   // ── Factory Learning hook — loads + applies correction patterns per factory ──
   const { saveCorrection, applyCorrections, getCorrections } = useFactoryLearning(
     selectedFactoryId,
     selectedManufacturer,
   );
+
+  // ── 兩步驟導航 ──
+  const [currentStep, setCurrentStep] = useState<1 | 2>(1);
+
+  // ── 材料管理: Colors & Fabrics (Multi-select) ──
+  const [selectedColors, setSelectedColors] = useState<string[]>([]);
+  const [selectedFabrics, setSelectedFabrics] = useState<string[]>([]);
+  const [colorsOpen, setColorsOpen] = useState(false);
+  const [colorsSearch, setColorsSearch] = useState('');
+  const [fabricsOpen, setFabricsOpen] = useState(false);
 
   // ── Factory Highlights (Multi-select) ──
   const [selectedFactoryHighlights, setSelectedFactoryHighlights] = useState<string[]>([]);
@@ -2239,7 +2387,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
   // NOTE: handleGenerate is defined after processFiles below
 
   // ─── Handle "Generate Catalog Result" from the Preview Table ────────
-  const handleGenerateFromPreview = useCallback(async (mapping: ColumnMappingState, selectedRows: number[], multiSheetMapping?: MultiSheetColumnMapping, imageOverrides?: Record<string, string>, multiSheetDimUnits?: MultiSheetDimUnits) => {
+  const handleGenerateFromPreview = useCallback(async (mapping: ColumnMappingState, selectedRows: number[], multiSheetMapping?: MultiSheetColumnMapping, imageOverrides?: Record<string, string>, multiSheetDimUnits?: MultiSheetDimUnits, dimOverrides?: Record<string, string>) => {
     if (!excelPreviewData) return;
     
     setIsGeneratingFromPreview(true);
@@ -2312,13 +2460,13 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
           return isNaN(num) ? null : num;
         };
 
-        const modelNumber = getCellStr('model_number');
-        const rawTitle = getCellStr('title') || modelNumber || `Row ${row.rowIndex}`;
+        const modelNumber = simplifiedToTraditional(getCellStr('model_number'));
+        const rawTitle = getCellStr('title') || getCellStr('model_number') || `Row ${row.rowIndex}`;
         const title = simplifiedToTraditional(rawTitle);
         // Apply Simplified → Traditional Chinese conversion for material (材质描述)
         const rawMaterial = getCellStr('material');
         const material = rawMaterial ? simplifiedToTraditional(rawMaterial) : '';
-        const dimensions = getCellStr('dimensions');
+        const dimensions = simplifiedToTraditional(getCellStr('dimensions'));
         // Apply price cleaning (取大值): handles "680/750/820" → 820
         // CRITICAL: Always pass raw cell value to cleanPrice. 
         // getCellStr returns string representation; getCellNum would truncate at first non-numeric char.
@@ -2335,19 +2483,34 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         })();
         const salePrice = cleanPrice(rawSalePriceCell);
         const rawColor = getCellStr('color') || null;
-        const color = rawColor ? simplifiedToTraditional(rawColor) : null;
+        // Match raw color string (possibly multiple, e.g. "黑色/白色") to W3C English names
+        const color = rawColor ? (matchMultipleColors(simplifiedToTraditional(rawColor)) || autoMatchColor(simplifiedToTraditional(rawColor)) || null) : null;
         // Apply Simplified → Traditional Chinese conversion for description
         const rawDescription = getCellStr('description');
         const description = rawDescription ? simplifiedToTraditional(rawDescription) : '';
         const rawCollection = getCellStr('collection');
         const collection = rawCollection ? simplifiedToTraditional(rawCollection) : '';
         // Extract additional mapped fields that map directly to bwf_product_master columns
-        const factoryNameFromExcel = getCellStr('factory_name');
+        const factoryNameFromExcel = simplifiedToTraditional(getCellStr('factory_name'));
         const productionLeadTime = getCellNum('production_lead_time');
+        // 'production_lead_time' mapping now feeds the new products.production_time
+        // (4 fixed options) — normalize the raw cell value.
+        const productionTime = normalizeProductionTime(getCellStr('production_lead_time'));
         const deliveryDays = getCellNum('delivery_days');
         const shippingDays = getCellNum('shipping_days');
         const shippingFee = getCellNum('shipping_fee');
-        const remarks = getCellStr('remarks') || null;
+        const remarks = getCellStr('remarks') ? simplifiedToTraditional(getCellStr('remarks')) : null;
+        const specifications = getCellStr('specifications') ? simplifiedToTraditional(getCellStr('specifications')) : null;
+        // image_url_2 / image_url_3: first check user-mapped column, then fall back to auto-extracted extra images
+        const imageUrl2 = getCellStr('image_url_2') || (row as any).productImageData2 || null;
+        const imageUrl3 = getCellStr('image_url_3') || (row as any).productImageData3 || null;
+        // in_stock: mapped column text → boolean
+        const inStockColMapped = fieldToCol['in_stock'] !== undefined;
+        const inStockRaw = getCellStr('in_stock');
+        const inStock: boolean | null = inStockColMapped ? mapInStock(inStockRaw, true) : null;
+        // customize: mapped column number/range → one of the 5 lead-time options
+        const customizeRaw = getCellStr('customize');
+        const customize: string | null = customizeRaw ? mapCustomizeLeadTime(customizeRaw) : null;
 
         // Parse dimensions — support individual (mm) fields OR combined string
         let dimensionLMm: number | null = null;
@@ -2386,6 +2549,13 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         if (dimensionLMm !== null) dimensionLMm = Math.round(dimensionLMm);
         if (dimensionWMm !== null) dimensionWMm = Math.round(dimensionWMm);
         if (dimensionHMm !== null) dimensionHMm = Math.round(dimensionHMm);
+        // Apply user-edited dimension overrides (from ExcelPreviewTable dim cells)
+        const dOvL = dimOverrides?.[`${row.rowIndex}:dim_l`];
+        const dOvW = dimOverrides?.[`${row.rowIndex}:dim_w`];
+        const dOvH = dimOverrides?.[`${row.rowIndex}:dim_h`];
+        if (dOvL !== undefined) dimensionLMm = dOvL ? parseInt(dOvL) : null;
+        if (dOvW !== undefined) dimensionWMm = dOvW ? parseInt(dOvW) : null;
+        if (dOvH !== undefined) dimensionHMm = dOvH ? parseInt(dOvH) : null;
 
         // Fallback: parse from combined dimensions string using smart parser (unit-aware)
         // Trigger if ALL three dimension fields are still null and we have a combined string
@@ -2407,27 +2577,43 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         // Resolve image mapping: check if user swapped IMG-P and IMG-L targets
         const imgProductTarget = sheetMapping['__img_product'] || 'product_image';
         const imgLifestyleTarget = sheetMapping['__img_lifestyle'] || 'lifestyle_image';
-        
+        const imgProduct2Target = sheetMapping['__img_product2'] || 'image_url_2';
+        const imgProduct3Target = sheetMapping['__img_product3'] || 'image_url_3';
+
         // Apply imageOverrides from ExcelPreviewTable (key format: `${sheetName}:${rowIndex}:${type}`)
         const productOverrideKey = `${sheetName}:${row.rowIndex}:product`;
         const lifestyleOverrideKey = `${sheetName}:${row.rowIndex}:lifestyle`;
+        const product2OverrideKey = `${sheetName}:${row.rowIndex}:product2`;
+        const product3OverrideKey = `${sheetName}:${row.rowIndex}:product3`;
         const overriddenProductImage = imageOverrides?.[productOverrideKey] || null;
         const overriddenLifestyleImage = imageOverrides?.[lifestyleOverrideKey] || null;
+        const overriddenProduct2Image = imageOverrides?.[product2OverrideKey] || null;
+        const overriddenProduct3Image = imageOverrides?.[product3OverrideKey] || null;
 
-        // Use override first, then fall back to row data
-        let resolvedProductImage = overriddenProductImage || row.productImageData || undefined;
-        let resolvedLifestyleImage = overriddenLifestyleImage || row.lifestyleImageData || undefined;
-        
-        if (imgProductTarget === 'lifestyle_image' && imgLifestyleTarget === 'product_image') {
-          // User swapped the image assignments
-          const tempProduct = resolvedProductImage;
-          resolvedProductImage = resolvedLifestyleImage;
-          resolvedLifestyleImage = tempProduct;
-        } else if (imgProductTarget === 'skip') {
-          resolvedProductImage = undefined;
-        } else if (imgLifestyleTarget === 'skip') {
-          resolvedLifestyleImage = undefined;
-        }
+        // Resolved base images from row data (overrides take priority)
+        const rawImg1 = overriddenProductImage || row.productImageData || undefined;
+        const rawImg2 = overriddenProduct2Image || row.productImageData2 || undefined;
+        const rawImg3 = overriddenProduct3Image || row.productImageData3 || undefined;
+        const rawLifestyle = overriddenLifestyleImage || row.lifestyleImageData || undefined;
+
+        // Map each image slot to its target field based on user's dropdown selection
+        const imageSlots: Record<string, string | undefined> = {
+          product_image: undefined, lifestyle_image: undefined,
+          image_url_2: undefined, image_url_3: undefined,
+        };
+        const assign = (target: string, val: string | undefined) => {
+          if (target !== 'skip' && val && !imageSlots[target]) imageSlots[target] = val;
+        };
+        assign(imgProductTarget, rawImg1);
+        assign(imgLifestyleTarget, rawLifestyle);
+        assign(imgProduct2Target, rawImg2);
+        assign(imgProduct3Target, rawImg3);
+
+        let resolvedProductImage = imageSlots['product_image'];
+        let resolvedLifestyleImage = imageSlots['lifestyle_image'];
+        // Override imageUrl2/imageUrl3 from slot assignments if mapped
+        if (imageSlots['image_url_2']) imageUrl2 = imageSlots['image_url_2']!;
+        if (imageSlots['image_url_3']) imageUrl3 = imageSlots['image_url_3']!;
 
         return {
           id: `excel-preview-${row.rowIndex}-${idx}-${Math.random().toString(36).substring(7)}`,
@@ -2450,16 +2636,22 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
           bounding_box: null,
           costPrice,
           productionLeadTime,
+          productionTime,
           deliveryDays,
           shippingDays,
           shippingFee,
           remarks,
+          specifications,
+          imageUrl2,
+          imageUrl3,
           color,
           factoriesDisplayName: factoryNameFromExcel || selectedManufacturer,
           dimensionLMm,
           dimensionWMm,
           dimensionHMm,
           modelNumber,
+          inStock,
+          customize,
           imageSource: resolvedProductImage ? 'excel' as const : null,
           dataSource: 'excel' as const,
           imageValidated: !!resolvedProductImage,
@@ -2526,7 +2718,8 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
     productNames: Record<string, string>,
     multiSheetMapping?: MultiSheetColumnMapping,
     imageOverrides?: Record<string, string>,
-    multiSheetDimUnits?: MultiSheetDimUnits
+    multiSheetDimUnits?: MultiSheetDimUnits,
+    dimOverrides?: Record<string, string>
   ) => {
     if (!excelPreviewData) return;
 
@@ -2597,13 +2790,13 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
           return isNaN(num) ? null : num;
         };
 
-        const modelNumber = getCellStr('model_number');
-        const rawTitle = getCellStr('title') || modelNumber || `Row ${row.rowIndex}`;
+        const modelNumber = simplifiedToTraditional(getCellStr('model_number'));
+        const rawTitle = getCellStr('title') || getCellStr('model_number') || `Row ${row.rowIndex}`;
         const title = simplifiedToTraditional(rawTitle);
         // Apply Simplified → Traditional Chinese conversion for material (材质描述)
         const rawMaterial = getCellStr('material');
         const material = rawMaterial ? simplifiedToTraditional(rawMaterial) : '';
-        const dimensions = getCellStr('dimensions');
+        const dimensions = simplifiedToTraditional(getCellStr('dimensions'));
         // Apply price cleaning (取大值): handles "680/750/820" → 820
         // CRITICAL: Always pass raw cell value to cleanPrice. 
         // getCellStr returns string representation; getCellNum would truncate at first non-numeric char.
@@ -2620,19 +2813,33 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         })();
         const salePrice = cleanPrice(rawSalePriceCell);
         const rawColor = getCellStr('color') || null;
-        const color = rawColor ? simplifiedToTraditional(rawColor) : null;
+        // Match raw color string (possibly multiple, e.g. "黑色/白色") to W3C English names
+        const color = rawColor ? (matchMultipleColors(simplifiedToTraditional(rawColor)) || autoMatchColor(simplifiedToTraditional(rawColor)) || null) : null;
         // Apply Simplified → Traditional Chinese conversion for description
         const rawDescription = getCellStr('description');
         const description = rawDescription ? simplifiedToTraditional(rawDescription) : '';
         const rawCollection = getCellStr('collection');
         const collection = rawCollection ? simplifiedToTraditional(rawCollection) : '';
         // Extract additional mapped fields for master DB
-        const factoryNameFromExcel = getCellStr('factory_name');
+        const factoryNameFromExcel = simplifiedToTraditional(getCellStr('factory_name'));
         const productionLeadTime = getCellNum('production_lead_time');
+        // 'production_lead_time' mapping feeds the new products.production_time (4 options)
+        const productionTime = normalizeProductionTime(getCellStr('production_lead_time'));
         const deliveryDays = getCellNum('delivery_days');
         const shippingDays = getCellNum('shipping_days');
         const shippingFee = getCellNum('shipping_fee');
-        const remarks = getCellStr('remarks') || null;
+        const remarks = getCellStr('remarks') ? simplifiedToTraditional(getCellStr('remarks')) : null;
+        const specifications = getCellStr('specifications') ? simplifiedToTraditional(getCellStr('specifications')) : null;
+        // image_url_2 / image_url_3: first check user-mapped column, then fall back to auto-extracted extra images
+        const imageUrl2 = getCellStr('image_url_2') || (row as any).productImageData2 || null;
+        const imageUrl3 = getCellStr('image_url_3') || (row as any).productImageData3 || null;
+        // in_stock: mapped column text → boolean
+        const inStockColMapped = fieldToCol['in_stock'] !== undefined;
+        const inStockRaw = getCellStr('in_stock');
+        const inStock: boolean | null = inStockColMapped ? mapInStock(inStockRaw, true) : null;
+        // customize: mapped column number/range → one of the 5 lead-time options
+        const customizeRaw = getCellStr('customize');
+        const customize: string | null = customizeRaw ? mapCustomizeLeadTime(customizeRaw) : null;
 
         // ── Delivery Term Parsing (from 參考貨期 column) ──────────────────────
         const rawDeliveryTermRef = getCellStr('delivery_term_ref');
@@ -2685,6 +2892,13 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         if (dimensionLMm !== null) dimensionLMm = Math.round(dimensionLMm);
         if (dimensionWMm !== null) dimensionWMm = Math.round(dimensionWMm);
         if (dimensionHMm !== null) dimensionHMm = Math.round(dimensionHMm);
+        // Apply user-edited dimension overrides (from ExcelPreviewTable dim cells)
+        const dOvL = dimOverrides?.[`${row.rowIndex}:dim_l`];
+        const dOvW = dimOverrides?.[`${row.rowIndex}:dim_w`];
+        const dOvH = dimOverrides?.[`${row.rowIndex}:dim_h`];
+        if (dOvL !== undefined) dimensionLMm = dOvL ? parseInt(dOvL) : null;
+        if (dOvW !== undefined) dimensionWMm = dOvW ? parseInt(dOvW) : null;
+        if (dOvH !== undefined) dimensionHMm = dOvH ? parseInt(dOvH) : null;
 
         // Fallback: parse from combined dimensions string using smart parser (unit-aware)
         // Trigger if ALL three dimension fields are still null and we have a combined string
@@ -2750,10 +2964,14 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
           bounding_box: null,
           costPrice,
           productionLeadTime,
+          productionTime,
           deliveryDays,
           shippingDays,
           shippingFee,
           remarks,
+          specifications,
+          imageUrl2,
+          imageUrl3,
           color,
           factoriesDisplayName: factoryNameFromExcel || selectedManufacturer,
           dimensionLMm,
@@ -2903,6 +3121,13 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
             const errJson = JSON.parse(errText);
             detail = errJson.error || errJson.message || detail;
           } catch {}
+          // For catalog-only, the master DB write is best-effort — we still
+          // persist to the local `products` table below. Don't abort the whole
+          // upload just because the external master DB rejected the chunk.
+          if (action === 'catalog-only') {
+            console.warn(`[PreviewAction:catalog-only] Master DB chunk ${ci + 1} failed (non-fatal): ${detail}`);
+            continue;
+          }
           throw new Error(`Database save failed (chunk ${ci + 1}/${chunks.length}, ${payloadSizeKB}KB): HTTP ${resp.status} — ${detail}`);
         }
 
@@ -2927,7 +3152,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         });
       }
 
-      if (successCount === 0 && correctedProds.length > 0) {
+      if (successCount === 0 && correctedProds.length > 0 && action !== 'catalog-only') {
         const firstError = failedItems[0]?.error || 'Unknown error';
         const errorSummary = failedItems.slice(0, 3).map((r: any) => r.error).join(' | ');
         console.error(`[PreviewAction:${action}] ALL FAILED. First error: ${firstError}`);
@@ -2999,9 +3224,32 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         // Persist DIRECTLY to the Supabase `products` table so items show up
         // in 產品目錄 only — do NOT call onAddProduct (which would push them
         // into the in-memory store and the 待上傳到 Shopify queue).
+        //
+        // IMPORTANT: write ALL selected products regardless of whether the
+        // external master DB accepted them — the products table is the source
+        // of truth for 所有產品, and master DB is just an optional backup.
         const nowIso = new Date().toISOString();
+
+        // ── Merge factory highlights for this factory ──
+        // Accumulate ALL highlights ever uploaded for this factory: union of
+        // what already exists in products + this upload's selection.
+        let mergedHighlights: string[] = [...(selectedFactoryHighlights || [])];
+        if (selectedManufacturer) {
+          try {
+            const { data: existingRows } = await supabase
+              .from('products')
+              .select('factory_highlights')
+              .eq('factories_display_name', selectedManufacturer)
+              .not('factory_highlights', 'is', null)
+              .limit(200);
+            const existing = (existingRows || []).flatMap((r: any) => r.factory_highlights || []);
+            mergedHighlights = Array.from(new Set([...existing, ...mergedHighlights])).filter(Boolean);
+          } catch (e) {
+            console.warn('[catalog-only] could not fetch existing factory_highlights:', e);
+          }
+        }
+
         const productRows = correctedProds
-          .filter(item => successfulLocalIds.has(item.id))
           .map(item => {
             const dbResult = dbResults.find((r: any) => r.local_id === item.id);
             const imageUrl = item.cropped_image_url || item.lifestyleImageUrl || '';
@@ -3024,12 +3272,18 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
               source: 'local',
               synced_at: null,
               upload_session_id: null,
+              model: (item as any).modelNumber || null,
               factories_display_name: selectedManufacturer || '',
               factory_id: selectedFactoryId || '',
+              factory_highlights: mergedHighlights,
               bwf_master_id: dbResult?.master_id || null,
               cost_price: item.costPrice ?? null,
               sale_price: 0,
               production_date: (item as any).productionLeadTime ?? null,
+              production_time: (item as any).productionTime ?? null,
+              specifications: (item as any).specifications ?? null,
+              image_url_2: (item as any).imageUrl2 ?? null,
+              image_url_3: (item as any).imageUrl3 ?? null,
               shipping_days: (item as any).shippingDays ?? null,
               shipping_fee: (item as any).shippingFee ?? null,
               remarks: (item as any).remarks || '',
@@ -3039,29 +3293,60 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
               dimension_h_mm: item.dimensionHMm ?? null,
               material: item.material || '',
               category: selectedProductCategory || null,
+              level1_category: resolveCategoryLevels(selectedProductCategory).level1,
+              level2_category: resolveCategoryLevels(selectedProductCategory).level2,
               delivery_term_id: item.deliveryTermId || null,
               delivery_term_name: item.deliveryTermName || null,
+              in_stock: (item as any).inStock ?? null,
+              customize: (item as any).customize ?? null,
             };
           });
 
         if (productRows.length > 0) {
-          const { error: upsertErr } = await supabase
-            .from('products')
-            .upsert(productRows, { onConflict: 'id' });
-          if (upsertErr) {
-            console.error('[PreviewAction:catalog-only] Failed to persist products to DB:', upsertErr.message);
-            throw new Error(`產品目錄儲存失敗：${upsertErr.message}`);
+          // Batch upsert to avoid statement timeout with large base64 images
+          // Use smaller batches when images are present (base64 makes rows large)
+          const hasImages = productRows.some(r => r.image_url && r.image_url.startsWith('data:'));
+          const LOCAL_CHUNK = hasImages ? 3 : 10;
+          for (let ci = 0; ci < productRows.length; ci += LOCAL_CHUNK) {
+            const batch = productRows.slice(ci, ci + LOCAL_CHUNK);
+            const { error: upsertErr } = await supabase
+              .from('products')
+              .upsert(batch, { onConflict: 'id' });
+            if (upsertErr) {
+              console.error(`[PreviewAction:catalog-only] Batch ${Math.floor(ci/LOCAL_CHUNK)+1} failed:`, upsertErr.message);
+              throw new Error(`產品目錄儲存失敗：${upsertErr.message}`);
+            }
           }
           console.log(`[PreviewAction:catalog-only] ✅ ${productRows.length} products persisted to products table only (not added to Shopify queue)`);
+
+          // Back-fill: keep ALL products of this factory in sync with the merged
+          // highlight set, so previously-uploaded products of the same factory
+          // also reflect the consolidated highlights.
+          if (selectedManufacturer && mergedHighlights.length > 0) {
+            const { error: hlErr } = await supabase
+              .from('products')
+              .update({ factory_highlights: mergedHighlights })
+              .eq('factories_display_name', selectedManufacturer);
+            if (hlErr) console.warn('[catalog-only] factory_highlights back-fill failed:', hlErr.message);
+          }
         }
 
-        toast.success(`✅ ${successCount} 個產品已上傳到產品目錄`, {
-          description: failCount > 0 ? `⚠️ ${failCount} 個產品儲存失敗，仍保留在列表中` : undefined,
+        const catalogCount = productRows.length;
+        toast.success(`✅ ${catalogCount} 個產品已上傳到產品目錄`, {
+          description: '已寫入「所有產品」，含一級/二級分類',
         });
         setProcessingProgress({
           phase: 'complete',
-          message: `✅ ${successCount} 個產品已上傳到產品目錄 (僅目錄)`,
+          message: `✅ ${catalogCount} 個產品已上傳到產品目錄 (僅目錄)`,
         });
+        // catalog-only writes ALL selected rows → burn them all down
+        const allCatalogRowIndices = correctedProds.map(p => p.page_number);
+        if (allCatalogRowIndices.length > 0) {
+          removeRowsFromPreview(allCatalogRowIndices);
+        }
+        setProcessingProgress(null);
+        setIsGeneratingFromPreview(false);
+        return;
       }
 
       // ─── BURN-DOWN: Only remove SUCCESSFULLY processed rows from preview & IndexedDB ───
@@ -3106,7 +3391,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
       setProcessingProgress({ phase: 'error', message: classifiedError });
       toast.error('❌ 儲存失敗', { description: classifiedError });
     }
-  }, [excelPreviewData, selectedManufacturer, selectedFactoryId, selectedFactoryHighlights, applyCorrections, onAddProduct, setCatalogProductsWithRef, removeRowsFromPreview]);
+  }, [excelPreviewData, selectedManufacturer, selectedFactoryId, selectedFactoryHighlights, selectedProductCategory, resolveCategoryLevels, applyCorrections, onAddProduct, setCatalogProductsWithRef, removeRowsFromPreview]);
 
   const processFiles = useCallback(async (fileList: FileList | File[]) => {
     const files = Array.from(fileList);
@@ -3836,11 +4121,14 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
 
         // Build preview data and show the interactive preview table
         const previewData: ExcelPreviewData = {
-          headerLabels: rawTable.headerLabels,
+          // 上傳後將所有簡體中文內容轉為香港繁體（表頭 + 每格）
+          headerLabels: rawTable.headerLabels.map(h => simplifiedToTraditional(h || '')),
           rows: rawTable.rows.map(r => ({
             rowIndex: r.rowIndex,
-            cells: r.cells,
+            cells: convertRowToTraditional(r.cells),
             productImageData: r.productImageData,
+            productImageData2: r.productImageData2,
+            productImageData3: r.productImageData3,
             lifestyleImageData: r.lifestyleImageData,
             isProductRow: r.isProductRow,
             hasMinimalData: r.hasMinimalData,
@@ -3854,12 +4142,14 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
           // Per-sheet independent data for multi-tab UI
           sheets: rawTable.sheets?.map(s => ({
             sheetName: s.sheetName,
-            headerLabels: s.headerLabels,
+            headerLabels: s.headerLabels.map(h => simplifiedToTraditional(h || '')),
             headerRowIndex: s.headerRowIndex,
             rows: s.rows.map(r => ({
               rowIndex: r.rowIndex,
-              cells: r.cells,
+              cells: convertRowToTraditional(r.cells),
               productImageData: r.productImageData,
+              productImageData2: r.productImageData2,
+              productImageData3: r.productImageData3,
               lifestyleImageData: r.lifestyleImageData,
               isProductRow: r.isProductRow,
               hasMinimalData: r.hasMinimalData,
@@ -4107,7 +4397,48 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
 
   return (
     <div ref={leftPanelRef} className="flex h-full flex-col overflow-y-auto">
-      {/* ══════ TOP SECTION: Configuration ══════ */}
+
+      {/* ══════ Step Indicator ══════ */}
+      <div className="flex-shrink-0 border-b border-border bg-muted/20 px-6 py-2.5">
+        <div className="flex items-center gap-3 max-w-4xl mx-auto">
+          <button
+            onClick={() => setCurrentStep(1)}
+            className={cn(
+              'flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
+              currentStep === 1
+                ? 'bg-primary text-primary-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+            )}
+          >
+            <span className={cn(
+              'flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold',
+              currentStep === 1 ? 'bg-white/20' : 'bg-muted-foreground/20'
+            )}>1</span>
+            設置廠家資料
+          </button>
+          <div className="h-px flex-1 bg-border max-w-[60px]" />
+          <button
+            onClick={() => setCurrentStep(2)}
+            disabled={!isManufacturerSelected}
+            className={cn(
+              'flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
+              currentStep === 2
+                ? 'bg-primary text-primary-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed'
+            )}
+          >
+            <span className={cn(
+              'flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold',
+              currentStep === 2 ? 'bg-white/20' : 'bg-muted-foreground/20'
+            )}>2</span>
+            上傳及處理產品
+          </button>
+        </div>
+      </div>
+
+      {/* ══════ STEP 1: 選擇廠家 → 材料管理 ══════ */}
+      {currentStep === 1 && (
+      <>
       <div className="flex-shrink-0 border-b border-border bg-card/50 p-6">
         <div className="flex flex-col gap-4 max-w-4xl mx-auto">
 
@@ -4459,10 +4790,306 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
             </motion.div>
           )}
 
+          {/* ━━━ 材料管理 Module ━━━ */}
+          {isManufacturerSelected && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: 'auto' }}
+              transition={{ duration: 0.3 }}
+              className="space-y-3"
+            >
+              <div className="flex items-center gap-2">
+                <div className={cn(
+                  "flex h-6 w-6 items-center justify-center rounded-md transition-colors duration-300",
+                  (selectedColors.length > 0 || selectedFabrics.length > 0)
+                    ? "bg-violet-500/15 text-violet-500"
+                    : "bg-muted text-muted-foreground"
+                )}>
+                  <Layers className="h-3.5 w-3.5" />
+                </div>
+                <h3 className="font-display text-sm font-bold tracking-tight">材料管理</h3>
+                {(selectedColors.length > 0 || selectedFabrics.length > 0) && (
+                  <Badge className="ml-auto bg-violet-500/15 text-violet-500 border border-violet-500/30 font-mono-data text-[10px] gap-1">
+                    <Check className="h-2.5 w-2.5" />
+                    {selectedColors.length + selectedFabrics.length} 已選
+                  </Badge>
+                )}
+                {selectedColors.length === 0 && selectedFabrics.length === 0 && (
+                  <span className="ml-auto font-mono-data text-[10px] text-muted-foreground/50">可選</span>
+                )}
+              </div>
+
+              <div className="pl-8 space-y-3">
+                {/* ── 顏色 Multi-select ── */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-display text-xs font-semibold text-foreground/80">顏色</span>
+                    {selectedColors.length > 0 && (
+                      <Badge className="bg-violet-500/10 text-violet-500 border border-violet-500/20 font-mono-data text-[10px]">
+                        {selectedColors.length}
+                      </Badge>
+                    )}
+                  </div>
+
+                  {selectedColors.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {selectedColors.map((colorEn) => {
+                        const c = COLOR_MAP.find(x => x.en === colorEn);
+                        return (
+                          <Badge
+                            key={colorEn}
+                            variant="secondary"
+                            className="group gap-1.5 px-2 py-0.5 text-[11px] font-body bg-violet-500/10 text-violet-600 border border-violet-500/20 hover:bg-violet-500/20 transition-all cursor-default"
+                          >
+                            {c && (
+                              <span
+                                className="h-2.5 w-2.5 rounded-full border border-border/50 flex-shrink-0"
+                                style={{ backgroundColor: c.hex }}
+                              />
+                            )}
+                            <span>{c?.cn ?? colorEn}</span>
+                            <button
+                              onClick={() => setSelectedColors(prev => prev.filter(x => x !== colorEn))}
+                              className="ml-0.5 rounded-full hover:bg-destructive/20 hover:text-destructive p-0.5 transition-colors"
+                            >
+                              <X className="h-2.5 w-2.5" />
+                            </button>
+                          </Badge>
+                        );
+                      })}
+                      <button
+                        onClick={() => setSelectedColors([])}
+                        className="flex items-center h-[22px] px-1.5 rounded-md text-[10px] font-mono-data text-muted-foreground hover:text-destructive hover:bg-destructive/10 border border-dashed border-border hover:border-destructive/30 transition-all"
+                      >
+                        清除全部
+                      </button>
+                    </div>
+                  )}
+
+                  <Popover open={colorsOpen} onOpenChange={setColorsOpen}>
+                    <PopoverTrigger asChild>
+                      <button
+                        className={cn(
+                          "flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left transition-all",
+                          "border-border bg-background hover:border-violet-500/50 hover:bg-accent/50",
+                          colorsOpen && "border-violet-500 ring-1 ring-violet-500/20 bg-accent/30"
+                        )}
+                      >
+                        <span className="h-3.5 w-3.5 flex-shrink-0 text-violet-500/70 font-mono-data text-xs leading-none">🎨</span>
+                        <span className="flex-1 font-body text-xs text-muted-foreground truncate">選擇顏色（可多選）...</span>
+                        <ChevronsUpDown className={cn(
+                          "h-3.5 w-3.5 text-muted-foreground flex-shrink-0 transition-transform",
+                          colorsOpen && "rotate-180"
+                        )} />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" side="bottom" align="start" sideOffset={4}>
+                      <Command shouldFilter={false}>
+                        <CommandInput
+                          placeholder="搜尋顏色 (中英文)..."
+                          value={colorsSearch}
+                          onValueChange={setColorsSearch}
+                          className="font-body text-xs"
+                        />
+                        <CommandList className="max-h-[260px] overflow-y-auto">
+                          <CommandEmpty className="py-4 text-center font-body text-xs text-muted-foreground">
+                            找不到「{colorsSearch}」
+                          </CommandEmpty>
+                          <CommandGroup>
+                            {COLOR_MAP
+                              .filter(c => !colorsSearch.trim() || c.cn.includes(colorsSearch) || c.en.toLowerCase().includes(colorsSearch.toLowerCase()))
+                              .map((c) => {
+                                const isSelected = selectedColors.includes(c.en);
+                                return (
+                                  <CommandItem
+                                    key={c.en}
+                                    value={c.en}
+                                    onSelect={() => {
+                                      if (isSelected) {
+                                        setSelectedColors(prev => prev.filter(x => x !== c.en));
+                                      } else {
+                                        setSelectedColors(prev => [...prev, c.en]);
+                                      }
+                                    }}
+                                    className="flex items-center gap-2 font-body text-xs cursor-pointer"
+                                  >
+                                    <div className={cn(
+                                      "flex h-4 w-4 items-center justify-center rounded border transition-all flex-shrink-0",
+                                      isSelected
+                                        ? "bg-violet-500 border-violet-500 text-white scale-100"
+                                        : "border-muted-foreground/30 hover:border-violet-500/50"
+                                    )}>
+                                      {isSelected && <Check className="h-3 w-3" />}
+                                    </div>
+                                    <span
+                                      className="h-3.5 w-3.5 rounded-full border border-border/50 flex-shrink-0"
+                                      style={{ backgroundColor: c.hex }}
+                                    />
+                                    <span className={cn("flex-1", isSelected && "text-violet-600 font-medium")}>{c.cn}</span>
+                                    <span className="text-[9px] text-muted-foreground/50 font-mono-data">{c.en}</span>
+                                  </CommandItem>
+                                );
+                              })}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                </div>
+
+                {/* ── 皮料/板材 Multi-select ── */}
+                <div className="space-y-1.5">
+                  <div className="flex items-center gap-1.5">
+                    <span className="font-display text-xs font-semibold text-foreground/80">皮料/板材</span>
+                    {selectedFabrics.length > 0 && (
+                      <Badge className="bg-violet-500/10 text-violet-500 border border-violet-500/20 font-mono-data text-[10px]">
+                        {selectedFabrics.length}
+                      </Badge>
+                    )}
+                  </div>
+
+                  {selectedFabrics.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {selectedFabrics.map((fabric) => (
+                        <Badge
+                          key={fabric}
+                          variant="secondary"
+                          className="group gap-1 px-2 py-0.5 text-[11px] font-body bg-amber-500/10 text-amber-700 border border-amber-500/20 hover:bg-amber-500/20 transition-all cursor-default"
+                        >
+                          <span>{fabric}</span>
+                          <button
+                            onClick={() => setSelectedFabrics(prev => prev.filter(x => x !== fabric))}
+                            className="ml-0.5 rounded-full hover:bg-destructive/20 hover:text-destructive p-0.5 transition-colors"
+                          >
+                            <X className="h-2.5 w-2.5" />
+                          </button>
+                        </Badge>
+                      ))}
+                      <button
+                        onClick={() => setSelectedFabrics([])}
+                        className="flex items-center h-[22px] px-1.5 rounded-md text-[10px] font-mono-data text-muted-foreground hover:text-destructive hover:bg-destructive/10 border border-dashed border-border hover:border-destructive/30 transition-all"
+                      >
+                        清除全部
+                      </button>
+                    </div>
+                  )}
+
+                  <Popover open={fabricsOpen} onOpenChange={setFabricsOpen}>
+                    <PopoverTrigger asChild>
+                      <button
+                        className={cn(
+                          "flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left transition-all",
+                          "border-border bg-background hover:border-amber-500/50 hover:bg-accent/50",
+                          fabricsOpen && "border-amber-500 ring-1 ring-amber-500/20 bg-accent/30"
+                        )}
+                      >
+                        <span className="flex-shrink-0 text-amber-600/70 font-mono-data text-xs leading-none">🪢</span>
+                        <span className="flex-1 font-body text-xs text-muted-foreground truncate">選擇皮料/板材（可多選）...</span>
+                        <ChevronsUpDown className={cn(
+                          "h-3.5 w-3.5 text-muted-foreground flex-shrink-0 transition-transform",
+                          fabricsOpen && "rotate-180"
+                        )} />
+                      </button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" side="bottom" align="start" sideOffset={4}>
+                      <Command>
+                        <CommandInput
+                          placeholder="搜尋皮料/板材..."
+                          className="font-body text-xs"
+                        />
+                        <CommandList className="max-h-[260px] overflow-y-auto">
+                          <CommandEmpty className="py-4 text-center font-body text-xs text-muted-foreground">找不到相關材料</CommandEmpty>
+                          <CommandGroup heading="皮料">
+                            {['PU皮', '超纖皮', '真皮', '硅膠皮'].map((item) => {
+                              const isSelected = selectedFabrics.includes(item);
+                              return (
+                                <CommandItem
+                                  key={item}
+                                  value={item}
+                                  onSelect={() => {
+                                    if (isSelected) {
+                                      setSelectedFabrics(prev => prev.filter(x => x !== item));
+                                    } else {
+                                      setSelectedFabrics(prev => [...prev, item]);
+                                    }
+                                  }}
+                                  className="flex items-center gap-2 font-body text-xs cursor-pointer"
+                                >
+                                  <div className={cn(
+                                    "flex h-4 w-4 items-center justify-center rounded border transition-all flex-shrink-0",
+                                    isSelected
+                                      ? "bg-amber-500 border-amber-500 text-white"
+                                      : "border-muted-foreground/30 hover:border-amber-500/50"
+                                  )}>
+                                    {isSelected && <Check className="h-3 w-3" />}
+                                  </div>
+                                  <span className={cn("flex-1", isSelected && "text-amber-700 font-medium")}>{item}</span>
+                                </CommandItem>
+                              );
+                            })}
+                          </CommandGroup>
+                          <CommandGroup heading="板材">
+                            {['MFC板', '實木多層板', '中纖板', '海洋板', '防火板', '實木', '原木'].map((item) => {
+                              const isSelected = selectedFabrics.includes(item);
+                              return (
+                                <CommandItem
+                                  key={item}
+                                  value={item}
+                                  onSelect={() => {
+                                    if (isSelected) {
+                                      setSelectedFabrics(prev => prev.filter(x => x !== item));
+                                    } else {
+                                      setSelectedFabrics(prev => [...prev, item]);
+                                    }
+                                  }}
+                                  className="flex items-center gap-2 font-body text-xs cursor-pointer"
+                                >
+                                  <div className={cn(
+                                    "flex h-4 w-4 items-center justify-center rounded border transition-all flex-shrink-0",
+                                    isSelected
+                                      ? "bg-amber-500 border-amber-500 text-white"
+                                      : "border-muted-foreground/30 hover:border-amber-500/50"
+                                  )}>
+                                    {isSelected && <Check className="h-3 w-3" />}
+                                  </div>
+                                  <span className={cn("flex-1", isSelected && "text-amber-700 font-medium")}>{item}</span>
+                                </CommandItem>
+                              );
+                            })}
+                          </CommandGroup>
+                        </CommandList>
+                      </Command>
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
         </div>
       </div>
+      {/* 下一步 button — bottom-right of Step 1 */}
+      <div className="flex justify-end px-6 py-4 border-t border-border bg-background/50">
+        <button
+          onClick={() => setCurrentStep(2)}
+          disabled={!isManufacturerSelected}
+          className={cn(
+            'flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold transition-all',
+            isManufacturerSelected
+              ? 'bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm'
+              : 'bg-muted text-muted-foreground cursor-not-allowed opacity-50'
+          )}
+        >
+          下一步
+          <ChevronRight className="h-4 w-4" />
+        </button>
+      </div>
+      </>
+      )}
 
-      {/* ══════ MIDDLE SECTION: Upload & AI Processing ══════ */}
+      {/* ══════ STEP 2: 上傳產品檔案 → 產品目錄 ══════ */}
+      {currentStep === 2 && (
+      <>
       <div className="flex-shrink-0 p-6 max-w-4xl mx-auto w-full">
         <div className="flex flex-col gap-4">
 
@@ -4785,6 +5412,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
             onGenerateCatalog={handleGenerateFromPreview}
             onAction={handlePreviewAction}
             onRowsDiscarded={removeRowsFromPreview}
+            onCellEdit={handleCellEdit}
             onCancel={handleCancelPreview}
             isGenerating={isGeneratingFromPreview}
           />
@@ -5352,6 +5980,8 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
           )}
         </AnimatePresence>
       </div>
+      </>
+      )}
     </div>
   );
 }

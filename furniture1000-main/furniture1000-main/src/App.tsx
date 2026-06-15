@@ -9,6 +9,12 @@ const ShopifyCallback = lazy(() =>
   })),
 );
 
+const FactoryDetailPage = lazy(() =>
+  import("./components/dashboard/FactoryDetailPage").then((m) => ({
+    default: m.FactoryDetailPage,
+  })),
+);
+
 // Error boundary to catch rendering errors gracefully
 class ErrorBoundary extends Component<
   { children: ReactNode },
@@ -86,6 +92,7 @@ function App() {
       >
         <Routes>
           <Route path="/auth/shopify/callback" element={<ShopifyCallback />} />
+          <Route path="/manufacturers/:factoryCode" element={<FactoryDetailPage />} />
           <Route path="/*" element={<Home />} />
         </Routes>
       </Suspense>

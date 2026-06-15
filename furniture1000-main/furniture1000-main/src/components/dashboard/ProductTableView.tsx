@@ -1,9 +1,7 @@
 import { useState, useCallback, useEffect, useRef, useMemo, memo } from 'react';
 import { cn } from '@/lib/utils';
 import { Product, ProductVariant } from '@/types/product';
-import { StatusBadge } from './StatusBadge';
 import { TagSelector } from './TagSelector';
-import { ColorSelector } from './ColorSelector';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -33,27 +31,19 @@ import {
 } from '@/components/ui/tooltip';
 import { ProductDetailModal } from './ProductDetailModal';
 import {
-  RotateCcw,
   X,
   Plus,
   ChevronDown,
-  Filter,
-  Trash2,
-  ExternalLink,
-  Loader2,
-  Database,
-  Sparkles,
-  ShieldCheck,
-  CloudDownload,
-  Factory,
-  Package,
-  Upload,
-  Search,
-  Check,
   ChevronLeft,
   ChevronRight,
+  Filter,
+  Trash2,
+  Package,
+  Search,
+  Check,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { supabase } from '@/lib/supabase';
 
 // ─── Memoized Table Row ─────────────────────────────────────────────────────
 interface ProductTableRowProps {
@@ -142,94 +132,23 @@ const ProductTableRow = memo(function ProductTableRow({
         </div>
       </td>
 
-      {/* Material (材質描述) */}
-      <td className="max-w-[160px] px-4 py-3">
-        <div className="text-left">
-          <span className={cn(
-            'text-xs text-muted-foreground font-body',
-            'line-clamp-2'
-          )}>
-            {product.material || '—'}
-          </span>
-        </div>
-      </td>
-
-      {/* Tags — using TagSelector with official product tags */}
+      {/* SKU (產品編碼) */}
       <td className="px-4 py-3">
-        <TagSelector
-          selectedTags={product.tags}
-          onChange={(tags) => onUpdateProduct(product.id, { tags })}
-          compact
-          maxVisible={3}
-        />
-      </td>
-
-      {/* Price */}
-      <td className="px-4 py-3">
-        {isEditingThis && editingCell!.field === 'price' ? (
+        {isEditingThis && editingCell!.field === 'sku' ? (
           <Input
             autoFocus
-            type="number"
-            step="0.01"
             value={editValue}
             onChange={e => onEditValueChange(e.target.value)}
             onBlur={onSaveEdit}
-            className="h-8 w-24 font-mono-data text-xs bg-background"
+            className="h-8 w-32 font-mono-data text-xs bg-background"
           />
         ) : (
           <button
-            onClick={() => onStartEditing(product.id, 'price', product.price.toString())}
-            className="font-mono-data text-sm font-bold"
+            onClick={() => onStartEditing(product.id, 'sku', product.sku || '')}
+            className="font-mono-data text-xs"
           >
-            ${product.price.toFixed(2)}
+            {product.sku ? product.sku : <span className="text-muted-foreground/50">—</span>}
           </button>
-        )}
-      </td>
-
-      {/* Variants */}
-      <td className="px-4 py-3">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => onOpenVariantModal(product)}
-          className="h-7 gap-1 text-[10px] font-mono-data"
-        >
-          {product.variants.length} 個變體
-          <ChevronDown className="h-3 w-3" />
-        </Button>
-      </td>
-
-      {/* Dimensions (LWH) */}
-      <td className="px-4 py-3">
-        {(product.dimensionLMm || product.dimensionWMm || product.dimensionHMm) ? (
-          <span className="font-mono-data text-[10px] text-foreground whitespace-nowrap">
-            {product.dimensionLMm ?? '—'} × {product.dimensionWMm ?? '—'} × {product.dimensionHMm ?? '—'} mm
-          </span>
-        ) : (
-          <span className="font-mono-data text-[10px] text-muted-foreground/50">—</span>
-        )}
-      </td>
-
-      {/* Factory / Manufacturer */}
-      <td className="px-4 py-3">
-        {product.factoriesDisplayName ? (
-          <Badge className="gap-1 bg-violet-500/10 text-violet-400 border border-violet-500/20 font-mono-data text-[10px] max-w-[120px] truncate">
-            <Factory className="h-2.5 w-2.5 flex-shrink-0" />
-            <span className="truncate">{product.factoriesDisplayName}</span>
-          </Badge>
-        ) : (
-          <span className="font-mono-data text-[10px] text-muted-foreground/50">—</span>
-        )}
-      </td>
-
-      {/* Factory ID */}
-      <td className="px-4 py-3">
-        {product.factoryId ? (
-          <Badge className="gap-1 bg-indigo-500/10 text-indigo-400 border border-indigo-500/20 font-mono-data text-[10px] max-w-[100px] truncate">
-            <span className="truncate">{product.factoryId}</span>
-          </Badge>
-        ) : (
-          <span className="font-mono-data text-[10px] text-muted-foreground/50">—</span>
         )}
       </td>
 
@@ -288,215 +207,50 @@ const ProductTableRow = memo(function ProductTableRow({
         )}
       </td>
 
-      {/* Production Days */}
+      {/* Dimensions (產品尺寸 LWH) */}
       <td className="px-4 py-3">
-        {isEditingThis && editingCell!.field === 'productionLeadTime' ? (
-          <Input
-            autoFocus
-            type="number"
-            value={editValue}
-            onChange={e => onEditValueChange(e.target.value)}
-            onBlur={onSaveEdit}
-            className="h-8 w-20 font-mono-data text-xs bg-background"
-          />
-        ) : (
-          <button
-            onClick={() => onStartEditing(product.id, 'productionLeadTime', (product.productionLeadTime ?? '').toString())}
-            className="font-mono-data text-xs"
-          >
-            {product.productionLeadTime != null ? `${product.productionLeadTime} 天` : <span className="text-muted-foreground/50">—</span>}
-          </button>
-        )}
-      </td>
-
-      {/* Shipping Days */}
-      <td className="px-4 py-3">
-        {isEditingThis && editingCell!.field === 'shippingDays' ? (
-          <Input
-            autoFocus
-            type="number"
-            value={editValue}
-            onChange={e => onEditValueChange(e.target.value)}
-            onBlur={onSaveEdit}
-            className="h-8 w-20 font-mono-data text-xs bg-background"
-          />
-        ) : (
-          <button
-            onClick={() => onStartEditing(product.id, 'shippingDays', (product.shippingDays ?? '').toString())}
-            className="font-mono-data text-xs"
-          >
-            {product.shippingDays != null ? `${product.shippingDays} 天` : <span className="text-muted-foreground/50">—</span>}
-          </button>
-        )}
-      </td>
-
-      {/* Total Lead Time (auto-computed: productionLeadTime + shippingDays) */}
-      <td className="px-4 py-3">
-        {(() => {
-          const prod = product.productionLeadTime;
-          const ship = product.shippingDays;
-          if (prod != null && ship != null) {
-            return (
-              <span className="font-mono-data text-xs font-bold text-primary">
-                {prod + ship} 天
-              </span>
-            );
-          } else if (prod != null || ship != null) {
-            return (
-              <Tooltip>
-                <TooltipTrigger>
-                  <span className="font-mono-data text-xs text-amber-500">
-                    {(prod ?? 0) + (ship ?? 0)} 天
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent>
-                  <p className="font-mono-data text-[11px]">
-                    {prod == null ? '缺少生產天數' : '缺少船期天數'}，顯示部分合計
-                  </p>
-                </TooltipContent>
-              </Tooltip>
-            );
-          }
-          return <span className="font-mono-data text-[10px] text-muted-foreground/50">—</span>;
-        })()}
-      </td>
-
-      {/* Delivery Term Name */}
-      <td className="px-4 py-3">
-        {product.deliveryTermName ? (
-          <span className="inline-flex items-center rounded-md bg-blue-500/10 px-2 py-0.5 font-mono-data text-xs font-medium text-blue-600 dark:text-blue-400 ring-1 ring-inset ring-blue-500/20">
-            {product.deliveryTermName}
+        {(product.dimensionLMm || product.dimensionWMm || product.dimensionHMm) ? (
+          <span className="font-mono-data text-[10px] text-foreground whitespace-nowrap">
+            {product.dimensionLMm ?? '—'} × {product.dimensionWMm ?? '—'} × {product.dimensionHMm ?? '—'} mm
           </span>
         ) : (
           <span className="font-mono-data text-[10px] text-muted-foreground/50">—</span>
         )}
       </td>
 
-      {/* Shipping Fee */}
+      {/* Tags (產品標籤) — using TagSelector with official product tags */}
       <td className="px-4 py-3">
-        {isEditingThis && editingCell!.field === 'shippingFee' ? (
-          <Input
-            autoFocus
-            type="number"
-            step="0.01"
-            value={editValue}
-            onChange={e => onEditValueChange(e.target.value)}
-            onBlur={onSaveEdit}
-            className="h-8 w-24 font-mono-data text-xs bg-background"
-          />
-        ) : (
-          <button
-            onClick={() => onStartEditing(product.id, 'shippingFee', (product.shippingFee ?? '').toString())}
-            className="font-mono-data text-xs"
-          >
-            {product.shippingFee != null ? `$${product.shippingFee.toFixed(2)}` : <span className="text-muted-foreground/50">—</span>}
-          </button>
-        )}
-      </td>
-
-      {/* Remarks */}
-      <td className="max-w-[150px] px-4 py-3">
-        {isEditingThis && editingCell!.field === 'remarks' ? (
-          <div className="space-y-1">
-            <Input
-              autoFocus
-              value={editValue}
-              onChange={e => onEditValueChange(e.target.value)}
-              onBlur={onSaveEdit}
-              className="h-8 font-body text-xs bg-background"
-            />
-          </div>
-        ) : (
-          <button
-            onClick={() => onStartEditing(product.id, 'remarks', product.remarks || '')}
-            className="text-left"
-          >
-            {product.remarks ? (
-              <span className="font-body text-xs text-muted-foreground line-clamp-1">{product.remarks}</span>
-            ) : (
-              <span className="font-mono-data text-[10px] text-muted-foreground/50">—</span>
-            )}
-          </button>
-        )}
-      </td>
-
-      {/* Color */}
-      <td className="px-4 py-3">
-        <ColorSelector
-          value={product.color || ''}
-          onChange={(val) => onUpdateProduct(product.id, { color: val || null })}
+        <TagSelector
+          selectedTags={product.tags}
+          onChange={(tags) => onUpdateProduct(product.id, { tags })}
           compact
+          maxVisible={3}
         />
       </td>
 
-      {/* Source */}
+      {/* Variants */}
       <td className="px-4 py-3">
-        {product.source === 'shopify' ? (
-          <Badge className="gap-1 bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 font-mono-data text-[10px]">
-            <Database className="h-2.5 w-2.5" />
-            Shopify
-          </Badge>
-        ) : (
-          <Badge className="gap-1 bg-primary/10 text-primary border border-primary/20 font-mono-data text-[10px]">
-            <Sparkles className="h-2.5 w-2.5" />
-            本地
-          </Badge>
-        )}
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => onOpenVariantModal(product)}
+          className="h-7 gap-1 text-[10px] font-mono-data"
+        >
+          {product.variants.length} 個變體
+          <ChevronDown className="h-3 w-3" />
+        </Button>
       </td>
 
-      {/* Category */}
+      {/* Delivery Term (送貨資訊) — in_stock=true 顯示「現貨」，否則顯示 customize */}
       <td className="px-4 py-3">
-        {product.category ? (
-          <Badge variant="outline" className="font-mono-data text-[10px] border-indigo-500/30 text-indigo-400 bg-indigo-500/5">
-            {product.category}
-          </Badge>
-        ) : (
-          <span className="text-muted-foreground/40 font-mono-data text-[10px]">未分類</span>
-        )}
-      </td>
-
-      {/* Status */}
-      <td className="px-4 py-3">
-        <div className="flex items-center gap-2">
-          <StatusBadge status={product.status} />
-          {product.status === 'error' && !product.shopifyProductId && (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  onClick={() => onRetryPublish(product.id)}
-                  className="flex h-6 w-6 items-center justify-center rounded-md text-rose-500 transition-colors hover:bg-rose-500/10"
-                >
-                  <RotateCcw className="h-3.5 w-3.5" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent side="left" className="max-w-xs">
-                <p className="font-mono-data text-[11px]">
-                  {product.errorMessage || '未知錯誤。點擊重試。'}
-                </p>
-              </TooltipContent>
-            </Tooltip>
-          )}
-        </div>
-      </td>
-
-      {/* Shopify Link */}
-      <td className="px-4 py-3">
-        {product.shopifyProductId ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Badge
-                className="gap-1 cursor-pointer bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 hover:bg-emerald-500/20 font-mono-data text-[10px]"
-              >
-                <ExternalLink className="h-2.5 w-2.5" />
-                {product.shopifyProductId.slice(-8)}
-              </Badge>
-            </TooltipTrigger>
-            <TooltipContent>
-              <p className="font-mono-data text-[11px]">
-                Shopify 產品 ID: {product.shopifyProductId}
-              </p>
-            </TooltipContent>
-          </Tooltip>
+        {product.inStock === true ? (
+          <span className="inline-flex items-center rounded-md bg-emerald-500/10 px-2 py-0.5 font-mono-data text-xs font-medium text-emerald-600 dark:text-emerald-400 ring-1 ring-inset ring-emerald-500/20">
+            現貨
+          </span>
+        ) : product.customize ? (
+          <span className="inline-flex items-center rounded-md bg-amber-500/10 px-2 py-0.5 font-mono-data text-xs font-medium text-amber-600 dark:text-amber-400 ring-1 ring-inset ring-amber-500/20">
+            {product.customize}
+          </span>
         ) : (
           <span className="font-mono-data text-[10px] text-muted-foreground/50">—</span>
         )}
@@ -528,12 +282,13 @@ interface ProductTableViewProps {
   onClearFilter: () => void;
   onSyncFromShopify?: () => Promise<any>;
   onUploadUnsyncedToMaster?: () => Promise<any>;
+  onRevertToInfo?: (ids: string[]) => Promise<void>;
   isSyncing?: boolean;
   isPublishing?: boolean;
   lastSyncTime?: string | null;
+  /** 傳入 true 時，ProductDetailModal 改動標題會寫入 ready_to_shopify，不改 products 表 */
+  readyToPublishMode?: boolean;
 }
-
-type TableTab = 'local' | 'shopify' | 'all';
 
 export const ProductTableView = memo(function ProductTableView({
   products,
@@ -548,20 +303,21 @@ export const ProductTableView = memo(function ProductTableView({
   onClearFilter,
   onSyncFromShopify,
   onUploadUnsyncedToMaster,
+  onRevertToInfo,
   isSyncing,
   isPublishing,
   lastSyncTime,
+  readyToPublishMode = false,
 }: ProductTableViewProps) {
   const [editingCell, setEditingCell] = useState<{ id: string; field: string } | null>(null);
   const [editValue, setEditValue] = useState('');
-  // expandedDesc removed — description now opens modal on click
   const [variantModal, setVariantModal] = useState<{ product: Product } | null>(null);
   const [showProductPicker, setShowProductPicker] = useState(false);
   const [pickerSearch, setPickerSearch] = useState('');
   const [pickerFactoryFilter, setPickerFactoryFilter] = useState('');
   const [pickerPage, setPickerPage] = useState(0);
   const PICKER_PAGE_SIZE = 10;
-  const [activeTab, setActiveTab] = useState<TableTab>('local');
+  const [searchQuery, setSearchQuery] = useState('');
   const [showBatchDeleteModal, setShowBatchDeleteModal] = useState(false);
   const [detailProduct, setDetailProduct] = useState<Product | null>(null);
   const [currentPage, setCurrentPage] = useState(0);
@@ -586,18 +342,14 @@ export const ProductTableView = memo(function ProductTableView({
     [products, filterProductId]
   );
 
-  // Separate local AI drafts from synced Shopify products
-  const localProducts = useMemo(() => baseProducts.filter(p => p.source === 'local' || !p.source), [baseProducts]);
-  const shopifyProducts = useMemo(() => baseProducts.filter(p => p.source === 'shopify'), [baseProducts]);
-  
-  const filteredProducts = useMemo(() =>
-    activeTab === 'all'
-      ? baseProducts
-      : activeTab === 'shopify'
-        ? shopifyProducts
-        : localProducts,
-    [activeTab, baseProducts, shopifyProducts, localProducts]
-  );
+  const filteredProducts = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return baseProducts;
+    return baseProducts.filter(p =>
+      p.title?.toLowerCase().includes(q) ||
+      (p.sku ?? '').toLowerCase().includes(q)
+    );
+  }, [baseProducts, searchQuery]);
 
   const allFilteredIds = useMemo(() => filteredProducts.map(p => p.id), [filteredProducts]);
   const allSelected = useMemo(
@@ -612,10 +364,10 @@ export const ProductTableView = memo(function ProductTableView({
     [filteredProducts, currentPage]
   );
 
-  // Reset page when tab or filter changes
+  // Reset page when search or filter changes
   useEffect(() => {
     setCurrentPage(0);
-  }, [activeTab, filterProductId]);
+  }, [searchQuery, filterProductId]);
 
   // Handle checkbox click with shift-click range selection support
   const selectedIdsRef = useRef(selectedIds);
@@ -714,77 +466,35 @@ export const ProductTableView = memo(function ProductTableView({
   return (
     <TooltipProvider>
       <div className="flex h-full flex-col">
-        {/* Tab Bar + Sync Controls */}
+        {/* Search Bar + Controls */}
         <div className="flex items-center justify-between border-b border-border bg-muted/30 px-6 py-2">
           <div className="flex items-center gap-3">
-            {/* Source Tabs */}
-            <div className="flex items-center rounded-lg border border-border bg-background p-0.5">
-              <button
-                onClick={() => setActiveTab('local')}
-                className={cn(
-                  'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-display font-bold transition-all',
-                  activeTab === 'local'
-                    ? 'bg-primary text-primary-foreground shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground'
-                )}
-              >
-                <Sparkles className="h-3 w-3" />
-                本地 AI 草稿
-                <Badge variant="secondary" className="ml-1 h-4 min-w-4 px-1 text-[9px]">
-                  {localProducts.length}
-                </Badge>
-              </button>
-              <button
-                onClick={() => setActiveTab('shopify')}
-                className={cn(
-                  'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-display font-bold transition-all',
-                  activeTab === 'shopify'
-                    ? 'bg-emerald-600 text-white shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground'
-                )}
-              >
-                <Database className="h-3 w-3" />
-                已同步 Shopify
-                <Badge variant="secondary" className="ml-1 h-4 min-w-4 px-1 text-[9px]">
-                  {shopifyProducts.length}
-                </Badge>
-              </button>
-              <button
-                onClick={() => setActiveTab('all')}
-                className={cn(
-                  'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-display font-bold transition-all',
-                  activeTab === 'all'
-                    ? 'bg-foreground text-background shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground'
-                )}
-              >
-                全部
-                <Badge variant="secondary" className="ml-1 h-4 min-w-4 px-1 text-[9px]">
-                  {baseProducts.length}
-                </Badge>
-              </button>
+            {/* Search Input */}
+            <div className="relative">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/60" />
+              <Input
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="搜尋產品名稱或 SKU..."
+                className="pl-8 h-8 w-64 text-xs font-body bg-background"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery('')}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground/60 hover:text-foreground"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
             </div>
 
             {/* Product Count */}
             <div className="flex items-center gap-1.5 rounded-md bg-muted/60 border border-border/50 px-2.5 py-1">
               <Package className="h-3 w-3 text-muted-foreground" />
               <span className="font-mono-data text-[11px] text-muted-foreground font-medium">
-                {products.length} 個產品
+                {searchQuery ? `${filteredProducts.length} / ${products.length} 個產品` : `${products.length} 個產品`}
               </span>
             </div>
-
-            {/* Unsynced Count Badge */}
-            {(() => {
-              const unsyncedCount = products.filter(p => !p.bwfMasterId && p.source !== 'shopify').length;
-              return unsyncedCount > 0 ? (
-                <div className="flex items-center gap-1.5 rounded-md bg-amber-500/10 border border-amber-500/30 px-2.5 py-1">
-                  <Upload className="h-3 w-3 text-amber-500" />
-                  <span className="font-mono-data text-[11px] text-amber-500 font-medium">
-                    {unsyncedCount} 個未上傳
-                  </span>
-                </div>
-              ) : null;
-            })()}
 
             {filterProductId && (
               <div className="flex items-center gap-2 rounded-md bg-primary/10 px-3 py-1">
@@ -801,14 +511,32 @@ export const ProductTableView = memo(function ProductTableView({
               </div>
             )}
 
-            {lastSyncTime && (
-              <span className="font-mono-data text-[10px] text-muted-foreground">
-                上次備份: {new Date(lastSyncTime).toLocaleTimeString()}
-              </span>
-            )}
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Revert to 產品信息 Button */}
+            {onRevertToInfo && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={async () => {
+                  if (selectedIds.size === 0) {
+                    toast.info('請先勾選要退回的產品');
+                    return;
+                  }
+                  await onRevertToInfo(Array.from(selectedIds));
+                }}
+                disabled={selectedIds.size === 0}
+                className={cn(
+                  "gap-2 font-display text-xs font-bold border-amber-500/40 text-amber-600 hover:bg-amber-500/10 dark:text-amber-400",
+                  selectedIds.size === 0 && "opacity-50"
+                )}
+              >
+                <ChevronLeft className="h-3.5 w-3.5" />
+                {`退回上一步${selectedIds.size > 0 ? ` (${selectedIds.size})` : ''}`}
+              </Button>
+            )}
+
             {/* Batch Delete Button */}
             <Button
               variant="destructive"
@@ -828,118 +556,12 @@ export const ProductTableView = memo(function ProductTableView({
                 </Badge>
               )}
             </Button>
-
-            {/* Safety badge */}
-            <Tooltip>
-              <TooltipTrigger>
-                <div className="flex items-center gap-1.5 rounded-md bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1">
-                  <ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />
-                  <span className="font-mono-data text-[10px] text-emerald-500 font-semibold">安全 UPSERT 模式</span>
-                </div>
-              </TooltipTrigger>
-              <TooltipContent side="bottom" className="max-w-xs">
-                <p className="text-xs font-body">
-                  上傳只會在全域資料庫新增或更新產品記錄。現有的資料不會被刪除。
-                </p>
-              </TooltipContent>
-            </Tooltip>
-
-            {/* Backup Now Button */}
-            {onSyncFromShopify && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={async () => {
-                  const toastId = toast.loading('正在從 Shopify 同步...');
-                  try {
-                    const summary = await onSyncFromShopify();
-                    if (summary) {
-                      const parts: string[] = [];
-                      if (summary.created > 0) parts.push(`${summary.created} 已建立`);
-                      if (summary.updated > 0) parts.push(`${summary.updated} 已更新`);
-                      if (summary.skipped > 0) parts.push(`${summary.skipped} 已略過`);
-                      toast.success('同步完成', {
-                        id: toastId,
-                        description: `${summary.total_shopify} 個產品: ${parts.join('、')}`,
-                      });
-                    } else {
-                      toast.success('同步完成', { id: toastId });
-                    }
-                  } catch (err) {
-                    toast.error('同步失敗', {
-                      id: toastId,
-                      description: err instanceof Error ? err.message : '未知錯誤',
-                    });
-                  }
-                }}
-                disabled={isSyncing}
-                className={cn(
-                  "gap-2 font-display text-xs font-bold",
-                  isSyncing && "border-amber-500/40 text-amber-500"
-                )}
-              >
-                {isSyncing ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <CloudDownload className="h-3.5 w-3.5" />
-                )}
-                {isSyncing ? '備份中...' : '從 Shopify 備份'}
-              </Button>
-            )}
-
-            {/* Upload Unsynced to Master DB Button */}
-            {onUploadUnsyncedToMaster && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={async () => {
-                  const unsyncedCount = products.filter(p => !p.bwfMasterId && p.source !== 'shopify').length;
-                  if (unsyncedCount === 0) {
-                    toast.info('所有產品均已上傳到 Master DB');
-                    return;
-                  }
-                  const confirmed = window.confirm(`找到 ${unsyncedCount} 個未上傳到 Master DB 的產品，確認要批量上傳嗎？`);
-                  if (!confirmed) return;
-                  await onUploadUnsyncedToMaster();
-                }}
-                disabled={isPublishing}
-                className={cn(
-                  "gap-1.5 text-xs h-7",
-                  isPublishing && "border-amber-500/40 text-amber-500"
-                )}
-              >
-                {isPublishing ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <Upload className="h-3.5 w-3.5" />
-                )}
-                {isPublishing ? '上傳中...' : '上傳未同步產品'}
-              </Button>
-            )}
           </div>
         </div>
 
-        {/* Section info banner */}
-        {activeTab === 'local' && (
-          <div className="flex items-center gap-2 border-b border-border bg-primary/5 px-6 py-1.5">
-            <Sparkles className="h-3 w-3 text-primary" />
-            <span className="text-[11px] text-primary font-body">
-              這些是 AI 生成及本地建立的產品。選擇項目以上傳到<strong>全域資料庫</strong>。
-            </span>
-          </div>
-        )}
-        {activeTab === 'shopify' && (
-          <div className="flex items-center gap-2 border-b border-border bg-emerald-500/5 px-6 py-1.5">
-            <Database className="h-3 w-3 text-emerald-500" />
-            <span className="text-[11px] text-emerald-500 font-body">
-              Shopify 安全備份副本。此為唯讀參考 — 請直接在 Shopify 管理後台編輯。
-            </span>
-          </div>
-        )}
-
         {/* Table */}
         <div className="flex-1 overflow-auto">
-          <table className="w-full min-w-[2350px]">
+          <table className="w-full min-w-[1200px]">
             <thead className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm">
               <tr className="border-b border-border">
                 <th className="w-12 px-4 py-3">
@@ -960,37 +582,7 @@ export const ProductTableView = memo(function ProductTableView({
                 </th>
                 <th className="px-4 py-3 text-left">
                   <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    材質描述
-                  </span>
-                </th>
-                <th className="px-4 py-3 text-left">
-                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    標籤
-                  </span>
-                </th>
-                <th className="px-4 py-3 text-left">
-                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    價格
-                  </span>
-                </th>
-                <th className="px-4 py-3 text-left">
-                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    變體
-                  </span>
-                </th>
-                <th className="px-4 py-3 text-left">
-                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    尺寸 (LWH)
-                  </span>
-                </th>
-                <th className="px-4 py-3 text-left">
-                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    廠家
-                  </span>
-                </th>
-                <th className="px-4 py-3 text-left">
-                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    Factory ID
+                    產品編碼 (SKU)
                   </span>
                 </th>
                 <th className="px-4 py-3 text-left">
@@ -1005,57 +597,22 @@ export const ProductTableView = memo(function ProductTableView({
                 </th>
                 <th className="px-4 py-3 text-left">
                   <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    生產天數
+                    產品尺寸（長 / 闊 / 高 mm）
                   </span>
                 </th>
                 <th className="px-4 py-3 text-left">
                   <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    船期
+                    產品標籤
                   </span>
                 </th>
                 <th className="px-4 py-3 text-left">
                   <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    預計總貨期
+                    變體
                   </span>
                 </th>
                 <th className="px-4 py-3 text-left">
                   <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    貨期類型
-                  </span>
-                </th>
-                <th className="px-4 py-3 text-left">
-                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    運費
-                  </span>
-                </th>
-                <th className="px-4 py-3 text-left">
-                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    備註
-                  </span>
-                </th>
-                <th className="px-4 py-3 text-left">
-                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    顏色
-                  </span>
-                </th>
-                <th className="px-4 py-3 text-left">
-                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    來源
-                  </span>
-                </th>
-                <th className="px-4 py-3 text-left">
-                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    類目
-                  </span>
-                </th>
-                <th className="px-4 py-3 text-left">
-                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    狀態
-                  </span>
-                </th>
-                <th className="px-4 py-3 text-left">
-                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    Shopify
+                    送貨資訊
                   </span>
                 </th>
                 <th className="w-16 px-4 py-3" />
@@ -1086,24 +643,19 @@ export const ProductTableView = memo(function ProductTableView({
 
           {filteredProducts.length === 0 && (
             <div className="flex flex-col items-center justify-center py-20">
-              {activeTab === 'shopify' ? (
+              {searchQuery ? (
                 <>
-                  <Database className="mb-3 h-8 w-8 text-muted-foreground/40" />
-                  <p className="font-display text-sm text-muted-foreground">尚未備份 Shopify 產品</p>
+                  <Search className="mb-3 h-8 w-8 text-muted-foreground/40" />
+                  <p className="font-display text-sm text-muted-foreground">找不到符合的產品</p>
                   <p className="mt-1 text-xs text-muted-foreground/70 font-body">
-                    點擊「從 Shopify 備份」建立目錄的安全副本
-                  </p>
-                </>
-              ) : activeTab === 'local' ? (
-                <>
-                  <Sparkles className="mb-3 h-8 w-8 text-muted-foreground/40" />
-                  <p className="font-display text-sm text-muted-foreground">暫無本地 AI 草稿</p>
-                  <p className="mt-1 text-xs text-muted-foreground/70 font-body">
-                    透過 AI 處理器處理產品以建立新草稿
+                    請嘗試其他產品名稱或 SKU
                   </p>
                 </>
               ) : (
-                <p className="font-display text-sm text-muted-foreground">找不到產品</p>
+                <>
+                  <Package className="mb-3 h-8 w-8 text-muted-foreground/40" />
+                  <p className="font-display text-sm text-muted-foreground">暫無產品</p>
+                </>
               )}
             </div>
           )}
@@ -1142,12 +694,52 @@ export const ProductTableView = memo(function ProductTableView({
         <Dialog open={!!variantModal} onOpenChange={() => { setVariantModal(null); setShowProductPicker(false); setPickerSearch(''); setPickerFactoryFilter(''); setPickerPage(0); }}>
           <DialogContent className="max-w-2xl">
             <DialogHeader>
-              <DialogTitle className="font-display">
-                變體 — {variantModal?.product.title}
-              </DialogTitle>
-              <DialogDescription className="font-body text-xs">
-                管理每個變體的 ID、SKU、售價、尺寸、Option1 和庫存
-              </DialogDescription>
+              <div className="flex items-start justify-between pr-6">
+                <div>
+                  <DialogTitle className="font-display">
+                    變體 — {variantModal?.product.title}
+                  </DialogTitle>
+                  <DialogDescription className="font-body text-xs">
+                    管理每個變體的 ID、SKU、售價、尺寸、Option1 和庫存
+                  </DialogDescription>
+                </div>
+                <Button
+                  size="sm"
+                  className="shrink-0 gap-1.5 font-display text-xs"
+                  onClick={async () => {
+                    if (!variantModal) return;
+                    const variants = variantModal.product.variants;
+                    const shopifyVariants = variants.map(v => ({
+                      id: v.id,
+                      sku: v.sku,
+                      price: v.price,
+                      title: v.option1 || v.size || '',
+                      option1: v.option1 || v.size || '',
+                      option2: null,
+                      option3: null,
+                      compare_at_price: null,
+                      inventory_quantity: v.inventory ?? 0,
+                    }));
+                    const { error } = await supabase
+                      .from('ready_to_shopify')
+                      .update({ variants: shopifyVariants })
+                      .eq('product_id', variantModal.product.id);
+                    if (error) {
+                      toast.error('儲存失敗', { description: error.message });
+                    } else {
+                      toast.success('變體已儲存', { description: `已將 ${variants.length} 個變體儲存至 ready_to_shopify` });
+                      setVariantModal(null);
+                      setShowProductPicker(false);
+                      setPickerSearch('');
+                      setPickerFactoryFilter('');
+                      setPickerPage(0);
+                    }
+                  }}
+                >
+                  <Check className="h-3.5 w-3.5" />
+                  完成
+                </Button>
+              </div>
             </DialogHeader>
             <div className="space-y-3 mt-2">
               {variantModal?.product.variants.map((v) => (
@@ -1183,7 +775,8 @@ export const ProductTableView = memo(function ProductTableView({
 
             {/* Inline Product Picker */}
             {showProductPicker && variantModal && (() => {
-              const otherProducts = products.filter(p => p.id !== variantModal.product.id);
+              const addedVariantIds = new Set(variantModal.product.variants.map(v => v.id));
+              const otherProducts = products.filter(p => p.id !== variantModal.product.id && !addedVariantIds.has(p.id));
               const allFactories = [...new Set(otherProducts.map(p => p.factoryName || p.factoriesDisplayName || '').filter(Boolean))];
               const filtered = otherProducts.filter(p => {
                 const matchSearch = !pickerSearch.trim() || p.title.toLowerCase().includes(pickerSearch.toLowerCase());
@@ -1200,7 +793,6 @@ export const ProductTableView = memo(function ProductTableView({
                       <X className="h-4 w-4" />
                     </button>
                   </div>
-                  {/* Search & Filter */}
                   <div className="flex gap-2">
                     <div className="relative flex-1">
                       <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/60" />
@@ -1220,7 +812,6 @@ export const ProductTableView = memo(function ProductTableView({
                       {allFactories.map(f => <option key={f} value={f}>{f}</option>)}
                     </select>
                   </div>
-                  {/* Product List */}
                   <div className="space-y-1 max-h-48 overflow-y-auto">
                     {paginated.length === 0 ? (
                       <div className="py-6 text-center text-xs text-muted-foreground font-body">找不到產品</div>
@@ -1229,14 +820,24 @@ export const ProductTableView = memo(function ProductTableView({
                         key={p.id}
                         type="button"
                         onClick={() => {
+                          const dims = [p.dimensionLMm, p.dimensionWMm, p.dimensionHMm].filter(Boolean).join('x') || '';
+                          const existingSkus = new Set(products.flatMap(prod => prod.variants.map(v => v.sku)));
+                          let sku = p.sku || '';
+                          if (!sku) {
+                            let candidate = '';
+                            do {
+                              candidate = `SKU-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+                            } while (existingSkus.has(candidate));
+                            sku = candidate;
+                          }
                           const newVariant: ProductVariant = {
                             id: p.id,
-                            size: `${p.dimensionLMm || ''}${p.dimensionLMm ? 'x' : ''}${p.dimensionWMm || ''}${p.dimensionWMm ? 'x' : ''}${p.dimensionHMm || ''}`.replace(/x$/, '') || '',
+                            size: dims,
                             color: p.color || '',
-                            sku: p.sku || `SKU-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
-                            price: p.salePrice ?? p.price,
-                            inventory: 0,
-                            option1: p.title,
+                            sku,
+                            price: p.salePrice ?? NaN,
+                            inventory: 100,
+                            option1: dims,
                           };
                           const updatedVariants = [...variantModal.product.variants, newVariant];
                           onUpdateProduct(variantModal.product.id, { variants: updatedVariants });
@@ -1264,7 +865,6 @@ export const ProductTableView = memo(function ProductTableView({
                       </button>
                     ))}
                   </div>
-                  {/* Pagination */}
                   {totalPickerPages > 1 && (
                     <div className="flex items-center justify-center gap-2">
                       <button type="button" disabled={pickerPage === 0} onClick={() => setPickerPage(p => Math.max(0, p - 1))} className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-xs font-body hover:bg-accent disabled:opacity-40">
@@ -1350,6 +950,7 @@ export const ProductTableView = memo(function ProductTableView({
             onProductUpdated={(updated) => {
               handleProductUpdatedFromModal(updated);
             }}
+            readyToPublishMode={readyToPublishMode}
           />
         )}
       </div>

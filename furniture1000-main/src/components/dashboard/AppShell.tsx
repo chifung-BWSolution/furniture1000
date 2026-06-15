@@ -247,23 +247,33 @@ export function AppShell() {
             onClearFilter={handleClearFilter}
             onSyncFromShopify={store.syncFromShopify}
             onUploadUnsyncedToMaster={store.publishSelected}
-            onRevertToInfo={async (ids) => {
-              const { error } = await import('@/lib/supabase').then(m =>
-                m.supabase.from('products').update({ ready_to_publish: false, info_done: false }).in('id', ids)
-              );
+            onRevertToInfo={async (ids, reasons) => {
+              const { supabase: sb } = await import('@/lib/supabase');
+              const { toast } = await import('sonner');
+              const revertReason = (reasons.labels.length > 0 || reasons.other)
+                ? { labels: reasons.labels, other: reasons.other || null }
+                : null;
+              const { error } = await sb.from('products').update({
+                ready_to_publish: false,
+                info_done: false,
+                copy_done: false,
+                revert_reason: revertReason,
+              }).in('id', ids);
               if (error) {
-                const { toast } = await import('sonner');
                 toast.error('退回失敗', { description: error.message });
-              } else {
-                store.reloadReadyToPublish();
-                const { toast } = await import('sonner');
-                toast.success(`已退回 ${ids.length} 件產品至「產品信息」`);
+                return;
               }
+              // Remove from ready_to_shopify so they no longer appear in 準備上載
+              await sb.from('ready_to_shopify').delete().in('product_id', ids);
+              store.reloadReadyToPublish();
+              toast.success(`已退回 ${ids.length} 件產品至「產品文案」`, {
+                description: revertReason?.labels.length ? `原因：${revertReason.labels.join('、')}` : undefined,
+              });
             }}
+            onVariantsSaved={() => store.reloadReadyToPublish()}
             isSyncing={store.isSyncing}
             isPublishing={store.isPublishing}
             lastSyncTime={store.lastSyncTime}
-            readyToPublishMode={true}
           />
         );
       case "listed-products":

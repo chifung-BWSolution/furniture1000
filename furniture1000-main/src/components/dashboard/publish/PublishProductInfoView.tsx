@@ -6,6 +6,10 @@ import {
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
+} from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { usePublishList } from './usePublishList';
@@ -18,8 +22,6 @@ interface InfoItem {
   id: string;
   title: string;
   imageUrl: string;
-  /** Extra images from products.images (fallback if ready_to_shopify has none) */
-  productExtraImages: string[];
   factory: string;
   price: number;
   costPrice: number | null;
@@ -73,7 +75,7 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
     Array.from(new Set(categoryPairs.filter((p) => p.level1 === l1 && p.level2).map((p) => p.level2)));
 
   const { rows, totalCount, isLoading, Toolbar, Pagination } = usePublishList({
-    select: 'id,title,image_url,images,price,sale_price,cost_price,sku,tags,dimension_l_mm,dimension_w_mm,dimension_h_mm,level1_category,level2_category,in_stock,customize,model,factories_display_name',
+    select: 'id,title,image_url,price,sale_price,cost_price,sku,tags,dimension_l_mm,dimension_w_mm,dimension_h_mm,level1_category,level2_category,in_stock,customize,model,factories_display_name',
     applyBaseFilters: (q) => q.eq('in_shopify_queue', true).eq('info_done', false),
     reloadKey,
   });
@@ -81,8 +83,7 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
   // Fetch cost + image_url + images from ready_to_shopify for each product
   const [costMap, setCostMap] = useState<Record<string, number | null>>({});
   const [rtsImageMap, setRtsImageMap] = useState<Record<string, string>>({});
-  // All srcs from ready_to_shopify.images (no filtering — show everything)
-  const [rtsImagesMap, setRtsImagesMap] = useState<Record<string, string[]>>({});
+  const [rtsImagesMap, setRtsImagesMap] = useState<Record<string, { src: string; alt: string }[]>>({});
   useEffect(() => {
     if (rows.length === 0) return;
     const ids = rows.map((r: any) => r.id);
@@ -90,24 +91,19 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
       .from('ready_to_shopify')
       .select('product_id, cost, image_url, images')
       .in('product_id', ids)
-      .then(({ data, error }) => {
-        if (error) console.error('[PublishProductInfoView] rts fetch error:', error);
+      .then(({ data }) => {
         if (!data) return;
         const costM: Record<string, number | null> = {};
         const imgM: Record<string, string> = {};
-        const imgsM: Record<string, string[]> = {};
+        const imgsM: Record<string, { src: string; alt: string }[]> = {};
         for (const row of data) {
           costM[row.product_id] = row.cost != null ? Number(row.cost) : null;
           if (row.image_url) imgM[row.product_id] = row.image_url;
-          // Extract all srcs from images jsonb — no filtering
           if (Array.isArray(row.images) && row.images.length > 0) {
-            const srcs = row.images
-              .map((img: any) => {
-                if (typeof img === 'string') return img;
-                return img?.src || img?.url || img?.source_url || '';
-              })
-              .filter((s: string) => s.length > 0);
-            if (srcs.length > 0) imgsM[row.product_id] = srcs;
+            imgsM[row.product_id] = row.images.map((img: any) => ({
+              src: img?.src || img?.url || (typeof img === 'string' ? img : ''),
+              alt: img?.alt || '',
+            })).filter((img: { src: string; alt: string }) => img.src && img.src !== row.image_url);
           }
         }
         setCostMap(costM);
@@ -130,22 +126,10 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
         productionType = 'custom';
         leadTime = r.customize;
       }
-      // Extra images from products.images (skip index 0 which is image_url)
-      const productExtraImages: string[] = [];
-      if (Array.isArray(r.images)) {
-        const primarySrc = r.image_url || '';
-        r.images.forEach((img: any) => {
-          const src = img?.src || img?.url || (typeof img === 'string' ? img : '');
-          if (src && src !== primarySrc && !productExtraImages.includes(src)) {
-            productExtraImages.push(src);
-          }
-        });
-      }
       return {
         id: r.id,
         title: r.title || '',
         imageUrl: r.image_url || '',
-        productExtraImages,
         factory: r.factories_display_name || '',
         price: Number(r.sale_price ?? r.price ?? 0),
         costPrice: r.cost_price != null ? Number(r.cost_price) : null,
@@ -190,21 +174,42 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
     setTagDraft((prev) => ({ ...prev, [id]: '' }));
   };
 
-  // 退回上一步：將所選產品的 copy_done 設回 false，使其重新出現在「產品文案」
+  // 退回上一步 — dialog state
+  const REVERT_OPTIONS = ['產品情景圖修改', '產品圖片角度不足', '產品說明修正', '其他'] as const;
+  const [showRevertDialog, setShowRevertDialog] = useState(false);
+  const [revertReasons, setRevertReasons] = useState<string[]>([]);
+  const [revertOther, setRevertOther] = useState('');
   const [isReverting, setIsReverting] = useState(false);
-  const handleRevert = async () => {
+
+  const handleRevert = () => {
     if (selected.size === 0) { toast.message('請先勾選產品'); return; }
+    setRevertReasons([]);
+    setRevertOther('');
+    setShowRevertDialog(true);
+  };
+
+  const handleConfirmRevert = async () => {
+    if (revertReasons.length === 0 && !revertOther.trim()) return;
     const ids = Array.from(selected);
     setIsReverting(true);
     try {
+      const revertReason = { labels: revertReasons, other: revertOther.trim() || null };
       const { error } = await supabase
         .from('products')
-        .update({ copy_done: false, copy_done_at: null })
+        .update({
+          copy_done: false,
+          copy_done_at: null,
+          info_done: false,
+          revert_reason: revertReason,
+        })
         .in('id', ids);
       if (error) throw new Error(error.message);
+      setShowRevertDialog(false);
       setSelected(new Set());
       setReloadKey((k) => k + 1);
-      toast.success('已退回產品文案', { description: `${ids.length} 件產品已退回「產品文案」頁面重新編輯` });
+      toast.success(`已退回 ${ids.length} 件產品至「產品文案」`, {
+        description: revertReason?.labels.length ? `原因：${revertReason.labels.join('、')}` : undefined,
+      });
     } catch (e) {
       toast.error('退回失敗', { description: e instanceof Error ? e.message : '請稍後再試' });
     } finally {
@@ -332,42 +337,49 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
                   {/* card head */}
                   <div className="flex items-center gap-3 border-b border-border/60 px-5 py-3">
                     <input type="checkbox" checked={isSel} onChange={() => toggle(it.id)} className="h-4 w-4 rounded border-border accent-emerald-600" />
-                    {/* image_url (主圖) + images (附加圖) from ready_to_shopify */}
-                    <div className="flex items-center gap-1.5 flex-shrink-0">
-                      {/* 主圖 */}
-                      <div
-                        className="group relative h-12 w-12 cursor-zoom-in"
-                        onClick={() => { const src = rtsImageMap[it.id] || it.imageUrl; if (src) setLightboxSrc(src); }}
-                      >
-                        <img
-                          src={rtsImageMap[it.id] || it.imageUrl}
-                          alt={it.title}
-                          loading="lazy"
-                          className="h-12 w-12 rounded-lg object-cover bg-muted"
-                        />
-                        <div className="absolute inset-0 hidden group-hover:flex items-center justify-center rounded-lg bg-black/30">
-                          <ZoomIn className="h-4 w-4 text-white" />
-                        </div>
+                    {/* Use ready_to_shopify image_url (base64 → img) if available, fallback to products.image_url */}
+                    {/* Primary image */}
+                    <div
+                      className="group relative h-12 w-12 flex-shrink-0 cursor-zoom-in"
+                      onClick={() => { const src = rtsImageMap[it.id] || it.imageUrl; if (src) setLightboxSrc(src); }}
+                    >
+                      <img
+                        src={rtsImageMap[it.id] || it.imageUrl}
+                        alt={it.title}
+                        loading="lazy"
+                        className="h-12 w-12 rounded-lg object-cover bg-muted"
+                      />
+                      <div className="absolute inset-0 hidden group-hover:flex items-center justify-center rounded-lg bg-black/30">
+                        <ZoomIn className="h-4 w-4 text-white" />
                       </div>
-                      {/* 附加圖：ready_to_shopify.images 全部顯示，若無則用 products.images */}
-                      {(rtsImagesMap[it.id]?.length ? rtsImagesMap[it.id] : it.productExtraImages).map((src, idx) => (
-                        <div
-                          key={idx}
-                          className="group relative h-12 w-12 cursor-zoom-in flex-shrink-0"
-                          onClick={() => setLightboxSrc(src)}
-                        >
-                          <img
-                            src={src}
-                            alt={`${it.title} ${idx + 2}`}
-                            loading="lazy"
-                            className="h-12 w-12 rounded-lg object-cover bg-muted"
-                          />
-                          <div className="absolute inset-0 hidden group-hover:flex items-center justify-center rounded-lg bg-black/30">
-                            <ZoomIn className="h-4 w-4 text-white" />
-                          </div>
-                        </div>
-                      ))}
                     </div>
+                    {/* Additional images from ready_to_shopify.images */}
+                    {(rtsImagesMap[it.id] ?? []).length > 0 && (
+                      <div className="flex flex-shrink-0 items-center gap-1">
+                        {(rtsImagesMap[it.id] ?? []).slice(0, 6).map((img, idx) => (
+                          <div
+                            key={idx}
+                            className="group relative h-12 w-12 cursor-zoom-in flex-shrink-0"
+                            onClick={() => { if (img.src) setLightboxSrc(img.src); }}
+                          >
+                            <img
+                              src={img.src}
+                              alt={img.alt || it.title}
+                              loading="lazy"
+                              className="h-12 w-12 rounded-lg object-cover bg-muted"
+                            />
+                            <div className="absolute inset-0 hidden group-hover:flex items-center justify-center rounded-lg bg-black/30">
+                              <ZoomIn className="h-3 w-3 text-white" />
+                            </div>
+                          </div>
+                        ))}
+                        {(rtsImagesMap[it.id] ?? []).length > 6 && (
+                          <span className="rounded bg-muted px-1.5 py-0.5 font-body text-[10px] text-muted-foreground">
+                            +{(rtsImagesMap[it.id] ?? []).length - 6}
+                          </span>
+                        )}
+                      </div>
+                    )}
                     <div className="min-w-0 flex-1">
                       <h3 className="font-display text-[14px] font-bold text-foreground line-clamp-1">{it.title}</h3>
                       <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
@@ -525,31 +537,78 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
       </div>
       {Pagination}
 
-      {/* Lightbox overlay — 800×800 */}
+      {/* Lightbox overlay */}
       {lightboxSrc && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
           onClick={() => setLightboxSrc(null)}
         >
-          <div
-            className="relative flex items-center justify-center rounded-xl bg-black shadow-2xl overflow-hidden"
-            style={{ width: 800, height: 800 }}
-            onClick={(e) => e.stopPropagation()}
+          <button
+            onClick={() => setLightboxSrc(null)}
+            className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20"
           >
-            <button
-              onClick={() => setLightboxSrc(null)}
-              className="absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20"
-            >
-              <X className="h-4 w-4" />
-            </button>
-            <img
-              src={lightboxSrc}
-              alt="放大圖片"
-              className="h-full w-full object-contain"
-            />
-          </div>
+            <X className="h-4 w-4" />
+          </button>
+          <img
+            src={lightboxSrc}
+            alt="放大圖片"
+            className="max-h-[90vh] max-w-[90vw] rounded-xl object-contain shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
         </div>
       )}
+
+      {/* Revert Reason Dialog */}
+      <Dialog open={showRevertDialog} onOpenChange={setShowRevertDialog}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-display">退回原因（必選）</DialogTitle>
+            <DialogDescription className="font-body text-sm">
+              請選擇退回原因（至少選一項）。退回後產品將移至「產品文案」頁面並顯示退回原因標籤。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex flex-col gap-2 py-2">
+            {REVERT_OPTIONS.map(opt => (
+              <label key={opt} className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-border px-3 py-2.5 hover:bg-accent">
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 accent-amber-500"
+                  checked={revertReasons.includes(opt)}
+                  onChange={() =>
+                    setRevertReasons(prev =>
+                      prev.includes(opt) ? prev.filter(r => r !== opt) : [...prev, opt]
+                    )
+                  }
+                />
+                <span className="font-body text-sm">{opt}</span>
+              </label>
+            ))}
+            {revertReasons.includes('其他') && (
+              <textarea
+                value={revertOther}
+                onChange={e => setRevertOther(e.target.value.slice(0, 200))}
+                placeholder="請輸入其他原因（最多 100 個中文字）"
+                rows={3}
+                className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 font-body text-sm focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
+              />
+            )}
+          </div>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" size="sm" className="font-display text-xs" onClick={() => setShowRevertDialog(false)}>
+              取消
+            </Button>
+            <Button
+              size="sm"
+              className="font-display text-xs bg-amber-500 hover:bg-amber-600 text-white"
+              disabled={isReverting || (revertReasons.length === 0 && !revertOther.trim())}
+              onClick={handleConfirmRevert}
+            >
+              {isReverting ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" /> : null}
+              確認退回 ({selected.size})
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

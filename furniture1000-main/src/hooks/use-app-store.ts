@@ -386,24 +386,37 @@ export function useAppStore() {
   }, []);
 
   // Reload products from Supabase (used after publish/sync)
-  // 準備上載 = products that completed both 產品文案 (copy_done) and 產品信息 (info_done).
+  // 準備上載 = products that have a record in ready_to_shopify (i.e. completed 產品文案).
   // Fetches ALL such products regardless of pagination window.
   const reloadReadyToPublish = useCallback(async () => {
     try {
-      // Direct query: products that completed the full publish workflow
+      // Query all records from ready_to_shopify — this is the source of truth
+      const { data: rtsAll } = await supabase
+        .from('ready_to_shopify')
+        .select('product_id,image_url,images,body_html,variants');
+      if (!rtsAll || rtsAll.length === 0) {
+        // All products were reverted — clear readyToPublish for all
+        setProducts(prev => prev.map(p => p.readyToPublish ? { ...p, readyToPublish: false } : p));
+        return;
+      }
+      const ids = rtsAll.map((r: any) => r.product_id).filter(Boolean);
+      if (ids.length === 0) {
+        setProducts(prev => prev.map(p => p.readyToPublish ? { ...p, readyToPublish: false } : p));
+        return;
+      }
+
+      // Fetch the corresponding product rows
       const { data: rtpRows } = await supabase
         .from('products')
         .select('*')
-        .eq('copy_done', true)
-        .eq('info_done', true);
+        .in('id', ids);
       if (!rtpRows || rtpRows.length === 0) return;
-      const ids = rtpRows.map((r: any) => r.id);
 
-      // Fetch ready_to_shopify data in parallel with variants for enrichment
-      const [{ data: variantRows }, { data: rtsRows }] = await Promise.all([
-        supabase.from('product_variants').select('*').in('product_id', ids),
-        supabase.from('ready_to_shopify').select('product_id,image_url,images,body_html,shopify_page_title').in('product_id', ids),
-      ]);
+      // Fetch variants for enrichment
+      const { data: variantRows } = await supabase
+        .from('product_variants')
+        .select('*')
+        .in('product_id', ids);
 
       const variantsByProduct: Record<string, any[]> = {};
       (variantRows || []).forEach((v: any) => {
@@ -411,9 +424,9 @@ export function useAppStore() {
       });
 
       // Build a map of ready_to_shopify data keyed by product_id
-      const rtsByProductId: Record<string, { image_url: string | null; images: any[] | null; body_html: string | null; shopify_page_title: string | null }> = {};
-      (rtsRows || []).forEach((r: any) => {
-        rtsByProductId[r.product_id] = { image_url: r.image_url, images: r.images, body_html: r.body_html, shopify_page_title: r.shopify_page_title };
+      const rtsByProductId: Record<string, { image_url: string | null; images: any[] | null; body_html: string | null; variants: any[] | null }> = {};
+      rtsAll.forEach((r: any) => {
+        rtsByProductId[r.product_id] = { image_url: r.image_url, images: r.images, body_html: r.body_html, variants: r.variants ?? null };
       });
 
       const loaded = rtpRows.map((row: any) => {
@@ -422,11 +435,6 @@ export function useAppStore() {
         product.readyToPublish = true;
         const rts = rtsByProductId[row.id];
         if (rts) {
-          // Override title with shopify_page_title from ready_to_shopify if present
-          if (rts.shopify_page_title) {
-            product.title = rts.shopify_page_title;
-          }
-
           // Override description + descriptionHtml with body_html (Shopify 產品說明).
           // ProductDetailModal uses descriptionHtml first, so both must be set.
           if (rts.body_html) {
@@ -448,12 +456,32 @@ export function useAppStore() {
             }
           }
           if (allImages.length > 0) (product as any).images = allImages;
+
+          // Restore saved variants from ready_to_shopify.variants (Shopify format → ProductVariant[])
+          if (Array.isArray(rts.variants) && rts.variants.length > 0) {
+            product.variants = rts.variants.map((v: any) => ({
+              id: String(v.id ?? ''),
+              sku: v.sku ?? '',
+              price: typeof v.price === 'number' ? v.price : parseFloat(v.price) || 0,
+              size: v.option1 ?? v.title ?? '',
+              color: '',
+              inventory: v.inventory_quantity ?? 0,
+              option1: v.option1 ?? v.title ?? '',
+            }));
+          }
         }
         return product;
       });
 
+      const activeIdSet = new Set(ids);
       setProducts(prev => {
         const byId = new Map(prev.map(p => [p.id, p]));
+        // Clear readyToPublish for products no longer in ready_to_shopify
+        for (const [id, p] of byId) {
+          if (p.readyToPublish && !activeIdSet.has(id)) {
+            byId.set(id, { ...p, readyToPublish: false });
+          }
+        }
         loaded.forEach(p => byId.set(p.id, p));
         return Array.from(byId.values());
       });

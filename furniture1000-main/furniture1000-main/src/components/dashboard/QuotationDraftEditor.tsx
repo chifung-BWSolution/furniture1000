@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, lazy, Suspense, useRef } from "react";
 import {
   ChevronLeft,
+  ChevronDown,
   Plus,
   Trash2,
   Save,
@@ -25,6 +26,7 @@ import {
   deleteDraft,
   type DraftData,
 } from "@/lib/draftStore";
+import { unsavedGuard } from "@/lib/unsavedGuard";
 
 const LazyQuotationPDFPreviewModal = lazy(() =>
   import("@/components/dashboard/QuotationPDFPreview").then((mod) => ({
@@ -69,7 +71,6 @@ interface QuotationItem {
   dimensionHMm?: number | null;
   deliveryTermName?: string;
   isCustomTerm?: boolean;
-  isAlternative?: boolean;
 }
 
 interface QuotationDraftEditorProps {
@@ -484,6 +485,13 @@ export function QuotationDraftEditor({
       }
     | undefined;
 
+  // Left panel section collapse states (all collapsed by default)
+  const [collapseCompany, setCollapseCompany] = useState(true);
+  const [collapseProject, setCollapseProject] = useState(true);
+  const [collapseClient, setCollapseClient] = useState(true);
+  const [collapseQuoteMeta, setCollapseQuoteMeta] = useState(true);
+  const anyExpanded = !collapseCompany || !collapseProject || !collapseClient || !collapseQuoteMeta;
+
   // Company info (editable)
   const [companyInfo, setCompanyInfo] = useState({
     name: savedCompanyInfo?.name || "Branding Works Design Ltd",
@@ -545,31 +553,31 @@ export function QuotationDraftEditor({
 
   // Terms content (editable)
   const DEFAULT_TERMS = {
-    transport: `3.1 本報價包含於單一地址的一次性運輸及安裝費用。
-3.2 交付暫不涵蓋大嶼山、長洲、坪洲、南丫島及其他離島地區，包括禁區、5.5噸貨車無法進入路段、展覽場地、倉庫、酒店、裝修單位、船屋、地盤或貨櫃碼頭。若需特殊運送（如經露台懸掛），客戶須自行安排或者另行收費。
-3.3 送貨及安裝的標準時間：星期一至六，09:00-18:00（公眾假期除外）。超出時間須另行收費。
-3.4 遇惡劣天氣 、洪水或道路封閉，交付可能延遲。本公司將於24 小時內聯絡，並於7 天內補送。
-3.5 送貨及安裝期間，現場須安全、清潔且無阻礙，否則本公司保留拒絕權利。
-3.6 安裝不包括電工服務（如電插座安裝）、吊櫃上牆和收口服務，建議聘請合格技工。
-3.7 運輸過程若需要叩關，因叩關過程導致的送貨及安裝延誤，本公司不負任何責任。並可重新安排送貨時間。`,
-    extraFees: `4.1 卸貨區高度須達3.3 米，否則街上卸貨每件加收HKD 200。
-4.2 更改交付日期須於3 天前電郵通知，否則收取HKD 500 行政費。本公司提供首5 天免費儲存，逾期每日每立方米收取HKD80。
-4.3 若交付當日無人接收，須重新安排並收取額外交付費。
-4.4 清拆舊家具不包括在內，須另行報價。
-4.5 樓梯搬運每層每立方米收取HKD 100（限8 層）。
-4.6 交付限 100 米範圍，超出每100 米加收HKD 500。`,
-    warranty: `5.1 保養期為 1 年，自交付日起計算。不適用於不當使用、意外損壞或正常磨損。超過保養期后，進行維修，只收取材料及運輸安裝費用。
-5.2 如貨品有任何損壞或問題，客戶須於產品交付後7天内通知本公司。如貨品有任何損壞或問題而客人不接受時，上限只賠償為貨價10%。
-5.3 瑕疵評估以 1000mm 距離觀察為準，輕微差異（如顏色或收邊）不在範圍。`,
-    other: `6.1 產品貨款未全部付清之前，產品歸屬權為本公司。
-6.2 若需家具安裝固定上墻，需要保證所安裝墻體具有足夠的受力，且必須安裝墻體背板用作安裝上墻的結構件。
-6.3 產品顏色及花紋可能有輕微差異（因顯示器或批次），屬正常，不接受退換。
-6.4 本報價以發票內容為準，圖片及樣本僅供參考。任何更改須以書面通知，本公司不接受口頭承諾。
-6.5 所有規格經確認無誤。本合同經雙方簽署及蓋印後生效。
-6.6 如合約產生任何爭議，雙方無法達成共識，爭議無法解決，將提交香港國際仲裁中心仲裁。
-6.7 本報價有效期為30 天。
-6.8 責任限制：本公司對間接損失（如延誤造成的商業損失）不承擔責任。最高賠償限於訂單總額。
-6.9 不可抗力：如疫情、自然災害等不可控事件，本公司免除相關責任，但將盡力通知並減輕影響。`,
+    transport: `2.1 本報價包含於單一地址的一次性運輸及安裝費用。
+2.2 交付暫不涵蓋大嶼山、長洲、坪洲、南丫島及其他離島地區，包括禁區、5.5噸貨車無法進入路段、展覽場地、倉庫、酒店、裝修單位、船屋、地盤或貨櫃碼頭。若需特殊運送（如經露台懸掛），客戶須自行安排或者另行收費。
+2.3 送貨及安裝的標準時間：星期一至六，09:00-18:00（公眾假期除外）。超出時間須另行收費。
+2.4 遇惡劣天氣 、洪水或道路封閉，交付可能延遲。本公司將於24 小時內聯絡，並於7 天內補送。
+2.5 送貨及安裝期間，現場須安全、清潔且無阻礙，否則本公司保留拒絕權利。
+2.6 安裝不包括電工服務（如電插座安裝）、吊櫃上牆和收口服務，建議聘請合格技工。
+2.7 運輸過程若需要叩關，因叩關過程導致的送貨及安裝延誤，本公司不負任何責任。並可重新安排送貨時間。`,
+    extraFees: `3.1 卸貨區高度須達3.3 米，否則街上卸貨每件加收HKD 200。
+3.2 更改交付日期須於3 天前電郵通知，否則收取HKD 500 行政費。本公司提供首5 天免費儲存，逾期每日每立方米收取HKD80。
+3.3 若交付當日無人接收，須重新安排並收取額外交付費。
+3.4 清拆舊家具不包括在內，須另行報價。
+3.5 樓梯搬運每層每立方米收取HKD 100（限8 層）。
+3.6 交付限 100 米範圍，超出每100 米加收HKD 500。`,
+    warranty: `4.1 保養期為 1 年，自交付日起計算。不適用於不當使用、意外損壞或正常磨損。超過保養期后，進行維修，只收取材料及運輸安裝費用。
+4.2 如貨品有任何損壞或問題，客戶須於產品交付後7天内通知本公司。如貨品有任何損壞或問題而客人不接受時，上限只賠償為貨價10%。
+4.3 瑕疵評估以 1000mm 距離觀察為準，輕微差異（如顏色或收邊）不在範圍。`,
+    other: `5.1 產品貨款未全部付清之前，產品歸屬權為本公司。
+5.2 若需家具安裝固定上墻，需要保證所安裝墻體具有足夠的受力，且必須安裝墻體背板用作安裝上墻的結構件。
+5.3 產品顏色及花紋可能有輕微差異（因顯示器或批次），屬正常，不接受退換。
+5.4 本報價以發票內容為準，圖片及樣本僅供參考。任何更改須以書面通知，本公司不接受口頭承諾。
+5.5 所有規格經確認無誤。本合同經雙方簽署及蓋印後生效。
+5.6 如合約產生任何爭議，雙方無法達成共識，爭議無法解決，將提交香港國際仲裁中心仲裁。
+5.7 本報價有效期為30 天。
+5.8 責任限制：本公司對間接損失（如延誤造成的商業損失）不承擔責任。最高賠償限於訂單總額。
+5.9 不可抗力：如疫情、自然災害等不可控事件，本公司免除相關責任，但將盡力通知並減輕影響。`,
     payment: `付款條款: 須支付70%訂金於生產前，餘下30%於交付前支付。若未支付餘款，本公司將不安排交付或安裝。
 
 銀行賬戶資料:
@@ -609,14 +617,21 @@ export function QuotationDraftEditor({
         .join(""),
     ].join("");
 
+  // Detect if saved terms still use old (incorrect) numbering, e.g. "3.1 本報價".
+  // If so, discard saved terms and fall back to corrected DEFAULT_TERMS.
+  const savedTransportIsOld =
+    typeof savedTermsContent?.transport === 'string' &&
+    savedTermsContent.transport.trimStart().startsWith('3.');
+  const effectiveSavedTerms = savedTransportIsOld ? undefined : savedTermsContent;
+
   const [termsContent, setTermsContent] = useState({
-    transport: savedTermsContent?.transport || DEFAULT_TERMS.transport,
-    extraFees: savedTermsContent?.extraFees || DEFAULT_TERMS.extraFees,
-    warranty: savedTermsContent?.warranty || DEFAULT_TERMS.warranty,
-    other: savedTermsContent?.other || DEFAULT_TERMS.other,
-    payment: savedTermsContent?.payment || DEFAULT_TERMS.payment,
+    transport: effectiveSavedTerms?.transport || DEFAULT_TERMS.transport,
+    extraFees: effectiveSavedTerms?.extraFees || DEFAULT_TERMS.extraFees,
+    warranty: effectiveSavedTerms?.warranty || DEFAULT_TERMS.warranty,
+    other: effectiveSavedTerms?.other || DEFAULT_TERMS.other,
+    payment: effectiveSavedTerms?.payment || DEFAULT_TERMS.payment,
     fullHtml:
-      savedTermsContent?.fullHtml || buildDefaultFullHtml(DEFAULT_TERMS),
+      effectiveSavedTerms?.fullHtml || buildDefaultFullHtml(DEFAULT_TERMS),
   });
   const [termsEditMode, setTermsEditMode] = useState(false);
   const [termsSaving, setTermsSaving] = useState(false);
@@ -735,7 +750,7 @@ export function QuotationDraftEditor({
   };
 
   const subtotal = items.reduce(
-    (sum, item) => item.isAlternative ? sum : sum + item.unitPrice * item.quantity,
+    (sum, item) => sum + item.unitPrice * item.quantity,
     0,
   );
   const discountValue = (() => {
@@ -776,9 +791,45 @@ export function QuotationDraftEditor({
   const [isSavingDraft, setIsSavingDraft] = useState(false);
   const [draftSavedAt, setDraftSavedAt] = useState<number | null>(null);
   const [draftLoaded, setDraftLoaded] = useState(false);
+  // True once 已儲存 or 版本審核 has been done with the current content; cleared on edit.
+  const [persisted, setPersisted] = useState(false);
 
   // Derive the draft key: use existing quoteId or "NEW"
   const draftKey = existingQuote?.quoteId || "NEW";
+
+  // 報價內容 is considered "有數據" if any row has a product name.
+  const hasQuoteData = items.some((it) => (it.name || "").trim());
+
+  // Unsaved-work guard: dirty when there is quote data that has NOT been saved
+  // (已儲存) or submitted for review (版本審核). Registered to a module-level guard
+  // that AppShell + beforeunload check before navigating away.
+  const isDirty = draftLoaded && hasQuoteData && !persisted;
+
+  useEffect(() => {
+    unsavedGuard.set(
+      isDirty,
+      '報價內容尚未儲存。離開前請按「已儲存」或「版本審核」，否則內容將會遺失。',
+    );
+    return () => unsavedGuard.clear();
+  }, [isDirty]);
+
+  // Warn on browser tab close / refresh while dirty.
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (unsavedGuard.isDirty) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, []);
+
+  // Any edit to quote content re-arms the dirty state.
+  useEffect(() => {
+    setPersisted(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, companyInfo, clientInfo, quoteMeta, deliveryDetails, termsContent, discountNote, installationFee]);
 
   // Load draft from IndexedDB on mount (only for NEW quotes without existingQuote)
   // For existing quotes, QuickQuoteView handles loading the draft before passing projectData.
@@ -901,6 +952,7 @@ export function QuotationDraftEditor({
       await saveDraft(buildDraftData());
       const now = Date.now();
       setDraftSavedAt(now);
+      setPersisted(true);
       toast.success("草稿已儲存到本地", {
         description: `儲存時間: ${new Date(now).toLocaleString("zh-HK")}`,
       });
@@ -1002,7 +1054,6 @@ export function QuotationDraftEditor({
         dimensionHMm: item.dimensionHMm,
         deliveryTermName: item.deliveryTermName,
         isCustomTerm: item.isCustomTerm,
-        isAlternative: item.isAlternative,
       })),
     subtotal,
     discountNote,
@@ -1091,14 +1142,19 @@ export function QuotationDraftEditor({
 
           {/* 3-Column Grid */}
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
-            {/* LEFT COLUMN */}
-            <div className="space-y-5 lg:col-span-3">
+            {/* LEFT COLUMN — narrow when all collapsed, wider when any open */}
+            <div className={`space-y-2 ${anyExpanded ? 'lg:col-span-3' : 'lg:col-span-2'}`}>
               {/* 公司資訊 */}
-              <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
-                <h2 className="mb-4 font-display text-sm font-bold text-foreground/80">
-                  公司資訊
-                </h2>
-                <div className="space-y-3">
+              <section className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setCollapseCompany((v) => !v)}
+                  className="flex w-full items-center justify-between px-4 py-3 hover:bg-muted/40 transition-colors"
+                >
+                  <h2 className="font-display text-sm font-bold text-foreground/80">公司資訊</h2>
+                  <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${collapseCompany ? '' : 'rotate-180'}`} />
+                </button>
+                {!collapseCompany && <div className="px-4 pb-4 space-y-3">
                   <div>
                     <label className="mb-1 block font-body text-xs text-muted-foreground">
                       公司名稱
@@ -1165,15 +1221,20 @@ export function QuotationDraftEditor({
                       className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
                     />
                   </div>
-                </div>
+                </div>}
               </section>
 
               {/* 2. 專案分類 (Read-only from Steps) */}
-              <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
-                <h2 className="mb-4 font-display text-sm font-bold text-foreground/80">
-                  專案分類
-                </h2>
-                <div className="space-y-3">
+              <section className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setCollapseProject((v) => !v)}
+                  className="flex w-full items-center justify-between px-4 py-3 hover:bg-muted/40 transition-colors"
+                >
+                  <h2 className="font-display text-sm font-bold text-foreground/80">專案分類</h2>
+                  <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${collapseProject ? '' : 'rotate-180'}`} />
+                </button>
+                {!collapseProject && <div className="px-4 pb-4 space-y-3">
                   <div>
                     <label className="mb-1.5 block font-body text-xs text-muted-foreground">
                       客戶產業
@@ -1234,18 +1295,23 @@ export function QuotationDraftEditor({
                       )}
                     </div>
                   </div>
-                </div>
-                <p className="mt-3 font-body text-[10px] text-muted-foreground/60">
-                  * 如需修改，請點擊「基本資訊」回到編輯頁
-                </p>
+                  <p className="mt-3 font-body text-[10px] text-muted-foreground/60">
+                    * 如需修改，請點擊「基本資訊」回到編輯頁
+                  </p>
+                </div>}
               </section>
 
               {/* 客戶資訊 */}
-              <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
-                <h2 className="mb-4 font-display text-sm font-bold text-foreground/80">
-                  客戶資訊
-                </h2>
-                <div className="space-y-3">
+              <section className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setCollapseClient((v) => !v)}
+                  className="flex w-full items-center justify-between px-4 py-3 hover:bg-muted/40 transition-colors"
+                >
+                  <h2 className="font-display text-sm font-bold text-foreground/80">客戶資訊</h2>
+                  <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${collapseClient ? '' : 'rotate-180'}`} />
+                </button>
+                {!collapseClient && <div className="px-4 pb-4 space-y-3">
                   <div>
                     <label className="mb-1 block font-body text-xs text-muted-foreground">
                       姓名
@@ -1285,15 +1351,20 @@ export function QuotationDraftEditor({
                       className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
                     />
                   </div>
-                </div>
+                </div>}
               </section>
 
               {/* 報價資訊 */}
-              <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
-                <h2 className="mb-4 font-display text-sm font-bold text-foreground/80">
-                  報價資訊
-                </h2>
-                <div className="space-y-3">
+              <section className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => setCollapseQuoteMeta((v) => !v)}
+                  className="flex w-full items-center justify-between px-4 py-3 hover:bg-muted/40 transition-colors"
+                >
+                  <h2 className="font-display text-sm font-bold text-foreground/80">報價資訊</h2>
+                  <ChevronDown className={`h-4 w-4 text-muted-foreground transition-transform ${collapseQuoteMeta ? '' : 'rotate-180'}`} />
+                </button>
+                {!collapseQuoteMeta && <div className="px-4 pb-4 space-y-3">
                   <div>
                     <label className="mb-1 block font-body text-xs text-muted-foreground">
                       報價單號
@@ -1356,13 +1427,13 @@ export function QuotationDraftEditor({
                       className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
                     />
                   </div>
-                </div>
+                </div>}
               </section>
 
             </div>
 
-            {/* CENTER COLUMN */}
-            <div className="space-y-5 lg:col-span-9">
+            {/* CENTER COLUMN — expands as left column shrinks */}
+            <div className={`space-y-5 ${anyExpanded ? 'lg:col-span-9' : 'lg:col-span-10'}`}>
               {/* 報價內容表格 */}
               <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
                 <div className="mb-4 flex items-center justify-between">
@@ -1418,10 +1489,7 @@ export function QuotationDraftEditor({
                           成本價
                         </th>
                         <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "80px" }}>
-                          <div className="flex flex-col items-start gap-0.5">
-                            <span className="text-[10px] text-muted-foreground/60 font-normal">備選</span>
-                            <span>單價</span>
-                          </div>
+                          單價
                         </th>
                         <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "60px" }}>
                           數量
@@ -1609,33 +1677,20 @@ export function QuotationDraftEditor({
                           </td>
                           {/* 單價 */}
                           <td className="py-2 pr-2">
-                            <div className="flex flex-col gap-1">
-                              <label className="flex items-center gap-1 cursor-pointer select-none">
-                                <input
-                                  type="checkbox"
-                                  checked={!!item.isAlternative}
-                                  onChange={(e) =>
-                                    updateItem(item.id, "isAlternative", e.target.checked)
-                                  }
-                                  className="h-3 w-3 accent-amber-500"
-                                />
-                                <span className={`font-body text-[10px] ${item.isAlternative ? "text-amber-600 font-medium" : "text-muted-foreground/60"}`}>備選</span>
-                              </label>
-                              <input
-                                type="number"
-                                value={item.unitPrice || ""}
-                                placeholder="0"
-                                min={0}
-                                onChange={(e) =>
-                                  updateItem(
-                                    item.id,
-                                    "unitPrice",
-                                    parseFloat(e.target.value) || 0,
-                                  )
-                                }
-                                className={`w-20 rounded-md border px-2 py-1.5 font-mono-data text-xs placeholder:text-muted-foreground/40 focus:outline-none focus:ring-1 focus:ring-primary/30 ${item.isAlternative ? "border-amber-300 bg-amber-50/60 text-amber-700 line-through focus:border-amber-400" : "border-border bg-background text-foreground focus:border-primary/50"}`}
-                              />
-                            </div>
+                            <input
+                              type="number"
+                              value={item.unitPrice || ""}
+                              placeholder="0"
+                              min={0}
+                              onChange={(e) =>
+                                updateItem(
+                                  item.id,
+                                  "unitPrice",
+                                  parseFloat(e.target.value) || 0,
+                                )
+                              }
+                              className="w-20 rounded-md border border-border bg-background px-2 py-1.5 font-mono-data text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                            />
                           </td>
                           {/* 數量 */}
                           <td className="py-2 pr-2">
@@ -1677,15 +1732,12 @@ export function QuotationDraftEditor({
                           </td>
                           {/* 小計 */}
                           <td className="py-2 pr-2">
-                            {item.isAlternative ? (
-                              <span className="font-mono-data text-xs text-amber-500 line-through opacity-60">
-                                ${(item.unitPrice * item.quantity).toLocaleString()}
-                              </span>
-                            ) : (
-                              <span className="font-mono-data text-xs font-medium text-foreground">
-                                ${(item.unitPrice * item.quantity).toLocaleString()}
-                              </span>
-                            )}
+                            <span className="font-mono-data text-xs font-medium text-foreground">
+                              $
+                              {(
+                                item.unitPrice * item.quantity
+                              ).toLocaleString()}
+                            </span>
                           </td>
                           <td className="py-2">
                             <button
@@ -2016,6 +2068,9 @@ export function QuotationDraftEditor({
         onClose={() => setShowSubmitModal(false)}
         onSuccess={(quoteId) => {
           setShowSubmitModal(false);
+          // Mark as persisted so the unsaved-work guard no longer blocks navigation.
+          setPersisted(true);
+          unsavedGuard.clear();
           // Clean up local draft after successful submission
           deleteDraft(draftKey).catch(() => {});
           if (quoteId) deleteDraft(quoteId).catch(() => {});

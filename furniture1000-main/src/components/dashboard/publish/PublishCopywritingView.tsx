@@ -10,6 +10,11 @@ import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { usePublishList } from './usePublishList';
 
+interface RevertReason {
+  labels: string[];
+  other: string | null;
+}
+
 interface CopyItem {
   id: string;
   title: string;
@@ -26,6 +31,7 @@ interface CopyItem {
   price: number | null;
   salePrice: number | null;
   sku: string;
+  revertReason: RevertReason | null;
 }
 
 function slugify(s: string) {
@@ -49,7 +55,7 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
   // list only needs the lightweight `image_url` thumbnail; full images are
   // loaded lazily when a product is opened (openProduct).
   const { rows, totalCount, isLoading, Toolbar, Pagination } = usePublishList({
-    select: 'id,title,description,image_url,factories_display_name,level1_category,level2_category,tags,sale_price,price,sku,model',
+    select: 'id,title,description,image_url,factories_display_name,level1_category,level2_category,tags,sale_price,price,sku,model,revert_reason',
     applyBaseFilters: (q) => q.eq('in_shopify_queue', true).or('copy_done.is.null,copy_done.eq.false'),
     reloadKey,
   });
@@ -71,6 +77,7 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
       price: r.price != null ? Number(r.price) : null,
       salePrice: r.sale_price != null ? Number(r.sale_price) : null,
       sku: r.sku || r.model || '',
+      revertReason: r.revert_reason ?? null,
     };
   }), [rows]);
 
@@ -189,12 +196,15 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
     if (!item) return;
     setIsSubmitting(true);
     try {
-      // 1. Only update workflow flags in products — content lives in ready_to_shopify
+      // 1. Update products table
       const { error } = await supabase
         .from('products')
         .update({
+          title: name,
+          description: desc,
           copy_done: true,
           copy_done_at: new Date().toISOString(),
+          revert_reason: null,
         })
         .eq('id', activeId);
       if (error) {
@@ -430,8 +440,23 @@ ${rawDesc}
                   key={p.id}
                   ref={(el) => { cardRefs.current[p.id] = el; }}
                   onClick={() => openProduct(p)}
-                  className="group flex items-center gap-4 rounded-2xl border border-border bg-card p-4 text-left transition-all hover:border-primary/40 hover:shadow-md"
+                  className="group relative flex items-center gap-4 rounded-2xl border border-border bg-card p-4 text-left transition-all hover:border-primary/40 hover:shadow-md"
                 >
+                  {/* Revert reason badges — top-right corner */}
+                  {p.revertReason && (p.revertReason.labels.length > 0 || p.revertReason.other) && (
+                    <div className="absolute right-3 top-3 flex flex-wrap justify-end gap-1 max-w-[55%]">
+                      {p.revertReason.labels.map(label => (
+                        <span key={label} className="rounded-full bg-amber-500/15 px-2 py-0.5 font-body text-[10px] font-semibold text-amber-700 dark:text-amber-400 ring-1 ring-amber-500/30">
+                          {label}
+                        </span>
+                      ))}
+                      {p.revertReason.other && (
+                        <span className="rounded-full bg-amber-500/15 px-2 py-0.5 font-body text-[10px] font-semibold text-amber-700 dark:text-amber-400 ring-1 ring-amber-500/30" title={p.revertReason.other}>
+                          其他：{p.revertReason.other.slice(0, 20)}{p.revertReason.other.length > 20 ? '…' : ''}
+                        </span>
+                      )}
+                    </div>
+                  )}
                   <img src={p.imageUrl} alt={p.title} loading="lazy" className="h-20 w-20 shrink-0 rounded-xl object-cover bg-muted" />
                   <div className="min-w-0 flex-1">
                     <h3 className="font-display text-[14px] font-bold text-foreground line-clamp-1">{p.title}</h3>

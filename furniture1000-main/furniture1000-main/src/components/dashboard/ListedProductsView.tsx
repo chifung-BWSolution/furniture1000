@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { ProductVariant } from '@/types/product';
 import { StatusBadge } from './StatusBadge';
@@ -38,9 +38,6 @@ import {
 } from '@/components/ui/alert-dialog';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  ArrowUpDown,
-  ArrowDownAZ,
-  ArrowUpAZ,
   AlertTriangle,
   Ban,
   Calculator,
@@ -55,6 +52,9 @@ import {
   Database,
   ExternalLink,
   Factory,
+  FolderTree,
+  LayoutGrid,
+  List,
   Loader2,
   Search,
   Send,
@@ -63,8 +63,9 @@ import {
   X,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { removeFromCatalog, addToCatalog, addToShopifyQueue, dismissProducts } from '@/lib/catalogStore';
 import { toast } from 'sonner';
-import { getChineseColorLabel, getColorHex } from '@/constants/color-map';
+import { getChineseColorLabel, getColorHex, multiColorToChineseDisplay } from '@/constants/color-map';
 import { ProductDetailModal } from './ProductDetailModal';
 
 type SortField = 'created_at' | 'title';
@@ -101,11 +102,20 @@ interface ListedProduct {
   bwfMasterId?: string | null;
   remarks?: string | null;
   category?: string | null;
+  level1Category?: string | null;
+  level2Category?: string | null;
+  productionTime?: string | null;
+  material?: string | null;
+  model?: string | null;
+  specifications?: string | null;
   deliveryTermId?: string | null;
   deliveryTermName?: string | null;
+  inStock?: boolean | null;
+  customize?: string | null;
   dimensionLMm?: number | null;
   dimensionWMm?: number | null;
   dimensionHMm?: number | null;
+  productSku?: string | null;
 }
 
 interface ListedProductsViewProps {
@@ -113,6 +123,10 @@ interface ListedProductsViewProps {
   isSyncing?: boolean;
   lastSyncTime?: string | null;
   onSendToPublishQueue?: (products: any[]) => void;
+  /** Report total + selected counts (and selected IDs) up to the TopBar */
+  onStatsChange?: (stats: { total: number; selected: number; selectedIds: string[] }) => void;
+  /** 'catalog' = 產品目錄頁（僅顯示已加入目錄的產品）; undefined = 所有產品頁 */
+  mode?: 'all' | 'catalog';
 }
 
 export function ListedProductsView({
@@ -120,7 +134,10 @@ export function ListedProductsView({
   isSyncing,
   lastSyncTime,
   onSendToPublishQueue,
+  onStatsChange,
+  mode = 'all',
 }: ListedProductsViewProps) {
+  const isCatalog = mode === 'catalog';
   const [products, setProducts] = useState<ListedProduct[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -140,13 +157,38 @@ export function ListedProductsView({
   const [showPricingDialog, setShowPricingDialog] = useState(false);
   const [pricingMultiplier, setPricingMultiplier] = useState('');
   const [isApplyingPricing, setIsApplyingPricing] = useState(false);
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [detailProduct, setDetailProduct] = useState<ListedProduct | null>(null);
   const [shopifyFilter, setShopifyFilter] = useState<'all' | 'shopify' | 'database'>('all');
   const [factoryFilterOpen, setFactoryFilterOpen] = useState(false);
   const [selectedFactories, setSelectedFactories] = useState<string[]>([]);
   const [availableFactories, setAvailableFactories] = useState<string[]>([]);
+  // 重複商品篩選：只顯示 product_sku 重複或為空的產品
+  const [showDuplicates, setShowDuplicates] = useState(false);
+  // Set of duplicate product_sku values (fetched when showDuplicates is toggled on)
+  const [duplicateSkus, setDuplicateSkus] = useState<Set<string> | null>(null);
+  // 一級/二級分類篩選（讀 product_category 表）
+  const [level1Filter, setLevel1Filter] = useState<string>('');
+  const [level2Filter, setLevel2Filter] = useState<string>('');
+  const [categoryPairs, setCategoryPairs] = useState<{ level1: string; level2: string }[]>([]);
+  // Category product counts: { 'level1:工作臺': 42, 'level2:辦公桌': 12, ... }
+  const [categoryCounts, setCategoryCounts] = useState<Record<string, number>>({});
+  const level1Options = useMemo(
+    () => Array.from(new Set(categoryPairs.map((p) => p.level1))),
+    [categoryPairs]
+  );
+  const level2Options = useMemo(
+    () => Array.from(new Set(categoryPairs.filter((p) => p.level1 === level1Filter && p.level2).map((p) => p.level2))),
+    [categoryPairs, level1Filter]
+  );
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const factoryDropdownRef = useRef<HTMLDivElement>(null);
+
+  // Report total + selected counts up to the TopBar
+  useEffect(() => {
+    onStatsChange?.({ total: totalCount, selected: selectedIds.size, selectedIds: Array.from(selectedIds) });
+  }, [totalCount, selectedIds, onStatsChange]);
+
 
   // Debounced search
   useEffect(() => {
@@ -160,10 +202,93 @@ export function ListedProductsView({
     };
   }, [searchQuery]);
 
-  // Fetch unique factory names for filter
+  // Fetch 一級/二級分類選項 from product_category（用於分類篩選下拉）
   useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from('product_category')
+        .select('level1, level2, sort_order')
+        .order('sort_order', { ascending: true });
+      if (!cancelled && data) {
+        setCategoryPairs(
+          data
+            .map((r: { level1: string | null; level2: string | null }) => ({
+              level1: String(r.level1 ?? '').trim(),
+              level2: String(r.level2 ?? '').trim(),
+            }))
+            .filter((p) => p.level1)
+        );
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  // Fetch category product counts — paginated to bypass Supabase's 1000-row server cap.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const BATCH = 1000;
+
+      const applyVisibility = (q: any) => isCatalog
+        ? q.eq('in_catalog', true)
+        : q.eq('in_catalog', false).eq('in_shopify_queue', false).eq('dismissed', false);
+
+      // Paginated fetch helper
+      const fetchAllPages = async (columns: string, extraFilter: (q: any) => any) => {
+        const rows: any[] = [];
+        let page = 0;
+        while (true) {
+          const { data } = await applyVisibility(
+            extraFilter(
+              supabase.from('products').select(columns)
+            )
+          ).range(page * BATCH, (page + 1) * BATCH - 1);
+          if (!data || data.length === 0) break;
+          rows.push(...data);
+          if (data.length < BATCH) break;
+          page++;
+        }
+        return rows;
+      };
+
+      const [l1Rows, l2Rows] = await Promise.all([
+        fetchAllPages('level1_category', (q) =>
+          q.not('level1_category', 'is', null).neq('level1_category', '')
+        ),
+        fetchAllPages('level1_category,level2_category', (q) =>
+          q.not('level2_category', 'is', null).neq('level2_category', '')
+        ),
+      ]);
+
+      if (cancelled) return;
+
+      const counts: Record<string, number> = {};
+      for (const row of l1Rows) {
+        const l1 = (row.level1_category || '').trim();
+        if (!l1) continue;
+        counts[`level1:${l1}`] = (counts[`level1:${l1}`] || 0) + 1;
+      }
+      for (const row of l2Rows) {
+        const l1 = (row.level1_category || '').trim();
+        const l2 = (row.level2_category || '').trim();
+        if (!l1 || !l2) continue;
+        counts[`level2:${l1}:${l2}`] = (counts[`level2:${l1}:${l2}`] || 0) + 1;
+      }
+      if (!cancelled) setCategoryCounts(counts);
+    })();
+    return () => { cancelled = true; };
+  }, [isCatalog]);
+
+  // Fetch unique factory names for filter — DEFERRED: only runs the first time
+  // the user opens the factory dropdown, so it never competes with the
+  // first-screen product query (previously scanned all 1464 rows on mount).
+  const factoriesLoadedRef = useRef(false);
+  useEffect(() => {
+    if (!factoryFilterOpen || factoriesLoadedRef.current) return;
+    factoriesLoadedRef.current = true;
+
     const fetchFactories = async () => {
-      // Fetch all distinct factory names by paginating through all products
       let allFactoryNames: string[] = [];
       let page = 0;
       const batchSize = 1000;
@@ -176,7 +301,7 @@ export function ListedProductsView({
           .not('factories_display_name', 'is', null)
           .neq('factories_display_name', '')
           .range(page * batchSize, (page + 1) * batchSize - 1);
-        
+
         if (data && data.length > 0) {
           allFactoryNames = allFactoryNames.concat(
             data.map((r: any) => r.factories_display_name as string).filter(Boolean)
@@ -196,7 +321,7 @@ export function ListedProductsView({
       setAvailableFactories(unique);
     };
     fetchFactories();
-  }, []);
+  }, [factoryFilterOpen]);
 
   // Close factory dropdown on outside click
   useEffect(() => {
@@ -211,6 +336,37 @@ export function ListedProductsView({
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, [factoryFilterOpen]);
 
+  // Fetch duplicate product_sku values when the 重複商品 filter is turned on
+  useEffect(() => {
+    if (!showDuplicates) { setDuplicateSkus(null); return; }
+    let cancelled = false;
+    (async () => {
+      // Find all product_sku values that appear more than once (within the same catalog mode)
+      let q = supabase
+        .from('products')
+        .select('product_sku')
+        .not('product_sku', 'is', null)
+        .neq('product_sku', '');
+      if (isCatalog) {
+        q = q.eq('in_catalog', true);
+      } else {
+        q = q.eq('in_catalog', false).eq('in_shopify_queue', false).eq('dismissed', false);
+      }
+      const { data } = await q;
+      if (cancelled || !data) return;
+      // Count occurrences
+      const counts: Record<string, number> = {};
+      for (const row of data) {
+        const sku = row.product_sku as string;
+        counts[sku] = (counts[sku] || 0) + 1;
+      }
+      const dups = new Set(Object.entries(counts).filter(([, n]) => n > 1).map(([sku]) => sku));
+      setDuplicateSkus(dups);
+      setCurrentPage(1);
+    })();
+    return () => { cancelled = true; };
+  }, [showDuplicates, isCatalog]);
+
   // Fetch products from Supabase — ALL products, sorted by created_at DESC by default
   const fetchProducts = useCallback(async () => {
     setIsLoading(true);
@@ -219,7 +375,8 @@ export function ListedProductsView({
       const from = (currentPage - 1) * pageSize;
       const to = from + pageSize - 1;
 
-      // Build base query for count
+      // Always use 'exact' count — 'estimated' uses planner stats and is inaccurate
+      // when filters are applied (e.g. level2_category), giving wrong totals.
       let countQuery = supabase
         .from('products')
         .select('id', { count: 'exact', head: true });
@@ -240,13 +397,27 @@ export function ListedProductsView({
         countQuery = countQuery.in('factories_display_name', selectedFactories);
       }
 
-      const { count, error: countErr } = await countQuery;
+      // Apply category filters to count query
+      if (level1Filter) countQuery = countQuery.eq('level1_category', level1Filter);
+      if (level2Filter) countQuery = countQuery.eq('level2_category', level2Filter);
 
-      if (countErr) {
-        console.error('[ProductCatalog] Count error:', countErr);
+      // 產品目錄頁：只計算已加入目錄的產品
+      if (isCatalog) {
+        countQuery = countQuery.eq('in_catalog', true);
+      } else {
+        // 所有產品頁：排除已加入目錄 / Shopify 佇列 / 已忽略的產品
+        countQuery = countQuery.eq('in_catalog', false).eq('in_shopify_queue', false).eq('dismissed', false);
       }
 
-      setTotalCount(count || 0);
+      // 重複商品篩選：product_sku 為空，或屬於重複的 sku 集合
+      if (showDuplicates && duplicateSkus !== null) {
+        const dupArr = Array.from(duplicateSkus);
+        if (dupArr.length > 0) {
+          countQuery = countQuery.or(`product_sku.is.null,product_sku.eq.,product_sku.in.(${dupArr.map(s => `"${s}"`).join(',')})`);
+        } else {
+          countQuery = countQuery.or('product_sku.is.null,product_sku.eq.');
+        }
+      }
 
       // Build data query — explicit columns (avoid heavy JSONB like description_html when not needed for list view)
       const LIST_COLUMNS = [
@@ -256,14 +427,22 @@ export function ListedProductsView({
         'color', 'factory_id', 'factories_display_name',
         'cost_price', 'sale_price', 'production_date', 'shipping_days', 'total_lead_time',
         'bwf_master_id', 'remarks', 'shipping_fee', 'category',
+        'level1_category', 'level2_category', 'production_time',
+        'material', 'model', 'specifications',
         'delivery_term_id', 'delivery_term_name',
         'dimension_l_mm', 'dimension_w_mm', 'dimension_h_mm',
+        'in_stock', 'customize', 'product_sku',
       ].join(',');
-      let dataQuery = supabase
-        .from('products')
-        .select(LIST_COLUMNS)
-        .order(sortField, { ascending: sortOrder === 'asc' })
-        .range(from, to);
+      // 重複商品模式：先按 product_sku 排列（NULL 最後），相同 sku 聚在一起；
+      // sku 為 NULL 的再按 title 升序。一般模式用使用者選的排序。
+      const baseDataQuery = supabase.from('products').select(LIST_COLUMNS);
+      let dataQuery = (showDuplicates
+        ? baseDataQuery
+            .order('product_sku', { ascending: true, nullsFirst: false })
+            .order('title', { ascending: true })
+        : baseDataQuery
+            .order(sortField, { ascending: sortOrder === 'asc' })
+      ).range(from, to);
 
       if (debouncedSearch.trim()) {
         dataQuery = dataQuery.ilike('title', `%${debouncedSearch.trim()}%`);
@@ -281,7 +460,36 @@ export function ListedProductsView({
         dataQuery = dataQuery.in('factories_display_name', selectedFactories);
       }
 
-      const { data: productRows, error: prodErr } = await dataQuery;
+      // Apply category filters to data query
+      if (level1Filter) dataQuery = dataQuery.eq('level1_category', level1Filter);
+      if (level2Filter) dataQuery = dataQuery.eq('level2_category', level2Filter);
+
+      // 產品目錄頁：只顯示已加入目錄的產品
+      if (isCatalog) {
+        dataQuery = dataQuery.eq('in_catalog', true);
+      } else {
+        // 所有產品頁：排除已加入目錄 / Shopify 佇列 / 已忽略的產品
+        dataQuery = dataQuery.eq('in_catalog', false).eq('in_shopify_queue', false).eq('dismissed', false);
+      }
+
+      // 重複商品篩選
+      if (showDuplicates && duplicateSkus !== null) {
+        const dupArr = Array.from(duplicateSkus);
+        if (dupArr.length > 0) {
+          dataQuery = dataQuery.or(`product_sku.is.null,product_sku.eq.,product_sku.in.(${dupArr.map(s => `"${s}"`).join(',')})`);
+        } else {
+          dataQuery = dataQuery.or('product_sku.is.null,product_sku.eq.');
+        }
+      }
+
+      // Run count + data IN PARALLEL — they no longer block each other.
+      const [{ count, error: countErr }, { data: productRows, error: prodErr }] =
+        await Promise.all([countQuery, dataQuery]);
+
+      if (countErr) {
+        console.error('[ProductCatalog] Count error:', countErr);
+      }
+      setTotalCount(count || 0);
 
       if (prodErr) {
         console.error('[ProductCatalog] Fetch error:', prodErr);
@@ -296,19 +504,6 @@ export function ListedProductsView({
         setIsLoading(false);
         return;
       }
-
-      // Fetch variants for these products
-      const productIds = productRows.map((p: any) => p.id);
-      const { data: variantRows } = await supabase
-        .from('product_variants')
-        .select('*')
-        .in('product_id', productIds);
-
-      const variantsByProduct: Record<string, any[]> = {};
-      (variantRows || []).forEach((v: any) => {
-        if (!variantsByProduct[v.product_id]) variantsByProduct[v.product_id] = [];
-        variantsByProduct[v.product_id].push(v);
-      });
 
       const mapped: ListedProduct[] = productRows.map((row: any) => ({
         id: row.id,
@@ -339,22 +534,55 @@ export function ListedProductsView({
         remarks: row.remarks || null,
         shippingFee: row.shipping_fee != null ? parseFloat(row.shipping_fee) : null,
         category: row.category || null,
+        level1Category: row.level1_category || null,
+        level2Category: row.level2_category || null,
+        productionTime: row.production_time || null,
+        material: row.material || null,
+        model: row.model || null,
+        specifications: row.specifications || null,
         deliveryTermId: row.delivery_term_id || null,
         deliveryTermName: row.delivery_term_name || null,
+        inStock: row.in_stock != null ? Boolean(row.in_stock) : null,
+        customize: row.customize || null,
         dimensionLMm: row.dimension_l_mm != null ? parseInt(row.dimension_l_mm) : null,
         dimensionWMm: row.dimension_w_mm != null ? parseInt(row.dimension_w_mm) : null,
         dimensionHMm: row.dimension_h_mm != null ? parseInt(row.dimension_h_mm) : null,
-        variants: (variantsByProduct[row.id] || []).map((v: any) => ({
-          id: v.id,
-          size: v.size,
-          color: v.color,
-          sku: v.sku,
-          price: parseFloat(v.price),
-          inventory: v.inventory,
-        })),
+        productSku: row.product_sku || null,
+        // variants 先留空，下方背景非阻塞補上，讓首屏立即顯示
+        variants: [],
       }));
 
+      // 立即渲染前 N 件 — 首屏不再等 variants
       setProducts(mapped);
+      setIsLoading(false);
+
+      // 背景非阻塞抓取 variants，回來後再 patch 進已渲染的列
+      const productIds = productRows.map((p: any) => p.id);
+      supabase
+        .from('product_variants')
+        .select('*')
+        .in('product_id', productIds)
+        .then(({ data: variantRows }) => {
+          if (!variantRows || variantRows.length === 0) return;
+          const variantsByProduct: Record<string, any[]> = {};
+          variantRows.forEach((v: any) => {
+            (variantsByProduct[v.product_id] ||= []).push(v);
+          });
+          setProducts((prev) =>
+            prev.map((p) =>
+              variantsByProduct[p.id]
+                ? {
+                    ...p,
+                    variants: variantsByProduct[p.id].map((v: any) => ({
+                      id: v.id, size: v.size, color: v.color, sku: v.sku,
+                      price: parseFloat(v.price), inventory: v.inventory,
+                    })),
+                  }
+                : p
+            )
+          );
+        });
+      return;
     } catch (err) {
       console.error('[ProductCatalog] Unexpected error:', err);
       setFetchError('連線逾時或發生未預期的錯誤，請檢查資料庫狀態');
@@ -362,7 +590,7 @@ export function ListedProductsView({
     } finally {
       setIsLoading(false);
     }
-  }, [currentPage, pageSize, sortField, sortOrder, debouncedSearch, shopifyFilter, selectedFactories]);
+  }, [currentPage, pageSize, sortField, sortOrder, debouncedSearch, shopifyFilter, selectedFactories, level1Filter, level2Filter, isCatalog, showDuplicates, duplicateSkus]);
 
   // Fetch on mount and when deps change
   useEffect(() => {
@@ -638,7 +866,7 @@ export function ListedProductsView({
   // Clear selection when products change (e.g. page change, search)
   useEffect(() => {
     setSelectedIds(new Set());
-  }, [currentPage, debouncedSearch, sortField, sortOrder, pageSize, shopifyFilter, selectedFactories]);
+  }, [currentPage, debouncedSearch, sortField, sortOrder, pageSize, shopifyFilter, selectedFactories, level1Filter, level2Filter, showDuplicates]);
 
   // Delete selected products — master DB + local DB
   const handleDeleteSelected = useCallback(async () => {
@@ -646,6 +874,20 @@ export function ListedProductsView({
     const productsToDelete = products.filter(p => idsToDelete.includes(p.id));
 
     if (productsToDelete.length === 0) return;
+
+    // 產品目錄頁：「刪除」只把產品移出目錄（in_catalog=false），不刪除產品本身
+    if (isCatalog) {
+      setShowDeleteConfirm(false);
+      const res = await removeFromCatalog(idsToDelete);
+      setSelectedIds(new Set());
+      if (res.ok) {
+        toast.success(`已從產品目錄移除 ${idsToDelete.length} 件產品`);
+        fetchProducts();
+      } else {
+        toast.error('移除失敗', { description: res.error });
+      }
+      return;
+    }
 
     setIsDeleting(true);
     setShowDeleteConfirm(false);
@@ -755,9 +997,87 @@ export function ListedProductsView({
     } finally {
       setIsDeleting(false);
     }
-  }, [selectedIds, products, currentPage]);
+  }, [selectedIds, products, currentPage, isCatalog]);
 
-  // Batch「暫不考慮」— save to products_rejected then delete from local DB
+  // ── Per-row processing actions (所有產品頁) ──
+  // Optimistically remove the row from view, then persist the flag.
+  const [dismissTarget, setDismissTarget] = useState<ListedProduct | null>(null);
+
+  const dropRowLocally = useCallback((id: string) => {
+    setProducts((prev) => prev.filter((p) => p.id !== id));
+    setTotalCount((c) => Math.max(0, c - 1));
+    setSelectedIds((prev) => { const n = new Set(prev); n.delete(id); return n; });
+  }, []);
+
+  // Upsert one or more products into ready_to_shopify
+  const upsertToReadyToShopify = useCallback(async (prods: ListedProduct[]) => {
+    const rows = prods.map((p) => {
+      const slug = (p.title || '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, '-')
+        .replace(/[^a-z0-9一-鿿-]/g, '')
+        .slice(0, 60);
+      return {
+        product_id: p.id,
+        title: p.title || null,
+        // body_html → products.material（材質描述）
+        body_html: p.material || null,
+        vendor: p.factoriesDisplayName || null,
+        product_type: [p.level1Category, p.level2Category].filter(Boolean).join(' / ') || p.collection || null,
+        image_url: p.imageUrl || null,
+        images: Array.isArray(p.images) && p.images.length > 0
+          ? p.images.map((img, idx) => ({ src: img.src, position: idx + 1 }))
+          : null,
+        tags: Array.isArray(p.tags) && p.tags.length > 0 ? p.tags : null,
+        price: p.salePrice ?? p.price ?? null,
+        // cost = products.cost_price (成本，供產品信息頁參考)
+        cost: p.costPrice ?? null,
+        status: 'draft',
+        imported_at: new Date().toISOString(),
+        // SEO / Shopify 發佈欄位
+        shopify_page_title: p.title || null,
+        shopify_page_description: p.material || null,
+        shopify_url: slug || null,
+      };
+    });
+    const { error } = await supabase
+      .from('ready_to_shopify')
+      .upsert(rows, { onConflict: 'product_id' });
+    if (error) console.error('[ready_to_shopify] upsert error:', error.message);
+  }, []);
+
+  const handleRowToShopify = useCallback(async (product: ListedProduct) => {
+    dropRowLocally(product.id);
+    const [res] = await Promise.all([
+      addToShopifyQueue([product.id]),
+      upsertToReadyToShopify([product]),
+    ]);
+    res.ok
+      ? toast.success('已加入 Shopify', { description: `${product.title} — 已送往產品文案與產品目錄` })
+      : toast.error('操作失敗', { description: res.error });
+  }, [dropRowLocally, upsertToReadyToShopify]);
+
+  const handleRowToCatalog = useCallback(async (product: ListedProduct) => {
+    dropRowLocally(product.id);
+    const res = await addToCatalog([product.id]);
+    res.ok
+      ? toast.success('已加到產品目錄', { description: product.title })
+      : toast.error('操作失敗', { description: res.error });
+  }, [dropRowLocally]);
+
+  const confirmDismiss = useCallback(async () => {
+    const product = dismissTarget;
+    setDismissTarget(null);
+    if (!product) return;
+    dropRowLocally(product.id);
+    const res = await dismissProducts([product.id]);
+    res.ok
+      ? toast.success('已移除', { description: product.title })
+      : toast.error('操作失敗', { description: res.error });
+  }, [dismissTarget, dropRowLocally]);
+
+  // 批量「暫不考慮」— save to products_rejected then dismiss
   const handleBatchReject = useCallback(async () => {
     const ids = Array.from(selectedIds);
     const productsToReject = products.filter(p => ids.includes(p.id));
@@ -766,183 +1086,118 @@ export function ListedProductsView({
     setIsBatchRejecting(true);
     setShowBatchRejectConfirm(false);
 
-    // Optimistically remove from view
     setProducts(prev => prev.filter(p => !selectedIds.has(p.id)));
     setTotalCount(c => Math.max(0, c - ids.length));
     setSelectedIds(new Set());
 
     const toastId = toast.loading(`正在將 ${productsToReject.length} 件產品標記為「暫不考慮」...`);
-
     try {
-      // Step 1: Save to products_rejected
       const rejectedRows = productsToReject.map(p => ({
         original_product_id: p.id,
         title: p.title,
         description: p.description,
         tags: p.tags,
         price: p.price,
-        compare_at_price: p.compareAtPrice ?? null,
-        collection: p.collection,
         image_url: p.imageUrl,
         factory_id: p.factoryId ?? null,
         factories_display_name: p.factoriesDisplayName ?? null,
         cost_price: p.costPrice ?? null,
-        production_date: p.productionLeadTime ?? null,
-        shipping_days: p.shippingDays ?? null,
-        total_lead_time: p.totalLeadTime ?? null,
-        shipping_fee: p.shippingFee ?? null,
-        delivery_term_id: p.deliveryTermId ?? null,
-        delivery_term_name: p.deliveryTermName ?? null,
         color: p.color ?? null,
-        dimension_l_mm: p.dimensionLMm ?? null,
-        dimension_w_mm: p.dimensionWMm ?? null,
-        dimension_h_mm: p.dimensionHMm ?? null,
-        remarks: p.remarks ?? null,
         category: p.category ?? null,
         source: p.source,
         shopify_product_id: p.shopifyProductId ?? null,
         bwf_master_id: p.bwfMasterId ?? null,
         rejection_source: 'listed_products',
       }));
-
-      const { error: rejectErr } = await supabase.from('products_rejected').insert(rejectedRows);
-      if (rejectErr) {
-        toast.error('儲存「暫不考慮」記錄失敗', { id: toastId, description: rejectErr.message });
-        setIsBatchRejecting(false);
-        return;
+      await supabase.from('products_rejected').insert(rejectedRows);
+      const res = await dismissProducts(ids);
+      if (res.ok) {
+        toast.success(`已將 ${ids.length} 件產品標記為「暫不考慮」`, {
+          id: toastId, description: '資料已儲存至 products_rejected。', duration: 5000,
+        });
+      } else {
+        toast.error('部分操作失敗', { id: toastId, description: res.error });
       }
-
-      // Step 2: Delete variants + products from local DB
-      await supabase.from('product_variants').delete().in('product_id', ids);
-      const { error: delErr } = await supabase.from('products').delete().in('id', ids);
-
-      if (delErr) {
-        toast.error('從本地資料庫移除失敗', { id: toastId, description: delErr.message });
-        setIsBatchRejecting(false);
-        return;
-      }
-
-      toast.success(`已將 ${ids.length} 件產品標記為「暫不考慮」`, {
-        id: toastId,
-        description: '產品資料已儲存至 products_rejected 記錄。',
-        duration: 5000,
-      });
     } catch (err) {
-      toast.error('操作失敗', {
-        id: toastId,
-        description: err instanceof Error ? err.message : '未知錯誤',
-      });
+      toast.error('操作失敗', { id: toastId, description: err instanceof Error ? err.message : '未知錯誤' });
     } finally {
       setIsBatchRejecting(false);
     }
   }, [selectedIds, products]);
 
-  // Apply pricing multiplier to current page products (respecting all active filters)
+  // 批量定價 — 套用定價倍數並寫入 Supabase sale_price
   const handleApplyPricing = useCallback(async () => {
     const multiplier = parseFloat(pricingMultiplier);
     if (isNaN(multiplier) || multiplier <= 0) {
       toast.error('請輸入有效的倍數，例如 2.3、2.5、2.7');
       return;
     }
-
-    // products[] already reflects current page + all active filters
     const toUpdate = products.filter(p => p.costPrice != null && p.costPrice > 0);
     if (toUpdate.length === 0) {
-      toast.error('當前頁面沒有含成本的產品可以計算售價');
+      toast.error('當前頁面沒有含成本的產品可計算售價');
       return;
     }
-
     setIsApplyingPricing(true);
     setShowPricingDialog(false);
     const toastId = toast.loading(`正在為 ${toUpdate.length} 件產品套用定價 ×${multiplier}...`);
-
     try {
-      // Compute new sale prices (cost × multiplier, round up to integer)
       const updates = toUpdate.map(p => ({
         id: p.id,
         newSalePrice: Math.ceil(p.costPrice! * multiplier),
       }));
-
-      // Batch update Supabase in parallel
       const results = await Promise.all(
-        updates.map(u =>
-          supabase.from('products').update({ sale_price: u.newSalePrice }).eq('id', u.id)
-        )
+        updates.map(u => supabase.from('products').update({ sale_price: u.newSalePrice }).eq('id', u.id))
       );
-      const firstErr = results.find(r => r.error)?.error;
-      const error = firstErr ?? null;
-
-      if (error) {
-        toast.error('售價更新失敗', { id: toastId, description: error.message });
+      const firstErr = results.find(r => r.error)?.error ?? null;
+      if (firstErr) {
+        toast.error('售價更新失敗', { id: toastId, description: firstErr.message });
         return;
       }
-
-      // Update local state
       const updateMap = new Map(updates.map(u => [u.id, u.newSalePrice]));
-      setProducts(prev =>
-        prev.map(p => updateMap.has(p.id) ? { ...p, salePrice: updateMap.get(p.id)! } : p)
-      );
-
+      setProducts(prev => prev.map(p => updateMap.has(p.id) ? { ...p, salePrice: updateMap.get(p.id)! } : p));
       toast.success(`已為 ${updates.length} 件產品套用售價`, {
         id: toastId,
-        description: `定價倍數 ×${multiplier}，售價已更新並同步至 Supabase。`,
+        description: `定價倍數 ×${multiplier}，售價已同步至 Supabase。`,
         duration: 5000,
       });
       setPricingMultiplier('');
     } catch (err) {
-      toast.error('操作失敗', {
-        id: toastId,
-        description: err instanceof Error ? err.message : '未知錯誤',
-      });
+      toast.error('操作失敗', { id: toastId, description: err instanceof Error ? err.message : '未知錯誤' });
     } finally {
       setIsApplyingPricing(false);
     }
   }, [pricingMultiplier, products]);
 
-  // Send selected products to the "Ready to Publish" queue
-  const handleSendToPublishQueue = useCallback(() => {
-    if (!onSendToPublishQueue || selectedIds.size === 0) return;
-
-    const selectedProducts = products.filter(p => selectedIds.has(p.id));
-    // Map ListedProduct to Product format
-    const mappedProducts = selectedProducts.map(p => ({
-      id: p.id,
-      title: p.title,
-      description: p.description,
-      descriptionHtml: p.descriptionHtml,
-      tags: p.tags,
-      price: p.price,
-      compareAtPrice: p.compareAtPrice,
-      collection: p.collection,
-      status: 'draft' as const,
-      imageUrl: p.imageUrl,
-      variants: p.variants,
-      createdAt: p.createdAt,
-      source: 'local' as const,
-      shopifyProductId: p.shopifyProductId,
-      color: p.color,
-      factoryId: p.factoryId,
-      factoriesDisplayName: p.factoriesDisplayName,
-      costPrice: p.costPrice,
-      productionLeadTime: p.productionLeadTime,
-      shippingDays: p.shippingDays,
-      shippingFee: p.shippingFee,
-      bwfMasterId: p.bwfMasterId,
-      remarks: p.remarks,
-      category: p.category,
-      deliveryTermId: p.deliveryTermId,
-      deliveryTermName: p.deliveryTermName,
-      dimensionLMm: p.dimensionLMm,
-      dimensionWMm: p.dimensionWMm,
-      dimensionHMm: p.dimensionHMm,
-    }));
-
-    onSendToPublishQueue(mappedProducts);
-    toast.success(`已將 ${mappedProducts.length} 件產品加入待上傳佇列`, {
-      description: '正在導航到「待上傳到 Shopify」頁面...',
-    });
+  // 「待上傳到 Shopify」（批量）— 與單列「A 加入Shopify」一致：
+  // 標記 in_shopify_queue=true + in_catalog=true（寫入 Supabase），
+  // 產品即出現在「網上發佈 > 產品文案」與「產品目錄」，並從本頁前端消失。
+  const [isQueuing, setIsQueuing] = useState(false);
+  const handleSendToPublishQueue = useCallback(async () => {
+    if (selectedIds.size === 0) return;
+    const ids = Array.from(selectedIds);
+    const selectedProducts = products.filter((p) => selectedIds.has(p.id));
+    setIsQueuing(true);
+    // 前端先樂觀移除選中的列，並清空選取
+    setProducts((prev) => prev.filter((p) => !selectedIds.has(p.id)));
+    setTotalCount((c) => Math.max(0, c - ids.length));
     setSelectedIds(new Set());
-  }, [selectedIds, products, onSendToPublishQueue]);
+    try {
+      const [res] = await Promise.all([
+        addToShopifyQueue(ids),
+        upsertToReadyToShopify(selectedProducts),
+      ]);
+      if (res.ok) {
+        toast.success(`已將 ${ids.length} 件產品加入 Shopify`, {
+          description: '已送往「網上發佈 > 產品文案」與「產品目錄」',
+        });
+      } else {
+        toast.error('操作失敗', { description: res.error });
+        fetchProducts(); // 失敗時還原列表
+      }
+    } finally {
+      setIsQueuing(false);
+    }
+  }, [selectedIds, products, fetchProducts, upsertToReadyToShopify]);
 
   // Handle product updated from detail modal
   const handleProductUpdated = useCallback((updatedProduct: ListedProduct) => {
@@ -972,14 +1227,6 @@ export function ListedProductsView({
         {/* Toolbar */}
         <div className="flex items-center justify-between border-b border-border bg-muted/30 px-6 py-2.5">
           <div className="flex items-center gap-3">
-            {/* Section icon */}
-            <div className="flex items-center gap-1.5 text-indigo-500">
-              <Database className="h-4 w-4" />
-              <span className="font-display text-xs font-bold">產品目錄</span>
-            </div>
-
-            <div className="h-4 w-px bg-border" />
-
             {/* Search */}
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
@@ -998,50 +1245,6 @@ export function ListedProductsView({
                 </button>
               )}
             </div>
-
-            <div className="h-4 w-px bg-border" />
-
-            {/* Sort dropdown */}
-            <Select
-              value={`${sortField}:${sortOrder}`}
-              onValueChange={(val) => {
-                const [field, order] = val.split(':') as [SortField, SortOrder];
-                setSortField(field);
-                setSortOrder(order);
-                setCurrentPage(1);
-              }}
-            >
-              <SelectTrigger className="h-8 w-[200px] text-xs font-body gap-1">
-                <ArrowUpDown className="h-3 w-3 text-muted-foreground" />
-                <SelectValue placeholder="Sort by" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="created_at:desc">
-                  <div className="flex items-center gap-2">
-                    <ArrowDownAZ className="h-3.5 w-3.5" />
-                    建立時間 (最新優先)
-                  </div>
-                </SelectItem>
-                <SelectItem value="created_at:asc">
-                  <div className="flex items-center gap-2">
-                    <ArrowUpAZ className="h-3.5 w-3.5" />
-                    建立時間 (最舊優先)
-                  </div>
-                </SelectItem>
-                <SelectItem value="title:asc">
-                  <div className="flex items-center gap-2">
-                    <ArrowDownAZ className="h-3.5 w-3.5" />
-                    產品名稱 (A–Z)
-                  </div>
-                </SelectItem>
-                <SelectItem value="title:desc">
-                  <div className="flex items-center gap-2">
-                    <ArrowUpAZ className="h-3.5 w-3.5" />
-                    產品名稱 (Z–A)
-                  </div>
-                </SelectItem>
-              </SelectContent>
-            </Select>
 
             <div className="h-4 w-px bg-border" />
 
@@ -1067,24 +1270,75 @@ export function ListedProductsView({
 
             <div className="h-4 w-px bg-border" />
 
-            {/* Shopify Filter */}
+            {/* 一級分類 Filter */}
             <Select
-              value={shopifyFilter}
+              value={level1Filter || '__all__'}
               onValueChange={(val) => {
-                setShopifyFilter(val as 'all' | 'shopify' | 'database');
+                setLevel1Filter(val === '__all__' ? '' : val);
+                setLevel2Filter(''); // reset 二級 when 一級 changes
                 setCurrentPage(1);
               }}
             >
-              <SelectTrigger className="h-8 w-[160px] text-xs font-body gap-1">
-                <Store className="h-3 w-3 text-muted-foreground" />
-                <SelectValue placeholder="篩選" />
+              <SelectTrigger className="h-8 w-[150px] text-xs font-body gap-1">
+                <FolderTree className="h-3 w-3 text-muted-foreground" />
+                <SelectValue placeholder="一級分類" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="all">全部</SelectItem>
-                <SelectItem value="shopify">Shopify 已上架</SelectItem>
-                <SelectItem value="database">資料庫產品</SelectItem>
+                <SelectItem value="__all__">全部一級分類</SelectItem>
+                {level1Options.map((l1) => {
+                  // When this option is active and no level2 filter, totalCount is exact.
+                  const cnt = (l1 === level1Filter && !level2Filter)
+                    ? totalCount
+                    : categoryCounts[`level1:${l1}`];
+                  return (
+                    <SelectItem key={l1} value={l1}>
+                      <span className="flex items-center justify-between gap-3 w-full">
+                        <span>{l1}</span>
+                        {cnt != null && (
+                          <span className="font-mono-data text-xs font-semibold text-foreground/70 ml-auto">{cnt}</span>
+                        )}
+                      </span>
+                    </SelectItem>
+                  );
+                })}
               </SelectContent>
             </Select>
+
+            {/* 二級分類 Filter — only when a 一級 is chosen */}
+            {level1Filter && level2Options.length > 0 && (
+              <Select
+                value={level2Filter || '__all__'}
+                onValueChange={(val) => {
+                  setLevel2Filter(val === '__all__' ? '' : val);
+                  setCurrentPage(1);
+                }}
+              >
+                <SelectTrigger className="h-8 w-[150px] text-xs font-body gap-1">
+                  <FolderTree className="h-3 w-3 text-muted-foreground" />
+                  <SelectValue placeholder="二級分類" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">全部二級分類</SelectItem>
+                  {level2Options.map((l2) => {
+                    // When this option is the active filter, use totalCount (exact from main query).
+                    // For other options, fall back to categoryCounts (approximate).
+                    const cnt = l2 === level2Filter
+                      ? totalCount
+                      : categoryCounts[`level2:${level1Filter}:${l2}`];
+                    return (
+                      <SelectItem key={l2} value={l2}>
+                        <span className="flex items-center justify-between gap-3 w-full">
+                          <span>{l2}</span>
+                          {cnt != null && (
+                            <span className="font-mono-data text-xs font-semibold text-foreground/70 ml-auto">{cnt}</span>
+                          )}
+                        </span>
+                      </SelectItem>
+                    );
+                  })}
+                </SelectContent>
+              </Select>
+            )}
 
             {/* Count */}
             <Badge variant="secondary" className="font-mono-data text-[10px]">
@@ -1166,26 +1420,67 @@ export function ListedProductsView({
                 </div>
               )}
             </div>
+            {/* 重複商品 Filter */}
+            <Button
+              variant={showDuplicates ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setShowDuplicates((v) => !v)}
+              className={cn(
+                'h-8 gap-1.5 text-xs font-body',
+                showDuplicates && 'bg-rose-500 hover:bg-rose-600 text-white border-rose-500'
+              )}
+            >
+              重複商品
+            </Button>
           </div>
 
           <div className="flex items-center gap-2">
             {selectedIds.size > 0 && (
-              <Badge variant="secondary" className="font-mono-data text-[10px] animate-in fade-in">
+              <Badge variant="secondary" className="font-mono-data text-xs animate-in fade-in">
                 已選 {selectedIds.size} 項
               </Badge>
             )}
-            {onSendToPublishQueue && (
+
+            {/* Grid / List toggle */}
+            <div className="flex items-center rounded-md border border-border overflow-hidden">
+              <button
+                onClick={() => setViewMode('grid')}
+                className={cn(
+                  'flex items-center gap-1 px-2.5 py-1.5 text-xs transition-colors',
+                  viewMode === 'grid'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:bg-muted'
+                )}
+                title="Grid 格式"
+              >
+                <LayoutGrid className="h-3.5 w-3.5" />
+              </button>
+              <button
+                onClick={() => setViewMode('list')}
+                className={cn(
+                  'flex items-center gap-1 px-2.5 py-1.5 text-xs transition-colors',
+                  viewMode === 'list'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:bg-muted'
+                )}
+                title="List 格式"
+              >
+                <List className="h-3.5 w-3.5" />
+              </button>
+            </div>
+
+            {!isCatalog && (
               <Button
                 variant="outline"
                 size="sm"
                 onClick={handleSendToPublishQueue}
-                disabled={selectedIds.size === 0}
+                disabled={selectedIds.size === 0 || isQueuing}
                 className={cn(
                   "gap-2 font-display text-xs font-bold transition-all border-indigo-500/40 text-indigo-600 hover:bg-indigo-50 dark:text-indigo-400 dark:hover:bg-indigo-500/10",
                   selectedIds.size === 0 && "opacity-50"
                 )}
               >
-                <Send className="h-3.5 w-3.5" />
+                {isQueuing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />}
                 待上傳到 Shopify
               </Button>
             )}
@@ -1210,47 +1505,6 @@ export function ListedProductsView({
                   {selectedIds.size}
                 </Badge>
               )}
-            </Button>
-            {lastSyncTime && (
-              <span className="font-mono-data text-[10px] text-muted-foreground">
-                上次同步: {new Date(lastSyncTime).toLocaleTimeString()}
-              </span>
-            )}
-            {onSyncFromShopify && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleSync}
-                disabled={isSyncing}
-                className={cn(
-                  "gap-2 font-display text-xs font-bold transition-all",
-                  isSyncing && "border-amber-500/40 text-amber-500"
-                )}
-              >
-                {isSyncing ? (
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                ) : (
-                  <CloudDownload className="h-3.5 w-3.5" />
-                )}
-                {isSyncing ? '正在從 Shopify 同步...' : '從 Shopify 同步'}
-              </Button>
-            )}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleSyncFromMaster}
-              disabled={isSyncingMaster}
-              className={cn(
-                "gap-2 font-display text-xs font-bold transition-all",
-                isSyncingMaster && "border-indigo-500/40 text-indigo-500"
-              )}
-            >
-              {isSyncingMaster ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
-                <Database className="h-3.5 w-3.5" />
-              )}
-              {isSyncingMaster ? '正在同步...' : '從全域 DB 同步'}
             </Button>
           </div>
         </div>
@@ -1280,7 +1534,9 @@ export function ListedProductsView({
             >
               <Database className="h-3 w-3 text-indigo-500" />
               <span className="text-[11px] text-indigo-500 font-body">
-                已優化載入速度 • 預設顯示前 {pageSize} 件產品，其餘資料將於滾動或切換分頁時延遲載入
+                {isCatalog
+                  ? `產品目錄 • 共 ${totalCount.toLocaleString()} 件 — 此處只顯示已加入目錄的產品，所有裝置即時同步`
+                  : `已優化載入速度 • 預設顯示前 ${pageSize} 件產品，其餘資料將於滾動或切換分頁時延遲載入`}
               </span>
             </motion.div>
           )}
@@ -1290,7 +1546,7 @@ export function ListedProductsView({
         <div className="flex-1 overflow-auto">
           {isLoading ? (
             <div className="px-6 py-3">
-              <div className="mb-2 flex items-center gap-2 text-[11px] text-muted-foreground font-body">
+              <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground font-body">
                 <Loader2 className="h-3 w-3 animate-spin text-primary" />
                 Lazy Loading 已啟用 • 正在載入前 {pageSize} 件產品...
               </div>
@@ -1337,15 +1593,157 @@ export function ListedProductsView({
             <div className="flex flex-col items-center justify-center py-20">
               <Database className="mb-3 h-8 w-8 text-muted-foreground/40" />
               <p className="font-display text-sm text-muted-foreground">
-                {debouncedSearch ? '找不到符合搜尋的產品' : '產品目錄是空的'}
+                {debouncedSearch ? '找不到符合搜尋的產品' : isCatalog ? '產品目錄是空的' : '產品目錄是空的'}
               </p>
               <p className="mt-1 text-xs text-muted-foreground/70 font-body">
                 {debouncedSearch
                   ? '請嘗試其他搜尋字詞'
-                  : '從「上載PDF」新增產品或從 Shopify 同步現有產品'}
+                  : isCatalog
+                    ? '到「所有產品」勾選產品，按「上傳到產品目錄」即可加入'
+                    : '從「上載PDF」新增產品或從 Shopify 同步現有產品'}
               </p>
             </div>
+          ) : viewMode === 'grid' ? (
+            /* ── GRID VIEW — 一行 2 款，每款左圖右資訊，底部 A/B/C ── */
+            <div className="p-4 grid grid-cols-2 gap-4">
+              {products.map((product, i) => {
+                const imgSrc = product.images?.[0]?.src || product.imageUrl || '';
+                const dimStr = [product.dimensionLMm, product.dimensionWMm, product.dimensionHMm]
+                  .filter(Boolean).length > 0
+                  ? `${product.dimensionLMm ?? '—'} × ${product.dimensionWMm ?? '—'} × ${product.dimensionHMm ?? '—'} mm`
+                  : null;
+                return (
+                  <motion.div
+                    key={product.id}
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: i * 0.02 }}
+                    className="flex flex-col rounded-xl border border-border bg-card overflow-hidden hover:shadow-md transition-shadow cursor-pointer"
+                    onClick={(e) => handleRowClick(e, product)}
+                  >
+                    {/* Top: image left + info right */}
+                    <div className="flex gap-0">
+                      {/* Image — 1:1 square, object-contain to show full product */}
+                      <div className="relative flex-shrink-0 w-[40%] aspect-square bg-white dark:bg-muted overflow-hidden border-r border-border">
+                        {imgSrc ? (
+                          <img
+                            src={imgSrc}
+                            alt={product.title}
+                            loading="lazy"
+                            className="absolute inset-0 h-full w-full object-contain p-2"
+                          />
+                        ) : (
+                          <div className="absolute inset-0 flex items-center justify-center">
+                            <Store className="h-10 w-10 text-muted-foreground/30" />
+                          </div>
+                        )}
+                        {/* Checkbox */}
+                        <div
+                          className="absolute top-2 left-2"
+                          onClick={(e) => { e.stopPropagation(); toggleSelectProduct(product.id); }}
+                        >
+                          <Checkbox checked={selectedIds.has(product.id)} className="bg-white/80" />
+                        </div>
+                      </div>
+
+                      {/* Info — right side, stretched to full image height */}
+                      <div className="flex flex-col flex-1 min-w-0 px-3 py-2 justify-between">
+                        {/* Title — 18px */}
+                        <p className="font-display text-[18px] font-bold leading-snug line-clamp-2">
+                          {product.title}
+                        </p>
+
+                        {/* Prices + Dimensions — 14px */}
+                        <div>
+                          <div className="flex flex-wrap gap-x-2 gap-y-0">
+                            {product.costPrice != null && (
+                              <span className="font-mono-data text-[14px] text-amber-600 dark:text-amber-400">
+                                成本 ¥{product.costPrice.toFixed(0)}
+                              </span>
+                            )}
+                            {product.salePrice != null && product.salePrice > 0 && (
+                              <span className="font-mono-data text-[14px] font-bold text-emerald-600 dark:text-emerald-400">
+                                售 HK${product.salePrice.toLocaleString()}
+                              </span>
+                            )}
+                          </div>
+                          {dimStr && (
+                            <p className="font-mono-data text-[14px] text-muted-foreground/60 mt-0.5">
+                              {dimStr}
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Factory name — 14px */}
+                        {product.factoriesDisplayName && (
+                          <div className="flex items-center gap-1">
+                            <Factory className="h-3.5 w-3.5 text-muted-foreground flex-shrink-0" />
+                            <span className="font-body text-[14px] text-muted-foreground truncate">
+                              {product.factoriesDisplayName}
+                            </span>
+                          </div>
+                        )}
+
+                        {/* Category Badge — 14px */}
+                        {(product.level1Category || product.category) && (
+                          <div className="flex items-center gap-1 flex-wrap">
+                            {product.level1Category && (
+                              <Badge variant="outline" className="text-[14px] px-2 py-0.5 h-6 leading-none">
+                                {product.level1Category}
+                              </Badge>
+                            )}
+                            {product.level2Category && (
+                              <Badge variant="outline" className="text-[14px] px-2 py-0.5 h-6 leading-none text-muted-foreground">
+                                {product.level2Category}
+                              </Badge>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Material — 16px, always reserves 4 lines */}
+                        <div className="min-h-[66px]">
+                          <p className="font-body text-[16px] text-muted-foreground line-clamp-4 leading-snug">
+                            {product.material ?? ''}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Bottom: A/B/C action buttons */}
+                    {!isCatalog && (
+                      <div
+                        className="grid grid-cols-3 border-t border-border"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <button
+                          onClick={() => handleRowToShopify(product)}
+                          className="flex items-center justify-center gap-1.5 px-2 py-2 text-xs font-medium text-indigo-600 bg-indigo-500/5 hover:bg-indigo-500/15 transition-colors border-r border-border"
+                        >
+                          <Send className="h-3 w-3 flex-shrink-0" />
+                          A 加入Shopify
+                        </button>
+                        <button
+                          onClick={() => handleRowToCatalog(product)}
+                          className="flex items-center justify-center gap-1.5 px-2 py-2 text-xs font-medium text-emerald-600 bg-emerald-500/5 hover:bg-emerald-500/15 transition-colors border-r border-border"
+                        >
+                          <Database className="h-3 w-3 flex-shrink-0" />
+                          B 加到目錄
+                        </button>
+                        <button
+                          onClick={() => setDismissTarget(product)}
+                          className="flex items-center justify-center gap-1.5 px-2 py-2 text-xs font-medium text-muted-foreground hover:bg-rose-500/10 hover:text-rose-500 transition-colors"
+                        >
+                          <Trash2 className="h-3 w-3 flex-shrink-0" />
+                          C 暫不考慮
+                        </button>
+                      </div>
+                    )}
+                  </motion.div>
+                );
+              })}
+            </div>
           ) : (
+            /* ── LIST VIEW ── */
             <table className="w-full min-w-[1580px]">
               <thead className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm">
                 <tr className="border-b border-border">
@@ -1383,6 +1781,28 @@ export function ListedProductsView({
                   </th>
                   <th className="px-3 py-3 text-left">
                     <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                      一級分類
+                    </span>
+                  </th>
+                  <th className="px-3 py-3 text-left">
+                    <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                      二級分類
+                    </span>
+                  </th>
+                  <th className="px-3 py-3 text-left">
+                    <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                      系列
+                    </span>
+                  </th>
+                  {isCatalog && (
+                    <th className="px-3 py-3 text-left">
+                      <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                        生產時間
+                      </span>
+                    </th>
+                  )}
+                  <th className="px-3 py-3 text-left">
+                    <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
                       成本
                     </span>
                   </th>
@@ -1399,6 +1819,23 @@ export function ListedProductsView({
                         售價
                       </span>
                     </div>
+                  </th>
+                  {!isCatalog && (
+                    <th className="px-3 py-3 text-center">
+                      <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                        處理
+                      </span>
+                    </th>
+                  )}
+                  <th className="px-3 py-3 text-left">
+                    <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                      材質
+                    </span>
+                  </th>
+                  <th className="px-3 py-3 text-left">
+                    <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                      規格
+                    </span>
                   </th>
                   <th className="px-3 py-3 text-left">
                     <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
@@ -1417,22 +1854,7 @@ export function ListedProductsView({
                   </th>
                   <th className="px-3 py-3 text-left">
                     <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                      款式
-                    </span>
-                  </th>
-                  <th className="px-3 py-3 text-left">
-                    <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                      同步狀態
-                    </span>
-                  </th>
-                  <th className="px-3 py-3 text-left">
-                    <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                      狀態
-                    </span>
-                  </th>
-                  <th className="px-3 py-3 text-left">
-                    <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                      Shopify
+                      SKU No.
                     </span>
                   </th>
                 </tr>
@@ -1444,7 +1866,7 @@ export function ListedProductsView({
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: i * 0.02, duration: 0.25 }}
-                    className="group h-[52px] border-b border-border transition-colors hover:bg-muted/60 cursor-pointer"
+                    className="group h-[72px] border-b border-border transition-colors hover:bg-muted/60 cursor-pointer"
                     onClick={(e) => handleRowClick(e, product)}
                   >
                     {/* Checkbox */}
@@ -1466,11 +1888,11 @@ export function ListedProductsView({
                             alt={product.images?.[0]?.alt || product.title}
                             loading="lazy"
                             decoding="async"
-                            className="h-9 w-9 aspect-square rounded-md object-cover flex-shrink-0 bg-muted"
+                            className="h-14 w-14 aspect-square rounded-md object-cover flex-shrink-0 bg-muted"
                           />
                         ) : (
-                          <div className="h-9 w-9 aspect-square rounded-md bg-muted flex items-center justify-center">
-                            <Store className="h-4 w-4 text-muted-foreground/40" />
+                          <div className="h-14 w-14 aspect-square rounded-md bg-muted flex items-center justify-center">
+                            <Store className="h-5 w-5 text-muted-foreground/40" />
                           </div>
                         );
                       })()}
@@ -1490,20 +1912,24 @@ export function ListedProductsView({
                       </div>
                     </td>
 
-                    {/* Color (Chinese) */}
+                    {/* Color (Chinese) — supports comma-separated multi-color */}
                     <td className="px-3 py-3">
                       {product.color ? (
-                        <div className="flex items-center gap-1.5">
-                          <div
-                            className="h-3.5 w-3.5 rounded-full border border-border flex-shrink-0"
-                            style={{ backgroundColor: getColorHex(product.color) }}
-                          />
-                          <span className="font-mono-data text-[11px]">
-                            {getChineseColorLabel(product.color) || product.color}
-                          </span>
+                        <div className="flex flex-wrap items-center gap-1">
+                          {product.color.split(',').map(s => s.trim()).filter(Boolean).map((colorEn) => (
+                            <div key={colorEn} className="flex items-center gap-1 rounded-full bg-muted/50 border border-border/50 px-1.5 py-0.5">
+                              <div
+                                className="h-2.5 w-2.5 rounded-full border border-border/40 flex-shrink-0"
+                                style={{ backgroundColor: getColorHex(colorEn) }}
+                              />
+                              <span className="font-body text-xs">
+                                {getChineseColorLabel(colorEn) || colorEn}
+                              </span>
+                            </div>
+                          ))}
                         </div>
                       ) : (
-                        <span className="text-[10px] text-muted-foreground">—</span>
+                        <span className="text-xs text-muted-foreground">—</span>
                       )}
                     </td>
 
@@ -1539,6 +1965,48 @@ export function ListedProductsView({
                       )}
                     </td>
 
+                    {/* Level 1 Category */}
+                    <td className="px-3 py-3">
+                      {product.level1Category ? (
+                        <Badge variant="outline" className="font-body text-[10px] border-indigo-500/30 text-indigo-600 dark:text-indigo-400">
+                          {product.level1Category}
+                        </Badge>
+                      ) : (
+                        <span className="text-[10px] text-muted-foreground">—</span>
+                      )}
+                    </td>
+
+                    {/* Level 2 Category */}
+                    <td className="px-3 py-3">
+                      {product.level2Category ? (
+                        <span className="font-body text-[11px] text-foreground">{product.level2Category}</span>
+                      ) : (
+                        <span className="text-[10px] text-muted-foreground">—</span>
+                      )}
+                    </td>
+
+                    {/* 系列 (model) */}
+                    <td className="px-3 py-3">
+                      {product.model ? (
+                        <span className="font-mono-data text-[11px] text-foreground">{product.model}</span>
+                      ) : (
+                        <span className="text-[10px] text-muted-foreground">—</span>
+                      )}
+                    </td>
+
+                    {/* Production Time (catalog only) */}
+                    {isCatalog && (
+                      <td className="px-3 py-3">
+                        {product.productionTime ? (
+                          <Badge variant="outline" className="font-body text-[10px] border-sky-500/30 text-sky-600 dark:text-sky-400 whitespace-nowrap">
+                            {product.productionTime}
+                          </Badge>
+                        ) : (
+                          <span className="text-[10px] text-muted-foreground">—</span>
+                        )}
+                      </td>
+                    )}
+
                     {/* Cost Price */}
                     <td className="px-3 py-3">
                       {product.costPrice != null ? (
@@ -1550,14 +2018,58 @@ export function ListedProductsView({
                       )}
                     </td>
 
-                    {/* Sale Price (from sale_price column) */}
+                    {/* Sale Price (sale_price column) */}
                     <td className="px-3 py-3">
                       {product.salePrice != null && product.salePrice > 0 ? (
-                        <span className="font-mono-data text-sm font-bold text-emerald-600 dark:text-emerald-400">
+                        <span className="font-mono-data text-[11px] font-bold text-emerald-600 dark:text-emerald-400">
                           HK${product.salePrice.toLocaleString()}
                         </span>
                       ) : (
-                        <span className="font-mono-data text-[10px] text-muted-foreground">—</span>
+                        <span className="text-[10px] text-muted-foreground">—</span>
+                      )}
+                    </td>
+
+                    {/* 處理動作 A/B/C (所有產品頁) */}
+                    {!isCatalog && (
+                      <td className="px-3 py-3" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex flex-col gap-1 w-[112px]">
+                          <button
+                            onClick={() => handleRowToShopify(product)}
+                            className="flex items-center justify-center gap-1 rounded-md bg-indigo-500/10 px-2 py-1 text-[10.5px] font-medium text-indigo-600 transition-colors hover:bg-indigo-500/20"
+                          >
+                            <Send className="h-3 w-3" /> A 加入Shopify
+                          </button>
+                          <button
+                            onClick={() => handleRowToCatalog(product)}
+                            className="flex items-center justify-center gap-1 rounded-md bg-emerald-500/10 px-2 py-1 text-[10.5px] font-medium text-emerald-600 transition-colors hover:bg-emerald-500/20"
+                          >
+                            <Database className="h-3 w-3" /> B 加到產品目錄
+                          </button>
+                          <button
+                            onClick={() => setDismissTarget(product)}
+                            className="flex items-center justify-center gap-1 rounded-md border border-border px-2 py-1 text-[10.5px] font-medium text-muted-foreground transition-colors hover:bg-rose-500/10 hover:text-rose-500"
+                          >
+                            <Trash2 className="h-3 w-3" /> C 暫不考慮
+                          </button>
+                        </div>
+                      </td>
+                    )}
+
+                    {/* 材質 (material) */}
+                    <td className="px-3 py-3 max-w-[180px]">
+                      {product.material ? (
+                        <span className="font-body text-[11px] text-foreground line-clamp-2">{product.material}</span>
+                      ) : (
+                        <span className="text-[10px] text-muted-foreground">—</span>
+                      )}
+                    </td>
+
+                    {/* 規格 (specifications) */}
+                    <td className="px-3 py-3 max-w-[180px]">
+                      {product.specifications ? (
+                        <span className="font-body text-[11px] text-foreground line-clamp-2">{product.specifications}</span>
+                      ) : (
+                        <span className="text-[10px] text-muted-foreground">—</span>
                       )}
                     </td>
 
@@ -1627,49 +2139,20 @@ export function ListedProductsView({
                       </div>
                     </td>
 
-                    {/* Variants */}
+                    {/* SKU No. (product_sku) */}
                     <td className="px-3 py-3">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setVariantModal({ product })}
-                        className="h-7 gap-1 text-[10px] font-mono-data"
-                      >
-                        {product.variants.length} 個
-                        <ChevronDown className="h-3 w-3" />
-                      </Button>
-                    </td>
-
-                    {/* Sync Status */}
-                    <td className="px-3 py-3">
-                      <SyncStatusBadge product={product} />
-                    </td>
-
-                    {/* Product Status */}
-                    <td className="px-3 py-3">
-                      <StatusBadge status={product.status as any} />
-                    </td>
-
-                    {/* Shopify ID */}
-                    <td className="px-3 py-3">
-                      {product.shopifyProductId ? (
-                        <Tooltip>
-                          <TooltipTrigger asChild>
-                            <Badge className="gap-1 cursor-pointer bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 hover:bg-emerald-500/20 font-mono-data text-[10px]">
-                              <ExternalLink className="h-2.5 w-2.5" />
-                              {product.shopifyProductId.slice(-8)}
-                            </Badge>
-                          </TooltipTrigger>
-                          <TooltipContent>
-                            <p className="font-mono-data text-[11px]">
-                              Shopify 產品 ID: {product.shopifyProductId}
-                            </p>
-                          </TooltipContent>
-                        </Tooltip>
+                      {product.productSku ? (
+                        <span className={cn(
+                          'font-mono-data text-[11px]',
+                          showDuplicates && 'text-rose-500 font-semibold'
+                        )}>
+                          {product.productSku}
+                        </span>
                       ) : (
-                        <span className="text-[10px] text-muted-foreground">—</span>
+                        <span className="font-mono-data text-[10px] text-muted-foreground/40">—</span>
                       )}
                     </td>
+
                   </motion.tr>
                 ))}
               </tbody>
@@ -1680,7 +2163,7 @@ export function ListedProductsView({
         {/* Pagination Footer */}
         {!isLoading && products.length > 0 && (
           <div className="flex items-center justify-between border-t border-border bg-muted/30 px-6 py-2.5">
-            <span className="font-mono-data text-[11px] text-muted-foreground">
+            <span className="font-mono-data text-xs text-muted-foreground">
               顯示 {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, totalCount)}，共 {totalCount} 項
             </span>
 
@@ -1844,6 +2327,34 @@ export function ListedProductsView({
           </AlertDialogContent>
         </AlertDialog>
 
+        {/* C 暫不考慮 — 確認移除單一產品 */}
+        <AlertDialog open={!!dismissTarget} onOpenChange={(o) => { if (!o) setDismissTarget(null); }}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle className="font-display flex items-center gap-2">
+                <Trash2 className="h-5 w-5 text-rose-500" />
+                確認移除
+              </AlertDialogTitle>
+              <AlertDialogDescription className="font-body text-sm">
+                是否同意移除 <span className="font-bold text-foreground">1</span> 項的產品？
+                <br />
+                <span className="text-xs text-muted-foreground mt-2 block">
+                  「{dismissTarget?.title}」將從「所有產品」頁面移除（產品資料保留於資料庫，可日後找回）。
+                </span>
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel className="font-display text-xs font-bold">否</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={confirmDismiss}
+                className="bg-rose-500 text-white hover:bg-rose-600 font-display text-xs font-bold gap-1.5"
+              >
+                <Trash2 className="h-3.5 w-3.5" /> 是，移除
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
         {/* 批量「暫不考慮」確認 */}
         <AlertDialog open={showBatchRejectConfirm} onOpenChange={setShowBatchRejectConfirm}>
           <AlertDialogContent className="max-w-md border-rose-500/20">
@@ -1860,7 +2371,7 @@ export function ListedProductsView({
                 <span className="text-xs text-muted-foreground mt-2 block">
                   產品資料將儲存至{' '}
                   <code className="font-mono-data text-rose-500">products_rejected</code>{' '}
-                  記錄，並從待處理列表中移除。
+                  記錄，並從列表中移除。
                 </span>
               </AlertDialogDescription>
             </AlertDialogHeader>
@@ -1888,11 +2399,11 @@ export function ListedProductsView({
                 輸入定價倍數，售價 = 成本 × 倍數（小數進位取整數）
                 <br />
                 <span className="text-xs text-muted-foreground mt-1 block">
-                  將套用至當前頁面顯示的{' '}
+                  套用至當前頁面顯示的{' '}
                   <span className="font-mono-data font-bold text-foreground">
                     {products.filter(p => p.costPrice != null && p.costPrice > 0).length}
                   </span>{' '}
-                  件有成本的產品（依目前篩選條件）
+                  件有成本的產品（依目前篩選及分頁）
                 </span>
               </DialogDescription>
             </DialogHeader>
@@ -1901,19 +2412,17 @@ export function ListedProductsView({
                 <label className="font-mono-data text-[11px] text-muted-foreground uppercase tracking-widest">
                   定價倍數
                 </label>
-                <div className="flex items-center gap-2">
-                  <Input
-                    type="number"
-                    step="0.1"
-                    min="0.1"
-                    placeholder="例如 2.3、2.5、2.7"
-                    value={pricingMultiplier}
-                    onChange={e => setPricingMultiplier(e.target.value)}
-                    className="font-mono-data text-sm"
-                    onKeyDown={e => { if (e.key === 'Enter') handleApplyPricing(); }}
-                    autoFocus
-                  />
-                </div>
+                <Input
+                  type="number"
+                  step="0.1"
+                  min="0.1"
+                  placeholder="例如 2.3、2.5、2.7"
+                  value={pricingMultiplier}
+                  onChange={e => setPricingMultiplier(e.target.value)}
+                  className="font-mono-data text-sm"
+                  onKeyDown={e => { if (e.key === 'Enter') handleApplyPricing(); }}
+                  autoFocus
+                />
                 {pricingMultiplier && !isNaN(parseFloat(pricingMultiplier)) && (
                   <p className="text-[11px] text-muted-foreground font-body">
                     預覽：成本 ¥360 → 售價 HK$
