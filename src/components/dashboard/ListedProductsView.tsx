@@ -484,7 +484,11 @@ export function ListedProductsView({
         dataQuery = dataQuery.eq('in_catalog', true);
       } else {
         dataQuery = dataQuery
-          .or('in_shopify_queue.eq.true,info_done.eq.true,ready_to_publish.eq.true,copy_done.eq.true')
+          .or('in_shopify_queue.is.null,in_shopify_queue.eq.false')
+          .or('info_done.is.null,info_done.eq.false')
+          .or('ready_to_publish.is.null,ready_to_publish.eq.false')
+          .or('copy_done.is.null,copy_done.eq.false')
+          .is('copy_done_at', null)
           .is('copy_queued_at', null);
       }
 
