@@ -1647,9 +1647,15 @@ export function ListedProductsView({
                     initial={{ opacity: 0, y: 8 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: i * 0.02 }}
-                    className="flex flex-col rounded-xl border border-border bg-card overflow-hidden hover:shadow-md transition-shadow cursor-pointer"
+                    className="relative flex flex-col rounded-xl border border-border bg-card overflow-hidden hover:shadow-md transition-shadow cursor-pointer"
                     onClick={(e) => handleRowClick(e, product)}
                   >
+                    {/* 已上架Shopify badge */}
+                    {product.isOnShopify && (
+                      <div className="absolute top-2 right-2 z-10 rounded px-2 py-0.5 bg-blue-600 text-white font-display text-[11px] font-semibold tracking-wide shadow-sm pointer-events-none">
+                        已上架Shopify
+                      </div>
+                    )}
                     {/* Top: image left + info right */}
                     <div className="flex gap-0">
                       {/* Image — 1:1 square, object-contain to show full product */}
