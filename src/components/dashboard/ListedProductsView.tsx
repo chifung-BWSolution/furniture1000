@@ -586,6 +586,22 @@ export function ListedProductsView({
             )
           );
         });
+
+      // 背景查詢 shopify_products，以 uuid 欄位配對 products.id，標記已上架產品
+      supabase
+        .from('shopify_products')
+        .select('uuid')
+        .in('uuid', productIds)
+        .then(({ data: shopifyRows }) => {
+          if (!shopifyRows || shopifyRows.length === 0) return;
+          const onShopifyIds = new Set(shopifyRows.map((r: any) => r.uuid));
+          setProducts((prev) =>
+            prev.map((p) =>
+              onShopifyIds.has(p.id) ? { ...p, isOnShopify: true } : p
+            )
+          );
+        });
+
       return;
     } catch (err) {
       console.error('[ProductCatalog] Unexpected error:', err);
