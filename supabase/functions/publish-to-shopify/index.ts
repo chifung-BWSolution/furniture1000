@@ -12,58 +12,6 @@ const corsHeaders = {
 const TOKEN_STALENESS_THRESHOLD_MS = 60 * 60 * 1000; // 1 hour in milliseconds
 const STORAGE_BUCKET = "product-images";
 
-// ─── Global Master Project (Archive) ─────────────────────────────────────────
-// The master project (kqwktnplkqucsbasyfjl) holds the bwf_product_master table
-// which is a permanent archive of all products ever published to Shopify.
-// It uses a SEPARATE Supabase client with its own service role key.
-const MASTER_SUPABASE_URL = "https://kqwktnplkqucsbasyfjl.supabase.co";
-
-/**
- * Initialize the master Supabase client for bwf_product_master writes.
- * Returns null if the MASTER_SERVICE_ROLE_KEY secret is not configured.
- */
-function getMasterClient(): ReturnType<typeof createClient> | null {
-  const masterServiceKey = Deno.env.get("MASTER_SERVICE_ROLE_KEY");
-  if (!masterServiceKey) {
-    console.warn(
-      "[publish-to-shopify] ⚠️ MASTER_SERVICE_ROLE_KEY not set. " +
-      "Skipping bwf_product_master upsert on Global Master project."
-    );
-    return null;
-  }
-  return createClient(MASTER_SUPABASE_URL, masterServiceKey);
-}
-
-/**
- * Upsert a product record into bwf_product_master on the Global Master project.
- * This is a fire-and-forget operation — errors are logged but don't block publishing.
- */
-async function upsertToMaster(
-  masterClient: ReturnType<typeof createClient>,
-  record: Record<string, unknown>
-): Promise<void> {
-  try {
-    const { error: masterErr } = await masterClient
-      .from("bwf_product_master")
-      .upsert(record, { onConflict: "shopify_id" });
-
-    if (masterErr) {
-      console.error(
-        `[publish-to-shopify] ⚠️ MASTER bwf_product_master upsert error:`,
-        masterErr.message
-      );
-    } else {
-      console.log(
-        `[publish-to-shopify] ✅ MASTER bwf_product_master upserted for Shopify ID: ${record.shopify_id}`
-      );
-    }
-  } catch (err) {
-    console.error(
-      `[publish-to-shopify] ⚠️ MASTER bwf_product_master upsert exception:`,
-      err instanceof Error ? err.message : String(err)
-    );
-  }
-}
 
 interface ProductPayload {
   id: string;
@@ -304,9 +252,6 @@ Deno.serve(async (req: Request) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
-    // Initialize the Global Master client for bwf_product_master dual-write
-    const masterSupabase = getMasterClient();
 
     // ──────────────────────────────────────────────────────────────────────────
     // ALWAYS fetch fresh token from DB — no static caching, no env fallback
@@ -716,51 +661,6 @@ Deno.serve(async (req: Request) => {
                     source: "local",
                   })
                   .eq("id", product.id);
-
-                // ── DUAL WRITE: Upsert into bwf_product_master (fallback path) ──
-                // Action A: Primary project (local bwf_product_master if it exists)
-                // Action B: Global Master project (permanent archive)
-                const fallbackVariants = (createdProduct.variants as Record<string, unknown>[]) || [];
-                const fallbackFirstVariant = fallbackVariants[0] || {};
-                const fbPrice = fallbackFirstVariant.price ? Number(fallbackFirstVariant.price) : product.price;
-                const fbCompareAt = fallbackFirstVariant.compare_at_price ? Number(fallbackFirstVariant.compare_at_price) : (product.compare_at_price || null);
-
-                const fallbackMasterRecord = {
-                  shopify_id: shopifyProductId,
-                  title: product.title || null,
-                  category: product.category || product.collection || null,
-                  factory_name: product.factory_name || null,
-                  image_url: product.image_url || null,
-                  description: product.description_html || null,
-                  material: product.material || null,
-                  dimension_l_mm: product.dimension_l_mm || null,
-                  dimension_w_mm: product.dimension_w_mm || null,
-                  dimension_h_mm: product.dimension_h_mm || null,
-                  cost_price: product.cost_price || null,
-                  sale_price: product.sale_price || product.price || null,
-                  shopify_price: fbPrice,
-                  shopify_compare_at_price: fbCompareAt,
-                  delivery_days: product.delivery_days || null,
-                };
-
-                // Action A: Primary project local bwf_product_master
-                try {
-                  const { error: localMasterErr } = await supabase
-                    .from("bwf_product_master")
-                    .upsert(fallbackMasterRecord, { onConflict: "shopify_id" });
-                  if (localMasterErr) {
-                    console.error(`[publish-to-shopify] ⚠️ PRIMARY bwf_product_master upsert error (fallback):`, localMasterErr.message);
-                  } else {
-                    console.log(`[publish-to-shopify] ✅ PRIMARY bwf_product_master upserted (fallback) for Shopify ID: ${shopifyProductId}`);
-                  }
-                } catch (localErr) {
-                  console.error(`[publish-to-shopify] ⚠️ PRIMARY bwf_product_master exception (fallback):`, localErr);
-                }
-
-                // Action B: Global Master project (permanent archive)
-                if (masterSupabase) {
-                  await upsertToMaster(masterSupabase, fallbackMasterRecord);
-                }
 
                 results.push({
                   id: product.id,

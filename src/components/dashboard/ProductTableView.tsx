@@ -471,6 +471,7 @@ export const ProductTableView = memo(function ProductTableView({
     const dims = [product.dimensionLMm, product.dimensionWMm, product.dimensionHMm].filter(Boolean).join('x') || '';
     const selfVariant: ProductVariant = {
       id: product.id,
+      productId: product.productId,
       size: dims,
       color: product.color || '',
       sku: product.sku || '',
@@ -795,13 +796,15 @@ export const ProductTableView = memo(function ProductTableView({
                   className="shrink-0 gap-1.5 font-display text-xs"
                   onClick={async () => {
                     if (!variantModal) return;
-                    const hostId = variantModal.product.id;
+                    // productId is the FK to products.id used for ready_to_shopify queries.
+                    // product.id is ready_to_shopify.id (rts row UUID), not suitable for .eq('product_id', ...).
+                    const hostProductId = variantModal.product.productId || variantModal.product.id;
                     const variants = variantModal.product.variants;
 
-                    // variant IDs that are OTHER products merged into this one
+                    // Collect the products.id values of OTHER products merged into this host
                     const mergedProductIds = variants
-                      .map(v => v.id)
-                      .filter(vid => vid !== hostId);
+                      .filter(v => v.id !== variantModal.product.id)
+                      .map(v => v.productId || v.id);
 
                     const shopifyVariants = variants.map(v => ({
                       id: v.id,
@@ -819,7 +822,7 @@ export const ProductTableView = memo(function ProductTableView({
                     const { error } = await supabase
                       .from('ready_to_shopify')
                       .update({ variants: shopifyVariants })
-                      .eq('product_id', hostId);
+                      .eq('product_id', hostProductId);
                     if (error) {
                       toast.error('儲存失敗', { description: error.message });
                       return;
@@ -833,10 +836,12 @@ export const ProductTableView = memo(function ProductTableView({
                         .delete()
                         .in('product_id', mergedProductIds);
 
-                      // Also clear readyToPublish flag in local state
-                      mergedProductIds.forEach(pid => {
-                        onUpdateProduct(pid, { readyToPublish: false } as any);
-                      });
+                      // Clear readyToPublish in local state using the rts row ids
+                      variants
+                        .filter(v => v.id !== variantModal.product.id)
+                        .forEach(v => {
+                          onUpdateProduct(v.id, { readyToPublish: false } as any);
+                        });
                     }
 
                     toast.success('變體已儲存', {
@@ -950,6 +955,7 @@ export const ProductTableView = memo(function ProductTableView({
                           }
                           const newVariant: ProductVariant = {
                             id: p.id,
+                            productId: p.productId,
                             size: dims,
                             color: p.color || '',
                             sku,

@@ -15,6 +15,8 @@ export interface DeliveryTerm {
 
 export interface ProductVariant {
   id: string;
+  /** FK to products.id — needed for ready_to_shopify DB operations */
+  productId?: string;
   size: string;
   color: string;
   sku: string;
@@ -80,6 +82,8 @@ export interface Product {
   lifestyleImageUrl?: string | null;
   /** 發佈前檢查通過後，按「進入準備上載」設為 true，準備上載頁只顯示此類產品 */
   readyToPublish?: boolean;
+  /** FK to products.id stored alongside rts.id so variant modal can update the correct row */
+  productId?: string;
 }
 
 export interface AppSettings {

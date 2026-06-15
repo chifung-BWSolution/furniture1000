@@ -432,6 +432,7 @@ export function useAppStore() {
             : [];
         return {
           id: row.id,
+          productId: row.product_id,
           title: row.title || '',
           description: row.body_html || '',
           descriptionHtml: row.body_html || '',
@@ -1071,43 +1072,48 @@ export function useAppStore() {
       console.error('[uploadToMasterDb] Failed to set publishing status in DB:', statusErr.message);
     }
 
-    // Build payload for publish-to-shopify edge function
-    // Field mapping (products → shopify_products / Shopify API):
-    //   title              → title / title
-    //   descriptionHtml    → body_html / body_html
-    //   factoriesDisplayName → vendor / vendor
-    //   collection         → product_type / product_type
-    //   imageUrl           → image_url / images[0]
-    //   images             → images / images (additional)
-    //   tags               → tags / tags
-    //   price / salePrice  → price / variants[].price
-    const payload = selectedProducts.map(p => ({
-      id: p.id,
-      title: p.title,
-      description_html: p.descriptionHtml || p.description || '',
-      tags: p.tags || [],
-      price: p.salePrice ?? p.price ?? 0,
-      compare_at_price: p.compareAtPrice ?? null,
-      collection: p.collection || '',
-      image_url: p.imageUrl || '',
-      // Additional product images (beyond the primary image_url)
-      images: (p as any).images || [],
-      shopify_product_id: p.shopifyProductId || null,
-      variants: (p.variants && p.variants.length > 0) ? p.variants : [],
-      // Shopify vendor = factory display name
-      vendor: p.factoriesDisplayName || p.factoryName || '',
-      // Shopify product_type = collection
-      product_type: p.collection || '',
-      category: p.category || p.collection || '',
-      factory_name: p.factoriesDisplayName || p.factoryName || '',
-      material: p.material || '',
-      dimension_l_mm: p.dimensionLMm ?? null,
-      dimension_w_mm: p.dimensionWMm ?? null,
-      dimension_h_mm: p.dimensionHMm ?? null,
-      cost_price: p.costPrice ?? null,
-      sale_price: p.salePrice ?? 0,
-      delivery_days: p.deliveryDays ?? null,
-    }));
+    // Fetch ready_to_shopify rows for the selected products to get the
+    // finalised title, body_html, price, image_url, images, variants.
+    const { data: rtsRows, error: rtsErr } = await supabase
+      .from('ready_to_shopify')
+      .select('product_id,title,body_html,price,image_url,images,variants')
+      .in('product_id', selectedProductIds_arr);
+    if (rtsErr) {
+      console.warn('[publishToShopify] ready_to_shopify fetch error:', rtsErr.message);
+    }
+    const rtsMap = new Map<string, any>((rtsRows || []).map((r: any) => [r.product_id, r]));
+
+    // Build payload for publish-to-shopify edge function.
+    // Content fields (title, description, price, images, variants) come from
+    // ready_to_shopify; meta fields (vendor, category, dimensions, etc.) come
+    // from the products state.
+    const payload = selectedProducts.map(p => {
+      const rts = rtsMap.get(p.id);
+      return {
+        id: p.id,
+        title: rts?.title || p.title,
+        description_html: rts?.body_html || p.descriptionHtml || p.description || '',
+        tags: p.tags || [],
+        price: rts?.price ?? p.salePrice ?? p.price ?? 0,
+        compare_at_price: p.compareAtPrice ?? null,
+        collection: p.collection || '',
+        image_url: rts?.image_url || p.imageUrl || '',
+        images: (rts?.images && rts.images.length > 0) ? rts.images : ((p as any).images || []),
+        shopify_product_id: p.shopifyProductId || null,
+        variants: (rts?.variants && rts.variants.length > 0) ? rts.variants : ((p.variants && p.variants.length > 0) ? p.variants : []),
+        vendor: p.factoriesDisplayName || p.factoryName || '',
+        product_type: p.collection || '',
+        category: p.category || p.collection || '',
+        factory_name: p.factoriesDisplayName || p.factoryName || '',
+        material: p.material || '',
+        dimension_l_mm: p.dimensionLMm ?? null,
+        dimension_w_mm: p.dimensionWMm ?? null,
+        dimension_h_mm: p.dimensionHMm ?? null,
+        cost_price: p.costPrice ?? null,
+        sale_price: rts?.price ?? p.salePrice ?? 0,
+        delivery_days: p.deliveryDays ?? null,
+      };
+    });
 
     try {
       console.log(`[publishToShopify] Calling publish-to-shopify edge function with ${payload.length} products`);
