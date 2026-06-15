@@ -356,10 +356,10 @@ export function ListedProductsView({
       if (isCatalog) {
         q = q.eq('in_catalog', true);
       } else {
-        q = q.or('in_shopify_queue.is.null,in_shopify_queue.eq.false')
-             .or('info_done.is.null,info_done.eq.false')
-             .or('ready_to_publish.is.null,ready_to_publish.eq.false')
-             .or('copy_done.is.null,copy_done.eq.false')
+        q = q.not('in_shopify_queue', 'is', true)
+             .not('info_done', 'is', true)
+             .not('ready_to_publish', 'is', true)
+             .not('copy_done', 'is', true)
              .is('copy_done_at', null)
              .is('copy_queued_at', null);
       }
