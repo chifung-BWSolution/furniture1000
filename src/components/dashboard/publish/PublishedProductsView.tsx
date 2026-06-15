@@ -143,6 +143,7 @@ export function PublishedProductsView() {
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [detailProduct, setDetailProduct] = useState<DisplayProduct | null>(null);
   const [activeImageIdx, setActiveImageIdx] = useState(0);
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [previewProducts, setPreviewProducts] = useState<ShopifyPreviewProduct[]>([]);
   const [selectedImportIds, setSelectedImportIds] = useState<Set<string>>(new Set());
   const [importSearch, setImportSearch] = useState('');
@@ -627,12 +628,39 @@ export function PublishedProductsView() {
         </div>
       )}
 
+      {/* ── Lightbox ──────────────────────────────────────────────────── */}
+      {lightboxSrc && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4"
+          onClick={() => setLightboxSrc(null)}
+        >
+          <button
+            onClick={() => setLightboxSrc(null)}
+            className="absolute top-4 right-4 rounded-full bg-white/10 p-2 text-white hover:bg-white/20 transition-colors"
+          >
+            <X className="h-5 w-5" />
+          </button>
+          <img
+            src={lightboxSrc}
+            alt=""
+            className="max-h-full max-w-full rounded-lg object-contain shadow-2xl"
+            onClick={e => e.stopPropagation()}
+          />
+        </div>
+      )}
+
       {/* ── Product Detail Dialog ─────────────────────────────────────── */}
       {detailProduct && (() => {
         const r = detailProduct.raw;
-        const imgs: ShopifyImage[] = Array.isArray(r.images) ? r.images : [];
+        // Build full gallery: image_url first, then images[] (deduplicated)
+        const extraImgs: ShopifyImage[] = Array.isArray(r.images) ? r.images : [];
+        const allImgs: ShopifyImage[] = [];
+        if (r.image_url) allImgs.push({ src: r.image_url, alt: r.title || '' });
+        for (const im of extraImgs) {
+          if (im.src && im.src !== r.image_url) allImgs.push(im);
+        }
         const variants: ShopifyVariant[] = Array.isArray(r.variants) ? r.variants : [];
-        const heroImage = imgs[activeImageIdx]?.src || r.image_url || '';
+        const heroImage = allImgs[activeImageIdx]?.src || r.image_url || '';
         return (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setDetailProduct(null)}>
             <div className="relative flex flex-col bg-card border border-border rounded-2xl shadow-2xl w-full max-w-[72rem] max-h-[90vh] overflow-hidden" onClick={e => e.stopPropagation()}>
@@ -655,26 +683,43 @@ export function PublishedProductsView() {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-6">
                   {/* Left: images */}
                   <div className="flex flex-col gap-3">
-                    <div className="aspect-square w-full bg-muted rounded-xl overflow-hidden flex items-center justify-center">
+                    {/* Hero image — click to open lightbox */}
+                    <div
+                      className="aspect-square w-full bg-muted rounded-xl overflow-hidden flex items-center justify-center cursor-zoom-in"
+                      onClick={() => heroImage && setLightboxSrc(heroImage)}
+                    >
                       {heroImage ? (
                         <img src={heroImage} alt={r.title || ''} className="w-full h-full object-cover" />
                       ) : (
                         <Store className="h-12 w-12 text-muted-foreground/40" />
                       )}
                     </div>
-                    {imgs.length > 1 && (
+                    {/* Thumbnail strip — shown whenever there are any images */}
+                    {allImgs.length > 0 && (
                       <div className="flex flex-wrap gap-2">
-                        {imgs.map((im, idx) => (
+                        {allImgs.map((im, idx) => (
                           <button
                             key={im.id ?? idx}
                             onClick={() => setActiveImageIdx(idx)}
-                            className={cn('h-14 w-14 rounded-md overflow-hidden border-2 transition-colors',
-                              idx === activeImageIdx ? 'border-primary' : 'border-transparent hover:border-border')}
+                            className={cn(
+                              'h-16 w-16 rounded-md overflow-hidden border-2 transition-colors flex-shrink-0',
+                              idx === activeImageIdx ? 'border-primary' : 'border-transparent hover:border-border'
+                            )}
+                            title={`圖片 ${idx + 1} — 點擊查看`}
                           >
-                            {im.src ? <img src={im.src} alt="" className="w-full h-full object-cover" /> : null}
+                            {im.src ? (
+                              <img src={im.src} alt="" className="w-full h-full object-cover" />
+                            ) : (
+                              <div className="w-full h-full bg-muted" />
+                            )}
                           </button>
                         ))}
                       </div>
+                    )}
+                    {allImgs.length > 1 && (
+                      <p className="text-[10.5px] text-muted-foreground">
+                        共 {allImgs.length} 張圖片 · 點擊主圖放大
+                      </p>
                     )}
                   </div>
 
