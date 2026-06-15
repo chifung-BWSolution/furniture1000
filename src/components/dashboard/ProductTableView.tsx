@@ -292,6 +292,7 @@ interface ProductTableViewProps {
   isSyncing?: boolean;
   isPublishing?: boolean;
   lastSyncTime?: string | null;
+  readyToPublishMode?: boolean;
 }
 
 type TableTab = 'local' | 'shopify' | 'all';
@@ -314,6 +315,7 @@ export const ProductTableView = memo(function ProductTableView({
   isSyncing,
   isPublishing,
   lastSyncTime,
+  readyToPublishMode = false,
 }: ProductTableViewProps) {
   const [editingCell, setEditingCell] = useState<{ id: string; field: string } | null>(null);
   const [editValue, setEditValue] = useState('');
@@ -328,7 +330,7 @@ export const ProductTableView = memo(function ProductTableView({
   const [pickerFactoryFilter, setPickerFactoryFilter] = useState('');
   const [pickerPage, setPickerPage] = useState(0);
   const PICKER_PAGE_SIZE = 10;
-  const [activeTab, setActiveTab] = useState<TableTab>('local');
+  const [activeTab, setActiveTab] = useState<TableTab>(readyToPublishMode ? 'all' : 'local');
   const [showBatchDeleteModal, setShowBatchDeleteModal] = useState(false);
   const [detailProduct, setDetailProduct] = useState<Product | null>(null);
   const [currentPage, setCurrentPage] = useState(0);

@@ -274,6 +274,7 @@ export function AppShell() {
             isSyncing={store.isSyncing}
             isPublishing={store.isPublishing}
             lastSyncTime={store.lastSyncTime}
+            readyToPublishMode={true}
           />
         );
       case "listed-products":
