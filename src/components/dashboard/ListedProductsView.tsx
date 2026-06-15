@@ -116,6 +116,7 @@ interface ListedProduct {
   dimensionWMm?: number | null;
   dimensionHMm?: number | null;
   productSku?: string | null;
+  isOnShopify?: boolean;
 }
 
 interface ListedProductsViewProps {
