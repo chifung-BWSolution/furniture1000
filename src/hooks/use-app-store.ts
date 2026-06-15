@@ -388,17 +388,19 @@ export function useAppStore() {
 
   // Reload products from Supabase (used after publish/sync)
   // 準備上載 = all rows in ready_to_shopify table (self-contained product data, no product_id FK).
-  // Stores results in dedicated readyToPublishList so main loadProducts() can never clobber them.
+  // Strategy: fetch lightweight columns first (no image_url/images — they are base64 and can be
+  // 500 KB+ each, causing the response to exceed limits for 200+ rows). Then patch images in
+  // small batches of 20 in the background so the list renders immediately.
   const reloadReadyToPublish = useCallback(async () => {
     try {
-      // Paginate through all ready_to_shopify rows (max 1000 per request)
-      const PAGE = 1000;
+      // ── Step 1: lightweight fetch (no image data) ──────────────────────────
+      const PAGE = 200;
       let allRows: any[] = [];
       let from = 0;
       while (true) {
         const { data, error } = await supabase
           .from('ready_to_shopify')
-          .select('id,title,body_html,vendor,product_type,image_url,images,variants,tags,price,compare_at_price,shopify_product_id,status')
+          .select('id,title,body_html,vendor,product_type,variants,tags,price,compare_at_price,shopify_product_id,status')
           .range(from, from + PAGE - 1);
         if (error) {
           console.warn('[reloadReadyToPublish] query error:', error.message);
@@ -415,18 +417,7 @@ export function useAppStore() {
         return;
       }
 
-      // Convert ready_to_shopify rows directly to Product objects
-      const loaded: Product[] = allRows.map((row: any) => {
-        const primarySrc: string = row.image_url || '';
-        const allImages: { src: string; alt: string }[] = [];
-        if (primarySrc) allImages.push({ src: primarySrc, alt: row.title || '' });
-        if (Array.isArray(row.images)) {
-          for (const img of row.images) {
-            const src: string = img?.src || img?.url || (typeof img === 'string' ? img : '');
-            if (src && src !== primarySrc) allImages.push({ src, alt: img?.alt || '' });
-          }
-        }
-
+      const rowToProduct = (row: any, imageUrl = ''): Product => {
         const variants: ProductVariant[] = Array.isArray(row.variants) && row.variants.length > 0
           ? row.variants.map((v: any) => ({
               id: String(v.id ?? Math.random().toString(36).slice(2)),
@@ -437,13 +428,11 @@ export function useAppStore() {
               inventory: v.inventory_quantity ?? 0,
             }))
           : [];
-
         const tags: string[] = Array.isArray(row.tags)
           ? row.tags
           : typeof row.tags === 'string' && row.tags
             ? row.tags.split(',').map((t: string) => t.trim()).filter(Boolean)
             : [];
-
         return {
           id: row.id,
           title: row.title || '',
@@ -454,19 +443,50 @@ export function useAppStore() {
           compareAtPrice: row.compare_at_price != null ? parseFloat(row.compare_at_price) : undefined,
           collection: row.product_type || '',
           status: 'draft' as ProductStatus,
-          imageUrl: primarySrc,
+          imageUrl,
           shopifyProductId: row.shopify_product_id || null,
           factoriesDisplayName: row.vendor || '',
           createdAt: new Date().toISOString(),
           source: 'local' as ProductSource,
           variants,
           readyToPublish: true,
-          images: allImages.length > 0 ? allImages : undefined,
-        } as Product & { images?: { src: string; alt: string }[] };
-      });
+        } as Product;
+      };
 
+      // Render list immediately with no images so user sees products right away
+      const loaded = allRows.map(row => rowToProduct(row));
       setReadyToPublishList(loaded);
-      console.log(`[reloadReadyToPublish] Loaded ${loaded.length} products from ready_to_shopify`);
+      console.log(`[reloadReadyToPublish] Loaded ${loaded.length} products (images pending)`);
+
+      // ── Step 2: patch images in background batches of 20 ──────────────────
+      const IMG_BATCH = 20;
+      for (let i = 0; i < allRows.length; i += IMG_BATCH) {
+        const batchIds = allRows.slice(i, i + IMG_BATCH).map((r: any) => r.id);
+        const { data: imgRows } = await supabase
+          .from('ready_to_shopify')
+          .select('id,image_url,images')
+          .in('id', batchIds);
+        if (!imgRows || imgRows.length === 0) continue;
+        const imgMap: Record<string, { image_url: string; images: any[] }> = {};
+        imgRows.forEach((r: any) => { imgMap[r.id] = r; });
+        setReadyToPublishList(prev =>
+          prev.map(p => {
+            const img = imgMap[p.id];
+            if (!img) return p;
+            const primarySrc: string = img.image_url || '';
+            const allImages: { src: string; alt: string }[] = [];
+            if (primarySrc) allImages.push({ src: primarySrc, alt: p.title });
+            if (Array.isArray(img.images)) {
+              for (const im of img.images) {
+                const src: string = im?.src || im?.url || (typeof im === 'string' ? im : '');
+                if (src && src !== primarySrc) allImages.push({ src, alt: im?.alt || '' });
+              }
+            }
+            return { ...p, imageUrl: primarySrc, images: allImages.length > 0 ? allImages : undefined } as any;
+          })
+        );
+      }
+      console.log(`[reloadReadyToPublish] Images patched for all ${allRows.length} products`);
     } catch (err) {
       console.warn('[Supabase] Reload ready-to-publish error:', err);
     }
