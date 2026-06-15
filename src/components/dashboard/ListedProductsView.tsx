@@ -491,6 +491,7 @@ export function ListedProductsView({
           .not('info_done', 'is', true)
           .not('ready_to_publish', 'is', true)
           .not('copy_done', 'is', true)
+          .not('in_catalog', 'is', true)
           .is('copy_done_at', null)
           .is('copy_queued_at', null);
       }
