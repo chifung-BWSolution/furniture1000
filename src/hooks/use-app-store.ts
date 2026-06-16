@@ -478,7 +478,7 @@ export function useAppStore() {
       for (let i = 0; i < productIds.length; i += PROD_BATCH) {
         const { data: pRows } = await supabase
           .from('products')
-          .select('id,sku,cost_price,sale_price,dimension_l_mm,dimension_w_mm,dimension_h_mm,tags,category,material,factory_id,bwf_master_id,production_date,shipping_days,shipping_fee,remarks')
+          .select('id,sku,cost_price,sale_price,dimension_l_mm,dimension_w_mm,dimension_h_mm,tags,category,level1_category,level2_category,material,factory_id,bwf_master_id,production_date,shipping_days,shipping_fee,remarks,in_stock,customize')
           .in('id', productIds.slice(i, i + PROD_BATCH));
         (pRows || []).forEach((p: any) => { productMap[p.id] = p; });
       }
@@ -507,6 +507,8 @@ export function useAppStore() {
             dimensionWMm: extra.dimension_w_mm ?? p.dimensionWMm,
             dimensionHMm: extra.dimension_h_mm ?? p.dimensionHMm,
             category: extra.category || p.category,
+            level1Category: extra.level1_category || (p as any).level1Category || null,
+            level2Category: extra.level2_category || (p as any).level2Category || null,
             material: extra.material || p.material,
             factoryId: extra.factory_id || p.factoryId,
             bwfMasterId: extra.bwf_master_id || p.bwfMasterId,
@@ -514,6 +516,8 @@ export function useAppStore() {
             shippingDays: extra.shipping_days ?? p.shippingDays,
             shippingFee: extra.shipping_fee ?? p.shippingFee,
             remarks: extra.remarks ?? p.remarks,
+            inStock: extra.in_stock != null ? Boolean(extra.in_stock) : (p as any).inStock ?? null,
+            customize: extra.customize ?? (p as any).customize ?? null,
           };
         })
       );
