@@ -1360,26 +1360,33 @@ export function useAppStore() {
       .update({ status: 'publishing' })
       .eq('id', id);
 
+    // Fetch the ready_to_shopify row for this product to get finalised content
+    const { data: rtsRetryRows } = await supabase
+      .from('ready_to_shopify')
+      .select('product_id,title,body_html,price,image_url,images,variants,product_type,tags')
+      .eq('product_id', id)
+      .maybeSingle();
+    const rts = rtsRetryRows as any;
+    const rtsTags: string[] = Array.isArray(rts?.tags) ? rts.tags : (typeof rts?.tags === 'string' && rts?.tags ? rts.tags.split(',').map((t: string) => t.trim()).filter(Boolean) : []);
+    const productTags: string[] = Array.isArray(product.tags) ? product.tags : [];
+    const mergedTags = Array.from(new Set([...productTags, ...rtsTags]));
+
     const payload = [{
       id: product.id,
-      title: product.title,
-      description_html: product.descriptionHtml || product.description || '',
-      tags: product.tags || [],
-      price: product.price ?? 0,
+      title: rts?.title || product.title,
+      description_html: rts?.body_html || product.descriptionHtml || product.description || '',
+      tags: mergedTags,
+      price: rts?.price ?? product.salePrice ?? product.price ?? 0,
       compare_at_price: product.compareAtPrice ?? null,
-      collection: product.collection || '',
-      image_url: product.imageUrl || '',
+      image_url: rts?.image_url || product.imageUrl || '',
+      images: (rts?.images && rts.images.length > 0) ? rts.images : ((product as any).images || []),
       shopify_product_id: product.shopifyProductId || null,
-      variants: [],
-      category: product.category || product.collection || '',
-      factory_name: product.factoryName || product.factoriesDisplayName || '',
-      material: product.material || '',
-      dimension_l_mm: product.dimensionLMm ?? null,
-      dimension_w_mm: product.dimensionWMm ?? null,
-      dimension_h_mm: product.dimensionHMm ?? null,
+      variants: (rts?.variants && rts.variants.length > 0) ? rts.variants : [],
+      vendor: product.factoriesDisplayName || product.factoryName || '',
+      product_type: rts?.product_type || '',
+      factory_name: product.factoriesDisplayName || product.factoryName || '',
       cost_price: product.costPrice ?? null,
-      sale_price: product.salePrice ?? 0,
-      delivery_days: product.deliveryDays ?? null,
+      sale_price: rts?.price ?? product.salePrice ?? 0,
     }];
 
     try {
