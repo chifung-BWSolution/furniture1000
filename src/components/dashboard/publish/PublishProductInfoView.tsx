@@ -76,7 +76,7 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
 
   const { rows, totalCount, isLoading, Toolbar, Pagination } = usePublishList({
     select: 'id,title,image_url,price,sale_price,cost_price,sku,tags,dimension_l_mm,dimension_w_mm,dimension_h_mm,level1_category,level2_category,in_stock,customize,model,factories_display_name',
-    applyBaseFilters: (q) => q.eq('in_shopify_queue', true).eq('info_done', false),
+    applyBaseFilters: (q) => q.eq('in_shopify_queue', true).eq('info_done', false).eq('copy_done', true),
     reloadKey,
   });
 
