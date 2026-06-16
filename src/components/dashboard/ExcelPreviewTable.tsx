@@ -375,24 +375,28 @@ function ImageOverrideModal({ isOpen, onClose, currentImage, onConfirm, mode }: 
     const reader = new FileReader();
     reader.onload = (ev) => {
       const rawDataUrl = ev.target?.result as string;
-      // Resize to max 1200px at high quality — preserves clarity for display
-      // while keeping the data URI well under the 2MB Supabase payload limit
-      const MAX_DISPLAY_DIM = 1200;
+      // Always produce a 1200×1200 square canvas with white background.
+      // The original image is scaled to fit inside the square (letterboxed),
+      // ensuring the output is always exactly 1200×1200 px at high quality.
+      const TARGET_DIM = 1200;
       const DISPLAY_QUALITY = 0.92;
       const img = new Image();
       img.onload = () => {
-        let { width, height } = img;
-        if (width > MAX_DISPLAY_DIM || height > MAX_DISPLAY_DIM) {
-          const ratio = Math.min(MAX_DISPLAY_DIM / width, MAX_DISPLAY_DIM / height);
-          width = Math.round(width * ratio);
-          height = Math.round(height * ratio);
-        }
         const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
+        canvas.width = TARGET_DIM;
+        canvas.height = TARGET_DIM;
         const ctx = canvas.getContext('2d');
         if (ctx) {
-          ctx.drawImage(img, 0, 0, width, height);
+          // White background
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, TARGET_DIM, TARGET_DIM);
+          // Scale image to fit inside 1200×1200, preserving aspect ratio
+          const ratio = Math.min(TARGET_DIM / img.width, TARGET_DIM / img.height);
+          const drawW = Math.round(img.width * ratio);
+          const drawH = Math.round(img.height * ratio);
+          const offsetX = Math.round((TARGET_DIM - drawW) / 2);
+          const offsetY = Math.round((TARGET_DIM - drawH) / 2);
+          ctx.drawImage(img, offsetX, offsetY, drawW, drawH);
           const resized = canvas.toDataURL('image/jpeg', DISPLAY_QUALITY);
           setPreviewImage(resized);
         } else {
