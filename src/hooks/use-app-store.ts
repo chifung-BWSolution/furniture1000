@@ -1015,16 +1015,21 @@ export function useAppStore() {
       return;
     }
 
-    const selectedProductIds_arr = selectedProducts.map(p => p.id);
+    // For readyToPublishList products p.id = RTS row UUID and p.productId = products.id.
+    // For products list products p.id = products.id directly.
+    // Use productId when available so all downstream queries hit the products table correctly.
+    const selectedProductIds_arr = selectedProducts.map(p => (p as any).productId || p.id);
 
-    // Save products to local DB first to ensure consistency
+    // Save products to local DB first to ensure consistency.
+    // RTS products have productId != id — skip them here; they're already in the products table.
+    const productsToSave = selectedProducts.filter(p => !(p as any).productId);
     try {
-      await saveProductsToDb(selectedProducts);
-      console.log('[uploadToMasterDb] Pre-upload save successful for', selectedProducts.length, 'products');
+      if (productsToSave.length > 0) await saveProductsToDb(productsToSave);
+      console.log('[uploadToMasterDb] Pre-upload save successful for', productsToSave.length, 'products');
     } catch (saveErr) {
       console.error('[uploadToMasterDb] Pre-upload save failed:', saveErr);
       // Try individual upserts as fallback
-      for (const p of selectedProducts) {
+      for (const p of productsToSave) {
         try {
           await supabase.from('products').upsert({
             id: p.id,
@@ -1092,20 +1097,36 @@ export function useAppStore() {
     // ready_to_shopify; meta fields (vendor, category, dimensions, etc.) come
     // from the products state.
     const payload = selectedProducts.map(p => {
-      const rts = rtsMap.get(p.id);
+      // productId is the products table UUID; for readyToPublishList p.id is the RTS UUID
+      const productId = (p as any).productId || p.id;
+      const rts = rtsMap.get(productId);
       // Merge tags from both tables, deduplicated
       const rtsTags: string[] = Array.isArray(rts?.tags) ? rts.tags : (typeof rts?.tags === 'string' && rts.tags ? rts.tags.split(',').map((t: string) => t.trim()).filter(Boolean) : []);
       const productTags: string[] = Array.isArray(p.tags) ? p.tags : [];
       const mergedTags = Array.from(new Set([...productTags, ...rtsTags]));
+      // Build additional images list from RTS (exclude primary to avoid duplicate)
+      const primaryUrl: string = rts?.image_url || p.imageUrl || '';
+      const additionalImages: { src: string }[] = [];
+      if (Array.isArray(rts?.images)) {
+        for (const im of rts.images) {
+          const src: string = im?.src || im?.url || (typeof im === 'string' ? im : '');
+          if (src && src !== primaryUrl) additionalImages.push({ src });
+        }
+      } else if (Array.isArray((p as any).images)) {
+        for (const im of (p as any).images) {
+          const src: string = im?.src || im?.url || (typeof im === 'string' ? im : '');
+          if (src && src !== primaryUrl) additionalImages.push({ src });
+        }
+      }
       return {
-        id: p.id,
+        id: productId,
         title: rts?.title || p.title,
         description_html: rts?.body_html || p.descriptionHtml || p.description || '',
         tags: mergedTags,
         price: rts?.price ?? p.salePrice ?? p.price ?? 0,
         compare_at_price: p.compareAtPrice ?? null,
-        image_url: rts?.image_url || p.imageUrl || '',
-        images: (rts?.images && rts.images.length > 0) ? rts.images : ((p as any).images || []),
+        image_url: primaryUrl,
+        images: additionalImages,
         shopify_product_id: p.shopifyProductId || null,
         variants: (rts?.variants && rts.variants.length > 0) ? rts.variants : ((p.variants && p.variants.length > 0) ? p.variants : []),
         vendor: p.factoriesDisplayName || p.factoryName || '',
