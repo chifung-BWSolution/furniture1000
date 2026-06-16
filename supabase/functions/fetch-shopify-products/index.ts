@@ -14,11 +14,48 @@ function json(body: unknown, status = 200) {
   });
 }
 
+/** Fetch all metafields for a single product via REST API (handles pagination) */
+async function fetchProductMetafields(
+  shopDomain: string,
+  shopifyToken: string,
+  productId: string
+): Promise<Record<string, unknown>[]> {
+  const metafields: Record<string, unknown>[] = [];
+  let pageInfo: string | null = null;
+
+  do {
+    let url = `https://${shopDomain}/admin/api/2024-01/products/${productId}/metafields.json?limit=250`;
+    if (pageInfo) url += `&page_info=${pageInfo}`;
+
+    const resp = await fetch(url, {
+      headers: {
+        "X-Shopify-Access-Token": shopifyToken,
+        "Content-Type": "application/json",
+      },
+    });
+
+    if (!resp.ok) {
+      console.error(`[fetch-shopify-products] Metafields error for product ${productId}: ${resp.status}`);
+      break;
+    }
+
+    const data = await resp.json();
+    metafields.push(...(data.metafields ?? []));
+
+    const linkHeader = resp.headers.get("Link") ?? "";
+    const nextMatch = linkHeader.match(/<[^>]*[?&]page_info=([^>&"]+)[^>]*>;\s*rel="next"/);
+    pageInfo = nextMatch ? nextMatch[1] : null;
+  } while (pageInfo);
+
+  return metafields;
+}
+
 /**
  * fetch-shopify-products
  *
  * Mode 1 (preview): POST {} — fetch all products from Shopify, return list (no DB write)
  * Mode 2 (import):  POST { import: true, product_ids: string[] } — save selected products to shopify_products table
+ *                   Includes all metafields for each imported product.
  */
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -58,7 +95,7 @@ Deno.serve(async (req: Request) => {
 
     do {
       page++;
-      let url = `https://${shopDomain}/admin/api/2024-01/products.json?limit=250&status=any&fields=id,title,body_html,vendor,product_type,handle,status,published_at,images,variants,tags,created_at,updated_at`;
+      let url = `https://${shopDomain}/admin/api/2024-01/products.json?limit=250&status=any&fields=id,title,body_html,vendor,product_type,handle,status,published_at,images,variants,tags,options,created_at,updated_at`;
       if (pageInfo) url += `&page_info=${pageInfo}`;
 
       const resp = await fetch(url, {
@@ -118,6 +155,28 @@ Deno.serve(async (req: Request) => {
       return json({ error: "No matching products found to import" }, 400);
     }
 
+    // Fetch metafields for each product to import (concurrency limited to 5 at a time)
+    console.log(`[fetch-shopify-products] Fetching metafields for ${toImport.length} products...`);
+    const metafieldsMap = new Map<string, Record<string, unknown>[]>();
+
+    const CONCURRENCY = 5;
+    for (let i = 0; i < toImport.length; i += CONCURRENCY) {
+      const batch = toImport.slice(i, i + CONCURRENCY);
+      const results = await Promise.all(
+        batch.map(async (p) => {
+          const pid = String(p.id);
+          const mfs = await fetchProductMetafields(shopDomain, shopifyToken, pid);
+          return { pid, mfs };
+        })
+      );
+      for (const { pid, mfs } of results) {
+        metafieldsMap.set(pid, mfs);
+        if (mfs.length > 0) {
+          console.log(`[fetch-shopify-products] Product ${pid}: ${mfs.length} metafields`);
+        }
+      }
+    }
+
     const rows = toImport.map((p: Record<string, unknown>) => {
       const variants = (p.variants as any[]) ?? [];
       const minPrice = variants.length
@@ -130,9 +189,11 @@ Deno.serve(async (req: Request) => {
       const tags = typeof p.tags === "string"
         ? (p.tags as string).split(",").map((t: string) => t.trim()).filter(Boolean)
         : [];
+      const pid = String(p.id);
+      const metafields = metafieldsMap.get(pid) ?? [];
 
       return {
-        shopify_product_id: String(p.id),
+        shopify_product_id: pid,
         title: (p.title as string) ?? "Untitled",
         body_html: (p.body_html as string) ?? null,
         vendor: (p.vendor as string) ?? null,
@@ -143,6 +204,7 @@ Deno.serve(async (req: Request) => {
         image_url: img,
         images: p.images ?? [],
         variants: variants,
+        options: p.options ?? [],
         tags,
         price: minPrice || null,
         compare_at_price: compareAt || null,
@@ -150,6 +212,7 @@ Deno.serve(async (req: Request) => {
         shopify_updated_at: p.updated_at ? new Date(p.updated_at as string).toISOString() : null,
         imported_at: new Date().toISOString(),
         shop_domain: shopDomain,
+        metafields: metafields.length > 0 ? metafields : null,
       };
     });
 
@@ -168,11 +231,14 @@ Deno.serve(async (req: Request) => {
       }
     }
 
+    const totalMetafields = [...metafieldsMap.values()].reduce((sum, mfs) => sum + mfs.length, 0);
+
     return json({
       success: true,
-      message: `已導入 ${imported} 件產品至 shopify_products`,
+      message: `已導入 ${imported} 件產品至 shopify_products（共 ${totalMetafields} 個 metafield）`,
       imported,
       total_selected: toImport.length,
+      total_metafields: totalMetafields,
       shop_domain: shopDomain,
     });
 
