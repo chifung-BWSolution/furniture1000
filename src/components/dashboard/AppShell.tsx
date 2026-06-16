@@ -250,23 +250,43 @@ export function AppShell() {
             onSyncFromShopify={store.syncFromShopify}
             onUploadUnsyncedToMaster={store.publishSelected}
             onRevertToInfo={async (ids, reasons) => {
+              // ids = ready_to_shopify.id (RTS row IDs — that is what ProductTableView stores)
               const { supabase: sb } = await import('@/lib/supabase');
               const { toast } = await import('sonner');
               const revertReason = (reasons.labels.length > 0 || reasons.other)
                 ? { labels: reasons.labels, other: reasons.other || null }
                 : null;
-              const { error } = await sb.from('products').update({
+
+              // Step 1: resolve the real products.id values from the RTS rows
+              const { data: rtsRows, error: fetchErr } = await sb
+                .from('ready_to_shopify')
+                .select('id, product_id')
+                .in('id', ids);
+              if (fetchErr || !rtsRows || rtsRows.length === 0) {
+                toast.error('退回失敗', { description: fetchErr?.message ?? '找不到對應的 ready_to_shopify 記錄' });
+                return;
+              }
+              const productIds = rtsRows.map((r: any) => r.product_id).filter(Boolean) as string[];
+              if (productIds.length === 0) {
+                toast.error('退回失敗', { description: '找不到對應的產品記錄' });
+                return;
+              }
+
+              // Step 2: reset products flags so they reappear in 產品文案
+              const { error: updateErr } = await sb.from('products').update({
                 ready_to_publish: false,
                 info_done: false,
                 copy_done: false,
                 revert_reason: revertReason,
-              }).in('id', ids);
-              if (error) {
-                toast.error('退回失敗', { description: error.message });
+              }).in('id', productIds);
+              if (updateErr) {
+                toast.error('退回失敗', { description: updateErr.message });
                 return;
               }
-              // Remove from ready_to_shopify so they no longer appear in 準備上載
-              await sb.from('ready_to_shopify').delete().in('product_id', ids);
+
+              // Step 3: remove from ready_to_shopify using the RTS row ids
+              await sb.from('ready_to_shopify').delete().in('id', ids);
+
               store.reloadReadyToPublish();
               toast.success(`已退回 ${ids.length} 件產品至「產品文案」`, {
                 description: revertReason?.labels.length ? `原因：${revertReason.labels.join('、')}` : undefined,
