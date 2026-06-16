@@ -189,6 +189,28 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
     setDragSrc(null);
   }, [dragSrc, primaryImg, extraImgs]);
 
+  // Upload a single base64 image to Supabase Storage, return public URL
+  const uploadBase64Image = async (base64: string, productId: string, suffix: string): Promise<string> => {
+    if (!base64.startsWith('data:') && !base64.match(/^[A-Za-z0-9+/]{100}/)) return base64;
+    // Already an HTTP URL — skip upload
+    if (base64.startsWith('http://') || base64.startsWith('https://')) return base64;
+    const mimeMatch = base64.match(/^data:(image\/[a-zA-Z+]+);base64,/);
+    const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+    const ext = mimeType.split('/')[1]?.replace('jpeg', 'jpg') || 'jpg';
+    const base64Data = base64.includes(',') ? base64.split(',')[1] : base64;
+    const fileName = `${productId}_${suffix}_${Date.now()}.${ext}`;
+    const filePath = `products/${fileName}`;
+    const binaryStr = atob(base64Data);
+    const bytes = new Uint8Array(binaryStr.length);
+    for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+    const { error } = await supabase.storage
+      .from('product-images')
+      .upload(filePath, bytes, { contentType: mimeType, upsert: true });
+    if (error) { console.warn('[upload] storage error:', error.message); return base64; }
+    const { data } = supabase.storage.from('product-images').getPublicUrl(filePath);
+    return data.publicUrl || base64;
+  };
+
   // Submit — save edits + set copy_done=true → moves product to 產品信息
   const handleSubmit = async () => {
     if (!activeId) return;
@@ -196,6 +218,25 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
     if (!item) return;
     setIsSubmitting(true);
     try {
+      // 0. Pre-upload any base64 images to Storage so publish-to-shopify gets HTTP URLs
+      let resolvedPrimary = primaryImg;
+      let resolvedExtras = [...extraImgs];
+      const isBase64 = (s: string) => s && !s.startsWith('http') && s.length > 100;
+      if (isBase64(primaryImg)) {
+        toast.loading('上傳主圖至儲存空間...', { id: 'img-upload' });
+        resolvedPrimary = await uploadBase64Image(primaryImg, activeId, 'primary');
+      }
+      const base64Extras = resolvedExtras.filter(isBase64);
+      if (base64Extras.length > 0) {
+        toast.loading(`上傳 ${base64Extras.length} 張額外圖片...`, { id: 'img-upload' });
+        resolvedExtras = await Promise.all(
+          resolvedExtras.map((src, idx) =>
+            isBase64(src) ? uploadBase64Image(src, activeId, `extra${idx}`) : Promise.resolve(src)
+          )
+        );
+      }
+      toast.dismiss('img-upload');
+
       // 1. Update products table
       const { error } = await supabase
         .from('products')
@@ -213,8 +254,8 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
       }
 
       // 2. Upsert ALL fields into ready_to_shopify
-      // image_url = primary image, images = extra images array
-      const imagesJson = extraImgs.map((src, idx) => ({ src, position: idx + 1 }));
+      // image_url = primary image (HTTP URL), images = extra images array (HTTP URLs)
+      const imagesJson = resolvedExtras.map((src, idx) => ({ src, position: idx + 1 }));
       const { error: rtsError } = await supabase
         .from('ready_to_shopify')
         .upsert({
@@ -225,8 +266,8 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
           product_type: [item.level1, item.level2].filter(Boolean).join(' / ') || null,
           handle: handle || slugify(name),
           status: 'draft',
-          // Primary image → image_url
-          image_url: primaryImg || null,
+          // Primary image → image_url (resolved HTTP URL after storage upload)
+          image_url: resolvedPrimary || null,
           // Additional images → images (jsonb)
           images: imagesJson.length > 0 ? imagesJson : null,
           tags: item.tags.length > 0 ? item.tags : null,
