@@ -481,24 +481,38 @@ Deno.serve(async (req: Request) => {
           ],
         };
 
-        // Build images array: primary image_url first, then additional images
+        // Build images array: primary image_url first, then additional images.
+        // Each image (HTTP URL or base64) is resolved through resolveImageUrl so
+        // base64 blobs are uploaded to Supabase Storage before being sent to Shopify.
         const allImages: { src: string }[] = [];
         if (resolvedImageUrl) {
           allImages.push({ src: resolvedImageUrl });
           console.log(`[publish-to-shopify] ✅ Primary image: ${resolvedImageUrl.substring(0, 80)}...`);
         }
-        // Add additional images (skip duplicates of primary)
-        if (Array.isArray(product.images)) {
-          for (const img of product.images) {
-            const imgSrc = img?.src || img?.url || (typeof img === "string" ? img : null);
-            if (imgSrc && typeof imgSrc === "string" && imgSrc.startsWith("http") && imgSrc !== resolvedImageUrl) {
-              allImages.push({ src: imgSrc });
-              console.log(`[publish-to-shopify] ✅ Additional image: ${imgSrc.substring(0, 80)}...`);
+        // Add additional images — resolve each one (handles both HTTP URLs and base64)
+        if (Array.isArray(product.images) && product.images.length > 0) {
+          console.log(`[publish-to-shopify] 🖼️ Resolving ${product.images.length} additional image(s) for "${product.title}"`);
+          for (let imgIdx = 0; imgIdx < product.images.length; imgIdx++) {
+            const img = product.images[imgIdx];
+            const rawSrc: string = img?.src || img?.url || (typeof img === "string" ? img : "");
+            if (!rawSrc) continue;
+            // Skip if it's identical to the already-resolved primary
+            if (rawSrc === resolvedImageUrl || rawSrc === product.image_url) continue;
+            const imgResult = await resolveImageUrl(supabase, supabaseUrl, `${product.id}_img${imgIdx}`, rawSrc);
+            if (imgResult.url) {
+              // Avoid duplicates
+              if (!allImages.some(a => a.src === imgResult.url)) {
+                allImages.push({ src: imgResult.url });
+                console.log(`[publish-to-shopify] ✅ Additional image [${imgIdx}]: ${imgResult.url.substring(0, 80)}...`);
+              }
+            } else if (imgResult.warning) {
+              console.warn(`[publish-to-shopify] ⚠️ Additional image [${imgIdx}] skipped: ${imgResult.warning}`);
             }
           }
         }
         if (allImages.length > 0) {
           shopifyProduct.images = allImages;
+          console.log(`[publish-to-shopify] 📸 Total images for "${product.title}": ${allImages.length}`);
         } else {
           console.log(`[publish-to-shopify] ℹ️ Publishing "${product.title}" WITHOUT images`);
         }
