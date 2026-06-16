@@ -1076,7 +1076,7 @@ export function useAppStore() {
     // finalised title, body_html, price, image_url, images, variants.
     const { data: rtsRows, error: rtsErr } = await supabase
       .from('ready_to_shopify')
-      .select('product_id,title,body_html,price,image_url,images,variants')
+      .select('product_id,title,body_html,price,image_url,images,variants,product_type,tags')
       .in('product_id', selectedProductIds_arr);
     if (rtsErr) {
       console.warn('[publishToShopify] ready_to_shopify fetch error:', rtsErr.message);
@@ -1089,29 +1089,26 @@ export function useAppStore() {
     // from the products state.
     const payload = selectedProducts.map(p => {
       const rts = rtsMap.get(p.id);
+      // Merge tags from both tables, deduplicated
+      const rtsTags: string[] = Array.isArray(rts?.tags) ? rts.tags : (typeof rts?.tags === 'string' && rts.tags ? rts.tags.split(',').map((t: string) => t.trim()).filter(Boolean) : []);
+      const productTags: string[] = Array.isArray(p.tags) ? p.tags : [];
+      const mergedTags = Array.from(new Set([...productTags, ...rtsTags]));
       return {
         id: p.id,
         title: rts?.title || p.title,
         description_html: rts?.body_html || p.descriptionHtml || p.description || '',
-        tags: p.tags || [],
+        tags: mergedTags,
         price: rts?.price ?? p.salePrice ?? p.price ?? 0,
         compare_at_price: p.compareAtPrice ?? null,
-        collection: p.collection || '',
         image_url: rts?.image_url || p.imageUrl || '',
         images: (rts?.images && rts.images.length > 0) ? rts.images : ((p as any).images || []),
         shopify_product_id: p.shopifyProductId || null,
         variants: (rts?.variants && rts.variants.length > 0) ? rts.variants : ((p.variants && p.variants.length > 0) ? p.variants : []),
         vendor: p.factoriesDisplayName || p.factoryName || '',
-        product_type: p.collection || '',
-        category: p.category || p.collection || '',
+        product_type: rts?.product_type || '',
         factory_name: p.factoriesDisplayName || p.factoryName || '',
-        material: p.material || '',
-        dimension_l_mm: p.dimensionLMm ?? null,
-        dimension_w_mm: p.dimensionWMm ?? null,
-        dimension_h_mm: p.dimensionHMm ?? null,
         cost_price: p.costPrice ?? null,
         sale_price: rts?.price ?? p.salePrice ?? 0,
-        delivery_days: p.deliveryDays ?? null,
       };
     });
 

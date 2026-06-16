@@ -20,7 +20,6 @@ interface ProductPayload {
   tags: string[];
   price: number;
   compare_at_price?: number | null;
-  collection: string;
   image_url: string;
   // Additional images beyond the primary image_url
   images?: { src?: string; url?: string }[];
@@ -28,25 +27,20 @@ interface ProductPayload {
   variants: {
     id: string;
     size: string;
-    color: string;
     sku: string;
     price: number;
     compare_at_price?: number | null;
     inventory: number;
+    option1?: string;
+    title?: string;
   }[];
   // Shopify vendor = factory display name
   vendor?: string;
-  // Shopify product_type = collection / category
+  // product_type from ready_to_shopify
   product_type?: string;
-  category?: string;
   factory_name?: string;
-  material?: string;
-  dimension_l_mm?: number | null;
-  dimension_w_mm?: number | null;
-  dimension_h_mm?: number | null;
   cost_price?: number | null;
   sale_price?: number | null;
-  delivery_days?: number | null;
 }
 
 // ─── Image Validation & Upload Helpers ──────────────────────────────────────
@@ -405,8 +399,7 @@ Deno.serve(async (req: Request) => {
           productVariants = [
             {
               id: "default",
-              size: "Default",
-              color: "Default",
+              size: "",
               sku: "",
               price: product.price || 0,
               compare_at_price: product.compare_at_price || null,
@@ -415,12 +408,14 @@ Deno.serve(async (req: Request) => {
           ];
         }
 
-        // ── Sanitize price values ────────────────────────────────────────
+        // ── Sanitize variants — single option "尺寸(mm)" only, no Color ────
         const sanitizedVariants = productVariants.map((v) => {
           const variantPrice = (typeof v.price === "number" && !isNaN(v.price)) ? v.price : (product.price || 0);
+          // option1 = size value from variant; prefer explicit option1/title fields
+          // that ready_to_shopify may have stored, fallback to size field.
+          const sizeValue = v.option1 || v.title || v.size || "";
           const variant: Record<string, unknown> = {
-            option1: v.size || "Default",
-            option2: v.color || "Default",
+            option1: sizeValue,
             price: variantPrice.toFixed(2),
             sku: v.sku || "",
             inventory_management: (v.inventory !== undefined && v.inventory !== null) ? "shopify" : null,
@@ -477,13 +472,12 @@ Deno.serve(async (req: Request) => {
           title: product.title || "Untitled Product",
           body_html: product.description_html || `<p>${product.title || "Untitled Product"}</p>`,
           vendor: product.vendor || product.factory_name || "",
-          product_type: product.product_type || product.collection || "",
+          product_type: product.product_type || "",
           tags: Array.isArray(product.tags) ? product.tags.join(", ") : "",
           status: "active",
           variants: sanitizedVariants,
           options: [
-            { name: "Size" },
-            { name: "Color" },
+            { name: "尺寸(mm)" },
           ],
         };
 
