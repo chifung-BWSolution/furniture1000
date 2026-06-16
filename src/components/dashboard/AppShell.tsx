@@ -292,6 +292,18 @@ export function AppShell() {
                 description: revertReason?.labels.length ? `原因：${revertReason.labels.join('、')}` : undefined,
               });
             }}
+            onBatchDeleteProducts={async (ids) => {
+              const { supabase: sb } = await import('@/lib/supabase');
+              const { toast } = await import('sonner');
+              // ids are ready_to_shopify.id values — delete directly
+              const { error } = await sb.from('ready_to_shopify').delete().in('id', ids);
+              if (error) {
+                toast.error('批量刪除失敗', { description: error.message });
+                return;
+              }
+              store.reloadReadyToPublish();
+              toast.success(`已刪除 ${ids.length} 件產品`);
+            }}
             onVariantsSaved={() => store.reloadReadyToPublish()}
             isSyncing={store.isSyncing}
             isPublishing={store.isPublishing}
