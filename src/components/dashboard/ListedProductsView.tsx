@@ -1098,13 +1098,57 @@ export function ListedProductsView({
     setDismissTarget(null);
     if (!product) return;
     dropRowLocally(product.id);
+    await supabase.from('rejectedd_products').insert([{
+      original_product_id: product.id,
+      title: product.title,
+      description: product.description,
+      description_html: product.descriptionHtml ?? null,
+      tags: product.tags,
+      price: product.price,
+      compare_at_price: product.compareAtPrice ?? null,
+      collection: product.collection ?? null,
+      status: product.status ?? null,
+      image_url: product.imageUrl,
+      images: product.images ?? null,
+      shopify_product_id: product.shopifyProductId ?? null,
+      source: product.source,
+      synced_at: product.syncedAt ?? null,
+      color: product.color ?? null,
+      factory_id: product.factoryId ?? null,
+      factories_display_name: product.factoriesDisplayName ?? null,
+      cost_price: product.costPrice ?? null,
+      sale_price: product.salePrice ?? null,
+      production_lead_time: product.productionLeadTime ?? null,
+      shipping_days: product.shippingDays ?? null,
+      shipping_fee: product.shippingFee ?? null,
+      total_lead_time: product.totalLeadTime ?? null,
+      bwf_master_id: product.bwfMasterId ?? null,
+      remarks: product.remarks ?? null,
+      category: product.category ?? null,
+      level1_category: product.level1Category ?? null,
+      level2_category: product.level2Category ?? null,
+      production_time: product.productionTime ?? null,
+      material: product.material ?? null,
+      model: product.model ?? null,
+      specifications: product.specifications ?? null,
+      delivery_term_id: product.deliveryTermId ?? null,
+      delivery_term_name: product.deliveryTermName ?? null,
+      in_stock: product.inStock ?? null,
+      customize: product.customize ?? null,
+      dimension_l_mm: product.dimensionLMm ?? null,
+      dimension_w_mm: product.dimensionWMm ?? null,
+      dimension_h_mm: product.dimensionHMm ?? null,
+      product_sku: product.productSku ?? null,
+      variants: product.variants ?? null,
+      rejection_source: 'listed_products',
+    }]);
     const res = await dismissProducts([product.id]);
     res.ok
       ? toast.success('已移除', { description: product.title })
       : toast.error('操作失敗', { description: res.error });
   }, [dismissTarget, dropRowLocally]);
 
-  // 批量「暫不考慮」— save to products_rejected then dismiss
+  // 批量「暫不考慮」— save to rejectedd_products then dismiss
   const handleBatchReject = useCallback(async () => {
     const ids = Array.from(selectedIds);
     const productsToReject = products.filter(p => ids.includes(p.id));
@@ -1123,24 +1167,51 @@ export function ListedProductsView({
         original_product_id: p.id,
         title: p.title,
         description: p.description,
+        description_html: p.descriptionHtml ?? null,
         tags: p.tags,
         price: p.price,
+        compare_at_price: p.compareAtPrice ?? null,
+        collection: p.collection ?? null,
+        status: p.status ?? null,
         image_url: p.imageUrl,
+        images: p.images ?? null,
+        shopify_product_id: p.shopifyProductId ?? null,
+        source: p.source,
+        synced_at: p.syncedAt ?? null,
+        color: p.color ?? null,
         factory_id: p.factoryId ?? null,
         factories_display_name: p.factoriesDisplayName ?? null,
         cost_price: p.costPrice ?? null,
-        color: p.color ?? null,
-        category: p.category ?? null,
-        source: p.source,
-        shopify_product_id: p.shopifyProductId ?? null,
+        sale_price: p.salePrice ?? null,
+        production_lead_time: p.productionLeadTime ?? null,
+        shipping_days: p.shippingDays ?? null,
+        shipping_fee: p.shippingFee ?? null,
+        total_lead_time: p.totalLeadTime ?? null,
         bwf_master_id: p.bwfMasterId ?? null,
+        remarks: p.remarks ?? null,
+        category: p.category ?? null,
+        level1_category: p.level1Category ?? null,
+        level2_category: p.level2Category ?? null,
+        production_time: p.productionTime ?? null,
+        material: p.material ?? null,
+        model: p.model ?? null,
+        specifications: p.specifications ?? null,
+        delivery_term_id: p.deliveryTermId ?? null,
+        delivery_term_name: p.deliveryTermName ?? null,
+        in_stock: p.inStock ?? null,
+        customize: p.customize ?? null,
+        dimension_l_mm: p.dimensionLMm ?? null,
+        dimension_w_mm: p.dimensionWMm ?? null,
+        dimension_h_mm: p.dimensionHMm ?? null,
+        product_sku: p.productSku ?? null,
+        variants: p.variants ?? null,
         rejection_source: 'listed_products',
       }));
-      await supabase.from('products_rejected').insert(rejectedRows);
+      await supabase.from('rejectedd_products').insert(rejectedRows);
       const res = await dismissProducts(ids);
       if (res.ok) {
         toast.success(`已將 ${ids.length} 件產品標記為「暫不考慮」`, {
-          id: toastId, description: '資料已儲存至 products_rejected。', duration: 5000,
+          id: toastId, description: '資料已儲存至 rejectedd_products。', duration: 5000,
         });
       } else {
         toast.error('部分操作失敗', { id: toastId, description: res.error });
