@@ -95,7 +95,7 @@ Deno.serve(async (req: Request) => {
 
     do {
       page++;
-      let url = `https://${shopDomain}/admin/api/2024-01/products.json?limit=250&status=any&fields=id,title,body_html,vendor,product_type,handle,status,published_at,images,variants,tags,options,created_at,updated_at`;
+      let url = `https://${shopDomain}/admin/api/2024-01/products.json?limit=250&fields=id,title,body_html,vendor,product_type,handle,status,published_at,images,variants,tags,options,created_at,updated_at`;
       if (pageInfo) url += `&page_info=${pageInfo}`;
 
       const resp = await fetch(url, {
