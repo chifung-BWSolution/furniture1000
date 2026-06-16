@@ -62,13 +62,25 @@ async function uploadBase64(
   }
 }
 
+function rowNeedsMigration(row: { image_url: string | null; images: any }): boolean {
+  if (row.image_url && row.image_url.startsWith("data:")) return true;
+  if (Array.isArray(row.images)) {
+    return row.images.some((img: any) => {
+      const src: string = img?.src || img?.url || (typeof img === "string" ? img : "");
+      return src.startsWith("data:");
+    });
+  }
+  return false;
+}
+
 /**
  * migrate-rts-images
- * Converts base64 image_url and images[] entries in ready_to_shopify to
- * Supabase Storage HTTP URLs. Processes in batches to avoid timeout.
+ * Converts base64 image_url AND images[] entries in ready_to_shopify to
+ * Supabase Storage HTTP URLs. Scans all rows each call (no offset needed
+ * since converted rows drop out of the filter naturally).
  *
- * POST { batch_size?: number, offset?: number } — run one batch
- * Returns { processed, converted, skipped, next_offset, done }
+ * POST { batch_size?: number } — process one batch of rows needing migration
+ * Returns { processed, converted, skipped, remaining, done }
  */
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -79,28 +91,36 @@ Deno.serve(async (req: Request) => {
     if (!supabaseUrl || !supabaseKey) return json({ error: "Missing env vars" }, 400);
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    let body: { batch_size?: number; offset?: number } = {};
+    let body: { batch_size?: number } = {};
     try { body = await req.json(); } catch { /* no body */ }
 
     const batchSize = Math.min(body.batch_size ?? 5, 10);
-    const offset = body.offset ?? 0;
 
-    // Fetch rows with base64 images
-    // Use separate queries and merge to avoid jsonb operator issues
-    const { data: rows, error: fetchErr } = await supabase
+    // Fetch all rows (images JSONB can't use LIKE in PostgREST easily,
+    // so we fetch up to 200 rows and filter in JS, then take first batchSize needing work).
+    const { data: allRows, error: fetchErr } = await supabase
       .from("ready_to_shopify")
       .select("product_id, image_url, images")
-      .like("image_url", "data:%")
-      .range(offset, offset + batchSize - 1)
-      .order("product_id");
+      .order("product_id")
+      .limit(200);
 
     if (fetchErr) return json({ error: fetchErr.message }, 500);
-    if (!rows || rows.length === 0) return json({ processed: 0, converted: 0, skipped: 0, done: true });
+    if (!allRows || allRows.length === 0) return json({ processed: 0, converted: 0, skipped: 0, remaining: 0, done: true });
+
+    // Filter to only rows needing migration, then take batchSize
+    const pending = allRows.filter(rowNeedsMigration);
+    const totalRemaining = pending.length;
+
+    if (totalRemaining === 0) {
+      return json({ processed: 0, converted: 0, skipped: 0, remaining: 0, done: true });
+    }
+
+    const batch = pending.slice(0, batchSize);
 
     let converted = 0;
     let skipped = 0;
 
-    for (const row of rows) {
+    for (const row of batch) {
       const pid = row.product_id;
       const updates: Record<string, unknown> = {};
 
@@ -117,7 +137,7 @@ Deno.serve(async (req: Request) => {
         }
       }
 
-      // Convert extra images
+      // Convert extra images in images[] array
       if (Array.isArray(row.images)) {
         const hasBase64 = row.images.some((img: any) => {
           const src: string = img?.src || img?.url || (typeof img === "string" ? img : "");
@@ -128,11 +148,11 @@ Deno.serve(async (req: Request) => {
           const resolved = await Promise.all(
             row.images.map(async (img: any, idx: number) => {
               const src: string = img?.src || img?.url || (typeof img === "string" ? img : "");
-              if (!src.startsWith("data:")) return img; // already URL
+              if (!src.startsWith("data:")) return img; // already URL, keep as-is
               const url = await uploadBase64(supabase, src, pid, `extra${idx}`);
               if (url) {
                 console.log(`[migrate] ✅ Extra[${idx}] → ${url.slice(0, 80)}`);
-                return { ...img, src: url };
+                return typeof img === "string" ? url : { ...img, src: url };
               }
               console.warn(`[migrate] ⚠️ Extra[${idx}] upload failed for ${pid}`);
               return img; // keep original on failure
@@ -156,20 +176,13 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // Check if more rows remain
-    const { count } = await supabase
-      .from("ready_to_shopify")
-      .select("product_id", { count: "exact", head: true })
-      .like("image_url", "data:%");
-
-    const remaining = (count ?? 0) - (offset + rows.length);
+    const remaining = totalRemaining - batch.length;
     const done = remaining <= 0;
 
     return json({
-      processed: rows.length,
+      processed: batch.length,
       converted,
       skipped,
-      next_offset: done ? null : offset + rows.length,
       remaining: Math.max(0, remaining),
       done,
     });
