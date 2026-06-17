@@ -1,7 +1,8 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
 import {
-  Boxes, Check, ChevronLeft, Loader2, Tag, Ruler, DollarSign, Truck, FolderTree, X, ZoomIn,
+  Boxes, Check, ChevronLeft, ChevronRight, Loader2, Tag, Ruler, DollarSign, Truck, FolderTree, X, ZoomIn,
 } from 'lucide-react';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -47,9 +48,18 @@ interface Props {
 export function PublishProductInfoView({ focusProductId, onFocusHandled, onComplete }: Props) {
   const [items, setItems] = useState<InfoItem[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [tagDraft, setTagDraft] = useState<Record<string, string>>({});
   const [reloadKey, setReloadKey] = useState(0);
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  // bwf_product_categories for tag picker
+  const [bwfCats, setBwfCats] = useState<{ id: string; name: string; parent_id: string | null; level: number; sort_order: number }[]>([]);
+  useEffect(() => {
+    supabase
+      .from('bwf_product_categories')
+      .select('id,name,parent_id,level,sort_order')
+      .order('sort_order', { ascending: true })
+      .then(({ data }) => { if (data) setBwfCats(data); });
+  }, []);
 
   // Load level1/level2 category pairs from product_category for the dropdowns
   const [categoryPairs, setCategoryPairs] = useState<{ level1: string; level2: string }[]>([]);
@@ -167,13 +177,6 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
 
   const toggle = (id: string) =>
     setSelected((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
-
-  const addTag = (id: string) => {
-    const t = (tagDraft[id] || '').trim();
-    if (!t) return;
-    setItems((prev) => prev.map((it) => (it.id === id && !it.tags.includes(t) ? { ...it, tags: [...it.tags, t] } : it)));
-    setTagDraft((prev) => ({ ...prev, [id]: '' }));
-  };
 
   // 退回上一步 — dialog state
   const REVERT_OPTIONS = ['產品情景圖修改', '產品圖片角度不足', '產品說明修正', '其他'] as const;
@@ -515,21 +518,11 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
                     </Field>
                     {/* tags */}
                     <Field label="產品標籤" icon={<Tag className="h-3 w-3" />}>
-                      <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-border bg-background px-2 py-1.5 focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/20">
-                        {it.tags.map((t) => (
-                          <span key={t} className="flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] text-primary">
-                            {t}
-                            <button onClick={() => patch(it.id, { tags: it.tags.filter((x) => x !== t) })}><X className="h-2.5 w-2.5" /></button>
-                          </span>
-                        ))}
-                        <input
-                          value={tagDraft[it.id] || ''}
-                          onChange={(e) => setTagDraft((prev) => ({ ...prev, [it.id]: e.target.value }))}
-                          onKeyDown={(e) => { if (e.key === 'Enter') addTag(it.id); }}
-                          placeholder="輸入後 Enter"
-                          className="min-w-[80px] flex-1 bg-transparent py-0.5 font-body text-[12px] placeholder:text-muted-foreground/40 focus:outline-none"
-                        />
-                      </div>
+                      <CategoryTagPicker
+                        tags={it.tags}
+                        categories={bwfCats}
+                        onChange={(tags) => patch(it.id, { tags })}
+                      />
                     </Field>
                   </div>
                 </div>
@@ -621,6 +614,175 @@ function Field({ label, icon, children }: { label: string; icon?: React.ReactNod
     <div>
       <label className="mb-1 flex items-center gap-1 font-body text-[12px] font-medium text-muted-foreground">{icon}{label}</label>
       {children}
+    </div>
+  );
+}
+
+// ─── CategoryTagPicker ────────────────────────────────────────────────────────
+
+interface BwfCat { id: string; name: string; parent_id: string | null; level: number; sort_order: number }
+
+interface CategoryTagPickerProps {
+  tags: string[];
+  categories: BwfCat[];
+  onChange: (tags: string[]) => void;
+}
+
+function CategoryTagPicker({ tags, categories, onChange }: CategoryTagPickerProps) {
+  const [open, setOpen] = useState(false);
+  const [hoveredL1, setHoveredL1] = useState<string | null>(null);
+  const anchorRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [menuPos, setMenuPos] = useState<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: 240 });
+
+  const l1s = categories.filter((c) => c.level === 1);
+  const getL2s = useCallback((l1Id: string) => categories.filter((c) => c.level === 2 && c.parent_id === l1Id), [categories]);
+
+  const openMenu = () => {
+    if (!anchorRef.current) return;
+    const rect = anchorRef.current.getBoundingClientRect();
+    setMenuPos({ top: rect.bottom + 4, left: rect.left, width: rect.width });
+    setOpen(true);
+    setHoveredL1(l1s[0]?.id ?? null);
+  };
+
+  const closeMenu = useCallback(() => { setOpen(false); setHoveredL1(null); }, []);
+
+  // Close on outside click
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (
+        anchorRef.current?.contains(e.target as Node) ||
+        menuRef.current?.contains(e.target as Node)
+      ) return;
+      closeMenu();
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [open, closeMenu]);
+
+  const handleL1Hover = (l1Id: string) => {
+    if (hoverTimer.current) clearTimeout(hoverTimer.current);
+    hoverTimer.current = setTimeout(() => setHoveredL1(l1Id), 80);
+  };
+
+  const toggleL2 = (l1Name: string, l2Name: string) => {
+    let next = [...tags];
+    const hasL2 = next.includes(l2Name);
+    if (hasL2) {
+      // deselect L2; also remove L1 if no other L2 from same L1 remains
+      next = next.filter((t) => t !== l2Name);
+      const siblings = getL2s(l1s.find((l) => l.name === l1Name)?.id ?? '').map((c) => c.name);
+      const stillHasSibling = siblings.some((s) => s !== l2Name && next.includes(s));
+      if (!stillHasSibling) next = next.filter((t) => t !== l1Name);
+    } else {
+      // add L2, add L1 only if not already present
+      if (!next.includes(l1Name)) next = [...next, l1Name];
+      next = [...next, l2Name];
+    }
+    onChange(next);
+  };
+
+  const removeTag = (t: string) => onChange(tags.filter((x) => x !== t));
+
+  const activeL2sForHovered = hoveredL1 ? getL2s(hoveredL1) : [];
+  const hoveredL1Name = l1s.find((l) => l.id === hoveredL1)?.name ?? '';
+
+  return (
+    <div ref={anchorRef}>
+      {/* Tag display + open button */}
+      <div
+        className="flex min-h-[38px] flex-wrap items-center gap-1.5 rounded-lg border border-border bg-background px-2 py-1.5 cursor-pointer hover:border-primary/50 transition-colors"
+        onClick={openMenu}
+      >
+        {tags.map((t) => (
+          <span key={t} className="flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] text-primary">
+            {t}
+            <button
+              onClick={(e) => { e.stopPropagation(); removeTag(t); }}
+              className="hover:text-primary/60"
+            >
+              <X className="h-2.5 w-2.5" />
+            </button>
+          </span>
+        ))}
+        {tags.length === 0 && (
+          <span className="font-body text-[12px] text-muted-foreground/40 select-none">選擇分類標籤...</span>
+        )}
+        <ChevronRight className="ml-auto h-3 w-3 text-muted-foreground/40 flex-shrink-0" />
+      </div>
+
+      {/* Flyout menu via portal */}
+      {open && createPortal(
+        <div
+          ref={menuRef}
+          style={{ position: 'fixed', top: menuPos.top, left: menuPos.left, zIndex: 9999, minWidth: menuPos.width }}
+          className="flex rounded-xl border border-border bg-card shadow-2xl overflow-hidden"
+        >
+          {/* L1 panel */}
+          <div className="w-40 shrink-0 border-r border-border overflow-auto max-h-72 py-1">
+            {l1s.map((l1) => {
+              const l2sForL1 = getL2s(l1.id);
+              const selectedCount = l2sForL1.filter((l2) => tags.includes(l2.name)).length;
+              return (
+                <div
+                  key={l1.id}
+                  onMouseEnter={() => handleL1Hover(l1.id)}
+                  className={cn(
+                    'flex items-center justify-between gap-1 px-3 py-2 cursor-pointer text-[12px] font-body transition-colors',
+                    hoveredL1 === l1.id ? 'bg-primary/10 text-primary' : 'text-foreground hover:bg-muted/50'
+                  )}
+                >
+                  <span className="truncate">{l1.name}</span>
+                  <div className="flex items-center gap-1 shrink-0">
+                    {selectedCount > 0 && (
+                      <span className="rounded-full bg-primary text-white text-[9px] font-bold min-w-[14px] h-[14px] flex items-center justify-center px-0.5">
+                        {selectedCount}
+                      </span>
+                    )}
+                    <ChevronRight className="h-3 w-3 opacity-40" />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* L2 panel */}
+          <div className="w-44 overflow-auto max-h-72 py-1">
+            {hoveredL1 && (
+              <>
+                <div className="px-3 py-1.5 font-body text-[10px] font-semibold text-muted-foreground uppercase tracking-wide border-b border-border/50 mb-1">
+                  {hoveredL1Name}
+                </div>
+                {activeL2sForHovered.map((l2) => {
+                  const sel = tags.includes(l2.name);
+                  return (
+                    <div
+                      key={l2.id}
+                      onClick={() => toggleL2(hoveredL1Name, l2.name)}
+                      className={cn(
+                        'flex items-center gap-2 px-3 py-2 cursor-pointer text-[12px] font-body transition-colors',
+                        sel ? 'bg-primary/10 text-primary font-semibold' : 'text-foreground hover:bg-muted/50'
+                      )}
+                    >
+                      <span className={cn('flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded border transition-colors', sel ? 'bg-primary border-primary' : 'border-border')}>
+                        {sel && <Check className="h-2.5 w-2.5 text-white" />}
+                      </span>
+                      <span className="truncate">{l2.name}</span>
+                    </div>
+                  );
+                })}
+                {activeL2sForHovered.length === 0 && (
+                  <div className="px-3 py-4 text-center font-body text-[11px] text-muted-foreground/50">無二級分類</div>
+                )}
+              </>
+            )}
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 }
