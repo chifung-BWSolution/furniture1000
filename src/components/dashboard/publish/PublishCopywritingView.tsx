@@ -1,9 +1,9 @@
 import { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import {
-  FileText, Sparkles, ChevronLeft, ArrowRight, Loader2,
+  FileText, ChevronLeft, ArrowRight, Loader2,
   UploadCloud, Search, X, Bold, Italic, Underline as UnderlineIcon,
   List, ListOrdered, Image as ImageIcon, Palette,
-  AlignLeft, AlignCenter, AlignRight, Wand2, Plus, Check,
+  AlignLeft, AlignCenter, AlignRight, Wand2, Plus, Check, Save,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -209,6 +209,70 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
     if (error) { console.warn('[upload] storage error:', error.message); return base64; }
     const { data } = supabase.storage.from('product-images').getPublicUrl(filePath);
     return data.publicUrl || base64;
+  };
+
+  // Save — sync title + body_html to ready_to_shopify WITHOUT advancing copy_done
+  // Product stays in 產品文案 so user can continue editing images etc.
+  const [isSaving, setIsSaving] = useState(false);
+  const handleSave = async () => {
+    if (!activeId) return;
+    const item = items.find((p) => p.id === activeId);
+    if (!item) return;
+    setIsSaving(true);
+    try {
+      // Pre-upload any base64 images to Storage
+      let resolvedPrimary = primaryImg;
+      let resolvedExtras = [...extraImgs];
+      const isBase64 = (s: string) => s && !s.startsWith('http') && s.length > 100;
+      if (isBase64(primaryImg)) {
+        toast.loading('上傳主圖至儲存空間...', { id: 'save-img-upload' });
+        resolvedPrimary = await uploadBase64Image(primaryImg, activeId, 'primary');
+      }
+      const base64Extras = resolvedExtras.filter(isBase64);
+      if (base64Extras.length > 0) {
+        toast.loading(`上傳 ${base64Extras.length} 張額外圖片...`, { id: 'save-img-upload' });
+        resolvedExtras = await Promise.all(
+          resolvedExtras.map((src, idx) =>
+            isBase64(src) ? uploadBase64Image(src, activeId, `extra${idx}`) : Promise.resolve(src)
+          )
+        );
+      }
+      toast.dismiss('save-img-upload');
+
+      const imagesJson = resolvedExtras.map((src, idx) => ({ src, position: idx + 1 }));
+      const { error } = await supabase
+        .from('ready_to_shopify')
+        .upsert({
+          product_id: activeId,
+          title: name,
+          body_html: desc,
+          vendor: item.factory || null,
+          product_type: [item.level1, item.level2].filter(Boolean).join(' / ') || null,
+          handle: handle || slugify(name),
+          status: 'draft',
+          image_url: resolvedPrimary || null,
+          images: imagesJson.length > 0 ? imagesJson : null,
+          tags: item.tags.length > 0 ? item.tags : null,
+          price: item.salePrice ?? item.price ?? null,
+          shopify_page_title: seoTitle || name || null,
+          shopify_page_description: seoDesc || null,
+          shopify_url: handle || slugify(name) || null,
+          imported_at: new Date().toISOString(),
+        }, { onConflict: 'product_id' });
+
+      if (error) {
+        toast.error('儲存失敗', { description: error.message });
+      } else {
+        // Update local image state to resolved HTTP URLs
+        if (resolvedPrimary !== primaryImg) setPrimaryImg(resolvedPrimary);
+        if (resolvedExtras.some((s, i) => s !== extraImgs[i])) setExtraImgs(resolvedExtras);
+        toast.success('已儲存', { description: '產品文案已同步至 ready_to_shopify，可繼續修改圖片' });
+      }
+    } catch {
+      toast.error('儲存時發生錯誤，請重試');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   // Submit — save edits + set copy_done=true → moves product to 產品信息
@@ -528,8 +592,13 @@ ${rawDesc}
           <ChevronLeft className="h-4 w-4" /> 返回列表
         </button>
         <div className="flex items-center gap-2">
-          <button onClick={() => toast.success('已套用 AI 建議文案')} className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3.5 py-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground">
-            <Sparkles className="h-3.5 w-3.5" /> AI 建議文案
+          <button
+            onClick={handleSave}
+            disabled={isSaving}
+            className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3.5 py-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-60"
+          >
+            {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+            {isSaving ? '儲存中...' : '儲存'}
           </button>
           <button
             onClick={handleSubmit}
