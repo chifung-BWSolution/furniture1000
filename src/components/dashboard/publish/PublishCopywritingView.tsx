@@ -22,6 +22,8 @@ interface CopyItem {
   imageUrl: string;
   images: string[];
   factory: string;
+  factoryId: string;
+  model: string;
   level1: string;
   level2: string;
   seoTitle: string;
@@ -55,12 +57,15 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
   // list only needs the lightweight `image_url` thumbnail; full images are
   // loaded lazily when a product is opened (openProduct).
   const { rows, totalCount, isLoading, Toolbar, Pagination } = usePublishList({
-    select: 'id,title,description,image_url,factories_display_name,level1_category,level2_category,tags,sale_price,price,sku,model,revert_reason',
+    select: 'id,title,description,image_url,factories_display_name,level1_category,level2_category,tags,sale_price,price,sku,model,factory_id,revert_reason',
     applyBaseFilters: (q) => q.eq('in_shopify_queue', true).or('copy_done.is.null,copy_done.eq.false'),
     reloadKey,
   });
 
   const items: CopyItem[] = useMemo(() => rows.map((r: any) => {
+    const factoryId = r.factory_id || '';
+    const model = r.model || '';
+    const derivedSku = factoryId && model ? `${factoryId}-${model}` : (r.sku || r.model || '');
     return {
       id: r.id,
       title: r.title || '',
@@ -68,6 +73,8 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
       imageUrl: r.image_url || '',
       images: [], // populated lazily in openProduct
       factory: r.factories_display_name || '',
+      factoryId,
+      model,
       level1: r.level1_category || '',
       level2: r.level2_category || '',
       seoTitle: r.title || '',
@@ -76,7 +83,7 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
       tags: Array.isArray(r.tags) ? r.tags : [],
       price: r.price != null ? Number(r.price) : null,
       salePrice: r.sale_price != null ? Number(r.sale_price) : null,
-      sku: r.sku || r.model || '',
+      sku: derivedSku,
       revertReason: r.revert_reason ?? null,
     };
   }), [rows]);
