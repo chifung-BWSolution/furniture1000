@@ -117,6 +117,7 @@ const SELF_LOADING_VIEWS = new Set<ViewType>([
   "publish-copywriting",
   "publish-product-info",
   "publish-precheck",
+  "furniture-group-check",
   "published-products",
   "report-factory",
   "report-product",
@@ -176,7 +177,7 @@ export function AppShell() {
   // Refresh ready-to-publish list whenever entering the page so older products
   // (outside the first 100-row pagination window) still appear.
   useEffect(() => {
-    if (store.currentView === 'ready-to-publish') {
+    if (store.currentView === 'ready-to-publish' || store.currentView === 'furniture-group-check') {
       store.reloadReadyToPublish();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -201,6 +202,9 @@ export function AppShell() {
       setShowPublishModal(true);
     }
   }, [store.selectedProductIds, store.currentView, listedStats.selectedIds]);
+
+  // "加入到 準備上載" for 傢俬組檢查 — identical to the Shopify publish flow
+  // (selectedProducts drives PublishModal which calls store.publishSelected)
 
   const handleClearFilter = useCallback(() => {
     store.setFilterProductId(null);
@@ -234,6 +238,7 @@ export function AppShell() {
             geminiProxyUrl={store.settings.geminiProxyUrl}
           />
         );
+      case "furniture-group-check":
       case "ready-to-publish":
         return (
           <ProductTableView
@@ -492,7 +497,7 @@ export function AppShell() {
         <TopBar
           currentView={store.currentView}
           selectedCount={store.currentView === 'listed-products' ? listedStats.selected : store.selectedProductIds.size}
-          totalProducts={store.currentView === 'listed-products' ? listedStats.total : store.currentView === 'ready-to-publish' ? readyToPublishProducts.length : store.products.length}
+          totalProducts={store.currentView === 'listed-products' ? listedStats.total : (store.currentView === 'ready-to-publish' || store.currentView === 'furniture-group-check') ? readyToPublishProducts.length : store.products.length}
           onBulkPublish={handleBulkPublish}
           onSave={store.saveProducts}
           isSaving={store.isSaving}

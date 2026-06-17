@@ -125,6 +125,7 @@ export type ViewType =
   | 'publish-product-info'
   | 'publish-precheck'
   | 'ready-to-publish'
+  | 'furniture-group-check'
   | 'published-products'
   // 分析報表
   | 'report-factory'

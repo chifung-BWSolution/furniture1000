@@ -38,10 +38,10 @@ export function TopBar({
   const viewInfo = { label: meta.viewLabel, parent: meta.sectionLabel };
 
   // Show stats (總共/已選) on product list views
-  const showProductButtons = currentView === 'listed-products' || currentView === 'ready-to-publish' || currentView === 'product-catalog';
+  const showProductButtons = currentView === 'listed-products' || currentView === 'ready-to-publish' || currentView === 'furniture-group-check' || currentView === 'product-catalog';
   // The upload-to-catalog action only appears on the 所有產品 / 待發佈 views
-  const showUploadButton = currentView === 'listed-products' || currentView === 'ready-to-publish';
-  const uploadLabel = currentView === 'listed-products' ? '上傳到產品目錄' : '上傳到 Shopify';
+  const showUploadButton = currentView === 'listed-products' || currentView === 'ready-to-publish' || currentView === 'furniture-group-check';
+  const uploadLabel = currentView === 'listed-products' ? '上傳到產品目錄' : currentView === 'furniture-group-check' ? '加入到 準備上載' : '上傳到 Shopify';
 
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-border bg-background/80 px-6 backdrop-blur-xl">
