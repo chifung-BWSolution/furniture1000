@@ -41,9 +41,10 @@ interface InfoItem {
 interface Props {
   focusProductId?: string | null;
   onFocusHandled?: () => void;
+  onComplete?: () => void;
 }
 
-export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props) {
+export function PublishProductInfoView({ focusProductId, onFocusHandled, onComplete }: Props) {
   const [items, setItems] = useState<InfoItem[]>([]);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [tagDraft, setTagDraft] = useState<Record<string, string>>({});
@@ -243,14 +244,13 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
             in_stock: it.productionType === 'stock' ? true : false,
             customize: it.productionType === 'custom' && it.leadTime ? it.leadTime : null,
             info_done: true,
-            // Skip precheck — go directly to 準備上載
-            ready_to_publish: true,
+            // Go to 傢俬組檢查 first, not directly to 準備上載
+            ready_to_publish: false,
           })
           .eq('id', id);
         if (error) throw new Error(error.message);
 
-        // 2. Sync edited fields into ready_to_shopify
-        // SKU → handle, delivery info → customize/in_stock, dimensions, categories, tags
+        // 2. Sync edited fields into ready_to_shopify + mark pending furniture group check
         const deliveryInfo = it.productionType === 'stock'
           ? '現貨'
           : it.productionType === 'custom' && it.leadTime
@@ -262,14 +262,16 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled }: Props
             handle: it.sku || null,
             tags: it.tags.length > 0 ? it.tags : null,
             product_type: [it.level1, it.level2].filter(Boolean).join(' / ') || null,
-            // Store delivery info in a dedicated field if available, else keep existing
             ...(deliveryInfo != null && { status: 'draft' }),
+            // false = waiting in 傢俬組檢查; true = cleared for 準備上載
+            furniture_group_checked: false,
           })
           .eq('product_id', id);
       }
       setSelected(new Set());
       setReloadKey((k) => k + 1);
-      toast.success('已送往準備上載', { description: `${ids.length} 件產品的資訊已儲存，現可在「準備上載」頁面上傳到 Shopify` });
+      toast.success('已送往傢俬組檢查', { description: `${ids.length} 件產品的資訊已儲存，請到「傢俬組檢查」頁面確認後加入準備上載` });
+      onComplete?.();
     } catch (e) {
       toast.error('儲存失敗', { description: e instanceof Error ? e.message : '請稍後再試' });
     } finally {

@@ -52,6 +52,9 @@ const PublishPrecheckView = lazy(() =>
 const PublishedProductsView = lazy(() =>
   import("./publish/PublishedProductsView").then((mod) => ({ default: mod.PublishedProductsView }))
 );
+const FurnitureGroupCheckView = lazy(() =>
+  import("./publish/FurnitureGroupCheckView").then((mod) => ({ default: mod.FurnitureGroupCheckView }))
+);
 // 分析報表 (Analytics Reports)
 const FactoryReportView = lazy(() =>
   import("./reports/FactoryReportView").then((mod) => ({ default: mod.FactoryReportView }))
@@ -177,7 +180,7 @@ export function AppShell() {
   // Refresh ready-to-publish list whenever entering the page so older products
   // (outside the first 100-row pagination window) still appear.
   useEffect(() => {
-    if (store.currentView === 'ready-to-publish' || store.currentView === 'furniture-group-check') {
+    if (store.currentView === 'ready-to-publish') {
       store.reloadReadyToPublish();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -239,6 +242,14 @@ export function AppShell() {
           />
         );
       case "furniture-group-check":
+        return (
+          <FurnitureGroupCheckView
+            onEnterReadyToPublish={async () => {
+              await store.reloadReadyToPublish();
+              store.setCurrentView('ready-to-publish');
+            }}
+          />
+        );
       case "ready-to-publish":
         return (
           <ProductTableView
@@ -387,7 +398,13 @@ export function AppShell() {
       case "publish-copywriting":
         return <PublishCopywritingView focusProductId={focusProductId} onFocusHandled={() => setFocusProductId(null)} />;
       case "publish-product-info":
-        return <PublishProductInfoView focusProductId={focusProductId} onFocusHandled={() => setFocusProductId(null)} />;
+        return (
+          <PublishProductInfoView
+            focusProductId={focusProductId}
+            onFocusHandled={() => setFocusProductId(null)}
+            onComplete={() => store.setCurrentView('furniture-group-check')}
+          />
+        );
       case "publish-precheck":
         return (
           <PublishPrecheckView
@@ -497,7 +514,7 @@ export function AppShell() {
         <TopBar
           currentView={store.currentView}
           selectedCount={store.currentView === 'listed-products' ? listedStats.selected : store.selectedProductIds.size}
-          totalProducts={store.currentView === 'listed-products' ? listedStats.total : (store.currentView === 'ready-to-publish' || store.currentView === 'furniture-group-check') ? readyToPublishProducts.length : store.products.length}
+          totalProducts={store.currentView === 'listed-products' ? listedStats.total : store.currentView === 'ready-to-publish' ? readyToPublishProducts.length : store.products.length}
           onBulkPublish={handleBulkPublish}
           onSave={store.saveProducts}
           isSaving={store.isSaving}

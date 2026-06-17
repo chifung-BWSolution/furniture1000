@@ -91,8 +91,24 @@ Deno.serve(async (req: Request) => {
     if (!supabaseUrl || !supabaseKey) return json({ error: "Missing env vars" }, 400);
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    let body: { batch_size?: number } = {};
+    let body: { batch_size?: number; ddl?: string } = {};
     try { body = await req.json(); } catch { /* no body */ }
+
+    // DDL mode: add furniture_group_checked column via pg driver
+    if (body.ddl === "add_furniture_group_checked") {
+      try {
+        const { Client } = await import("https://deno.land/x/postgres@v0.19.3/mod.ts");
+        const dbUrl = Deno.env.get("SUPABASE_DB_URL") ?? "";
+        if (!dbUrl) return json({ error: "SUPABASE_DB_URL not set" }, 400);
+        const client = new Client(dbUrl);
+        await client.connect();
+        await client.queryObject("ALTER TABLE public.ready_to_shopify ADD COLUMN IF NOT EXISTS furniture_group_checked boolean DEFAULT null");
+        await client.end();
+        return json({ ok: true, message: "Column furniture_group_checked added" });
+      } catch (e) {
+        return json({ error: e instanceof Error ? e.message : String(e) }, 500);
+      }
+    }
 
     const batchSize = Math.min(body.batch_size ?? 5, 10);
 
