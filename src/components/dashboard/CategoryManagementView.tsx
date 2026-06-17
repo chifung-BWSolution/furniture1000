@@ -102,7 +102,27 @@ export function CategoryManagementView() {
         .select('id, name, parent_id, level, sort_order')
         .order('sort_order', { ascending: true });
       if (error) throw error;
-      setGroups(buildTree(data || []));
+
+      const cats = data || [];
+
+      // Auto-purge orphan L1s (no L2 children) — these are garbled stale rows
+      // from old migrations. The cascade delete also removes any orphan L2s.
+      const l1Ids = new Set(cats.filter((c) => c.level === 1).map((c) => c.id));
+      const l1sWithChildren = new Set(cats.filter((c) => c.level === 2 && c.parent_id && l1Ids.has(c.parent_id)).map((c) => c.parent_id));
+      const orphanL1Ids = [...l1Ids].filter((id) => !l1sWithChildren.has(id));
+      if (orphanL1Ids.length > 0) {
+        await supabase.from('bwf_product_categories').delete().in('id', orphanL1Ids);
+        // Reload after purge
+        const { data: data2, error: err2 } = await supabase
+          .from('bwf_product_categories')
+          .select('id, name, parent_id, level, sort_order')
+          .order('sort_order', { ascending: true });
+        if (err2) throw err2;
+        setGroups(buildTree(data2 || []));
+      } else {
+        setGroups(buildTree(cats));
+      }
+
       setDeletedL1Ids([]);
       setDeletedL2Ids([]);
       setDeletedL3Ids([]);
