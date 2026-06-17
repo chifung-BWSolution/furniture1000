@@ -148,7 +148,7 @@ async function getPdfPageCount(pdfData: ArrayBuffer): Promise<number> {
 // ─── Types ────────────────────────────────────────────────────────
 
 interface AIProcessorViewProps {
-  onAddProduct: (product: Omit<Product, 'id' | 'createdAt' | 'status' | 'source'>) => void;
+  onAddProduct: (product: Omit<Product, 'id' | 'createdAt' | 'status' | 'source'>) => Product | void;
   onNavigateToPublish: () => void;
   selectedModel?: string;
   geminiProxyUrl?: string;
@@ -4348,15 +4348,17 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
     setCatalogProductsWithRef(prev => prev.map(p => p.id === id ? { ...p, [field]: value } : p));
   }, [selectedFactoryId, saveCorrection, setCatalogProductsWithRef]);
 
-  const handleBatchAddToQueue = useCallback(() => {
+  const handleBatchAddToQueue = useCallback(async () => {
     const selected = catalogProducts.filter(p => p.selected);
-    let count = 0;
+    if (selected.length === 0) return;
+
+    // Step 1: add all products to the in-memory store + products table, collect their IDs
+    const nowIso = new Date().toISOString();
+    const productEntries: Array<{ id: string; item: CatalogProduct; imageUrl: string }> = [];
+
     for (const item of selected) {
-      // V16 FIX 2: Force priority chain for imageUrl
       const imageUrl = item.cropped_image_url || 'https://images.unsplash.com/photo-1555041469-a586c61ea9bc?w=400&q=80';
-      // V16 FIX 3: Re-render verification log
-      console.log('🔥 handleBatchAddToQueue — Image Transfer Check:', item.title?.substring(0, 30), '| cropped_image_url:', !!item.cropped_image_url, '| length:', item.cropped_image_url?.length || 0, '| using:', imageUrl.substring(0, 50));
-      const product = {
+      const added = onAddProduct({
         title: item.title, description: item.description, descriptionHtml: item.description,
         tags: item.tags, price: item.price, collection: selectedProductCategory || item.collection,
         imageUrl,
@@ -4377,12 +4379,46 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         titleEn: item.titleEn || undefined,
         titleZh: item.titleZh || undefined,
         category: selectedProductCategory || item.collection || '',
-      };
-      console.log('💾 Saving product with Manufacturer:', product.factoriesDisplayName, 'Factory ID:', product.factoryId, 'Highlights:', product.factoryHighlight, 'Category:', product.category);
-      onAddProduct(product);
-      count++;
+      }) as Product | void;
+      if (added && (added as Product).id) {
+        productEntries.push({ id: (added as Product).id, item, imageUrl });
+      }
     }
-    setAddedCount(count);
+
+    setAddedCount(productEntries.length || selected.length);
+
+    if (productEntries.length === 0) return;
+
+    // Step 2: batch-upsert all products into ready_to_shopify so they appear in the 待上傳 view immediately.
+    // Wait briefly for the products table upserts from addProduct to settle first.
+    await new Promise(r => setTimeout(r, 300));
+
+    const rtsRows = productEntries.map(({ id, item, imageUrl }) => ({
+      product_id: id,
+      title: item.title || null,
+      body_html: item.description || null,
+      vendor: selectedManufacturer || null,
+      product_type: selectedProductCategory || item.collection || null,
+      image_url: imageUrl,
+      tags: Array.isArray(item.tags) && item.tags.length > 0 ? item.tags : null,
+      price: item.price ?? null,
+      cost: item.costPrice ?? null,
+      status: 'draft',
+      imported_at: nowIso,
+    }));
+
+    const { error: rtsErr } = await supabase
+      .from('ready_to_shopify')
+      .upsert(rtsRows, { onConflict: 'product_id' });
+
+    if (rtsErr) {
+      console.error('[handleBatchAddToQueue] ready_to_shopify upsert failed:', rtsErr.message);
+    } else {
+      // Mark products in_shopify_queue so they move out of 所有產品 pending list
+      const ids = productEntries.map(e => e.id);
+      await supabase.from('products').update({ in_shopify_queue: true, in_catalog: true }).in('id', ids);
+      console.log(`[handleBatchAddToQueue] ✅ ${rtsRows.length} products written to ready_to_shopify`);
+    }
   }, [catalogProducts, onAddProduct, selectedManufacturer, selectedFactoryId, selectedFactoryHighlights, selectedProductCategory]);
 
   const handleReset = useCallback(() => {
