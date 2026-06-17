@@ -108,6 +108,7 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
   const primaryFileRef = useRef<HTMLInputElement>(null);
   const extraFileRef = useRef<HTMLInputElement>(null);
   const [showImageUploadDialog, setShowImageUploadDialog] = useState(false);
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
 
   // Load saved ready_to_shopify data when opening a product
   const openProduct = useCallback(async (p: CopyItem) => {
@@ -661,8 +662,13 @@ ${rawDesc}
                     onDragOver={(e) => e.preventDefault()}
                     onDrop={() => handleDrop({ zone: 'primary' })}
                   >
-                    <img src={primaryImg} alt="主圖" className="h-full w-full object-cover pointer-events-none" />
-                    <span className="absolute left-1.5 top-1.5 rounded bg-primary px-1.5 py-0.5 text-[9px] font-bold text-primary-foreground">主圖</span>
+                    <img
+                      src={primaryImg}
+                      alt="主圖"
+                      className="h-full w-full object-cover cursor-zoom-in"
+                      onClick={(e) => { e.stopPropagation(); setLightboxSrc(primaryImg); }}
+                    />
+                    <span className="absolute left-1.5 top-1.5 rounded bg-primary px-1.5 py-0.5 text-[9px] font-bold text-primary-foreground pointer-events-none">主圖</span>
                     <button
                       onClick={() => setPrimaryImg('')}
                       className="absolute right-1 top-1 hidden rounded-full bg-black/60 p-0.5 text-white group-hover:block"
@@ -703,7 +709,12 @@ ${rawDesc}
                       onDragOver={(e) => e.preventDefault()}
                       onDrop={() => handleDrop({ zone: 'extra', index: i })}
                     >
-                      <img src={src} alt={`圖 ${i + 2}`} className="h-full w-full object-cover pointer-events-none" />
+                      <img
+                        src={src}
+                        alt={`圖 ${i + 2}`}
+                        className="h-full w-full object-cover cursor-zoom-in"
+                        onClick={(e) => { e.stopPropagation(); setLightboxSrc(src); }}
+                      />
                       <button
                         onClick={() => setExtraImgs((prev) => prev.filter((_, idx) => idx !== i))}
                         className="absolute right-1 top-1 hidden rounded-full bg-black/60 p-0.5 text-white group-hover:block"
@@ -810,6 +821,11 @@ ${rawDesc}
           onConfirm={(srcs) => setExtraImgs((prev) => [...prev, ...srcs])}
           onClose={() => setShowImageUploadDialog(false)}
         />
+      )}
+
+      {/* Lightbox */}
+      {lightboxSrc && (
+        <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
       )}
     </div>
   );
@@ -986,6 +1002,41 @@ function Field({ label, hint, icon, children }: { label: string; hint?: string; 
         {hint && <span className="font-mono-data text-[10px] text-muted-foreground/60">{hint}</span>}
       </div>
       {children}
+    </div>
+  );
+}
+
+// ─── Image Lightbox ───────────────────────────────────────────────────────────
+
+function ImageLightbox({ src, onClose }: { src: string; onClose: () => void }) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      {/* Native img so right-click copy/save works normally */}
+      <img
+        src={src}
+        alt="預覽"
+        className="max-h-[90vh] max-w-[90vw] rounded-xl shadow-2xl object-contain select-auto"
+        onClick={(e) => e.stopPropagation()}
+        style={{ cursor: 'default' }}
+      />
+      <button
+        onClick={onClose}
+        className="absolute right-4 top-4 rounded-full bg-black/60 p-2 text-white hover:bg-black/80 transition-colors"
+      >
+        <X className="h-5 w-5" />
+      </button>
+      <p className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-black/50 px-4 py-1.5 font-body text-[11px] text-white/70 pointer-events-none">
+        點擊空白處關閉 · Esc 關閉 · 右鍵可複製或儲存圖片
+      </p>
     </div>
   );
 }
