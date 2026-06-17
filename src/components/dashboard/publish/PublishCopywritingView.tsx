@@ -665,6 +665,7 @@ ${rawDesc}
                     <img
                       src={primaryImg}
                       alt="主圖"
+                      draggable={false}
                       className="h-full w-full object-cover cursor-zoom-in"
                       onClick={(e) => { e.stopPropagation(); setLightboxSrc(primaryImg); }}
                     />
@@ -712,6 +713,7 @@ ${rawDesc}
                       <img
                         src={src}
                         alt={`圖 ${i + 2}`}
+                        draggable={false}
                         className="h-full w-full object-cover cursor-zoom-in"
                         onClick={(e) => { e.stopPropagation(); setLightboxSrc(src); }}
                       />
