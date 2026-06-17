@@ -443,17 +443,6 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
   }, []);
 
   useEffect(() => {
-    // One-time migration: move products from 準備上載 (null / true) into 傢俬組檢查 (false)
-    const MIGRATION_KEY = 'fgc_migration_v2_done';
-    if (!localStorage.getItem(MIGRATION_KEY)) {
-      supabase
-        .from('ready_to_shopify')
-        .update({ furniture_group_checked: false })
-        .or('furniture_group_checked.is.null,furniture_group_checked.eq.true')
-        .then(({ error }) => {
-          if (!error) localStorage.setItem(MIGRATION_KEY, '1');
-        });
-    }
     load();
   }, [load]);
 
