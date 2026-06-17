@@ -9,28 +9,73 @@ import {
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-interface CategoryRow {
-  id: string;
-  level1: string;
-  level2: string;
-  sortOrder: number;
-  isNew?: boolean;
+interface L3Item { id: string; name: string; isNew?: boolean }
+interface L2Item { id: string; name: string; isNew?: boolean; l3s: L3Item[] }
+interface L1Group { id: string; name: string; isNew?: boolean; l2s: L2Item[] }
+
+function isTemp(id: string) {
+  return id.startsWith('new-') || id.startsWith('imp-') || id.startsWith('empty-');
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-/** Parse Excel: col A = 一級, col B = 二級, forward-fill A, start from row 2 */
-function parseExcel(buf: ArrayBuffer): { level1: string; level2: string }[] {
+function buildTree(cats: any[]): L1Group[] {
+  const l1s = cats.filter((c) => c.level === 1).sort((a, b) => a.sort_order - b.sort_order);
+  const byParent = new Map<string, any[]>();
+  cats.filter((c) => c.level === 2).forEach((c) => {
+    const k = c.parent_id ?? '__root__';
+    if (!byParent.has(k)) byParent.set(k, []);
+    byParent.get(k)!.push(c);
+  });
+
+  return l1s.map((l1) => {
+    const l2Records = (byParent.get(l1.id) ?? []).sort((a, b) => a.sort_order - b.sort_order);
+    const l2s: L2Item[] = l2Records.map((l2) => {
+      const l3Records = (byParent.get(l2.id) ?? []).sort((a, b) => a.sort_order - b.sort_order);
+      return { id: l2.id, name: l2.name, l3s: l3Records.map((l3) => ({ id: l3.id, name: l3.name })) };
+    });
+    if (l2s.length === 0) {
+      l2s.push({ id: `empty-${l1.id}`, name: '', isNew: true, l3s: [] });
+    }
+    return { id: l1.id, name: l1.name, l2s };
+  });
+}
+
+function buildTreeFromExcel(rows: { l1: string; l2: string; l3: string }[]): L1Group[] {
+  const l1Map = new Map<string, L1Group>();
+  let li = 0, l2i = 0, l3i = 0;
+  for (const row of rows) {
+    if (!l1Map.has(row.l1)) {
+      l1Map.set(row.l1, { id: `imp-l1-${li++}`, name: row.l1, isNew: true, l2s: [] });
+    }
+    const g = l1Map.get(row.l1)!;
+    let l2 = g.l2s.find((x) => x.name === row.l2);
+    if (!l2) {
+      l2 = { id: `imp-l2-${l2i++}`, name: row.l2, isNew: true, l3s: [] };
+      g.l2s.push(l2);
+    }
+    if (row.l3) {
+      if (!l2.l3s.find((x) => x.name === row.l3)) {
+        l2.l3s.push({ id: `imp-l3-${l3i++}`, name: row.l3, isNew: true });
+      }
+    }
+  }
+  return Array.from(l1Map.values());
+}
+
+function parseExcel(buf: ArrayBuffer): { l1: string; l2: string; l3: string }[] {
   const wb = XLSX.read(buf, { type: 'array' });
   const ws = wb.Sheets[wb.SheetNames[0]];
   const rows = XLSX.utils.sheet_to_json<any[]>(ws, { header: 1 });
-  let curL1 = '';
-  const out: { level1: string; level2: string }[] = [];
+  let curL1 = '', curL2 = '';
+  const out: { l1: string; l2: string; l3: string }[] = [];
   rows.slice(1).forEach((r) => {
     const a = (r?.[0] ?? '').toString().trim();
     const b = (r?.[1] ?? '').toString().trim();
+    const c = (r?.[2] ?? '').toString().trim();
     if (a) curL1 = a;
-    if (b) out.push({ level1: curL1, level2: b });
+    if (b) curL2 = b;
+    if (curL1 && curL2) out.push({ l1: curL1, l2: curL2, l3: c });
   });
   return out;
 }
@@ -38,16 +83,17 @@ function parseExcel(buf: ArrayBuffer): { level1: string; level2: string }[] {
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export function CategoryManagementView() {
-  const [rows, setRows] = useState<CategoryRow[]>([]);
+  const [groups, setGroups] = useState<L1Group[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [search, setSearch] = useState('');
   const [dirty, setDirty] = useState(false);
-  const [deletedIds, setDeletedIds] = useState<string[]>([]);
-  const [pendingImport, setPendingImport] = useState<{ level1: string; level2: string }[] | null>(null);
+  const [deletedL1Ids, setDeletedL1Ids] = useState<string[]>([]);
+  const [deletedL2Ids, setDeletedL2Ids] = useState<string[]>([]);
+  const [deletedL3Ids, setDeletedL3Ids] = useState<string[]>([]);
+  const [pendingImport, setPendingImport] = useState<L1Group[] | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // ── Load from bwf_product_categories ──────────────────────────
   const load = useCallback(async () => {
     setIsLoading(true);
     try {
@@ -56,40 +102,10 @@ export function CategoryManagementView() {
         .select('id, name, parent_id, level, sort_order')
         .order('sort_order', { ascending: true });
       if (error) throw error;
-
-      // Build flat level1+level2 rows
-      const cats = data || [];
-      const level1s = cats.filter((c: any) => c.level === 1);
-      const level2s = cats.filter((c: any) => c.level === 2);
-
-      const flat: CategoryRow[] = [];
-      let globalSort = 0;
-      for (const l1 of level1s) {
-        const children = level2s
-          .filter((c: any) => c.parent_id === l1.id)
-          .sort((a: any, b: any) => a.sort_order - b.sort_order);
-        for (const l2 of children) {
-          flat.push({
-            id: l2.id,
-            level1: l1.name,
-            level2: l2.name,
-            sortOrder: globalSort++,
-            // store parent id so save knows which L1 this belongs to
-          });
-        }
-        // If no children, add a placeholder so the group header still shows
-        if (children.length === 0) {
-          flat.push({
-            id: `empty-${l1.id}`,
-            level1: l1.name,
-            level2: '',
-            sortOrder: globalSort++,
-            isNew: true,
-          });
-        }
-      }
-      setRows(flat);
-      setDeletedIds([]);
+      setGroups(buildTree(data || []));
+      setDeletedL1Ids([]);
+      setDeletedL2Ids([]);
+      setDeletedL3Ids([]);
       setDirty(false);
     } catch (err) {
       toast.error('載入分類失敗', { description: err instanceof Error ? err.message : '請稍後再試' });
@@ -100,69 +116,91 @@ export function CategoryManagementView() {
 
   useEffect(() => { load(); }, [load]);
 
-  // ── Grouped view ───────────────────────────────────────────────
-  const grouped = useMemo(() => {
+  // ── Counts ──────────────────────────────────────────────────────────────────
+  const totalL1 = groups.length;
+  const totalL2 = groups.reduce((s, g) => s + g.l2s.filter((l) => l.name.trim()).length, 0);
+  const totalL3 = groups.reduce((s, g) => s + g.l2s.reduce((s2, l2) => s2 + l2.l3s.filter((l) => l.name.trim()).length, 0), 0);
+
+  // ── Filtered ────────────────────────────────────────────────────────────────
+  const filtered = useMemo(() => {
     const q = search.trim();
-    const filtered = q
-      ? rows.filter((r) => r.level1.includes(q) || r.level2.includes(q))
-      : rows;
-    const map = new Map<string, CategoryRow[]>();
-    filtered.forEach((r) => {
-      if (!map.has(r.level1)) map.set(r.level1, []);
-      map.get(r.level1)!.push(r);
-    });
-    return Array.from(map.entries());
-  }, [rows, search]);
+    if (!q) return groups;
+    return groups
+      .map((g) => ({
+        ...g,
+        l2s: g.l2s.filter(
+          (l2) => g.name.includes(q) || l2.name.includes(q) || l2.l3s.some((l3) => l3.name.includes(q))
+        ),
+      }))
+      .filter((g) => g.name.includes(q) || g.l2s.length > 0);
+  }, [groups, search]);
 
-  // ── Inline edits ───────────────────────────────────────────────
-  const updateField = (id: string, field: 'level1' | 'level2', value: string) => {
-    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, [field]: value } : r)));
-    setDirty(true);
+  // ── Mutations ───────────────────────────────────────────────────────────────
+  const setG = (fn: (prev: L1Group[]) => L1Group[]) => { setGroups(fn); setDirty(true); };
+
+  const renameL1 = (id: string, name: string) =>
+    setG((prev) => prev.map((g) => (g.id === id ? { ...g, name } : g)));
+
+  const renameL2 = (l1Id: string, l2Id: string, name: string) =>
+    setG((prev) => prev.map((g) => g.id !== l1Id ? g : {
+      ...g, l2s: g.l2s.map((l2) => (l2.id === l2Id ? { ...l2, name } : l2)),
+    }));
+
+  const renameL3 = (l1Id: string, l2Id: string, l3Id: string, name: string) =>
+    setG((prev) => prev.map((g) => g.id !== l1Id ? g : {
+      ...g, l2s: g.l2s.map((l2) => l2.id !== l2Id ? l2 : {
+        ...l2, l3s: l2.l3s.map((l3) => (l3.id === l3Id ? { ...l3, name } : l3)),
+      }),
+    }));
+
+  const addL1 = () =>
+    setG((prev) => [...prev, {
+      id: `new-l1-${Date.now()}`, name: '新分類', isNew: true,
+      l2s: [{ id: `new-l2-${Date.now()}`, name: '', isNew: true, l3s: [] }],
+    }]);
+
+  const addL2 = (l1Id: string) =>
+    setG((prev) => prev.map((g) => g.id !== l1Id ? g : {
+      ...g, l2s: [...g.l2s, { id: `new-l2-${Date.now()}`, name: '', isNew: true, l3s: [] }],
+    }));
+
+  const addL3 = (l1Id: string, l2Id: string) =>
+    setG((prev) => prev.map((g) => g.id !== l1Id ? g : {
+      ...g, l2s: g.l2s.map((l2) => l2.id !== l2Id ? l2 : {
+        ...l2, l3s: [...l2.l3s, { id: `new-l3-${Date.now()}`, name: '', isNew: true }],
+      }),
+    }));
+
+  const deleteL1 = (id: string) => {
+    if (!isTemp(id)) setDeletedL1Ids((d) => [...d, id]);
+    setG((prev) => prev.filter((g) => g.id !== id));
   };
 
-  const renameGroup = (oldName: string, newName: string) => {
-    setRows((prev) => prev.map((r) => (r.level1 === oldName ? { ...r, level1: newName } : r)));
-    setDirty(true);
+  const deleteL2 = (l1Id: string, l2Id: string) => {
+    if (!isTemp(l2Id)) setDeletedL2Ids((d) => [...d, l2Id]);
+    setG((prev) => prev.map((g) => g.id !== l1Id ? g : {
+      ...g, l2s: g.l2s.filter((l2) => l2.id !== l2Id),
+    }));
   };
 
-  const addRow = (level1: string) => {
-    const tempId = `new-${level1}-${Date.now()}`;
-    setRows((prev) => {
-      // Insert right after the last row of this group
-      const lastIdx = prev.reduce((acc, r, i) => (r.level1 === level1 ? i : acc), -1);
-      const next = [...prev];
-      next.splice(lastIdx + 1, 0, { id: tempId, level1, level2: '', sortOrder: lastIdx + 1, isNew: true });
-      return next.map((r, i) => ({ ...r, sortOrder: i }));
-    });
-    setDirty(true);
+  const deleteL3 = (l1Id: string, l2Id: string, l3Id: string) => {
+    if (!isTemp(l3Id)) setDeletedL3Ids((d) => [...d, l3Id]);
+    setG((prev) => prev.map((g) => g.id !== l1Id ? g : {
+      ...g, l2s: g.l2s.map((l2) => l2.id !== l2Id ? l2 : {
+        ...l2, l3s: l2.l3s.filter((l3) => l3.id !== l3Id),
+      }),
+    }));
   };
 
-  const addCategory = () => {
-    const tempId = `new-cat-${Date.now()}`;
-    setRows((prev) => [...prev, { id: tempId, level1: '新分類', level2: '', sortOrder: prev.length, isNew: true }]);
-    setDirty(true);
-  };
-
-  const deleteRow = (id: string) => {
-    setRows((prev) => {
-      const target = prev.find((r) => r.id === id);
-      if (target && !target.isNew && !target.id.startsWith('empty-')) {
-        setDeletedIds((d) => [...d, id]);
-      }
-      return prev.filter((r) => r.id !== id);
-    });
-    setDirty(true);
-  };
-
-  // ── Excel import ───────────────────────────────────────────────
+  // ── Excel import ─────────────────────────────────────────────────────────────
   const handleFile = async (file: File) => {
     try {
       const parsed = parseExcel(await file.arrayBuffer());
       if (parsed.length === 0) {
-        toast.error('Excel 沒有可導入的分類', { description: '請確認第一欄為一級分類、第二欄為二級分類' });
+        toast.error('Excel 沒有可導入的分類', { description: '請確認格式：第一欄一級、第二欄二級、第三欄三級（可空）' });
         return;
       }
-      setPendingImport(parsed);
+      setPendingImport(buildTreeFromExcel(parsed));
     } catch (err) {
       toast.error('Excel 解析失敗', { description: err instanceof Error ? err.message : '檔案格式錯誤' });
     }
@@ -170,94 +208,121 @@ export function CategoryManagementView() {
 
   const confirmImport = () => {
     if (!pendingImport) return;
-    setDeletedIds((d) => [...d, ...rows.filter((r) => !r.isNew && !r.id.startsWith('empty-')).map((r) => r.id)]);
-    setRows(pendingImport.map((p, i) => ({
-      id: `imp-${i}`, level1: p.level1, level2: p.level2, sortOrder: i, isNew: true,
-    })));
+    // Delete all existing real IDs — L1 cascade handles L2/L3
+    const l1Del = groups.filter((g) => !isTemp(g.id)).map((g) => g.id);
+    setDeletedL1Ids(l1Del);
+    setDeletedL2Ids([]);
+    setDeletedL3Ids([]);
+    setGroups(pendingImport);
     setDirty(true);
     setPendingImport(null);
-    toast.success(`已導入 ${pendingImport.length} 筆分類`, { description: '請按「儲存」寫入資料庫' });
+    const l2Count = pendingImport.reduce((s, g) => s + g.l2s.length, 0);
+    const l3Count = pendingImport.reduce((s, g) => s + g.l2s.reduce((s2, l2) => s2 + l2.l3s.length, 0), 0);
+    toast.success(`已導入 ${pendingImport.length} 個一級 · ${l2Count} 個二級 · ${l3Count} 個三級`, {
+      description: '請按「儲存」寫入資料庫',
+    });
   };
 
-  // ── Save ───────────────────────────────────────────────────────
+  // ── Save ────────────────────────────────────────────────────────────────────
   const save = async () => {
     setIsSaving(true);
     try {
-      // 1) Delete removed L2 rows
-      const realDeleted = deletedIds.filter((id) => !id.startsWith('empty-'));
-      if (realDeleted.length > 0) {
-        const { error } = await supabase
-          .from('bwf_product_categories')
-          .delete()
-          .in('id', realDeleted);
+      // 1) Delete removed L1s (cascade removes their L2/L3 children)
+      const realL1Del = deletedL1Ids.filter((id) => !isTemp(id));
+      if (realL1Del.length > 0) {
+        const { error } = await supabase.from('bwf_product_categories').delete().in('id', realL1Del);
+        if (error) throw error;
+      }
+      // 2) Delete removed L2s (cascade removes their L3 children)
+      const realL2Del = deletedL2Ids.filter((id) => !isTemp(id));
+      if (realL2Del.length > 0) {
+        const { error } = await supabase.from('bwf_product_categories').delete().in('id', realL2Del);
+        if (error) throw error;
+      }
+      // 3) Delete removed L3s
+      const realL3Del = deletedL3Ids.filter((id) => !isTemp(id));
+      if (realL3Del.length > 0) {
+        const { error } = await supabase.from('bwf_product_categories').delete().in('id', realL3Del);
         if (error) throw error;
       }
 
-      // 2) Collect all unique L1 names from current rows
-      const l1Names = Array.from(new Set(rows.map((r) => r.level1).filter(Boolean)));
-
-      // 3) Fetch / upsert L1 records → build name→id map
-      const { data: existingL1s, error: l1Err } = await supabase
-        .from('bwf_product_categories')
-        .select('id, name')
-        .eq('level', 1)
-        .in('name', l1Names);
-      if (l1Err) throw l1Err;
-
-      const l1Map: Record<string, string> = {};
-      (existingL1s || []).forEach((r: any) => { l1Map[r.name] = r.id; });
-
-      // Insert any missing L1s
-      const missingL1s = l1Names.filter((n) => !l1Map[n]);
-      for (let i = 0; i < missingL1s.length; i++) {
-        const { data: ins, error: insErr } = await supabase
-          .from('bwf_product_categories')
-          .insert({ name: missingL1s[i], parent_id: null, level: 1, sort_order: i })
-          .select('id, name')
-          .single();
-        if (insErr) throw insErr;
-        if (ins) l1Map[ins.name] = ins.id;
-      }
-
-      // 4) Update existing L2 rows (real DB ids)
-      const existing = rows.filter((r) => !r.isNew && !r.id.startsWith('empty-') && r.level2.trim());
-      const orderOf = new Map(rows.map((r, i) => [r.id, i]));
-      for (const r of existing) {
-        const parentId = l1Map[r.level1];
-        if (!parentId) continue;
-        const { error: updErr } = await supabase
-          .from('bwf_product_categories')
-          .update({
-            name: r.level2.trim(),
-            parent_id: parentId,
-            sort_order: orderOf.get(r.id) ?? 0,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('id', r.id);
-        if (updErr) throw updErr;
-      }
-
-      // 5) Insert new L2 rows
-      const fresh = rows.filter(
-        (r) => (r.isNew || r.id.startsWith('imp-')) && r.level2.trim() && r.level1
-      );
-      if (fresh.length > 0) {
-        const payload = fresh.map((r, i) => ({
-          name: r.level2.trim(),
-          parent_id: l1Map[r.level1],
-          level: 2,
-          sort_order: orderOf.get(r.id) ?? i,
-        })).filter((p) => p.parent_id); // skip rows where L1 couldn't be resolved
-        if (payload.length > 0) {
-          const { error: insErr } = await supabase
+      // 4) Upsert L1s → build id map
+      const l1IdMap: Record<string, string> = {};
+      for (let i = 0; i < groups.length; i++) {
+        const g = groups[i];
+        if (!g.name.trim()) continue;
+        if (isTemp(g.id)) {
+          const { data, error } = await supabase
             .from('bwf_product_categories')
-            .insert(payload);
-          if (insErr) throw insErr;
+            .insert({ name: g.name.trim(), parent_id: null, level: 1, sort_order: i })
+            .select('id').single();
+          if (error) throw error;
+          l1IdMap[g.id] = data.id;
+        } else {
+          const { error } = await supabase
+            .from('bwf_product_categories')
+            .update({ name: g.name.trim(), sort_order: i })
+            .eq('id', g.id);
+          if (error) throw error;
+          l1IdMap[g.id] = g.id;
+        }
+      }
+
+      // 5) Upsert L2s → build id map
+      const l2IdMap: Record<string, string> = {};
+      for (let i = 0; i < groups.length; i++) {
+        const g = groups[i];
+        const l1DbId = l1IdMap[g.id];
+        if (!l1DbId) continue;
+        for (let j = 0; j < g.l2s.length; j++) {
+          const l2 = g.l2s[j];
+          if (!l2.name.trim()) continue;
+          if (isTemp(l2.id)) {
+            const { data, error } = await supabase
+              .from('bwf_product_categories')
+              .insert({ name: l2.name.trim(), parent_id: l1DbId, level: 2, sort_order: j })
+              .select('id').single();
+            if (error) throw error;
+            l2IdMap[l2.id] = data.id;
+          } else {
+            const { error } = await supabase
+              .from('bwf_product_categories')
+              .update({ name: l2.name.trim(), parent_id: l1DbId, sort_order: j })
+              .eq('id', l2.id);
+            if (error) throw error;
+            l2IdMap[l2.id] = l2.id;
+          }
+        }
+      }
+
+      // 6) Upsert L3s (stored as level=2 with parent=L2.id)
+      for (let i = 0; i < groups.length; i++) {
+        const g = groups[i];
+        for (let j = 0; j < g.l2s.length; j++) {
+          const l2 = g.l2s[j];
+          const l2DbId = l2IdMap[l2.id] ?? (!isTemp(l2.id) ? l2.id : null);
+          if (!l2DbId) continue;
+          for (let k = 0; k < l2.l3s.length; k++) {
+            const l3 = l2.l3s[k];
+            if (!l3.name.trim()) continue;
+            if (isTemp(l3.id)) {
+              const { error } = await supabase
+                .from('bwf_product_categories')
+                .insert({ name: l3.name.trim(), parent_id: l2DbId, level: 2, sort_order: k });
+              if (error) throw error;
+            } else {
+              const { error } = await supabase
+                .from('bwf_product_categories')
+                .update({ name: l3.name.trim(), parent_id: l2DbId, sort_order: k })
+                .eq('id', l3.id);
+              if (error) throw error;
+            }
+          }
         }
       }
 
       toast.success('已儲存 Shopify 分類', {
-        description: `更新 ${existing.length} 筆、新增 ${fresh.length} 筆、刪除 ${realDeleted.length} 筆`,
+        description: `${totalL1} 個一級 · ${totalL2} 個二級 · ${totalL3} 個三級`,
       });
       await load();
     } catch (err) {
@@ -267,8 +332,7 @@ export function CategoryManagementView() {
     }
   };
 
-  const totalLevel2 = rows.filter((r) => r.level2.trim()).length;
-  const totalLevel1 = new Set(rows.map((r) => r.level1)).size;
+  // ─────────────────────────────────────────────────────────────────────────────
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">
@@ -278,7 +342,7 @@ export function CategoryManagementView() {
           <FolderTree className="h-4 w-4 text-primary" />
           <h2 className="font-display text-sm font-bold">Shopify 分類</h2>
           <span className="font-mono-data text-[11px] text-muted-foreground">
-            {totalLevel1} 個一級分類 · {totalLevel2} 個二級分類
+            {totalL1} 個一級分類 · {totalL2} 個二級分類 · {totalL3} 個三級分類
           </span>
         </div>
         <div className="flex items-center gap-2">
@@ -296,11 +360,7 @@ export function CategoryManagementView() {
             type="file"
             accept=".xlsx,.xls"
             className="hidden"
-            onChange={(e) => {
-              const f = e.target.files?.[0];
-              if (f) handleFile(f);
-              e.target.value = '';
-            }}
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = ''; }}
           />
           <button
             onClick={() => fileInputRef.current?.click()}
@@ -323,7 +383,7 @@ export function CategoryManagementView() {
       <div className="flex items-center gap-2 border-b border-border bg-indigo-500/5 px-6 py-1.5">
         <FolderTree className="h-3 w-3 text-indigo-500" />
         <span className="text-[11px] text-indigo-500 font-body">
-          管理 Shopify 產品分類。可直接編輯文字、新增/刪除分類，或由 Excel 導入（第一欄一級分類、第二欄二級分類，由第二行起）。儲存後寫入 Supabase bwf_product_categories 表。
+          管理 Shopify 產品分類（支援三級）。Excel 格式：第一欄一級、第二欄二級、第三欄三級（可空），由第二行起。儲存後寫入 bwf_product_categories。
         </span>
       </div>
 
@@ -335,7 +395,7 @@ export function CategoryManagementView() {
               <div key={i} className="h-20 animate-pulse rounded-xl bg-muted/50" />
             ))}
           </div>
-        ) : rows.length === 0 ? (
+        ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-3 py-20 text-center">
             <FolderTree className="h-8 w-8 text-muted-foreground/40" />
             <p className="font-display text-sm text-muted-foreground">尚無分類</p>
@@ -348,44 +408,88 @@ export function CategoryManagementView() {
           </div>
         ) : (
           <div className="mx-auto max-w-4xl space-y-4">
-            {grouped.map(([level1, items]) => (
-              <div key={level1} className="overflow-hidden rounded-xl border border-border bg-card">
-                {/* Group header */}
+            {filtered.map((g) => (
+              <div key={g.id} className="overflow-hidden rounded-xl border border-border bg-card">
+                {/* L1 header */}
                 <div className="flex items-center justify-between gap-2 border-b border-border bg-muted/30 px-4 py-2.5">
                   <input
-                    value={level1}
-                    onChange={(e) => renameGroup(level1, e.target.value)}
+                    value={g.name}
+                    onChange={(e) => renameL1(g.id, e.target.value)}
                     className="rounded-md border border-transparent bg-transparent px-2 py-1 font-display text-sm font-bold text-foreground hover:border-border focus:border-primary/50 focus:bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
                   />
-                  <span className="font-mono-data text-[11px] text-muted-foreground">
-                    {items.filter((i) => i.level2.trim()).length} 項
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono-data text-[11px] text-muted-foreground">
+                      {g.l2s.filter((l) => l.name.trim()).length} 項
+                    </span>
+                    <button
+                      onClick={() => deleteL1(g.id)}
+                      className="rounded p-1 text-muted-foreground/60 hover:bg-rose-500/10 hover:text-rose-500"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
                 </div>
 
-                {/* L2 rows */}
+                {/* L2 + L3 rows */}
                 <div className="divide-y divide-border/60">
-                  {items.map((item) => (
-                    <div key={item.id} className="flex items-center gap-2 px-4 py-2 hover:bg-muted/20">
-                      <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-primary/10 text-[10px] font-bold text-primary">
-                        {item.isNew ? '新' : '·'}
-                      </span>
-                      <input
-                        value={item.level2}
-                        onChange={(e) => updateField(item.id, 'level2', e.target.value)}
-                        placeholder="二級分類名稱"
-                        className="flex-1 rounded-md border border-transparent bg-transparent px-2 py-1 font-body text-[13px] text-foreground hover:border-border focus:border-primary/50 focus:bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
-                      />
-                      <button
-                        onClick={() => deleteRow(item.id)}
-                        className="rounded p-1 text-muted-foreground/60 hover:bg-rose-500/10 hover:text-rose-500"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
+                  {g.l2s.map((l2) => (
+                    <div key={l2.id}>
+                      {/* L2 row */}
+                      <div className="flex items-center gap-2 px-4 py-2 hover:bg-muted/20">
+                        <span className={cn(
+                          'flex h-6 w-6 shrink-0 items-center justify-center rounded text-[10px] font-bold',
+                          l2.isNew ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground',
+                        )}>
+                          {l2.isNew ? '新' : '·'}
+                        </span>
+                        <input
+                          value={l2.name}
+                          onChange={(e) => renameL2(g.id, l2.id, e.target.value)}
+                          placeholder="二級分類名稱"
+                          className="flex-1 rounded-md border border-transparent bg-transparent px-2 py-1 font-body text-[13px] text-foreground hover:border-border focus:border-primary/50 focus:bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        />
+                        <button
+                          onClick={() => addL3(g.id, l2.id)}
+                          title="新增三級分類"
+                          className="rounded p-1 text-muted-foreground/40 hover:bg-primary/10 hover:text-primary"
+                        >
+                          <Plus className="h-3 w-3" />
+                        </button>
+                        <button
+                          onClick={() => deleteL2(g.id, l2.id)}
+                          className="rounded p-1 text-muted-foreground/60 hover:bg-rose-500/10 hover:text-rose-500"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+
+                      {/* L3 rows — indented */}
+                      {l2.l3s.map((l3) => (
+                        <div key={l3.id} className="flex items-center gap-2 py-1.5 pl-14 pr-4 hover:bg-muted/10">
+                          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-muted/60 text-[9px] font-bold text-muted-foreground">
+                            三
+                          </span>
+                          <input
+                            value={l3.name}
+                            onChange={(e) => renameL3(g.id, l2.id, l3.id, e.target.value)}
+                            placeholder="三級分類名稱"
+                            className="flex-1 rounded-md border border-transparent bg-transparent px-2 py-0.5 font-body text-[12px] text-muted-foreground hover:border-border focus:border-primary/50 focus:bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
+                          />
+                          <button
+                            onClick={() => deleteL3(g.id, l2.id, l3.id)}
+                            className="rounded p-1 text-muted-foreground/60 hover:bg-rose-500/10 hover:text-rose-500"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        </div>
+                      ))}
                     </div>
                   ))}
+
+                  {/* Add L2 */}
                   <div className="px-4 py-1.5">
                     <button
-                      onClick={() => addRow(level1)}
+                      onClick={() => addL2(g.id)}
                       className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-primary hover:bg-primary/10"
                     >
                       <Plus className="h-3 w-3" /> 新增二級分類
@@ -395,9 +499,9 @@ export function CategoryManagementView() {
               </div>
             ))}
 
-            {/* Add new L1 */}
+            {/* Add L1 */}
             <button
-              onClick={addCategory}
+              onClick={addL1}
               className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-border py-3 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
             >
               <Plus className="h-4 w-4" /> 新增一級分類
@@ -423,8 +527,15 @@ export function CategoryManagementView() {
               </button>
             </div>
             <p className="font-body text-[13px] text-muted-foreground">
-              已從 Excel 解析出 <span className="font-bold text-primary">{pendingImport.length}</span> 筆二級分類。
-              導入會<span className="font-semibold text-rose-500">取代</span>目前畫面上的所有分類（儲存後才寫入資料庫）。
+              已從 Excel 解析出{' '}
+              <span className="font-bold text-primary">{pendingImport.length}</span> 個一級 ·{' '}
+              <span className="font-bold text-primary">
+                {pendingImport.reduce((s, g) => s + g.l2s.length, 0)}
+              </span> 個二級 ·{' '}
+              <span className="font-bold text-primary">
+                {pendingImport.reduce((s, g) => s + g.l2s.reduce((s2, l2) => s2 + l2.l3s.length, 0), 0)}
+              </span> 個三級分類。
+              導入會<span className="font-semibold text-rose-500">取代</span>目前所有分類（儲存後才寫入資料庫）。
             </p>
             <div className="mt-4 flex justify-end gap-2">
               <button
