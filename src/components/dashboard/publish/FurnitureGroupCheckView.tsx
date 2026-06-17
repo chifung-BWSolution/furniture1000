@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import {
   Sofa, Loader2, CheckCheck, ChevronRight, Image as ImageIcon,
-  X, Package, Tag, DollarSign, Search,
+  X, Package, Tag, DollarSign, Search, RotateCcw,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
@@ -504,6 +504,47 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
     }
   };
 
+  const [isReverting, setIsReverting] = useState(false);
+
+  const handleRevertAll = async () => {
+    if (items.length === 0) return;
+    if (!window.confirm(`確定要把全部 ${items.length} 件產品退回「產品文案」頁面嗎？`)) return;
+    setIsReverting(true);
+    try {
+      const rtsIds = items.map(r => r.rtsId);
+      const productIds = items.map(r => r.productId).filter(Boolean);
+
+      // Delete rows from ready_to_shopify (removes from 傢俬組檢查)
+      const { error: delErr } = await supabase
+        .from('ready_to_shopify')
+        .delete()
+        .in('id', rtsIds);
+      if (delErr) throw new Error(delErr.message);
+
+      // Reset products so they reappear in 產品文案
+      if (productIds.length > 0) {
+        const { error: updErr } = await supabase
+          .from('products')
+          .update({
+            copy_done: false,
+            info_done: false,
+            ready_to_publish: false,
+            in_shopify_queue: false,
+          })
+          .in('id', productIds);
+        if (updErr) throw new Error(updErr.message);
+      }
+
+      setItems([]);
+      setSelected(new Set());
+      toast.success('已全部退回產品文案', { description: `${rtsIds.length} 件產品已退回「產品文案」頁面` });
+    } catch (e) {
+      toast.error('退回失敗', { description: e instanceof Error ? e.message : '請稍後再試' });
+    } finally {
+      setIsReverting(false);
+    }
+  };
+
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">
       {/* ── Header ── */}
@@ -515,16 +556,28 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
             {items.length} 件待確認
           </span>
         </div>
-        <button
-          onClick={handleAddToReadyToPublish}
-          disabled={selected.size === 0 || isSubmitting}
-          className="flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-bold text-primary-foreground shadow-md hover:opacity-90 disabled:opacity-50 transition-opacity"
-        >
-          {isSubmitting
-            ? <Loader2 className="h-4 w-4 animate-spin" />
-            : <CheckCheck className="h-4 w-4" />}
-          加入到 準備上載{selected.size > 0 ? `（${selected.size}）` : ''}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleRevertAll}
+            disabled={items.length === 0 || isReverting || isSubmitting}
+            className="flex items-center gap-2 rounded-xl border border-border bg-background px-4 py-2.5 text-sm font-semibold text-foreground hover:bg-muted disabled:opacity-50 transition-colors"
+          >
+            {isReverting
+              ? <Loader2 className="h-4 w-4 animate-spin" />
+              : <RotateCcw className="h-4 w-4" />}
+            全部退回產品文案
+          </button>
+          <button
+            onClick={handleAddToReadyToPublish}
+            disabled={selected.size === 0 || isSubmitting || isReverting}
+            className="flex items-center gap-2 rounded-xl bg-primary px-5 py-2.5 text-sm font-bold text-primary-foreground shadow-md hover:opacity-90 disabled:opacity-50 transition-opacity"
+          >
+            {isSubmitting
+              ? <Loader2 className="h-4 w-4 animate-spin" />
+              : <CheckCheck className="h-4 w-4" />}
+            加入到 準備上載{selected.size > 0 ? `（${selected.size}）` : ''}
+          </button>
+        </div>
       </div>
 
       {/* ── Info Banner ── */}
