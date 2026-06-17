@@ -3,7 +3,7 @@ import {
   FileText, ChevronLeft, ArrowRight, Loader2,
   UploadCloud, Search, X, Bold, Italic, Underline as UnderlineIcon,
   List, ListOrdered, Image as ImageIcon, Palette,
-  AlignLeft, AlignCenter, AlignRight, Wand2, Plus, Check, Save,
+  AlignLeft, AlignCenter, AlignRight, Wand2, Plus, Check, Save, Hash,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -97,6 +97,7 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
 
   // editable draft state
   const [name, setName] = useState('');
+  const [sku, setSku] = useState('');
   const [desc, setDesc] = useState('');
   // primaryImg: the main product image (image_url)
   const [primaryImg, setPrimaryImg] = useState<string>('');
@@ -114,6 +115,7 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
   const openProduct = useCallback(async (p: CopyItem) => {
     setActiveId(p.id);
     setName(p.title);
+    setSku(p.sku);
     setDesc(p.description);
     setPrimaryImg(p.imageUrl);
     setExtraImgs([]); // will be filled by the lazy fetch below
@@ -144,12 +146,13 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
     // Fetch previously saved data from ready_to_shopify (overrides products)
     const { data: rts } = await supabase
       .from('ready_to_shopify')
-      .select('title,body_html,image_url,images,shopify_page_title,shopify_page_description,shopify_url,handle')
+      .select('title,body_html,image_url,images,shopify_page_title,shopify_page_description,shopify_url,handle,sku')
       .eq('product_id', p.id)
       .maybeSingle();
 
     if (rts) {
       if (rts.title) setName(rts.title);
+      if (rts.sku) setSku(rts.sku);
       if (rts.body_html) setDesc(rts.body_html);
       if (rts.image_url) setPrimaryImg(rts.image_url);
       if (Array.isArray(rts.images) && rts.images.length > 0) {
@@ -246,6 +249,7 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
         .upsert({
           product_id: activeId,
           title: name,
+          sku: sku || null,
           body_html: desc,
           vendor: item.factory || null,
           product_type: [item.level1, item.level2].filter(Boolean).join(' / ') || null,
@@ -264,6 +268,10 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
       if (error) {
         toast.error('儲存失敗', { description: error.message });
       } else {
+        // Also update products.sku
+        if (sku) {
+          await supabase.from('products').update({ sku }).eq('id', activeId);
+        }
         // Update local image state to resolved HTTP URLs
         if (resolvedPrimary !== primaryImg) setPrimaryImg(resolvedPrimary);
         if (resolvedExtras.some((s, i) => s !== extraImgs[i])) setExtraImgs(resolvedExtras);
@@ -307,6 +315,7 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
         .from('products')
         .update({
           title: name,
+          sku: sku || undefined,
           description: desc,
           copy_done: true,
           copy_done_at: new Date().toISOString(),
@@ -326,6 +335,7 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
         .upsert({
           product_id: activeId,
           title: name,
+          sku: sku || null,
           body_html: desc,
           vendor: item.factory || null,
           product_type: [item.level1, item.level2].filter(Boolean).join(' / ') || null,
@@ -621,6 +631,21 @@ ${rawDesc}
               onChange={(e) => setName(e.target.value)}
               className="w-full rounded-xl border border-border bg-card px-4 py-3 font-display text-base font-semibold text-foreground focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
             />
+          </Section>
+
+          {/* 產品編碼 (SKU) */}
+          <Section title="產品編碼 (SKU)" desc="儲存後同步更新 products 及 ready_to_shopify 的 SKU 欄位">
+            <div className="flex items-center rounded-xl border border-border bg-card focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/20">
+              <span className="flex items-center gap-1.5 border-r border-border/60 px-3 py-3 text-muted-foreground bg-muted/30 rounded-l-xl">
+                <Hash className="h-3.5 w-3.5" />
+              </span>
+              <input
+                value={sku}
+                onChange={(e) => setSku(e.target.value)}
+                placeholder="例如 SKU-ABC123"
+                className="w-full bg-transparent px-4 py-3 font-mono-data text-sm text-foreground focus:outline-none"
+              />
+            </div>
           </Section>
 
           {/* Shopify 產品說明 — rich editor */}
