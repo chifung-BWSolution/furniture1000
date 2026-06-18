@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect, lazy, Suspense } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef, lazy, Suspense } from "react";
 import { useAppStore } from "@/hooks/use-app-store";
 import { unsavedGuard } from "@/lib/unsavedGuard";
 import { SidebarNav } from "./SidebarNav";
@@ -8,11 +8,12 @@ import { DashboardView } from "./DashboardView";
 import { ProductTableView } from "./ProductTableView";
 import { SettingsView } from "./SettingsView";
 import { PublishModal } from "./PublishModal";
-import { Construction } from "lucide-react";
+import { Construction, WifiOff, RefreshCw } from "lucide-react";
 import { findSection, getSection } from "./navConfig";
 import { type PrimarySection, type ViewType } from "@/types/product";
 import { addToCatalog } from "@/lib/catalogStore";
 import { toast } from "sonner";
+import { checkSupabaseHealth, waitForSupabaseRecovery } from "@/lib/supabase";
 
 // Lazy-loaded heavy views (contain large dependencies like pdfjs-dist, @react-pdf/renderer, etc.)
 const AIProcessorView = lazy(() =>
@@ -161,6 +162,54 @@ export function AppShell() {
   const [showPublishModal, setShowPublishModal] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [editingQuoteId, setEditingQuoteId] = useState<string | null>(null);
+  // 方案 D: Supabase health monitoring
+  const [dbUnhealthy, setDbUnhealthy] = useState(false);
+  const [isRetrying, setIsRetrying] = useState(false);
+  const cancelRecoveryRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const POLL_INTERVAL = 30_000; // check every 30s
+
+    async function poll() {
+      if (cancelled) return;
+      const healthy = await checkSupabaseHealth();
+      if (cancelled) return;
+      if (!healthy) {
+        setDbUnhealthy(true);
+        cancelRecoveryRef.current = waitForSupabaseRecovery(() => {
+          if (!cancelled) {
+            setDbUnhealthy(false);
+            setIsRetrying(false);
+            toast.success('資料庫連接已恢復', { description: '正在重新載入產品...' });
+            store.reloadProducts();
+          }
+        });
+      }
+    }
+
+    const interval = setInterval(poll, POLL_INTERVAL);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+      cancelRecoveryRef.current?.();
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleManualRetry = useCallback(async () => {
+    setIsRetrying(true);
+    const healthy = await checkSupabaseHealth();
+    if (healthy) {
+      setDbUnhealthy(false);
+      setIsRetrying(false);
+      toast.success('連接恢復', { description: '正在重新載入產品...' });
+      store.reloadProducts();
+    } else {
+      setIsRetrying(false);
+      toast.error('仍然無法連接', { description: 'Supabase 尚未恢復，請稍後再試' });
+    }
+  }, [store]);
   // Product to scroll-into-view when navigating from 發佈前檢查
   const [focusProductId, setFocusProductId] = useState<string | null>(null);
   // Real total/selected counts reported up from ListedProductsView (所有產品)
@@ -511,6 +560,21 @@ export function AppShell() {
         />
 
         <main className="flex flex-1 flex-col min-w-0 overflow-hidden">
+        {/* 方案 D: Unhealthy DB banner */}
+        {dbUnhealthy && (
+          <div className="flex items-center gap-2 bg-destructive/10 border-b border-destructive/20 px-4 py-2 text-sm text-destructive">
+            <WifiOff className="h-4 w-4 shrink-0" />
+            <span className="flex-1">資料庫連接異常 — Supabase 暫時無法讀取，正在等待恢復...</span>
+            <button
+              onClick={handleManualRetry}
+              disabled={isRetrying}
+              className="flex items-center gap-1 rounded px-2 py-1 text-xs font-medium hover:bg-destructive/20 disabled:opacity-50 transition-colors"
+            >
+              <RefreshCw className={`h-3 w-3 ${isRetrying ? 'animate-spin' : ''}`} />
+              {isRetrying ? '檢查中...' : '立即重試'}
+            </button>
+          </div>
+        )}
         <TopBar
           currentView={store.currentView}
           selectedCount={store.currentView === 'listed-products' ? listedStats.selected : store.selectedProductIds.size}
