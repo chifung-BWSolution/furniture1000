@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import {
   Sofa, Loader2, CheckCheck, ChevronRight, Image as ImageIcon,
-  X, Package, Tag, DollarSign, Search, RotateCcw,
+  X, Package, Tag, DollarSign, Search, RotateCcw, Save,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
@@ -57,6 +57,19 @@ function FGProductDetailModal({
   const [data, setData] = useState<FGDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedImg, setSelectedImg] = useState<string | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Editable fields (mirrors FGDetail fields that users can change)
+  const [editTitle, setEditTitle] = useState('');
+  const [editBodyHtml, setEditBodyHtml] = useState('');
+  const [editProductType, setEditProductType] = useState('');
+  const [editVendor, setEditVendor] = useState('');
+  const [editPrice, setEditPrice] = useState('');
+  const [editCompareAtPrice, setEditCompareAtPrice] = useState('');
+  const [editTagsRaw, setEditTagsRaw] = useState('');
+  const [editSeoTitle, setEditSeoTitle] = useState('');
+  const [editSeoDesc, setEditSeoDesc] = useState('');
+  const [editHandle, setEditHandle] = useState('');
 
   useEffect(() => {
     setLoading(true);
@@ -75,8 +88,21 @@ function FGProductDetailModal({
           onClose();
           return;
         }
-        setData(row as FGDetail);
-        setSelectedImg((row as FGDetail).image_url || null);
+        const r = row as unknown as FGDetail;
+        setData(r);
+        setSelectedImg(r.image_url || null);
+        // Init editable fields
+        setEditTitle(r.title || '');
+        setEditBodyHtml(r.body_html || '');
+        setEditProductType(r.product_type || '');
+        setEditVendor(r.vendor || '');
+        setEditPrice(r.price != null ? String(r.price) : '');
+        setEditCompareAtPrice(r.compare_at_price != null ? String(r.compare_at_price) : '');
+        const tList = Array.isArray(r.tags) ? r.tags : typeof r.tags === 'string' ? (r.tags as string).split(',').map((t: string) => t.trim()).filter(Boolean) : [];
+        setEditTagsRaw(tList.join(', '));
+        setEditSeoTitle(r.shopify_page_title || '');
+        setEditSeoDesc(r.shopify_page_description || '');
+        setEditHandle(r.shopify_url || r.handle || '');
         setLoading(false);
       });
   }, [rtsId, onClose]);
@@ -86,6 +112,57 @@ function FGProductDetailModal({
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
   }, [onClose]);
+
+  const handleSave = async () => {
+    if (!data) return;
+    setIsSaving(true);
+    try {
+      const tagsArr = editTagsRaw
+        .split(',')
+        .map(t => t.trim())
+        .filter(Boolean);
+      const priceNum = editPrice !== '' ? parseFloat(editPrice) : null;
+      const compareNum = editCompareAtPrice !== '' ? parseFloat(editCompareAtPrice) : null;
+
+      const { error } = await supabase
+        .from('ready_to_shopify')
+        .update({
+          title: editTitle || null,
+          body_html: editBodyHtml || null,
+          product_type: editProductType || null,
+          vendor: editVendor || null,
+          price: isNaN(priceNum as number) ? null : priceNum,
+          compare_at_price: isNaN(compareNum as number) ? null : compareNum,
+          tags: tagsArr.length > 0 ? tagsArr : null,
+          shopify_page_title: editSeoTitle || null,
+          shopify_page_description: editSeoDesc || null,
+          shopify_url: editHandle || null,
+          handle: editHandle || null,
+        })
+        .eq('id', data.id);
+
+      if (error) throw new Error(error.message);
+      setData(prev => prev ? {
+        ...prev,
+        title: editTitle || null,
+        body_html: editBodyHtml || null,
+        product_type: editProductType || null,
+        vendor: editVendor || null,
+        price: isNaN(priceNum as number) ? null : priceNum,
+        compare_at_price: isNaN(compareNum as number) ? null : compareNum,
+        tags: tagsArr.length > 0 ? tagsArr : null,
+        shopify_page_title: editSeoTitle || null,
+        shopify_page_description: editSeoDesc || null,
+        shopify_url: editHandle || null,
+        handle: editHandle || null,
+      } : null);
+      toast.success('已儲存', { description: '產品資料已更新' });
+    } catch (e) {
+      toast.error('儲存失敗', { description: e instanceof Error ? e.message : '請稍後再試' });
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   // Build ordered image list: image_url first, then images[]
   const allImages: string[] = [];
@@ -98,11 +175,8 @@ function FGProductDetailModal({
   }
   const displayImg = selectedImg || allImages[0] || '';
 
-  const tagList: string[] = Array.isArray(data?.tags)
-    ? data!.tags
-    : typeof data?.tags === 'string' && data.tags
-      ? (data.tags as string).split(',').map((t: string) => t.trim()).filter(Boolean)
-      : [];
+  const inputCls = 'w-full rounded-lg border border-border bg-background px-3 py-2 text-sm font-body text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 transition-colors';
+  const textareaCls = `${inputCls} resize-none`;
 
   return (
     <div
@@ -134,6 +208,17 @@ function FGProductDetailModal({
               </span>
             )}
           </div>
+          {/* Save button */}
+          {!loading && data && (
+            <button
+              onClick={handleSave}
+              disabled={isSaving}
+              className="shrink-0 flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-bold text-primary-foreground shadow hover:opacity-90 disabled:opacity-50 transition-opacity"
+            >
+              {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              儲存
+            </button>
+          )}
         </div>
 
         {/* ── Modal Body ── */}
@@ -220,7 +305,7 @@ function FGProductDetailModal({
               )}
             </div>
 
-            {/* ── Right Panel: Product Info ── */}
+            {/* ── Right Panel: Editable Product Info ── */}
             <div className="flex-1 overflow-y-auto p-6 space-y-6">
 
               {/* 一般資料 */}
@@ -229,27 +314,25 @@ function FGProductDetailModal({
                   <Package className="h-4 w-4 text-primary" />
                   一般資料
                 </div>
-
-                {/* Title — ready_to_shopify.title */}
+                {/* ready_to_shopify.title */}
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                    產品標題
-                  </label>
-                  <div className="rounded-lg border border-border bg-muted/30 px-3 py-2.5 text-sm font-body text-foreground min-h-[38px]">
-                    {data.title || '—'}
-                  </div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">產品標題</label>
+                  <input
+                    className={inputCls}
+                    value={editTitle}
+                    onChange={e => setEditTitle(e.target.value)}
+                    placeholder="產品標題"
+                  />
                 </div>
-
-                {/* Description — ready_to_shopify.body_html */}
+                {/* ready_to_shopify.body_html */}
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                    產品說明
-                  </label>
-                  <div
-                    className="min-h-[140px] max-h-[220px] overflow-y-auto rounded-lg border border-border bg-muted/30 px-3 py-2.5 text-sm font-body text-foreground prose prose-sm max-w-none dark:prose-invert"
-                    dangerouslySetInnerHTML={{
-                      __html: data.body_html || '<p style="color:var(--muted-foreground)">（無說明）</p>',
-                    }}
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">產品說明</label>
+                  <textarea
+                    className={textareaCls}
+                    rows={8}
+                    value={editBodyHtml}
+                    onChange={e => setEditBodyHtml(e.target.value)}
+                    placeholder="產品說明（支援 HTML）"
                   />
                 </div>
               </section>
@@ -260,19 +343,15 @@ function FGProductDetailModal({
                   <Tag className="h-4 w-4 text-amber-500" />
                   分類 / Collection
                 </div>
-                {/* product_type — ready_to_shopify.product_type */}
+                {/* ready_to_shopify.product_type */}
                 <div>
-                  {data.product_type ? (
-                    <span className="inline-flex items-center gap-1.5 rounded-md bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">
-                      {data.product_type}
-                      <span className="text-primary/50">×</span>
-                    </span>
-                  ) : (
-                    <span className="text-xs text-muted-foreground">未設定</span>
-                  )}
-                  {data.product_type && (
-                    <p className="mt-1.5 text-[11px] text-muted-foreground">{data.product_type}</p>
-                  )}
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">產品分類 (product_type)</label>
+                  <input
+                    className={inputCls}
+                    value={editProductType}
+                    onChange={e => setEditProductType(e.target.value)}
+                    placeholder="例：工作臺 / 辦公桌"
+                  />
                 </div>
               </section>
 
@@ -283,115 +362,115 @@ function FGProductDetailModal({
                   價格
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                  {/* price — ready_to_shopify.price */}
+                  {/* ready_to_shopify.price */}
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-muted-foreground">售價</label>
-                    <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm font-mono-data">
-                      {data.price != null ? `HK$ ${Number(data.price).toLocaleString()}` : '—'}
-                    </div>
+                    <label className="mb-1 block text-xs font-medium text-muted-foreground">售價 (HK$)</label>
+                    <input
+                      className={inputCls}
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={editPrice}
+                      onChange={e => setEditPrice(e.target.value)}
+                      placeholder="0"
+                    />
                   </div>
-                  {/* compare_at_price — ready_to_shopify.compare_at_price */}
+                  {/* ready_to_shopify.compare_at_price */}
                   <div>
-                    <label className="mb-1 block text-xs font-medium text-muted-foreground">Compare-at 價格</label>
-                    <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm font-mono-data">
-                      {data.compare_at_price != null ? `HK$ ${Number(data.compare_at_price).toLocaleString()}` : '—'}
-                    </div>
+                    <label className="mb-1 block text-xs font-medium text-muted-foreground">Compare-at 價格 (HK$)</label>
+                    <input
+                      className={inputCls}
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      value={editCompareAtPrice}
+                      onChange={e => setEditCompareAtPrice(e.target.value)}
+                      placeholder="—"
+                    />
                   </div>
                 </div>
               </section>
 
-              {/* 產品組織 (Product Organization) */}
+              {/* 產品組織 */}
               <section className="rounded-xl border border-border bg-card p-5 space-y-3">
                 <div className="flex items-center gap-2 text-sm font-bold text-foreground">
                   <span className="text-orange-500 text-base leading-none">⬡</span>
                   產品組織
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                  {/* product_type — ready_to_shopify.product_type */}
+                  {/* ready_to_shopify.product_type (same field as 分類) */}
                   <div>
                     <label className="mb-1 block text-xs font-medium text-muted-foreground">類型 (Type)</label>
-                    <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm">
-                      {data.product_type || '—'}
-                    </div>
+                    <input
+                      className={inputCls}
+                      value={editProductType}
+                      onChange={e => setEditProductType(e.target.value)}
+                      placeholder="—"
+                    />
                   </div>
-                  {/* vendor — ready_to_shopify.vendor */}
+                  {/* ready_to_shopify.vendor */}
                   <div>
                     <label className="mb-1 block text-xs font-medium text-muted-foreground">廠家 (Vendor)</label>
-                    <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm">
-                      {data.vendor || '—'}
-                    </div>
+                    <input
+                      className={inputCls}
+                      value={editVendor}
+                      onChange={e => setEditVendor(e.target.value)}
+                      placeholder="—"
+                    />
                   </div>
                 </div>
-                {/* tags — ready_to_shopify.tags */}
+                {/* ready_to_shopify.tags */}
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">標籤 (Tags)</label>
-                  <div className="flex flex-wrap gap-1.5 rounded-lg border border-border bg-muted/30 px-3 py-2 min-h-[36px]">
-                    {tagList.length > 0
-                      ? tagList.map((t) => (
-                          <span
-                            key={t}
-                            className="rounded bg-muted px-1.5 py-0.5 text-[11px] font-body text-foreground border border-border/60"
-                          >
-                            {t}
-                          </span>
-                        ))
-                      : <span className="text-xs text-muted-foreground">（無標籤）</span>
-                    }
-                  </div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                    標籤 (Tags) — 用逗號分隔
+                  </label>
+                  <input
+                    className={inputCls}
+                    value={editTagsRaw}
+                    onChange={e => setEditTagsRaw(e.target.value)}
+                    placeholder="標籤1, 標籤2, 標籤3"
+                  />
                 </div>
               </section>
 
-              {/* SEO — only shown when at least one SEO field exists */}
-              {(data.shopify_page_title || data.shopify_page_description || data.shopify_url || data.handle) && (
-                <section className="rounded-xl border border-border bg-card p-5 space-y-4">
-                  <div className="flex items-center gap-2 text-sm font-bold text-foreground">
-                    <Search className="h-4 w-4 text-indigo-500" />
-                    搜尋引擎列表 (Search engine listing)
-                  </div>
-                  {/* SEO preview card */}
-                  <div className="rounded-xl border border-border bg-muted/20 p-4 space-y-1">
-                    <p className="text-[11px] text-muted-foreground">
-                      example.com › products › {data.shopify_url || data.handle || '…'}
-                    </p>
-                    {/* shopify_page_title — ready_to_shopify.shopify_page_title */}
-                    <p className="text-sm font-medium text-blue-600 dark:text-blue-400">
-                      {data.shopify_page_title || data.title || '—'}
-                    </p>
-                    {/* shopify_page_description — ready_to_shopify.shopify_page_description */}
-                    <p className="text-xs text-muted-foreground line-clamp-2">
-                      {data.shopify_page_description
-                        || (data.body_html ? data.body_html.replace(/<[^>]*>/g, ' ').slice(0, 160) : '—')}
-                    </p>
-                  </div>
-                  <div className="space-y-3">
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                        SEO 標題 (shopify_page_title)
-                      </label>
-                      <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm">
-                        {data.shopify_page_title || '—'}
-                      </div>
-                    </div>
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                        SEO 描述 (shopify_page_description)
-                      </label>
-                      <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm min-h-[60px]">
-                        {data.shopify_page_description || '—'}
-                      </div>
-                    </div>
-                    {/* shopify_url — ready_to_shopify.shopify_url */}
-                    <div>
-                      <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                        URL Handle (shopify_url)
-                      </label>
-                      <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm font-mono break-all">
-                        {data.shopify_url || data.handle || '—'}
-                      </div>
-                    </div>
-                  </div>
-                </section>
-              )}
+              {/* SEO */}
+              <section className="rounded-xl border border-border bg-card p-5 space-y-4">
+                <div className="flex items-center gap-2 text-sm font-bold text-foreground">
+                  <Search className="h-4 w-4 text-indigo-500" />
+                  搜尋引擎列表 (SEO)
+                </div>
+                {/* ready_to_shopify.shopify_page_title */}
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">SEO 標題</label>
+                  <input
+                    className={inputCls}
+                    value={editSeoTitle}
+                    onChange={e => setEditSeoTitle(e.target.value)}
+                    placeholder="SEO 標題"
+                  />
+                </div>
+                {/* ready_to_shopify.shopify_page_description */}
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">SEO 描述</label>
+                  <textarea
+                    className={textareaCls}
+                    rows={3}
+                    value={editSeoDesc}
+                    onChange={e => setEditSeoDesc(e.target.value)}
+                    placeholder="SEO 描述"
+                  />
+                </div>
+                {/* ready_to_shopify.shopify_url / handle */}
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">URL Handle</label>
+                  <input
+                    className={`${inputCls} font-mono`}
+                    value={editHandle}
+                    onChange={e => setEditHandle(e.target.value)}
+                    placeholder="product-url-handle"
+                  />
+                </div>
+              </section>
             </div>
           </div>
         ) : null}
