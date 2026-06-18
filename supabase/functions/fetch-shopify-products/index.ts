@@ -36,6 +36,46 @@ async function fetchProductMetafields(
   return metafields;
 }
 
+/** Known product metafield definitions → DB column "namespace.key".
+ * Each Shopify metafield is stored both in the raw `metafields` jsonb
+ * AND mapped to its dedicated column for easy matching / upload. */
+const METAFIELD_COLUMNS = new Set<string>([
+  "my_fields.recommend_size",
+  "my_fields.normal_size",
+  "my_fields.materials",
+  "my_fields.production_time",
+  "my_fields.more_recommend_size",
+  "my_fields.image_alt",
+  "my_fields.image_link",
+  "my_fields.video_link",
+  "custom.more_image_link_1",
+  "custom.more_image_alt_1",
+  "custom.more_image_link_2",
+  "custom.more_image_alt_2",
+  "custom.more_image_link_3",
+  "custom.more_image_alt_3",
+  "custom.more_image_link_4",
+  "custom.more_image_alt_4",
+  "shopify.color-pattern",
+]);
+
+/** Build a {column: value} map from a raw metafields array,
+ * keeping only keys we have dedicated columns for. */
+function mapMetafieldsToColumns(
+  mfs: Record<string, unknown>[]
+): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const mf of mfs) {
+    const ns = String(mf.namespace ?? "");
+    const key = String(mf.key ?? "");
+    const col = `${ns}.${key}`;
+    if (METAFIELD_COLUMNS.has(col)) {
+      out[col] = mf.value != null ? String(mf.value) : "";
+    }
+  }
+  return out;
+}
+
 /** Fetch specific products by IDs */
 async function fetchProductsByIds(
   shopDomain: string,
@@ -103,21 +143,14 @@ Deno.serve(async (req: Request) => {
         const batch = ids.slice(i, i + CONCURRENCY);
         await Promise.all(batch.map(async (pid) => {
           const mfs = await fetchProductMetafields(shopDomain, shopifyToken, pid);
-          if (mfs.length > 0) {
-            const { error } = await supabase
-              .from("shopify_products")
-              .update({ metafields: mfs })
-              .eq("shopify_product_id", pid);
-            if (!error) { updated++; totalMfs += mfs.length; }
-            else console.error(`[metafields] update error for ${pid}:`, error.message);
-          } else {
-            // Even 0 metafields is valid — mark as synced with empty array
-            await supabase
-              .from("shopify_products")
-              .update({ metafields: [] })
-              .eq("shopify_product_id", pid);
-            updated++;
-          }
+          // Map known metafields to their dedicated namespace.key columns
+          const colValues = mapMetafieldsToColumns(mfs);
+          const { error } = await supabase
+            .from("shopify_products")
+            .update({ metafields: mfs, ...colValues })
+            .eq("shopify_product_id", pid);
+          if (!error) { updated++; totalMfs += mfs.length; }
+          else console.error(`[metafields] update error for ${pid}:`, error.message);
         }));
       }
       return json({ success: true, updated, total_metafields: totalMfs });
