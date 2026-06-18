@@ -106,6 +106,8 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
   const [name, setName] = useState('');
   const [sku, setSku] = useState('');
   const [desc, setDesc] = useState('');
+  // Increment this to force RichEditor to sync its DOM from the latest `desc` value
+  const [editorKey, setEditorKey] = useState(0);
   // primaryImg: the main product image (image_url)
   const [primaryImg, setPrimaryImg] = useState<string>('');
   // extraImgs: additional images (images jsonb array)
@@ -196,7 +198,11 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
     if (rts) {
       if (rts.title) { setName(rts.title); snapName = rts.title; }
       if (rts.sku) { setSku(rts.sku); snapSku = rts.sku; }
-      if (rts.body_html) { setDesc(rts.body_html); snapDesc = rts.body_html; }
+      // Only use rts.body_html if it is longer than what's already set (products.description).
+      // ready_to_shopify may hold a stale short snapshot while products.description was updated.
+      if (rts.body_html && rts.body_html.length > snapDesc.length) {
+        setDesc(rts.body_html); snapDesc = rts.body_html;
+      }
       if (rts.image_url) { setPrimaryImg(rts.image_url); finalPrimary = rts.image_url; }
       if (Array.isArray(rts.images) && rts.images.length > 0) {
         const imgs = rts.images.map((img: any) => img?.src || img).filter(Boolean);
@@ -213,6 +219,8 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
       primaryImg: finalPrimary, extraImgs: finalExtras,
       seoTitle: snapSeoTitle, seoDesc: snapSeoDesc, handle: snapHandle,
     });
+    // Force RichEditor to re-sync its contenteditable DOM after all async data is loaded
+    setEditorKey((k) => k + 1);
   }, []);
 
   // Drag-to-swap state
@@ -733,7 +741,7 @@ ${rawDesc}
               </button>
             }
           >
-            <RichEditor value={desc} onChange={setDesc} forceUpdateKey={isGenerating ? 'generating' : desc} />
+            <RichEditor value={desc} onChange={setDesc} forceUpdateKey={isGenerating ? 'generating' : String(editorKey)} />
           </Section>
 
           {/* Shopify 產品圖片 — 左主圖 / 右其他圖，支援拖拉交換 */}
@@ -943,18 +951,21 @@ function RichEditor({ value, onChange, forceUpdateKey }: { value: string; onChan
   const [showColorPicker, setShowColorPicker] = useState(false);
   const colorPickerRef = useRef<HTMLDivElement>(null);
   const savedRangeRef = useRef<Range | null>(null);
+  // Keep a ref so the forceUpdateKey effect always reads the latest value without it being a dep
+  const valueRef = useRef(value);
+  valueRef.current = value;
 
   useEffect(() => {
-    if (editorRef.current && editorRef.current.innerHTML !== value) {
-      editorRef.current.innerHTML = value;
+    if (editorRef.current && editorRef.current.innerHTML !== valueRef.current) {
+      editorRef.current.innerHTML = valueRef.current;
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     if (!forceUpdateKey || forceUpdateKey === 'generating') return;
-    if (editorRef.current && editorRef.current.innerHTML !== value) {
-      editorRef.current.innerHTML = value;
+    if (editorRef.current && editorRef.current.innerHTML !== valueRef.current) {
+      editorRef.current.innerHTML = valueRef.current;
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [forceUpdateKey]);
