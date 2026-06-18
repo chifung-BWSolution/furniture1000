@@ -36,7 +36,7 @@ export default page;
 export const Example: TempoStoryboard = {
   render: () => <Storyboard1 />,
   name: "Storyboard 1 (canvas-local example)",
-  layout: { x: 0, y: 0, width: 480, height: 320 },
+  layout: { x: 0, y: 0, width: 480, height: 58 },
 };
 
 // Example of projecting a REAL component from your app onto the canvas.
