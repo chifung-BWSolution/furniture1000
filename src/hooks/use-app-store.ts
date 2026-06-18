@@ -1094,6 +1094,32 @@ export function useAppStore() {
     }
     const rtsMap = new Map<string, any>((rtsRows || []).map((r: any) => [r.product_id, r]));
 
+    // Metafield columns mirrored on shopify_products (namespace.key). Pulled in
+    // for products that already have a Shopify match so metafields upload too.
+    const METAFIELD_COLS = [
+      'my_fields.recommend_size', 'my_fields.normal_size', 'my_fields.materials',
+      'my_fields.production_time', 'my_fields.more_recommend_size', 'my_fields.image_alt',
+      'my_fields.image_link', 'my_fields.video_link',
+      'custom.more_image_link_1', 'custom.more_image_alt_1', 'custom.more_image_link_2',
+      'custom.more_image_alt_2', 'custom.more_image_link_3', 'custom.more_image_alt_3',
+      'custom.more_image_link_4', 'custom.more_image_alt_4',
+    ];
+    const shopifyIdsForMf = selectedProducts.map(p => p.shopifyProductId).filter(Boolean) as string[];
+    const mfByShopifyId = new Map<string, Record<string, string>>();
+    if (shopifyIdsForMf.length > 0) {
+      const { data: mfRows } = await supabase
+        .from('shopify_products')
+        .select(['shopify_product_id', ...METAFIELD_COLS].map(c => `"${c}"`).join(','))
+        .in('shopify_product_id', shopifyIdsForMf);
+      for (const row of (mfRows || []) as any[]) {
+        const map: Record<string, string> = {};
+        for (const col of METAFIELD_COLS) {
+          if (row[col]) map[col] = row[col];
+        }
+        if (Object.keys(map).length > 0) mfByShopifyId.set(String(row.shopify_product_id), map);
+      }
+    }
+
     // Build payload for publish-to-shopify edge function.
     // Content fields (title, description, price, images, variants) come from
     // ready_to_shopify; meta fields (vendor, category, dimensions, etc.) come
@@ -1136,6 +1162,7 @@ export function useAppStore() {
         factory_name: p.factoriesDisplayName || p.factoryName || '',
         cost_price: p.costPrice ?? null,
         sale_price: rts?.price ?? p.salePrice ?? 0,
+        metafields: p.shopifyProductId ? (mfByShopifyId.get(String(p.shopifyProductId)) || undefined) : undefined,
       };
     });
 

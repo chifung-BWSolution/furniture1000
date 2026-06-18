@@ -68,6 +68,65 @@ interface ProductPayload {
   factory_name?: string;
   cost_price?: number | null;
   sale_price?: number | null;
+  // Metafields as a map of "namespace.key" → value (matches DB columns),
+  // OR a ready-made array of {namespace,key,type,value}.
+  metafields?: Record<string, string> | { namespace: string; key: string; type?: string; value: string }[];
+}
+
+// ─── Shopify Product Metafield Definitions ───────────────────────────────────
+// "namespace.key" → metafield type. Matches the columns added to shopify_products.
+const METAFIELD_DEFS: Record<string, string> = {
+  "my_fields.recommend_size": "multi_line_text_field",
+  "my_fields.normal_size": "multi_line_text_field",
+  "my_fields.materials": "multi_line_text_field",
+  "my_fields.production_time": "multi_line_text_field",
+  "my_fields.more_recommend_size": "multi_line_text_field",
+  "my_fields.image_alt": "multi_line_text_field",
+  "my_fields.image_link": "url",
+  "my_fields.video_link": "url",
+  "custom.more_image_link_1": "url",
+  "custom.more_image_alt_1": "multi_line_text_field",
+  "custom.more_image_link_2": "url",
+  "custom.more_image_alt_2": "multi_line_text_field",
+  "custom.more_image_link_3": "url",
+  "custom.more_image_alt_3": "multi_line_text_field",
+  "custom.more_image_link_4": "url",
+  "custom.more_image_alt_4": "multi_line_text_field",
+  "shopify.color-pattern": "list.metaobject_reference",
+};
+
+/** Build Shopify-format metafields array from a payload.
+ * Accepts either a {namespace.key: value} map or a ready-made array.
+ * Empty/blank values are skipped. The `shopify.*` namespace is reserved
+ * by Shopify and cannot be set via the products API, so it is excluded. */
+function buildShopifyMetafields(
+  mf: ProductPayload["metafields"]
+): { namespace: string; key: string; type: string; value: string }[] {
+  if (!mf) return [];
+  const out: { namespace: string; key: string; type: string; value: string }[] = [];
+  if (Array.isArray(mf)) {
+    for (const m of mf) {
+      if (!m || !m.namespace || !m.key) continue;
+      if (m.namespace === "shopify") continue;
+      const val = m.value != null ? String(m.value).trim() : "";
+      if (!val) continue;
+      const type = m.type || METAFIELD_DEFS[`${m.namespace}.${m.key}`] || "single_line_text_field";
+      out.push({ namespace: m.namespace, key: m.key, type, value: val });
+    }
+    return out;
+  }
+  for (const [col, rawVal] of Object.entries(mf)) {
+    const val = rawVal != null ? String(rawVal).trim() : "";
+    if (!val) continue;
+    const dot = col.indexOf(".");
+    if (dot < 0) continue;
+    const namespace = col.slice(0, dot);
+    const key = col.slice(dot + 1);
+    if (namespace === "shopify") continue; // reserved namespace
+    const type = METAFIELD_DEFS[col] || "single_line_text_field";
+    out.push({ namespace, key, type, value: val });
+  }
+  return out;
 }
 
 // ─── Image Validation & Upload Helpers ──────────────────────────────────────
@@ -374,6 +433,13 @@ Deno.serve(async (req: Request) => {
           ],
         };
 
+        // ── Attach metafields (sent inline on product create) ──────────────
+        const shopifyMetafields = buildShopifyMetafields(product.metafields);
+        if (shopifyMetafields.length > 0) {
+          shopifyProduct.metafields = shopifyMetafields;
+          console.log(`[publish-to-shopify] 🏷️ Attaching ${shopifyMetafields.length} metafield(s) for "${product.title}": ${shopifyMetafields.map(m => `${m.namespace}.${m.key}`).join(", ")}`);
+        }
+
         // ── Build images array — resolve ALL images (HTTP + base64) ─────────
         const allImages: { src: string }[] = [];
         if (resolvedImageUrl) {
@@ -554,6 +620,11 @@ Deno.serve(async (req: Request) => {
           const spVariants = (createdProduct.variants as Record<string, unknown>[]) || [];
           const spPrice = spVariants[0]?.price != null ? Number(spVariants[0].price) : (product.price ?? 0);
           const spCompareAt = spVariants[0]?.compare_at_price != null ? Number(spVariants[0].compare_at_price) : null;
+          // Persist metafields: raw array + dedicated namespace.key columns
+          const mfColumns: Record<string, string> = {};
+          for (const m of shopifyMetafields) {
+            mfColumns[`${m.namespace}.${m.key}`] = m.value;
+          }
           await supabase.from("shopify_products").upsert({
             shopify_product_id: shopifyProductId,
             title: product.title || null,
@@ -573,6 +644,8 @@ Deno.serve(async (req: Request) => {
             shopify_updated_at: String(createdProduct.updated_at || new Date().toISOString()),
             imported_at: new Date().toISOString(),
             shop_domain: storeHost,
+            metafields: shopifyMetafields.length > 0 ? shopifyMetafields : null,
+            ...mfColumns,
           }, { onConflict: "shopify_product_id" });
           console.log(`[publish-to-shopify] ✅ shopify_products mirror written for Shopify ID: ${shopifyProductId}`);
         } catch (spErr) {
