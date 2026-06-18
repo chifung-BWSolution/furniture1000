@@ -118,6 +118,36 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
   const [showImageUploadDialog, setShowImageUploadDialog] = useState(false);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
 
+  // Snapshot of last-saved state for dirty tracking
+  const [savedSnapshot, setSavedSnapshot] = useState<{
+    name: string; sku: string; desc: string;
+    primaryImg: string; extraImgs: string[];
+    seoTitle: string; seoDesc: string; handle: string;
+  } | null>(null);
+
+  const isDirty = useMemo(() => {
+    if (!savedSnapshot || !activeId) return false;
+    return (
+      name !== savedSnapshot.name ||
+      sku !== savedSnapshot.sku ||
+      desc !== savedSnapshot.desc ||
+      primaryImg !== savedSnapshot.primaryImg ||
+      extraImgs.length !== savedSnapshot.extraImgs.length ||
+      extraImgs.some((s, i) => s !== savedSnapshot.extraImgs[i]) ||
+      seoTitle !== savedSnapshot.seoTitle ||
+      seoDesc !== savedSnapshot.seoDesc ||
+      handle !== savedSnapshot.handle
+    );
+  }, [savedSnapshot, activeId, name, sku, desc, primaryImg, extraImgs, seoTitle, seoDesc, handle]);
+
+  // Warn browser on tab/window close when there are unsaved changes
+  useEffect(() => {
+    if (!isDirty) return;
+    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [isDirty]);
+
   // Load saved ready_to_shopify data when opening a product
   const openProduct = useCallback(async (p: CopyItem) => {
     setActiveId(p.id);
@@ -137,6 +167,9 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
       .eq('id', p.id)
       .maybeSingle();
 
+    let finalPrimary = p.imageUrl;
+    let finalExtras: string[] = [];
+
     if (prod) {
       const primaryImg = (Array.isArray(prod.images) && prod.images[0]?.src) || prod.image_url || p.imageUrl || '';
       const extraImgs = [prod.image_url_2, prod.image_url_3].filter(Boolean) as string[];
@@ -146,8 +179,8 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
           if (src && typeof src === 'string' && !extraImgs.includes(src)) extraImgs.push(src);
         });
       }
-      if (primaryImg) setPrimaryImg(primaryImg);
-      setExtraImgs(extraImgs);
+      if (primaryImg) { setPrimaryImg(primaryImg); finalPrimary = primaryImg; }
+      setExtraImgs(extraImgs); finalExtras = extraImgs;
     }
 
     // Fetch previously saved data from ready_to_shopify (overrides products)
@@ -157,19 +190,29 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
       .eq('product_id', p.id)
       .maybeSingle();
 
+    let snapName = p.title, snapSku = p.sku, snapDesc = p.description;
+    let snapSeoTitle = p.seoTitle, snapSeoDesc = p.seoDescription, snapHandle = p.handle;
+
     if (rts) {
-      if (rts.title) setName(rts.title);
-      if (rts.sku) setSku(rts.sku);
-      if (rts.body_html) setDesc(rts.body_html);
-      if (rts.image_url) setPrimaryImg(rts.image_url);
+      if (rts.title) { setName(rts.title); snapName = rts.title; }
+      if (rts.sku) { setSku(rts.sku); snapSku = rts.sku; }
+      if (rts.body_html) { setDesc(rts.body_html); snapDesc = rts.body_html; }
+      if (rts.image_url) { setPrimaryImg(rts.image_url); finalPrimary = rts.image_url; }
       if (Array.isArray(rts.images) && rts.images.length > 0) {
-        setExtraImgs(rts.images.map((img: any) => img?.src || img).filter(Boolean));
+        const imgs = rts.images.map((img: any) => img?.src || img).filter(Boolean);
+        setExtraImgs(imgs); finalExtras = imgs;
       }
-      if (rts.shopify_page_title) setSeoTitle(rts.shopify_page_title);
-      if (rts.shopify_page_description) setSeoDesc(rts.shopify_page_description);
-      if (rts.shopify_url) setHandle(rts.shopify_url);
-      else if (rts.handle) setHandle(rts.handle);
+      if (rts.shopify_page_title) { setSeoTitle(rts.shopify_page_title); snapSeoTitle = rts.shopify_page_title; }
+      if (rts.shopify_page_description) { setSeoDesc(rts.shopify_page_description); snapSeoDesc = rts.shopify_page_description; }
+      if (rts.shopify_url) { setHandle(rts.shopify_url); snapHandle = rts.shopify_url; }
+      else if (rts.handle) { setHandle(rts.handle); snapHandle = rts.handle; }
     }
+
+    setSavedSnapshot({
+      name: snapName, sku: snapSku, desc: snapDesc,
+      primaryImg: finalPrimary, extraImgs: finalExtras,
+      seoTitle: snapSeoTitle, seoDesc: snapSeoDesc, handle: snapHandle,
+    });
   }, []);
 
   // Drag-to-swap state
@@ -282,6 +325,13 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
         // Update local image state to resolved HTTP URLs
         if (resolvedPrimary !== primaryImg) setPrimaryImg(resolvedPrimary);
         if (resolvedExtras.some((s, i) => s !== extraImgs[i])) setExtraImgs(resolvedExtras);
+        // Update saved snapshot so dirty indicator resets
+        setSavedSnapshot({
+          name, sku, desc,
+          primaryImg: resolvedPrimary,
+          extraImgs: resolvedExtras,
+          seoTitle, seoDesc, handle,
+        });
         toast.success('已儲存', { description: '產品文案已同步至 ready_to_shopify，可繼續修改圖片' });
       }
     } catch {
@@ -606,10 +656,22 @@ ${rawDesc}
     <div className="flex h-full flex-col overflow-hidden bg-background">
       {/* Header */}
       <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-muted/30 px-8 py-3.5">
-        <button onClick={() => setActiveId(null)} className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+        <button
+          onClick={() => {
+            if (isDirty && !window.confirm('您有未儲存的更改，確定要返回列表嗎？')) return;
+            setActiveId(null);
+          }}
+          className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+        >
           <ChevronLeft className="h-4 w-4" /> 返回列表
         </button>
         <div className="flex items-center gap-2">
+          {isDirty && !isSaving && (
+            <span className="flex items-center gap-1 rounded-md bg-amber-500/10 px-2 py-1 text-[11px] font-medium text-amber-600 dark:text-amber-400 ring-1 ring-amber-500/20">
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+              未儲存
+            </span>
+          )}
           <button
             onClick={handleSave}
             disabled={isSaving}
