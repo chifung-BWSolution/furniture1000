@@ -263,6 +263,9 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
           .from('ready_to_shopify')
           .update({
             handle: it.sku || null,
+            // Sync edited 產品價錢 → ready_to_shopify.price so 傢俬組檢查
+            // (list + detail) shows the updated 售價 instead of a stale HK$0
+            price: it.price,
             tags: it.tags.length > 0 ? it.tags : null,
             product_type: [it.level1, it.level2].filter(Boolean).join(' / ') || null,
             ...(deliveryInfo != null && { status: 'draft' }),

@@ -83,6 +83,8 @@ interface ListedProduct {
   collection: string;
   status: string;
   imageUrl: string;
+  imageUrl2?: string | null;
+  imageUrl3?: string | null;
   images?: { id?: number; src: string; alt?: string }[];
   shopifyProductId: string | null;
   source: string;
@@ -117,6 +119,8 @@ interface ListedProduct {
   dimensionHMm?: number | null;
   productSku?: string | null;
   isOnShopify?: boolean;
+  shopifyTitle?: string | null;
+  shopifyId?: string | null;
 }
 
 interface ListedProductsViewProps {
@@ -441,7 +445,7 @@ export function ListedProductsView({
       // Build data query — explicit columns (avoid heavy JSONB like description_html when not needed for list view)
       const LIST_COLUMNS = [
         'id', 'title', 'description', 'tags', 'price', 'compare_at_price',
-        'collection', 'status', 'image_url', 'images',
+        'collection', 'status', 'image_url', 'image_url_2', 'image_url_3', 'images',
         'shopify_product_id', 'source', 'synced_at', 'created_at',
         'color', 'factory_id', 'factories_display_name',
         'cost_price', 'sale_price', 'production_date', 'shipping_days', 'total_lead_time',
@@ -540,6 +544,8 @@ export function ListedProductsView({
         collection: row.collection,
         status: row.status,
         imageUrl: row.image_url,
+        imageUrl2: row.image_url_2 || null,
+        imageUrl3: row.image_url_3 || null,
         images: row.images || [],
         shopifyProductId: row.shopify_product_id || null,
         source: row.source || 'local',
@@ -607,17 +613,27 @@ export function ListedProductsView({
           );
         });
 
-      // 背景查詢 shopify_products，以 uuid 欄位配對 products.id，標記已上架產品
+      // 背景查詢 shopify_products，以 source_product_id 配對 products.id，
+      // 標記已上架產品並帶回 Shopify 名稱 / Shopify ID。
       supabase
         .from('shopify_products')
-        .select('uuid')
-        .in('uuid', productIds)
+        .select('source_product_id,shopify_product_id,title')
+        .in('source_product_id', productIds)
         .then(({ data: shopifyRows }) => {
           if (!shopifyRows || shopifyRows.length === 0) return;
-          const onShopifyIds = new Set(shopifyRows.map((r: any) => r.uuid));
+          const byProductId = new Map<string, any>(
+            shopifyRows.map((r: any) => [r.source_product_id, r])
+          );
           setProducts((prev) =>
             prev.map((p) =>
-              onShopifyIds.has(p.id) ? { ...p, isOnShopify: true } : p
+              byProductId.has(p.id)
+                ? {
+                    ...p,
+                    isOnShopify: true,
+                    shopifyTitle: byProductId.get(p.id)?.title ?? null,
+                    shopifyId: byProductId.get(p.id)?.shopify_product_id ?? null,
+                  }
+                : p
             )
           );
         });
@@ -1065,6 +1081,18 @@ export function ListedProductsView({
       price: p.salePrice ?? p.price ?? null,
       // cost = products.cost_price (成本，供產品信息頁參考)
       cost: p.costPrice ?? null,
+      // 額外產品屬性（從 products 帶過來，供發佈流程參考）
+      factory_id: p.factoryId ?? null,
+      remarks: p.remarks ?? null,
+      color: p.color ?? null,
+      dimension_l_mm: p.dimensionLMm ?? null,
+      dimension_w_mm: p.dimensionWMm ?? null,
+      dimension_h_mm: p.dimensionHMm ?? null,
+      material: p.material ?? null,
+      image_url_2: p.imageUrl2 ?? null,
+      image_url_3: p.imageUrl3 ?? null,
+      in_stock: p.inStock ?? null,
+      production_time: p.productionTime ?? null,
       status: 'draft',
       imported_at: new Date().toISOString(),
     }));
@@ -1741,9 +1769,12 @@ export function ListedProductsView({
                     className="relative flex flex-col rounded-xl border border-border bg-card overflow-hidden hover:shadow-md transition-shadow cursor-pointer"
                     onClick={(e) => handleRowClick(e, product)}
                   >
-                    {/* 已上架Shopify badge */}
+                    {/* 已上架Shopify badge — hover 顯示對應的 Shopify 產品名稱 / ID */}
                     {product.isOnShopify && (
-                      <div className="absolute top-2 right-2 z-10 rounded px-2 py-0.5 bg-blue-600 text-white font-display text-[11px] font-semibold tracking-wide shadow-sm pointer-events-none">
+                      <div
+                        className="absolute top-2 right-2 z-10 rounded px-2 py-0.5 bg-blue-600 text-white font-display text-[11px] font-semibold tracking-wide shadow-sm pointer-events-none"
+                        title={product.shopifyTitle ? `Shopify：${product.shopifyTitle}${product.shopifyId ? ` (ID: ${product.shopifyId})` : ''}` : '已上架 Shopify'}
+                      >
                         已上架Shopify
                       </div>
                     )}

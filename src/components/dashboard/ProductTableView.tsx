@@ -62,6 +62,7 @@ interface ProductTableRowProps {
   onEditValueChange: (value: string) => void;
   onSaveEdit: () => void;
   onUpdateProduct: (id: string, updates: Partial<Product>) => void;
+  onUpdateRtsTags?: (rtsId: string, tags: string[]) => Promise<void>;
   onRetryPublish: (id: string) => void;
   onDeleteProduct: (id: string) => void;
   onOpenVariantModal: (product: Product) => void;
@@ -79,6 +80,7 @@ const ProductTableRow = memo(function ProductTableRow({
   onEditValueChange,
   onSaveEdit,
   onUpdateProduct,
+  onUpdateRtsTags,
   onRetryPublish,
   onDeleteProduct,
   onOpenVariantModal,
@@ -226,7 +228,10 @@ const ProductTableRow = memo(function ProductTableRow({
       <td className="px-4 py-3">
         <TagSelector
           selectedTags={product.tags}
-          onChange={(tags) => onUpdateProduct(product.id, { tags })}
+          onChange={(tags) => {
+            onUpdateProduct(product.id, { tags });
+            if (onUpdateRtsTags) onUpdateRtsTags(product.id, tags);
+          }}
           compact
           maxVisible={3}
         />
@@ -282,6 +287,7 @@ interface ProductTableViewProps {
   onSelectAll: (ids: string[]) => void;
   onSelectRange: (ids: string[], selected: boolean) => void;
   onUpdateProduct: (id: string, updates: Partial<Product>) => void;
+  onUpdateRtsTags?: (rtsId: string, tags: string[]) => Promise<void>;
   onRetryPublish: (id: string) => void;
   onDeleteProduct: (id: string) => void;
   onBatchDeleteProducts?: (ids: string[]) => Promise<void>;
@@ -306,6 +312,7 @@ export const ProductTableView = memo(function ProductTableView({
   onSelectAll,
   onSelectRange,
   onUpdateProduct,
+  onUpdateRtsTags,
   onRetryPublish,
   onDeleteProduct,
   onBatchDeleteProducts,
@@ -721,6 +728,7 @@ export const ProductTableView = memo(function ProductTableView({
                   onEditValueChange={setEditValue}
                   onSaveEdit={saveEdit}
                   onUpdateProduct={onUpdateProduct}
+                  onUpdateRtsTags={onUpdateRtsTags}
                   onRetryPublish={onRetryPublish}
                   onDeleteProduct={onDeleteProduct}
                   onOpenVariantModal={handleOpenVariantModal}

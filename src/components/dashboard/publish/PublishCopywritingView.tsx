@@ -326,10 +326,15 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
       if (error) {
         toast.error('儲存失敗', { description: error.message });
       } else {
-        // Also update products.sku
-        if (sku) {
-          await supabase.from('products').update({ sku }).eq('id', activeId);
-        }
+        // 圖片同步寫回 products（image_url 主圖、image_url_2/3 額外圖、images jsonb）
+        const productUpdate: Record<string, any> = {
+          image_url: resolvedPrimary || null,
+          image_url_2: resolvedExtras[0] || null,
+          image_url_3: resolvedExtras[1] || null,
+          images: imagesJson.length > 0 ? imagesJson : null,
+        };
+        if (sku) productUpdate.sku = sku;
+        await supabase.from('products').update(productUpdate).eq('id', activeId);
         // Update local image state to resolved HTTP URLs
         if (resolvedPrimary !== primaryImg) setPrimaryImg(resolvedPrimary);
         if (resolvedExtras.some((s, i) => s !== extraImgs[i])) setExtraImgs(resolvedExtras);
@@ -375,6 +380,9 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
       }
       toast.dismiss('img-upload');
 
+      // 圖片同步寫回 products（image_url 主圖、image_url_2/3 額外圖、images jsonb）
+      const submitImagesJson = resolvedExtras.map((src, idx) => ({ src, position: idx + 1 }));
+
       // 1. Update products table
       const { error } = await supabase
         .from('products')
@@ -382,6 +390,10 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
           title: name,
           sku: sku || undefined,
           description: desc,
+          image_url: resolvedPrimary || null,
+          image_url_2: resolvedExtras[0] || null,
+          image_url_3: resolvedExtras[1] || null,
+          images: submitImagesJson.length > 0 ? submitImagesJson : null,
           copy_done: true,
           copy_done_at: new Date().toISOString(),
           revert_reason: null,

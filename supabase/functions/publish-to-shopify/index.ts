@@ -11,38 +11,6 @@ const corsHeaders = {
 const TOKEN_STALENESS_THRESHOLD_MS = 60 * 60 * 1000;
 const STORAGE_BUCKET = "product-images";
 
-const MASTER_SUPABASE_URL = "https://kqwktnplkqucsbasyfjl.supabase.co";
-
-function getMasterClient(): ReturnType<typeof createClient> | null {
-  const masterServiceKey = Deno.env.get("MASTER_SERVICE_ROLE_KEY");
-  if (!masterServiceKey) {
-    console.warn(
-      "[publish-to-shopify] ⚠️ MASTER_SERVICE_ROLE_KEY not set. " +
-      "Skipping bwf_product_master upsert on Global Master project."
-    );
-    return null;
-  }
-  return createClient(MASTER_SUPABASE_URL, masterServiceKey);
-}
-
-async function upsertToMaster(
-  masterClient: ReturnType<typeof createClient>,
-  record: Record<string, unknown>
-): Promise<void> {
-  try {
-    const { error: masterErr } = await masterClient
-      .from("bwf_product_master")
-      .upsert(record, { onConflict: "shopify_id" });
-    if (masterErr) {
-      console.error(`[publish-to-shopify] ⚠️ MASTER bwf_product_master upsert error:`, masterErr.message);
-    } else {
-      console.log(`[publish-to-shopify] ✅ MASTER bwf_product_master upserted for Shopify ID: ${record.shopify_id}`);
-    }
-  } catch (err) {
-    console.error(`[publish-to-shopify] ⚠️ MASTER bwf_product_master upsert exception:`, err instanceof Error ? err.message : String(err));
-  }
-}
-
 interface ProductPayload {
   id: string;
   title: string;
@@ -274,7 +242,6 @@ Deno.serve(async (req: Request) => {
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseServiceKey);
-    const masterSupabase = getMasterClient();
 
     let shopifyAccessToken = "";
     let shopifyStoreUrl = "";
@@ -548,28 +515,42 @@ Deno.serve(async (req: Request) => {
                 console.log(`[publish-to-shopify] ✅ FALLBACK SUCCESS: "${product.title}" → Shopify ID: ${shopifyProductId}`);
                 await supabase.from("products").update({ status: "success", shopify_product_id: shopifyProductId, error_message: warningMsg, source: "local" }).eq("id", product.id);
 
-                const fbVariants = (fallbackCreated.variants as Record<string, unknown>[]) || [];
-                const fbPrice = fbVariants[0]?.price ? Number(fbVariants[0].price) : product.price;
-                const fbCompareAt = fbVariants[0]?.compare_at_price ? Number(fbVariants[0].compare_at_price) : (product.compare_at_price || null);
-                const fallbackMasterRecord = {
-                  shopify_id: shopifyProductId,
-                  title: product.title || null,
-                  factory_name: product.factory_name || null,
-                  image_url: product.image_url || null,
-                  description: product.description_html || null,
-                  cost_price: product.cost_price || null,
-                  sale_price: product.sale_price || product.price || null,
-                  shopify_price: fbPrice,
-                  shopify_compare_at_price: fbCompareAt,
-                };
+                // 寫入 shopify_products mirror（fallback：無圖上傳成功）
                 try {
-                  const { error: localMasterErr } = await supabase.from("bwf_product_master").upsert(fallbackMasterRecord, { onConflict: "shopify_id" });
-                  if (localMasterErr) console.error(`[publish-to-shopify] ⚠️ PRIMARY bwf_product_master upsert error (fallback):`, localMasterErr.message);
-                  else console.log(`[publish-to-shopify] ✅ PRIMARY bwf_product_master upserted (fallback) for Shopify ID: ${shopifyProductId}`);
-                } catch (localErr) {
-                  console.error(`[publish-to-shopify] ⚠️ PRIMARY bwf_product_master exception (fallback):`, localErr);
+                  const fbCreatedImages = (fallbackCreated.images as Record<string, unknown>[]) || [];
+                  const fbCreatedVariants = (fallbackCreated.variants as Record<string, unknown>[]) || [];
+                  const fbSpPrice = fbCreatedVariants[0]?.price != null ? Number(fbCreatedVariants[0].price) : (product.price ?? 0);
+                  const fbSpCompareAt = fbCreatedVariants[0]?.compare_at_price != null ? Number(fbCreatedVariants[0].compare_at_price) : null;
+                  const fbMfColumns: Record<string, string> = {};
+                  for (const m of shopifyMetafields) {
+                    fbMfColumns[`${m.namespace}.${m.key}`] = m.value;
+                  }
+                  await supabase.from("shopify_products").upsert({
+                    shopify_product_id: shopifyProductId,
+                    source_product_id: product.id,
+                    title: product.title || null,
+                    body_html: product.description_html || null,
+                    vendor: product.vendor || product.factory_name || null,
+                    product_type: product.product_type || null,
+                    handle: String(fallbackCreated.handle || ""),
+                    status: "active",
+                    published_at: new Date().toISOString(),
+                    image_url: product.image_url || null,
+                    images: fbCreatedImages.length > 0 ? fbCreatedImages : null,
+                    variants: fbCreatedVariants.length > 0 ? fbCreatedVariants : null,
+                    tags: Array.isArray(product.tags) ? product.tags : [],
+                    price: fbSpPrice,
+                    compare_at_price: fbSpCompareAt,
+                    shopify_created_at: String(fallbackCreated.created_at || new Date().toISOString()),
+                    shopify_updated_at: String(fallbackCreated.updated_at || new Date().toISOString()),
+                    imported_at: new Date().toISOString(),
+                    shop_domain: storeHost,
+                    metafields: shopifyMetafields.length > 0 ? shopifyMetafields : null,
+                    ...fbMfColumns,
+                  }, { onConflict: "shopify_product_id" });
+                } catch (fbSpErr) {
+                  console.warn(`[publish-to-shopify] ⚠️ shopify_products mirror write failed (fallback, non-blocking):`, fbSpErr instanceof Error ? fbSpErr.message : String(fbSpErr));
                 }
-                if (masterSupabase) await upsertToMaster(masterSupabase, fallbackMasterRecord);
 
                 results.push({ id: product.id, success: true, shopify_product_id: shopifyProductId, action: "created_without_image", image_warning: warningMsg });
                 continue;
@@ -627,6 +608,8 @@ Deno.serve(async (req: Request) => {
           }
           await supabase.from("shopify_products").upsert({
             shopify_product_id: shopifyProductId,
+            // 連結回 products 表（products.id），讓產品目錄可判斷是否已上傳 Shopify
+            source_product_id: product.id,
             title: product.title || null,
             body_html: product.description_html || null,
             vendor: product.vendor || product.factory_name || null,
@@ -651,27 +634,6 @@ Deno.serve(async (req: Request) => {
         } catch (spErr) {
           console.warn(`[publish-to-shopify] ⚠️ shopify_products mirror write failed (non-blocking):`, spErr instanceof Error ? spErr.message : String(spErr));
         }
-
-        // ── DUAL WRITE: Upsert into bwf_product_master ────────────────────
-        const masterRecord = {
-          shopify_id: shopifyProductId,
-          title: product.title || null,
-          factory_name: product.factory_name || null,
-          image_url: resolvedImageUrl || product.image_url || null,
-          description: product.description_html || null,
-          cost_price: product.cost_price || null,
-          sale_price: product.sale_price || product.price || null,
-          shopify_price: shopifyReturnedPrice,
-          shopify_compare_at_price: shopifyReturnedCompareAt,
-        };
-        try {
-          const { error: localMasterErr } = await supabase.from("bwf_product_master").upsert(masterRecord, { onConflict: "shopify_id" });
-          if (localMasterErr) console.error(`[publish-to-shopify] ⚠️ PRIMARY bwf_product_master upsert error for "${product.title}":`, localMasterErr.message);
-          else console.log(`[publish-to-shopify] ✅ PRIMARY bwf_product_master upserted for Shopify ID: ${shopifyProductId}`);
-        } catch (localMasterCatchErr) {
-          console.error(`[publish-to-shopify] ⚠️ PRIMARY bwf_product_master upsert exception:`, localMasterCatchErr);
-        }
-        if (masterSupabase) await upsertToMaster(masterSupabase, masterRecord);
 
         results.push({ id: product.id, success: true, shopify_product_id: shopifyProductId, action: "created", image_warning: imageWarning });
 

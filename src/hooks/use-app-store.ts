@@ -494,11 +494,15 @@ export function useAppStore() {
           const prodId = rtsToProductId[p.id];
           const extra = prodId ? productMap[prodId] : null;
           if (!extra) return p;
-          const rawTags = extra.tags;
-          const tags: string[] = Array.isArray(rawTags) ? rawTags
-            : typeof rawTags === 'string' && rawTags
-              ? rawTags.split(',').map((t: string) => t.trim()).filter(Boolean)
-              : p.tags;
+          // Preserve ready_to_shopify.tags (already on p from Step 1).
+          // Only fall back to products.tags when RTS had no tags at all.
+          const rtsTags: string[] = p.tags && p.tags.length > 0 ? p.tags : [];
+          const rawProductTags = extra.tags;
+          const productTags: string[] = Array.isArray(rawProductTags) ? rawProductTags
+            : typeof rawProductTags === 'string' && rawProductTags
+              ? rawProductTags.split(',').map((t: string) => t.trim()).filter(Boolean)
+              : [];
+          const tags: string[] = rtsTags.length > 0 ? rtsTags : productTags;
           return {
             ...p,
             tags,
@@ -943,6 +947,21 @@ export function useAppStore() {
   const updateProduct = useCallback((id: string, updates: Partial<Product>) => {
     setProducts(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p));
     setHasUnsavedChanges(true);
+  }, []);
+
+  // Update tags for a ready-to-publish product: patches both local state and ready_to_shopify.tags
+  const updateReadyToPublishTags = useCallback(async (rtsId: string, tags: string[]) => {
+    setReadyToPublishList(prev =>
+      prev.map(p => p.id === rtsId ? { ...p, tags } : p)
+    );
+    const { error } = await supabase
+      .from('ready_to_shopify')
+      .update({ tags: tags.length > 0 ? tags : null })
+      .eq('id', rtsId);
+    if (error) {
+      console.error('[updateReadyToPublishTags] Failed:', error.message);
+      toast.error('標籤更新失敗', { description: error.message });
+    }
   }, []);
 
   const deleteProduct = useCallback((id: string) => {
@@ -1840,6 +1859,7 @@ export function useAppStore() {
     addProduct,
     addProducts,
     updateProduct,
+    updateReadyToPublishTags,
     deleteProduct,
     toggleProductSelection,
     selectAllProducts,

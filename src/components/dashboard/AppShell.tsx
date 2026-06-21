@@ -309,6 +309,7 @@ export function AppShell() {
             onSelectAll={store.selectAllProducts}
             onSelectRange={store.selectRangeProducts}
             onUpdateProduct={store.updateProduct}
+            onUpdateRtsTags={store.updateReadyToPublishTags}
             onRetryPublish={store.retryPublish}
             onDeleteProduct={store.deleteProduct}
             onClearFilter={handleClearFilter}
