@@ -402,6 +402,8 @@ export function useAppStore() {
         const { data, error } = await supabase
           .from('ready_to_shopify')
           .select('id,product_id,title,body_html,vendor,product_type,variants,tags,price,compare_at_price,shopify_product_id,status')
+          // Only show rows cleared by 傢俬組檢查 (true) or legacy rows (null = pre-feature)
+          .or('furniture_group_checked.is.null,furniture_group_checked.eq.true')
           .range(from, from + PAGE - 1);
         if (error) { console.warn('[reloadReadyToPublish] query error:', error.message); break; }
         if (!data || data.length === 0) break;
@@ -478,7 +480,7 @@ export function useAppStore() {
       for (let i = 0; i < productIds.length; i += PROD_BATCH) {
         const { data: pRows } = await supabase
           .from('products')
-          .select('id,sku,cost_price,sale_price,dimension_l_mm,dimension_w_mm,dimension_h_mm,tags,category,material,factory_id,bwf_master_id,production_date,shipping_days,shipping_fee,remarks')
+          .select('id,sku,cost_price,sale_price,dimension_l_mm,dimension_w_mm,dimension_h_mm,tags,category,level1_category,level2_category,material,factory_id,bwf_master_id,production_date,shipping_days,shipping_fee,remarks,in_stock,customize')
           .in('id', productIds.slice(i, i + PROD_BATCH));
         (pRows || []).forEach((p: any) => { productMap[p.id] = p; });
       }
@@ -507,6 +509,8 @@ export function useAppStore() {
             dimensionWMm: extra.dimension_w_mm ?? p.dimensionWMm,
             dimensionHMm: extra.dimension_h_mm ?? p.dimensionHMm,
             category: extra.category || p.category,
+            level1Category: extra.level1_category || (p as any).level1Category || null,
+            level2Category: extra.level2_category || (p as any).level2Category || null,
             material: extra.material || p.material,
             factoryId: extra.factory_id || p.factoryId,
             bwfMasterId: extra.bwf_master_id || p.bwfMasterId,
@@ -514,6 +518,8 @@ export function useAppStore() {
             shippingDays: extra.shipping_days ?? p.shippingDays,
             shippingFee: extra.shipping_fee ?? p.shippingFee,
             remarks: extra.remarks ?? p.remarks,
+            inStock: extra.in_stock != null ? Boolean(extra.in_stock) : (p as any).inStock ?? null,
+            customize: extra.customize ?? (p as any).customize ?? null,
           };
         })
       );
@@ -1011,16 +1017,21 @@ export function useAppStore() {
       return;
     }
 
-    const selectedProductIds_arr = selectedProducts.map(p => p.id);
+    // For readyToPublishList products p.id = RTS row UUID and p.productId = products.id.
+    // For products list products p.id = products.id directly.
+    // Use productId when available so all downstream queries hit the products table correctly.
+    const selectedProductIds_arr = selectedProducts.map(p => (p as any).productId || p.id);
 
-    // Save products to local DB first to ensure consistency
+    // Save products to local DB first to ensure consistency.
+    // RTS products have productId != id — skip them here; they're already in the products table.
+    const productsToSave = selectedProducts.filter(p => !(p as any).productId);
     try {
-      await saveProductsToDb(selectedProducts);
-      console.log('[uploadToMasterDb] Pre-upload save successful for', selectedProducts.length, 'products');
+      if (productsToSave.length > 0) await saveProductsToDb(productsToSave);
+      console.log('[uploadToMasterDb] Pre-upload save successful for', productsToSave.length, 'products');
     } catch (saveErr) {
       console.error('[uploadToMasterDb] Pre-upload save failed:', saveErr);
       // Try individual upserts as fallback
-      for (const p of selectedProducts) {
+      for (const p of productsToSave) {
         try {
           await supabase.from('products').upsert({
             id: p.id,
@@ -1076,42 +1087,82 @@ export function useAppStore() {
     // finalised title, body_html, price, image_url, images, variants.
     const { data: rtsRows, error: rtsErr } = await supabase
       .from('ready_to_shopify')
-      .select('product_id,title,body_html,price,image_url,images,variants')
+      .select('product_id,title,body_html,price,image_url,images,variants,product_type,tags')
       .in('product_id', selectedProductIds_arr);
     if (rtsErr) {
       console.warn('[publishToShopify] ready_to_shopify fetch error:', rtsErr.message);
     }
     const rtsMap = new Map<string, any>((rtsRows || []).map((r: any) => [r.product_id, r]));
 
+    // Metafield columns mirrored on shopify_products (namespace.key). Pulled in
+    // for products that already have a Shopify match so metafields upload too.
+    const METAFIELD_COLS = [
+      'my_fields.recommend_size', 'my_fields.normal_size', 'my_fields.materials',
+      'my_fields.production_time', 'my_fields.more_recommend_size', 'my_fields.image_alt',
+      'my_fields.image_link', 'my_fields.video_link',
+      'custom.more_image_link_1', 'custom.more_image_alt_1', 'custom.more_image_link_2',
+      'custom.more_image_alt_2', 'custom.more_image_link_3', 'custom.more_image_alt_3',
+      'custom.more_image_link_4', 'custom.more_image_alt_4',
+    ];
+    const shopifyIdsForMf = selectedProducts.map(p => p.shopifyProductId).filter(Boolean) as string[];
+    const mfByShopifyId = new Map<string, Record<string, string>>();
+    if (shopifyIdsForMf.length > 0) {
+      const { data: mfRows } = await supabase
+        .from('shopify_products')
+        .select(['shopify_product_id', ...METAFIELD_COLS].map(c => `"${c}"`).join(','))
+        .in('shopify_product_id', shopifyIdsForMf);
+      for (const row of (mfRows || []) as any[]) {
+        const map: Record<string, string> = {};
+        for (const col of METAFIELD_COLS) {
+          if (row[col]) map[col] = row[col];
+        }
+        if (Object.keys(map).length > 0) mfByShopifyId.set(String(row.shopify_product_id), map);
+      }
+    }
+
     // Build payload for publish-to-shopify edge function.
     // Content fields (title, description, price, images, variants) come from
     // ready_to_shopify; meta fields (vendor, category, dimensions, etc.) come
     // from the products state.
     const payload = selectedProducts.map(p => {
-      const rts = rtsMap.get(p.id);
+      // productId is the products table UUID; for readyToPublishList p.id is the RTS UUID
+      const productId = (p as any).productId || p.id;
+      const rts = rtsMap.get(productId);
+      // Merge tags from both tables, deduplicated
+      const rtsTags: string[] = Array.isArray(rts?.tags) ? rts.tags : (typeof rts?.tags === 'string' && rts.tags ? rts.tags.split(',').map((t: string) => t.trim()).filter(Boolean) : []);
+      const productTags: string[] = Array.isArray(p.tags) ? p.tags : [];
+      const mergedTags = Array.from(new Set([...productTags, ...rtsTags]));
+      // Build additional images list from RTS (exclude primary to avoid duplicate)
+      const primaryUrl: string = rts?.image_url || p.imageUrl || '';
+      const additionalImages: { src: string }[] = [];
+      if (Array.isArray(rts?.images)) {
+        for (const im of rts.images) {
+          const src: string = im?.src || im?.url || (typeof im === 'string' ? im : '');
+          if (src && src !== primaryUrl) additionalImages.push({ src });
+        }
+      } else if (Array.isArray((p as any).images)) {
+        for (const im of (p as any).images) {
+          const src: string = im?.src || im?.url || (typeof im === 'string' ? im : '');
+          if (src && src !== primaryUrl) additionalImages.push({ src });
+        }
+      }
       return {
-        id: p.id,
+        id: productId,
         title: rts?.title || p.title,
         description_html: rts?.body_html || p.descriptionHtml || p.description || '',
-        tags: p.tags || [],
+        tags: mergedTags,
         price: rts?.price ?? p.salePrice ?? p.price ?? 0,
         compare_at_price: p.compareAtPrice ?? null,
-        collection: p.collection || '',
-        image_url: rts?.image_url || p.imageUrl || '',
-        images: (rts?.images && rts.images.length > 0) ? rts.images : ((p as any).images || []),
+        image_url: primaryUrl,
+        images: additionalImages,
         shopify_product_id: p.shopifyProductId || null,
         variants: (rts?.variants && rts.variants.length > 0) ? rts.variants : ((p.variants && p.variants.length > 0) ? p.variants : []),
         vendor: p.factoriesDisplayName || p.factoryName || '',
-        product_type: p.collection || '',
-        category: p.category || p.collection || '',
+        product_type: rts?.product_type || '',
         factory_name: p.factoriesDisplayName || p.factoryName || '',
-        material: p.material || '',
-        dimension_l_mm: p.dimensionLMm ?? null,
-        dimension_w_mm: p.dimensionWMm ?? null,
-        dimension_h_mm: p.dimensionHMm ?? null,
         cost_price: p.costPrice ?? null,
         sale_price: rts?.price ?? p.salePrice ?? 0,
-        delivery_days: p.deliveryDays ?? null,
+        metafields: p.shopifyProductId ? (mfByShopifyId.get(String(p.shopifyProductId)) || undefined) : undefined,
       };
     });
 
@@ -1363,26 +1414,33 @@ export function useAppStore() {
       .update({ status: 'publishing' })
       .eq('id', id);
 
+    // Fetch the ready_to_shopify row for this product to get finalised content
+    const { data: rtsRetryRows } = await supabase
+      .from('ready_to_shopify')
+      .select('product_id,title,body_html,price,image_url,images,variants,product_type,tags')
+      .eq('product_id', id)
+      .maybeSingle();
+    const rts = rtsRetryRows as any;
+    const rtsTags: string[] = Array.isArray(rts?.tags) ? rts.tags : (typeof rts?.tags === 'string' && rts?.tags ? rts.tags.split(',').map((t: string) => t.trim()).filter(Boolean) : []);
+    const productTags: string[] = Array.isArray(product.tags) ? product.tags : [];
+    const mergedTags = Array.from(new Set([...productTags, ...rtsTags]));
+
     const payload = [{
       id: product.id,
-      title: product.title,
-      description_html: product.descriptionHtml || product.description || '',
-      tags: product.tags || [],
-      price: product.price ?? 0,
+      title: rts?.title || product.title,
+      description_html: rts?.body_html || product.descriptionHtml || product.description || '',
+      tags: mergedTags,
+      price: rts?.price ?? product.salePrice ?? product.price ?? 0,
       compare_at_price: product.compareAtPrice ?? null,
-      collection: product.collection || '',
-      image_url: product.imageUrl || '',
+      image_url: rts?.image_url || product.imageUrl || '',
+      images: (rts?.images && rts.images.length > 0) ? rts.images : ((product as any).images || []),
       shopify_product_id: product.shopifyProductId || null,
-      variants: [],
-      category: product.category || product.collection || '',
-      factory_name: product.factoryName || product.factoriesDisplayName || '',
-      material: product.material || '',
-      dimension_l_mm: product.dimensionLMm ?? null,
-      dimension_w_mm: product.dimensionWMm ?? null,
-      dimension_h_mm: product.dimensionHMm ?? null,
+      variants: (rts?.variants && rts.variants.length > 0) ? rts.variants : [],
+      vendor: product.factoriesDisplayName || product.factoryName || '',
+      product_type: rts?.product_type || '',
+      factory_name: product.factoriesDisplayName || product.factoryName || '',
       cost_price: product.costPrice ?? null,
-      sale_price: product.salePrice ?? 0,
-      delivery_days: product.deliveryDays ?? null,
+      sale_price: rts?.price ?? product.salePrice ?? 0,
     }];
 
     try {

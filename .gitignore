@@ -34,3 +34,10 @@ tempo/.tempo/
 tempo/node_modules/
 tempo/dist/
 furniture1000-main/
+
+# local secrets / temp
+._svc_tmp
+._recovery_plan.json
+
+# Supabase MCP config (contains access token)
+.mcp.json

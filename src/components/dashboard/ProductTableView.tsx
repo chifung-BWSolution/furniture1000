@@ -284,6 +284,7 @@ interface ProductTableViewProps {
   onUpdateProduct: (id: string, updates: Partial<Product>) => void;
   onRetryPublish: (id: string) => void;
   onDeleteProduct: (id: string) => void;
+  onBatchDeleteProducts?: (ids: string[]) => Promise<void>;
   onClearFilter: () => void;
   onSyncFromShopify?: () => Promise<any>;
   onUploadUnsyncedToMaster?: () => Promise<any>;
@@ -307,6 +308,7 @@ export const ProductTableView = memo(function ProductTableView({
   onUpdateProduct,
   onRetryPublish,
   onDeleteProduct,
+  onBatchDeleteProducts,
   onClearFilter,
   onSyncFromShopify,
   onUploadUnsyncedToMaster,
@@ -339,14 +341,17 @@ export const ProductTableView = memo(function ProductTableView({
   // Shift-click range selection state
   const lastSelectedIndexRef = useRef<number | null>(null);
 
-  const handleBatchDelete = useCallback(() => {
-    const count = selectedIds.size;
-    selectedIds.forEach(id => {
-      onDeleteProduct(id);
-    });
+  const handleBatchDelete = useCallback(async () => {
+    const ids = Array.from(selectedIds);
+    const count = ids.length;
     setShowBatchDeleteModal(false);
-    toast.success(`已成功刪除 ${count} 個產品`);
-  }, [selectedIds, onDeleteProduct]);
+    if (onBatchDeleteProducts) {
+      await onBatchDeleteProducts(ids);
+    } else {
+      ids.forEach(id => onDeleteProduct(id));
+      toast.success(`已成功刪除 ${count} 個產品`);
+    }
+  }, [selectedIds, onDeleteProduct, onBatchDeleteProducts]);
 
   const baseProducts = useMemo(() =>
     filterProductId
@@ -1116,8 +1121,12 @@ export const ProductTableView = memo(function ProductTableView({
               bwfMasterId: detailProduct.bwfMasterId,
               remarks: detailProduct.remarks,
               category: detailProduct.category,
+              level1Category: (detailProduct as any).level1Category || detailProduct.collection || null,
+              level2Category: (detailProduct as any).level2Category || null,
               deliveryTermId: detailProduct.deliveryTermId,
               deliveryTermName: detailProduct.deliveryTermName,
+              inStock: (detailProduct as any).inStock ?? null,
+              customize: (detailProduct as any).customize ?? null,
               dimensionLMm: detailProduct.dimensionLMm,
               dimensionWMm: detailProduct.dimensionWMm,
               dimensionHMm: detailProduct.dimensionHMm,

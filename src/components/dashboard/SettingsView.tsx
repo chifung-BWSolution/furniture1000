@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import { AppSettings } from '@/types/product';
 import { Input } from '@/components/ui/input';
@@ -24,7 +24,9 @@ import {
   ShieldCheck,
   ExternalLink,
   Link2,
+  ImageIcon,
 } from 'lucide-react';
+import { supabase } from '@/lib/supabase';
 
 interface SettingsViewProps {
   settings: AppSettings;
@@ -41,6 +43,12 @@ export function SettingsView({ settings, onUpdateSettings }: SettingsViewProps) 
   const [localSettings, setLocalSettings] = useState(settings);
   const [oauthShopUrl, setOauthShopUrl] = useState(settings.shopifyStoreUrl || '');
   const [cachedClientId, setCachedClientId] = useState(() => localStorage.getItem('shopify_client_id') || '');
+
+  // Image migration state
+  const [migrating, setMigrating] = useState(false);
+  const [migrationDone, setMigrationDone] = useState(false);
+  const [migrationLog, setMigrationLog] = useState<string[]>([]);
+  const stopMigrationRef = useRef(false);
 
   // Initiate Shopify OAuth flow — opens Shopify's authorize page in a new tab
   const handleOAuthConnect = () => {
@@ -114,6 +122,57 @@ export function SettingsView({ settings, onUpdateSettings }: SettingsViewProps) 
       setSaveSuccess(true);
       setTimeout(() => setSaveSuccess(false), 3000);
     }
+  };
+
+  const handleMigrateImages = async () => {
+    setMigrating(true);
+    setMigrationDone(false);
+    setMigrationLog([]);
+    stopMigrationRef.current = false;
+
+    let totalConverted = 0;
+    let totalSkipped = 0;
+    let round = 0;
+
+    while (!stopMigrationRef.current) {
+      round++;
+      try {
+        const { data, error } = await supabase.functions.invoke('migrate-rts-images', {
+          body: { batch_size: 5 },
+        });
+
+        if (error) {
+          setMigrationLog(prev => [...prev, `❌ 第 ${round} 批：錯誤 — ${error.message}`]);
+          break;
+        }
+
+        const { processed, converted, skipped, remaining, done } = data as {
+          processed: number; converted: number; skipped: number; remaining: number; done: boolean;
+        };
+
+        totalConverted += converted ?? 0;
+        totalSkipped += skipped ?? 0;
+
+        setMigrationLog(prev => [
+          ...prev,
+          `第 ${round} 批：處理 ${processed} 張，成功 ${converted}，跳過 ${skipped}，剩餘 ${remaining}`,
+        ]);
+
+        if (done || remaining === 0) {
+          setMigrationLog(prev => [...prev, `✅ 完成！共轉換 ${totalConverted} 張，跳過 ${totalSkipped} 張`]);
+          setMigrationDone(true);
+          break;
+        }
+
+        // Small delay between batches to avoid overloading storage
+        await new Promise(r => setTimeout(r, 800));
+      } catch (e) {
+        setMigrationLog(prev => [...prev, `❌ 第 ${round} 批：例外 — ${String(e)}`]);
+        break;
+      }
+    }
+
+    setMigrating(false);
   };
 
   return (
@@ -452,6 +511,71 @@ export function SettingsView({ settings, onUpdateSettings }: SettingsViewProps) 
               <li>Value: Your Google Gemini API key</li>
               <li>Click Save — no redeployment needed</li>
             </ol>
+          </div>
+        </div>
+      </motion.div>
+
+      {/* Image Migration Tool */}
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.38, duration: 0.4 }}
+        className="space-y-5 rounded-xl border border-violet-500/30 bg-card p-6"
+      >
+        <div className="flex items-center gap-3">
+          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-violet-500/10">
+            <ImageIcon className="h-5 w-5 text-violet-500" />
+          </div>
+          <div>
+            <h3 className="font-display text-sm font-bold">修復產品圖片（Base64 → Storage URL）</h3>
+            <p className="text-xs text-muted-foreground font-body">
+              將 ready_to_shopify 表中殘留的 base64 圖片上傳到 Supabase Storage，替換為正式 HTTP URL
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-3">
+          <div className="flex gap-3">
+            <Button
+              onClick={handleMigrateImages}
+              disabled={migrating}
+              className="gap-2 bg-violet-600 hover:bg-violet-700 text-white font-display font-bold"
+            >
+              {migrating ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <ImageIcon className="h-4 w-4" />
+              )}
+              {migrating ? '遷移中...' : '開始修復圖片'}
+            </Button>
+            {migrating && (
+              <Button
+                variant="outline"
+                onClick={() => { stopMigrationRef.current = true; }}
+                className="gap-2 border-rose-500/50 text-rose-500 hover:bg-rose-500/10"
+              >
+                停止
+              </Button>
+            )}
+            {migrationDone && (
+              <span className="flex items-center gap-1.5 text-xs text-emerald-500 font-body">
+                <CheckCircle2 className="h-4 w-4" /> 所有圖片已修復！
+              </span>
+            )}
+          </div>
+
+          {migrationLog.length > 0 && (
+            <div className="rounded-lg bg-muted/50 border border-border p-3 space-y-1 max-h-48 overflow-y-auto">
+              {migrationLog.map((line, i) => (
+                <p key={i} className="text-[11px] font-mono-data text-muted-foreground leading-relaxed">{line}</p>
+              ))}
+            </div>
+          )}
+
+          <div className="rounded-lg bg-violet-500/5 border border-violet-500/20 p-3 space-y-1">
+            <p className="text-[10px] text-violet-400 font-body">
+              每批處理 5 張圖片，自動循環直到全部完成。若中途停止，下次再按會從剩餘圖片繼續。
+            </p>
           </div>
         </div>
       </motion.div>

@@ -1,9 +1,9 @@
 import { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import {
-  FileText, Sparkles, ChevronLeft, ArrowRight, Loader2,
+  FileText, ChevronLeft, ArrowRight, Loader2,
   UploadCloud, Search, X, Bold, Italic, Underline as UnderlineIcon,
   List, ListOrdered, Image as ImageIcon, Palette,
-  AlignLeft, AlignCenter, AlignRight, Wand2, Plus, Check,
+  AlignLeft, AlignCenter, AlignRight, Wand2, Plus, Check, Save, Hash,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -22,6 +22,8 @@ interface CopyItem {
   imageUrl: string;
   images: string[];
   factory: string;
+  factoryId: string;
+  model: string;
   level1: string;
   level2: string;
   seoTitle: string;
@@ -55,12 +57,15 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
   // list only needs the lightweight `image_url` thumbnail; full images are
   // loaded lazily when a product is opened (openProduct).
   const { rows, totalCount, isLoading, Toolbar, Pagination } = usePublishList({
-    select: 'id,title,description,image_url,factories_display_name,level1_category,level2_category,tags,sale_price,price,sku,model,revert_reason',
+    select: 'id,title,description,image_url,factories_display_name,level1_category,level2_category,tags,sale_price,price,sku,model,factory_id,revert_reason',
     applyBaseFilters: (q) => q.eq('in_shopify_queue', true).or('copy_done.is.null,copy_done.eq.false'),
     reloadKey,
   });
 
   const items: CopyItem[] = useMemo(() => rows.map((r: any) => {
+    const factoryId = r.factory_id || '';
+    const model = r.model || '';
+    const derivedSku = factoryId && model ? `${factoryId}-${model}` : (r.sku || r.model || '');
     return {
       id: r.id,
       title: r.title || '',
@@ -68,6 +73,8 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
       imageUrl: r.image_url || '',
       images: [], // populated lazily in openProduct
       factory: r.factories_display_name || '',
+      factoryId,
+      model,
       level1: r.level1_category || '',
       level2: r.level2_category || '',
       seoTitle: r.title || '',
@@ -76,7 +83,7 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
       tags: Array.isArray(r.tags) ? r.tags : [],
       price: r.price != null ? Number(r.price) : null,
       salePrice: r.sale_price != null ? Number(r.sale_price) : null,
-      sku: r.sku || r.model || '',
+      sku: derivedSku,
       revertReason: r.revert_reason ?? null,
     };
   }), [rows]);
@@ -97,7 +104,10 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
 
   // editable draft state
   const [name, setName] = useState('');
+  const [sku, setSku] = useState('');
   const [desc, setDesc] = useState('');
+  // Increment this to force RichEditor to sync its DOM from the latest `desc` value
+  const [editorKey, setEditorKey] = useState(0);
   // primaryImg: the main product image (image_url)
   const [primaryImg, setPrimaryImg] = useState<string>('');
   // extraImgs: additional images (images jsonb array)
@@ -108,11 +118,43 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
   const primaryFileRef = useRef<HTMLInputElement>(null);
   const extraFileRef = useRef<HTMLInputElement>(null);
   const [showImageUploadDialog, setShowImageUploadDialog] = useState(false);
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+
+  // Snapshot of last-saved state for dirty tracking
+  const [savedSnapshot, setSavedSnapshot] = useState<{
+    name: string; sku: string; desc: string;
+    primaryImg: string; extraImgs: string[];
+    seoTitle: string; seoDesc: string; handle: string;
+  } | null>(null);
+
+  const isDirty = useMemo(() => {
+    if (!savedSnapshot || !activeId) return false;
+    return (
+      name !== savedSnapshot.name ||
+      sku !== savedSnapshot.sku ||
+      desc !== savedSnapshot.desc ||
+      primaryImg !== savedSnapshot.primaryImg ||
+      extraImgs.length !== savedSnapshot.extraImgs.length ||
+      extraImgs.some((s, i) => s !== savedSnapshot.extraImgs[i]) ||
+      seoTitle !== savedSnapshot.seoTitle ||
+      seoDesc !== savedSnapshot.seoDesc ||
+      handle !== savedSnapshot.handle
+    );
+  }, [savedSnapshot, activeId, name, sku, desc, primaryImg, extraImgs, seoTitle, seoDesc, handle]);
+
+  // Warn browser on tab/window close when there are unsaved changes
+  useEffect(() => {
+    if (!isDirty) return;
+    const handler = (e: BeforeUnloadEvent) => { e.preventDefault(); };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [isDirty]);
 
   // Load saved ready_to_shopify data when opening a product
   const openProduct = useCallback(async (p: CopyItem) => {
     setActiveId(p.id);
     setName(p.title);
+    setSku(p.sku);
     setDesc(p.description);
     setPrimaryImg(p.imageUrl);
     setExtraImgs([]); // will be filled by the lazy fetch below
@@ -127,6 +169,9 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
       .eq('id', p.id)
       .maybeSingle();
 
+    let finalPrimary = p.imageUrl;
+    let finalExtras: string[] = [];
+
     if (prod) {
       const primaryImg = (Array.isArray(prod.images) && prod.images[0]?.src) || prod.image_url || p.imageUrl || '';
       const extraImgs = [prod.image_url_2, prod.image_url_3].filter(Boolean) as string[];
@@ -136,29 +181,46 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
           if (src && typeof src === 'string' && !extraImgs.includes(src)) extraImgs.push(src);
         });
       }
-      if (primaryImg) setPrimaryImg(primaryImg);
-      setExtraImgs(extraImgs);
+      if (primaryImg) { setPrimaryImg(primaryImg); finalPrimary = primaryImg; }
+      setExtraImgs(extraImgs); finalExtras = extraImgs;
     }
 
     // Fetch previously saved data from ready_to_shopify (overrides products)
     const { data: rts } = await supabase
       .from('ready_to_shopify')
-      .select('title,body_html,image_url,images,shopify_page_title,shopify_page_description,shopify_url,handle')
+      .select('title,body_html,image_url,images,shopify_page_title,shopify_page_description,shopify_url,handle,sku')
       .eq('product_id', p.id)
       .maybeSingle();
 
+    let snapName = p.title, snapSku = p.sku, snapDesc = p.description;
+    let snapSeoTitle = p.seoTitle, snapSeoDesc = p.seoDescription, snapHandle = p.handle;
+
     if (rts) {
-      if (rts.title) setName(rts.title);
-      if (rts.body_html) setDesc(rts.body_html);
-      if (rts.image_url) setPrimaryImg(rts.image_url);
-      if (Array.isArray(rts.images) && rts.images.length > 0) {
-        setExtraImgs(rts.images.map((img: any) => img?.src || img).filter(Boolean));
+      if (rts.title) { setName(rts.title); snapName = rts.title; }
+      if (rts.sku) { setSku(rts.sku); snapSku = rts.sku; }
+      // Only use rts.body_html if it is longer than what's already set (products.description).
+      // ready_to_shopify may hold a stale short snapshot while products.description was updated.
+      if (rts.body_html && rts.body_html.length > snapDesc.length) {
+        setDesc(rts.body_html); snapDesc = rts.body_html;
       }
-      if (rts.shopify_page_title) setSeoTitle(rts.shopify_page_title);
-      if (rts.shopify_page_description) setSeoDesc(rts.shopify_page_description);
-      if (rts.shopify_url) setHandle(rts.shopify_url);
-      else if (rts.handle) setHandle(rts.handle);
+      if (rts.image_url) { setPrimaryImg(rts.image_url); finalPrimary = rts.image_url; }
+      if (Array.isArray(rts.images) && rts.images.length > 0) {
+        const imgs = rts.images.map((img: any) => img?.src || img).filter(Boolean);
+        setExtraImgs(imgs); finalExtras = imgs;
+      }
+      if (rts.shopify_page_title) { setSeoTitle(rts.shopify_page_title); snapSeoTitle = rts.shopify_page_title; }
+      if (rts.shopify_page_description) { setSeoDesc(rts.shopify_page_description); snapSeoDesc = rts.shopify_page_description; }
+      if (rts.shopify_url) { setHandle(rts.shopify_url); snapHandle = rts.shopify_url; }
+      else if (rts.handle) { setHandle(rts.handle); snapHandle = rts.handle; }
     }
+
+    setSavedSnapshot({
+      name: snapName, sku: snapSku, desc: snapDesc,
+      primaryImg: finalPrimary, extraImgs: finalExtras,
+      seoTitle: snapSeoTitle, seoDesc: snapSeoDesc, handle: snapHandle,
+    });
+    // Force RichEditor to re-sync its contenteditable DOM after all async data is loaded
+    setEditorKey((k) => k + 1);
   }, []);
 
   // Drag-to-swap state
@@ -189,6 +251,104 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
     setDragSrc(null);
   }, [dragSrc, primaryImg, extraImgs]);
 
+  // Upload a single base64 image to Supabase Storage, return public URL
+  const uploadBase64Image = async (base64: string, productId: string, suffix: string): Promise<string> => {
+    if (!base64.startsWith('data:') && !base64.match(/^[A-Za-z0-9+/]{100}/)) return base64;
+    // Already an HTTP URL — skip upload
+    if (base64.startsWith('http://') || base64.startsWith('https://')) return base64;
+    const mimeMatch = base64.match(/^data:(image\/[a-zA-Z+]+);base64,/);
+    const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+    const ext = mimeType.split('/')[1]?.replace('jpeg', 'jpg') || 'jpg';
+    const base64Data = base64.includes(',') ? base64.split(',')[1] : base64;
+    const fileName = `${productId}_${suffix}_${Date.now()}.${ext}`;
+    const filePath = `products/${fileName}`;
+    const binaryStr = atob(base64Data);
+    const bytes = new Uint8Array(binaryStr.length);
+    for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+    const { error } = await supabase.storage
+      .from('product-images')
+      .upload(filePath, bytes, { contentType: mimeType, upsert: true });
+    if (error) { console.warn('[upload] storage error:', error.message); return base64; }
+    const { data } = supabase.storage.from('product-images').getPublicUrl(filePath);
+    return data.publicUrl || base64;
+  };
+
+  // Save — sync title + body_html to ready_to_shopify WITHOUT advancing copy_done
+  // Product stays in 產品文案 so user can continue editing images etc.
+  const [isSaving, setIsSaving] = useState(false);
+  const handleSave = async () => {
+    if (!activeId) return;
+    const item = items.find((p) => p.id === activeId);
+    if (!item) return;
+    setIsSaving(true);
+    try {
+      // Pre-upload any base64 images to Storage
+      let resolvedPrimary = primaryImg;
+      let resolvedExtras = [...extraImgs];
+      const isBase64 = (s: string) => s && !s.startsWith('http') && s.length > 100;
+      if (isBase64(primaryImg)) {
+        toast.loading('上傳主圖至儲存空間...', { id: 'save-img-upload' });
+        resolvedPrimary = await uploadBase64Image(primaryImg, activeId, 'primary');
+      }
+      const base64Extras = resolvedExtras.filter(isBase64);
+      if (base64Extras.length > 0) {
+        toast.loading(`上傳 ${base64Extras.length} 張額外圖片...`, { id: 'save-img-upload' });
+        resolvedExtras = await Promise.all(
+          resolvedExtras.map((src, idx) =>
+            isBase64(src) ? uploadBase64Image(src, activeId, `extra${idx}`) : Promise.resolve(src)
+          )
+        );
+      }
+      toast.dismiss('save-img-upload');
+
+      const imagesJson = resolvedExtras.map((src, idx) => ({ src, position: idx + 1 }));
+      const { error } = await supabase
+        .from('ready_to_shopify')
+        .upsert({
+          product_id: activeId,
+          title: name,
+          sku: sku || null,
+          body_html: desc,
+          vendor: item.factory || null,
+          product_type: [item.level1, item.level2].filter(Boolean).join(' / ') || null,
+          handle: handle || slugify(name),
+          status: 'draft',
+          image_url: resolvedPrimary || null,
+          images: imagesJson.length > 0 ? imagesJson : null,
+          tags: item.tags.length > 0 ? item.tags : null,
+          price: item.salePrice ?? item.price ?? null,
+          shopify_page_title: seoTitle || name || null,
+          shopify_page_description: seoDesc || null,
+          shopify_url: handle || slugify(name) || null,
+          imported_at: new Date().toISOString(),
+        }, { onConflict: 'product_id' });
+
+      if (error) {
+        toast.error('儲存失敗', { description: error.message });
+      } else {
+        // Also update products.sku
+        if (sku) {
+          await supabase.from('products').update({ sku }).eq('id', activeId);
+        }
+        // Update local image state to resolved HTTP URLs
+        if (resolvedPrimary !== primaryImg) setPrimaryImg(resolvedPrimary);
+        if (resolvedExtras.some((s, i) => s !== extraImgs[i])) setExtraImgs(resolvedExtras);
+        // Update saved snapshot so dirty indicator resets
+        setSavedSnapshot({
+          name, sku, desc,
+          primaryImg: resolvedPrimary,
+          extraImgs: resolvedExtras,
+          seoTitle, seoDesc, handle,
+        });
+        toast.success('已儲存', { description: '產品文案已同步至 ready_to_shopify，可繼續修改圖片' });
+      }
+    } catch {
+      toast.error('儲存時發生錯誤，請重試');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   // Submit — save edits + set copy_done=true → moves product to 產品信息
   const handleSubmit = async () => {
     if (!activeId) return;
@@ -196,11 +356,31 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
     if (!item) return;
     setIsSubmitting(true);
     try {
+      // 0. Pre-upload any base64 images to Storage so publish-to-shopify gets HTTP URLs
+      let resolvedPrimary = primaryImg;
+      let resolvedExtras = [...extraImgs];
+      const isBase64 = (s: string) => s && !s.startsWith('http') && s.length > 100;
+      if (isBase64(primaryImg)) {
+        toast.loading('上傳主圖至儲存空間...', { id: 'img-upload' });
+        resolvedPrimary = await uploadBase64Image(primaryImg, activeId, 'primary');
+      }
+      const base64Extras = resolvedExtras.filter(isBase64);
+      if (base64Extras.length > 0) {
+        toast.loading(`上傳 ${base64Extras.length} 張額外圖片...`, { id: 'img-upload' });
+        resolvedExtras = await Promise.all(
+          resolvedExtras.map((src, idx) =>
+            isBase64(src) ? uploadBase64Image(src, activeId, `extra${idx}`) : Promise.resolve(src)
+          )
+        );
+      }
+      toast.dismiss('img-upload');
+
       // 1. Update products table
       const { error } = await supabase
         .from('products')
         .update({
           title: name,
+          sku: sku || undefined,
           description: desc,
           copy_done: true,
           copy_done_at: new Date().toISOString(),
@@ -213,20 +393,21 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
       }
 
       // 2. Upsert ALL fields into ready_to_shopify
-      // image_url = primary image, images = extra images array
-      const imagesJson = extraImgs.map((src, idx) => ({ src, position: idx + 1 }));
+      // image_url = primary image (HTTP URL), images = extra images array (HTTP URLs)
+      const imagesJson = resolvedExtras.map((src, idx) => ({ src, position: idx + 1 }));
       const { error: rtsError } = await supabase
         .from('ready_to_shopify')
         .upsert({
           product_id: activeId,
           title: name,
+          sku: sku || null,
           body_html: desc,
           vendor: item.factory || null,
           product_type: [item.level1, item.level2].filter(Boolean).join(' / ') || null,
           handle: handle || slugify(name),
           status: 'draft',
-          // Primary image → image_url
-          image_url: primaryImg || null,
+          // Primary image → image_url (resolved HTTP URL after storage upload)
+          image_url: resolvedPrimary || null,
           // Additional images → images (jsonb)
           images: imagesJson.length > 0 ? imagesJson : null,
           tags: item.tags.length > 0 ? item.tags : null,
@@ -483,12 +664,29 @@ ${rawDesc}
     <div className="flex h-full flex-col overflow-hidden bg-background">
       {/* Header */}
       <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-muted/30 px-8 py-3.5">
-        <button onClick={() => setActiveId(null)} className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+        <button
+          onClick={() => {
+            if (isDirty && !window.confirm('您有未儲存的更改，確定要返回列表嗎？')) return;
+            setActiveId(null);
+          }}
+          className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
+        >
           <ChevronLeft className="h-4 w-4" /> 返回列表
         </button>
         <div className="flex items-center gap-2">
-          <button onClick={() => toast.success('已套用 AI 建議文案')} className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3.5 py-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground">
-            <Sparkles className="h-3.5 w-3.5" /> AI 建議文案
+          {isDirty && !isSaving && (
+            <span className="flex items-center gap-1 rounded-md bg-amber-500/10 px-2 py-1 text-[11px] font-medium text-amber-600 dark:text-amber-400 ring-1 ring-amber-500/20">
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-500 animate-pulse" />
+              未儲存
+            </span>
+          )}
+          <button
+            onClick={handleSave}
+            disabled={isSaving}
+            className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3.5 py-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-60"
+          >
+            {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+            {isSaving ? '儲存中...' : '儲存'}
           </button>
           <button
             onClick={handleSubmit}
@@ -512,6 +710,21 @@ ${rawDesc}
             />
           </Section>
 
+          {/* 產品編碼 (SKU) */}
+          <Section title="產品編碼 (SKU)" desc="儲存後同步更新 products 及 ready_to_shopify 的 SKU 欄位">
+            <div className="flex items-center rounded-xl border border-border bg-card focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/20">
+              <span className="flex items-center gap-1.5 border-r border-border/60 px-3 py-3 text-muted-foreground bg-muted/30 rounded-l-xl">
+                <Hash className="h-3.5 w-3.5" />
+              </span>
+              <input
+                value={sku}
+                onChange={(e) => setSku(e.target.value)}
+                placeholder="例如 SKU-ABC123"
+                className="w-full bg-transparent px-4 py-3 font-mono-data text-sm text-foreground focus:outline-none"
+              />
+            </div>
+          </Section>
+
           {/* Shopify 產品說明 — rich editor */}
           <Section
             title="Shopify 產品說明"
@@ -528,7 +741,7 @@ ${rawDesc}
               </button>
             }
           >
-            <RichEditor value={desc} onChange={setDesc} forceUpdateKey={isGenerating ? 'generating' : desc} />
+            <RichEditor value={desc} onChange={setDesc} forceUpdateKey={isGenerating ? 'generating' : String(editorKey)} />
           </Section>
 
           {/* Shopify 產品圖片 — 左主圖 / 右其他圖，支援拖拉交換 */}
@@ -551,8 +764,14 @@ ${rawDesc}
                     onDragOver={(e) => e.preventDefault()}
                     onDrop={() => handleDrop({ zone: 'primary' })}
                   >
-                    <img src={primaryImg} alt="主圖" className="h-full w-full object-cover pointer-events-none" />
-                    <span className="absolute left-1.5 top-1.5 rounded bg-primary px-1.5 py-0.5 text-[9px] font-bold text-primary-foreground">主圖</span>
+                    <img
+                      src={primaryImg}
+                      alt="主圖"
+                      draggable={false}
+                      className="h-full w-full object-cover cursor-zoom-in"
+                      onClick={(e) => { e.stopPropagation(); setLightboxSrc(primaryImg); }}
+                    />
+                    <span className="absolute left-1.5 top-1.5 rounded bg-primary px-1.5 py-0.5 text-[9px] font-bold text-primary-foreground pointer-events-none">主圖</span>
                     <button
                       onClick={() => setPrimaryImg('')}
                       className="absolute right-1 top-1 hidden rounded-full bg-black/60 p-0.5 text-white group-hover:block"
@@ -593,7 +812,13 @@ ${rawDesc}
                       onDragOver={(e) => e.preventDefault()}
                       onDrop={() => handleDrop({ zone: 'extra', index: i })}
                     >
-                      <img src={src} alt={`圖 ${i + 2}`} className="h-full w-full object-cover pointer-events-none" />
+                      <img
+                        src={src}
+                        alt={`圖 ${i + 2}`}
+                        draggable={false}
+                        className="h-full w-full object-cover cursor-zoom-in"
+                        onClick={(e) => { e.stopPropagation(); setLightboxSrc(src); }}
+                      />
                       <button
                         onClick={() => setExtraImgs((prev) => prev.filter((_, idx) => idx !== i))}
                         className="absolute right-1 top-1 hidden rounded-full bg-black/60 p-0.5 text-white group-hover:block"
@@ -701,6 +926,11 @@ ${rawDesc}
           onClose={() => setShowImageUploadDialog(false)}
         />
       )}
+
+      {/* Lightbox */}
+      {lightboxSrc && (
+        <ImageLightbox src={lightboxSrc} onClose={() => setLightboxSrc(null)} />
+      )}
     </div>
   );
 }
@@ -721,18 +951,21 @@ function RichEditor({ value, onChange, forceUpdateKey }: { value: string; onChan
   const [showColorPicker, setShowColorPicker] = useState(false);
   const colorPickerRef = useRef<HTMLDivElement>(null);
   const savedRangeRef = useRef<Range | null>(null);
+  // Keep a ref so the forceUpdateKey effect always reads the latest value without it being a dep
+  const valueRef = useRef(value);
+  valueRef.current = value;
 
   useEffect(() => {
-    if (editorRef.current && editorRef.current.innerHTML !== value) {
-      editorRef.current.innerHTML = value;
+    if (editorRef.current && editorRef.current.innerHTML !== valueRef.current) {
+      editorRef.current.innerHTML = valueRef.current;
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     if (!forceUpdateKey || forceUpdateKey === 'generating') return;
-    if (editorRef.current && editorRef.current.innerHTML !== value) {
-      editorRef.current.innerHTML = value;
+    if (editorRef.current && editorRef.current.innerHTML !== valueRef.current) {
+      editorRef.current.innerHTML = valueRef.current;
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [forceUpdateKey]);
@@ -876,6 +1109,41 @@ function Field({ label, hint, icon, children }: { label: string; hint?: string; 
         {hint && <span className="font-mono-data text-[10px] text-muted-foreground/60">{hint}</span>}
       </div>
       {children}
+    </div>
+  );
+}
+
+// ─── Image Lightbox ───────────────────────────────────────────────────────────
+
+function ImageLightbox({ src, onClose }: { src: string; onClose: () => void }) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      {/* Native img so right-click copy/save works normally */}
+      <img
+        src={src}
+        alt="預覽"
+        className="max-h-[90vh] max-w-[90vw] rounded-xl shadow-2xl object-contain select-auto"
+        onClick={(e) => e.stopPropagation()}
+        style={{ cursor: 'default' }}
+      />
+      <button
+        onClick={onClose}
+        className="absolute right-4 top-4 rounded-full bg-black/60 p-2 text-white hover:bg-black/80 transition-colors"
+      >
+        <X className="h-5 w-5" />
+      </button>
+      <p className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-black/50 px-4 py-1.5 font-body text-[11px] text-white/70 pointer-events-none">
+        點擊空白處關閉 · Esc 關閉 · 右鍵可複製或儲存圖片
+      </p>
     </div>
   );
 }

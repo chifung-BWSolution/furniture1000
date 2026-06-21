@@ -1,7 +1,2 @@
 [functions.gemini-pdf-catalog]
 verify_jwt = true
-# Increased limits for large PDF catalog processing
-# Wall clock limit: 360 seconds (6 minutes)
-# Memory limit: 512 MB
-wall_clock_limit_ms = 360000
-memory_limit_mb = 512

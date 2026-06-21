@@ -1,1142 +1,578 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import * as XLSX from 'xlsx';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Skeleton } from '@/components/ui/skeleton';
-import { ScrollArea } from '@/components/ui/scroll-area';
-import { Checkbox } from '@/components/ui/checkbox';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from '@/components/ui/dialog';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
-
-import {
-  ChevronDown,
-  ChevronRight,
-  FolderTree,
-  Plus,
-  Pencil,
-  Trash2,
-  GripVertical,
-  ArrowUp,
-  ArrowDown,
-  Loader2,
-  Package,
-  Tag,
-  Search,
-  X,
-  FolderOpen,
-  Folder,
-  RefreshCw,
-  Save,
-  AlertCircle,
-} from 'lucide-react';
 import { toast } from 'sonner';
-import { motion, AnimatePresence } from 'framer-motion';
-import { CascadingCategorySelector } from './CascadingCategorySelector';
-import { ProductDetailModal } from './ProductDetailModal';
+import {
+  FolderTree, Upload, Save, Plus, Trash2, Loader2, Search, X, Check,
+} from 'lucide-react';
 
-// --- Types ---
+// ─── Types ───────────────────────────────────────────────────────────────────
 
-interface Category {
-  id: string;
-  name: string;
-  parent_id: string | null;
-  level: number;
-  sort_order: number;
-  created_at: string | null;
-  updated_at: string | null;
+interface L3Item { id: string; name: string; isNew?: boolean }
+interface L2Item { id: string; name: string; isNew?: boolean; l3s: L3Item[] }
+interface L1Group { id: string; name: string; isNew?: boolean; l2s: L2Item[] }
+
+function isTemp(id: string) {
+  return id.startsWith('new-') || id.startsWith('imp-') || id.startsWith('empty-');
 }
 
-interface CategoryTreeNode extends Category {
-  children: CategoryTreeNode[];
-  isExpanded: boolean;
-  productCount?: number;
-}
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 
-interface ProductItem {
-  id: string;
-  title: string;
-  image_url: string | null;
-  category: string | null;
-  status: string;
-  price: number;
-  factories_display_name: string | null;
-  description?: string | null;
-  description_html?: string | null;
-  tags?: string[];
-  collection?: string | null;
-  shopify_product_id?: string | null;
-  source?: string | null;
-  synced_at?: string | null;
-  created_at?: string | null;
-  color?: string | null;
-  factory_id?: string | null;
-  cost_price?: number | null;
-  production_date?: number | null;
-  shipping_days?: number | null;
-  shipping_fee?: number | null;
-  total_lead_time?: number | null;
-  bwf_master_id?: string | null;
-  remarks?: string | null;
-  images?: { src: string; alt?: string; path?: string }[] | null;
-  dimension_l_mm?: number | null;
-  dimension_w_mm?: number | null;
-  dimension_h_mm?: number | null;
-  sale_price?: number | null;
-}
-
-// --- Helper to invoke edge function ---
-
-const FUNCTION_SLUG = 'supabase-functions-manage-categories';
-
-async function invokeCategories(body: Record<string, unknown>) {
-  console.log(`[Categories] Invoking ${FUNCTION_SLUG} with action: ${body.action}`);
-  const { data, error } = await supabase.functions.invoke(FUNCTION_SLUG, {
-    body,
+function buildTree(cats: any[]): L1Group[] {
+  const l1s = cats.filter((c) => c.level === 1).sort((a, b) => a.sort_order - b.sort_order);
+  const byParent = new Map<string, any[]>();
+  cats.filter((c) => c.level === 2).forEach((c) => {
+    const k = c.parent_id ?? '__root__';
+    if (!byParent.has(k)) byParent.set(k, []);
+    byParent.get(k)!.push(c);
   });
-  if (error) {
-    console.error(`[Categories] Edge function error:`, error);
-    throw new Error(error.message || 'Edge function error');
-  }
-  if (data?.error) {
-    console.error(`[Categories] API returned error:`, data.error);
-    throw new Error(data.error);
-  }
-  console.log(`[Categories] Success for action "${body.action}":`, data);
-  return data;
-}
 
-// --- Build tree from flat list ---
-
-function buildTree(categories: Category[], expandedIds: Set<string>): CategoryTreeNode[] {
-  const map = new Map<string, CategoryTreeNode>();
-  const roots: CategoryTreeNode[] = [];
-
-  // Create all nodes
-  for (const cat of categories) {
-    map.set(cat.id, {
-      ...cat,
-      children: [],
-      isExpanded: expandedIds.has(cat.id),
+  return l1s.map((l1) => {
+    const l2Records = (byParent.get(l1.id) ?? []).sort((a, b) => a.sort_order - b.sort_order);
+    const l2s: L2Item[] = l2Records.map((l2) => {
+      const l3Records = (byParent.get(l2.id) ?? []).sort((a, b) => a.sort_order - b.sort_order);
+      return { id: l2.id, name: l2.name, l3s: l3Records.map((l3) => ({ id: l3.id, name: l3.name })) };
     });
-  }
-
-  // Build hierarchy
-  for (const cat of categories) {
-    const node = map.get(cat.id)!;
-    if (cat.parent_id && map.has(cat.parent_id)) {
-      map.get(cat.parent_id)!.children.push(node);
-    } else if (!cat.parent_id) {
-      roots.push(node);
+    if (l2s.length === 0) {
+      l2s.push({ id: `empty-${l1.id}`, name: '', isNew: true, l3s: [] });
     }
-  }
-
-  // Sort children
-  const sortNodes = (nodes: CategoryTreeNode[]) => {
-    nodes.sort((a, b) => a.sort_order - b.sort_order);
-    for (const node of nodes) {
-      sortNodes(node.children);
-    }
-  };
-  sortNodes(roots);
-
-  return roots;
+    return { id: l1.id, name: l1.name, l2s };
+  });
 }
 
-// --- Component ---
+function buildTreeFromExcel(rows: { l1: string; l2: string; l3: string }[]): L1Group[] {
+  const l1Map = new Map<string, L1Group>();
+  let li = 0, l2i = 0, l3i = 0;
+  for (const row of rows) {
+    if (!l1Map.has(row.l1)) {
+      l1Map.set(row.l1, { id: `imp-l1-${li++}`, name: row.l1, isNew: true, l2s: [] });
+    }
+    const g = l1Map.get(row.l1)!;
+    let l2 = g.l2s.find((x) => x.name === row.l2);
+    if (!l2) {
+      l2 = { id: `imp-l2-${l2i++}`, name: row.l2, isNew: true, l3s: [] };
+      g.l2s.push(l2);
+    }
+    if (row.l3) {
+      if (!l2.l3s.find((x) => x.name === row.l3)) {
+        l2.l3s.push({ id: `imp-l3-${l3i++}`, name: row.l3, isNew: true });
+      }
+    }
+  }
+  return Array.from(l1Map.values());
+}
+
+function parseExcel(buf: ArrayBuffer): { l1: string; l2: string; l3: string }[] {
+  const wb = XLSX.read(buf, { type: 'array' });
+  const ws = wb.Sheets[wb.SheetNames[0]];
+  const rows = XLSX.utils.sheet_to_json<any[]>(ws, { header: 1 });
+  let curL1 = '', curL2 = '';
+  const out: { l1: string; l2: string; l3: string }[] = [];
+  rows.slice(1).forEach((r) => {
+    const a = (r?.[0] ?? '').toString().trim();
+    const b = (r?.[1] ?? '').toString().trim();
+    const c = (r?.[2] ?? '').toString().trim();
+    if (a) curL1 = a;
+    if (b) curL2 = b;
+    if (curL1 && curL2) out.push({ l1: curL1, l2: curL2, l3: c });
+  });
+  return out;
+}
+
+// ─── Component ───────────────────────────────────────────────────────────────
 
 export function CategoryManagementView() {
-  const [categories, setCategories] = useState<Category[]>([]);
+  const [groups, setGroups] = useState<L1Group[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
-
-  // Add/Edit dialog
-  const [showAddDialog, setShowAddDialog] = useState(false);
-  const [editingCategory, setEditingCategory] = useState<Category | null>(null);
-  const [newCategoryName, setNewCategoryName] = useState('');
-  const [newCategoryParent, setNewCategoryParent] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [search, setSearch] = useState('');
+  const [dirty, setDirty] = useState(false);
+  const [deletedL1Ids, setDeletedL1Ids] = useState<string[]>([]);
+  const [deletedL2Ids, setDeletedL2Ids] = useState<string[]>([]);
+  const [deletedL3Ids, setDeletedL3Ids] = useState<string[]>([]);
+  const [pendingImport, setPendingImport] = useState<L1Group[] | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Delete
-  const [deletingCategory, setDeletingCategory] = useState<Category | null>(null);
-  const [isDeleting, setIsDeleting] = useState(false);
-
-  // Product assignment
-  const [selectedCategory, setSelectedCategory] = useState<CategoryTreeNode | null>(null);
-  const [products, setProducts] = useState<ProductItem[]>([]);
-  const [productTotal, setProductTotal] = useState(0);
-  const [isLoadingProducts, setIsLoadingProducts] = useState(false);
-  const [productSearch, setProductSearch] = useState('');
-  const [productPage, setProductPage] = useState(1);
-
-  // Uncategorized products
-  const [showUncategorized, setShowUncategorized] = useState(false);
-
-  // Selected products for bulk assign
-  const [selectedProductIds, setSelectedProductIds] = useState<Set<string>>(new Set());
-  const [showBulkAssignDialog, setShowBulkAssignDialog] = useState(false);
-  const [bulkAssignCategory, setBulkAssignCategory] = useState<string>('');
-
-  // Product detail modal
-  const [detailProduct, setDetailProduct] = useState<ProductItem | null>(null);
-  const [showDetailModal, setShowDetailModal] = useState(false);
-
-  // Product counts per category
-  const [productCounts, setProductCounts] = useState<Record<string, number>>({});
-  const [uncategorizedCount, setUncategorizedCount] = useState(0);
-  const [categorizedCount, setCategorizedCount] = useState(0);
-
-  // --- Fetch product counts ---
-  const fetchProductCounts = useCallback(async () => {
-    try {
-      const result = await invokeCategories({ action: 'product_counts' });
-      setProductCounts(result.counts || {});
-      setUncategorizedCount(result.uncategorized || 0);
-      setCategorizedCount(result.categorized || 0);
-    } catch (err: any) {
-      console.error('Failed to fetch product counts:', err);
-    }
-  }, []);
-
-  // --- Fetch categories ---
-  const fetchCategories = useCallback(async () => {
+  const load = useCallback(async () => {
     setIsLoading(true);
     try {
-      const result = await invokeCategories({ action: 'list' });
-      setCategories(result.categories || []);
-    } catch (err: any) {
-      toast.error('無法載入類目', { description: err.message });
+      const { data, error } = await supabase
+        .from('bwf_product_categories')
+        .select('id, name, parent_id, level, sort_order')
+        .order('sort_order', { ascending: true });
+      if (error) throw error;
+
+      const cats = data || [];
+
+      // Auto-purge orphan L1s (no L2 children) — these are garbled stale rows
+      // from old migrations. The cascade delete also removes any orphan L2s.
+      const l1Ids = new Set(cats.filter((c) => c.level === 1).map((c) => c.id));
+      const l1sWithChildren = new Set(cats.filter((c) => c.level === 2 && c.parent_id && l1Ids.has(c.parent_id)).map((c) => c.parent_id));
+      const orphanL1Ids = [...l1Ids].filter((id) => !l1sWithChildren.has(id));
+      if (orphanL1Ids.length > 0) {
+        await supabase.from('bwf_product_categories').delete().in('id', orphanL1Ids);
+        // Reload after purge
+        const { data: data2, error: err2 } = await supabase
+          .from('bwf_product_categories')
+          .select('id, name, parent_id, level, sort_order')
+          .order('sort_order', { ascending: true });
+        if (err2) throw err2;
+        setGroups(buildTree(data2 || []));
+      } else {
+        setGroups(buildTree(cats));
+      }
+
+      setDeletedL1Ids([]);
+      setDeletedL2Ids([]);
+      setDeletedL3Ids([]);
+      setDirty(false);
+    } catch (err) {
+      toast.error('載入分類失敗', { description: err instanceof Error ? err.message : '請稍後再試' });
     } finally {
       setIsLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    fetchCategories();
-    fetchProductCounts();
-  }, [fetchCategories, fetchProductCounts]);
+  useEffect(() => { load(); }, [load]);
 
-  // --- Tree ---
-  const tree = useMemo(
-    () => buildTree(categories, expandedIds),
-    [categories, expandedIds]
-  );
+  // ── Counts ──────────────────────────────────────────────────────────────────
+  const totalL1 = groups.length;
+  const totalL2 = groups.reduce((s, g) => s + g.l2s.filter((l) => l.name.trim()).length, 0);
+  const totalL3 = groups.reduce((s, g) => s + g.l2s.reduce((s2, l2) => s2 + l2.l3s.filter((l) => l.name.trim()).length, 0), 0);
 
-  const level1Categories = useMemo(
-    () => categories.filter((c) => c.level === 1).sort((a, b) => a.sort_order - b.sort_order),
-    [categories]
-  );
+  // ── Filtered ────────────────────────────────────────────────────────────────
+  const filtered = useMemo(() => {
+    const q = search.trim();
+    if (!q) return groups;
+    return groups
+      .map((g) => ({
+        ...g,
+        l2s: g.l2s.filter(
+          (l2) => g.name.includes(q) || l2.name.includes(q) || l2.l3s.some((l3) => l3.name.includes(q))
+        ),
+      }))
+      .filter((g) => g.name.includes(q) || g.l2s.length > 0);
+  }, [groups, search]);
 
-  // --- Toggle expand ---
-  const toggleExpand = useCallback((id: string) => {
-    setExpandedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
+  // ── Mutations ───────────────────────────────────────────────────────────────
+  const setG = (fn: (prev: L1Group[]) => L1Group[]) => { setGroups(fn); setDirty(true); };
 
-  // --- Expand all ---
-  const expandAll = useCallback(() => {
-    setExpandedIds(new Set(categories.filter((c) => c.level === 1).map((c) => c.id)));
-  }, [categories]);
+  const renameL1 = (id: string, name: string) =>
+    setG((prev) => prev.map((g) => (g.id === id ? { ...g, name } : g)));
 
-  const collapseAll = useCallback(() => {
-    setExpandedIds(new Set());
-  }, []);
+  const renameL2 = (l1Id: string, l2Id: string, name: string) =>
+    setG((prev) => prev.map((g) => g.id !== l1Id ? g : {
+      ...g, l2s: g.l2s.map((l2) => (l2.id === l2Id ? { ...l2, name } : l2)),
+    }));
 
-  // --- Add category ---
-  const handleOpenAdd = useCallback((parentId: string | null = null) => {
-    setEditingCategory(null);
-    setNewCategoryName('');
-    setNewCategoryParent(parentId);
-    setShowAddDialog(true);
-  }, []);
+  const renameL3 = (l1Id: string, l2Id: string, l3Id: string, name: string) =>
+    setG((prev) => prev.map((g) => g.id !== l1Id ? g : {
+      ...g, l2s: g.l2s.map((l2) => l2.id !== l2Id ? l2 : {
+        ...l2, l3s: l2.l3s.map((l3) => (l3.id === l3Id ? { ...l3, name } : l3)),
+      }),
+    }));
 
-  // --- Edit category ---
-  const handleOpenEdit = useCallback((cat: Category) => {
-    setEditingCategory(cat);
-    setNewCategoryName(cat.name);
-    setNewCategoryParent(cat.parent_id);
-    setShowAddDialog(true);
-  }, []);
+  const addL1 = () =>
+    setG((prev) => [...prev, {
+      id: `new-l1-${Date.now()}`, name: '新分類', isNew: true,
+      l2s: [{ id: `new-l2-${Date.now()}`, name: '', isNew: true, l3s: [] }],
+    }]);
 
-  // --- Save category (add/edit) ---
-  const handleSaveCategory = useCallback(async () => {
-    if (!newCategoryName.trim()) {
-      toast.error('請輸入類目名稱');
-      return;
+  const addL2 = (l1Id: string) =>
+    setG((prev) => prev.map((g) => g.id !== l1Id ? g : {
+      ...g, l2s: [...g.l2s, { id: `new-l2-${Date.now()}`, name: '', isNew: true, l3s: [] }],
+    }));
+
+  const addL3 = (l1Id: string, l2Id: string) =>
+    setG((prev) => prev.map((g) => g.id !== l1Id ? g : {
+      ...g, l2s: g.l2s.map((l2) => l2.id !== l2Id ? l2 : {
+        ...l2, l3s: [...l2.l3s, { id: `new-l3-${Date.now()}`, name: '', isNew: true }],
+      }),
+    }));
+
+  const deleteL1 = (id: string) => {
+    if (!isTemp(id)) setDeletedL1Ids((d) => [...d, id]);
+    setG((prev) => prev.filter((g) => g.id !== id));
+  };
+
+  const deleteL2 = (l1Id: string, l2Id: string) => {
+    if (!isTemp(l2Id)) setDeletedL2Ids((d) => [...d, l2Id]);
+    setG((prev) => prev.map((g) => g.id !== l1Id ? g : {
+      ...g, l2s: g.l2s.filter((l2) => l2.id !== l2Id),
+    }));
+  };
+
+  const deleteL3 = (l1Id: string, l2Id: string, l3Id: string) => {
+    if (!isTemp(l3Id)) setDeletedL3Ids((d) => [...d, l3Id]);
+    setG((prev) => prev.map((g) => g.id !== l1Id ? g : {
+      ...g, l2s: g.l2s.map((l2) => l2.id !== l2Id ? l2 : {
+        ...l2, l3s: l2.l3s.filter((l3) => l3.id !== l3Id),
+      }),
+    }));
+  };
+
+  // ── Excel import ─────────────────────────────────────────────────────────────
+  const handleFile = async (file: File) => {
+    try {
+      const parsed = parseExcel(await file.arrayBuffer());
+      if (parsed.length === 0) {
+        toast.error('Excel 沒有可導入的分類', { description: '請確認格式：第一欄一級、第二欄二級、第三欄三級（可空）' });
+        return;
+      }
+      setPendingImport(buildTreeFromExcel(parsed));
+    } catch (err) {
+      toast.error('Excel 解析失敗', { description: err instanceof Error ? err.message : '檔案格式錯誤' });
     }
+  };
 
+  const confirmImport = () => {
+    if (!pendingImport) return;
+    // Delete all existing real IDs — L1 cascade handles L2/L3
+    const l1Del = groups.filter((g) => !isTemp(g.id)).map((g) => g.id);
+    setDeletedL1Ids(l1Del);
+    setDeletedL2Ids([]);
+    setDeletedL3Ids([]);
+    setGroups(pendingImport);
+    setDirty(true);
+    setPendingImport(null);
+    const l2Count = pendingImport.reduce((s, g) => s + g.l2s.length, 0);
+    const l3Count = pendingImport.reduce((s, g) => s + g.l2s.reduce((s2, l2) => s2 + l2.l3s.length, 0), 0);
+    toast.success(`已導入 ${pendingImport.length} 個一級 · ${l2Count} 個二級 · ${l3Count} 個三級`, {
+      description: '請按「儲存」寫入資料庫',
+    });
+  };
+
+  // ── Save ────────────────────────────────────────────────────────────────────
+  const save = async () => {
     setIsSaving(true);
     try {
-      if (editingCategory) {
-        await invokeCategories({
-          action: 'update',
-          id: editingCategory.id,
-          name: newCategoryName.trim(),
-        });
-        toast.success('類目已更新');
-      } else {
-        const level = newCategoryParent ? 2 : 1;
-        await invokeCategories({
-          action: 'create',
-          name: newCategoryName.trim(),
-          parent_id: newCategoryParent,
-          level,
-        });
-        toast.success('類目已新增');
+      // 1) Delete removed L1s (cascade removes their L2/L3 children)
+      const realL1Del = deletedL1Ids.filter((id) => !isTemp(id));
+      if (realL1Del.length > 0) {
+        const { error } = await supabase.from('bwf_product_categories').delete().in('id', realL1Del);
+        if (error) throw error;
       }
-      setShowAddDialog(false);
-      fetchCategories();
-    } catch (err: any) {
-      toast.error('儲存失敗', { description: err.message });
+      // 2) Delete removed L2s (cascade removes their L3 children)
+      const realL2Del = deletedL2Ids.filter((id) => !isTemp(id));
+      if (realL2Del.length > 0) {
+        const { error } = await supabase.from('bwf_product_categories').delete().in('id', realL2Del);
+        if (error) throw error;
+      }
+      // 3) Delete removed L3s
+      const realL3Del = deletedL3Ids.filter((id) => !isTemp(id));
+      if (realL3Del.length > 0) {
+        const { error } = await supabase.from('bwf_product_categories').delete().in('id', realL3Del);
+        if (error) throw error;
+      }
+
+      // 4) Upsert L1s → build id map
+      const l1IdMap: Record<string, string> = {};
+      for (let i = 0; i < groups.length; i++) {
+        const g = groups[i];
+        if (!g.name.trim()) continue;
+        if (isTemp(g.id)) {
+          const { data, error } = await supabase
+            .from('bwf_product_categories')
+            .insert({ name: g.name.trim(), parent_id: null, level: 1, sort_order: i })
+            .select('id').single();
+          if (error) throw error;
+          l1IdMap[g.id] = data.id;
+        } else {
+          const { error } = await supabase
+            .from('bwf_product_categories')
+            .update({ name: g.name.trim(), sort_order: i })
+            .eq('id', g.id);
+          if (error) throw error;
+          l1IdMap[g.id] = g.id;
+        }
+      }
+
+      // 5) Upsert L2s → build id map
+      const l2IdMap: Record<string, string> = {};
+      for (let i = 0; i < groups.length; i++) {
+        const g = groups[i];
+        const l1DbId = l1IdMap[g.id];
+        if (!l1DbId) continue;
+        for (let j = 0; j < g.l2s.length; j++) {
+          const l2 = g.l2s[j];
+          if (!l2.name.trim()) continue;
+          if (isTemp(l2.id)) {
+            const { data, error } = await supabase
+              .from('bwf_product_categories')
+              .insert({ name: l2.name.trim(), parent_id: l1DbId, level: 2, sort_order: j })
+              .select('id').single();
+            if (error) throw error;
+            l2IdMap[l2.id] = data.id;
+          } else {
+            const { error } = await supabase
+              .from('bwf_product_categories')
+              .update({ name: l2.name.trim(), parent_id: l1DbId, sort_order: j })
+              .eq('id', l2.id);
+            if (error) throw error;
+            l2IdMap[l2.id] = l2.id;
+          }
+        }
+      }
+
+      // 6) Upsert L3s (stored as level=2 with parent=L2.id)
+      for (let i = 0; i < groups.length; i++) {
+        const g = groups[i];
+        for (let j = 0; j < g.l2s.length; j++) {
+          const l2 = g.l2s[j];
+          const l2DbId = l2IdMap[l2.id] ?? (!isTemp(l2.id) ? l2.id : null);
+          if (!l2DbId) continue;
+          for (let k = 0; k < l2.l3s.length; k++) {
+            const l3 = l2.l3s[k];
+            if (!l3.name.trim()) continue;
+            if (isTemp(l3.id)) {
+              const { error } = await supabase
+                .from('bwf_product_categories')
+                .insert({ name: l3.name.trim(), parent_id: l2DbId, level: 2, sort_order: k });
+              if (error) throw error;
+            } else {
+              const { error } = await supabase
+                .from('bwf_product_categories')
+                .update({ name: l3.name.trim(), parent_id: l2DbId, sort_order: k })
+                .eq('id', l3.id);
+              if (error) throw error;
+            }
+          }
+        }
+      }
+
+      toast.success('已儲存 Shopify 分類', {
+        description: `${totalL1} 個一級 · ${totalL2} 個二級 · ${totalL3} 個三級`,
+      });
+      await load();
+    } catch (err) {
+      toast.error('儲存失敗', { description: err instanceof Error ? err.message : '請稍後再試' });
     } finally {
       setIsSaving(false);
     }
-  }, [editingCategory, newCategoryName, newCategoryParent, fetchCategories]);
-
-  // --- Delete category ---
-  const handleDelete = useCallback(async () => {
-    if (!deletingCategory) return;
-    setIsDeleting(true);
-    try {
-      await invokeCategories({ action: 'delete', id: deletingCategory.id });
-      toast.success(`已刪除「${deletingCategory.name}」`);
-      setDeletingCategory(null);
-      fetchCategories();
-      if (selectedCategory?.id === deletingCategory.id) {
-        setSelectedCategory(null);
-        setProducts([]);
-      }
-    } catch (err: any) {
-      toast.error('刪除失敗', { description: err.message });
-    } finally {
-      setIsDeleting(false);
-    }
-  }, [deletingCategory, fetchCategories, selectedCategory]);
-
-  // --- Move up/down ---
-  const handleMove = useCallback(
-    async (cat: Category, direction: 'up' | 'down') => {
-      // Find siblings
-      const siblings = categories
-        .filter((c) => c.parent_id === cat.parent_id && c.level === cat.level)
-        .sort((a, b) => a.sort_order - b.sort_order);
-
-      const idx = siblings.findIndex((s) => s.id === cat.id);
-      if (direction === 'up' && idx <= 0) return;
-      if (direction === 'down' && idx >= siblings.length - 1) return;
-
-      const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
-      const items = [
-        { id: siblings[idx].id, sort_order: siblings[swapIdx].sort_order },
-        { id: siblings[swapIdx].id, sort_order: siblings[idx].sort_order },
-      ];
-
-      try {
-        await invokeCategories({ action: 'reorder', items });
-        fetchCategories();
-      } catch (err: any) {
-        toast.error('排序失敗', { description: err.message });
-      }
-    },
-    [categories, fetchCategories]
-  );
-
-  // --- Fetch products for a category ---
-  const fetchProducts = useCallback(
-    async (categoryName: string | null, page = 1) => {
-      setIsLoadingProducts(true);
-      try {
-        const result = await invokeCategories({
-          action: 'list_products_by_category',
-          category_name: categoryName,
-          page,
-          page_size: 50,
-        });
-        setProducts(result.products || []);
-        setProductTotal(result.total || 0);
-        setProductPage(page);
-      } catch (err: any) {
-        toast.error('無法載入產品列表', { description: err.message });
-      } finally {
-        setIsLoadingProducts(false);
-      }
-    },
-    []
-  );
-
-  // --- Select category to view products ---
-  const handleSelectCategory = useCallback(
-    (node: CategoryTreeNode) => {
-      setSelectedCategory(node);
-      setShowUncategorized(false);
-      setSelectedProductIds(new Set());
-      fetchProducts(node.name, 1);
-    },
-    [fetchProducts]
-  );
-
-  const handleShowUncategorized = useCallback(() => {
-    setSelectedCategory(null);
-    setShowUncategorized(true);
-    setSelectedProductIds(new Set());
-    fetchProducts('__uncategorized__', 1);
-  }, [fetchProducts]);
-
-  // --- Assign single product ---
-  const handleAssignProduct = useCallback(
-    async (productId: string, categoryName: string) => {
-      try {
-        const actualCategory = categoryName === '__clear__' ? '' : categoryName;
-        await invokeCategories({
-          action: 'assign_product',
-          product_id: productId,
-          category_name: actualCategory,
-        });
-        toast.success(actualCategory ? '已分配類目' : '已清除分類');
-        // Refresh products list
-        if (showUncategorized) {
-          fetchProducts('__uncategorized__', productPage);
-        } else if (selectedCategory) {
-          fetchProducts(selectedCategory.name, productPage);
-        }
-        fetchProductCounts();
-      } catch (err: any) {
-        toast.error('分配失敗', { description: err.message });
-      }
-    },
-    [fetchProducts, fetchProductCounts, productPage, selectedCategory, showUncategorized]
-  );
-
-  // --- Bulk assign ---
-  const handleBulkAssign = useCallback(async () => {
-    if (!bulkAssignCategory || selectedProductIds.size === 0) return;
-    try {
-      await invokeCategories({
-        action: 'bulk_assign',
-        product_ids: Array.from(selectedProductIds),
-        category_name: bulkAssignCategory,
-      });
-      toast.success(`已將 ${selectedProductIds.size} 個產品分配至「${bulkAssignCategory}」`);
-      setShowBulkAssignDialog(false);
-      setSelectedProductIds(new Set());
-      setBulkAssignCategory('');
-      // Refresh
-      if (showUncategorized) {
-        fetchProducts('__uncategorized__', productPage);
-      } else if (selectedCategory) {
-        fetchProducts(selectedCategory.name, productPage);
-      }
-      fetchProductCounts();
-    } catch (err: any) {
-      toast.error('批量分配失敗', { description: err.message });
-    }
-  }, [
-    bulkAssignCategory,
-    selectedProductIds,
-    fetchProducts,
-    fetchProductCounts,
-    productPage,
-    selectedCategory,
-    showUncategorized,
-  ]);
-
-  // --- Open product detail modal ---
-  const handleOpenProductDetail = useCallback((product: ProductItem) => {
-    setDetailProduct(product);
-    setShowDetailModal(true);
-  }, []);
-
-  // --- Handle product updated from detail modal ---
-  const handleProductUpdated = useCallback((updatedProduct: any) => {
-    // Update the product in the local list
-    setProducts((prev) =>
-      prev.map((p) =>
-        p.id === updatedProduct.id
-          ? {
-              ...p,
-              title: updatedProduct.title,
-              image_url: updatedProduct.imageUrl || p.image_url,
-              category: updatedProduct.category || updatedProduct.collection || p.category,
-              price: updatedProduct.price ?? p.price,
-            }
-          : p
-      )
-    );
-  }, []);
-
-  // --- Render tree node ---
-  const renderTreeNode = (node: CategoryTreeNode, depth: number = 0) => {
-    const hasChildren = node.children.length > 0;
-    const isSelected = selectedCategory?.id === node.id;
-
-    return (
-      <div key={node.id}>
-        <motion.div
-          initial={{ opacity: 0, x: -8 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ duration: 0.2 }}
-          className={cn(
-            'group flex items-center gap-1 rounded-lg px-2 py-1.5 cursor-pointer transition-all duration-150',
-            'hover:bg-accent/50',
-            isSelected && 'bg-primary/10 ring-1 ring-primary/20'
-          )}
-          style={{ paddingLeft: `${depth * 24 + 8}px` }}
-          onClick={() => handleSelectCategory(node)}
-        >
-          {/* Expand toggle */}
-          <button
-            className={cn(
-              'flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors',
-              hasChildren ? 'hover:bg-accent' : 'invisible'
-            )}
-            onClick={(e) => {
-              e.stopPropagation();
-              if (hasChildren) toggleExpand(node.id);
-            }}
-          >
-            {hasChildren &&
-              (node.isExpanded ? (
-                <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
-              ) : (
-                <ChevronRight className="h-3.5 w-3.5 text-muted-foreground" />
-              ))}
-          </button>
-
-          {/* Icon */}
-          {node.level === 1 ? (
-            node.isExpanded ? (
-              <FolderOpen className="h-4 w-4 text-primary shrink-0" />
-            ) : (
-              <Folder className="h-4 w-4 text-primary/70 shrink-0" />
-            )
-          ) : (
-            <Tag className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-          )}
-
-          {/* Name */}
-          <span
-            className={cn(
-              'flex-1 truncate text-sm',
-              node.level === 1 ? 'font-semibold' : 'font-normal text-muted-foreground'
-            )}
-          >
-            {node.name}
-          </span>
-
-          {/* Product count badge */}
-          {(() => {
-            let count = 0;
-            if (node.level === 1) {
-              // Sum products in this category + all its subcategories
-              count = productCounts[node.name] || 0;
-              for (const child of node.children) {
-                count += productCounts[child.name] || 0;
-              }
-            } else {
-              count = productCounts[node.name] || 0;
-            }
-            return count > 0 ? (
-              <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 font-mono-data">
-                {count}
-              </Badge>
-            ) : null;
-          })()}
-
-          {/* Actions (show on hover) */}
-          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-            {node.level === 1 && (
-              <TooltipProvider delayDuration={200}>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      className="h-6 w-6 flex items-center justify-center rounded hover:bg-accent"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleOpenAdd(node.id);
-                      }}
-                    >
-                      <Plus className="h-3 w-3" />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="top">新增子類目</TooltipContent>
-                </Tooltip>
-              </TooltipProvider>
-            )}
-            <TooltipProvider delayDuration={200}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    className="h-6 w-6 flex items-center justify-center rounded hover:bg-accent"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleOpenEdit(node);
-                    }}
-                  >
-                    <Pencil className="h-3 w-3" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="top">編輯</TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-            <TooltipProvider delayDuration={200}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    className="h-6 w-6 flex items-center justify-center rounded hover:bg-accent"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleMove(node, 'up');
-                    }}
-                  >
-                    <ArrowUp className="h-3 w-3" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="top">上移</TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-            <TooltipProvider delayDuration={200}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    className="h-6 w-6 flex items-center justify-center rounded hover:bg-accent"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      handleMove(node, 'down');
-                    }}
-                  >
-                    <ArrowDown className="h-3 w-3" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="top">下移</TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-            <TooltipProvider delayDuration={200}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    className="h-6 w-6 flex items-center justify-center rounded hover:bg-destructive/10 text-destructive"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setDeletingCategory(node);
-                    }}
-                  >
-                    <Trash2 className="h-3 w-3" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="top">刪除</TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-          </div>
-        </motion.div>
-
-        {/* Children */}
-        <AnimatePresence>
-          {node.isExpanded && hasChildren && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: 'auto', opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              className="overflow-hidden"
-            >
-              {node.children.map((child) => renderTreeNode(child, depth + 1))}
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-    );
   };
 
-  // --- Product list toggle selection ---
-  const toggleProductSelect = useCallback((id: string) => {
-    setSelectedProductIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
-
-  const toggleAllProducts = useCallback(() => {
-    if (selectedProductIds.size === products.length) {
-      setSelectedProductIds(new Set());
-    } else {
-      setSelectedProductIds(new Set(products.map((p) => p.id)));
-    }
-  }, [selectedProductIds, products]);
+  // ─────────────────────────────────────────────────────────────────────────────
 
   return (
-    <div className="flex h-full overflow-hidden">
-      {/* Left panel: Category tree */}
-      <div className="flex w-[340px] shrink-0 flex-col border-r bg-card/50">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b px-4 py-3">
-          <div className="flex items-center gap-2">
-            <FolderTree className="h-4.5 w-4.5 text-primary" />
-            <h2 className="font-display text-sm font-bold tracking-tight">產品分類管理</h2>
-          </div>
-          <div className="flex items-center gap-1">
-            <TooltipProvider delayDuration={200}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="h-7 w-7"
-                    onClick={() => { fetchCategories(); fetchProductCounts(); }}
-                    disabled={isLoading}
-                  >
-                    <RefreshCw className={cn('h-3.5 w-3.5', isLoading && 'animate-spin')} />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>重新載入</TooltipContent>
-              </Tooltip>
-            </TooltipProvider>
-            <Button
-              size="sm"
-              variant="default"
-              className="h-7 gap-1 text-xs"
-              onClick={() => handleOpenAdd(null)}
-            >
-              <Plus className="h-3 w-3" />
-              新增一級類目
-            </Button>
-          </div>
+    <div className="flex h-full flex-col overflow-hidden bg-background">
+      {/* ── Toolbar ── */}
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-muted/30 px-6 py-3">
+        <div className="flex items-center gap-2">
+          <FolderTree className="h-4 w-4 text-primary" />
+          <h2 className="font-display text-sm font-bold">Shopify 分類</h2>
+          <span className="font-mono-data text-[11px] text-muted-foreground">
+            {totalL1} 個一級分類 · {totalL2} 個二級分類 · {totalL3} 個三級分類
+          </span>
         </div>
-
-        {/* Expand / Collapse all */}
-        <div className="flex items-center gap-2 px-4 py-2 border-b">
-          <button
-            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-            onClick={expandAll}
-          >
-            全部展開
-          </button>
-          <span className="text-xs text-muted-foreground">·</span>
-          <button
-            className="text-xs text-muted-foreground hover:text-foreground transition-colors"
-            onClick={collapseAll}
-          >
-            全部收合
-          </button>
-          <div className="flex-1" />
-          <Badge variant="outline" className="text-[10px] font-mono-data">
-            已分類 {categorizedCount} · 未分類 {uncategorizedCount}
-          </Badge>
-        </div>
-
-        {/* Tree */}
-        <ScrollArea className="flex-1">
-          <div className="p-2">
-            {isLoading ? (
-              <div className="space-y-2 p-2">
-                {Array.from({ length: 8 }).map((_, i) => (
-                  <Skeleton key={i} className="h-8 w-full rounded-lg" />
-                ))}
-              </div>
-            ) : tree.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 text-center">
-                <FolderTree className="h-10 w-10 text-muted-foreground/40 mb-3" />
-                <p className="text-sm text-muted-foreground">尚無類目</p>
-                <p className="text-xs text-muted-foreground/60 mt-1">點擊上方「新增一級類目」開始</p>
-              </div>
-            ) : (
-              tree.map((node) => renderTreeNode(node, 0))
-            )}
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="搜尋分類..."
+              className="h-8 w-44 rounded-lg border border-border bg-card pl-8 pr-3 text-xs focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
+            />
           </div>
-        </ScrollArea>
-
-        {/* Uncategorized link */}
-        <div className="border-t px-4 py-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx,.xls"
+            className="hidden"
+            onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = ''; }}
+          />
           <button
-            className={cn(
-              'flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm transition-colors',
-              'hover:bg-accent/50',
-              showUncategorized && 'bg-amber-500/10 ring-1 ring-amber-500/20 text-amber-600'
-            )}
-            onClick={handleShowUncategorized}
+            onClick={() => fileInputRef.current?.click()}
+            className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           >
-            <AlertCircle className="h-4 w-4 text-amber-500" />
-            <span className="font-medium">未分類產品</span>
-            {uncategorizedCount > 0 && (
-              <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 font-mono-data bg-amber-500/10 text-amber-600">
-                {uncategorizedCount}
-              </Badge>
-            )}
+            <Upload className="h-3.5 w-3.5" /> 導入 Excel
+          </button>
+          <button
+            onClick={save}
+            disabled={isSaving || !dirty}
+            className="flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-xs font-semibold text-primary-foreground shadow-sm transition-opacity hover:opacity-90 disabled:opacity-50"
+          >
+            {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+            儲存
           </button>
         </div>
       </div>
 
-      {/* Right panel: Product list */}
-      <div className="flex flex-1 flex-col overflow-hidden">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b px-6 py-3">
-          <div className="flex items-center gap-3">
-            {selectedCategory ? (
-              <>
-                <Package className="h-4 w-4 text-primary" />
-                <h3 className="font-display text-sm font-bold">
-                  {selectedCategory.name}
-                </h3>
-                <Badge variant="secondary" className="font-mono-data text-xs">
-                  {productTotal} 個產品
-                </Badge>
-              </>
-            ) : showUncategorized ? (
-              <>
-                <AlertCircle className="h-4 w-4 text-amber-500" />
-                <h3 className="font-display text-sm font-bold">未分類產品</h3>
-                <Badge variant="secondary" className="font-mono-data text-xs bg-amber-500/10 text-amber-600">
-                  {productTotal} 個產品
-                </Badge>
-              </>
-            ) : (
-              <>
-                <FolderTree className="h-4 w-4 text-muted-foreground" />
-                <h3 className="text-sm text-muted-foreground">
-                  請從左側選擇一個類目查看產品
-                </h3>
-              </>
-            )}
+      {/* ── Info Banner ── */}
+      <div className="flex items-center gap-2 border-b border-border bg-indigo-500/5 px-6 py-1.5">
+        <FolderTree className="h-3 w-3 text-indigo-500" />
+        <span className="text-[11px] text-indigo-500 font-body">
+          管理 Shopify 產品分類（支援三級）。Excel 格式：第一欄一級、第二欄二級、第三欄三級（可空），由第二行起。儲存後寫入 bwf_product_categories。
+        </span>
+      </div>
+
+      {/* ── Content ── */}
+      <div className="flex-1 overflow-auto p-6">
+        {isLoading ? (
+          <div className="space-y-3">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="h-20 animate-pulse rounded-xl bg-muted/50" />
+            ))}
           </div>
-
-          {selectedProductIds.size > 0 && (
-            <div className="flex items-center gap-2">
-              <Badge variant="default" className="font-mono-data">
-                已選 {selectedProductIds.size}
-              </Badge>
-              <Button
-                size="sm"
-                variant="default"
-                className="h-7 gap-1 text-xs"
-                onClick={() => setShowBulkAssignDialog(true)}
-              >
-                <Tag className="h-3 w-3" />
-                批量分類
-              </Button>
-            </div>
-          )}
-        </div>
-
-        {/* Products */}
-        <ScrollArea className="flex-1">
-          {!selectedCategory && !showUncategorized ? (
-            <div className="flex h-full items-center justify-center p-12">
-              <div className="flex flex-col items-center gap-3 text-center">
-                <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/5">
-                  <FolderTree className="h-8 w-8 text-primary/40" />
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  從左側類目樹選擇一個分類，<br />
-                  或點擊「未分類產品」查看需要分類的產品
-                </p>
-              </div>
-            </div>
-          ) : isLoadingProducts ? (
-            <div className="space-y-3 p-4">
-              {Array.from({ length: 6 }).map((_, i) => (
-                <Skeleton key={i} className="h-14 w-full rounded-lg" />
-              ))}
-            </div>
-          ) : products.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 text-center">
-              <Package className="h-10 w-10 text-muted-foreground/40 mb-3" />
-              <p className="text-sm text-muted-foreground">此類目下暫無產品</p>
-            </div>
-          ) : (
-            <div className="divide-y">
-              {/* Select all row */}
-              <div className="flex items-center gap-3 px-6 py-2 bg-muted/30 sticky top-0 z-10">
-                <Checkbox
-                  checked={selectedProductIds.size === products.length && products.length > 0}
-                  onCheckedChange={toggleAllProducts}
-                />
-                <span className="text-xs text-muted-foreground font-medium">全選</span>
-              </div>
-
-              {products.map((product) => (
-                <motion.div
-                  key={product.id}
-                  initial={{ opacity: 0, y: 4 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="flex items-center gap-3 px-6 py-3 hover:bg-accent/30 transition-colors cursor-pointer"
-                  onClick={() => handleOpenProductDetail(product)}
-                >
-                  <div onClick={(e) => e.stopPropagation()}>
-                    <Checkbox
-                      checked={selectedProductIds.has(product.id)}
-                      onCheckedChange={() => toggleProductSelect(product.id)}
-                    />
-                  </div>
-
-                  {/* Image */}
-                  <div className="h-10 w-10 shrink-0 rounded-md bg-muted overflow-hidden">
-                    {product.image_url ? (
-                      <img
-                        src={product.image_url}
-                        alt={product.title}
-                        className="h-full w-full object-cover"
-                      />
-                    ) : (
-                      <div className="h-full w-full flex items-center justify-center">
-                        <Package className="h-4 w-4 text-muted-foreground/40" />
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Info */}
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium truncate">{product.title}</p>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      {product.factories_display_name && (
-                        <span className="text-[11px] text-muted-foreground font-mono-data">
-                          {product.factories_display_name}
-                        </span>
-                      )}
-                      {product.category && (
-                        <Badge variant="outline" className="text-[10px] px-1.5 py-0 h-4">
-                          {product.category}
-                        </Badge>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Price */}
-                  {product.price > 0 && (
-                    <span className="text-sm font-mono-data text-muted-foreground">
-                      ${product.price.toFixed(2)}
+        ) : filtered.length === 0 ? (
+          <div className="flex flex-col items-center justify-center gap-3 py-20 text-center">
+            <FolderTree className="h-8 w-8 text-muted-foreground/40" />
+            <p className="font-display text-sm text-muted-foreground">尚無分類</p>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-xs font-semibold text-primary-foreground"
+            >
+              <Upload className="h-3.5 w-3.5" /> 導入 Excel
+            </button>
+          </div>
+        ) : (
+          <div className="mx-auto max-w-4xl space-y-4">
+            {filtered.map((g) => (
+              <div key={g.id} className="overflow-hidden rounded-xl border border-border bg-card">
+                {/* L1 header */}
+                <div className="flex items-center justify-between gap-2 border-b border-border bg-muted/30 px-4 py-2.5">
+                  <input
+                    value={g.name}
+                    onChange={(e) => renameL1(g.id, e.target.value)}
+                    className="rounded-md border border-transparent bg-transparent px-2 py-1 font-display text-sm font-bold text-foreground hover:border-border focus:border-primary/50 focus:bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  />
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono-data text-[11px] text-muted-foreground">
+                      {g.l2s.filter((l) => l.name.trim()).length} 項
                     </span>
-                  )}
-
-                  {/* Assign category select - cascading */}
-                  <div onClick={(e) => e.stopPropagation()}>
-                    <CascadingCategorySelector
-                      categories={categories}
-                      value={product.category || ''}
-                      onValueChange={(val) => handleAssignProduct(product.id, val)}
-                      placeholder="選擇類目"
-                      showClear={true}
-                      triggerClassName="w-[160px] h-8"
-                      submenuSide="left"
-                    />
+                    <button
+                      onClick={() => deleteL1(g.id)}
+                      className="rounded p-1 text-muted-foreground/60 hover:bg-rose-500/10 hover:text-rose-500"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
                   </div>
-                </motion.div>
-              ))}
-            </div>
-          )}
-        </ScrollArea>
+                </div>
 
-        {/* Pagination */}
-        {productTotal > 50 && (
-          <div className="flex items-center justify-center gap-2 border-t px-4 py-2">
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7 text-xs"
-              disabled={productPage <= 1}
-              onClick={() =>
-                fetchProducts(
-                  showUncategorized ? '__uncategorized__' : selectedCategory?.name || null,
-                  productPage - 1
-                )
-              }
+                {/* L2 + L3 rows */}
+                <div className="divide-y divide-border/60">
+                  {g.l2s.map((l2) => (
+                    <div key={l2.id}>
+                      {/* L2 row */}
+                      <div className="flex items-center gap-2 px-4 py-2 hover:bg-muted/20">
+                        <span className={cn(
+                          'flex h-6 w-6 shrink-0 items-center justify-center rounded text-[10px] font-bold',
+                          l2.isNew ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground',
+                        )}>
+                          {l2.isNew ? '新' : '·'}
+                        </span>
+                        <input
+                          value={l2.name}
+                          onChange={(e) => renameL2(g.id, l2.id, e.target.value)}
+                          placeholder="二級分類名稱"
+                          className="flex-1 rounded-md border border-transparent bg-transparent px-2 py-1 font-body text-[13px] text-foreground hover:border-border focus:border-primary/50 focus:bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
+                        />
+                        <button
+                          onClick={() => addL3(g.id, l2.id)}
+                          title="新增三級分類"
+                          className="rounded p-1 text-muted-foreground/40 hover:bg-primary/10 hover:text-primary"
+                        >
+                          <Plus className="h-3 w-3" />
+                        </button>
+                        <button
+                          onClick={() => deleteL2(g.id, l2.id)}
+                          className="rounded p-1 text-muted-foreground/60 hover:bg-rose-500/10 hover:text-rose-500"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+
+                      {/* L3 rows — indented */}
+                      {l2.l3s.map((l3) => (
+                        <div key={l3.id} className="flex items-center gap-2 py-1.5 pl-14 pr-4 hover:bg-muted/10">
+                          <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded bg-muted/60 text-[9px] font-bold text-muted-foreground">
+                            三
+                          </span>
+                          <input
+                            value={l3.name}
+                            onChange={(e) => renameL3(g.id, l2.id, l3.id, e.target.value)}
+                            placeholder="三級分類名稱"
+                            className="flex-1 rounded-md border border-transparent bg-transparent px-2 py-0.5 font-body text-[12px] text-muted-foreground hover:border-border focus:border-primary/50 focus:bg-background focus:outline-none focus:ring-2 focus:ring-primary/20"
+                          />
+                          <button
+                            onClick={() => deleteL3(g.id, l2.id, l3.id)}
+                            className="rounded p-1 text-muted-foreground/60 hover:bg-rose-500/10 hover:text-rose-500"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+
+                  {/* Add L2 */}
+                  <div className="px-4 py-1.5">
+                    <button
+                      onClick={() => addL2(g.id)}
+                      className="flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium text-primary hover:bg-primary/10"
+                    >
+                      <Plus className="h-3 w-3" /> 新增二級分類
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+
+            {/* Add L1 */}
+            <button
+              onClick={addL1}
+              className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-border py-3 text-xs font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:text-primary"
             >
-              上一頁
-            </Button>
-            <span className="text-xs text-muted-foreground font-mono-data">
-              第 {productPage} / {Math.ceil(productTotal / 50)} 頁
-            </span>
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-7 text-xs"
-              disabled={productPage >= Math.ceil(productTotal / 50)}
-              onClick={() =>
-                fetchProducts(
-                  showUncategorized ? '__uncategorized__' : selectedCategory?.name || null,
-                  productPage + 1
-                )
-              }
-            >
-              下一頁
-            </Button>
+              <Plus className="h-4 w-4" /> 新增一級分類
+            </button>
           </div>
         )}
       </div>
 
-      {/* Add / Edit Category Dialog */}
-      <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
-        <DialogContent className="sm:max-w-[400px]">
-          <DialogHeader>
-            <DialogTitle className="font-display">
-              {editingCategory ? '編輯類目' : newCategoryParent ? '新增二級類目' : '新增一級類目'}
-            </DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            {newCategoryParent && !editingCategory && (
-              <div className="text-xs text-muted-foreground">
-                父類目：
-                <Badge variant="outline" className="ml-1">
-                  {categories.find((c) => c.id === newCategoryParent)?.name}
-                </Badge>
-              </div>
-            )}
-            <div>
-              <label className="text-xs font-medium text-muted-foreground mb-1 block">
-                類目名稱
-              </label>
-              <Input
-                value={newCategoryName}
-                onChange={(e) => setNewCategoryName(e.target.value)}
-                placeholder="輸入類目名稱"
-                autoFocus
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') handleSaveCategory();
-                }}
-              />
+      {/* ── Import confirm dialog ── */}
+      {pendingImport && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          onClick={() => setPendingImport(null)}
+        >
+          <div
+            className="w-full max-w-md rounded-2xl border border-border bg-card p-5 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-2 flex items-center justify-between">
+              <h3 className="font-display text-base font-bold">確認導入</h3>
+              <button onClick={() => setPendingImport(null)} className="rounded p-1 text-muted-foreground hover:bg-muted">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <p className="font-body text-[13px] text-muted-foreground">
+              已從 Excel 解析出{' '}
+              <span className="font-bold text-primary">{pendingImport.length}</span> 個一級 ·{' '}
+              <span className="font-bold text-primary">
+                {pendingImport.reduce((s, g) => s + g.l2s.length, 0)}
+              </span> 個二級 ·{' '}
+              <span className="font-bold text-primary">
+                {pendingImport.reduce((s, g) => s + g.l2s.reduce((s2, l2) => s2 + l2.l3s.length, 0), 0)}
+              </span> 個三級分類。
+              導入會<span className="font-semibold text-rose-500">取代</span>目前所有分類（儲存後才寫入資料庫）。
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={() => setPendingImport(null)}
+                className="rounded-lg border border-border px-3.5 py-2 text-xs font-medium text-muted-foreground hover:bg-accent"
+              >
+                取消
+              </button>
+              <button
+                onClick={confirmImport}
+                className="flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-xs font-semibold text-primary-foreground hover:opacity-90"
+              >
+                <Check className="h-3.5 w-3.5" /> 確認導入
+              </button>
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowAddDialog(false)}>
-              取消
-            </Button>
-            <Button onClick={handleSaveCategory} disabled={isSaving}>
-              {isSaving && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
-              {editingCategory ? '儲存' : '新增'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Delete Confirmation */}
-      <AlertDialog
-        open={!!deletingCategory}
-        onOpenChange={(open) => {
-          if (!open) setDeletingCategory(null);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>確定刪除類目？</AlertDialogTitle>
-            <AlertDialogDescription>
-              確定要刪除「{deletingCategory?.name}」嗎？
-              {deletingCategory?.level === 1 && (
-                <span className="block mt-1 text-destructive font-medium">
-                  ⚠️ 此操作會一併刪除所有子類目，且無法還原。
-                </span>
-              )}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>取消</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleDelete}
-              disabled={isDeleting}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              {isDeleting && <Loader2 className="h-3 w-3 mr-1 animate-spin" />}
-              確定刪除
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      {/* Bulk Assign Dialog */}
-      <Dialog open={showBulkAssignDialog} onOpenChange={setShowBulkAssignDialog}>
-        <DialogContent className="sm:max-w-[400px]">
-          <DialogHeader>
-            <DialogTitle className="font-display">批量分配類目</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <p className="text-sm text-muted-foreground">
-              將 {selectedProductIds.size} 個產品分配至：
-            </p>
-            <CascadingCategorySelector
-              categories={categories}
-              value={bulkAssignCategory}
-              onValueChange={setBulkAssignCategory}
-              placeholder="選擇目標類目"
-              showClear={false}
-              triggerClassName="w-full h-9"
-            />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowBulkAssignDialog(false)}>
-              取消
-            </Button>
-            <Button onClick={handleBulkAssign} disabled={!bulkAssignCategory}>
-              確定分配
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      {/* Product Detail Modal */}
-      {detailProduct && (
-        <ProductDetailModal
-          product={{
-            id: detailProduct.id,
-            title: detailProduct.title,
-            description: detailProduct.description || detailProduct.description_html || '',
-            descriptionHtml: detailProduct.description_html || detailProduct.description || '',
-            tags: detailProduct.tags || [],
-            price: detailProduct.sale_price ?? detailProduct.price ?? 0,
-            collection: detailProduct.collection || detailProduct.category || '',
-            status: detailProduct.status || 'draft',
-            imageUrl: detailProduct.image_url || '',
-            images: detailProduct.images || undefined,
-            shopifyProductId: detailProduct.shopify_product_id || null,
-            source: detailProduct.source || 'manual',
-            syncedAt: detailProduct.synced_at || null,
-            createdAt: detailProduct.created_at || new Date().toISOString(),
-            color: detailProduct.color || null,
-            factoryId: detailProduct.factory_id || null,
-            factoriesDisplayName: detailProduct.factories_display_name || null,
-            costPrice: detailProduct.cost_price ?? null,
-            productionLeadTime: detailProduct.production_date ?? null,
-            shippingDays: detailProduct.shipping_days ?? null,
-            shippingFee: detailProduct.shipping_fee ?? null,
-            totalLeadTime: detailProduct.total_lead_time ?? null,
-            bwfMasterId: detailProduct.bwf_master_id || null,
-            remarks: detailProduct.remarks || null,
-            category: detailProduct.category || null,
-            dimensionLMm: detailProduct.dimension_l_mm ?? null,
-            dimensionWMm: detailProduct.dimension_w_mm ?? null,
-            dimensionHMm: detailProduct.dimension_h_mm ?? null,
-          }}
-          open={showDetailModal}
-          onClose={() => {
-            setShowDetailModal(false);
-            setDetailProduct(null);
-          }}
-          onProductUpdated={handleProductUpdated}
-        />
+        </div>
       )}
     </div>
   );

@@ -86,7 +86,7 @@ export function PublishModal({ open, onClose, onConfirm, products }: PublishModa
         {newProducts.length > 0 && (
           <ScrollArea className="h-[300px] rounded-lg border border-border bg-background p-1">
             <pre className="p-4 font-mono-data text-[11px] leading-relaxed text-foreground/80 whitespace-pre-wrap">
-              <code>{syntaxHighlight(jsonString)}</code>
+              <code>{jsonString}</code>
             </pre>
           </ScrollArea>
         )}
@@ -114,12 +114,3 @@ export function PublishModal({ open, onClose, onConfirm, products }: PublishModa
   );
 }
 
-function syntaxHighlight(json: string): string {
-  return json
-    .replace(/("(\\u[\da-fA-F]{4}|\\[^u]|[^\\"])*"(\s*:)?)/g, (match) => {
-      if (/:$/.test(match)) {
-        return match; // key
-      }
-      return match; // string value
-    });
-}

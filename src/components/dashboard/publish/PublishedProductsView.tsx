@@ -194,46 +194,41 @@ export function PublishedProductsView() {
     }
   };
 
-  // Step 2: Upsert selected products into shopify_products table
+  // Step 2: Import selected products via edge function (basic data + metafields in batches)
   const handleConfirmImport = async () => {
     if (selectedImportIds.size === 0) { toast.error('請先選擇產品'); return; }
     setIsImporting(true);
-    const toastId = toast.loading(`正在導入 ${selectedImportIds.size} 件產品...`);
+    const productIds = Array.from(selectedImportIds);
+    const toastId = toast.loading(`正在導入 ${productIds.length} 件產品...`);
     try {
-      const now = new Date().toISOString();
-      const rows = previewProducts
-        .filter(p => selectedImportIds.has(p.shopify_product_id))
-        .map(p => ({
-          shopify_product_id: p.shopify_product_id,
-          title: p.title,
-          body_html: p.body_html || null,
-          vendor: p.vendor || null,
-          product_type: p.product_type || null,
-          handle: p.handle || null,
-          status: p.status || null,
-          published_at: p.published_at,
-          image_url: p.image_url,
-          images: p.images ?? [],
-          variants: p.variants ?? [],
-          tags: p.tags ?? [],
-          price: p.price || null,
-          compare_at_price: p.compare_at_price ?? null,
-          shopify_created_at: p.shopify_created_at ?? null,
-          shopify_updated_at: p.shopify_updated_at ?? null,
-          imported_at: now,
-        }));
+      // Step A: Import basic product data via edge function
+      const { data: importData, error: importErr } = await supabase.functions.invoke(
+        'fetch-shopify-products',
+        { body: { import: true, product_ids: productIds } }
+      );
+      if (importErr) throw new Error(importErr.message);
+      if (importData?.error) throw new Error(importData.error);
 
-      const { error } = await supabase
-        .from('shopify_products')
-        .upsert(rows, { onConflict: 'shopify_product_id' });
+      toast.loading(`基本資料已導入，正在抓取 Metafields...`, { id: toastId });
 
-      if (error) {
-        toast.error('導入失敗', { id: toastId, description: error.message, duration: 8000 });
-        return;
+      // Step B: Sync metafields in batches of 10 to avoid timeout
+      const BATCH = 10;
+      let totalMfs = 0;
+      for (let i = 0; i < productIds.length; i += BATCH) {
+        const batch = productIds.slice(i, i + BATCH);
+        const { data: mfData } = await supabase.functions.invoke(
+          'fetch-shopify-products',
+          { body: { sync_metafields: true, product_ids: batch } }
+        );
+        if (mfData?.total_metafields) totalMfs += mfData.total_metafields;
+        if (productIds.length > BATCH) {
+          toast.loading(`Metafields 進度：${Math.min(i + BATCH, productIds.length)} / ${productIds.length}`, { id: toastId });
+        }
       }
+
       toast.success(`✅ 從 Shopify 導入完成`, {
         id: toastId,
-        description: `已儲存 ${rows.length} 件產品至 shopify_products`,
+        description: `已儲存 ${importData?.imported ?? productIds.length} 件產品，共 ${totalMfs} 個 metafield`,
         duration: 6000,
       });
       setShowImportDialog(false);

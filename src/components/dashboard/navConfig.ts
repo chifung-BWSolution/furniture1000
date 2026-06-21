@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Search, UserPlus, CheckCircle2,
   Building2, Zap, FileBarChart, ClipboardList, SlidersHorizontal,
   FileUp, FolderTree, BookOpen, Boxes,
-  FileText, ShieldCheck, UploadCloud, CheckCheck,
+  FileText, ShieldCheck, UploadCloud, CheckCheck, Sofa,
   Building, BarChart2, TrendingUp,
   UserCog, History,
   type LucideIcon,
@@ -77,9 +77,9 @@ export const NAV_CONFIG: PrimaryItem[] = [
     children: [
       { view: 'publish-copywriting', label: '產品文案', icon: FileText },
       { view: 'publish-product-info', label: '產品信息', icon: Boxes },
+      { view: 'furniture-group-check', label: '傢俬組檢查', icon: Sofa },
       { view: 'ready-to-publish', label: '準備上載', icon: UploadCloud },
       { view: 'published-products', label: '已上載產品', icon: CheckCheck },
-      { view: 'category-management', label: '產品分類', icon: FolderTree },
     ],
   },
   {
@@ -99,6 +99,7 @@ export const NAV_CONFIG: PrimaryItem[] = [
     children: [
       { view: 'user-management', label: '用戶管理', icon: UserCog },
       { view: 'login-history', label: '登入紀錄', icon: History },
+      { view: 'category-management', label: 'Shopify 分類', icon: FolderTree },
       { view: 'category-registry', label: '產品分類', icon: FolderTree },
       { view: 'settings', label: '系統設定', icon: SettingsIcon },
     ],
