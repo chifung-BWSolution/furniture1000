@@ -222,7 +222,82 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
     }
   };
 
+  // Shared write: pushes one item's edited fields to BOTH products and
+  // ready_to_shopify. `advance` = true means this is part of 「完成」 → also
+  // flips info_done / ready_to_publish / furniture_group_checked to push the
+  // product into 傢俬組檢查. `advance` = false (single 儲存) only persists data.
+  const writeProductInfo = async (it: InfoItem, advance: boolean) => {
+    const isStock = it.productionType === 'stock';
+    const customizeVal = it.productionType === 'custom' && it.leadTime ? it.leadTime : null;
+
+    // 1. products table
+    const productsUpdate: Record<string, any> = {
+      sale_price: it.price,
+      sku: it.sku,
+      tags: it.tags,
+      dimension_l_mm: it.dimL,
+      dimension_w_mm: it.dimW,
+      dimension_h_mm: it.dimH,
+      level1_category: it.level1 || null,
+      level2_category: it.level2 || null,
+      in_stock: it.productionType === 'stock' ? true : false,
+      customize: customizeVal,
+    };
+    if (advance) {
+      productsUpdate.info_done = true;
+      // Go to 傢俬組檢查 first, not directly to 準備上載
+      productsUpdate.ready_to_publish = false;
+    }
+    const { error } = await supabase.from('products').update(productsUpdate).eq('id', it.id);
+    if (error) throw new Error(error.message);
+
+    // 2. ready_to_shopify — mirror every editable field
+    const rtsUpdate: Record<string, any> = {
+      // 產品編碼 (SKU) → sku column
+      sku: it.sku || null,
+      // 產品價錢 → price
+      price: it.price,
+      // 產品標籤 → tags
+      tags: it.tags.length > 0 ? it.tags : null,
+      // 產品分類（一級 / 二級）→ product_type
+      product_type: [it.level1, it.level2].filter(Boolean).join(' / ') || null,
+      // 產品尺寸（長 / 闊 / 高）→ dimension_*_mm
+      dimension_l_mm: it.dimL,
+      dimension_w_mm: it.dimW,
+      dimension_h_mm: it.dimH,
+      // 送貨資訊（現貨 / 全訂製 + 交期）→ in_stock + customize
+      in_stock: isStock ? true : (it.productionType === 'custom' ? false : null),
+      customize: customizeVal,
+    };
+    if (advance) {
+      // false = waiting in 傢俬組檢查; true = cleared for 準備上載
+      rtsUpdate.furniture_group_checked = false;
+      if (isStock || customizeVal != null) rtsUpdate.status = 'draft';
+    }
+    const { error: rtsErr } = await supabase
+      .from('ready_to_shopify')
+      .update(rtsUpdate)
+      .eq('product_id', it.id);
+    if (rtsErr) throw new Error(rtsErr.message);
+  };
+
   const [isSaving, setIsSaving] = useState(false);
+  // Per-product 儲存 — persists data only, keeps product on this page.
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const handleSaveOne = async (id: string) => {
+    const it = items.find((x) => x.id === id);
+    if (!it) return;
+    setSavingId(id);
+    try {
+      await writeProductInfo(it, false);
+      toast.success('已儲存', { description: '產品資料已同步至資料庫' });
+    } catch (e) {
+      toast.error('儲存失敗', { description: e instanceof Error ? e.message : '請稍後再試' });
+    } finally {
+      setSavingId(null);
+    }
+  };
+
   const handleComplete = async () => {
     if (selected.size === 0) { toast.message('請先勾選產品'); return; }
     const ids = Array.from(selected);
@@ -231,48 +306,7 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
       for (const id of ids) {
         const it = items.find((x) => x.id === id);
         if (!it) continue;
-
-        // 1. Update products table
-        const { error } = await supabase
-          .from('products')
-          .update({
-            sale_price: it.price,
-            sku: it.sku,
-            tags: it.tags,
-            dimension_l_mm: it.dimL,
-            dimension_w_mm: it.dimW,
-            dimension_h_mm: it.dimH,
-            level1_category: it.level1 || null,
-            level2_category: it.level2 || null,
-            in_stock: it.productionType === 'stock' ? true : false,
-            customize: it.productionType === 'custom' && it.leadTime ? it.leadTime : null,
-            info_done: true,
-            // Go to 傢俬組檢查 first, not directly to 準備上載
-            ready_to_publish: false,
-          })
-          .eq('id', id);
-        if (error) throw new Error(error.message);
-
-        // 2. Sync edited fields into ready_to_shopify + mark pending furniture group check
-        const deliveryInfo = it.productionType === 'stock'
-          ? '現貨'
-          : it.productionType === 'custom' && it.leadTime
-            ? `全訂製 ${it.leadTime}`
-            : null;
-        await supabase
-          .from('ready_to_shopify')
-          .update({
-            handle: it.sku || null,
-            // Sync edited 產品價錢 → ready_to_shopify.price so 傢俬組檢查
-            // (list + detail) shows the updated 售價 instead of a stale HK$0
-            price: it.price,
-            tags: it.tags.length > 0 ? it.tags : null,
-            product_type: [it.level1, it.level2].filter(Boolean).join(' / ') || null,
-            ...(deliveryInfo != null && { status: 'draft' }),
-            // false = waiting in 傢俬組檢查; true = cleared for 準備上載
-            furniture_group_checked: false,
-          })
-          .eq('product_id', id);
+        await writeProductInfo(it, true);
       }
       setSelected(new Set());
       setReloadKey((k) => k + 1);
@@ -397,6 +431,17 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
                         {it.level2 && <span className="rounded bg-muted px-1.5 py-0.5 font-body text-[10px] text-muted-foreground">{it.level2}</span>}
                       </div>
                     </div>
+                    {/* per-product save — persists data without advancing the flow */}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => handleSaveOne(it.id)}
+                      disabled={savingId === it.id}
+                      className="shrink-0 gap-1.5 font-display text-xs"
+                    >
+                      {savingId === it.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
+                      儲存
+                    </Button>
                   </div>
                   {/* card body */}
                   <div className="grid grid-cols-1 gap-x-6 gap-y-4 p-5 items-start md:grid-cols-2 lg:grid-cols-4">
