@@ -810,14 +810,15 @@ export const ProductTableView = memo(function ProductTableView({
                   onClick={async () => {
                     if (!variantModal) return;
                     // productId is the FK to products.id used for ready_to_shopify queries.
-                    // product.id is ready_to_shopify.id (rts row UUID), not suitable for .eq('product_id', ...).
+                    // product.id is ready_to_shopify.id (rts row UUID).
                     const hostProductId = variantModal.product.productId || variantModal.product.id;
+                    const hostRtsId = variantModal.product.id;
                     const variants = variantModal.product.variants;
 
-                    // Collect the products.id values of OTHER products merged into this host
-                    const mergedProductIds = variants
-                      .filter(v => v.id !== variantModal.product.id)
-                      .map(v => v.productId || v.id);
+                    // rts ids of products CURRENTLY merged into this host (excluding host itself)
+                    const currentMergedRtsIds = variants
+                      .filter(v => v.id !== hostRtsId)
+                      .map(v => v.id);
 
                     const shopifyVariants = variants.map(v => ({
                       id: v.id,
@@ -831,6 +832,19 @@ export const ProductTableView = memo(function ProductTableView({
                       inventory_quantity: v.inventory ?? 0,
                     }));
 
+                    // Read the host's PREVIOUSLY-stored variants so we can detect which
+                    // sub-products were removed this session and must be restored.
+                    const { data: existingRow } = await supabase
+                      .from('ready_to_shopify')
+                      .select('variants')
+                      .eq('product_id', hostProductId)
+                      .maybeSingle();
+                    const prevMergedRtsIds: string[] = Array.isArray(existingRow?.variants)
+                      ? (existingRow!.variants as any[])
+                          .map(v => String(v.id))
+                          .filter(id => id && id !== hostRtsId)
+                      : [];
+
                     // 1. Save variants to the host product's ready_to_shopify row
                     const { error } = await supabase
                       .from('ready_to_shopify')
@@ -841,33 +855,37 @@ export const ProductTableView = memo(function ProductTableView({
                       return;
                     }
 
-                    // 2. Remove merged products from ready_to_shopify so they
-                    //    no longer appear in 準備上載 as standalone items
-                    if (mergedProductIds.length > 0) {
+                    // 2. Hide currently-merged sub-products from 準備上載 WITHOUT deleting
+                    //    them — set furniture_group_checked=null so the row (and all its
+                    //    data) survives. They can be restored by un-merging.
+                    if (currentMergedRtsIds.length > 0) {
                       await supabase
                         .from('ready_to_shopify')
-                        .delete()
-                        .in('product_id', mergedProductIds);
-
-                      // Clear readyToPublish in local state using the rts row ids
-                      variants
-                        .filter(v => v.id !== variantModal.product.id)
-                        .forEach(v => {
-                          onUpdateProduct(v.id, { readyToPublish: false } as any);
-                        });
+                        .update({ furniture_group_checked: null })
+                        .in('id', currentMergedRtsIds);
+                      currentMergedRtsIds.forEach(id => onUpdateProduct(id, { readyToPublish: false } as any));
                     }
 
-                    toast.success('變體已儲存', {
-                      description: mergedProductIds.length > 0
-                        ? `已儲存 ${variants.length} 個變體，${mergedProductIds.length} 件已合併產品從準備上載移除`
-                        : `已將 ${variants.length} 個變體儲存至 ready_to_shopify`,
-                    });
+                    // 3. Restore sub-products that were merged before but removed now —
+                    //    bring them back as standalone products in 準備上載.
+                    const restoredRtsIds = prevMergedRtsIds.filter(id => !currentMergedRtsIds.includes(id));
+                    if (restoredRtsIds.length > 0) {
+                      await supabase
+                        .from('ready_to_shopify')
+                        .update({ furniture_group_checked: true, variants: [] })
+                        .in('id', restoredRtsIds);
+                    }
+
+                    const descParts: string[] = [`已儲存 ${variants.length} 個變體`];
+                    if (currentMergedRtsIds.length > 0) descParts.push(`${currentMergedRtsIds.length} 件已合併`);
+                    if (restoredRtsIds.length > 0) descParts.push(`${restoredRtsIds.length} 件已還原為單獨產品`);
+                    toast.success('變體已儲存', { description: descParts.join('，') });
                     setVariantModal(null);
                     setShowProductPicker(false);
                     setPickerSearch('');
                     setPickerFactoryFilter('');
                     setPickerPage(0);
-                    // Trigger parent to reload 準備上載 list so merged products disappear
+                    // Trigger parent to reload 準備上載 list so changes reflect
                     onVariantsSaved?.();
                   }}
                 >
