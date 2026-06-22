@@ -772,17 +772,17 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
     if (!window.confirm(`確定要把全部 ${items.length} 件產品退回「產品文案」頁面嗎？`)) return;
     setIsReverting(true);
     try {
-      const rtsIds = items.map(r => r.rtsId);
       const productIds = items.map(r => r.productId).filter(Boolean);
 
-      // Delete rows from ready_to_shopify (removes from 傢俬組檢查)
-      const { error: delErr } = await supabase
-        .from('ready_to_shopify')
-        .delete()
-        .in('id', rtsIds);
-      if (delErr) throw new Error(delErr.message);
+      // NOTE: do NOT delete the ready_to_shopify rows here. Reverting only moves
+      // the product back to 產品文案 by resetting the products flags below; the
+      // RTS row (body_html, images, SEO, sku, price …) is preserved so nothing
+      // is lost. The product drops out of 傢俬組檢查 because furniture_group_checked
+      // / copy_done are reset, not because the row is removed.
 
-      // Reset products so they reappear in 產品文案
+      // Reset products so they reappear in 產品文案.
+      // Keep in_shopify_queue=true — the 產品文案 list filters on it, so setting
+      // it false would make the reverted products vanish from that page too.
       if (productIds.length > 0) {
         const { error: updErr } = await supabase
           .from('products')
@@ -790,15 +790,23 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
             copy_done: false,
             info_done: false,
             ready_to_publish: false,
-            in_shopify_queue: false,
           })
           .in('id', productIds);
         if (updErr) throw new Error(updErr.message);
       }
 
+      // Drop the reverted rows out of 傢俬組檢查 WITHOUT deleting them:
+      // furniture_group_checked=null means neither 傢俬組檢查 (filters =false)
+      // nor 準備上載 (filters =true) shows them, while body_html/images/SEO survive.
+      const { error: rtsErr } = await supabase
+        .from('ready_to_shopify')
+        .update({ furniture_group_checked: null })
+        .in('id', items.map(r => r.rtsId));
+      if (rtsErr) throw new Error(rtsErr.message);
+
       setItems([]);
       setSelected(new Set());
-      toast.success('已全部退回產品文案', { description: `${rtsIds.length} 件產品已退回「產品文案」頁面` });
+      toast.success('已全部退回產品文案', { description: `${items.length} 件產品已退回「產品文案」頁面` });
     } catch (e) {
       toast.error('退回失敗', { description: e instanceof Error ? e.message : '請稍後再試' });
     } finally {

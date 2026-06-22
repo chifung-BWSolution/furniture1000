@@ -357,8 +357,16 @@ export function AppShell() {
                 return;
               }
 
-              // Step 3: remove from ready_to_shopify using the RTS row ids
-              await sb.from('ready_to_shopify').delete().in('id', ids);
+              // Step 3: keep the ready_to_shopify rows intact (do NOT delete).
+              // The product is moved back to 產品文案 via the products flags above;
+              // its RTS row (body_html, images, SEO, sku, price …) is preserved so
+              // nothing is lost on revert. When the product is re-submitted, the
+              // existing RTS row is upserted/overwritten rather than recreated.
+              // Set furniture_group_checked=null so the row leaves both 傢俬組檢查
+              // (filters =false) and 準備上載 (filters =true) without being removed.
+              await sb.from('ready_to_shopify')
+                .update({ furniture_group_checked: null })
+                .in('id', ids);
 
               store.reloadReadyToPublish();
               toast.success(`已退回 ${ids.length} 件產品至「產品文案」`, {
