@@ -5,6 +5,23 @@
 
 ---
 
+## 0. Edge Function 有「重複 slug」陷阱：部署前先確認前端呼叫哪個 slug
+
+**大坑**：同一個 function 在 Supabase 存在兩個 slug —— `publish-to-shopify`（舊、沒人用）
+與 `supabase-functions-publish-to-shopify`（**前端實際 `supabase.functions.invoke()` 呼叫的**）。
+若把新程式碼部署到 `publish-to-shopify`，前端永遠收不到，會出現「改了卻無效、行為跟舊版一樣」。
+
+**規則**：
+1. 改 edge function 前，先 `grep -rn "functions.invoke" src/` 找出前端**實際呼叫的 slug**
+   （本專案幾乎全部是 `supabase-functions-<name>` 前綴）。
+2. 部署時 deploy 到那個 slug：
+   `POST /v1/projects/<ref>/functions/deploy?slug=supabase-functions-publish-to-shopify`。
+3. 部署後用 `/functions/<slug>/body` 抓回內容 grep 關鍵字，**確認線上版本真的有你的改動**。
+4. `supabase/functions/<name>/index.ts` 的資料夾名 ≠ 線上 slug，別被誤導。
+
+前端 invoke 對照（已知）：上傳 Shopify＝`supabase-functions-publish-to-shopify`；
+從 Shopify 導入＝`supabase-functions-sync-from-shopify`（寫 `products` 表，**未**處理 metafield）。
+
 ## 1. 產品列表查詢：絕不要 `.select('*')`
 
 `products` 表有一個重量級的 `images` JSONB 欄位（base64 data-URL，每筆約 1MB），外加
