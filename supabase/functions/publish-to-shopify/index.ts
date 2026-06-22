@@ -281,10 +281,11 @@ Deno.serve(async (req: Request) => {
     }
 
     const body = await req.json();
-    const { products, shopify_access_token: bodyToken, shopify_store_url: bodyStoreUrl } = body as {
+    const { products, shopify_access_token: bodyToken, shopify_store_url: bodyStoreUrl, force_create: forceCreate } = body as {
       products: ProductPayload[];
       shopify_access_token?: string;
       shopify_store_url?: string;
+      force_create?: boolean;
     };
 
     if (!shopifyAccessToken.trim() && bodyToken && bodyToken.trim()) {
@@ -332,11 +333,17 @@ Deno.serve(async (req: Request) => {
 
     for (const product of products) {
       try {
-        if (product.shopify_product_id) {
+        // SAFETY: skip products that already exist on Shopify — UNLESS the caller
+        // explicitly requested force_create (e.g. 準備上載 wants a brand-new product
+        // even if this row was previously imported from Shopify).
+        if (product.shopify_product_id && !forceCreate) {
           console.log(`[publish-to-shopify] SAFETY: Skipping "${product.title}" — already has Shopify ID ${product.shopify_product_id}.`);
           await supabase.from("products").update({ status: "success", error_message: null }).eq("id", product.id);
           results.push({ id: product.id, success: true, shopify_product_id: product.shopify_product_id, action: "skipped_already_exists" });
           continue;
+        }
+        if (product.shopify_product_id && forceCreate) {
+          console.log(`[publish-to-shopify] FORCE CREATE: "${product.title}" has old Shopify ID ${product.shopify_product_id} but force_create=true — creating a brand-new Shopify product.`);
         }
 
         // ── AUTO-FIX: Ensure variants array always exists ──────────────────

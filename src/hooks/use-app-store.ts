@@ -1242,7 +1242,7 @@ export function useAppStore() {
       console.log('[publishToShopify] Payload sample:', JSON.stringify(payload[0], null, 2));
 
       const { data, error } = await supabase.functions.invoke('supabase-functions-publish-to-shopify', {
-        body: { products: payload },
+        body: { products: payload, force_create: true },
       });
 
       console.log('[uploadToMasterDb] Edge function response — data:', JSON.stringify(data), 'error:', error);
@@ -1336,47 +1336,34 @@ export function useAppStore() {
               })
               .eq('id', sid);
           }
-          // Mirror successfully published products into shopify_products so they
-          // appear in the 已上載產品 page right away.
+          // NOTE: the publish-to-shopify edge function already writes the FULL
+          // shopify_products mirror row (handle, images, all metafield columns,
+          // raw metafields jsonb) for each freshly-created product. We must NOT
+          // re-upsert a simplified row here or it would overwrite that complete
+          // data with a degraded version (handle:null, no metafields).
+          //
+          // What we DO clean up: if a product was previously imported from Shopify
+          // it may have an OLD mirror row pointing at its OLD shopify_product_id.
+          // Force-create made a brand-new Shopify product, so drop the stale old
+          // mirror row (matched by source_product_id but a different, now-replaced
+          // shopify_product_id) to avoid two rows for the same product.
           const successProducts = selectedProducts.filter(p => successIds.includes(p.id));
-          const shopifyRows = successProducts.map(p => {
+          for (const p of successProducts) {
             const result = resultsMap.get(p.id);
-            const sid = result?.shopify_product_id || p.shopifyProductId || `pending-${p.id}`;
-            return {
-              shopify_product_id: sid,
-              // Link back to products.id (uuid/short-code) so we can prove this
-              // product is already live on Shopify by matching against products.
-              source_product_id: p.id,
-              title: p.title,
-              body_html: p.descriptionHtml || p.description || null,
-              vendor: p.factoryName || p.factoriesDisplayName || null,
-              product_type: p.collection || null,
-              handle: null,
-              status: 'active',
-              published_at: syncTimestamp,
-              image_url: p.imageUrl || null,
-              images: Array.isArray((p as any).images) ? (p as any).images : [],
-              variants: [],
-              tags: p.tags ?? [],
-              price: p.price ?? null,
-              compare_at_price: p.compareAtPrice ?? null,
-              shopify_created_at: syncTimestamp,
-              shopify_updated_at: syncTimestamp,
-              imported_at: syncTimestamp,
-            };
-          });
-          if (shopifyRows.length > 0) {
-            const { error: spErr } = await supabase
+            const newSid = result?.shopify_product_id;
+            if (!newSid) continue;
+            const { error: staleErr } = await supabase
               .from('shopify_products')
-              .upsert(shopifyRows, { onConflict: 'shopify_product_id' });
-            if (spErr) {
-              console.warn('[publishToShopify] shopify_products mirror failed:', spErr.message);
+              .delete()
+              .eq('source_product_id', p.id)
+              .neq('shopify_product_id', newSid);
+            if (staleErr) {
+              console.warn(`[publishToShopify] stale mirror cleanup failed for ${p.id}:`, staleErr.message);
             }
           }
 
           // Remove the published products from ready_to_shopify so they leave the
-          // 準備上載 page and we don't keep duplicate data in both ready_to_shopify
-          // and shopify_products. The product is now proven live via
+          // 準備上載 page. The product is now proven live via
           // products.shopify_product_id + shopify_products.source_product_id.
           const { error: rtsDelErr } = await supabase
             .from('ready_to_shopify')
