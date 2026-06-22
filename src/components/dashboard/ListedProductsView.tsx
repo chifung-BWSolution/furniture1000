@@ -443,10 +443,17 @@ export function ListedProductsView({
         }
       }
 
-      // Build data query — explicit columns (avoid heavy JSONB like description_html when not needed for list view)
+      // Build data query — explicit columns. CRITICAL: never select the heavy
+      // image columns here. `images` (JSONB), `image_url_2`, `image_url_3` can each
+      // hold ~1MB base64 data-URLs; selecting them for a 20-100 row list transfers
+      // tens of MB and triggers statement timeout (57014) → DB "unhealthy".
+      // The list only needs the lightweight `image_url` thumbnail; the heavy
+      // columns are lazily fetched per-product when adding to Shopify (see
+      // handleRowToShopify / handleBulkToShopify). See CLAUDE.md §1 + memory
+      // products-heavy-images-column.
       const LIST_COLUMNS = [
         'id', 'title', 'description', 'tags', 'price', 'compare_at_price',
-        'collection', 'status', 'image_url', 'image_url_2', 'image_url_3', 'images',
+        'collection', 'status', 'image_url',
         'shopify_product_id', 'source', 'synced_at', 'created_at',
         'color', 'factory_id', 'factories_display_name',
         'cost_price', 'sale_price', 'production_date', 'shipping_days', 'total_lead_time',
@@ -545,9 +552,11 @@ export function ListedProductsView({
         collection: row.collection,
         status: row.status,
         imageUrl: row.image_url,
-        imageUrl2: row.image_url_2 || null,
-        imageUrl3: row.image_url_3 || null,
-        images: row.images || [],
+        // Heavy image columns are NOT selected in the list query — lazily loaded
+        // when the product is added to Shopify. Default to empty here.
+        imageUrl2: null,
+        imageUrl3: null,
+        images: [],
         shopifyProductId: row.shopify_product_id || null,
         source: row.source || 'local',
         syncedAt: row.synced_at || null,
@@ -1071,12 +1080,28 @@ export function ListedProductsView({
   // table and break Shopify upload. Upload every base64 image (primary, the
   // images[] array, and image_url_2/3) to Storage FIRST and persist only URLs.
   const upsertToReadyToShopify = useCallback(async (prods: ListedProduct[]) => {
+    // The list query no longer loads the heavy image columns (images / image_url_2
+    // / image_url_3) to avoid statement timeouts. Lazily fetch them here, only for
+    // the handful of products actually being added to Shopify.
+    const heavyById: Record<string, { image_url_2: string | null; image_url_3: string | null; images: { src: string; alt?: string }[] }> = {};
+    const { data: heavyRows } = await supabase
+      .from('products')
+      .select('id,image_url_2,image_url_3,images')
+      .in('id', prods.map((p) => p.id));
+    for (const r of heavyRows ?? []) {
+      heavyById[r.id] = {
+        image_url_2: r.image_url_2 || null,
+        image_url_3: r.image_url_3 || null,
+        images: Array.isArray(r.images) ? r.images : [],
+      };
+    }
     const rows = await Promise.all(prods.map(async (p) => {
+      const heavy = heavyById[p.id] ?? { image_url_2: p.imageUrl2 ?? null, image_url_3: p.imageUrl3 ?? null, images: p.images ?? [] };
       // Resolve primary + extra images (image_url_2/3 + the images[] array)
       const extraInputs: string[] = [
-        ...(p.imageUrl2 ? [p.imageUrl2] : []),
-        ...(p.imageUrl3 ? [p.imageUrl3] : []),
-        ...(Array.isArray(p.images) ? p.images.map((img) => img.src).filter(Boolean) : []),
+        ...(heavy.image_url_2 ? [heavy.image_url_2] : []),
+        ...(heavy.image_url_3 ? [heavy.image_url_3] : []),
+        ...(Array.isArray(heavy.images) ? heavy.images.map((img) => img.src).filter(Boolean) : []),
       ];
       const { primary, extras } = await resolveImagesToStorage(p.id, p.imageUrl || null, extraInputs);
       const images = extras.length > 0

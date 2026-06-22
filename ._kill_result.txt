@@ -1,0 +1,4 @@
+﻿{
+    "active_queries":  0,
+    "longest_secs":  null
+}

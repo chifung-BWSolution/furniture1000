@@ -1,0 +1,7 @@
+﻿{
+    "total_conns":  22,
+    "active":  1,
+    "idle_in_txn":  0,
+    "max_conns":  "60",
+    "product_count":  2315
+}
