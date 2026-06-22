@@ -41,3 +41,8 @@ furniture1000-main/
 
 # Supabase MCP config (contains access token)
 .mcp.json
+._kill.ps1
+._kill_result.txt
+._probe.ps1
+._probe_result.txt
+._*
