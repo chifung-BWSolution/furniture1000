@@ -1136,32 +1136,6 @@ export function useAppStore() {
     }
     const rtsMap = new Map<string, any>((rtsRows || []).map((r: any) => [r.product_id, r]));
 
-    // Metafield columns mirrored on shopify_products (namespace.key). Pulled in
-    // for products that already have a Shopify match so metafields upload too.
-    const METAFIELD_COLS = [
-      'my_fields.recommend_size', 'my_fields.normal_size', 'my_fields.materials',
-      'my_fields.production_time', 'my_fields.more_recommend_size', 'my_fields.image_alt',
-      'my_fields.image_link', 'my_fields.video_link',
-      'custom.more_image_link_1', 'custom.more_image_alt_1', 'custom.more_image_link_2',
-      'custom.more_image_alt_2', 'custom.more_image_link_3', 'custom.more_image_alt_3',
-      'custom.more_image_link_4', 'custom.more_image_alt_4',
-    ];
-    const shopifyIdsForMf = selectedProducts.map(p => p.shopifyProductId).filter(Boolean) as string[];
-    const mfByShopifyId = new Map<string, Record<string, string>>();
-    if (shopifyIdsForMf.length > 0) {
-      const { data: mfRows } = await supabase
-        .from('shopify_products')
-        .select(['shopify_product_id', ...METAFIELD_COLS].map(c => `"${c}"`).join(','))
-        .in('shopify_product_id', shopifyIdsForMf);
-      for (const row of (mfRows || []) as any[]) {
-        const map: Record<string, string> = {};
-        for (const col of METAFIELD_COLS) {
-          if (row[col]) map[col] = row[col];
-        }
-        if (Object.keys(map).length > 0) mfByShopifyId.set(String(row.shopify_product_id), map);
-      }
-    }
-
     // Build payload for publish-to-shopify edge function.
     // Content fields (title, description, price, images, variants) come from
     // ready_to_shopify; meta fields (vendor, category, dimensions, etc.) come
@@ -1190,12 +1164,11 @@ export function useAppStore() {
       }
 
       // ── Build metafields from ready_to_shopify fields (variant-less mapping) ──
-      // For products already on Shopify, keep their synced metafield columns;
-      // otherwise derive from the RTS row per the agreed mapping.
+      // 準備上載 always force-creates a brand-new Shopify product, so always
+      // derive metafields fresh from the RTS row per the agreed mapping.
+      const productTitle = rts?.title || p.title || '';
       let metafields: Record<string, string> | undefined;
-      if (p.shopifyProductId) {
-        metafields = mfByShopifyId.get(String(p.shopifyProductId)) || undefined;
-      } else if (rts) {
+      if (rts) {
         const mf: Record<string, string> = {};
         // normal_size: "{L}(W)x{W}(D)x{H}(H)(mm)" — only when all three dims present
         const L = rts.dimension_l_mm, W = rts.dimension_w_mm, H = rts.dimension_h_mm;
@@ -1206,11 +1179,13 @@ export function useAppStore() {
         if (rts.customize && String(rts.customize).trim()) mf['my_fields.production_time'] = String(rts.customize).trim();
         // more_image_link_1..4 ← all RTS image URLs in order (primary first, then extras),
         // capped at 4; any beyond the 4th are dropped per spec.
+        // more_image_alt_1..4 ← product title (one alt per populated link).
         const allImageUrls: string[] = [];
         if (primaryUrl) allImageUrls.push(primaryUrl);
         for (const im of additionalImages) allImageUrls.push(im.src);
         for (let i = 0; i < Math.min(allImageUrls.length, 4); i++) {
           mf[`custom.more_image_link_${i + 1}`] = allImageUrls[i];
+          if (productTitle) mf[`custom.more_image_alt_${i + 1}`] = productTitle;
         }
         if (Object.keys(mf).length > 0) metafields = mf;
       }
