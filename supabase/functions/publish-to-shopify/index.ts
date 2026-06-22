@@ -36,6 +36,10 @@ interface ProductPayload {
   factory_name?: string;
   cost_price?: number | null;
   sale_price?: number | null;
+  // ready_to_shopify row uuid → stored as shopify_products.id for 1:1 trace.
+  rts_id?: string;
+  // URL handle (ready_to_shopify.shopify_url).
+  handle?: string;
   // Metafields as a map of "namespace.key" → value (matches DB columns),
   // OR a ready-made array of {namespace,key,type,value}.
   metafields?: Record<string, string> | { namespace: string; key: string; type?: string; value: string }[];
@@ -399,6 +403,10 @@ Deno.serve(async (req: Request) => {
             { name: "尺寸(mm)" },
           ],
         };
+        // URL handle from ready_to_shopify.shopify_url (Shopify slugifies it)
+        if (product.handle && product.handle.trim()) {
+          shopifyProduct.handle = product.handle.trim();
+        }
 
         // ── Attach metafields (sent inline on product create) ──────────────
         const shopifyMetafields = buildShopifyMetafields(product.metafields);
@@ -525,14 +533,14 @@ Deno.serve(async (req: Request) => {
                   for (const m of shopifyMetafields) {
                     fbMfColumns[`${m.namespace}.${m.key}`] = m.value;
                   }
-                  await supabase.from("shopify_products").upsert({
+                  const fbSpRow: Record<string, unknown> = {
                     shopify_product_id: shopifyProductId,
                     source_product_id: product.id,
                     title: product.title || null,
                     body_html: product.description_html || null,
                     vendor: product.vendor || product.factory_name || null,
                     product_type: product.product_type || null,
-                    handle: String(fallbackCreated.handle || ""),
+                    handle: product.handle || String(fallbackCreated.handle || ""),
                     status: "active",
                     published_at: new Date().toISOString(),
                     image_url: product.image_url || null,
@@ -547,7 +555,9 @@ Deno.serve(async (req: Request) => {
                     shop_domain: storeHost,
                     metafields: shopifyMetafields.length > 0 ? shopifyMetafields : null,
                     ...fbMfColumns,
-                  }, { onConflict: "shopify_product_id" });
+                  };
+                  if (product.rts_id) fbSpRow.id = product.rts_id;
+                  await supabase.from("shopify_products").upsert(fbSpRow, { onConflict: "shopify_product_id" });
                 } catch (fbSpErr) {
                   console.warn(`[publish-to-shopify] ⚠️ shopify_products mirror write failed (fallback, non-blocking):`, fbSpErr instanceof Error ? fbSpErr.message : String(fbSpErr));
                 }
@@ -606,7 +616,7 @@ Deno.serve(async (req: Request) => {
           for (const m of shopifyMetafields) {
             mfColumns[`${m.namespace}.${m.key}`] = m.value;
           }
-          await supabase.from("shopify_products").upsert({
+          const spRow: Record<string, unknown> = {
             shopify_product_id: shopifyProductId,
             // 連結回 products 表（products.id），讓產品目錄可判斷是否已上傳 Shopify
             source_product_id: product.id,
@@ -614,7 +624,7 @@ Deno.serve(async (req: Request) => {
             body_html: product.description_html || null,
             vendor: product.vendor || product.factory_name || null,
             product_type: product.product_type || null,
-            handle: String(createdProduct.handle || ""),
+            handle: product.handle || String(createdProduct.handle || ""),
             status: "active",
             published_at: new Date().toISOString(),
             image_url: resolvedImageUrl || product.image_url || null,
@@ -629,7 +639,10 @@ Deno.serve(async (req: Request) => {
             shop_domain: storeHost,
             metafields: shopifyMetafields.length > 0 ? shopifyMetafields : null,
             ...mfColumns,
-          }, { onConflict: "shopify_product_id" });
+          };
+          // id = ready_to_shopify row uuid (1:1 trace), when provided
+          if (product.rts_id) spRow.id = product.rts_id;
+          await supabase.from("shopify_products").upsert(spRow, { onConflict: "shopify_product_id" });
           console.log(`[publish-to-shopify] ✅ shopify_products mirror written for Shopify ID: ${shopifyProductId}`);
         } catch (spErr) {
           console.warn(`[publish-to-shopify] ⚠️ shopify_products mirror write failed (non-blocking):`, spErr instanceof Error ? spErr.message : String(spErr));

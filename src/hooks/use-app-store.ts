@@ -1129,7 +1129,7 @@ export function useAppStore() {
     // finalised title, body_html, price, image_url, images, variants.
     const { data: rtsRows, error: rtsErr } = await supabase
       .from('ready_to_shopify')
-      .select('product_id,title,body_html,price,image_url,images,variants,product_type,tags')
+      .select('id,product_id,title,body_html,vendor,price,image_url,images,variants,product_type,tags,shopify_url,dimension_l_mm,dimension_w_mm,dimension_h_mm,material,customize')
       .in('product_id', selectedProductIds_arr);
     if (rtsErr) {
       console.warn('[publishToShopify] ready_to_shopify fetch error:', rtsErr.message);
@@ -1188,8 +1188,37 @@ export function useAppStore() {
           if (src && src !== primaryUrl) additionalImages.push({ src });
         }
       }
+
+      // ── Build metafields from ready_to_shopify fields (variant-less mapping) ──
+      // For products already on Shopify, keep their synced metafield columns;
+      // otherwise derive from the RTS row per the agreed mapping.
+      let metafields: Record<string, string> | undefined;
+      if (p.shopifyProductId) {
+        metafields = mfByShopifyId.get(String(p.shopifyProductId)) || undefined;
+      } else if (rts) {
+        const mf: Record<string, string> = {};
+        // normal_size: "{L}(W)x{W}(D)x{H}(H)(mm)" — only when all three dims present
+        const L = rts.dimension_l_mm, W = rts.dimension_w_mm, H = rts.dimension_h_mm;
+        if (L != null && W != null && H != null) {
+          mf['my_fields.normal_size'] = `${L}(W)x${W}(D)x${H}(H)(mm)`;
+        }
+        if (rts.material && String(rts.material).trim()) mf['my_fields.materials'] = String(rts.material).trim();
+        if (rts.customize && String(rts.customize).trim()) mf['my_fields.production_time'] = String(rts.customize).trim();
+        // more_image_link_1..4 ← all RTS image URLs in order (primary first, then extras),
+        // capped at 4; any beyond the 4th are dropped per spec.
+        const allImageUrls: string[] = [];
+        if (primaryUrl) allImageUrls.push(primaryUrl);
+        for (const im of additionalImages) allImageUrls.push(im.src);
+        for (let i = 0; i < Math.min(allImageUrls.length, 4); i++) {
+          mf[`custom.more_image_link_${i + 1}`] = allImageUrls[i];
+        }
+        if (Object.keys(mf).length > 0) metafields = mf;
+      }
+
       return {
         id: productId,
+        rts_id: rts?.id || undefined,
+        handle: rts?.shopify_url || undefined,
         title: rts?.title || p.title,
         description_html: rts?.body_html || p.descriptionHtml || p.description || '',
         tags: mergedTags,
@@ -1199,12 +1228,12 @@ export function useAppStore() {
         images: additionalImages,
         shopify_product_id: p.shopifyProductId || null,
         variants: (rts?.variants && rts.variants.length > 0) ? rts.variants : ((p.variants && p.variants.length > 0) ? p.variants : []),
-        vendor: p.factoriesDisplayName || p.factoryName || '',
+        vendor: rts?.vendor || p.factoriesDisplayName || p.factoryName || '',
         product_type: rts?.product_type || '',
         factory_name: p.factoriesDisplayName || p.factoryName || '',
         cost_price: p.costPrice ?? null,
         sale_price: rts?.price ?? p.salePrice ?? 0,
-        metafields: p.shopifyProductId ? (mfByShopifyId.get(String(p.shopifyProductId)) || undefined) : undefined,
+        metafields,
       };
     });
 
