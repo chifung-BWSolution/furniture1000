@@ -633,11 +633,12 @@ ${rawDesc}
                   key={p.id}
                   ref={(el) => { cardRefs.current[p.id] = el; }}
                   onClick={() => openProduct(p)}
-                  className="group relative flex items-center gap-4 rounded-2xl border border-border bg-card p-4 text-left transition-all hover:border-primary/40 hover:shadow-md"
+                  className="group relative flex flex-col gap-3 rounded-2xl border border-border bg-card p-4 text-left transition-all hover:border-primary/40 hover:shadow-md"
                 >
-                  {/* Revert reason badges — top-right corner */}
+                  {/* Revert reason banner — full-width row above content, wraps freely */}
                   {p.revertReason && (p.revertReason.labels.length > 0 || p.revertReason.other) && (
-                    <div className="absolute right-3 top-3 flex flex-wrap justify-end gap-1 max-w-[55%]">
+                    <div className="flex w-full flex-wrap items-center gap-1 rounded-lg bg-amber-500/10 px-2.5 py-2 ring-1 ring-amber-500/25">
+                      <span className="font-body text-[10px] font-bold text-amber-700 dark:text-amber-400">已被退回：</span>
                       {p.revertReason.labels.map(label => (
                         <span key={label} className="rounded-full bg-amber-500/15 px-2 py-0.5 font-body text-[10px] font-semibold text-amber-700 dark:text-amber-400 ring-1 ring-amber-500/30">
                           {label}
@@ -650,16 +651,18 @@ ${rawDesc}
                       )}
                     </div>
                   )}
-                  <img src={p.imageUrl} alt={p.title} loading="lazy" className="h-20 w-20 shrink-0 rounded-xl object-cover bg-muted" />
-                  <div className="min-w-0 flex-1">
-                    <h3 className="font-display text-[14px] font-bold text-foreground line-clamp-1">{p.title}</h3>
-                    <div className="mt-1 flex flex-wrap items-center gap-1.5">
-                      {p.factory && <span className="rounded bg-muted px-1.5 py-0.5 font-body text-[10px] text-muted-foreground">{p.factory}</span>}
-                      {p.level1 && <span className="rounded bg-indigo-500/10 px-1.5 py-0.5 font-body text-[10px] text-indigo-600">{p.level1}</span>}
-                      {p.level2 && <span className="rounded bg-muted px-1.5 py-0.5 font-body text-[10px] text-muted-foreground">{p.level2}</span>}
+                  <div className="flex items-center gap-4">
+                    <img src={p.imageUrl} alt={p.title} loading="lazy" className="h-20 w-20 shrink-0 rounded-xl object-cover bg-muted" />
+                    <div className="min-w-0 flex-1">
+                      <h3 className="font-display text-[14px] font-bold text-foreground line-clamp-1">{p.title}</h3>
+                      <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                        {p.factory && <span className="rounded bg-muted px-1.5 py-0.5 font-body text-[10px] text-muted-foreground">{p.factory}</span>}
+                        {p.level1 && <span className="rounded bg-indigo-500/10 px-1.5 py-0.5 font-body text-[10px] text-indigo-600">{p.level1}</span>}
+                        {p.level2 && <span className="rounded bg-muted px-1.5 py-0.5 font-body text-[10px] text-muted-foreground">{p.level2}</span>}
+                      </div>
+                      <p className="mt-1 line-clamp-1 font-body text-[12px] leading-relaxed text-muted-foreground">{p.description || '尚未填寫產品說明'}</p>
+                      <span className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-medium text-primary">編輯文案 <ArrowRight className="h-3 w-3" /></span>
                     </div>
-                    <p className="mt-1 line-clamp-1 font-body text-[12px] leading-relaxed text-muted-foreground">{p.description || '尚未填寫產品說明'}</p>
-                    <span className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-medium text-primary">編輯文案 <ArrowRight className="h-3 w-3" /></span>
                   </div>
                 </button>
               ))}
