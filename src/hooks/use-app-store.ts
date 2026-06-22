@@ -1315,6 +1315,9 @@ export function useAppStore() {
             const sid = result?.shopify_product_id || p.shopifyProductId || `pending-${p.id}`;
             return {
               shopify_product_id: sid,
+              // Link back to products.id (uuid/short-code) so we can prove this
+              // product is already live on Shopify by matching against products.
+              source_product_id: p.id,
               title: p.title,
               body_html: p.descriptionHtml || p.description || null,
               vendor: p.factoryName || p.factoriesDisplayName || null,
@@ -1340,6 +1343,18 @@ export function useAppStore() {
             if (spErr) {
               console.warn('[publishToShopify] shopify_products mirror failed:', spErr.message);
             }
+          }
+
+          // Remove the published products from ready_to_shopify so they leave the
+          // 準備上載 page and we don't keep duplicate data in both ready_to_shopify
+          // and shopify_products. The product is now proven live via
+          // products.shopify_product_id + shopify_products.source_product_id.
+          const { error: rtsDelErr } = await supabase
+            .from('ready_to_shopify')
+            .delete()
+            .in('product_id', successIds);
+          if (rtsDelErr) {
+            console.warn('[publishToShopify] ready_to_shopify cleanup failed:', rtsDelErr.message);
           }
           // Update local state synced_at as well
           setProducts(prev => prev.map(p => {
