@@ -96,6 +96,8 @@ interface ProductForDetail {
   dimensionLMm?: number | null;
   dimensionWMm?: number | null;
   dimensionHMm?: number | null;
+  inStock?: boolean | null;
+  customize?: string | null;
 }
 
 interface ProductDetailModalProps {

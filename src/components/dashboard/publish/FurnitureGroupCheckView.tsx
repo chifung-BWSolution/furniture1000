@@ -211,12 +211,14 @@ function CategoryTagPicker({ tags, categories, onChange }: {
 
 // ─── Product Detail Modal ─────────────────────────────────────────────────────
 
-function FGProductDetailModal({
+export function FGProductDetailModal({
   rtsId,
   onClose,
+  onSaved,
 }: {
   rtsId: string;
   onClose: () => void;
+  onSaved?: () => void;
 }) {
   const [data, setData] = useState<FGDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -407,6 +409,7 @@ function FGProductDetailModal({
         customize: customizeVal,
       } : null);
       toast.success('已儲存', { description: '產品資料已更新（已同步至產品文案/產品信息）' });
+      onSaved?.();
     } catch (e) {
       toast.error('儲存失敗', { description: e instanceof Error ? e.message : '請稍後再試' });
     } finally {

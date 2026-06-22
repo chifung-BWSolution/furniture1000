@@ -30,6 +30,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { ProductDetailModal } from './ProductDetailModal';
+import { FGProductDetailModal } from './publish/FurnitureGroupCheckView';
 import {
   X,
   Plus,
@@ -1117,8 +1118,19 @@ export const ProductTableView = memo(function ProductTableView({
           </AlertDialogContent>
         </AlertDialog>
 
-        {/* Product Detail Modal */}
-        {detailProduct && (
+        {/* Product Detail Modal.
+            準備上載 (readyToPublishMode) reuses the 傢俬組檢查 card-style modal so
+            both pages share the exact same layout + fields. detailProduct.id is the
+            ready_to_shopify row id (see reloadReadyToPublish), which FGProductDetailModal
+            expects as rtsId. Other modes keep the legacy ProductDetailModal. */}
+        {detailProduct && readyToPublishMode && (
+          <FGProductDetailModal
+            rtsId={detailProduct.id}
+            onClose={() => setDetailProduct(null)}
+            onSaved={() => { setDetailProduct(null); onVariantsSaved?.(); }}
+          />
+        )}
+        {detailProduct && !readyToPublishMode && (
           <ProductDetailModal
             product={{
               id: detailProduct.id,
