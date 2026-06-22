@@ -3,8 +3,11 @@ import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
 import {
   Sofa, Loader2, CheckCheck, ChevronRight, Image as ImageIcon,
-  X, Package, Tag, DollarSign, Search, RotateCcw, Save, Check,
+  X, Package, Tag, DollarSign, Search, RotateCcw, Save, Check, Ruler, Truck,
 } from 'lucide-react';
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 
@@ -30,6 +33,8 @@ interface FGDetail {
   product_type: string | null;
   price: number | null;
   compare_at_price: number | null;
+  cost: number | null;
+  sku: string | null;
   image_url: string | null;
   images: any[] | null;
   status: string | null;
@@ -39,8 +44,16 @@ interface FGDetail {
   shopify_page_description: string | null;
   shopify_url: string | null;
   handle: string | null;
+  dimension_l_mm: number | null;
+  dimension_w_mm: number | null;
+  dimension_h_mm: number | null;
+  in_stock: boolean | null;
+  customize: string | null;
   imported_at: string | null;
 }
+
+type ProductionType = 'stock' | 'custom' | null;
+const LEAD_TIME_OPTIONS = ['3-7天', '8-15天', '16-25天', '26-40天', '41天以上'] as const;
 
 interface Props {
   onEnterReadyToPublish?: () => void;
@@ -228,6 +241,14 @@ function FGProductDetailModal({
   const [editSeoTitle, setEditSeoTitle] = useState('');
   const [editSeoDesc, setEditSeoDesc] = useState('');
   const [editHandle, setEditHandle] = useState('');
+  const [editSku, setEditSku] = useState('');
+  const [editDimL, setEditDimL] = useState('');
+  const [editDimW, setEditDimW] = useState('');
+  const [editDimH, setEditDimH] = useState('');
+  const [editProductionType, setEditProductionType] = useState<ProductionType>(null);
+  const [editLeadTime, setEditLeadTime] = useState('');
+  // 成本參考 (read-only, from ready_to_shopify.cost)
+  const [costRef, setCostRef] = useState<number | null>(null);
 
   // Fetch category options once
   useEffect(() => {
@@ -252,9 +273,10 @@ function FGProductDetailModal({
     supabase
       .from('ready_to_shopify')
       .select(
-        'id,product_id,title,body_html,vendor,product_type,price,compare_at_price,' +
+        'id,product_id,title,body_html,vendor,product_type,price,compare_at_price,cost,sku,' +
         'image_url,images,status,tags,shopify_product_id,' +
-        'shopify_page_title,shopify_page_description,shopify_url,handle,imported_at'
+        'shopify_page_title,shopify_page_description,shopify_url,handle,' +
+        'dimension_l_mm,dimension_w_mm,dimension_h_mm,in_stock,customize,imported_at'
       )
       .eq('id', rtsId)
       .single()
@@ -273,6 +295,15 @@ function FGProductDetailModal({
         setEditVendor(r.vendor || '');
         setEditPrice(r.price != null ? String(r.price) : '');
         setEditCompareAtPrice(r.compare_at_price != null ? String(r.compare_at_price) : '');
+        setEditSku(r.sku || '');
+        setCostRef(r.cost != null ? Number(r.cost) : null);
+        setEditDimL(r.dimension_l_mm != null ? String(r.dimension_l_mm) : '');
+        setEditDimW(r.dimension_w_mm != null ? String(r.dimension_w_mm) : '');
+        setEditDimH(r.dimension_h_mm != null ? String(r.dimension_h_mm) : '');
+        // 送貨資訊：in_stock=true → 現貨；customize 有值 → 全訂製 + 交期
+        if (r.in_stock === true) { setEditProductionType('stock'); setEditLeadTime(''); }
+        else if (r.customize) { setEditProductionType('custom'); setEditLeadTime(r.customize); }
+        else { setEditProductionType(null); setEditLeadTime(''); }
         // Parse L1 / L2 from product_type ("L1 / L2" format)
         const ptParts = (r.product_type || '').split(' / ');
         setEditL1(ptParts[0] || '');
@@ -299,7 +330,14 @@ function FGProductDetailModal({
       const productType = [editL1, editL2].filter(Boolean).join(' / ') || null;
       const priceNum = editPrice !== '' ? parseFloat(editPrice) : null;
       const compareNum = editCompareAtPrice !== '' ? parseFloat(editCompareAtPrice) : null;
+      const dimL = editDimL !== '' ? parseInt(editDimL) : null;
+      const dimW = editDimW !== '' ? parseInt(editDimW) : null;
+      const dimH = editDimH !== '' ? parseInt(editDimH) : null;
+      const isStock = editProductionType === 'stock';
+      const customizeVal = editProductionType === 'custom' && editLeadTime ? editLeadTime : null;
+      const inStockVal = isStock ? true : (editProductionType === 'custom' ? false : null);
 
+      // 1. ready_to_shopify — every editable field (產品文案 + 產品信息 內容)
       const { error } = await supabase
         .from('ready_to_shopify')
         .update({
@@ -307,6 +345,7 @@ function FGProductDetailModal({
           body_html: editBodyHtml || null,
           product_type: productType,
           vendor: editVendor || null,
+          sku: editSku || null,
           price: isNaN(priceNum as number) ? null : priceNum,
           compare_at_price: isNaN(compareNum as number) ? null : compareNum,
           tags: editTags.length > 0 ? editTags : null,
@@ -314,16 +353,44 @@ function FGProductDetailModal({
           shopify_page_description: editSeoDesc || null,
           shopify_url: editHandle || null,
           handle: editHandle || null,
+          dimension_l_mm: dimL,
+          dimension_w_mm: dimW,
+          dimension_h_mm: dimH,
+          in_stock: inStockVal,
+          customize: customizeVal,
         })
         .eq('id', data.id);
-
       if (error) throw new Error(error.message);
+
+      // 2. products — mirror the shared fields so 產品文案/產品信息 stay in sync
+      if (data.product_id) {
+        const { error: pErr } = await supabase
+          .from('products')
+          .update({
+            title: editTitle || null,
+            description: editBodyHtml || null,
+            sku: editSku || null,
+            sale_price: isNaN(priceNum as number) ? null : priceNum,
+            tags: editTags.length > 0 ? editTags : null,
+            level1_category: editL1 || null,
+            level2_category: editL2 || null,
+            dimension_l_mm: dimL,
+            dimension_w_mm: dimW,
+            dimension_h_mm: dimH,
+            in_stock: inStockVal,
+            customize: customizeVal,
+          })
+          .eq('id', data.product_id);
+        if (pErr) console.warn('[FGDetail] products sync failed:', pErr.message);
+      }
+
       setData(prev => prev ? {
         ...prev,
         title: editTitle || null,
         body_html: editBodyHtml || null,
         product_type: productType,
         vendor: editVendor || null,
+        sku: editSku || null,
         price: isNaN(priceNum as number) ? null : priceNum,
         compare_at_price: isNaN(compareNum as number) ? null : compareNum,
         tags: editTags.length > 0 ? editTags : null,
@@ -331,8 +398,13 @@ function FGProductDetailModal({
         shopify_page_description: editSeoDesc || null,
         shopify_url: editHandle || null,
         handle: editHandle || null,
+        dimension_l_mm: dimL,
+        dimension_w_mm: dimW,
+        dimension_h_mm: dimH,
+        in_stock: inStockVal,
+        customize: customizeVal,
       } : null);
-      toast.success('已儲存', { description: '產品資料已更新' });
+      toast.success('已儲存', { description: '產品資料已更新（已同步至產品文案/產品信息）' });
     } catch (e) {
       toast.error('儲存失敗', { description: e instanceof Error ? e.message : '請稍後再試' });
     } finally {
@@ -490,9 +562,9 @@ function FGProductDetailModal({
                   <Package className="h-4 w-4 text-primary" />
                   一般資料
                 </div>
-                {/* ready_to_shopify.title */}
+                {/* ready_to_shopify.title — Shopify 產品名稱 */}
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">產品標題</label>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">Shopify 產品名稱</label>
                   <input
                     className={inputCls}
                     value={editTitle}
@@ -500,9 +572,19 @@ function FGProductDetailModal({
                     placeholder="產品標題"
                   />
                 </div>
-                {/* ready_to_shopify.body_html */}
+                {/* ready_to_shopify.sku — 產品編碼 (SKU) */}
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">產品說明</label>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">產品編碼 (SKU)</label>
+                  <input
+                    className={`${inputCls} font-mono`}
+                    value={editSku}
+                    onChange={e => setEditSku(e.target.value)}
+                    placeholder="例如 SKU-ABC123"
+                  />
+                </div>
+                {/* ready_to_shopify.body_html — Shopify 產品說明 */}
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">Shopify 產品說明</label>
                   <textarea
                     className={textareaCls}
                     rows={8}
@@ -558,8 +640,8 @@ function FGProductDetailModal({
                   <DollarSign className="h-4 w-4 text-green-500" />
                   價格
                 </div>
-                <div className="grid grid-cols-2 gap-3">
-                  {/* ready_to_shopify.price */}
+                <div className="grid grid-cols-3 gap-3">
+                  {/* ready_to_shopify.price — 產品價錢 */}
                   <div>
                     <label className="mb-1 block text-xs font-medium text-muted-foreground">售價 (HK$)</label>
                     <input
@@ -584,6 +666,65 @@ function FGProductDetailModal({
                       onChange={e => setEditCompareAtPrice(e.target.value)}
                       placeholder="—"
                     />
+                  </div>
+                  {/* ready_to_shopify.cost — 成本參考 (read-only) */}
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-muted-foreground">成本參考</label>
+                    <div className="flex h-[38px] items-center rounded-lg border border-border/50 bg-muted/30 px-3">
+                      {costRef != null ? (
+                        <span className="font-mono text-sm font-semibold text-amber-600 dark:text-amber-400">¥{costRef.toFixed(0)}</span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground/40">—</span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              {/* 尺寸 / 送貨資訊 */}
+              <section className="rounded-xl border border-border bg-card p-5 space-y-4">
+                <div className="flex items-center gap-2 text-sm font-bold text-foreground">
+                  <Ruler className="h-4 w-4 text-sky-500" />
+                  尺寸與送貨
+                </div>
+                {/* 產品尺寸（長 / 闊 / 高 mm） */}
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">產品尺寸（長 / 闊 / 高 mm）</label>
+                  <div className="grid grid-cols-3 gap-3">
+                    <input className={inputCls} type="number" value={editDimL} onChange={e => setEditDimL(e.target.value)} placeholder="長" />
+                    <input className={inputCls} type="number" value={editDimW} onChange={e => setEditDimW(e.target.value)} placeholder="闊" />
+                    <input className={inputCls} type="number" value={editDimH} onChange={e => setEditDimH(e.target.value)} placeholder="高" />
+                  </div>
+                </div>
+                {/* 送貨資訊（現貨 / 全訂製 + 交期） */}
+                <div>
+                  <label className="mb-1 flex items-center gap-1 text-xs font-medium text-muted-foreground"><Truck className="h-3 w-3" />送貨資訊</label>
+                  <div className="flex items-center gap-3">
+                    <div className="flex rounded-lg border border-border overflow-hidden w-fit">
+                      <button
+                        type="button"
+                        onClick={() => { setEditProductionType(editProductionType === 'stock' ? null : 'stock'); setEditLeadTime(''); }}
+                        className={cn('px-3 py-1.5 text-xs font-medium transition-colors', editProductionType === 'stock' ? 'bg-emerald-500 text-white' : 'bg-background text-muted-foreground hover:bg-muted')}
+                      >
+                        現貨
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditProductionType(editProductionType === 'custom' ? null : 'custom')}
+                        className={cn('px-3 py-1.5 text-xs font-medium transition-colors', editProductionType === 'custom' ? 'bg-amber-500 text-white' : 'bg-background text-muted-foreground hover:bg-muted')}
+                      >
+                        全訂製
+                      </button>
+                    </div>
+                    {editProductionType === 'custom' && (
+                      <Select value={editLeadTime || ''} onValueChange={setEditLeadTime}>
+                        <SelectTrigger className="h-9 w-[160px] font-body text-xs"><SelectValue placeholder="選擇生產天數" /></SelectTrigger>
+                        <SelectContent>
+                          {LEAD_TIME_OPTIONS.map(opt => <SelectItem key={opt} value={opt}>{opt.replace('天', ' 天')}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    )}
+                    {editProductionType === null && <span className="text-[11px] text-muted-foreground/60 italic">未選擇</span>}
                   </div>
                 </div>
               </section>
@@ -632,30 +773,30 @@ function FGProductDetailModal({
                   <Search className="h-4 w-4 text-indigo-500" />
                   搜尋引擎列表 (SEO)
                 </div>
-                {/* ready_to_shopify.shopify_page_title */}
+                {/* ready_to_shopify.shopify_page_title — 頁面標題 */}
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">SEO 標題</label>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">頁面標題</label>
                   <input
                     className={inputCls}
                     value={editSeoTitle}
                     onChange={e => setEditSeoTitle(e.target.value)}
-                    placeholder="SEO 標題"
+                    placeholder="頁面標題"
                   />
                 </div>
-                {/* ready_to_shopify.shopify_page_description */}
+                {/* ready_to_shopify.shopify_page_description — Meta 描述 */}
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">SEO 描述</label>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">Meta 描述</label>
                   <textarea
                     className={textareaCls}
                     rows={3}
                     value={editSeoDesc}
                     onChange={e => setEditSeoDesc(e.target.value)}
-                    placeholder="SEO 描述"
+                    placeholder="Meta 描述"
                   />
                 </div>
-                {/* ready_to_shopify.shopify_url / handle */}
+                {/* ready_to_shopify.shopify_url / handle — 網址控制代碼 */}
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">URL Handle</label>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">網址控制代碼</label>
                   <input
                     className={`${inputCls} font-mono`}
                     value={editHandle}
@@ -767,12 +908,15 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
 
   const [isReverting, setIsReverting] = useState(false);
 
-  const handleRevertAll = async () => {
-    if (items.length === 0) return;
-    if (!window.confirm(`確定要把全部 ${items.length} 件產品退回「產品文案」頁面嗎？`)) return;
+  const handleRevertSelected = async () => {
+    if (selected.size === 0) { toast.message('請先勾選要退回的產品'); return; }
+    const rtsIds = Array.from(selected);
+    const revertItems = items.filter(r => rtsIds.includes(r.rtsId));
+    if (revertItems.length === 0) return;
+    if (!window.confirm(`確定要把已選的 ${revertItems.length} 件產品退回「產品文案」頁面嗎？`)) return;
     setIsReverting(true);
     try {
-      const productIds = items.map(r => r.productId).filter(Boolean);
+      const productIds = revertItems.map(r => r.productId).filter(Boolean);
 
       // NOTE: do NOT delete the ready_to_shopify rows here. Reverting only moves
       // the product back to 產品文案 by resetting the products flags below; the
@@ -780,7 +924,7 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
       // is lost. The product drops out of 傢俬組檢查 because furniture_group_checked
       // / copy_done are reset, not because the row is removed.
 
-      // Reset products so they reappear in 產品文案.
+      // Reset products so they reappear in 產品文案 (copy_done=false per request).
       // Keep in_shopify_queue=true — the 產品文案 list filters on it, so setting
       // it false would make the reverted products vanish from that page too.
       if (productIds.length > 0) {
@@ -801,12 +945,13 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
       const { error: rtsErr } = await supabase
         .from('ready_to_shopify')
         .update({ furniture_group_checked: null })
-        .in('id', items.map(r => r.rtsId));
+        .in('id', rtsIds);
       if (rtsErr) throw new Error(rtsErr.message);
 
-      setItems([]);
+      // Remove only the reverted rows from the local list + selection.
+      setItems(prev => prev.filter(r => !rtsIds.includes(r.rtsId)));
       setSelected(new Set());
-      toast.success('已全部退回產品文案', { description: `${items.length} 件產品已退回「產品文案」頁面` });
+      toast.success('已退回產品文案', { description: `${revertItems.length} 件產品已退回「產品文案」頁面` });
     } catch (e) {
       toast.error('退回失敗', { description: e instanceof Error ? e.message : '請稍後再試' });
     } finally {
@@ -827,14 +972,14 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
         </div>
         <div className="flex items-center gap-2">
           <button
-            onClick={handleRevertAll}
-            disabled={items.length === 0 || isReverting || isSubmitting}
+            onClick={handleRevertSelected}
+            disabled={selected.size === 0 || isReverting || isSubmitting}
             className="flex items-center gap-2 rounded-xl border border-border bg-background px-4 py-2.5 text-sm font-semibold text-foreground hover:bg-muted disabled:opacity-50 transition-colors"
           >
             {isReverting
               ? <Loader2 className="h-4 w-4 animate-spin" />
               : <RotateCcw className="h-4 w-4" />}
-            全部退回產品文案
+            退回產品文案{selected.size > 0 ? `（${selected.size}）` : ''}
           </button>
           <button
             onClick={handleAddToReadyToPublish}
