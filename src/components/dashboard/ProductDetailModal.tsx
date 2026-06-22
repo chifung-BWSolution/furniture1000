@@ -49,6 +49,7 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { supabase } from '@/lib/supabase';
+import { uploadBase64Image } from '@/lib/imageStorage';
 import { toast } from 'sonner';
 // Color map utilities available if needed
 // import { getChineseColorLabel, getColorHex } from '@/constants/color-map';
@@ -224,11 +225,14 @@ function ImageLightbox({
     if (!pastedImage) return;
     setIsSaving(true);
     try {
-      // Build new images list: replace index 0 (main image) with pasted
+      // Upload the pasted base64 to Storage first — never persist base64 into the DB.
+      const storedSrc = await uploadBase64Image(pastedImage, productId, `paste${currentIndex}`);
+
+      // Build new images list: replace the current image with the stored URL
       const updatedImages = images.map((img, idx) =>
-        idx === currentIndex ? { ...img, src: pastedImage } : img
+        idx === currentIndex ? { ...img, src: storedSrc } : img
       );
-      const imageUrl = updatedImages[0]?.src ?? pastedImage;
+      const imageUrl = updatedImages[0]?.src ?? storedSrc;
 
       const { error } = await supabase
         .from('products')
@@ -243,7 +247,7 @@ function ImageLightbox({
         return;
       }
       toast.success('主圖已更新');
-      onReplaceMain?.(pastedImage);
+      onReplaceMain?.(storedSrc);
       setPastedImage(null);
       onClose();
     } catch (err) {
