@@ -362,7 +362,9 @@ function FGProductDetailModal({
         .eq('id', data.id);
       if (error) throw new Error(error.message);
 
-      // 2. products — mirror the shared fields so 產品文案/產品信息 stay in sync
+      // 2. products — mirror the shared fields so 產品文案/產品信息 stay in sync.
+      // This MUST succeed too: if it fails we surface an error rather than
+      // silently leaving products out of sync with ready_to_shopify.
       if (data.product_id) {
         const { error: pErr } = await supabase
           .from('products')
@@ -381,7 +383,7 @@ function FGProductDetailModal({
             customize: customizeVal,
           })
           .eq('id', data.product_id);
-        if (pErr) console.warn('[FGDetail] products sync failed:', pErr.message);
+        if (pErr) throw new Error(`products 同步失敗：${pErr.message}`);
       }
 
       setData(prev => prev ? {
