@@ -117,6 +117,26 @@ const DEFAULT_SETTINGS: AppSettings = {
   geminiProxyUrl: '',
 };
 
+// Explicit column list for the products list/grid loads.
+//
+// CRITICAL: never use `.select('*')` for list loads. The products table holds a
+// heavy `images` JSONB column (base64 data-URLs ~1MB each) plus image_url_2/3.
+// Selecting '*' across 100 rows can transfer ~100MB, which stalls the query,
+// saturates the connection pool, and is the real cause of the intermittent
+// Supabase "unhealthy" state. dbRowToProduct only consumes these light columns;
+// full images are loaded lazily when a single product is opened for editing.
+const PRODUCT_LIST_COLUMNS = [
+  'id', 'title', 'description', 'description_html', 'tags', 'price',
+  'compare_at_price', 'collection', 'status', 'image_url', 'error_message',
+  'shopify_product_id', 'sku', 'created_at', 'source', 'synced_at',
+  'upload_session_id', 'factories_display_name', 'factory_id', 'material',
+  'bwf_master_id', 'cost_price', 'sale_price',
+  'production_date', 'shipping_days', 'shipping_fee', 'remarks', 'color',
+  'category', 'dimension_l_mm', 'dimension_w_mm', 'dimension_h_mm',
+  'delivery_term_id', 'delivery_term_name', 'in_stock', 'customize',
+  'ready_to_publish',
+].join(',');
+
 // Helper: convert DB row to Product
 function dbRowToProduct(row: any, variants: any[]): Product {
   return {
@@ -315,7 +335,7 @@ export function useAppStore() {
           .select('id', { count: 'estimated', head: true });
         const dataPromise = supabase
           .from('products')
-          .select('*')
+          .select(PRODUCT_LIST_COLUMNS)
           .order('created_at', { ascending: false })
           .range(0, PAGE_LIMIT - 1);
 
@@ -575,7 +595,7 @@ export function useAppStore() {
       const PAGE_LIMIT = 100;
       const { data: productRows, error: prodErr } = await supabase
         .from('products')
-        .select('*')
+        .select(PRODUCT_LIST_COLUMNS)
         .order('created_at', { ascending: false })
         .range(0, PAGE_LIMIT - 1);
 
