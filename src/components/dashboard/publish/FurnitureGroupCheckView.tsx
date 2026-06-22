@@ -901,7 +901,10 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
                     )}
                     onClick={() => setDetailRtsId(row.rtsId)}
                   >
-                    {/* Checkbox — stop propagation so row click doesn't also toggle */}
+                    {/* Checkbox cell — the <td> owns the toggle so a click anywhere
+                        in the cell (including directly on the box) fires exactly once.
+                        The input is presentational only (readOnly, no onChange) to
+                        avoid a double-toggle that cancels itself out when clicked. */}
                     <td
                       className="px-4 py-3 text-center"
                       onClick={e => { e.stopPropagation(); toggleRow(row.rtsId); }}
@@ -909,8 +912,8 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
                       <input
                         type="checkbox"
                         checked={selected.has(row.rtsId)}
-                        onChange={() => toggleRow(row.rtsId)}
-                        className="rounded border-border"
+                        readOnly
+                        className="rounded border-border pointer-events-none"
                       />
                     </td>
 
