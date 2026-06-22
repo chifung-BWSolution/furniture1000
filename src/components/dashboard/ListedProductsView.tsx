@@ -63,6 +63,7 @@ import {
   X,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { resolveImagesToStorage } from '@/lib/imageStorage';
 import { removeFromCatalog, addToCatalog, addToShopifyQueue, dismissProducts } from '@/lib/catalogStore';
 import { toast } from 'sonner';
 import { getChineseColorLabel, getColorHex, multiColorToChineseDisplay } from '@/constants/color-map';
@@ -1065,36 +1066,50 @@ export function ListedProductsView({
     setSelectedIds((prev) => { const n = new Set(prev); n.delete(id); return n; });
   }, []);
 
-  // Upsert one or more products into ready_to_shopify
+  // Upsert one or more products into ready_to_shopify.
+  // Base64 images must NEVER be written into ready_to_shopify — they bloat the
+  // table and break Shopify upload. Upload every base64 image (primary, the
+  // images[] array, and image_url_2/3) to Storage FIRST and persist only URLs.
   const upsertToReadyToShopify = useCallback(async (prods: ListedProduct[]) => {
-    const rows = prods.map((p) => ({
-      product_id: p.id,
-      title: p.title || null,
-      body_html: p.description || null,
-      vendor: p.factoriesDisplayName || null,
-      product_type: [p.level1Category, p.level2Category].filter(Boolean).join(' / ') || p.collection || null,
-      image_url: p.imageUrl || null,
-      images: Array.isArray(p.images) && p.images.length > 0
-        ? p.images.map((img, idx) => ({ src: img.src, position: idx + 1 }))
-        : null,
-      tags: Array.isArray(p.tags) && p.tags.length > 0 ? p.tags : null,
-      price: p.salePrice ?? p.price ?? null,
-      // cost = products.cost_price (成本，供產品信息頁參考)
-      cost: p.costPrice ?? null,
-      // 額外產品屬性（從 products 帶過來，供發佈流程參考）
-      factory_id: p.factoryId ?? null,
-      remarks: p.remarks ?? null,
-      color: p.color ?? null,
-      dimension_l_mm: p.dimensionLMm ?? null,
-      dimension_w_mm: p.dimensionWMm ?? null,
-      dimension_h_mm: p.dimensionHMm ?? null,
-      material: p.material ?? null,
-      image_url_2: p.imageUrl2 ?? null,
-      image_url_3: p.imageUrl3 ?? null,
-      in_stock: p.inStock ?? null,
-      production_time: p.productionTime ?? null,
-      status: 'draft',
-      imported_at: new Date().toISOString(),
+    const rows = await Promise.all(prods.map(async (p) => {
+      // Resolve primary + extra images (image_url_2/3 + the images[] array)
+      const extraInputs: string[] = [
+        ...(p.imageUrl2 ? [p.imageUrl2] : []),
+        ...(p.imageUrl3 ? [p.imageUrl3] : []),
+        ...(Array.isArray(p.images) ? p.images.map((img) => img.src).filter(Boolean) : []),
+      ];
+      const { primary, extras } = await resolveImagesToStorage(p.id, p.imageUrl || null, extraInputs);
+      const images = extras.length > 0
+        ? extras.map((src, idx) => ({ src, position: idx + 1 }))
+        : null;
+      return {
+        product_id: p.id,
+        title: p.title || null,
+        body_html: p.description || null,
+        vendor: p.factoriesDisplayName || null,
+        product_type: [p.level1Category, p.level2Category].filter(Boolean).join(' / ') || p.collection || null,
+        image_url: primary,
+        images,
+        tags: Array.isArray(p.tags) && p.tags.length > 0 ? p.tags : null,
+        price: p.salePrice ?? p.price ?? null,
+        // cost = products.cost_price (成本，供產品信息頁參考)
+        cost: p.costPrice ?? null,
+        // 額外產品屬性（從 products 帶過來，供發佈流程參考）
+        factory_id: p.factoryId ?? null,
+        remarks: p.remarks ?? null,
+        color: p.color ?? null,
+        dimension_l_mm: p.dimensionLMm ?? null,
+        dimension_w_mm: p.dimensionWMm ?? null,
+        dimension_h_mm: p.dimensionHMm ?? null,
+        material: p.material ?? null,
+        // image_url_2/3 kept null — extra images now live in the images[] array as URLs
+        image_url_2: null,
+        image_url_3: null,
+        in_stock: p.inStock ?? null,
+        production_time: p.productionTime ?? null,
+        status: 'draft',
+        imported_at: new Date().toISOString(),
+      };
     }));
     const { error } = await supabase
       .from('ready_to_shopify')
