@@ -67,6 +67,23 @@ const METAFIELD_DEFS: Record<string, string> = {
   "shopify.color-pattern": "list.metaobject_reference",
 };
 
+/** Repair mojibake in lead-time / production-time style values.
+ * Some legacy `customize` values had the trailing 「天」 corrupted into one or
+ * more U+FFFD replacement chars (hex efbfbd), e.g. "26-40" + . If a value
+ * looks like a day-range whose CJK suffix was mangled, restore 「天」; otherwise
+ * just strip stray replacement chars so no  reaches Shopify. */
+function cleanMetafieldValue(raw: string): string {
+  let v = raw;
+  // Day-range or number followed by mangled CJK → normalise to "<n>天"
+  const m = v.match(/^(\d+\s*(?:-\s*\d+)?)\s*[�\s]*$/);
+  if (m && /�/.test(v)) {
+    return `${m[1].replace(/\s+/g, "")}天`;
+  }
+  // Otherwise drop any stray replacement chars
+  v = v.replace(/�+/g, "").trim();
+  return v;
+}
+
 /** Build Shopify-format metafields array from a payload.
  * Accepts either a {namespace.key: value} map or a ready-made array.
  * Empty/blank values are skipped. The `shopify.*` namespace is reserved
@@ -80,7 +97,7 @@ function buildShopifyMetafields(
     for (const m of mf) {
       if (!m || !m.namespace || !m.key) continue;
       if (m.namespace === "shopify") continue;
-      const val = m.value != null ? String(m.value).trim() : "";
+      const val = m.value != null ? cleanMetafieldValue(String(m.value).trim()) : "";
       if (!val) continue;
       const type = m.type || METAFIELD_DEFS[`${m.namespace}.${m.key}`] || "single_line_text_field";
       out.push({ namespace: m.namespace, key: m.key, type, value: val });
@@ -88,7 +105,7 @@ function buildShopifyMetafields(
     return out;
   }
   for (const [col, rawVal] of Object.entries(mf)) {
-    const val = rawVal != null ? String(rawVal).trim() : "";
+    const val = rawVal != null ? cleanMetafieldValue(String(rawVal).trim()) : "";
     if (!val) continue;
     const dot = col.indexOf(".");
     if (dot < 0) continue;
@@ -102,6 +119,20 @@ function buildShopifyMetafields(
 }
 
 // ─── Image Validation & Upload Helpers ──────────────────────────────────────
+
+/** Identity key for de-duplicating images across different host URLs.
+ * The same image often appears as both a Storage URL (image_url) and a
+ * Shopify CDN URL (after a prior publish), e.g.
+ *   .../products/abc_primary_123.jpg            (Storage)
+ *   cdn.shopify.com/.../abc_primary_123.jpg?v=… (Shopify, re-published)
+ * Comparing full URLs misses these, sending the primary twice. We key on the
+ * filename stem (basename without query string / extension) instead. */
+function imageIdentityKey(url: string): string {
+  if (!url || typeof url !== "string") return "";
+  const noQuery = url.split("?")[0];
+  const base = noQuery.substring(noQuery.lastIndexOf("/") + 1);
+  return base.replace(/\.[a-zA-Z0-9]+$/, "").trim().toLowerCase();
+}
 
 function isValidHttpImageUrl(url: string): boolean {
   if (!url || typeof url !== "string") return false;
@@ -361,6 +392,11 @@ Deno.serve(async (req: Request) => {
         }
 
         // ── Sanitize variants — single option "尺寸(mm)" only, no Color ────
+        // Default inventory to 1000 on every publish. Shopify tracks stock when
+        // inventory_management="shopify"; inventory_quantity seeds the count for
+        // the product's (single) default location at creation time.
+        // Per spec: every publish seeds inventory to 1000 for all variants.
+        const DEFAULT_INVENTORY = 1000;
         const sanitizedVariants = productVariants.map((v) => {
           const variantPrice = (typeof v.price === "number" && !isNaN(v.price)) ? v.price : (product.price || 0);
           const sizeValue = v.option1 || v.title || v.size || "";
@@ -368,7 +404,8 @@ Deno.serve(async (req: Request) => {
             option1: sizeValue,
             price: variantPrice.toFixed(2),
             sku: v.sku || "",
-            inventory_management: (v.inventory !== undefined && v.inventory !== null) ? "shopify" : null,
+            inventory_management: "shopify",
+            inventory_quantity: DEFAULT_INVENTORY,
             requires_shipping: true,
           };
           if (v.compare_at_price && v.compare_at_price > variantPrice) {
@@ -423,9 +460,15 @@ Deno.serve(async (req: Request) => {
         }
 
         // ── Build images array — resolve ALL images (HTTP + base64) ─────────
+        // De-dup by filename stem (see imageIdentityKey): the primary image
+        // often re-appears inside product.images as a Shopify CDN URL after a
+        // previous publish, so a plain URL-equality check would send it twice.
         const allImages: { src: string }[] = [];
+        const seenImageKeys = new Set<string>();
         if (resolvedImageUrl) {
           allImages.push({ src: resolvedImageUrl });
+          seenImageKeys.add(imageIdentityKey(resolvedImageUrl));
+          if (product.image_url) seenImageKeys.add(imageIdentityKey(product.image_url));
           console.log(`[publish-to-shopify] ✅ Primary image: ${resolvedImageUrl.substring(0, 80)}...`);
         }
         if (Array.isArray(product.images) && product.images.length > 0) {
@@ -434,13 +477,20 @@ Deno.serve(async (req: Request) => {
             const img = product.images[imgIdx];
             const rawSrc: string = img?.src || img?.url || (typeof img === "string" ? img : "");
             if (!rawSrc) continue;
-            // Skip if identical to already-resolved primary
-            if (rawSrc === resolvedImageUrl || rawSrc === product.image_url) continue;
+            // Skip if it resolves to the same image as the primary (by stem)
+            if (seenImageKeys.has(imageIdentityKey(rawSrc))) {
+              console.log(`[publish-to-shopify] ⏭️ Skipping duplicate image [${imgIdx}] (matches primary/earlier): ${rawSrc.substring(0, 80)}`);
+              continue;
+            }
             const imgResult = await resolveImageUrl(supabase, supabaseUrl, `${product.id}_img${imgIdx}`, rawSrc);
             if (imgResult.url) {
-              if (!allImages.some(a => a.src === imgResult.url)) {
+              const key = imageIdentityKey(imgResult.url);
+              if (!seenImageKeys.has(key)) {
                 allImages.push({ src: imgResult.url });
+                seenImageKeys.add(key);
                 console.log(`[publish-to-shopify] ✅ Additional image [${imgIdx}]: ${imgResult.url.substring(0, 80)}...`);
+              } else {
+                console.log(`[publish-to-shopify] ⏭️ Skipping duplicate resolved image [${imgIdx}]`);
               }
             } else if (imgResult.warning) {
               console.warn(`[publish-to-shopify] ⚠️ Additional image [${imgIdx}] skipped: ${imgResult.warning}`);
