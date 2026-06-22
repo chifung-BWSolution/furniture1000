@@ -169,23 +169,30 @@ export function AppShell() {
 
   useEffect(() => {
     let cancelled = false;
+    let alreadyUnhealthy = false; // avoid stacking recovery pollers
     const POLL_INTERVAL = 30_000; // check every 30s
 
     async function poll() {
-      if (cancelled) return;
-      const healthy = await checkSupabaseHealth();
-      if (cancelled) return;
-      if (!healthy) {
-        setDbUnhealthy(true);
-        cancelRecoveryRef.current = waitForSupabaseRecovery(() => {
-          if (!cancelled) {
-            setDbUnhealthy(false);
-            setIsRetrying(false);
-            toast.success('資料庫連接已恢復', { description: '正在重新載入產品...' });
-            store.reloadProducts();
-          }
-        });
-      }
+      if (cancelled || alreadyUnhealthy) return;
+      // Require TWO consecutive failed probes before declaring unhealthy.
+      // A single slow/aborted request during a heavy bulk op (e.g. 全部退回)
+      // must NOT flip the banner — the DB is fine, the query was just big.
+      const first = await checkSupabaseHealth();
+      if (cancelled || first) return;
+      const second = await checkSupabaseHealth();
+      if (cancelled || second) return;
+
+      alreadyUnhealthy = true;
+      setDbUnhealthy(true);
+      cancelRecoveryRef.current = waitForSupabaseRecovery(() => {
+        if (!cancelled) {
+          alreadyUnhealthy = false;
+          setDbUnhealthy(false);
+          setIsRetrying(false);
+          toast.success('資料庫連接已恢復', { description: '正在重新載入產品...' });
+          store.reloadProducts();
+        }
+      });
     }
 
     const interval = setInterval(poll, POLL_INTERVAL);
