@@ -1381,18 +1381,20 @@ export function useAppStore() {
 
         console.log('[uploadToMasterDb] Results:', data.summary);
 
-        // Show success toast and navigate to product catalog
+        // Show success toast. Stay on the 準備上載 page — do NOT auto-navigate.
+        // Successfully-published rows drop out of the list on their own (their
+        // furniture_group_checked is cleared), so the user keeps working here.
         if (data.summary) {
           const { success: sCount, errors: eCount } = data.summary;
           if (sCount > 0 && eCount === 0) {
             toast.success('產品已成功發佈至 Shopify', {
-              description: `${sCount} 個產品已上傳 — 正在前往產品目錄`,
+              description: `${sCount} 個產品已上傳`,
               duration: 4000,
+              action: {
+                label: '前往產品目錄',
+                onClick: () => setCurrentView('listed-products'),
+              },
             });
-            // Auto-navigate to the product catalog view after a short delay
-            setTimeout(() => {
-              setCurrentView('listed-products');
-            }, 1200);
           } else if (sCount > 0 && eCount > 0) {
             toast.warning('部分產品上傳成功', {
               description: `${sCount} 成功, ${eCount} 失敗`,
