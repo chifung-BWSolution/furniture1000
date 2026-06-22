@@ -205,10 +205,20 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
           copy_done_at: null,
           copy_queued_at: new Date().toISOString(),
           info_done: false,
+          ready_to_publish: false,
           revert_reason: revertReason,
         })
         .in('id', ids);
       if (error) throw new Error(error.message);
+      // Keep the ready_to_shopify rows intact (do NOT delete) so body_html /
+      // images / SEO survive the revert. Reset furniture_group_checked to null
+      // so the rows leave 傢俬組檢查 (=false) and 準備上載 (=true); the product
+      // returns to 產品文案 purely via the products.copy_done=false flag above.
+      const { error: rtsErr } = await supabase
+        .from('ready_to_shopify')
+        .update({ furniture_group_checked: null })
+        .in('product_id', ids);
+      if (rtsErr) throw new Error(rtsErr.message);
       setShowRevertDialog(false);
       setSelected(new Set());
       setReloadKey((k) => k + 1);

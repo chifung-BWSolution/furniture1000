@@ -422,8 +422,11 @@ export function useAppStore() {
         const { data, error } = await supabase
           .from('ready_to_shopify')
           .select('id,product_id,title,body_html,vendor,product_type,variants,tags,price,compare_at_price,shopify_product_id,status')
-          // Only show rows cleared by 傢俬組檢查 (true) or legacy rows (null = pre-feature)
-          .or('furniture_group_checked.is.null,furniture_group_checked.eq.true')
+          // Only show rows explicitly cleared by 傢俬組檢查 (furniture_group_checked=true).
+          // NOTE: do NOT include null here. null means the product has NOT reached
+          // 傢俬組檢查 yet (it is still in 產品文案 / 產品信息, or was reverted), so
+          // including null would wrongly surface those products on 準備上載.
+          .eq('furniture_group_checked', true)
           .range(from, from + PAGE - 1);
         if (error) { console.warn('[reloadReadyToPublish] query error:', error.message); break; }
         if (!data || data.length === 0) break;
