@@ -46,6 +46,7 @@ import { TagSelector } from './TagSelector';
 import { ColorSelector } from './ColorSelector';
 import { CascadingCategorySelector } from './CascadingCategorySelector';
 import { supabase } from '@/lib/supabase';
+import { resolveRowsImagesToStorage } from '@/lib/imageStorage';
 import { fetchFactories, fetchFactoriesWithIds, FactoryItem } from '@/lib/factorySupabase';
 import { parseExcelFile, extractImagesFromWorkbook, extractRawExcelTable, ExcelProduct, ExcelImage, getFactoryRule, RawTableExtraction, cleanPrice, parseSmartDimensions, parseDeliveryTerm } from '@/lib/excelParser';
 import { ExcelPreviewTable, ExcelPreviewData, ColumnMappingState, StandardHeaderValue, MultiSheetColumnMapping, MultiSheetDimUnits, DimUnit, PreviewAction } from '@/components/dashboard/ExcelPreviewTable';
@@ -3303,12 +3304,17 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
           });
 
         if (productRows.length > 0) {
-          // Batch upsert to avoid statement timeout with large base64 images
-          // Use smaller batches when images are present (base64 makes rows large)
-          const hasImages = productRows.some(r => r.image_url && r.image_url.startsWith('data:'));
+          // Upload any base64 cropped images to Storage FIRST, then persist only
+          // the resulting URLs — never store base64 in the products table (it
+          // bloats list queries and causes the Supabase "unhealthy" state).
+          const resolvedRows = await resolveRowsImagesToStorage(productRows);
+
+          // Batch upsert. Rows are now light (URLs, not base64) but keep modest
+          // chunks in case any upload failed and a base64 fallback remains.
+          const hasImages = resolvedRows.some(r => r.image_url && r.image_url.startsWith('data:'));
           const LOCAL_CHUNK = hasImages ? 3 : 10;
-          for (let ci = 0; ci < productRows.length; ci += LOCAL_CHUNK) {
-            const batch = productRows.slice(ci, ci + LOCAL_CHUNK);
+          for (let ci = 0; ci < resolvedRows.length; ci += LOCAL_CHUNK) {
+            const batch = resolvedRows.slice(ci, ci + LOCAL_CHUNK);
             const { error: upsertErr } = await supabase
               .from('products')
               .upsert(batch, { onConflict: 'id' });

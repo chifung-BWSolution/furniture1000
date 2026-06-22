@@ -64,6 +64,45 @@ export async function uploadBase64Image(
 }
 
 /**
+ * In-place-safe batch resolver for product rows about to be upserted.
+ *
+ * For each row, uploads any base64 `image_url` / `image_url_2` / `image_url_3`
+ * to Storage and replaces the field with the public URL. Rows are processed
+ * with bounded concurrency so a large import doesn't fire hundreds of parallel
+ * Storage uploads. Returns NEW row objects (does not mutate the inputs). Any row
+ * whose upload fails keeps its original base64 value (non-destructive).
+ *
+ * Each row must have an `id` (used as the Storage path prefix).
+ */
+export async function resolveRowsImagesToStorage<
+  T extends { id: string },
+>(rows: T[], concurrency = 3): Promise<T[]> {
+  const out: T[] = new Array(rows.length);
+  let cursor = 0;
+  // Coerce loosely-typed row image fields to string for the uploader.
+  const asStr = (v: unknown): string => (typeof v === 'string' ? v : '');
+  async function worker() {
+    while (cursor < rows.length) {
+      const i = cursor++;
+      const row = rows[i] as T & {
+        image_url?: unknown; image_url_2?: unknown; image_url_3?: unknown;
+      };
+      const v1 = asStr(row.image_url), v2 = asStr(row.image_url_2), v3 = asStr(row.image_url_3);
+      const [u1, u2, u3] = await Promise.all([
+        v1 ? uploadBase64Image(v1, row.id, 'primary') : Promise.resolve(row.image_url ?? null),
+        v2 ? uploadBase64Image(v2, row.id, 'extra0') : Promise.resolve(row.image_url_2 ?? null),
+        v3 ? uploadBase64Image(v3, row.id, 'extra1') : Promise.resolve(row.image_url_3 ?? null),
+      ]);
+      out[i] = { ...row, image_url: u1, image_url_2: u2, image_url_3: u3 };
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, rows.length) }, () => worker()),
+  );
+  return out;
+}
+
+/**
  * Resolve a primary image + an array of extra images, uploading any base64 entries
  * to Storage. Returns HTTP URLs (or the original strings on failure). Extra images
  * are uploaded with a bounded concurrency to avoid hammering the Storage pool.

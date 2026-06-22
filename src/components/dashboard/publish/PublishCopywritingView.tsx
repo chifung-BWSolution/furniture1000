@@ -8,6 +8,7 @@ import {
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
+import { uploadBase64Image } from '@/lib/imageStorage';
 import { usePublishList } from './usePublishList';
 
 interface RevertReason {
@@ -251,27 +252,6 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
     setDragSrc(null);
   }, [dragSrc, primaryImg, extraImgs]);
 
-  // Upload a single base64 image to Supabase Storage, return public URL
-  const uploadBase64Image = async (base64: string, productId: string, suffix: string): Promise<string> => {
-    if (!base64.startsWith('data:') && !base64.match(/^[A-Za-z0-9+/]{100}/)) return base64;
-    // Already an HTTP URL — skip upload
-    if (base64.startsWith('http://') || base64.startsWith('https://')) return base64;
-    const mimeMatch = base64.match(/^data:(image\/[a-zA-Z+]+);base64,/);
-    const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
-    const ext = mimeType.split('/')[1]?.replace('jpeg', 'jpg') || 'jpg';
-    const base64Data = base64.includes(',') ? base64.split(',')[1] : base64;
-    const fileName = `${productId}_${suffix}_${Date.now()}.${ext}`;
-    const filePath = `products/${fileName}`;
-    const binaryStr = atob(base64Data);
-    const bytes = new Uint8Array(binaryStr.length);
-    for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
-    const { error } = await supabase.storage
-      .from('product-images')
-      .upload(filePath, bytes, { contentType: mimeType, upsert: true });
-    if (error) { console.warn('[upload] storage error:', error.message); return base64; }
-    const { data } = supabase.storage.from('product-images').getPublicUrl(filePath);
-    return data.publicUrl || base64;
-  };
 
   // Save — sync title + body_html to ready_to_shopify WITHOUT advancing copy_done
   // Product stays in 產品文案 so user can continue editing images etc.
