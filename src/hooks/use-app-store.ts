@@ -1337,15 +1337,30 @@ export function useAppStore() {
             }
           }
 
-          // Remove the published products from ready_to_shopify so they leave the
-          // 準備上載 page. The product is now proven live via
-          // products.shopify_product_id + shopify_products.source_product_id.
-          const { error: rtsDelErr } = await supabase
+          // Make published products leave the 準備上載 page WITHOUT deleting their
+          // ready_to_shopify rows. Per CLAUDE.md #4, deleting RTS rows risks data
+          // loss; instead set furniture_group_checked=null so the row (title,
+          // body_html, images, dimensions, SEO, price — everything) survives and
+          // the product simply drops out of the 準備上載 filter.
+          //
+          // successIds contains the front-end p.id which, for 準備上載 rows, is the
+          // RTS uuid; for products-list rows it's products.id. Update by BOTH keys
+          // so the row leaves the page regardless of which id we hold.
+          const successRtsUuids = successProducts.map(p => p.id);
+          const successProductIds = successProducts.map(p => (p as any).productId || p.id);
+          const { error: rtsByIdErr } = await supabase
             .from('ready_to_shopify')
-            .delete()
-            .in('product_id', successIds);
-          if (rtsDelErr) {
-            console.warn('[publishToShopify] ready_to_shopify cleanup failed:', rtsDelErr.message);
+            .update({ furniture_group_checked: null })
+            .in('id', successRtsUuids);
+          if (rtsByIdErr) {
+            console.warn('[publishToShopify] RTS furniture_group_checked clear (by id) failed:', rtsByIdErr.message);
+          }
+          const { error: rtsByPidErr } = await supabase
+            .from('ready_to_shopify')
+            .update({ furniture_group_checked: null })
+            .in('product_id', successProductIds);
+          if (rtsByPidErr) {
+            console.warn('[publishToShopify] RTS furniture_group_checked clear (by product_id) failed:', rtsByPidErr.message);
           }
           // Update local state synced_at as well
           setProducts(prev => prev.map(p => {
