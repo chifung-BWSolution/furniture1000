@@ -757,6 +757,19 @@ function CategoryTagPicker({ tags, categories, onChange }: CategoryTagPickerProp
     return out;
   };
 
+  // Self-heal: when categories are loaded, normalize the incoming tags once so
+  // legacy dirty data (duplicate chips like two "3-7天送貨", or orphan L1 tags
+  // left over from the old buggy logic) is cleaned up on load — not only after
+  // the user toggles something. Guard on categories.length so we never strip
+  // tags before the category list has loaded.
+  useEffect(() => {
+    if (categories.length === 0) return;
+    const cleaned = normalize(tags);
+    const changed = cleaned.length !== tags.length || cleaned.some((t, i) => t !== tags[i]);
+    if (changed) onChange(cleaned);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [categories, tags]);
+
   const toggleL2 = (_l1Name: string, l2Name: string) => {
     const has = tags.includes(l2Name);
     const raw = has ? tags.filter((t) => t !== l2Name) : [...tags, l2Name];
@@ -786,8 +799,8 @@ function CategoryTagPicker({ tags, categories, onChange }: CategoryTagPickerProp
         className="flex min-h-[38px] flex-wrap items-center gap-1.5 rounded-lg border border-border bg-background px-2 py-1.5 cursor-pointer hover:border-primary/50 transition-colors"
         onClick={openMenu}
       >
-        {tags.map((t) => (
-          <span key={t} className="flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] text-primary">
+        {tags.map((t, i) => (
+          <span key={`${t}-${i}`} className="flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] text-primary">
             {t}
             <button
               onClick={(e) => { e.stopPropagation(); removeTag(t); }}

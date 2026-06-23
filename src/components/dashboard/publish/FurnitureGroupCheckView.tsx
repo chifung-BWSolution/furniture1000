@@ -5,11 +5,11 @@ import {
   Sofa, Loader2, CheckCheck, ChevronRight, Image as ImageIcon,
   X, Package, Tag, DollarSign, Search, RotateCcw, Save, Check, Ruler, Truck,
 } from 'lucide-react';
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select';
 import { supabase } from '@/lib/supabase';
+import { uploadBase64Image } from '@/lib/imageStorage';
 import { toast } from 'sonner';
+
+const ACCEPTED_IMAGE_TYPES = 'image/jpeg,image/jpg,image/webp,image/avif,image/png';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -127,6 +127,15 @@ function CategoryTagPicker({ tags, categories, onChange }: {
     return out;
   };
 
+  // Self-heal legacy dirty tags (duplicates / orphan L1) once categories load.
+  useEffect(() => {
+    if (categories.length === 0) return;
+    const cleaned = normalize(tags);
+    const changed = cleaned.length !== tags.length || cleaned.some((t, i) => t !== tags[i]);
+    if (changed) onChange(cleaned);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [categories, tags]);
+
   const toggleL2 = (_l1Name: string, l2Name: string) => {
     const has = tags.includes(l2Name);
     const raw = has ? tags.filter((t) => t !== l2Name) : [...tags, l2Name];
@@ -150,8 +159,8 @@ function CategoryTagPicker({ tags, categories, onChange }: {
         className="flex min-h-[38px] flex-wrap items-center gap-1.5 rounded-lg border border-border bg-background px-2 py-1.5 cursor-pointer hover:border-primary/50 transition-colors"
         onClick={openMenu}
       >
-        {tags.map((t) => (
-          <span key={t} className="flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] text-primary">
+        {tags.map((t, i) => (
+          <span key={`${t}-${i}`} className="flex items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-[11px] text-primary">
             {t}
             <button onClick={(e) => { e.stopPropagation(); removeTag(t); }} className="hover:text-primary/60">
               <X className="h-2.5 w-2.5" />
@@ -275,6 +284,12 @@ export function FGProductDetailModal({
   // 成本參考 (read-only, from ready_to_shopify.cost)
   const [costRef, setCostRef] = useState<number | null>(null);
 
+  // Editable image gallery. Each entry is either an existing HTTP URL or a
+  // freshly-added base64 data-URL (uploaded to Storage on save). The first entry
+  // is the primary image_url; the rest become the images[] array.
+  const [editImages, setEditImages] = useState<string[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   // Fetch category options once
   useEffect(() => {
     supabase
@@ -314,6 +329,16 @@ export function FGProductDetailModal({
         const r = row as unknown as FGDetail;
         setData(r);
         setSelectedImg(r.image_url || null);
+        // Init editable image gallery: primary first, then images[] (deduped)
+        const imgs: string[] = [];
+        if (r.image_url) imgs.push(r.image_url);
+        if (Array.isArray(r.images)) {
+          for (const img of r.images) {
+            const src: string = (img?.src || img?.url || (typeof img === 'string' ? img : '')) as string;
+            if (src && !imgs.includes(src)) imgs.push(src);
+          }
+        }
+        setEditImages(imgs);
         // Init editable fields
         setEditTitle(r.title || '');
         setEditBodyHtml(r.body_html || '');
@@ -348,10 +373,48 @@ export function FGProductDetailModal({
     return () => document.removeEventListener('keydown', handler);
   }, [onClose]);
 
+  // Read picked local files → base64 data-URLs appended to the gallery. They are
+  // uploaded to Supabase Storage on save. Accepts JPG/JPEG/WEBP/AVIF/PNG.
+  const handleAddImages = (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    const allowed = ['image/jpeg', 'image/jpg', 'image/webp', 'image/avif', 'image/png'];
+    const valid = Array.from(files).filter(f => allowed.includes(f.type));
+    if (valid.length === 0) {
+      toast.error('不支援的圖片格式', { description: '只接受 JPG / JPEG / WEBP / AVIF / PNG' });
+      return;
+    }
+    valid.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const dataUrl = reader.result as string;
+        if (dataUrl) setEditImages(prev => [...prev, dataUrl]);
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
+  const removeImage = (idx: number) => {
+    setEditImages(prev => prev.filter((_, i) => i !== idx));
+  };
+
   const handleSave = async () => {
     if (!data) return;
     setIsSaving(true);
     try {
+      // Upload any newly-added base64 images to Supabase Storage, keep HTTP URLs.
+      const resolvedImages: string[] = [];
+      for (let i = 0; i < editImages.length; i++) {
+        const img = editImages[i];
+        if (img.startsWith('data:')) {
+          const url = await uploadBase64Image(img, data.product_id || data.id, `fg${i}_${Date.now()}`);
+          resolvedImages.push(url);
+        } else {
+          resolvedImages.push(img);
+        }
+      }
+      const primaryImageUrl = resolvedImages[0] || null;
+      const imagesArr = resolvedImages.map((src, i) => ({ src, position: i + 1 }));
+
       const productType = [editL1, editL2].filter(Boolean).join(' / ') || null;
       const priceNum = editPrice !== '' ? parseFloat(editPrice) : null;
       const compareNum = editCompareAtPrice !== '' ? parseFloat(editCompareAtPrice) : null;
@@ -383,6 +446,8 @@ export function FGProductDetailModal({
           dimension_h_mm: dimH,
           in_stock: inStockVal,
           customize: customizeVal,
+          image_url: primaryImageUrl,
+          images: imagesArr.length > 0 ? imagesArr : null,
         })
         .eq('id', data.id);
       if (error) throw new Error(error.message);
@@ -406,6 +471,10 @@ export function FGProductDetailModal({
             dimension_h_mm: dimH,
             in_stock: inStockVal,
             customize: customizeVal,
+            image_url: primaryImageUrl,
+            image_url_2: resolvedImages[1] || null,
+            image_url_3: resolvedImages[2] || null,
+            images: imagesArr.length > 0 ? imagesArr : null,
           })
           .eq('id', data.product_id);
         if (pErr) throw new Error(`products 同步失敗：${pErr.message}`);
@@ -430,7 +499,12 @@ export function FGProductDetailModal({
         dimension_h_mm: dimH,
         in_stock: inStockVal,
         customize: customizeVal,
+        image_url: primaryImageUrl,
+        images: imagesArr.length > 0 ? imagesArr : null,
       } : null);
+      // Replace any base64 entries with their uploaded HTTP URLs in the gallery
+      setEditImages(resolvedImages);
+      setSelectedImg(primaryImageUrl);
       toast.success('已儲存', { description: '產品資料已更新（已同步至產品文案/產品信息）' });
       onSaved?.();
     } catch (e) {
@@ -440,16 +514,9 @@ export function FGProductDetailModal({
     }
   };
 
-  // Build ordered image list: image_url first, then images[]
-  const allImages: string[] = [];
-  if (data?.image_url) allImages.push(data.image_url);
-  if (Array.isArray(data?.images)) {
-    for (const img of data.images) {
-      const src: string = img?.src || img?.url || (typeof img === 'string' ? img : '');
-      if (src && src !== data?.image_url) allImages.push(src);
-    }
-  }
-  const displayImg = selectedImg || allImages[0] || '';
+  // The editable gallery (editImages) is the single source of truth for media.
+  const allImages = editImages;
+  const displayImg = (selectedImg && allImages.includes(selectedImg)) ? selectedImg : (allImages[0] || '');
 
   const inputCls = 'w-full rounded-lg border border-border bg-background px-3 py-2 text-sm font-body text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 transition-colors';
   const textareaCls = `${inputCls} resize-none`;
@@ -528,22 +595,45 @@ export function FGProductDetailModal({
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {allImages.map((src, i) => (
-                    <button
-                      key={i}
-                      onClick={() => setSelectedImg(src)}
-                      className={cn(
-                        'h-14 w-14 overflow-hidden rounded-lg border-2 bg-muted transition-all',
-                        selectedImg === src
-                          ? 'border-primary ring-1 ring-primary/30'
-                          : 'border-transparent hover:border-muted-foreground/40'
-                      )}
-                    >
-                      <img src={src} alt={`媒體 ${i + 1}`} className="h-full w-full object-cover" />
-                    </button>
+                    <div key={i} className="relative group">
+                      <button
+                        onClick={() => setSelectedImg(src)}
+                        className={cn(
+                          'h-14 w-14 overflow-hidden rounded-lg border-2 bg-muted transition-all',
+                          selectedImg === src
+                            ? 'border-primary ring-1 ring-primary/30'
+                            : 'border-transparent hover:border-muted-foreground/40'
+                        )}
+                      >
+                        <img src={src} alt={`媒體 ${i + 1}`} className="h-full w-full object-cover" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); removeImage(i); }}
+                        title="移除圖片"
+                        className="absolute -right-1.5 -top-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-rose-500 text-white opacity-0 group-hover:opacity-100 transition-opacity shadow"
+                      >
+                        <X className="h-2.5 w-2.5" />
+                      </button>
+                    </div>
                   ))}
-                  <div className="flex h-14 w-14 items-center justify-center rounded-lg border-2 border-dashed border-border bg-muted/50">
-                    <span className="text-xl text-muted-foreground/40">+</span>
-                  </div>
+                  {/* Add-image button → opens local file picker */}
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    title="從本機加入圖片 (JPG/JPEG/WEBP/AVIF/PNG)"
+                    className="flex h-14 w-14 items-center justify-center rounded-lg border-2 border-dashed border-border bg-muted/50 hover:border-primary/50 hover:bg-muted transition-colors"
+                  >
+                    <span className="text-xl text-muted-foreground/60">+</span>
+                  </button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept={ACCEPTED_IMAGE_TYPES}
+                    multiple
+                    className="hidden"
+                    onChange={(e) => { handleAddImages(e.target.files); e.target.value = ''; }}
+                  />
                 </div>
               </div>
 
@@ -745,12 +835,17 @@ export function FGProductDetailModal({
                       </button>
                     </div>
                     {editProductionType === 'custom' && (
-                      <Select value={editLeadTime || ''} onValueChange={setEditLeadTime}>
-                        <SelectTrigger className="h-9 w-[160px] font-body text-xs"><SelectValue placeholder="選擇生產天數" /></SelectTrigger>
-                        <SelectContent>
-                          {LEAD_TIME_OPTIONS.map(opt => <SelectItem key={opt} value={opt}>{opt.replace('天', ' 天')}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
+                      // Native <select> — the shadcn Select renders its dropdown in a
+                      // portal at z-50, BELOW this modal (z-[200]), so it was invisible
+                      // / unclickable. A native select always paints on top.
+                      <select
+                        value={editLeadTime || ''}
+                        onChange={e => setEditLeadTime(e.target.value)}
+                        className={`${inputCls} h-9 w-[160px] cursor-pointer`}
+                      >
+                        <option value="">選擇生產天數</option>
+                        {LEAD_TIME_OPTIONS.map(opt => <option key={opt} value={opt}>{opt.replace('天', ' 天')}</option>)}
+                      </select>
                     )}
                     {editProductionType === null && <span className="text-[11px] text-muted-foreground/60 italic">未選擇</span>}
                   </div>
@@ -764,11 +859,27 @@ export function FGProductDetailModal({
                   產品組織
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                  {/* product_type display (read-only, derived from L1/L2 above) */}
+                  {/* 類型 (Type) — editable L1/L2 dropdowns, kept in sync with 分類 */}
                   <div>
                     <label className="mb-1 block text-xs font-medium text-muted-foreground">類型 (Type)</label>
-                    <div className="rounded-lg border border-border bg-muted/30 px-3 py-2 text-sm text-foreground">
-                      {[editL1, editL2].filter(Boolean).join(' / ') || '—'}
+                    <div className="grid grid-cols-2 gap-2">
+                      <select
+                        className={`${inputCls} cursor-pointer`}
+                        value={editL1}
+                        onChange={e => { setEditL1(e.target.value); setEditL2(''); }}
+                      >
+                        <option value="">一級</option>
+                        {level1Options.map(l1 => <option key={l1} value={l1}>{l1}</option>)}
+                      </select>
+                      <select
+                        className={`${inputCls} cursor-pointer`}
+                        value={editL2}
+                        onChange={e => setEditL2(e.target.value)}
+                        disabled={!editL1}
+                      >
+                        <option value="">二級</option>
+                        {getLevel2Options(editL1).map(l2 => <option key={l2} value={l2}>{l2}</option>)}
+                      </select>
                     </div>
                   </div>
                   {/* ready_to_shopify.vendor */}
@@ -1155,6 +1266,7 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
         <FGProductDetailModal
           rtsId={detailRtsId}
           onClose={() => setDetailRtsId(null)}
+          onSaved={load}
         />
       )}
     </div>
