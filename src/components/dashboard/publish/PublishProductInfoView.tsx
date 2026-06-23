@@ -37,6 +37,8 @@ interface InfoItem {
   level2: string;
   productionType: ProductionType;
   leadTime: string;
+  // 產品物料 → ready_to_shopify."my_fields.materials"
+  materials: string;
 }
 
 interface Props {
@@ -91,25 +93,29 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
     reloadKey,
   });
 
-  // Fetch cost + image_url + images from ready_to_shopify for each product
+  // Fetch cost + image_url + images + materials from ready_to_shopify for each product
   const [costMap, setCostMap] = useState<Record<string, number | null>>({});
   const [rtsImageMap, setRtsImageMap] = useState<Record<string, string>>({});
   const [rtsImagesMap, setRtsImagesMap] = useState<Record<string, { src: string; alt: string }[]>>({});
+  const [materialsMap, setMaterialsMap] = useState<Record<string, string>>({});
   useEffect(() => {
     if (rows.length === 0) return;
     const ids = rows.map((r: any) => r.id);
     supabase
       .from('ready_to_shopify')
-      .select('product_id, cost, image_url, images')
+      .select('product_id, cost, image_url, images, material, "my_fields.materials"')
       .in('product_id', ids)
       .then(({ data }) => {
         if (!data) return;
         const costM: Record<string, number | null> = {};
         const imgM: Record<string, string> = {};
         const imgsM: Record<string, { src: string; alt: string }[]> = {};
-        for (const row of data) {
+        const matM: Record<string, string> = {};
+        for (const row of data as any[]) {
           costM[row.product_id] = row.cost != null ? Number(row.cost) : null;
           if (row.image_url) imgM[row.product_id] = row.image_url;
+          // Prefer the dedicated metafield column; fall back to legacy `material`
+          matM[row.product_id] = (row['my_fields.materials'] ?? row.material ?? '') || '';
           if (Array.isArray(row.images) && row.images.length > 0) {
             imgsM[row.product_id] = row.images.map((img: any) => ({
               src: img?.src || img?.url || (typeof img === 'string' ? img : ''),
@@ -120,6 +126,7 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
         setCostMap(costM);
         setRtsImageMap(imgM);
         setRtsImagesMap(imgsM);
+        setMaterialsMap(matM);
       });
   }, [rows]);
 
@@ -154,11 +161,12 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
         level2: r.level2_category || '',
         productionType,
         leadTime,
+        materials: materialsMap[r.id] ?? '',
       };
     });
     setItems(mapped);
     setSelected(new Set());
-  }, [rows, costMap]);
+  }, [rows, costMap, materialsMap]);
 
   // Scroll to the focused product once items are loaded
   useEffect(() => {
