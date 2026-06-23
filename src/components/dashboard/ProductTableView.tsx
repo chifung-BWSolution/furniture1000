@@ -334,7 +334,34 @@ export const ProductTableView = memo(function ProductTableView({
   const [showBatchDeleteModal, setShowBatchDeleteModal] = useState(false);
   const [detailProduct, setDetailProduct] = useState<Product | null>(null);
   const [currentPage, setCurrentPage] = useState(0);
-  const PAGE_SIZE = 25;
+
+  // ── Filters (same UX as 產品信息): search by name/SKU, L1/L2 category, factory, page size ──
+  const [searchQuery, setSearchQuery] = useState('');
+  const [pageSize, setPageSize] = useState(25);
+  const [level1Filter, setLevel1Filter] = useState('');
+  const [level2Filter, setLevel2Filter] = useState('');
+  const [factoryFilter, setFactoryFilter] = useState('');
+  const [categoryPairs, setCategoryPairs] = useState<{ level1: string; level2: string }[]>([]);
+  const PAGE_SIZE = pageSize;
+
+  // Load L1/L2 category options once
+  useEffect(() => {
+    supabase
+      .from('product_category')
+      .select('level1, level2, sort_order')
+      .order('sort_order', { ascending: true })
+      .then(({ data }) => { if (data) setCategoryPairs(data as { level1: string; level2: string }[]); });
+  }, []);
+
+  const level1Options = useMemo(() => Array.from(new Set(categoryPairs.map(p => p.level1))), [categoryPairs]);
+  const level2Options = useMemo(
+    () => Array.from(new Set(categoryPairs.filter(p => p.level1 === level1Filter && p.level2).map(p => p.level2))),
+    [categoryPairs, level1Filter]
+  );
+  const factoryOptions = useMemo(
+    () => Array.from(new Set(products.map(p => p.factoriesDisplayName || p.factoryName || '').filter(Boolean))),
+    [products]
+  );
 
   // Shift-click range selection state
   const lastSelectedIndexRef = useRef<number | null>(null);
@@ -362,7 +389,7 @@ export const ProductTableView = memo(function ProductTableView({
   const localProducts = useMemo(() => baseProducts.filter(p => p.source === 'local' || !p.source), [baseProducts]);
   const shopifyProducts = useMemo(() => baseProducts.filter(p => p.source === 'shopify'), [baseProducts]);
   
-  const filteredProducts = useMemo(() =>
+  const tabProducts = useMemo(() =>
     activeTab === 'all'
       ? baseProducts
       : activeTab === 'shopify'
@@ -370,6 +397,33 @@ export const ProductTableView = memo(function ProductTableView({
         : localProducts,
     [activeTab, baseProducts, shopifyProducts, localProducts]
   );
+
+  // Apply search (name/SKU), L1/L2 category, and factory filters.
+  const filteredProducts = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return tabProducts.filter(p => {
+      if (q) {
+        const sku = (p.sku || '').toLowerCase();
+        const model = ((p as any).model || '').toLowerCase();
+        const factoryId = (p.factoryId || '').toLowerCase();
+        const title = (p.title || '').toLowerCase();
+        if (!title.includes(q) && !sku.includes(q) && !model.includes(q) && !factoryId.includes(q)) return false;
+      }
+      if (level1Filter) {
+        const l1 = (p as any).level1Category || p.collection || '';
+        if (l1 !== level1Filter) return false;
+      }
+      if (level2Filter) {
+        const l2 = (p as any).level2Category || '';
+        if (l2 !== level2Filter) return false;
+      }
+      if (factoryFilter) {
+        const f = p.factoriesDisplayName || p.factoryName || '';
+        if (f !== factoryFilter) return false;
+      }
+      return true;
+    });
+  }, [tabProducts, searchQuery, level1Filter, level2Filter, factoryFilter]);
 
   const allFilteredIds = useMemo(() => filteredProducts.map(p => p.id), [filteredProducts]);
   const allSelected = useMemo(
@@ -384,10 +438,10 @@ export const ProductTableView = memo(function ProductTableView({
     [filteredProducts, currentPage]
   );
 
-  // Reset page when tab or filter changes
+  // Reset page when tab or any filter changes
   useEffect(() => {
     setCurrentPage(0);
-  }, [activeTab, filterProductId]);
+  }, [activeTab, filterProductId, searchQuery, level1Filter, level2Filter, factoryFilter, pageSize]);
 
   // Handle checkbox click with shift-click range selection support
   const selectedIdsRef = useRef(selectedIds);
@@ -644,6 +698,65 @@ export const ProductTableView = memo(function ProductTableView({
             </span>
           </div>
         )}
+
+        {/* Filter toolbar — search (name/SKU) · page size · L1/L2 category · factory */}
+        <div className="flex flex-wrap items-center gap-2 border-b border-border bg-background px-6 py-2.5">
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <input
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="搜尋產品名稱或編碼 (SKU)..."
+              className="h-8 w-[240px] rounded-lg border border-border bg-card pl-8 pr-8 text-xs focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
+            />
+            {searchQuery && (
+              <button onClick={() => setSearchQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"><X className="h-3 w-3" /></button>
+            )}
+          </div>
+          <select
+            value={pageSize}
+            onChange={(e) => setPageSize(Number(e.target.value))}
+            className="h-8 rounded-lg border border-border bg-card px-2 text-xs focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer"
+          >
+            {[20, 25, 50, 100].map(n => <option key={n} value={n}>每頁 {n} 項</option>)}
+          </select>
+          <select
+            value={level1Filter}
+            onChange={(e) => { setLevel1Filter(e.target.value); setLevel2Filter(''); }}
+            className="h-8 rounded-lg border border-border bg-card px-2 text-xs focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer"
+          >
+            <option value="">全部一級分類</option>
+            {level1Options.map(l1 => <option key={l1} value={l1}>{l1}</option>)}
+          </select>
+          <select
+            value={level2Filter}
+            onChange={(e) => setLevel2Filter(e.target.value)}
+            disabled={!level1Filter}
+            className="h-8 rounded-lg border border-border bg-card px-2 text-xs focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer disabled:opacity-50"
+          >
+            <option value="">全部二級分類</option>
+            {level2Options.map(l2 => <option key={l2} value={l2}>{l2}</option>)}
+          </select>
+          <select
+            value={factoryFilter}
+            onChange={(e) => setFactoryFilter(e.target.value)}
+            className="h-8 rounded-lg border border-border bg-card px-2 text-xs focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer"
+          >
+            <option value="">篩選廠家：全部</option>
+            {factoryOptions.map(f => <option key={f} value={f}>{f}</option>)}
+          </select>
+          {(searchQuery || level1Filter || level2Filter || factoryFilter) && (
+            <button
+              onClick={() => { setSearchQuery(''); setLevel1Filter(''); setLevel2Filter(''); setFactoryFilter(''); }}
+              className="flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-muted transition-colors"
+            >
+              <X className="h-3 w-3" /> 清除篩選
+            </button>
+          )}
+          <span className="ml-auto font-mono-data text-[11px] text-muted-foreground">
+            符合 {filteredProducts.length} 件
+          </span>
+        </div>
 
         {/* Table */}
         <div className="flex-1 overflow-auto">

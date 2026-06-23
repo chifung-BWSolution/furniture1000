@@ -138,6 +138,10 @@ export function PublishedProductsView() {
   const [search, setSearch] = useState('');
   const [stateFilter, setStateFilter] = useState<PublishState | 'all'>('all');
   const [factoryFilter, setFactoryFilter] = useState('全部');
+  const [level1Filter, setLevel1Filter] = useState('');
+  const [level2Filter, setLevel2Filter] = useState('');
+  const [pageSize, setPageSize] = useState(25);
+  const [currentPage, setCurrentPage] = useState(1);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [isFetchingPreview, setIsFetchingPreview] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
@@ -331,12 +335,49 @@ export function PublishedProductsView() {
     [items]
   );
 
+  // L1/L2 category options derived from product_type ("L1 / L2") across all rows.
+  const l1Options = useMemo(() => {
+    const s = new Set<string>();
+    items.forEach((p) => { const l1 = (p.raw.product_type || '').split(' / ')[0]?.trim(); if (l1) s.add(l1); });
+    return Array.from(s);
+  }, [items]);
+  const l2Options = useMemo(() => {
+    if (!level1Filter) return [];
+    const s = new Set<string>();
+    items.forEach((p) => {
+      const parts = (p.raw.product_type || '').split(' / ');
+      if (parts[0]?.trim() === level1Filter && parts[1]?.trim()) s.add(parts[1].trim());
+    });
+    return Array.from(s);
+  }, [items, level1Filter]);
+
   const filtered = useMemo(() => items.filter((p) => {
-    if (search && !p.title.toLowerCase().includes(search.toLowerCase())) return false;
+    if (search) {
+      const q = search.toLowerCase();
+      const title = p.title.toLowerCase();
+      // SKU lives in variants[].sku
+      const skus = Array.isArray(p.raw.variants)
+        ? p.raw.variants.map((v) => (v.sku || '').toLowerCase()).join(' ')
+        : '';
+      if (!title.includes(q) && !skus.includes(q)) return false;
+    }
     if (stateFilter !== 'all' && p.state !== stateFilter) return false;
     if (factoryFilter !== '全部' && p.factory !== factoryFilter) return false;
+    if (level1Filter) {
+      const parts = (p.raw.product_type || '').split(' / ');
+      if (parts[0]?.trim() !== level1Filter) return false;
+      if (level2Filter && parts[1]?.trim() !== level2Filter) return false;
+    }
     return true;
-  }), [items, search, stateFilter, factoryFilter]);
+  }), [items, search, stateFilter, factoryFilter, level1Filter, level2Filter]);
+
+  // Page-size pagination over the filtered list.
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const paged = useMemo(
+    () => filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+    [filtered, currentPage, pageSize]
+  );
+  useEffect(() => { setCurrentPage(1); }, [search, stateFilter, factoryFilter, level1Filter, level2Filter, pageSize]);
 
   // Call delist-from-shopify edge function to archive products in Shopify,
   // then update the local shopify_products mirror table.
@@ -442,11 +483,25 @@ export function PublishedProductsView() {
           )}
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="搜尋產品..." className="h-8 w-44 rounded-lg border border-border bg-card pl-8 pr-3 text-xs focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20" />
+            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="搜尋產品名稱或編碼 (SKU)..." className="h-8 w-56 rounded-lg border border-border bg-card pl-8 pr-3 text-xs focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20" />
           </div>
+          {/* 每頁顯示 */}
+          <select value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))} className="h-8 rounded-lg border border-border bg-card px-2 text-xs focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer">
+            {[20, 25, 50, 100].map(n => <option key={n} value={n}>每頁 {n} 項</option>)}
+          </select>
+          {/* 一級分類 */}
+          <select value={level1Filter} onChange={(e) => { setLevel1Filter(e.target.value); setLevel2Filter(''); }} className="h-8 rounded-lg border border-border bg-card px-2 text-xs focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer">
+            <option value="">全部一級分類</option>
+            {l1Options.map(l1 => <option key={l1} value={l1}>{l1}</option>)}
+          </select>
+          {/* 二級分類 */}
+          <select value={level2Filter} onChange={(e) => setLevel2Filter(e.target.value)} disabled={!level1Filter} className="h-8 rounded-lg border border-border bg-card px-2 text-xs focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer disabled:opacity-50">
+            <option value="">全部二級分類</option>
+            {l2Options.map(l2 => <option key={l2} value={l2}>{l2}</option>)}
+          </select>
           <div className="relative">
             <select value={factoryFilter} onChange={(e) => setFactoryFilter(e.target.value)} className="h-8 appearance-none rounded-lg border border-border bg-card pl-3 pr-8 text-xs focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20">
-              {factories.map((f) => <option key={f} value={f}>{f === '全部' ? '廠家：全部' : f}</option>)}
+              {factories.map((f) => <option key={f} value={f}>{f === '全部' ? '篩選廠家：全部' : f}</option>)}
             </select>
             <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           </div>
@@ -487,7 +542,7 @@ export function PublishedProductsView() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border/60">
-              {filtered.map((p) => {
+              {paged.map((p) => {
                 const r = p.raw;
                 const variants: ShopifyVariant[] = Array.isArray(r.variants) ? r.variants : [];
                 const tags: string[] = Array.isArray(r.tags) ? r.tags : [];
@@ -596,6 +651,29 @@ export function PublishedProductsView() {
             </tbody>
           </table>
         </div>
+
+        {/* Pagination */}
+        {filtered.length > pageSize && (
+          <div className="mt-4 flex items-center justify-center gap-2">
+            <button
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+              className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted disabled:opacity-40 transition-colors"
+            >
+              上一頁
+            </button>
+            <span className="font-mono-data text-xs text-muted-foreground">
+              第 {currentPage} / {totalPages} 頁 · 共 {filtered.length} 件
+            </span>
+            <button
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              disabled={currentPage >= totalPages}
+              className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted disabled:opacity-40 transition-colors"
+            >
+              下一頁
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ── Shopify Import Dialog ─────────────────────────────────────── */}
