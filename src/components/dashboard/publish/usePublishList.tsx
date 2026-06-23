@@ -101,7 +101,13 @@ export function usePublishList({ select, applyBaseFilters, reloadKey = 0 }: UseP
 
       const buildFilters = (q: any) => {
         q = applyBaseFilters(q);
-        if (debouncedSearch.trim()) q = q.ilike('title', `%${debouncedSearch.trim()}%`);
+        if (debouncedSearch.trim()) {
+          // Match by product name OR SKU. SKU lives in `sku` (e.g. "PHZ-8006D");
+          // also match the bare `model` ("8006D") and factory_id prefix so partial
+          // codes work. PostgREST .or() with comma-separated ilike conditions.
+          const term = debouncedSearch.trim().replace(/[,()]/g, ' ');
+          q = q.or(`title.ilike.%${term}%,sku.ilike.%${term}%,model.ilike.%${term}%,factory_id.ilike.%${term}%`);
+        }
         if (level1Filter) q = q.eq('level1_category', level1Filter);
         if (level2Filter) q = q.eq('level2_category', level2Filter);
         if (selectedFactories.length > 0) q = q.in('factories_display_name', selectedFactories);
@@ -153,7 +159,7 @@ export function usePublishList({ select, applyBaseFilters, reloadKey = 0 }: UseP
       <div className="relative">
         <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
         <input
-          placeholder="搜尋產品..."
+          placeholder="搜尋產品名稱或編碼 (SKU)..."
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           className="h-8 w-[220px] rounded-lg border border-border bg-background pl-8 pr-8 font-body text-xs focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
