@@ -809,13 +809,67 @@ export function ProductDetailModal({
         imageUrl: finalImages[0]?.src || product.imageUrl || '',
       };
 
+      // ─── Step 3.5: If product is live on Shopify, push the edits there too ──
+      // Single-direction sync (system → Shopify): title, body_html, price,
+      // images and the derived metafields. Non-blocking — a Shopify failure
+      // still keeps the local/master save.
+      let shopifySyncResult: 'ok' | 'fail' | 'skip' = 'skip';
+      if (product.shopifyProductId) {
+        try {
+          // Ordered image URLs (HTTP only) — primary first.
+          const imageUrls = finalImages
+            .map((img) => img.src)
+            .filter((s) => typeof s === 'string' && /^https?:\/\//.test(s));
+
+          // Derive metafields from the edited fields (matches shopify_products columns).
+          const mf: Record<string, string> = {};
+          if (parsedDimensionL != null && parsedDimensionW != null && parsedDimensionH != null) {
+            mf['my_fields.normal_size'] = `${parsedDimensionL}(W)x${parsedDimensionW}(D)x${parsedDimensionH}(H)(mm)`;
+          }
+          if (customizeLabel) mf['my_fields.production_time'] = customizeLabel;
+          for (let i = 0; i < Math.min(imageUrls.length, 4); i++) {
+            mf[`custom.more_image_link_${i + 1}`] = imageUrls[i];
+            if (title) mf[`custom.more_image_alt_${i + 1}`] = title;
+          }
+
+          const { data: syncData, error: syncErr } = await supabase.functions.invoke(
+            'supabase-functions-update-shopify-product',
+            {
+              body: {
+                shopify_product_id: product.shopifyProductId,
+                source_product_id: product.id,
+                title,
+                body_html: description,
+                price: parsedSalePrice ?? product.price,
+                compare_at_price: product.compareAtPrice ?? null,
+                images: imageUrls,
+                metafields: Object.keys(mf).length > 0 ? mf : undefined,
+              },
+            }
+          );
+          shopifySyncResult = (!syncErr && syncData?.success) ? 'ok' : 'fail';
+          if (shopifySyncResult === 'fail') {
+            console.error('[ProductDetail] Shopify sync failed:', syncErr || syncData);
+          }
+        } catch (shopifyErr) {
+          console.error('[ProductDetail] Shopify sync exception:', shopifyErr);
+          shopifySyncResult = 'fail';
+        }
+      }
+
       onProductUpdated(updatedProduct);
 
       // Clear pending state
       setPendingNewFiles([]);
       setPendingDeletePaths([]);
 
-      if (product.bwfMasterId && (!masterSyncSuccess || !mediaUploadSuccess)) {
+      if (shopifySyncResult === 'fail') {
+        toast.warning('已儲存，但 Shopify 同步失敗', {
+          id: toastId,
+          description: '本地/全域資料已更新，但更新 Shopify 上的產品時出錯，請稍後重試。',
+          duration: 8000,
+        });
+      } else if (product.bwfMasterId && (!masterSyncSuccess || !mediaUploadSuccess)) {
         toast.warning('已儲存至本地，全域同步部分失敗', {
           id: toastId,
           description: '本地資料已更新，但全域資料庫同步或媒體上傳未完全成功。',
@@ -824,9 +878,11 @@ export function ProductDetailModal({
       } else {
         toast.success('產品資料已儲存', {
           id: toastId,
-          description: product.bwfMasterId
-            ? '已同時更新本地及全域資料庫。'
-            : '已更新本地資料庫。',
+          description: shopifySyncResult === 'ok'
+            ? '已同步更新本地、全域資料庫及 Shopify 上的產品。'
+            : product.bwfMasterId
+              ? '已同時更新本地及全域資料庫。'
+              : '已更新本地資料庫。',
           duration: 4000,
         });
       }
