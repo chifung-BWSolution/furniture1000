@@ -286,6 +286,9 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
       // 送貨資訊（現貨 / 全訂製 + 交期）→ in_stock + customize
       in_stock: isStock ? true : (it.productionType === 'custom' ? false : null),
       customize: customizeVal,
+      // 產品物料 → my_fields.materials (also keep legacy `material` in sync)
+      'my_fields.materials': it.materials.trim() || null,
+      material: it.materials.trim() || null,
     };
     if (advance) {
       // false = waiting in 傢俬組檢查; true = cleared for 準備上載
@@ -589,6 +592,27 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
                         categories={bwfCats}
                         onChange={(tags) => patch(it.id, { tags })}
                       />
+                    </Field>
+                    {/* 產品物料 → my_fields.materials. Soft limit 42 chars (punctuation
+                        counts). Existing synced material values may exceed 42, so we do
+                        NOT hard-truncate — we warn instead. */}
+                    <Field label="產品物料" icon={<Boxes className="h-3 w-3" />}>
+                      <div className="flex items-center gap-2">
+                        <input
+                          value={it.materials}
+                          onChange={(e) => patch(it.id, { materials: e.target.value })}
+                          placeholder="輸入產品物料..."
+                          className={cn(
+                            'w-full rounded-lg border bg-background px-3 py-2 font-body text-[12px] focus:outline-none focus:ring-2',
+                            it.materials.length > 42
+                              ? 'border-rose-500/60 focus:border-rose-500 focus:ring-rose-500/20'
+                              : 'border-border focus:border-primary/50 focus:ring-primary/20'
+                          )}
+                        />
+                        {it.materials.length > 42 && (
+                          <span className="shrink-0 font-body text-[11px] font-medium text-rose-500">字數不可多於28個</span>
+                        )}
+                      </div>
                     </Field>
                   </div>
                 </div>
