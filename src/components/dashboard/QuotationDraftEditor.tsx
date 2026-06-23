@@ -1063,8 +1063,9 @@ export function QuotationDraftEditor({
   return (
     <>
       <div className="h-full overflow-y-auto bg-background">
-        {/* Header */}
-        <div className="mx-auto max-w-[1600px]">
+        {/* Header — use near-full width with small side padding so 報價內容
+            can stretch left-and-right and need less horizontal scrolling */}
+        <div className="mx-auto w-full max-w-[1920px] px-4 xl:px-6">
           <div className="mb-6 flex items-center justify-between">
             <div className="flex items-center gap-4">
               <button
@@ -1142,8 +1143,9 @@ export function QuotationDraftEditor({
 
           {/* 3-Column Grid */}
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
-            {/* LEFT COLUMN — narrow when all collapsed, wider when any open */}
-            <div className={`space-y-2 ${anyExpanded ? 'lg:col-span-3' : 'lg:col-span-2'}`}>
+            {/* LEFT COLUMN — kept narrow so 報價內容 gets maximum width. Slightly
+                wider when a panel is open to fit its form fields. */}
+            <div className={`space-y-2 ${anyExpanded ? 'lg:col-span-3 xl:col-span-2' : 'lg:col-span-2'}`}>
               {/* 公司資訊 */}
               <section className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
                 <button
@@ -1433,7 +1435,7 @@ export function QuotationDraftEditor({
             </div>
 
             {/* CENTER COLUMN — expands as left column shrinks */}
-            <div className={`space-y-5 ${anyExpanded ? 'lg:col-span-9' : 'lg:col-span-10'}`}>
+            <div className={`space-y-5 ${anyExpanded ? 'lg:col-span-9 xl:col-span-10' : 'lg:col-span-10'}`}>
               {/* 報價內容表格 */}
               <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
                 <div className="mb-4 flex items-center justify-between">
