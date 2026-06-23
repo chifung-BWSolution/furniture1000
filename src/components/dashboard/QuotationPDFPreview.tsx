@@ -15,12 +15,16 @@ let cachedModule: ReactPdfModule | null = null;
 let loadPromise: Promise<ReactPdfModule> | null = null;
 let fontRegistered = false;
 
-// Use Noto Sans HK (Hong Kong) which includes Cantonese/HK-specific glyphs
-// like 枱, 嘅, 咗, 攞 that are missing from the noto-sans-tc subset.
-const NOTO_SANS_HK_REGULAR = 'https://cdn.jsdelivr.net/fontsource/fonts/noto-sans-hk@latest/chinese-hongkong-400-normal.ttf';
-const NOTO_SANS_HK_BOLD = 'https://cdn.jsdelivr.net/fontsource/fonts/noto-sans-hk@latest/chinese-hongkong-700-normal.ttf';
-// Simplified Chinese fallback for glyphs not present in the HK subset
-// (e.g. 简, 体, 鈕, etc. from supplier names / product specs).
+// Primary: the FULL Google Noto Sans TC static TTF (~6.8MB each weight).
+// IMPORTANT: do NOT use the fontsource "language subset" builds
+// (…/noto-sans-tc@latest/chinese-traditional-400-normal.ttf or the HK subset) —
+// those subsets are MISSING HK/Cantonese Han glyphs such as 枱 (U+67B1), which then
+// render as a wrong glyph (e.g. ±) in the PDF. The full gstatic TTF below contains
+// 枱 and the complete Traditional Chinese repertoire (verified by cmap inspection).
+const NOTO_SANS_TC_REGULAR = 'https://fonts.gstatic.com/s/notosanstc/v39/-nFuOG829Oofr2wohFbTp9ifNAn722rq0MXz76Cy_Co.ttf';
+const NOTO_SANS_TC_BOLD = 'https://fonts.gstatic.com/s/notosanstc/v39/-nFuOG829Oofr2wohFbTp9ifNAn722rq0MXz70e1_Co.ttf';
+// Simplified Chinese fallback for any glyph still not present in the TC font
+// (e.g. 简, 体, etc. from supplier names / product specs).
 const NOTO_SANS_SC_REGULAR = 'https://cdn.jsdelivr.net/fontsource/fonts/noto-sans-sc@latest/chinese-simplified-400-normal.ttf';
 const NOTO_SANS_SC_BOLD = 'https://cdn.jsdelivr.net/fontsource/fonts/noto-sans-sc@latest/chinese-simplified-700-normal.ttf';
 
@@ -33,17 +37,19 @@ async function loadReactPdfModule(): Promise<ReactPdfModule> {
     cachedModule = mod;
     if (!fontRegistered) {
       try {
-        // Primary: Noto Sans HK — covers HK-specific Han glyphs like 枱
+        // Primary: full Noto Sans TC — covers the complete Traditional repertoire
+        // including HK-specific Han glyphs like 枱.
         mod.Font.register({
           family: 'NotoSansTC',
           fonts: [
-            { src: NOTO_SANS_HK_REGULAR, fontWeight: 400 },
-            { src: NOTO_SANS_HK_BOLD, fontWeight: 700 },
+            { src: NOTO_SANS_TC_REGULAR, fontWeight: 400 },
+            { src: NOTO_SANS_TC_BOLD, fontWeight: 700 },
           ],
         });
         // Fallback: Noto Sans SC — covers Simplified Chinese glyphs missing
-        // from the HK subset. react-pdf picks this for any glyph not found
+        // from the TC font. react-pdf picks this for any glyph not found
         // in the primary family when fallback: true is set.
+        // (cast: react-pdf's types omit the runtime-supported `fallback` flag.)
         mod.Font.register({
           family: 'NotoSansSC',
           fallback: true,
@@ -51,7 +57,7 @@ async function loadReactPdfModule(): Promise<ReactPdfModule> {
             { src: NOTO_SANS_SC_REGULAR, fontWeight: 400 },
             { src: NOTO_SANS_SC_BOLD, fontWeight: 700 },
           ],
-        });
+        } as Parameters<typeof mod.Font.register>[0]);
         mod.Font.registerHyphenationCallback((word: string) => {
           // Break at every CJK character so Chinese text can wrap inside narrow cells.
           // Latin/numeric runs stay intact (rendered as single chunks).
@@ -340,7 +346,7 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
         <View style={styles.table}>
           <View style={styles.tableHeader}>
             <View style={styles.colIndex}><Text style={styles.tableHeaderText}>{'\u5E8F\u865F'}</Text></View>
-            <View style={styles.colDesc}><Text style={styles.tableHeaderText}>{'\u8AAA\u660E'}</Text></View>
+            <View style={styles.colDesc}><Text style={styles.tableHeaderText}>{'\u7522\u54C1\u540D\u7A31'}</Text></View>
             <View style={styles.colMaterial}><Text style={styles.tableHeaderText}>{'\u6750\u8CEA\u53CA\u660E\u7D30'}</Text></View>
             <View style={styles.colRemarks}><Text style={styles.tableHeaderText}>{'\u5099\u6CE8'}</Text></View>
             <View style={styles.colImage}><Text style={styles.tableHeaderText}>{'\u5716\u4F8B'}</Text></View>
