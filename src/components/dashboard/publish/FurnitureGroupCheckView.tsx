@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
 import {
@@ -1036,6 +1036,29 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
     load();
   }, [load]);
 
+  // Apply search (name/SKU) + L1/L2 + factory filters.
+  const filteredItems = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    return items.filter(r => {
+      if (q) {
+        const title = r.title.toLowerCase();
+        const sku = r.sku.toLowerCase();
+        if (!title.includes(q) && !sku.includes(q)) return false;
+      }
+      if (level1Filter && r.level1 !== level1Filter) return false;
+      if (level2Filter && r.level2 !== level2Filter) return false;
+      if (factoryFilter && r.factory !== factoryFilter) return false;
+      return true;
+    });
+  }, [items, searchQuery, level1Filter, level2Filter, factoryFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredItems.length / pageSize));
+  const pagedItems = useMemo(
+    () => filteredItems.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+    [filteredItems, currentPage, pageSize]
+  );
+  useEffect(() => { setCurrentPage(1); }, [searchQuery, level1Filter, level2Filter, factoryFilter, pageSize]);
+
   const toggleRow = (id: string) =>
     setSelected(prev => {
       const n = new Set(prev);
@@ -1043,10 +1066,11 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
       return n;
     });
 
+  // Select-all toggles the currently-filtered set (across all pages).
   const toggleAll = (checked: boolean) =>
-    setSelected(checked ? new Set(items.map(r => r.rtsId)) : new Set());
+    setSelected(checked ? new Set(filteredItems.map(r => r.rtsId)) : new Set());
 
-  const allSelected = items.length > 0 && items.every(r => selected.has(r.rtsId));
+  const allSelected = filteredItems.length > 0 && filteredItems.every(r => selected.has(r.rtsId));
 
   const handleAddToReadyToPublish = async () => {
     if (selected.size === 0) { toast.message('請先勾選產品'); return; }
@@ -1179,18 +1203,58 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
         </div>
       </div>
 
+      {/* ── Filter toolbar — search (name/SKU) · page size · L1/L2 · factory ── */}
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border bg-background px-8 py-2.5">
+        <div className="relative">
+          <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <input
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="搜尋產品名稱或編碼 (SKU)..."
+            className="h-8 w-[240px] rounded-lg border border-border bg-card pl-8 pr-8 text-xs focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
+          />
+          {searchQuery && (
+            <button onClick={() => setSearchQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"><X className="h-3 w-3" /></button>
+          )}
+        </div>
+        <select value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))} className="h-8 rounded-lg border border-border bg-card px-2 text-xs focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer">
+          {[20, 25, 50, 100].map(n => <option key={n} value={n}>每頁 {n} 項</option>)}
+        </select>
+        <select value={level1Filter} onChange={(e) => { setLevel1Filter(e.target.value); setLevel2Filter(''); }} className="h-8 rounded-lg border border-border bg-card px-2 text-xs focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer">
+          <option value="">全部一級分類</option>
+          {level1Options.map(l1 => <option key={l1} value={l1}>{l1}</option>)}
+        </select>
+        <select value={level2Filter} onChange={(e) => setLevel2Filter(e.target.value)} disabled={!level1Filter} className="h-8 rounded-lg border border-border bg-card px-2 text-xs focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer disabled:opacity-50">
+          <option value="">全部二級分類</option>
+          {level2Options.map(l2 => <option key={l2} value={l2}>{l2}</option>)}
+        </select>
+        <select value={factoryFilter} onChange={(e) => setFactoryFilter(e.target.value)} className="h-8 rounded-lg border border-border bg-card px-2 text-xs focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer">
+          <option value="">篩選廠家：全部</option>
+          {factoryOptions.map(f => <option key={f} value={f}>{f}</option>)}
+        </select>
+        {(searchQuery || level1Filter || level2Filter || factoryFilter) && (
+          <button
+            onClick={() => { setSearchQuery(''); setLevel1Filter(''); setLevel2Filter(''); setFactoryFilter(''); }}
+            className="flex items-center gap-1 rounded-lg border border-border px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-muted transition-colors"
+          >
+            <X className="h-3 w-3" /> 清除篩選
+          </button>
+        )}
+        <span className="ml-auto font-mono-data text-[11px] text-muted-foreground">符合 {filteredItems.length} 件</span>
+      </div>
+
       {/* ── Table ── */}
       <div className="flex-1 overflow-auto px-8 py-6">
         {isLoading ? (
           <div className="flex h-40 items-center justify-center">
             <Loader2 className="h-6 w-6 animate-spin text-primary" />
           </div>
-        ) : items.length === 0 ? (
+        ) : filteredItems.length === 0 ? (
           <div className="flex flex-col items-center justify-center gap-3 py-24 text-center">
             <Sofa className="h-8 w-8 text-muted-foreground/40" />
-            <p className="font-display text-sm text-muted-foreground">尚無待確認產品</p>
+            <p className="font-display text-sm text-muted-foreground">{items.length === 0 ? '尚無待確認產品' : '沒有符合篩選的產品'}</p>
             <p className="font-body text-[12px] text-muted-foreground/70">
-              到「產品信息」頁面勾選產品並按「完成」後，產品會送到此處
+              {items.length === 0 ? '到「產品信息」頁面勾選產品並按「完成」後，產品會送到此處' : '請調整搜尋或篩選條件'}
             </p>
           </div>
         ) : (
@@ -1214,7 +1278,7 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/60">
-                {items.map(row => (
+                {pagedItems.map(row => (
                   <tr
                     key={row.rtsId}
                     className={cn(
@@ -1295,6 +1359,29 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+
+        {/* Pagination */}
+        {filteredItems.length > pageSize && (
+          <div className="mt-4 flex items-center justify-center gap-2">
+            <button
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+              className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted disabled:opacity-40 transition-colors"
+            >
+              上一頁
+            </button>
+            <span className="font-mono-data text-xs text-muted-foreground">
+              第 {currentPage} / {totalPages} 頁 · 共 {filteredItems.length} 件
+            </span>
+            <button
+              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              disabled={currentPage >= totalPages}
+              className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted disabled:opacity-40 transition-colors"
+            >
+              下一頁
+            </button>
           </div>
         )}
       </div>
