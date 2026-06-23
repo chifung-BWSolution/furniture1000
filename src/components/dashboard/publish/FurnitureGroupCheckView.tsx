@@ -818,18 +818,18 @@ export function FGProductDetailModal({
                 <div>
                   <label className="mb-1 flex items-center gap-1 text-xs font-medium text-muted-foreground"><Truck className="h-3 w-3" />送貨資訊</label>
                   <div className="flex items-center gap-3">
-                    <div className="flex rounded-lg border border-border overflow-hidden w-fit">
+                    <div className="flex shrink-0 rounded-lg border border-border overflow-hidden w-fit">
                       <button
                         type="button"
                         onClick={() => { setEditProductionType(editProductionType === 'stock' ? null : 'stock'); setEditLeadTime(''); }}
-                        className={cn('px-3 py-1.5 text-xs font-medium transition-colors', editProductionType === 'stock' ? 'bg-emerald-500 text-white' : 'bg-background text-muted-foreground hover:bg-muted')}
+                        className={cn('whitespace-nowrap px-3 py-1.5 text-xs font-medium transition-colors', editProductionType === 'stock' ? 'bg-emerald-500 text-white' : 'bg-background text-muted-foreground hover:bg-muted')}
                       >
                         現貨
                       </button>
                       <button
                         type="button"
                         onClick={() => setEditProductionType(editProductionType === 'custom' ? null : 'custom')}
-                        className={cn('px-3 py-1.5 text-xs font-medium transition-colors', editProductionType === 'custom' ? 'bg-amber-500 text-white' : 'bg-background text-muted-foreground hover:bg-muted')}
+                        className={cn('whitespace-nowrap px-3 py-1.5 text-xs font-medium transition-colors', editProductionType === 'custom' ? 'bg-amber-500 text-white' : 'bg-background text-muted-foreground hover:bg-muted')}
                       >
                         全訂製
                       </button>
@@ -838,10 +838,11 @@ export function FGProductDetailModal({
                       // Native <select> — the shadcn Select renders its dropdown in a
                       // portal at z-50, BELOW this modal (z-[200]), so it was invisible
                       // / unclickable. A native select always paints on top.
+                      // w-auto so the box only fits its content (not full width).
                       <select
                         value={editLeadTime || ''}
                         onChange={e => setEditLeadTime(e.target.value)}
-                        className={`${inputCls} h-9 w-[160px] cursor-pointer`}
+                        className="shrink-0 w-auto rounded-lg border border-border bg-background px-2 py-1.5 text-xs font-body text-foreground cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary/40 transition-colors"
                       >
                         <option value="">選擇生產天數</option>
                         {LEAD_TIME_OPTIONS.map(opt => <option key={opt} value={opt}>{opt.replace('天', ' 天')}</option>)}
