@@ -1284,14 +1284,21 @@ export function useAppStore() {
             .map((r) => [r.id, r])
         );
 
+        // Derive success/error ids SYNCHRONOUSLY from the results — do NOT collect
+        // them inside the setProducts updater below. React may defer/batch the
+        // updater, so the arrays would still be empty when the synchronous DB
+        // cleanup code (status update + ready_to_shopify removal) runs right after,
+        // leaving published products stuck on 準備上載. Compute them up-front here.
         const successIds: string[] = [];
         const errorIds: string[] = [];
+        for (const [id, r] of resultsMap) {
+          if (r.success) successIds.push(id); else errorIds.push(id);
+        }
 
         setProducts(prev => prev.map(p => {
           const result = resultsMap.get(p.id);
           if (!result) return p;
           if (result.success) {
-            successIds.push(p.id);
             return {
               ...p,
               status: 'success' as ProductStatus,
@@ -1299,7 +1306,6 @@ export function useAppStore() {
               errorMessage: undefined,
             };
           } else {
-            errorIds.push(p.id);
             return {
               ...p,
               status: 'error' as ProductStatus,
@@ -1335,18 +1341,26 @@ export function useAppStore() {
           // Force-create made a brand-new Shopify product, so drop the stale old
           // mirror row (matched by source_product_id but a different, now-replaced
           // shopify_product_id) to avoid two rows for the same product.
-          const successProducts = selectedProducts.filter(p => successIds.includes(p.id));
+          // CRITICAL id mapping: the edge function keys results by the payload's
+          // `id`, which is productId = (p.productId || p.id) — i.e. products.id.
+          // So successIds holds PRODUCTS.ID. For 準備上載 rows p.id is the RTS uuid,
+          // so match on the product id, NOT p.id (the old `successIds.includes(p.id)`
+          // never matched 準備上載 rows, leaving them stuck on the page).
+          const successProducts = selectedProducts.filter(
+            p => successIds.includes((p as any).productId || p.id)
+          );
           for (const p of successProducts) {
-            const result = resultsMap.get(p.id);
+            const pid = (p as any).productId || p.id;
+            const result = resultsMap.get(pid);
             const newSid = result?.shopify_product_id;
             if (!newSid) continue;
             const { error: staleErr } = await supabase
               .from('shopify_products')
               .delete()
-              .eq('source_product_id', p.id)
+              .eq('source_product_id', pid)
               .neq('shopify_product_id', newSid);
             if (staleErr) {
-              console.warn(`[publishToShopify] stale mirror cleanup failed for ${p.id}:`, staleErr.message);
+              console.warn(`[publishToShopify] stale mirror cleanup failed for ${pid}:`, staleErr.message);
             }
           }
 
@@ -1354,10 +1368,9 @@ export function useAppStore() {
           // ready_to_shopify rows. Per CLAUDE.md #4, deleting RTS rows risks data
           // loss; instead set furniture_group_checked=null so the row (title,
           // body_html, images, dimensions, SEO, price — everything) survives and
-          // the product simply drops out of the 準備上載 filter.
-          //
-          // successIds contains the front-end p.id which, for 準備上載 rows, is the
-          // RTS uuid; for products-list rows it's products.id. Update by BOTH keys
+          // the product simply drops out of the 準備上載 filter (which shows
+          // furniture_group_checked=true only).
+          // Update by BOTH the RTS uuid (p.id for 準備上載 rows) and the product_id
           // so the row leaves the page regardless of which id we hold.
           const successRtsUuids = successProducts.map(p => p.id);
           const successProductIds = successProducts.map(p => (p as any).productId || p.id);
