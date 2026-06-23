@@ -726,24 +726,55 @@ function CategoryTagPicker({ tags, categories, onChange }: CategoryTagPickerProp
     hoverTimer.current = setTimeout(() => setHoveredL1(l1Id), 80);
   };
 
-  const toggleL2 = (l1Name: string, l2Name: string) => {
-    let next = [...tags];
-    const hasL2 = next.includes(l2Name);
-    if (hasL2) {
-      // deselect L2; also remove L1 if no other L2 from same L1 remains
-      next = next.filter((t) => t !== l2Name);
-      const siblings = getL2s(l1s.find((l) => l.name === l1Name)?.id ?? '').map((c) => c.name);
-      const stillHasSibling = siblings.some((s) => s !== l2Name && next.includes(s));
-      if (!stillHasSibling) next = next.filter((t) => t !== l1Name);
-    } else {
-      // add L2, add L1 only if not already present
-      if (!next.includes(l1Name)) next = [...next, l1Name];
-      next = [...next, l2Name];
+  // ── Tag normalization ──────────────────────────────────────────────
+  // The tag list mixes L1 (一級) and L2 (二級) category names. The rule:
+  //   • an L1 tag is present IFF at least one of its L2 children is selected;
+  //   • every tag appears at most once (handles the case where an L1 name
+  //     equals one of its own L2 names, e.g. 辦公座椅 / 3-7天送貨, which used
+  //     to produce a duplicate chip).
+  // Non-category tags (neither L1 nor L2) are preserved as-is.
+  const l2ToParent = new Map<string, string>();
+  categories.filter((c) => c.level === 2).forEach((c) => {
+    const parent = l1s.find((l) => l.id === c.parent_id);
+    if (parent) l2ToParent.set(c.name, parent.name);
+  });
+  const l1NameSet = new Set(l1s.map((l) => l.name));
+  const l2NameSet = new Set(l2ToParent.keys());
+
+  const normalize = (raw: string[]): string[] => {
+    const selectedL2 = raw.filter((t) => l2NameSet.has(t));
+    const neededL1 = new Set<string>();
+    selectedL2.forEach((l2) => { const p = l2ToParent.get(l2); if (p) neededL1.add(p); });
+    const out: string[] = [];
+    const pushUnique = (t: string) => { if (!out.includes(t)) out.push(t); };
+    for (const t of raw) {
+      if (l2NameSet.has(t)) pushUnique(t);                       // keep selected L2
+      else if (l1NameSet.has(t)) { if (neededL1.has(t)) pushUnique(t); } // keep L1 only if a child is selected
+      else pushUnique(t);                                        // keep custom/non-category tags
     }
-    onChange(next);
+    // ensure parent L1s are present even if raw didn't list them
+    neededL1.forEach((l1) => pushUnique(l1));
+    return out;
   };
 
-  const removeTag = (t: string) => onChange(tags.filter((x) => x !== t));
+  const toggleL2 = (_l1Name: string, l2Name: string) => {
+    const has = tags.includes(l2Name);
+    const raw = has ? tags.filter((t) => t !== l2Name) : [...tags, l2Name];
+    onChange(normalize(raw));
+  };
+
+  // Removing a chip: if it's an L1, also clear all its selected L2 children
+  // (otherwise normalize would immediately re-add the L1). Always re-normalize.
+  const removeTag = (t: string) => {
+    let raw = tags.filter((x) => x !== t);
+    if (l1NameSet.has(t)) {
+      const childNames = new Set(
+        getL2s(l1s.find((l) => l.name === t)?.id ?? '').map((c) => c.name)
+      );
+      raw = raw.filter((x) => !childNames.has(x));
+    }
+    onChange(normalize(raw));
+  };
 
   const activeL2sForHovered = hoveredL1 ? getL2s(hoveredL1) : [];
   const hoveredL1Name = l1s.find((l) => l.id === hoveredL1)?.name ?? '';

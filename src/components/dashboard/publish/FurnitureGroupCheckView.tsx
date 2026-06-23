@@ -102,22 +102,45 @@ function CategoryTagPicker({ tags, categories, onChange }: {
     hoverTimer.current = setTimeout(() => setHoveredL1(l1Id), 80);
   };
 
-  const toggleL2 = (l1Name: string, l2Name: string) => {
-    let next = [...tags];
-    const hasL2 = next.includes(l2Name);
-    if (hasL2) {
-      next = next.filter((t) => t !== l2Name);
-      const siblings = getL2s(l1s.find((l) => l.name === l1Name)?.id ?? '').map((c) => c.name);
-      const stillHasSibling = siblings.some((s) => s !== l2Name && next.includes(s));
-      if (!stillHasSibling) next = next.filter((t) => t !== l1Name);
-    } else {
-      if (!next.includes(l1Name)) next = [...next, l1Name];
-      next = [...next, l2Name];
+  // ── Tag normalization (see PublishProductInfoView for the full rationale) ──
+  // L1 tag present IFF ≥1 of its L2 children is selected; every tag appears once
+  // (handles L1 name == its own L2 name, e.g. 辦公座椅 / 3-7天送貨 — no dup chip).
+  const l2ToParent = new Map<string, string>();
+  categories.filter((c) => c.level === 2).forEach((c) => {
+    const parent = l1s.find((l) => l.id === c.parent_id);
+    if (parent) l2ToParent.set(c.name, parent.name);
+  });
+  const l1NameSet = new Set(l1s.map((l) => l.name));
+  const l2NameSet = new Set(l2ToParent.keys());
+
+  const normalize = (raw: string[]): string[] => {
+    const neededL1 = new Set<string>();
+    raw.filter((t) => l2NameSet.has(t)).forEach((l2) => { const p = l2ToParent.get(l2); if (p) neededL1.add(p); });
+    const out: string[] = [];
+    const pushUnique = (t: string) => { if (!out.includes(t)) out.push(t); };
+    for (const t of raw) {
+      if (l2NameSet.has(t)) pushUnique(t);
+      else if (l1NameSet.has(t)) { if (neededL1.has(t)) pushUnique(t); }
+      else pushUnique(t);
     }
-    onChange(next);
+    neededL1.forEach((l1) => pushUnique(l1));
+    return out;
   };
 
-  const removeTag = (t: string) => onChange(tags.filter((x) => x !== t));
+  const toggleL2 = (_l1Name: string, l2Name: string) => {
+    const has = tags.includes(l2Name);
+    const raw = has ? tags.filter((t) => t !== l2Name) : [...tags, l2Name];
+    onChange(normalize(raw));
+  };
+
+  const removeTag = (t: string) => {
+    let raw = tags.filter((x) => x !== t);
+    if (l1NameSet.has(t)) {
+      const childNames = new Set(getL2s(l1s.find((l) => l.name === t)?.id ?? '').map((c) => c.name));
+      raw = raw.filter((x) => !childNames.has(x));
+    }
+    onChange(normalize(raw));
+  };
   const activeL2sForHovered = hoveredL1 ? getL2s(hoveredL1) : [];
   const hoveredL1Name = l1s.find((l) => l.id === hoveredL1)?.name ?? '';
 
