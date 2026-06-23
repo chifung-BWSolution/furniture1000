@@ -139,24 +139,14 @@ const ProductTableRow = memo(function ProductTableRow({
         </div>
       </td>
 
-      {/* SKU (產品編碼) */}
+      {/* SKU (產品編碼) — read-only here; edit via the product detail modal */}
       <td className="px-4 py-3">
-        {isEditingThis && editingCell!.field === 'sku' ? (
-          <Input
-            autoFocus
-            value={editValue}
-            onChange={e => onEditValueChange(e.target.value)}
-            onBlur={onSaveEdit}
-            className="h-8 w-32 font-mono-data text-xs bg-background"
-          />
-        ) : (
-          <button
-            onClick={() => onStartEditing(product.id, 'sku', product.sku || '')}
-            className="font-mono-data text-xs"
-          >
-            {product.sku ? product.sku : <span className="text-muted-foreground/50">—</span>}
-          </button>
-        )}
+        <span
+          className="font-mono-data text-xs text-foreground cursor-default select-text"
+          title="如需修改產品編碼，請點開產品詳情頁"
+        >
+          {product.sku ? product.sku : <span className="text-muted-foreground/50">—</span>}
+        </span>
       </td>
 
       {/* Cost Price */}
