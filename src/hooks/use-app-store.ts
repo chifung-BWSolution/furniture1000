@@ -1129,7 +1129,7 @@ export function useAppStore() {
     // finalised title, body_html, price, image_url, images, variants.
     const { data: rtsRows, error: rtsErr } = await supabase
       .from('ready_to_shopify')
-      .select('id,product_id,title,body_html,vendor,price,image_url,images,variants,product_type,tags,shopify_url,dimension_l_mm,dimension_w_mm,dimension_h_mm,material,customize,sku')
+      .select('id,product_id,title,body_html,vendor,price,image_url,images,variants,product_type,tags,shopify_url,dimension_l_mm,dimension_w_mm,dimension_h_mm,material,"my_fields.materials",customize,sku')
       .in('product_id', selectedProductIds_arr);
     if (rtsErr) {
       console.warn('[publishToShopify] ready_to_shopify fetch error:', rtsErr.message);
@@ -1175,7 +1175,10 @@ export function useAppStore() {
         if (L != null && W != null && H != null) {
           mf['my_fields.normal_size'] = `${L}(W)x${W}(D)x${H}(H)(mm)`;
         }
-        if (rts.material && String(rts.material).trim()) mf['my_fields.materials'] = String(rts.material).trim();
+        // 產品物料 → my_fields.materials. Prefer the dedicated metafield column
+        // (edited on 產品信息頁), fall back to the legacy `material` column.
+        const materialsVal = (rts['my_fields.materials'] ?? rts.material ?? '');
+        if (materialsVal && String(materialsVal).trim()) mf['my_fields.materials'] = String(materialsVal).trim();
         if (rts.customize && String(rts.customize).trim()) mf['my_fields.production_time'] = String(rts.customize).trim();
         // more_image_link_1..4 ← all RTS image URLs in order (primary first, then extras),
         // capped at 4; any beyond the 4th are dropped per spec.

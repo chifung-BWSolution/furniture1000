@@ -22,6 +22,9 @@ interface FGItem {
   productType: string;
   price: number | null;
   tags: string[];
+  sku: string;
+  level1: string;
+  level2: string;
 }
 
 interface FGDetail {
@@ -962,11 +965,38 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [detailRtsId, setDetailRtsId] = useState<string | null>(null);
 
+  // ── Filters (same UX as 產品信息): search name/SKU, page size, L1/L2, factory ──
+  const [searchQuery, setSearchQuery] = useState('');
+  const [pageSize, setPageSize] = useState(25);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [level1Filter, setLevel1Filter] = useState('');
+  const [level2Filter, setLevel2Filter] = useState('');
+  const [factoryFilter, setFactoryFilter] = useState('');
+  const [categoryPairs, setCategoryPairs] = useState<{ level1: string; level2: string }[]>([]);
+
+  useEffect(() => {
+    supabase
+      .from('product_category')
+      .select('level1, level2, sort_order')
+      .order('sort_order', { ascending: true })
+      .then(({ data }) => { if (data) setCategoryPairs(data as { level1: string; level2: string }[]); });
+  }, []);
+
+  const level1Options = useMemo(() => Array.from(new Set(categoryPairs.map(p => p.level1))), [categoryPairs]);
+  const level2Options = useMemo(
+    () => Array.from(new Set(categoryPairs.filter(p => p.level1 === level1Filter && p.level2).map(p => p.level2))),
+    [categoryPairs, level1Filter]
+  );
+  const factoryOptions = useMemo(
+    () => Array.from(new Set(items.map(i => i.factory).filter(f => f && f !== '—'))),
+    [items]
+  );
+
   const load = useCallback(async () => {
     setIsLoading(true);
     const { data, error } = await supabase
       .from('ready_to_shopify')
-      .select('id,product_id,title,image_url,vendor,product_type,price,tags')
+      .select('id,product_id,title,image_url,vendor,product_type,price,tags,sku')
       .eq('furniture_group_checked', false)
       .order('imported_at', { ascending: false });
 
@@ -981,16 +1011,23 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
         if (r.product_id) seen.add(r.product_id);
         return true;
       });
-      setItems(deduped.map((r: any) => ({
-        rtsId: r.id,
-        productId: r.product_id,
-        title: r.title || '(未命名)',
-        imageUrl: r.image_url || '',
-        factory: r.vendor || '—',
-        productType: r.product_type || '—',
-        price: r.price != null ? Number(r.price) : null,
-        tags: Array.isArray(r.tags) ? r.tags : [],
-      })));
+      setItems(deduped.map((r: any) => {
+        // product_type is stored as "L1 / L2"
+        const ptParts = (r.product_type || '').split(' / ');
+        return {
+          rtsId: r.id,
+          productId: r.product_id,
+          title: r.title || '(未命名)',
+          imageUrl: r.image_url || '',
+          factory: r.vendor || '—',
+          productType: r.product_type || '—',
+          price: r.price != null ? Number(r.price) : null,
+          tags: Array.isArray(r.tags) ? r.tags : [],
+          sku: r.sku || '',
+          level1: ptParts[0]?.trim() || '',
+          level2: ptParts[1]?.trim() || '',
+        };
+      }));
     }
     setIsLoading(false);
   }, []);
