@@ -1407,42 +1407,33 @@ export function useAppStore() {
 
         console.log('[uploadToMasterDb] Results:', data.summary);
 
-        // Show success toast. Stay on the 準備上載 page — do NOT auto-navigate.
-        // Successfully-published rows drop out of the list on their own (their
-        // furniture_group_checked is cleared), so the user keeps working here.
-        if (data.summary) {
-          const { success: sCount, errors: eCount } = data.summary;
-          if (sCount > 0 && eCount === 0) {
-            toast.success('產品已成功發佈至 Shopify', {
-              description: `${sCount} 個產品已上傳`,
-              duration: 4000,
-              action: {
-                label: '前往產品目錄',
-                onClick: () => setCurrentView('listed-products'),
-              },
-            });
-          } else if (sCount > 0 && eCount > 0) {
-            toast.warning('部分產品上傳成功', {
-              description: `${sCount} 成功, ${eCount} 失敗`,
-              action: {
-                label: '前往產品目錄',
-                onClick: () => setCurrentView('listed-products'),
-              },
-            });
-          } else {
-            // Surface the actual first error from the edge function so the
-            // root cause (token / scope / Shopify API) is visible to the user.
-            const firstErr = (data.results as { success: boolean; error?: string }[])
-              .find((r) => !r.success && r.error)?.error;
-            toast.error('上傳失敗', {
-              description: firstErr
-                ? `${eCount} 個產品上傳失敗：${firstErr.slice(0, 300)}`
-                : `${eCount} 個產品上傳失敗`,
-              duration: 12000,
-            });
-            console.error('[publishToShopify] First product error:', firstErr);
-            console.error('[publishToShopify] All results:', JSON.stringify(data.results, null, 2));
-          }
+        // Show a result toast (top-right). Drive it off successIds/errorIds which
+        // are always computed, rather than data.summary which the edge function
+        // may omit — that omission previously meant NO notification at all.
+        // Stay on 準備上載; published rows drop off after reloadReadyToPublish().
+        const sCount = successIds.length;
+        const eCount = errorIds.length;
+        const firstErr = (data.results as { success: boolean; error?: string }[])
+          .find((r) => !r.success && r.error)?.error;
+        if (sCount > 0 && eCount === 0) {
+          toast.success('產品已成功上傳至 Shopify', {
+            description: `${sCount} 個產品已成功上傳`,
+            duration: 6000,
+            action: { label: '前往已上載產品', onClick: () => setCurrentView('listed-products') },
+          });
+        } else if (sCount > 0 && eCount > 0) {
+          toast.warning(`${sCount} 個成功、${eCount} 個失敗`, {
+            description: firstErr ? `失敗原因：${firstErr.slice(0, 200)}` : '部分產品上傳失敗',
+            duration: 12000,
+            action: { label: '前往已上載產品', onClick: () => setCurrentView('listed-products') },
+          });
+        } else if (eCount > 0) {
+          toast.error(`${eCount} 個產品上傳失敗`, {
+            description: firstErr ? firstErr.slice(0, 300) : '請查看控制台了解詳情',
+            duration: 12000,
+          });
+          console.error('[publishToShopify] First product error:', firstErr);
+          console.error('[publishToShopify] All results:', JSON.stringify(data.results, null, 2));
         }
       } else if (data?.error) {
         const errMsg = data.error as string;
@@ -1488,8 +1479,14 @@ export function useAppStore() {
       setSelectedProductIds(new Set());
       setIsPublishing(false);
       await reloadProducts();
+      // CRITICAL: the 準備上載 page renders readyToPublishList, NOT products.
+      // Publishing clears furniture_group_checked in the DB, but without
+      // reloading this list the just-published rows linger on screen (the bug
+      // that kept "reappearing" despite the DB being correct). Refresh it so
+      // published products drop off 準備上載 immediately.
+      await reloadReadyToPublish();
     }
-  }, [selectedProductIds, products, readyToPublishList, reloadProducts]);
+  }, [selectedProductIds, products, readyToPublishList, reloadProducts, reloadReadyToPublish]);
 
   // Retry upload to Global Master Database (single product)
   const retryPublish = useCallback(async (id: string) => {
