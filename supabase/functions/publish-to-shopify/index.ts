@@ -75,6 +75,12 @@ const METAFIELD_DEFS: Record<string, string> = {
  * more U+FFFD replacement chars (hex efbfbd), e.g. "26-40" + . If a value
  * looks like a day-range whose CJK suffix was mangled, restore 「天」; otherwise
  * just strip stray replacement chars so no  reaches Shopify. */
+// Shopify rejects any single_line / multi_line_text_field metafield value longer
+// than 2048 characters (HTTP 422 "can't exceed 2048 characters."). Cap here so a
+// long value (e.g. a verbose product spec mapped into a metafield) can't fail the
+// whole publish. URLs are well under the limit; this guards the text fields.
+const METAFIELD_MAX = 2048;
+
 function cleanMetafieldValue(raw: string): string {
   let v = raw;
   // Day-range or number followed by mangled CJK → normalise to "<n>天"
@@ -84,6 +90,10 @@ function cleanMetafieldValue(raw: string): string {
   }
   // Otherwise drop any stray replacement chars
   v = v.replace(/�+/g, "").trim();
+  // Enforce Shopify's 2048-char metafield ceiling (count by code points so we
+  // never split a multi-byte CJK character mid-sequence).
+  const chars = Array.from(v);
+  if (chars.length > METAFIELD_MAX) v = chars.slice(0, METAFIELD_MAX).join("");
   return v;
 }
 
