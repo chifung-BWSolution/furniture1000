@@ -1190,6 +1190,16 @@ export function useAppStore() {
         if (Object.keys(mf).length > 0) metafields = mf;
       }
 
+      // Product SKU comes from ready_to_shopify.sku (falls back to products.sku).
+      // Shopify stores SKU on the VARIANT, so seed it into the variant(s): use the
+      // existing variants if any (filling a blank sku), otherwise let the edge
+      // function create a default variant carrying this sku.
+      const productSku: string = (rts?.sku || (p as any).sku || '').toString().trim();
+      const rawVariants = (rts?.variants && rts.variants.length > 0)
+        ? rts.variants
+        : ((p.variants && p.variants.length > 0) ? p.variants : []);
+      const variants = rawVariants.map((v: any) => ({ ...v, sku: (v?.sku && String(v.sku).trim()) || productSku }));
+
       return {
         id: productId,
         rts_id: rts?.id || undefined,
@@ -1202,7 +1212,10 @@ export function useAppStore() {
         image_url: primaryUrl,
         images: additionalImages,
         shopify_product_id: p.shopifyProductId || null,
-        variants: (rts?.variants && rts.variants.length > 0) ? rts.variants : ((p.variants && p.variants.length > 0) ? p.variants : []),
+        // Top-level sku so the edge function can stamp it onto the default
+        // variant when no explicit variants exist.
+        sku: productSku,
+        variants,
         vendor: rts?.vendor || p.factoriesDisplayName || p.factoryName || '',
         product_type: rts?.product_type || '',
         factory_name: p.factoriesDisplayName || p.factoryName || '',

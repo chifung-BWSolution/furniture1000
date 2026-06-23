@@ -36,6 +36,9 @@ interface ProductPayload {
   factory_name?: string;
   cost_price?: number | null;
   sale_price?: number | null;
+  // Product-level SKU (ready_to_shopify.sku). Shopify stores SKU on the variant,
+  // so this seeds the default/blank variant's sku.
+  sku?: string;
   // ready_to_shopify row uuid → stored as shopify_products.id for 1:1 trace.
   rts_id?: string;
   // URL handle (ready_to_shopify.shopify_url).
@@ -378,13 +381,15 @@ Deno.serve(async (req: Request) => {
         }
 
         // ── AUTO-FIX: Ensure variants array always exists ──────────────────
+        // Seed the default variant's SKU from the product-level sku so the SKU
+        // is written to Shopify even when the product has no explicit variants.
         let productVariants = product.variants;
         if (!productVariants || !Array.isArray(productVariants) || productVariants.length === 0) {
           console.warn(`[publish-to-shopify] ⚠️ AUTO-FIX: Product "${product.title}" has no variants. Creating default variant.`);
           productVariants = [{
             id: "default",
             size: "",
-            sku: "",
+            sku: product.sku || "",
             price: product.price || 0,
             compare_at_price: product.compare_at_price || null,
             inventory: 0,
@@ -403,7 +408,8 @@ Deno.serve(async (req: Request) => {
           const variant: Record<string, unknown> = {
             option1: sizeValue,
             price: variantPrice.toFixed(2),
-            sku: v.sku || "",
+            // Fall back to the product-level sku if this variant has no sku.
+            sku: (v.sku && String(v.sku).trim()) || product.sku || "",
             inventory_management: "shopify",
             inventory_quantity: DEFAULT_INVENTORY,
             requires_shipping: true,
