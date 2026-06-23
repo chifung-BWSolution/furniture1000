@@ -269,11 +269,15 @@ const styles: Record<string, any> = {
   termsTitle: { fontSize: 9, fontWeight: 700, marginTop: 12, marginBottom: 6, textDecoration: 'underline', lineHeight: 1.4 },
   termItem: { fontSize: 7, lineHeight: 1.7, marginBottom: 1.5, textAlign: 'left' },
   termSubTitle: { fontSize: 8, fontWeight: 700, marginTop: 8, marginBottom: 3, lineHeight: 1.4 },
-  signatureSection: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 36, paddingTop: 12 },
+  // Keep the signature block compact enough to stay on the same page as the
+  // terms (with wrap={false}). The previous marginTop 36 + signatureMiddle 70
+  // made the block ~130pt tall, which overflowed and got pushed to a new page.
+  signatureSection: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 20, paddingTop: 8 },
   signatureBlock: { width: '45%' },
   signatureTitle: { fontSize: 9, fontWeight: 700, marginBottom: 6, lineHeight: 1.4 },
   signatureLabel: { fontSize: 8, lineHeight: 1.4 },
-  signatureMiddle: { height: 70, position: 'relative' },
+  // Gap between 客戶授權人姓名及簽名 and the signature underline (was 70).
+  signatureMiddle: { height: 36, position: 'relative' },
   signatureLine: { borderBottomWidth: 0.5, borderColor: '#333', marginBottom: 4 },
   signatureDate: { fontSize: 7, color: '#666', lineHeight: 1.4 },
   stamp: { width: 64, height: 64, objectFit: 'contain', position: 'absolute', bottom: 0, right: 0, opacity: 0.85 },
@@ -541,9 +545,12 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
           </>
         )}
 
-        {/* Customer signature only — kept on the same page as the terms.
-            minPresenceAhead reserves space so it isn't pushed to a new page. */}
-        <View style={styles.signatureSection} wrap={false} minPresenceAhead={80}>
+        {/* Customer signature — kept on the same page as the terms. wrap={false}
+            stops the block itself from splitting; a small minPresenceAhead means it
+            only moves to a new page when very little room is left (a high value here
+            would PUSH it off the page, which is the bug we are fixing). The block was
+            also made shorter (signatureMiddle 70→36) so it fits after the terms. */}
+        <View style={styles.signatureSection} wrap={false} minPresenceAhead={20}>
           <View style={styles.signatureBlock}>
             <Text style={styles.signatureTitle}>{'\u5BA2\u6236\u78BA\u8A8D'}</Text>
             <Text style={styles.signatureLabel}>{'\u5BA2\u6236\u6388\u6B0A\u4EBA\u59D3\u540D\u53CA\u7C3D\u540D'}</Text>
