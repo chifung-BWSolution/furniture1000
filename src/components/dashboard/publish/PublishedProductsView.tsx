@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import {
   CheckCheck, Search, ArrowDownToLine, ArrowUpToLine, RotateCcw, ChevronDown,
-  CloudDownload, Loader2, X, Store,
+  CloudDownload, Loader2, X, Store, RefreshCw,
 } from 'lucide-react';
 import { PUBLISH_STATE_META, type PublishState } from '@/constants/analytics-mock';
 import { supabase } from '@/lib/supabase';
@@ -52,6 +52,7 @@ interface ShopifyPreviewProduct {
 interface ShopifyProductRow {
   id: string;
   shopify_product_id: string;
+  source_product_id?: string | null;
   title: string | null;
   body_html?: string | null;
   vendor: string | null;
@@ -144,9 +145,16 @@ export function PublishedProductsView() {
   const [detailProduct, setDetailProduct] = useState<DisplayProduct | null>(null);
   const [activeImageIdx, setActiveImageIdx] = useState(0);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  // Editable fields in the detail dialog (synced to Shopify on 更新)
+  const [editTitle, setEditTitle] = useState('');
+  const [editPrice, setEditPrice] = useState('');
+  const [editBodyHtml, setEditBodyHtml] = useState('');
+  const [isUpdatingShopify, setIsUpdatingShopify] = useState(false);
   const [previewProducts, setPreviewProducts] = useState<ShopifyPreviewProduct[]>([]);
   const [selectedImportIds, setSelectedImportIds] = useState<Set<string>>(new Set());
   const [importSearch, setImportSearch] = useState('');
+
+  const [isSyncing, setIsSyncing] = useState(false);
 
   const loadProducts = useCallback(async () => {
     setIsLoading(true);
@@ -163,7 +171,77 @@ export function PublishedProductsView() {
     setIsLoading(false);
   }, []);
 
-  useEffect(() => { loadProducts(); }, [loadProducts]);
+  // Mirror-sync with Shopify: upsert all live products, delete rows whose
+  // Shopify product was deleted. Keeps 已上載產品 in lock-step with the store.
+  const syncMirror = useCallback(async (opts?: { silent?: boolean }) => {
+    setIsSyncing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke('supabase-functions-sync-shopify-mirror', { body: {} });
+      if (error || data?.error || data?.success === false) {
+        if (!opts?.silent) toast.error('Shopify 同步失敗', { description: error?.message || data?.error || '請稍後重試' });
+        return;
+      }
+      await loadProducts();
+      if (!opts?.silent) {
+        toast.success('已與 Shopify 同步', {
+          description: `線上 ${data.live} 件，更新 ${data.upserted} 件${data.deleted ? `，移除已刪除 ${data.deleted} 件` : ''}`,
+        });
+      }
+    } catch (e) {
+      if (!opts?.silent) toast.error('Shopify 同步失敗', { description: e instanceof Error ? e.message : '未知錯誤' });
+    } finally {
+      setIsSyncing(false);
+    }
+  }, [loadProducts]);
+
+  // On first load: reconcile the mirror with Shopify (silent), then show data.
+  useEffect(() => {
+    (async () => {
+      await syncMirror({ silent: true });
+      await loadProducts();
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Seed editable fields whenever a product detail opens.
+  const openDetail = useCallback((p: DisplayProduct) => {
+    setDetailProduct(p);
+    setActiveImageIdx(0);
+    setEditTitle(p.raw.title || '');
+    setEditPrice(p.raw.price != null ? String(p.raw.price) : '');
+    setEditBodyHtml(p.raw.body_html || '');
+  }, []);
+
+  // 一鍵同步：把詳情頁的編輯 (名稱/價錢/描述) 推送到 Shopify + 更新 mirror。
+  const handleUpdateShopify = useCallback(async (p: DisplayProduct) => {
+    const shopifyId = p.raw.shopify_product_id;
+    if (!shopifyId) { toast.error('此產品沒有 Shopify ID，無法同步'); return; }
+    setIsUpdatingShopify(true);
+    const toastId = toast.loading('正在更新 Shopify 產品...');
+    try {
+      const priceNum = editPrice !== '' ? parseFloat(editPrice) : null;
+      const { data, error } = await supabase.functions.invoke('supabase-functions-update-shopify-product', {
+        body: {
+          shopify_product_id: shopifyId,
+          source_product_id: p.raw.source_product_id ?? null,
+          title: editTitle,
+          body_html: editBodyHtml,
+          price: priceNum,
+        },
+      });
+      if (error || data?.error || data?.success === false) {
+        toast.error('Shopify 更新失敗', { id: toastId, description: error?.message || data?.error || '請稍後重試', duration: 8000 });
+        return;
+      }
+      toast.success('已更新並同步到 Shopify', { id: toastId, description: '產品資料已更新到 Shopify 及本地。', duration: 4000 });
+      setDetailProduct(null);
+      await loadProducts();
+    } catch (e) {
+      toast.error('Shopify 更新失敗', { id: toastId, description: e instanceof Error ? e.message : '未知錯誤', duration: 8000 });
+    } finally {
+      setIsUpdatingShopify(false);
+    }
+  }, [editTitle, editPrice, editBodyHtml, loadProducts]);
 
   const filteredPreview = useMemo(() =>
     importSearch.trim()
@@ -338,6 +416,16 @@ export function PublishedProductsView() {
           </span>
         </div>
         <div className="flex items-center gap-2">
+          {/* 與 Shopify 同步（鏡像）按鈕 */}
+          <button
+            onClick={() => syncMirror()}
+            disabled={isSyncing}
+            title="與 Shopify 同步：更新線上產品狀態，並移除已在 Shopify 刪除的產品"
+            className="flex items-center gap-1.5 rounded-lg border border-indigo-500/40 bg-indigo-500/10 px-3 py-2 text-xs font-semibold text-indigo-700 dark:text-indigo-400 hover:bg-indigo-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isSyncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+            {isSyncing ? '同步中...' : '與 Shopify 同步'}
+          </button>
           {/* 從 Shopify 導入按鈕 */}
           <button
             onClick={handleOpenImportDialog}
@@ -406,7 +494,7 @@ export function PublishedProductsView() {
                 const bodyText = r.body_html ? r.body_html.replace(/<[^>]*>/g, '') : '';
                 const firstVariantPrice = variants[0]?.price ?? null;
                 return (
-                  <tr key={p.id} className="hover:bg-muted/30 cursor-pointer" onClick={() => { setDetailProduct(p); setActiveImageIdx(0); }}>
+                  <tr key={p.id} className="hover:bg-muted/30 cursor-pointer" onClick={() => openDetail(p)}>
                     <td className="px-4 py-2.5 sticky left-0 bg-card z-10" onClick={e => e.stopPropagation()}>
                       <input type="checkbox" className="rounded border-border" checked={selected.has(p.id)} onChange={() => toggle(p.id)} />
                     </td>
@@ -722,17 +810,30 @@ export function PublishedProductsView() {
 
                   {/* Right: info */}
                   <div className="flex flex-col gap-5">
-                    {/* Title block */}
+                    {/* Title block — editable */}
                     <div>
-                      <h2 className="font-display text-xl font-bold text-foreground leading-snug">{r.title || '(未命名)'}</h2>
+                      <label className="font-display text-[11px] font-bold uppercase tracking-wider text-muted-foreground">產品名稱</label>
+                      <input
+                        value={editTitle}
+                        onChange={(e) => setEditTitle(e.target.value)}
+                        className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 font-display text-base font-bold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
+                      />
                       {r.handle && <p className="font-mono-data text-xs text-muted-foreground mt-1">/{r.handle}</p>}
                     </div>
 
-                    {/* Price */}
-                    <div className="flex items-baseline gap-3">
-                      <span className="font-mono-data text-2xl font-bold text-emerald-600">{fmtMoney(r.price)}</span>
+                    {/* Price — editable */}
+                    <div>
+                      <label className="font-display text-[11px] font-bold uppercase tracking-wider text-muted-foreground">售價 (HK$)</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={editPrice}
+                        onChange={(e) => setEditPrice(e.target.value)}
+                        className="mt-1 w-40 rounded-lg border border-border bg-background px-3 py-2 font-mono-data text-lg font-bold text-emerald-600 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                      />
                       {r.compare_at_price && Number(r.compare_at_price) > Number(r.price ?? 0) && (
-                        <span className="font-mono-data text-sm text-muted-foreground line-through">{fmtMoney(r.compare_at_price)}</span>
+                        <span className="ml-3 font-mono-data text-sm text-muted-foreground line-through">{fmtMoney(r.compare_at_price)}</span>
                       )}
                     </div>
 
@@ -792,16 +893,17 @@ export function PublishedProductsView() {
                       </div>
                     )}
 
-                    {/* Description */}
-                    {r.body_html && (
-                      <div>
-                        <h4 className="font-display text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-2">產品描述</h4>
-                        <div
-                          className="prose prose-sm dark:prose-invert max-w-none text-sm text-foreground/90 [&_p]:my-1.5 [&_ul]:my-1.5 [&_ol]:my-1.5"
-                          dangerouslySetInnerHTML={{ __html: r.body_html }}
-                        />
-                      </div>
-                    )}
+                    {/* Description — editable (HTML) */}
+                    <div>
+                      <h4 className="font-display text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-2">產品描述</h4>
+                      <textarea
+                        value={editBodyHtml}
+                        onChange={(e) => setEditBodyHtml(e.target.value)}
+                        rows={6}
+                        className="w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground/90 focus:outline-none focus:ring-2 focus:ring-primary/40"
+                        placeholder="產品描述（支援 HTML）"
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
@@ -809,6 +911,14 @@ export function PublishedProductsView() {
               {/* Footer */}
               <div className="flex items-center justify-end gap-2 px-5 py-3.5 border-t border-border bg-muted/20 shrink-0">
                 <button onClick={() => setDetailProduct(null)} className="rounded-lg border border-border px-4 py-2 text-xs font-medium hover:bg-muted transition-colors">關閉</button>
+                <button
+                  onClick={() => handleUpdateShopify(detailProduct)}
+                  disabled={isUpdatingShopify || !r.shopify_product_id}
+                  className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-xs font-bold text-primary-foreground shadow hover:opacity-90 disabled:opacity-50 transition-opacity"
+                >
+                  {isUpdatingShopify ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                  更新並同步到 Shopify
+                </button>
               </div>
             </div>
           </div>
