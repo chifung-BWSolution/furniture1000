@@ -1063,9 +1063,9 @@ export function QuotationDraftEditor({
   return (
     <>
       <div className="h-full overflow-y-auto bg-background">
-        {/* Header — use near-full width with small side padding so 報價內容
-            can stretch left-and-right and need less horizontal scrolling */}
-        <div className="mx-auto w-full max-w-[1920px] px-4 xl:px-6">
+        {/* Header — span full available width (parent already adds small side
+            padding) so 報價內容 stretches left-and-right and needs less scrolling */}
+        <div className="mx-auto w-full max-w-none">
           <div className="mb-6 flex items-center justify-between">
             <div className="flex items-center gap-4">
               <button

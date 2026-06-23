@@ -351,8 +351,8 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote }: QuickQuo
 
   return (
     <>
-    <div className="h-full overflow-y-auto bg-background p-5">
-      <div className={cn('mx-auto', currentStep === 4 ? 'max-w-7xl' : 'max-w-3xl')}>
+    <div className={cn('h-full overflow-y-auto bg-background', currentStep === 4 ? 'px-3 py-5' : 'p-5')}>
+      <div className={cn('mx-auto', currentStep === 4 ? 'w-full max-w-none' : 'max-w-3xl')}>
         {/* Header */}
         <div className="mb-8">
           <h1 className="font-display text-2xl font-bold tracking-tight text-foreground">
