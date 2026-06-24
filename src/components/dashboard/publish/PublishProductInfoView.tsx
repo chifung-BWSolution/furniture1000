@@ -11,6 +11,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import { Textarea } from '@/components/ui/textarea';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { usePublishList } from './usePublishList';
@@ -593,27 +594,29 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
                         onChange={(tags) => patch(it.id, { tags })}
                       />
                     </Field>
-                    {/* 產品物料 → my_fields.materials. Soft limit 42 chars (punctuation
-                        counts). Existing synced material values may exceed 42, so we do
-                        NOT hard-truncate — we warn instead. */}
-                    <Field label="產品物料" icon={<Boxes className="h-3 w-3" />}>
-                      <div className="flex items-center gap-2">
-                        <input
-                          value={it.materials}
-                          onChange={(e) => patch(it.id, { materials: e.target.value })}
-                          placeholder="輸入產品物料..."
-                          className={cn(
-                            'w-full rounded-lg border bg-background px-3 py-2 font-body text-[12px] focus:outline-none focus:ring-2',
-                            it.materials.length > 42
-                              ? 'border-rose-500/60 focus:border-rose-500 focus:ring-rose-500/20'
-                              : 'border-border focus:border-primary/50 focus:ring-primary/20'
+                    {/* 產品物料 → my_fields.materials. Below dimensions row; spans
+                        dimensions + category width. Soft limit 42 chars — warn only. */}
+                    <div className="md:col-span-2 lg:col-span-2">
+                      <Field label="產品物料" icon={<Boxes className="h-3 w-3" />}>
+                        <div className="flex flex-col gap-1.5">
+                          <Textarea
+                            value={it.materials}
+                            onChange={(e) => patch(it.id, { materials: e.target.value })}
+                            placeholder="輸入產品物料..."
+                            rows={4}
+                            className={cn(
+                              'min-h-[5.5rem] resize-y rounded-lg bg-background font-body text-[12px] focus:outline-none focus:ring-2',
+                              it.materials.length > 42
+                                ? 'border-rose-500/60 focus:border-rose-500 focus:ring-rose-500/20'
+                                : 'border-border focus:border-primary/50 focus:ring-primary/20'
+                            )}
+                          />
+                          {it.materials.length > 42 && (
+                            <span className="font-body text-[11px] font-medium text-rose-500">字數不可多於28個</span>
                           )}
-                        />
-                        {it.materials.length > 42 && (
-                          <span className="shrink-0 font-body text-[11px] font-medium text-rose-500">字數不可多於28個</span>
-                        )}
-                      </div>
-                    </Field>
+                        </div>
+                      </Field>
+                    </div>
                   </div>
                 </div>
               );

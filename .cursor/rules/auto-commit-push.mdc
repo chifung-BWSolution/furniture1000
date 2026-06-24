@@ -1,0 +1,21 @@
+---
+description: After code changes, automatically commit and push to origin main
+alwaysApply: true
+---
+
+# Auto commit and push
+
+When you finish making code changes for the user (not for question-only or review-only tasks):
+
+1. Run `git status` and `git diff` to review what changed.
+2. Stage only relevant files — never commit secrets (`.env`, credentials, tokens).
+3. Commit with a concise message (1–2 sentences, focus on why). Match repo style (`feat:`, `fix:`, `refactor:`, etc.).
+4. Push: `git push origin main`
+5. Briefly tell the user the commit hash and that push succeeded (or report push errors).
+
+Do this at the end of the same turn, without waiting for the user to ask again.
+
+Skip auto commit/push when:
+- The user explicitly says not to commit
+- There are no file changes
+- The task was read-only (explaining, reviewing, answering questions)
