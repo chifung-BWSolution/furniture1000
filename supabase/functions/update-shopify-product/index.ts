@@ -95,6 +95,7 @@ Deno.serve(async (req: Request) => {
       source_product_id: sourceProductId,
       title, body_html: bodyHtml,
       price, compare_at_price: compareAtPrice,
+      vendor, product_type: productType, tags,
       images, metafields,
     } = body as {
       shopify_product_id?: string;
@@ -103,6 +104,9 @@ Deno.serve(async (req: Request) => {
       body_html?: string;
       price?: number | null;
       compare_at_price?: number | null;
+      vendor?: string;
+      product_type?: string;
+      tags?: string[] | string;
       images?: string[];
       metafields?: Record<string, string>;
     };
@@ -125,6 +129,13 @@ Deno.serve(async (req: Request) => {
     const productUpdate: Record<string, unknown> = { id: Number(shopifyId) };
     if (typeof title === "string" && title.trim()) productUpdate.title = title;
     if (typeof bodyHtml === "string") productUpdate.body_html = bodyHtml;
+    if (typeof vendor === "string") productUpdate.vendor = vendor;
+    if (typeof productType === "string") productUpdate.product_type = productType;
+    if (tags !== undefined) {
+      productUpdate.tags = Array.isArray(tags)
+        ? tags.filter(Boolean).join(", ")
+        : String(tags || "");
+    }
 
     // Price → applied to every variant (these products are variant-less / single variant)
     if (price != null && !isNaN(Number(price))) {
@@ -192,6 +203,13 @@ Deno.serve(async (req: Request) => {
     };
     if (typeof title === "string" && title.trim()) spUpdate.title = title;
     if (typeof bodyHtml === "string") spUpdate.body_html = bodyHtml;
+    if (typeof vendor === "string") spUpdate.vendor = vendor;
+    if (typeof productType === "string") spUpdate.product_type = productType;
+    if (tags !== undefined) {
+      spUpdate.tags = Array.isArray(tags)
+        ? tags.filter(Boolean)
+        : String(tags || "").split(",").map((t) => t.trim()).filter(Boolean);
+    }
     if (price != null && !isNaN(Number(price))) spUpdate.price = Number(price);
     if (compareAtPrice != null && !isNaN(Number(compareAtPrice))) spUpdate.compare_at_price = Number(compareAtPrice);
     if (Array.isArray(images)) {

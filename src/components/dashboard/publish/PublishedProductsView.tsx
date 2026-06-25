@@ -7,6 +7,7 @@ import {
 import { PUBLISH_STATE_META, type PublishState } from '@/constants/analytics-mock';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
+import { PublishedProductDetailModal, type PublishedDisplayProduct } from './PublishedProductDetailModal';
 
 interface ShopifyVariant {
   id?: string | number;
@@ -70,19 +71,16 @@ interface ShopifyProductRow {
   shopify_updated_at: string | null;
   imported_at: string;
   shop_domain?: string | null;
+  'my_fields.normal_size'?: string | null;
+  'my_fields.materials'?: string | null;
 }
 
-interface DisplayProduct {
-  id: string;
-  shopify_product_id: string;
-  title: string;
+interface DisplayProduct extends PublishedDisplayProduct {
   imageUrl: string;
   factory: string;
-  state: PublishState;
   publishedAt: string;
   views: number;
   lastEditor: string;
-  raw: ShopifyProductRow;
 }
 
 const STATE_FILTERS: { key: PublishState | 'all'; label: string }[] = [
@@ -91,13 +89,6 @@ const STATE_FILTERS: { key: PublishState | 'all'; label: string }[] = [
   { key: 'unpublished', label: '未發佈' },
   { key: 'delisted', label: '已下架' },
 ];
-
-function fmtDate(d: string) {
-  if (!d) return '—';
-  const x = new Date(d);
-  if (isNaN(x.getTime())) return '—';
-  return `${x.getFullYear()}/${String(x.getMonth() + 1).padStart(2, '0')}/${String(x.getDate()).padStart(2, '0')}`;
-}
 
 function shopifyStatusToState(status: string | null): PublishState {
   if (status === 'active') return 'published';
@@ -118,11 +109,6 @@ function rowToDisplay(r: ShopifyProductRow): DisplayProduct {
     lastEditor: '—',
     raw: r,
   };
-}
-
-function variantLabel(v: ShopifyVariant): string {
-  const opts = [v.option1, v.option2, v.option3].filter(Boolean).join(' / ');
-  return opts || v.title || 'Default';
 }
 
 function fmtMoney(n: number | string | null | undefined): string {
@@ -147,13 +133,6 @@ export function PublishedProductsView() {
   const [isImporting, setIsImporting] = useState(false);
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [detailProduct, setDetailProduct] = useState<DisplayProduct | null>(null);
-  const [activeImageIdx, setActiveImageIdx] = useState(0);
-  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
-  // Editable fields in the detail dialog (synced to Shopify on 更新)
-  const [editTitle, setEditTitle] = useState('');
-  const [editPrice, setEditPrice] = useState('');
-  const [editBodyHtml, setEditBodyHtml] = useState('');
-  const [isUpdatingShopify, setIsUpdatingShopify] = useState(false);
   const [previewProducts, setPreviewProducts] = useState<ShopifyPreviewProduct[]>([]);
   const [selectedImportIds, setSelectedImportIds] = useState<Set<string>>(new Set());
   const [importSearch, setImportSearch] = useState('');
@@ -207,45 +186,9 @@ export function PublishedProductsView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Seed editable fields whenever a product detail opens.
   const openDetail = useCallback((p: DisplayProduct) => {
     setDetailProduct(p);
-    setActiveImageIdx(0);
-    setEditTitle(p.raw.title || '');
-    setEditPrice(p.raw.price != null ? String(p.raw.price) : '');
-    setEditBodyHtml(p.raw.body_html || '');
   }, []);
-
-  // 一鍵同步：把詳情頁的編輯 (名稱/價錢/描述) 推送到 Shopify + 更新 mirror。
-  const handleUpdateShopify = useCallback(async (p: DisplayProduct) => {
-    const shopifyId = p.raw.shopify_product_id;
-    if (!shopifyId) { toast.error('此產品沒有 Shopify ID，無法同步'); return; }
-    setIsUpdatingShopify(true);
-    const toastId = toast.loading('正在更新 Shopify 產品...');
-    try {
-      const priceNum = editPrice !== '' ? parseFloat(editPrice) : null;
-      const { data, error } = await supabase.functions.invoke('supabase-functions-update-shopify-product', {
-        body: {
-          shopify_product_id: shopifyId,
-          source_product_id: p.raw.source_product_id ?? null,
-          title: editTitle,
-          body_html: editBodyHtml,
-          price: priceNum,
-        },
-      });
-      if (error || data?.error || data?.success === false) {
-        toast.error('Shopify 更新失敗', { id: toastId, description: error?.message || data?.error || '請稍後重試', duration: 8000 });
-        return;
-      }
-      toast.success('已更新並同步到 Shopify', { id: toastId, description: '產品資料已更新到 Shopify 及本地。', duration: 4000 });
-      setDetailProduct(null);
-      await loadProducts();
-    } catch (e) {
-      toast.error('Shopify 更新失敗', { id: toastId, description: e instanceof Error ? e.message : '未知錯誤', duration: 8000 });
-    } finally {
-      setIsUpdatingShopify(false);
-    }
-  }, [editTitle, editPrice, editBodyHtml, loadProducts]);
 
   const filteredPreview = useMemo(() =>
     importSearch.trim()
@@ -582,7 +525,11 @@ export function PublishedProductsView() {
                     </td>
                     {/* 材質描述 */}
                     <td className="px-3 py-2.5">
-                      <span className="font-body text-[11px] text-muted-foreground line-clamp-3 max-w-[110px] block">—</span>
+                      {r['my_fields.materials'] ? (
+                        <span className="font-body text-[11px] text-muted-foreground line-clamp-3 max-w-[110px] block">{r['my_fields.materials']}</span>
+                      ) : (
+                        <span className="font-body text-[11px] text-muted-foreground line-clamp-3 max-w-[110px] block">—</span>
+                      )}
                     </td>
                     {/* 標籤 */}
                     <td className="px-3 py-2.5">
@@ -603,9 +550,13 @@ export function PublishedProductsView() {
                     <td className="px-3 py-2.5">
                       <span className="font-mono-data text-[11px] text-muted-foreground">{variants.length} 個變體</span>
                     </td>
-                    {/* 尺寸 (LWH) */}
+                    {/* 尺寸 (LWH) — my_fields.normal_size */}
                     <td className="px-3 py-2.5">
-                      <span className="font-mono-data text-[11px] text-muted-foreground/50">—</span>
+                      {r['my_fields.normal_size'] ? (
+                        <span className="font-mono-data text-[11px] text-muted-foreground line-clamp-3 max-w-[120px] block">{r['my_fields.normal_size']}</span>
+                      ) : (
+                        <span className="font-mono-data text-[11px] text-muted-foreground/50">—</span>
+                      )}
                     </td>
                     {/* 廠家 */}
                     <td className="px-3 py-2.5">
@@ -789,230 +740,14 @@ export function PublishedProductsView() {
         </div>
       )}
 
-      {/* ── Lightbox ──────────────────────────────────────────────────── */}
-      {lightboxSrc && (
-        <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4"
-          onClick={() => setLightboxSrc(null)}
-        >
-          <button
-            onClick={() => setLightboxSrc(null)}
-            className="absolute top-4 right-4 rounded-full bg-white/10 p-2 text-white hover:bg-white/20 transition-colors"
-          >
-            <X className="h-5 w-5" />
-          </button>
-          <img
-            src={lightboxSrc}
-            alt=""
-            className="max-h-full max-w-full rounded-lg object-contain shadow-2xl"
-            onClick={e => e.stopPropagation()}
-          />
-        </div>
+      {/* ── Product Detail Modal (FG-style layout) ─────────────────────── */}
+      {detailProduct && (
+        <PublishedProductDetailModal
+          product={detailProduct}
+          onClose={() => setDetailProduct(null)}
+          onSaved={loadProducts}
+        />
       )}
-
-      {/* ── Product Detail Dialog ─────────────────────────────────────── */}
-      {detailProduct && (() => {
-        const r = detailProduct.raw;
-        // Gallery: use images[] (sorted by position) as the full strip.
-        // images[] already contains ALL images including the main one.
-        // Fall back to image_url-only entry when images[] is absent/empty.
-        const rawImgs: ShopifyImage[] = Array.isArray(r.images) ? r.images : [];
-        const sortedImgs = [...rawImgs].sort((a, b) => (a.position ?? 99) - (b.position ?? 99));
-        const allImgs: ShopifyImage[] = sortedImgs.length > 0
-          ? sortedImgs
-          : (r.image_url ? [{ src: r.image_url, alt: r.title || '' }] : []);
-        const variants: ShopifyVariant[] = Array.isArray(r.variants) ? r.variants : [];
-        // Hero: selected thumbnail, else images[0], else image_url
-        const heroImage = allImgs[activeImageIdx]?.src || r.image_url || '';
-        return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={() => setDetailProduct(null)}>
-            <div className="relative flex flex-col bg-card border border-border rounded-2xl shadow-2xl w-full max-w-[72rem] max-h-[90vh] overflow-hidden" onClick={e => e.stopPropagation()}>
-              {/* Header */}
-              <div className="flex items-center justify-between px-5 py-4 border-b border-border shrink-0">
-                <div className="flex items-center gap-2">
-                  <Store className="h-5 w-5 text-primary" />
-                  <h3 className="font-display text-base font-bold">產品詳情</h3>
-                  <span className={cn('rounded-full border px-2 py-0.5 text-[10.5px] font-medium', PUBLISH_STATE_META[detailProduct.state].className)}>
-                    {PUBLISH_STATE_META[detailProduct.state].label}
-                  </span>
-                </div>
-                <button onClick={() => setDetailProduct(null)} className="rounded-full p-1.5 hover:bg-muted transition-colors text-muted-foreground">
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-
-              {/* Body */}
-              <div className="flex-1 overflow-y-auto">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 p-6">
-                  {/* Left: images */}
-                  <div className="flex flex-col gap-3">
-                    {/* Hero image — click to open lightbox */}
-                    <div
-                      className="aspect-square w-full bg-muted rounded-xl overflow-hidden flex items-center justify-center cursor-zoom-in"
-                      onClick={() => heroImage && setLightboxSrc(heroImage)}
-                    >
-                      {heroImage ? (
-                        <img src={heroImage} alt={r.title || ''} className="w-full h-full object-cover" />
-                      ) : (
-                        <Store className="h-12 w-12 text-muted-foreground/40" />
-                      )}
-                    </div>
-                    {/* Thumbnail strip — shown whenever there are any images */}
-                    {allImgs.length > 0 && (
-                      <div className="flex flex-wrap gap-2">
-                        {allImgs.map((im, idx) => (
-                          <button
-                            key={im.id ?? idx}
-                            onClick={() => { setActiveImageIdx(idx); if (im.src) setLightboxSrc(im.src); }}
-                            className={cn(
-                              'h-16 w-16 rounded-md overflow-hidden border-2 transition-colors flex-shrink-0 cursor-zoom-in',
-                              idx === activeImageIdx ? 'border-primary' : 'border-transparent hover:border-border'
-                            )}
-                            title={`圖片 ${idx + 1} — 點擊放大`}
-                          >
-                            {im.src ? (
-                              <img src={im.src} alt="" className="w-full h-full object-cover" />
-                            ) : (
-                              <div className="w-full h-full bg-muted" />
-                            )}
-                          </button>
-                        ))}
-                      </div>
-                    )}
-                    {allImgs.length > 1 && (
-                      <p className="text-[10.5px] text-muted-foreground">
-                        共 {allImgs.length} 張圖片 · 點擊主圖放大
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Right: info */}
-                  <div className="flex flex-col gap-5">
-                    {/* Title block — editable */}
-                    <div>
-                      <label className="font-display text-[11px] font-bold uppercase tracking-wider text-muted-foreground">產品名稱</label>
-                      <input
-                        value={editTitle}
-                        onChange={(e) => setEditTitle(e.target.value)}
-                        className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 font-display text-base font-bold text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40"
-                      />
-                      {r.handle && <p className="font-mono-data text-xs text-muted-foreground mt-1">/{r.handle}</p>}
-                    </div>
-
-                    {/* Price — editable */}
-                    <div>
-                      <label className="font-display text-[11px] font-bold uppercase tracking-wider text-muted-foreground">售價 (HK$)</label>
-                      <input
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        value={editPrice}
-                        onChange={(e) => setEditPrice(e.target.value)}
-                        className="mt-1 w-40 rounded-lg border border-border bg-background px-3 py-2 font-mono-data text-lg font-bold text-emerald-600 focus:outline-none focus:ring-2 focus:ring-primary/40"
-                      />
-                      {r.compare_at_price && Number(r.compare_at_price) > Number(r.price ?? 0) && (
-                        <span className="ml-3 font-mono-data text-sm text-muted-foreground line-through">{fmtMoney(r.compare_at_price)}</span>
-                      )}
-                    </div>
-
-                    {/* 分類 */}
-                    <div className="grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
-                      <DetailField label="廠商" value={r.vendor} />
-                      <DetailField label="產品分類" value={r.product_type} />
-                      <DetailField label="Shopify ID" value={r.shopify_product_id} mono />
-                      <DetailField label="狀態" value={r.status} />
-                      <DetailField label="上架時間" value={r.published_at ? fmtDate(r.published_at) : null} />
-                      <DetailField label="導入時間" value={fmtDate(r.imported_at)} />
-                      {r.shopify_created_at && <DetailField label="Shopify 建立" value={fmtDate(r.shopify_created_at)} />}
-                      {r.shopify_updated_at && <DetailField label="Shopify 更新" value={fmtDate(r.shopify_updated_at)} />}
-                      {r.shop_domain && <DetailField label="店舖" value={r.shop_domain} mono />}
-                    </div>
-
-                    {/* Tags */}
-                    {Array.isArray(r.tags) && r.tags.length > 0 && (
-                      <div>
-                        <h4 className="font-display text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-2">標籤</h4>
-                        <div className="flex flex-wrap gap-1.5">
-                          {r.tags.map((t, i) => (
-                            <span key={i} className="rounded-full bg-muted px-2.5 py-0.5 text-[11px] text-foreground">{t}</span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Variants */}
-                    {variants.length > 0 && (
-                      <div>
-                        <h4 className="font-display text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-2">
-                          規格 / Variants（{variants.length}）
-                        </h4>
-                        <div className="rounded-lg border border-border overflow-hidden">
-                          <table className="w-full text-xs">
-                            <thead className="bg-muted/40 text-[10.5px] uppercase tracking-wider text-muted-foreground">
-                              <tr>
-                                <th className="px-3 py-2 text-left font-medium">規格</th>
-                                <th className="px-3 py-2 text-left font-medium">SKU</th>
-                                <th className="px-3 py-2 text-right font-medium">價錢</th>
-                                <th className="px-3 py-2 text-right font-medium">庫存</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-border/60">
-                              {variants.map((v, i) => (
-                                <tr key={v.id ?? i} className="hover:bg-muted/30">
-                                  <td className="px-3 py-2 font-medium text-foreground">{variantLabel(v)}</td>
-                                  <td className="px-3 py-2 font-mono-data text-muted-foreground">{v.sku || '—'}</td>
-                                  <td className="px-3 py-2 text-right font-mono-data">{fmtMoney(v.price ?? null)}</td>
-                                  <td className="px-3 py-2 text-right font-mono-data text-muted-foreground">{v.inventory_quantity ?? '—'}</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Description — editable (HTML) */}
-                    <div>
-                      <h4 className="font-display text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-2">產品描述</h4>
-                      <textarea
-                        value={editBodyHtml}
-                        onChange={(e) => setEditBodyHtml(e.target.value)}
-                        rows={6}
-                        className="w-full resize-y rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground/90 focus:outline-none focus:ring-2 focus:ring-primary/40"
-                        placeholder="產品描述（支援 HTML）"
-                      />
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Footer */}
-              <div className="flex items-center justify-end gap-2 px-5 py-3.5 border-t border-border bg-muted/20 shrink-0">
-                <button onClick={() => setDetailProduct(null)} className="rounded-lg border border-border px-4 py-2 text-xs font-medium hover:bg-muted transition-colors">關閉</button>
-                <button
-                  onClick={() => handleUpdateShopify(detailProduct)}
-                  disabled={isUpdatingShopify || !r.shopify_product_id}
-                  className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-xs font-bold text-primary-foreground shadow hover:opacity-90 disabled:opacity-50 transition-opacity"
-                >
-                  {isUpdatingShopify ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-                  更新並同步到 Shopify
-                </button>
-              </div>
-            </div>
-          </div>
-        );
-      })()}
     </div>
-  );
-}
-
-function DetailField({ label, value, mono }: { label: string; value: string | null | undefined; mono?: boolean }) {
-  return (
-    <>
-      <div className="text-muted-foreground">{label}</div>
-      <div className={cn('text-foreground font-medium break-all', mono && 'font-mono-data text-[11px]')}>
-        {value || <span className="text-muted-foreground/50">—</span>}
-      </div>
-    </>
   );
 }
