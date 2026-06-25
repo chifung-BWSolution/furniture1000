@@ -599,6 +599,7 @@ export function AppShell() {
           onSave={store.saveProducts}
           isSaving={store.isSaving}
           isPublishing={store.isPublishing}
+          publishProgress={store.publishProgress}
           hasUnsavedChanges={store.hasUnsavedChanges}
           stats={store.stats}
         />

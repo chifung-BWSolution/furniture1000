@@ -13,6 +13,7 @@ interface TopBarProps {
   onSave?: () => void;
   isSaving?: boolean;
   isPublishing?: boolean;
+  publishProgress?: { succeeded: number; total: number } | null;
   hasUnsavedChanges?: boolean;
   stats: {
     drafts: number;
@@ -31,6 +32,7 @@ export function TopBar({
   onSave,
   isSaving,
   isPublishing,
+  publishProgress,
   hasUnsavedChanges,
   stats,
 }: TopBarProps) {
@@ -101,27 +103,45 @@ export function TopBar({
 
           {/* Upload Button (所有產品 → 上傳到產品目錄) */}
           {showUploadButton && (
-            <Button
-              onClick={onBulkPublish}
-              disabled={selectedCount === 0 || isPublishing}
-              className={cn(
-                'relative gap-2 bg-primary font-display font-bold text-primary-foreground transition-all duration-300',
-                selectedCount > 0 && !isPublishing && 'animate-pulse-glow hover:scale-[0.98] active:scale-[0.96]',
-                (selectedCount === 0 || isPublishing) && 'opacity-60'
+            <div className="flex flex-col items-end gap-1.5">
+              {isPublishing && publishProgress && publishProgress.total > 0 && (
+                <div className="w-44">
+                  <div className="mb-1 flex items-center justify-between font-mono-data text-[10px] text-muted-foreground">
+                    <span>上傳進度</span>
+                    <span className="font-semibold text-primary">
+                      {publishProgress.succeeded}/{publishProgress.total}
+                    </span>
+                  </div>
+                  <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                    <div
+                      className="h-full rounded-full bg-primary transition-all duration-300"
+                      style={{ width: `${(publishProgress.succeeded / publishProgress.total) * 100}%` }}
+                    />
+                  </div>
+                </div>
               )}
-            >
-              {isPublishing ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Database className="h-4 w-4" />
-              )}
-              {isPublishing ? '上傳中...' : uploadLabel}
-              {selectedCount > 0 && !isPublishing && (
-                <Badge className="ml-1 h-5 min-w-5 bg-white/20 text-[10px] text-white hover:bg-white/20">
-                  {selectedCount}
-                </Badge>
-              )}
-            </Button>
+              <Button
+                onClick={onBulkPublish}
+                disabled={selectedCount === 0 || isPublishing}
+                className={cn(
+                  'relative gap-2 bg-primary font-display font-bold text-primary-foreground transition-all duration-300',
+                  selectedCount > 0 && !isPublishing && 'animate-pulse-glow hover:scale-[0.98] active:scale-[0.96]',
+                  (selectedCount === 0 || isPublishing) && 'opacity-60'
+                )}
+              >
+                {isPublishing ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Database className="h-4 w-4" />
+                )}
+                {isPublishing ? '上傳中...' : uploadLabel}
+                {selectedCount > 0 && !isPublishing && (
+                  <Badge className="ml-1 h-5 min-w-5 bg-white/20 text-[10px] text-white hover:bg-white/20">
+                    {selectedCount}
+                  </Badge>
+                )}
+              </Button>
+            </div>
           )}
         </div>
       )}
