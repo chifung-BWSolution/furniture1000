@@ -36,6 +36,10 @@ function getExt(mime: string): string {
   return { "image/jpeg": "jpg", "image/png": "png", "image/gif": "gif", "image/webp": "webp" }[mime] || "jpg";
 }
 
+function isBase64(src: unknown): src is string {
+  return typeof src === "string" && (src.startsWith("data:") || (src.length > 100 && !src.startsWith("http")));
+}
+
 async function uploadBase64(
   supabase: ReturnType<typeof createClient>,
   base64: string,
@@ -63,11 +67,11 @@ async function uploadBase64(
 }
 
 function rowNeedsMigration(row: { image_url: string | null; images: any }): boolean {
-  if (row.image_url && row.image_url.startsWith("data:")) return true;
+  if (isBase64(row.image_url)) return true;
   if (Array.isArray(row.images)) {
     return row.images.some((img: any) => {
       const src: string = img?.src || img?.url || (typeof img === "string" ? img : "");
-      return src.startsWith("data:");
+      return isBase64(src);
     });
   }
   return false;
@@ -76,8 +80,9 @@ function rowNeedsMigration(row: { image_url: string | null; images: any }): bool
 /**
  * migrate-rts-images
  * Converts base64 image_url AND images[] entries in ready_to_shopify to
- * Supabase Storage HTTP URLs. Scans all rows each call (no offset needed
- * since converted rows drop out of the filter naturally).
+ * Supabase Storage HTTP URLs. Uses get_rts_image_migration_batch so each call
+ * fetches only rows that still contain base64 instead of scanning a fixed
+ * window and missing later rows.
  *
  * POST { batch_size?: number } — process one batch of rows needing migration
  * Returns { processed, converted, skipped, remaining, done }
@@ -171,20 +176,18 @@ Deno.serve(async (req: Request) => {
 
     const batchSize = Math.min(body.batch_size ?? 5, 10);
 
-    // Fetch all rows (images JSONB can't use LIKE in PostgREST easily,
-    // so we fetch up to 200 rows and filter in JS, then take first batchSize needing work).
-    const { data: allRows, error: fetchErr } = await supabase
-      .from("ready_to_shopify")
-      .select("product_id, image_url, images")
-      .order("product_id")
-      .limit(200);
-
+    // Fetch rows that actually need migration via SQL. This avoids the old
+    // "first 200 rows" scan trap where base64 rows later in the table were
+    // never reached by the cron job.
+    const { data: allRows, error: fetchErr } = await supabase.rpc("get_rts_image_migration_batch", {
+      p_limit: batchSize,
+    });
     if (fetchErr) return json({ error: fetchErr.message }, 500);
-    if (!allRows || allRows.length === 0) return json({ processed: 0, converted: 0, skipped: 0, remaining: 0, done: true });
 
-    // Filter to only rows needing migration, then take batchSize
-    const pending = allRows.filter(rowNeedsMigration);
-    const totalRemaining = pending.length;
+    const pending = (allRows || []).filter(rowNeedsMigration);
+    const { data: remainingBefore, error: countErr } = await supabase.rpc("get_rts_image_migration_count");
+    if (countErr) console.warn("[migrate-rts-images] count error:", countErr.message);
+    const totalRemaining = typeof remainingBefore === "number" ? remainingBefore : pending.length;
 
     if (totalRemaining === 0) {
       return json({ processed: 0, converted: 0, skipped: 0, remaining: 0, done: true });
@@ -200,7 +203,7 @@ Deno.serve(async (req: Request) => {
       const updates: Record<string, unknown> = {};
 
       // Convert primary image
-      if (row.image_url && row.image_url.startsWith("data:")) {
+      if (isBase64(row.image_url)) {
         console.log(`[migrate] Converting primary image for ${pid}...`);
         const url = await uploadBase64(supabase, row.image_url, pid, "primary");
         if (url) {
@@ -216,14 +219,14 @@ Deno.serve(async (req: Request) => {
       if (Array.isArray(row.images)) {
         const hasBase64 = row.images.some((img: any) => {
           const src: string = img?.src || img?.url || (typeof img === "string" ? img : "");
-          return src.startsWith("data:");
+          return isBase64(src);
         });
         if (hasBase64) {
           console.log(`[migrate] Converting ${row.images.length} extra images for ${pid}...`);
           const resolved = await Promise.all(
             row.images.map(async (img: any, idx: number) => {
               const src: string = img?.src || img?.url || (typeof img === "string" ? img : "");
-              if (!src.startsWith("data:")) return img; // already URL, keep as-is
+              if (!isBase64(src)) return img; // already URL, keep as-is
               const url = await uploadBase64(supabase, src, pid, `extra${idx}`);
               if (url) {
                 console.log(`[migrate] ✅ Extra[${idx}] → ${url.slice(0, 80)}`);
@@ -251,7 +254,7 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    const remaining = totalRemaining - batch.length;
+    const remaining = totalRemaining - converted;
     const done = remaining <= 0;
 
     return json({
