@@ -34,6 +34,52 @@ const METAFIELD_DEFS: Record<string, string> = {
   "custom.more_image_alt_4": "multi_line_text_field",
 };
 
+/** Update handle + SEO via GraphQL (REST product PUT does not expose seo fields). */
+async function updateSeoAndHandle(
+  shopDomain: string,
+  token: string,
+  shopifyId: string,
+  opts: { handle?: string; seoTitle?: string; seoDescription?: string },
+): Promise<{ ok: boolean; error?: string }> {
+  const input: Record<string, unknown> = { id: `gid://shopify/Product/${shopifyId}` };
+  const hasHandle = typeof opts.handle === "string" && opts.handle.trim();
+  if (hasHandle) input.handle = opts.handle!.trim();
+  if (opts.seoTitle !== undefined || opts.seoDescription !== undefined) {
+    input.seo = {
+      title: opts.seoTitle ?? "",
+      description: opts.seoDescription ?? "",
+    };
+  }
+  if (!hasHandle && input.seo === undefined) return { ok: true };
+
+  const resp = await fetch(`https://${shopDomain}/admin/api/2024-10/graphql.json`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": token },
+    body: JSON.stringify({
+      query: `mutation productUpdate($input: ProductInput!) {
+        productUpdate(input: $input) {
+          product { id handle seo { title description } }
+          userErrors { field message }
+        }
+      }`,
+      variables: { input },
+    }),
+  });
+  if (!resp.ok) {
+    const t = await resp.text();
+    return { ok: false, error: `GraphQL SEO update failed (${resp.status}): ${t.slice(0, 200)}` };
+  }
+  const j = await resp.json();
+  const errors = j?.data?.productUpdate?.userErrors;
+  if (Array.isArray(errors) && errors.length > 0) {
+    return { ok: false, error: errors.map((e: { message: string }) => e.message).join("; ") };
+  }
+  if (j?.errors?.length) {
+    return { ok: false, error: j.errors.map((e: { message: string }) => e.message).join("; ") };
+  }
+  return { ok: true };
+}
+
 /** Build Shopify-format metafields from a {"namespace.key": value} map.
  * Empty values and the reserved `shopify.*` namespace are skipped. */
 function buildMetafields(mf: Record<string, string> | undefined) {
@@ -97,6 +143,7 @@ Deno.serve(async (req: Request) => {
       price, compare_at_price: compareAtPrice,
       vendor, product_type: productType, tags,
       images, metafields,
+      handle, seo_title: seoTitle, seo_description: seoDescription,
     } = body as {
       shopify_product_id?: string;
       source_product_id?: string;
@@ -109,6 +156,9 @@ Deno.serve(async (req: Request) => {
       tags?: string[] | string;
       images?: string[];
       metafields?: Record<string, string>;
+      handle?: string;
+      seo_title?: string;
+      seo_description?: string;
     };
 
     if (!shopifyId) return json({ error: "shopify_product_id is required" }, 400);
@@ -165,6 +215,16 @@ Deno.serve(async (req: Request) => {
     }
     const updated = (await putResp.json()).product as Record<string, unknown>;
 
+    // ── 2b. Handle + SEO (GraphQL) ──
+    const seoResult = await updateSeoAndHandle(shopDomain, shopifyToken, shopifyId, {
+      handle: typeof handle === "string" ? handle : undefined,
+      seoTitle: typeof seoTitle === "string" ? seoTitle : undefined,
+      seoDescription: typeof seoDescription === "string" ? seoDescription : undefined,
+    });
+    if (!seoResult.ok) {
+      return json({ error: seoResult.error || "SEO/handle update failed" }, 502);
+    }
+
     // ── 3. Upsert metafields (one POST each; Shopify upserts by namespace+key) ──
     const mfs = buildMetafields(metafields);
     let mfOk = 0, mfFail = 0;
@@ -220,7 +280,21 @@ Deno.serve(async (req: Request) => {
     } else if (mfs.length > 0) {
       spUpdate.metafields = mfs;
     }
+    if (typeof handle === "string" && handle.trim()) spUpdate.handle = handle.trim();
     await supabase.from("shopify_products").update(spUpdate).eq("shopify_product_id", shopifyId);
+
+    if (sourceProductId && (handle !== undefined || seoTitle !== undefined || seoDescription !== undefined)) {
+      const rtsUpdate: Record<string, unknown> = {};
+      if (typeof handle === "string") {
+        rtsUpdate.shopify_url = handle.trim() || null;
+        rtsUpdate.handle = handle.trim() || null;
+      }
+      if (typeof seoTitle === "string") rtsUpdate.shopify_page_title = seoTitle.trim() || null;
+      if (typeof seoDescription === "string") rtsUpdate.shopify_page_description = seoDescription.trim() || null;
+      if (Object.keys(rtsUpdate).length > 0) {
+        await supabase.from("ready_to_shopify").update(rtsUpdate).eq("product_id", sourceProductId);
+      }
+    }
 
     return json({
       success: true,

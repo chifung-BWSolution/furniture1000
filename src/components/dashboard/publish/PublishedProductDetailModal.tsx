@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import {
-  X, Loader2, Package, Tag, DollarSign, Ruler, Boxes, Store, RefreshCw, ImageIcon,
+  X, Loader2, Package, Tag, DollarSign, Ruler, Boxes, Store, RefreshCw, ImageIcon, Search,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
@@ -113,6 +113,9 @@ export function PublishedProductDetailModal({
   const [editTagsText, setEditTagsText] = useState('');
   const [editNormalSize, setEditNormalSize] = useState('');
   const [editMaterials, setEditMaterials] = useState('');
+  const [editSeoTitle, setEditSeoTitle] = useState('');
+  const [editSeoDesc, setEditSeoDesc] = useState('');
+  const [editHandle, setEditHandle] = useState('');
 
   useEffect(() => {
     supabase
@@ -134,7 +137,24 @@ export function PublishedProductDetailModal({
     setEditTagsText(Array.isArray(r.tags) ? r.tags.join(', ') : '');
     setEditNormalSize(r['my_fields.normal_size'] || '');
     setEditMaterials(r['my_fields.materials'] || '');
+    setEditSeoTitle(r.title || '');
+    setEditSeoDesc('');
+    setEditHandle(r.handle || '');
     setSelectedImg(r.image_url || null);
+
+    if (r.source_product_id) {
+      supabase
+        .from('ready_to_shopify')
+        .select('shopify_page_title, shopify_page_description, shopify_url, handle')
+        .eq('product_id', r.source_product_id)
+        .maybeSingle()
+        .then(({ data }) => {
+          if (!data) return;
+          if (data.shopify_page_title) setEditSeoTitle(data.shopify_page_title);
+          if (data.shopify_page_description) setEditSeoDesc(data.shopify_page_description);
+          if (data.shopify_url || data.handle) setEditHandle(data.shopify_url || data.handle || r.handle || '');
+        });
+    }
   }, [r]);
 
   useEffect(() => {
@@ -197,6 +217,9 @@ export function PublishedProductDetailModal({
           tags,
           images: allImages.length > 0 ? allImages : undefined,
           metafields: Object.keys(metafields).length > 0 ? metafields : undefined,
+          handle: editHandle.trim() || undefined,
+          seo_title: editSeoTitle.trim() || undefined,
+          seo_description: editSeoDesc.trim() || undefined,
         },
       });
       if (error || data?.error || data?.success === false) {
@@ -436,6 +459,41 @@ export function PublishedProductDetailModal({
                 </div>
               </section>
             )}
+
+            <section className="rounded-xl border border-border bg-card p-5 space-y-4">
+              <div className="flex items-center gap-2 text-sm font-bold text-foreground">
+                <Search className="h-4 w-4 text-indigo-500" />
+                搜尋引擎列表 (SEO)
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">頁面標題</label>
+                <input
+                  className={inputCls}
+                  value={editSeoTitle}
+                  onChange={(e) => setEditSeoTitle(e.target.value)}
+                  placeholder="頁面標題"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">Meta 描述</label>
+                <textarea
+                  className={textareaCls}
+                  rows={3}
+                  value={editSeoDesc}
+                  onChange={(e) => setEditSeoDesc(e.target.value)}
+                  placeholder="Meta 描述"
+                />
+              </div>
+              <div>
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">網址控制代碼</label>
+                <input
+                  className={`${inputCls} font-mono`}
+                  value={editHandle}
+                  onChange={(e) => setEditHandle(e.target.value)}
+                  placeholder="product-url-handle"
+                />
+              </div>
+            </section>
           </div>
         </div>
       </div>
