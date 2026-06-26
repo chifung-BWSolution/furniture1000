@@ -13,8 +13,9 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
-import { excludeAlreadyPublished } from '@/lib/publishPipeline';
-import { usePublishList } from './usePublishList';
+import { excludeAlreadyPublishedRts } from '@/lib/publishPipeline';
+import { syncRtsContentToProduct, syncRtsWorkflowToProduct } from '@/lib/rtsProductSync';
+import { usePublishRtsList } from './usePublishRtsList';
 import { CategoryTagPicker, type BwfCat } from './CategoryTagPicker';
 
 type ProductionType = 'stock' | 'custom' | null;
@@ -89,52 +90,30 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
   const getLevel2Options = (l1: string) =>
     Array.from(new Set(categoryPairs.filter((p) => p.level1 === l1 && p.level2).map((p) => p.level2)));
 
-  const { rows, totalCount, isLoading, Toolbar, Pagination } = usePublishList({
-    select: 'id,title,image_url,price,sale_price,cost_price,sku,tags,dimension_l_mm,dimension_w_mm,dimension_h_mm,level1_category,level2_category,in_stock,customize,model,factories_display_name',
-    applyBaseFilters: (q) => excludeAlreadyPublished(q.eq('in_shopify_queue', true).eq('info_done', false).eq('copy_done', true)),
+  const { rows, totalCount, isLoading, Toolbar, Pagination } = usePublishRtsList({
+    applyBaseFilters: (q) => excludeAlreadyPublishedRts(q.eq('in_shopify_queue', true).eq('info_done', false).eq('copy_done', true)),
     reloadKey,
-    // Newest submissions from 產品文案 appear first.
     orderBy: [
       { column: 'copy_done_at', ascending: false, nullsFirst: false },
-      { column: 'created_at', ascending: false },
+      { column: 'imported_at', ascending: false },
     ],
   });
 
-  // Fetch cost + image_url + images + materials from ready_to_shopify for each product
-  const [costMap, setCostMap] = useState<Record<string, number | null>>({});
-  const [rtsImageMap, setRtsImageMap] = useState<Record<string, string>>({});
+  // Extra images from ready_to_shopify.images (list row already has cost / materials)
   const [rtsImagesMap, setRtsImagesMap] = useState<Record<string, { src: string; alt: string }[]>>({});
-  const [materialsMap, setMaterialsMap] = useState<Record<string, string>>({});
   useEffect(() => {
     if (rows.length === 0) return;
-    const ids = rows.map((r: any) => r.id);
-    supabase
-      .from('ready_to_shopify')
-      .select('product_id, cost, image_url, images, material, "my_fields.materials"')
-      .in('product_id', ids)
-      .then(({ data }) => {
-        if (!data) return;
-        const costM: Record<string, number | null> = {};
-        const imgM: Record<string, string> = {};
-        const imgsM: Record<string, { src: string; alt: string }[]> = {};
-        const matM: Record<string, string> = {};
-        for (const row of data as any[]) {
-          costM[row.product_id] = row.cost != null ? Number(row.cost) : null;
-          if (row.image_url) imgM[row.product_id] = row.image_url;
-          // Prefer the dedicated metafield column; fall back to legacy `material`
-          matM[row.product_id] = (row['my_fields.materials'] ?? row.material ?? '') || '';
-          if (Array.isArray(row.images) && row.images.length > 0) {
-            imgsM[row.product_id] = row.images.map((img: any) => ({
-              src: img?.src || img?.url || (typeof img === 'string' ? img : ''),
-              alt: img?.alt || '',
-            })).filter((img: { src: string; alt: string }) => img.src && img.src !== row.image_url);
-          }
-        }
-        setCostMap(costM);
-        setRtsImageMap(imgM);
-        setRtsImagesMap(imgsM);
-        setMaterialsMap(matM);
-      });
+    const imgsM: Record<string, { src: string; alt: string }[]> = {};
+    for (const r of rows) {
+      const imgs = Array.isArray(r.images) ? r.images : [];
+      if (imgs.length > 0) {
+        imgsM[r.id as string] = imgs.map((img: any) => ({
+          src: img?.src || img?.url || (typeof img === 'string' ? img : ''),
+          alt: img?.alt || '',
+        })).filter((img: { src: string; alt: string }) => img.src && img.src !== r.image_url);
+      }
+    }
+    setRtsImagesMap(imgsM);
   }, [rows]);
 
   // Lightbox state for enlarged image
@@ -158,7 +137,7 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
         factory: r.factories_display_name || '',
         price: Number(r.sale_price ?? r.price ?? 0),
         costPrice: r.cost_price != null ? Number(r.cost_price) : null,
-        costRef: costMap[r.id] ?? (r.cost_price != null ? Number(r.cost_price) : null),
+        costRef: r.cost != null ? Number(r.cost) : (r.cost_price != null ? Number(r.cost_price) : null),
         dimL: r.dimension_l_mm ?? null,
         dimW: r.dimension_w_mm ?? null,
         dimH: r.dimension_h_mm ?? null,
@@ -168,12 +147,12 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
         level2: r.level2_category || '',
         productionType,
         leadTime,
-        materials: materialsMap[r.id] ?? '',
+        materials: (r['my_fields.materials'] ?? r.material ?? '') || '',
       };
     });
     setItems(mapped);
     setSelected(new Set());
-  }, [rows, costMap, materialsMap]);
+  }, [rows]);
 
   // Scroll to the focused product once items are loaded
   useEffect(() => {
@@ -213,27 +192,27 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
     setIsReverting(true);
     try {
       const revertReason = { labels: revertReasons, other: revertOther.trim() || null };
-      const { error } = await supabase
-        .from('products')
+      const now = new Date().toISOString();
+      const { error: rtsErr } = await supabase
+        .from('ready_to_shopify')
         .update({
           copy_done: false,
           copy_done_at: null,
-          copy_queued_at: new Date().toISOString(),
+          copy_queued_at: now,
           info_done: false,
-          ready_to_publish: false,
           revert_reason: revertReason,
+          furniture_group_checked: null,
         })
-        .in('id', ids);
-      if (error) throw new Error(error.message);
-      // Keep the ready_to_shopify rows intact (do NOT delete) so body_html /
-      // images / SEO survive the revert. Reset furniture_group_checked to null
-      // so the rows leave 傢俬組檢查 (=false) and 準備上載 (=true); the product
-      // returns to 產品文案 purely via the products.copy_done=false flag above.
-      const { error: rtsErr } = await supabase
-        .from('ready_to_shopify')
-        .update({ furniture_group_checked: null })
         .in('product_id', ids);
       if (rtsErr) throw new Error(rtsErr.message);
+      await Promise.all(ids.map((id) => syncRtsWorkflowToProduct(supabase, id, {
+        copy_done: false,
+        copy_done_at: null,
+        copy_queued_at: now,
+        info_done: false,
+        ready_to_publish: false,
+        revert_reason: revertReason,
+      })));
       setShowRevertDialog(false);
       setSelected(new Set());
       setReloadKey((k) => k + 1);
@@ -255,51 +234,22 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
     const isStock = it.productionType === 'stock';
     const customizeVal = it.productionType === 'custom' && it.leadTime ? it.leadTime : null;
 
-    // 1. products table
-    const productsUpdate: Record<string, any> = {
-      sale_price: it.price,
-      sku: it.sku,
-      tags: it.tags,
-      dimension_l_mm: it.dimL,
-      dimension_w_mm: it.dimW,
-      dimension_h_mm: it.dimH,
-      level1_category: it.level1 || null,
-      level2_category: it.level2 || null,
-      in_stock: it.productionType === 'stock' ? true : false,
-      customize: customizeVal,
-    };
-    if (advance) {
-      productsUpdate.info_done = true;
-      // Go to 傢俬組檢查 first, not directly to 準備上載
-      productsUpdate.ready_to_publish = false;
-    }
-    const { error } = await supabase.from('products').update(productsUpdate).eq('id', it.id);
-    if (error) throw new Error(error.message);
-
-    // 2. ready_to_shopify — mirror every editable field
     const rtsUpdate: Record<string, any> = {
-      // 產品編碼 (SKU) → sku column
       sku: it.sku || null,
-      // 產品價錢 → price
       price: it.price,
-      // 產品標籤 → tags
       tags: it.tags.length > 0 ? it.tags : null,
-      // 產品分類（一級 / 二級）→ product_type
       product_type: [it.level1, it.level2].filter(Boolean).join(' / ') || null,
-      // 產品尺寸（長 / 闊 / 高）→ dimension_*_mm
       dimension_l_mm: it.dimL,
       dimension_w_mm: it.dimW,
       dimension_h_mm: it.dimH,
-      // 送貨資訊（現貨 / 全訂製 + 交期）→ in_stock + customize
       in_stock: isStock ? true : (it.productionType === 'custom' ? false : null),
       customize: customizeVal,
-      // 產品物料 → my_fields.materials (also keep legacy `material` in sync)
       'my_fields.materials': it.materials.trim() || null,
       material: it.materials.trim() || null,
     };
     if (advance) {
-      // false = waiting in 傢俬組檢查; true = cleared for 準備上載
       rtsUpdate.furniture_group_checked = false;
+      rtsUpdate.info_done = true;
       rtsUpdate.info_completed_at = new Date().toISOString();
       if (isStock || customizeVal != null) rtsUpdate.status = 'draft';
     }
@@ -315,6 +265,26 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
         .eq('product_id', it.id));
     }
     if (rtsErr) throw new Error(rtsErr.message);
+
+    await syncRtsContentToProduct(supabase, it.id, {
+      sku: it.sku || null,
+      sale_price: it.price,
+      tags: it.tags,
+      level1_category: it.level1 || null,
+      level2_category: it.level2 || null,
+      dimension_l_mm: it.dimL,
+      dimension_w_mm: it.dimW,
+      dimension_h_mm: it.dimH,
+      in_stock: it.productionType === 'stock' ? true : false,
+      customize: customizeVal,
+      'my_fields.materials': it.materials.trim() || null,
+    });
+    if (advance) {
+      await syncRtsWorkflowToProduct(supabase, it.id, {
+        info_done: true,
+        ready_to_publish: false,
+      });
+    }
   };
 
   const [isSaving, setIsSaving] = useState(false);
@@ -420,10 +390,10 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
                     {/* Primary image */}
                     <div
                       className="group relative h-12 w-12 flex-shrink-0 cursor-zoom-in"
-                      onClick={() => { const src = rtsImageMap[it.id] || it.imageUrl; if (src) setLightboxSrc(src); }}
+                      onClick={() => { if (it.imageUrl) setLightboxSrc(it.imageUrl); }}
                     >
                       <img
-                        src={rtsImageMap[it.id] || it.imageUrl}
+                        src={it.imageUrl}
                         alt={it.title}
                         loading="lazy"
                         className="h-12 w-12 rounded-lg object-cover bg-muted"

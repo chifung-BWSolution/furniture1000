@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { uploadBase64Image } from '@/lib/imageStorage';
+import { syncRtsWorkflowToProduct } from '@/lib/rtsProductSync';
 import { toast } from 'sonner';
 
 const ACCEPTED_IMAGE_TYPES = 'image/jpeg,image/jpg,image/webp,image/avif,image/png';
@@ -1168,20 +1169,22 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
       // Keep in_shopify_queue=true — the 產品文案 list filters on it, so setting
       // it false would make the reverted products vanish from that page too.
       if (productIds.length > 0) {
-        const { error: updErr } = await supabase
-          .from('products')
+        const { error: rtsUpdErr } = await supabase
+          .from('ready_to_shopify')
           .update({
             copy_done: false,
             info_done: false,
-            ready_to_publish: false,
+            furniture_group_checked: null,
           })
-          .in('id', productIds);
-        if (updErr) throw new Error(updErr.message);
+          .in('product_id', productIds);
+        if (rtsUpdErr) throw new Error(rtsUpdErr.message);
+        await Promise.all(productIds.map((id) => syncRtsWorkflowToProduct(supabase, id, {
+          copy_done: false,
+          info_done: false,
+          ready_to_publish: false,
+        })));
       }
 
-      // Drop the reverted rows out of 傢俬組檢查 WITHOUT deleting them:
-      // furniture_group_checked=null means neither 傢俬組檢查 (filters =false)
-      // nor 準備上載 (filters =true) shows them, while body_html/images/SEO survive.
       const { error: rtsErr } = await supabase
         .from('ready_to_shopify')
         .update({ furniture_group_checked: null })

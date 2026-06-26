@@ -9,8 +9,9 @@ import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { uploadBase64Image } from '@/lib/imageStorage';
-import { excludeAlreadyPublished } from '@/lib/publishPipeline';
-import { usePublishList } from './usePublishList';
+import { excludeAlreadyPublishedRts } from '@/lib/publishPipeline';
+import { syncRtsContentToProduct, syncRtsWorkflowToProduct } from '@/lib/rtsProductSync';
+import { usePublishRtsList } from './usePublishRtsList';
 
 interface RevertReason {
   labels: string[];
@@ -85,9 +86,8 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
   // data-URLs that can be ~1MB each, making the list query take minutes. The
   // list only needs the lightweight `image_url` thumbnail; full images are
   // loaded lazily when a product is opened (openProduct).
-  const { rows, totalCount, isLoading, Toolbar, Pagination } = usePublishList({
-    select: 'id,title,description,image_url,factories_display_name,level1_category,level2_category,tags,sale_price,price,sku,model,factory_id,revert_reason',
-    applyBaseFilters: (q) => excludeAlreadyPublished(q.eq('in_shopify_queue', true).or('copy_done.is.null,copy_done.eq.false')),
+  const { rows, totalCount, isLoading, Toolbar, Pagination } = usePublishRtsList({
+    applyBaseFilters: (q) => excludeAlreadyPublishedRts(q.eq('in_shopify_queue', true).or('copy_done.is.null,copy_done.eq.false')),
     reloadKey,
   });
 
@@ -334,15 +334,15 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
       if (error) {
         toast.error('儲存失敗', { description: error.message });
       } else {
-        // 圖片同步寫回 products（image_url 主圖、image_url_2/3 額外圖、images jsonb）
-        const productUpdate: Record<string, any> = {
+        await syncRtsContentToProduct(supabase, activeId, {
+          title: name,
+          body_html: normalizeBodyHtmlForShopify(desc),
+          sku: sku || null,
           image_url: resolvedPrimary || null,
           image_url_2: resolvedExtras[0] || null,
           image_url_3: resolvedExtras[1] || null,
           images: imagesJson.length > 0 ? imagesJson : null,
-        };
-        if (sku) productUpdate.sku = sku;
-        await supabase.from('products').update(productUpdate).eq('id', activeId);
+        });
         // Update local image state to resolved HTTP URLs
         if (resolvedPrimary !== primaryImg) setPrimaryImg(resolvedPrimary);
         if (resolvedExtras.some((s, i) => s !== extraImgs[i])) setExtraImgs(resolvedExtras);
@@ -388,33 +388,10 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
       }
       toast.dismiss('img-upload');
 
-      // 圖片同步寫回 products（image_url 主圖、image_url_2/3 額外圖、images jsonb）
       const submitImagesJson = resolvedExtras.map((src, idx) => ({ src, position: idx + 1 }));
-
-      // 1. Update products table
-      const { error } = await supabase
-        .from('products')
-        .update({
-          title: name,
-          sku: sku || undefined,
-          description: desc,
-          image_url: resolvedPrimary || null,
-          image_url_2: resolvedExtras[0] || null,
-          image_url_3: resolvedExtras[1] || null,
-          images: submitImagesJson.length > 0 ? submitImagesJson : null,
-          copy_done: true,
-          copy_done_at: new Date().toISOString(),
-          revert_reason: null,
-        })
-        .eq('id', activeId);
-      if (error) {
-        toast.error('提交失敗', { description: error.message });
-        return;
-      }
-
-      // 2. Upsert ALL fields into ready_to_shopify
-      // image_url = primary image (HTTP URL), images = extra images array (HTTP URLs)
+      const copyDoneAt = new Date().toISOString();
       const imagesJson = resolvedExtras.map((src, idx) => ({ src, position: idx + 1 }));
+
       const { error: rtsError } = await supabase
         .from('ready_to_shopify')
         .upsert({
@@ -426,24 +403,40 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
           product_type: [item.level1, item.level2].filter(Boolean).join(' / ') || null,
           handle: handle || slugify(name),
           status: 'draft',
-          // Primary image → image_url (resolved HTTP URL after storage upload)
           image_url: resolvedPrimary || null,
-          // Additional images → images (jsonb)
           images: imagesJson.length > 0 ? imagesJson : null,
           tags: item.tags.length > 0 ? item.tags : null,
           price: item.salePrice ?? item.price ?? null,
-          // SEO fields
           shopify_page_title: seoTitle || name || null,
           shopify_page_description: seoDesc || null,
           shopify_url: handle || slugify(name) || null,
           imported_at: new Date().toISOString(),
+          copy_done: true,
+          copy_done_at: copyDoneAt,
+          revert_reason: null,
         }, { onConflict: 'product_id' });
 
       if (rtsError) {
-        toast.warning('產品文案已提交，但同步至 ready_to_shopify 失敗', { description: rtsError.message });
-      } else {
-        toast.success('已提交到下一步', { description: '產品已移至「產品信息」，資料已同步至 ready_to_shopify' });
+        toast.error('提交失敗', { description: rtsError.message });
+        return;
       }
+
+      await syncRtsContentToProduct(supabase, activeId, {
+        title: name,
+        body_html: normalizeBodyHtmlForShopify(desc),
+        sku: sku || null,
+        image_url: resolvedPrimary || null,
+        image_url_2: resolvedExtras[0] || null,
+        image_url_3: resolvedExtras[1] || null,
+        images: submitImagesJson.length > 0 ? submitImagesJson : null,
+      });
+      await syncRtsWorkflowToProduct(supabase, activeId, {
+        copy_done: true,
+        copy_done_at: copyDoneAt,
+        revert_reason: null,
+      });
+
+      toast.success('已提交到下一步', { description: '產品已移至「產品信息」，資料已同步至 ready_to_shopify' });
 
       setActiveId(null);
       setReloadKey((k) => k + 1);

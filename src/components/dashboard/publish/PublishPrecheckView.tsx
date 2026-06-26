@@ -3,6 +3,7 @@ import { cn } from '@/lib/utils';
 import {
   ShieldCheck, Check, X, UploadCloud, AlertTriangle, CheckCircle2, Loader2,
 } from 'lucide-react';
+import { syncRtsWorkflowToProduct } from '@/lib/rtsProductSync';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 
@@ -147,7 +148,8 @@ export function PublishPrecheckView({ onNavigate, onProductsReadyToPublish }: Pr
   // Click ✗ on a copy field: reset copy_done=false so the product reappears in 產品文案
   const handleCopyFix = async (productId: string) => {
     try {
-      await supabase.from('products').update({ copy_done: false }).eq('id', productId);
+      await supabase.from('ready_to_shopify').update({ copy_done: false, copy_done_at: null }).eq('product_id', productId);
+      await syncRtsWorkflowToProduct(supabase, productId, { copy_done: false, copy_done_at: null });
       setItems((prev) => prev.filter((r) => r.id !== productId));
     } catch {
       // navigate anyway
@@ -155,10 +157,10 @@ export function PublishPrecheckView({ onNavigate, onProductsReadyToPublish }: Pr
     onNavigate?.({ view: 'publish-copywriting', productId });
   };
 
-  // Click ✗ on an info field: reset info_done=false so the product reappears in 產品信息
   const handleInfoFix = async (productId: string) => {
     try {
-      await supabase.from('products').update({ info_done: false }).eq('id', productId);
+      await supabase.from('ready_to_shopify').update({ info_done: false }).eq('product_id', productId);
+      await syncRtsWorkflowToProduct(supabase, productId, { info_done: false });
       setItems((prev) => prev.filter((r) => r.id !== productId));
     } catch {
       // navigate anyway

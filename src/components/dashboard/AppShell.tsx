@@ -345,28 +345,24 @@ export function AppShell() {
                 return;
               }
 
-              // Step 2: reset products flags so they reappear in 產品文案
-              const { error: updateErr } = await sb.from('products').update({
-                ready_to_publish: false,
-                info_done: false,
+              // Step 2: reset RTS workflow flags so products reappear in 產品文案
+              const { error: updateErr } = await sb.from('ready_to_shopify').update({
                 copy_done: false,
+                info_done: false,
                 revert_reason: revertReason,
-              }).in('id', productIds);
+                furniture_group_checked: null,
+              }).in('id', ids);
               if (updateErr) {
                 toast.error('退回失敗', { description: updateErr.message });
                 return;
               }
-
-              // Step 3: keep the ready_to_shopify rows intact (do NOT delete).
-              // The product is moved back to 產品文案 via the products flags above;
-              // its RTS row (body_html, images, SEO, sku, price …) is preserved so
-              // nothing is lost on revert. When the product is re-submitted, the
-              // existing RTS row is upserted/overwritten rather than recreated.
-              // Set furniture_group_checked=null so the row leaves both 傢俬組檢查
-              // (filters =false) and 準備上載 (filters =true) without being removed.
-              await sb.from('ready_to_shopify')
-                .update({ furniture_group_checked: null })
-                .in('id', ids);
+              const { syncRtsWorkflowToProduct } = await import('@/lib/rtsProductSync');
+              await Promise.all(productIds.map((id) => syncRtsWorkflowToProduct(sb, id, {
+                ready_to_publish: false,
+                info_done: false,
+                copy_done: false,
+                revert_reason: revertReason,
+              })));
 
               store.reloadReadyToPublish();
               toast.success(`已退回 ${ids.length} 件產品至「產品文案」`, {

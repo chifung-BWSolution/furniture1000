@@ -1136,6 +1136,11 @@ export function ListedProductsView({
         production_time: p.productionTime ?? null,
         status: 'draft',
         imported_at: new Date().toISOString(),
+        in_shopify_queue: true,
+        copy_done: false,
+        copy_queued_at: new Date().toISOString(),
+        info_done: false,
+        furniture_group_checked: null,
       };
     }));
     const { error } = await supabase
