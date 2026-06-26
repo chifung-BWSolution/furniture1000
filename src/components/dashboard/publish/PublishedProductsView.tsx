@@ -144,7 +144,8 @@ export function PublishedProductsView() {
     const { data, error } = await supabase
       .from('shopify_products')
       .select('*')
-      .order('imported_at', { ascending: false });
+      .order('imported_at', { ascending: false })
+      .order('published_at', { ascending: false, nullsFirst: true });
     if (error) {
       toast.error('讀取產品失敗', { description: error.message });
       setItems([]);

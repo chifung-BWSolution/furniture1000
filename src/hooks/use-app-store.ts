@@ -422,15 +422,24 @@ export function useAppStore() {
       let allRows: any[] = [];
       let from = 0;
       while (true) {
-        const { data, error } = await supabase
+        let q = supabase
           .from('ready_to_shopify')
-          .select('id,product_id,title,body_html,vendor,product_type,variants,tags,price,compare_at_price,shopify_product_id,status')
-          // Only show rows explicitly cleared by 傢俬組檢查 (furniture_group_checked=true).
-          // NOTE: do NOT include null here. null means the product has NOT reached
-          // 傢俬組檢查 yet (it is still in 產品文案 / 產品信息, or was reverted), so
-          // including null would wrongly surface those products on 準備上載.
+          .select('id,product_id,title,body_html,vendor,product_type,variants,tags,price,compare_at_price,shopify_product_id,status,ready_to_publish_at,imported_at')
           .eq('furniture_group_checked', true)
+          .order('ready_to_publish_at', { ascending: false, nullsFirst: false })
+          .order('imported_at', { ascending: false })
           .range(from, from + PAGE - 1);
+        let { data, error } = await q;
+        if (error && error.message.includes('ready_to_publish_at')) {
+          const fallback = await supabase
+            .from('ready_to_shopify')
+            .select('id,product_id,title,body_html,vendor,product_type,variants,tags,price,compare_at_price,shopify_product_id,status')
+            .eq('furniture_group_checked', true)
+            .order('imported_at', { ascending: false })
+            .range(from, from + PAGE - 1);
+          data = fallback.data;
+          error = fallback.error;
+        }
         if (error) { console.warn('[reloadReadyToPublish] query error:', error.message); break; }
         if (!data || data.length === 0) break;
         allRows = allRows.concat(data);
