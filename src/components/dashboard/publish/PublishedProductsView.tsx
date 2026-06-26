@@ -610,9 +610,21 @@ export function PublishedProductsView() {
                       </div>
                     </td>
                     {/* 材質描述 — list view capped at 4 lines; full text in detail modal */}
-                    <td className="px-3 py-2.5" style={{ maxWidth: '120px' }}>
+                    <td className="px-3 py-2.5 align-top overflow-hidden" style={{ maxWidth: '120px' }}>
                       {r['my_fields.materials'] ? (
-                        <span className="font-body text-[11px] leading-snug text-muted-foreground line-clamp-4 block whitespace-pre-line break-words">{r['my_fields.materials']}</span>
+                        <div
+                          className="font-body text-[11px] text-muted-foreground break-words overflow-hidden"
+                          style={{
+                            lineHeight: 1.35,
+                            maxHeight: 'calc(11px * 1.35 * 4)',
+                            display: '-webkit-box',
+                            WebkitLineClamp: 4,
+                            WebkitBoxOrient: 'vertical',
+                          }}
+                          title={r['my_fields.materials']}
+                        >
+                          {r['my_fields.materials']}
+                        </div>
                       ) : (
                         <span className="font-body text-[11px] text-muted-foreground">—</span>
                       )}
