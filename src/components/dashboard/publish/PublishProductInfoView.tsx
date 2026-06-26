@@ -303,10 +303,17 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
       rtsUpdate.info_completed_at = new Date().toISOString();
       if (isStock || customizeVal != null) rtsUpdate.status = 'draft';
     }
-    const { error: rtsErr } = await supabase
+    let { error: rtsErr } = await supabase
       .from('ready_to_shopify')
       .update(rtsUpdate)
       .eq('product_id', it.id);
+    if (rtsErr?.message?.includes('info_completed_at')) {
+      delete rtsUpdate.info_completed_at;
+      ({ error: rtsErr } = await supabase
+        .from('ready_to_shopify')
+        .update(rtsUpdate)
+        .eq('product_id', it.id));
+    }
     if (rtsErr) throw new Error(rtsErr.message);
   };
 

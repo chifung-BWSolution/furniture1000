@@ -1106,13 +1106,21 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
     setIsSubmitting(true);
     try {
       // Set furniture_group_checked=true → rows appear in 準備上載 query
-      const { error: rtsError } = await supabase
+      const now = new Date().toISOString();
+      let { error: rtsError } = await supabase
         .from('ready_to_shopify')
         .update({
           furniture_group_checked: true,
-          ready_to_publish_at: new Date().toISOString(),
+          ready_to_publish_at: now,
         })
         .in('id', ids);
+      // Fallback if ready_to_publish_at column not yet migrated
+      if (rtsError?.message?.includes('ready_to_publish_at')) {
+        ({ error: rtsError } = await supabase
+          .from('ready_to_shopify')
+          .update({ furniture_group_checked: true })
+          .in('id', ids));
+      }
       if (rtsError) throw new Error(rtsError.message);
 
       // Also set ready_to_publish=true on products table
