@@ -283,19 +283,6 @@ Deno.serve(async (req: Request) => {
     if (typeof handle === "string" && handle.trim()) spUpdate.handle = handle.trim();
     await supabase.from("shopify_products").update(spUpdate).eq("shopify_product_id", shopifyId);
 
-    if (sourceProductId && (handle !== undefined || seoTitle !== undefined || seoDescription !== undefined)) {
-      const rtsUpdate: Record<string, unknown> = {};
-      if (typeof handle === "string") {
-        rtsUpdate.shopify_url = handle.trim() || null;
-        rtsUpdate.handle = handle.trim() || null;
-      }
-      if (typeof seoTitle === "string") rtsUpdate.shopify_page_title = seoTitle.trim() || null;
-      if (typeof seoDescription === "string") rtsUpdate.shopify_page_description = seoDescription.trim() || null;
-      if (Object.keys(rtsUpdate).length > 0) {
-        await supabase.from("ready_to_shopify").update(rtsUpdate).eq("product_id", sourceProductId);
-      }
-    }
-
     return json({
       success: true,
       shopify_product_id: shopifyId,

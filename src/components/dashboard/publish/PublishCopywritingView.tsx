@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { uploadBase64Image } from '@/lib/imageStorage';
+import { excludeAlreadyPublished } from '@/lib/publishPipeline';
 import { usePublishList } from './usePublishList';
 
 interface RevertReason {
@@ -86,7 +87,7 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
   // loaded lazily when a product is opened (openProduct).
   const { rows, totalCount, isLoading, Toolbar, Pagination } = usePublishList({
     select: 'id,title,description,image_url,factories_display_name,level1_category,level2_category,tags,sale_price,price,sku,model,factory_id,revert_reason',
-    applyBaseFilters: (q) => q.eq('in_shopify_queue', true).or('copy_done.is.null,copy_done.eq.false'),
+    applyBaseFilters: (q) => excludeAlreadyPublished(q.eq('in_shopify_queue', true).or('copy_done.is.null,copy_done.eq.false')),
     reloadKey,
   });
 

@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
+import { excludeAlreadyPublished } from '@/lib/publishPipeline';
 import { usePublishList } from './usePublishList';
 
 type ProductionType = 'stock' | 'custom' | null;
@@ -90,7 +91,7 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
 
   const { rows, totalCount, isLoading, Toolbar, Pagination } = usePublishList({
     select: 'id,title,image_url,price,sale_price,cost_price,sku,tags,dimension_l_mm,dimension_w_mm,dimension_h_mm,level1_category,level2_category,in_stock,customize,model,factories_display_name',
-    applyBaseFilters: (q) => q.eq('in_shopify_queue', true).eq('info_done', false).eq('copy_done', true),
+    applyBaseFilters: (q) => excludeAlreadyPublished(q.eq('in_shopify_queue', true).eq('info_done', false).eq('copy_done', true)),
     reloadKey,
     // Newest submissions from 產品文案 appear first.
     orderBy: [

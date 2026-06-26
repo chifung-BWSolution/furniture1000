@@ -141,20 +141,6 @@ export function PublishedProductDetailModal({
     setEditSeoDesc('');
     setEditHandle(r.handle || '');
     setSelectedImg(r.image_url || null);
-
-    if (r.source_product_id) {
-      supabase
-        .from('ready_to_shopify')
-        .select('shopify_page_title, shopify_page_description, shopify_url, handle')
-        .eq('product_id', r.source_product_id)
-        .maybeSingle()
-        .then(({ data }) => {
-          if (!data) return;
-          if (data.shopify_page_title) setEditSeoTitle(data.shopify_page_title);
-          if (data.shopify_page_description) setEditSeoDesc(data.shopify_page_description);
-          if (data.shopify_url || data.handle) setEditHandle(data.shopify_url || data.handle || r.handle || '');
-        });
-    }
   }, [r]);
 
   useEffect(() => {

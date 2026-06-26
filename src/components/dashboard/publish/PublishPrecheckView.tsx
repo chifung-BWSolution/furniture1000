@@ -97,6 +97,7 @@ export function PublishPrecheckView({ onNavigate, onProductsReadyToPublish }: Pr
           'level1_category,level2_category,factories_display_name,ready_to_publish'
         )
         .eq('in_shopify_queue', true)
+        .is('shopify_product_id', null)
         .eq('info_done', true)
         .or('ready_to_publish.is.null,ready_to_publish.eq.false')
         .order('created_at', { ascending: false });

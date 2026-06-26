@@ -131,6 +131,18 @@ function buildShopifyMetafields(
   return out;
 }
 
+/** Remove product from 網上發佈 pipeline after successful Shopify publish. */
+async function exitPublishPipeline(
+  supabase: ReturnType<typeof createClient>,
+  productId: string,
+) {
+  await supabase.from("ready_to_shopify").delete().eq("product_id", productId);
+  await supabase.from("products").update({
+    in_shopify_queue: false,
+    ready_to_publish: false,
+  }).eq("id", productId);
+}
+
 // ─── Image Validation & Upload Helpers ──────────────────────────────────────
 
 /** Identity key for de-duplicating images across different host URLs.
@@ -635,6 +647,12 @@ Deno.serve(async (req: Request) => {
                   console.warn(`[publish-to-shopify] ⚠️ shopify_products mirror write failed (fallback, non-blocking):`, fbSpErr instanceof Error ? fbSpErr.message : String(fbSpErr));
                 }
 
+                try {
+                  await exitPublishPipeline(supabase, product.id);
+                } catch (pipeErr) {
+                  console.warn(`[publish-to-shopify] ⚠️ pipeline cleanup failed (fallback):`, pipeErr instanceof Error ? pipeErr.message : String(pipeErr));
+                }
+
                 results.push({ id: product.id, success: true, shopify_product_id: shopifyProductId, action: "created_without_image", image_warning: warningMsg });
                 continue;
               } else {
@@ -719,6 +737,12 @@ Deno.serve(async (req: Request) => {
           console.log(`[publish-to-shopify] ✅ shopify_products mirror written for Shopify ID: ${shopifyProductId}`);
         } catch (spErr) {
           console.warn(`[publish-to-shopify] ⚠️ shopify_products mirror write failed (non-blocking):`, spErr instanceof Error ? spErr.message : String(spErr));
+        }
+
+        try {
+          await exitPublishPipeline(supabase, product.id);
+        } catch (pipeErr) {
+          console.warn(`[publish-to-shopify] ⚠️ pipeline cleanup failed:`, pipeErr instanceof Error ? pipeErr.message : String(pipeErr));
         }
 
         results.push({ id: product.id, success: true, shopify_product_id: shopifyProductId, action: "created", image_warning: imageWarning });

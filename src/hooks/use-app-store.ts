@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { Product, ProductVariant, ProductStatus, ProductSource, AppSettings, ViewType } from '@/types/product';
 import { supabase } from '@/lib/supabase';
+import { removeProductFromPublishPipeline } from '@/lib/publishPipeline';
 import { resolveRowsImagesToStorage, stripBase64ForDb } from '@/lib/imageStorage';
 import { toast } from 'sonner';
 
@@ -458,6 +459,26 @@ export function useAppStore() {
         allRows = allRows.concat(data);
         if (data.length < PAGE) break;
         from += PAGE;
+      }
+
+      if (allRows.length === 0) {
+        if (gen === reloadReadyToPublishGen.current) setReadyToPublishList([]);
+        return;
+      }
+
+      // Defensive: hide RTS rows whose product already has shopify_product_id
+      // (e.g. publish succeeded on Shopify but local cleanup lagged).
+      const linkedProductIds = allRows.map((r) => r.product_id).filter(Boolean) as string[];
+      if (linkedProductIds.length > 0) {
+        const { data: alreadyLive } = await supabase
+          .from('products')
+          .select('id')
+          .in('id', linkedProductIds)
+          .not('shopify_product_id', 'is', null);
+        if (alreadyLive?.length) {
+          const liveSet = new Set(alreadyLive.map((p: { id: string }) => p.id));
+          allRows = allRows.filter((r) => !r.product_id || !liveSet.has(r.product_id));
+        }
       }
 
       if (allRows.length === 0) {
@@ -1094,11 +1115,35 @@ export function useAppStore() {
     // For readyToPublishList products p.id = RTS row UUID and p.productId = products.id.
     // For products list products p.id = products.id directly.
     // Use productId when available so all downstream queries hit the products table correctly.
-    const selectedProductIds_arr = selectedProducts.map(p => (p as any).productId || p.id);
+    let productsToPublish = selectedProducts;
+    let productIdsToPublish = selectedProducts.map(p => (p as any).productId || p.id);
+
+    // Guard: never re-upload products that already have a Shopify ID (force_create
+    // would create duplicates on Shopify).
+    const { data: alreadyPublished } = await supabase
+      .from('products')
+      .select('id, shopify_product_id')
+      .in('id', productIdsToPublish)
+      .not('shopify_product_id', 'is', null);
+    if (alreadyPublished?.length) {
+      const blocked = new Set(alreadyPublished.map((p: { id: string }) => p.id));
+      toast.error('部分產品已在 Shopify', {
+        description: `${blocked.size} 個產品已有 Shopify ID，已跳過以避免重複上傳。`,
+      });
+      productsToPublish = selectedProducts.filter(
+        (p) => !blocked.has((p as any).productId || p.id),
+      );
+      productIdsToPublish = productsToPublish.map((p) => (p as any).productId || p.id);
+      if (productIdsToPublish.length === 0) {
+        setIsPublishing(false);
+        setSelectedProductIds(new Set());
+        return;
+      }
+    }
 
     // Save products to local DB first to ensure consistency.
     // RTS products have productId != id — skip them here; they're already in the products table.
-    const productsToSave = selectedProducts.filter(p => !(p as any).productId);
+    const productsToSave = productsToPublish.filter(p => !(p as any).productId);
     try {
       if (productsToSave.length > 0) await saveProductsToDb(productsToSave);
       console.log('[uploadToMasterDb] Pre-upload save successful for', productsToSave.length, 'products');
@@ -1145,13 +1190,13 @@ export function useAppStore() {
 
     // Set products to "publishing" status
     setProducts(prev => prev.map(p =>
-      selectedProductIds_arr.includes(p.id) ? { ...p, status: 'publishing' as ProductStatus } : p
+      productIdsToPublish.includes(p.id) ? { ...p, status: 'publishing' as ProductStatus } : p
     ));
 
     const { error: statusErr } = await supabase
       .from('products')
       .update({ status: 'publishing' })
-      .in('id', selectedProductIds_arr);
+      .in('id', productIdsToPublish);
 
     if (statusErr) {
       console.error('[uploadToMasterDb] Failed to set publishing status in DB:', statusErr.message);
@@ -1162,7 +1207,7 @@ export function useAppStore() {
     const { data: rtsRows, error: rtsErr } = await supabase
       .from('ready_to_shopify')
       .select('id,product_id,title,body_html,vendor,price,image_url,images,variants,product_type,tags,shopify_url,dimension_l_mm,dimension_w_mm,dimension_h_mm,material,"my_fields.materials",customize,sku')
-      .in('product_id', selectedProductIds_arr);
+      .in('product_id', productIdsToPublish);
     if (rtsErr) {
       console.warn('[publishToShopify] ready_to_shopify fetch error:', rtsErr.message);
     }
@@ -1172,7 +1217,7 @@ export function useAppStore() {
     // Content fields (title, description, price, images, variants) come from
     // ready_to_shopify; meta fields (vendor, category, dimensions, etc.) come
     // from the products state.
-    const payload = selectedProducts.map(p => {
+    const payload = productsToPublish.map(p => {
       // productId is the products table UUID; for readyToPublishList p.id is the RTS UUID
       const productId = (p as any).productId || p.id;
       const rts = rtsMap.get(productId);
@@ -1275,7 +1320,7 @@ export function useAppStore() {
 
       for (let i = 0; i < payload.length; i++) {
         const item = payload[i];
-        const matchedProduct = selectedProducts.find(
+        const matchedProduct = productsToPublish.find(
           p => ((p as any).productId || p.id) === item.id
         );
         const rtsUuid = matchedProduct?.id ?? item.rts_id;
@@ -1348,19 +1393,19 @@ export function useAppStore() {
               }
             }
 
-            // Drop from 準備上載 immediately (DB + local list).
-            if (rtsUuid) {
-              await supabase
-                .from('ready_to_shopify')
-                .update({ furniture_group_checked: null })
-                .eq('id', rtsUuid);
+            // Remove from entire 網上發佈 pipeline (delete RTS + clear queue flags).
+            const pipelineErr = await removeProductFromPublishPipeline(supabase, item.id);
+            if (pipelineErr.rtsError || pipelineErr.productsError) {
+              console.warn(
+                `[publishToShopify] pipeline cleanup for ${item.id}:`,
+                pipelineErr.rtsError || pipelineErr.productsError,
+              );
             }
-            await supabase
-              .from('ready_to_shopify')
-              .update({ furniture_group_checked: null })
-              .eq('product_id', item.id);
 
-            setReadyToPublishList(prev => prev.filter(p => p.id !== rtsUuid));
+            setReadyToPublishList(prev => prev.filter(p => {
+              const pid = (p as any).productId || p.id;
+              return pid !== item.id && p.id !== rtsUuid;
+            }));
             setProducts(prev => prev.map(p => {
               if (p.id !== item.id && (p as any).productId !== item.id) return p;
               return {
@@ -1547,6 +1592,7 @@ export function useAppStore() {
               ready_to_publish: false,
             })
             .eq('id', id);
+          await removeProductFromPublishPipeline(supabase, id);
           setProducts(prev => prev.map(p =>
             p.id === id ? { ...p, syncedAt: syncTimestamp } : p
           ));
@@ -1555,6 +1601,7 @@ export function useAppStore() {
             .from('shopify_products')
             .upsert({
               shopify_product_id: result.shopify_product_id || product.shopifyProductId || `pending-${product.id}`,
+              source_product_id: id,
               title: product.title,
               body_html: product.descriptionHtml || product.description || null,
               vendor: product.factoryName || product.factoriesDisplayName || null,

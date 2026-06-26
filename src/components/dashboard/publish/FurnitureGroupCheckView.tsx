@@ -1019,11 +1019,26 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
     } else {
       // Dedup by product_id — keep the most-recently-imported row per product
       const seen = new Set<string>();
-      const deduped = (data || []).filter((r: any) => {
+      let deduped = (data || []).filter((r: any) => {
         if (r.product_id && seen.has(r.product_id)) return false;
         if (r.product_id) seen.add(r.product_id);
         return true;
       });
+
+      // Defensive: exclude products already live on Shopify
+      const productIds = deduped.map((r: any) => r.product_id).filter(Boolean) as string[];
+      if (productIds.length > 0) {
+        const { data: liveProducts } = await supabase
+          .from('products')
+          .select('id')
+          .in('id', productIds)
+          .not('shopify_product_id', 'is', null);
+        if (liveProducts?.length) {
+          const liveSet = new Set(liveProducts.map((p: { id: string }) => p.id));
+          deduped = deduped.filter((r: any) => !r.product_id || !liveSet.has(r.product_id));
+        }
+      }
+
       setItems(deduped.map((r: any) => {
         // product_type is stored as "L1 / L2"
         const ptParts = (r.product_type || '').split(' / ');
