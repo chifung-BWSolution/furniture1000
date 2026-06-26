@@ -32,6 +32,14 @@ const RTS_LIST_SELECT = `
   )
 `;
 
+const RTS_COUNT_SELECT = `
+  id,
+  products!inner (
+    id, shopify_product_id, level1_category, level2_category,
+    factories_display_name, model, factory_id
+  )
+`;
+
 interface UsePublishRtsListOpts {
   applyBaseFilters: (q: any) => any;
   reloadKey?: number;
@@ -173,17 +181,30 @@ export function usePublishRtsList({ applyBaseFilters, reloadKey = 0, orderBy }: 
       } else {
         data = d1;
       }
-      setRows((data || []).map(flattenRtsListRow));
+      const flattenedRows = (data || []).map(flattenRtsListRow);
+      setRows(flattenedRows);
+      const fallbackCount = from + flattenedRows.length;
+      setTotalCount(fallbackCount);
       setIsLoading(false);
 
-      buildFilters(supabase.from('ready_to_shopify').select('id', { count: 'exact', head: true }))
+      buildFilters(supabase.from('ready_to_shopify').select(RTS_COUNT_SELECT, { count: 'exact', head: true }))
         .abortSignal(countController.signal)
-        .then(({ count }: { count: number | null }) => {
+        .then(({ count, error }: { count: number | null; error: { message?: string } | null }) => {
           if (!countController.signal.aborted && requestId === fetchSeq.current) {
-            setTotalCount(count || 0);
+            if (error) {
+              console.warn('[usePublishRtsList] count error:', error.message);
+              setTotalCount(fallbackCount);
+            } else {
+              setTotalCount(count || 0);
+            }
           }
         })
-        .catch(() => { /* ignore count errors */ });
+        .catch((err) => {
+          if (!countController.signal.aborted && requestId === fetchSeq.current) {
+            console.warn('[usePublishRtsList] count failed:', err instanceof Error ? err.message : err);
+            setTotalCount(fallbackCount);
+          }
+        });
     } catch {
       if (!dataController.signal.aborted && requestId === fetchSeq.current) {
         setRows([]);
