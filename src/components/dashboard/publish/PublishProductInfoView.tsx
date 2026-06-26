@@ -17,6 +17,7 @@ import { excludeAlreadyPublishedRts } from '@/lib/publishPipeline';
 import { syncRtsContentToProduct, syncRtsWorkflowToProduct } from '@/lib/rtsProductSync';
 import { usePublishRtsList } from './usePublishRtsList';
 import { CategoryTagPicker, type BwfCat } from './CategoryTagPicker';
+import { parseRtsImageUrls } from '@/lib/rtsImages';
 
 type ProductionType = 'stock' | 'custom' | null;
 
@@ -101,21 +102,34 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
     ],
   });
 
-  // Extra images from ready_to_shopify.images (list row already has cost / materials)
-  const [rtsImagesMap, setRtsImagesMap] = useState<Record<string, { src: string; alt: string }[]>>({});
+  // List RPC omits heavy images jsonb — lazy-load per page after rows render.
+  const [imagesByProductId, setImagesByProductId] = useState<Record<string, string[]>>({});
+  const imagesFetchSeq = useRef(0);
   useEffect(() => {
-    if (rows.length === 0) return;
-    const imgsM: Record<string, { src: string; alt: string }[]> = {};
-    for (const r of rows) {
-      const imgs = Array.isArray(r.images) ? r.images : [];
-      if (imgs.length > 0) {
-        imgsM[r.id as string] = imgs.map((img: any) => ({
-          src: img?.src || img?.url || (typeof img === 'string' ? img : ''),
-          alt: img?.alt || '',
-        })).filter((img: { src: string; alt: string }) => img.src && img.src !== r.image_url);
-      }
+    if (rows.length === 0) {
+      setImagesByProductId({});
+      return;
     }
-    setRtsImagesMap(imgsM);
+    const productIds = rows.map((r: any) => r.id as string).filter(Boolean);
+    const seq = ++imagesFetchSeq.current;
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from('ready_to_shopify')
+        .select('product_id, image_url, images')
+        .in('product_id', productIds);
+      if (cancelled || seq !== imagesFetchSeq.current) return;
+      if (error) {
+        console.warn('[PublishProductInfoView] images fetch failed:', error.message);
+        return;
+      }
+      const map: Record<string, string[]> = {};
+      for (const row of data ?? []) {
+        if (row.product_id) map[row.product_id] = parseRtsImageUrls(row);
+      }
+      setImagesByProductId(map);
+    })();
+    return () => { cancelled = true; };
   }, [rows]);
 
   // Lightbox state for enlarged image
@@ -388,49 +402,13 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
                   {/* card head */}
                   <div className="flex items-center gap-3 border-b border-border/60 px-5 py-3">
                     <input type="checkbox" checked={isSel} onChange={() => toggle(it.id)} className="h-4 w-4 rounded border-border accent-emerald-600" />
-                    {/* Use ready_to_shopify image_url (base64 → img) if available, fallback to products.image_url */}
-                    {/* Primary image */}
-                    <div
-                      className="group relative h-12 w-12 flex-shrink-0 cursor-zoom-in"
-                      onClick={() => { if (it.imageUrl) setLightboxSrc(it.imageUrl); }}
-                    >
-                      <img
-                        src={it.imageUrl}
-                        alt={it.title}
-                        loading="lazy"
-                        className="h-12 w-12 rounded-lg object-cover bg-muted"
-                      />
-                      <div className="absolute inset-0 hidden group-hover:flex items-center justify-center rounded-lg bg-black/30">
-                        <ZoomIn className="h-4 w-4 text-white" />
-                      </div>
-                    </div>
-                    {/* Additional images from ready_to_shopify.images */}
-                    {(rtsImagesMap[it.id] ?? []).length > 0 && (
-                      <div className="flex flex-shrink-0 items-center gap-1">
-                        {(rtsImagesMap[it.id] ?? []).slice(0, 6).map((img, idx) => (
-                          <div
-                            key={idx}
-                            className="group relative h-12 w-12 cursor-zoom-in flex-shrink-0"
-                            onClick={() => { if (img.src) setLightboxSrc(img.src); }}
-                          >
-                            <img
-                              src={img.src}
-                              alt={img.alt || it.title}
-                              loading="lazy"
-                              className="h-12 w-12 rounded-lg object-cover bg-muted"
-                            />
-                            <div className="absolute inset-0 hidden group-hover:flex items-center justify-center rounded-lg bg-black/30">
-                              <ZoomIn className="h-3 w-3 text-white" />
-                            </div>
-                          </div>
-                        ))}
-                        {(rtsImagesMap[it.id] ?? []).length > 6 && (
-                          <span className="rounded bg-muted px-1.5 py-0.5 font-body text-[10px] text-muted-foreground">
-                            +{(rtsImagesMap[it.id] ?? []).length - 6}
-                          </span>
-                        )}
-                      </div>
-                    )}
+                    <ProductImageStrip
+                      productId={it.id}
+                      title={it.title}
+                      fallbackUrls={it.imageUrl ? [it.imageUrl] : []}
+                      allUrls={imagesByProductId[it.id]}
+                      onZoom={setLightboxSrc}
+                    />
                     <div className="min-w-0 flex-1">
                       <h3 className="font-display text-[14px] font-bold text-foreground line-clamp-1">{it.title}</h3>
                       <div className="mt-0.5 flex flex-wrap items-center gap-1.5">
@@ -684,6 +662,101 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
           </DialogFooter>
         </DialogContent>
       </Dialog>
+    </div>
+  );
+}
+
+function ProductImageStrip({
+  productId,
+  title,
+  fallbackUrls,
+  allUrls,
+  onZoom,
+}: {
+  productId: string;
+  title: string;
+  fallbackUrls: string[];
+  allUrls?: string[];
+  onZoom: (src: string) => void;
+}) {
+  const urls = allUrls && allUrls.length > 0 ? allUrls : fallbackUrls;
+  const MAX_VISIBLE = 8;
+
+  if (urls.length === 0) {
+    return <div className="h-12 w-12 flex-shrink-0 rounded-lg bg-muted" />;
+  }
+
+  return (
+    <div className="flex flex-shrink-0 items-center gap-1 overflow-x-auto max-w-[420px]">
+      {urls.slice(0, MAX_VISIBLE).map((src, idx) => (
+        <LazyProductThumb
+          key={`${productId}-${idx}-${src.slice(0, 32)}`}
+          src={src}
+          alt={title}
+          priority={idx === 0}
+          onClick={() => onZoom(src)}
+        />
+      ))}
+      {urls.length > MAX_VISIBLE && (
+        <button
+          type="button"
+          onClick={() => onZoom(urls[MAX_VISIBLE])}
+          className="flex h-12 w-12 flex-shrink-0 items-center justify-center rounded-lg bg-muted font-body text-[10px] text-muted-foreground hover:bg-muted/80"
+        >
+          +{urls.length - MAX_VISIBLE}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function LazyProductThumb({
+  src,
+  alt,
+  priority,
+  onClick,
+}: {
+  src: string;
+  alt: string;
+  priority?: boolean;
+  onClick: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [visible, setVisible] = useState(priority ?? false);
+
+  useEffect(() => {
+    if (visible) return;
+    const el = ref.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) setVisible(true); },
+      { rootMargin: '120px' },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [visible]);
+
+  return (
+    <div
+      ref={ref}
+      className="group relative h-12 w-12 flex-shrink-0 cursor-zoom-in"
+      onClick={onClick}
+    >
+      {visible ? (
+        <img
+          src={src}
+          alt={alt}
+          loading={priority ? 'eager' : 'lazy'}
+          decoding="async"
+          fetchPriority={priority ? 'high' : 'low'}
+          className="h-12 w-12 rounded-lg object-cover bg-muted"
+        />
+      ) : (
+        <div className="h-12 w-12 animate-pulse rounded-lg bg-muted" />
+      )}
+      <div className="absolute inset-0 hidden group-hover:flex items-center justify-center rounded-lg bg-black/30">
+        <ZoomIn className="h-3.5 w-3.5 text-white" />
+      </div>
     </div>
   );
 }
