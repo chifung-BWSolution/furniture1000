@@ -88,6 +88,8 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
   // loaded lazily when a product is opened (openProduct).
   const { rows, totalCount, isLoading, Toolbar, Pagination } = usePublishRtsList({
     applyBaseFilters: (q) => excludeAlreadyPublishedRts(q.eq('in_shopify_queue', true).or('copy_done.is.null,copy_done.eq.false')),
+    applyProductsCountFilters: (q) => q.eq('in_shopify_queue', true).or('copy_done.is.null,copy_done.eq.false').is('shopify_product_id', null),
+    countStage: 'copywriting',
     reloadKey,
   });
 

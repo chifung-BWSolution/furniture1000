@@ -182,8 +182,8 @@ export function PublishedProductsView() {
 
   const [isSyncing, setIsSyncing] = useState(false);
 
-  const loadProducts = useCallback(async () => {
-    setIsLoading(true);
+  const loadProducts = useCallback(async (opts?: { silent?: boolean }) => {
+    if (!opts?.silent) setIsLoading(true);
     const { data, error } = await supabase
       .from('shopify_products')
       .select('*')
@@ -214,7 +214,7 @@ export function PublishedProductsView() {
         ),
       })));
     }
-    setIsLoading(false);
+    if (!opts?.silent) setIsLoading(false);
   }, []);
 
   // Mirror-sync with Shopify: upsert all live products, delete rows whose
@@ -227,7 +227,7 @@ export function PublishedProductsView() {
         if (!opts?.silent) toast.error('Shopify 同步失敗', { description: error?.message || data?.error || '請稍後重試' });
         return;
       }
-      await loadProducts();
+      await loadProducts({ silent: true });
       if (!opts?.silent) {
         toast.success('已與 Shopify 同步', {
           description: `線上 ${data.live} 件，更新 ${data.upserted} 件${data.deleted ? `，移除已刪除 ${data.deleted} 件` : ''}`,
@@ -240,11 +240,12 @@ export function PublishedProductsView() {
     }
   }, [loadProducts]);
 
-  // On first load: reconcile the mirror with Shopify (silent), then show data.
+  // On first load, show the local mirror first. Shopify reconciliation can be
+  // slow, so run it in the background instead of blocking the page render.
   useEffect(() => {
     (async () => {
-      await syncMirror({ silent: true });
       await loadProducts();
+      void syncMirror({ silent: true });
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

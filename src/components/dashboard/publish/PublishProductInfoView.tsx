@@ -92,6 +92,8 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
 
   const { rows, totalCount, isLoading, Toolbar, Pagination } = usePublishRtsList({
     applyBaseFilters: (q) => excludeAlreadyPublishedRts(q.eq('in_shopify_queue', true).eq('info_done', false).eq('copy_done', true)),
+    applyProductsCountFilters: (q) => q.eq('in_shopify_queue', true).eq('info_done', false).eq('copy_done', true).is('shopify_product_id', null),
+    countStage: 'product-info',
     reloadKey,
     orderBy: [
       { column: 'copy_done_at', ascending: false, nullsFirst: false },

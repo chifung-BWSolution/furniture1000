@@ -14,17 +14,19 @@ export type PublishListOrder = {
   nullsFirst?: boolean;
 };
 
+export type PublishRtsCountStage = 'copywriting' | 'product-info';
+
 const DEFAULT_ORDER: PublishListOrder[] = [
   { column: 'copy_queued_at', ascending: false, nullsFirst: false },
   { column: 'imported_at', ascending: false },
 ];
 
 const RTS_LIST_SELECT = `
-  id, product_id, title, body_html, image_url, images, vendor, product_type, tags, price, sku, cost,
+  id, product_id, title, body_html, image_url, vendor, product_type, tags, price, sku, cost,
   copy_done, copy_done_at, copy_queued_at, info_done, in_shopify_queue, revert_reason, imported_at,
   material, "my_fields.materials",
   products!inner (
-    id, title, description, description_html, image_url, image_url_2, image_url_3,
+    id, title, description, description_html, image_url,
     factories_display_name, level1_category, level2_category,
     sale_price, price, cost_price, sku, model, factory_id, tags,
     dimension_l_mm, dimension_w_mm, dimension_h_mm, in_stock, customize, revert_reason,
@@ -32,22 +34,16 @@ const RTS_LIST_SELECT = `
   )
 `;
 
-const RTS_COUNT_SELECT = `
-  id,
-  products!inner (
-    id, shopify_product_id, level1_category, level2_category,
-    factories_display_name, model, factory_id
-  )
-`;
-
 interface UsePublishRtsListOpts {
   applyBaseFilters: (q: any) => any;
+  applyProductsCountFilters: (q: any) => any;
+  countStage: PublishRtsCountStage;
   reloadKey?: number;
   orderBy?: PublishListOrder[];
 }
 
 /** Publish list sourced from ready_to_shopify (workflow flags) + embedded products (display/sync). */
-export function usePublishRtsList({ applyBaseFilters, reloadKey = 0, orderBy }: UsePublishRtsListOpts) {
+export function usePublishRtsList({ applyBaseFilters, applyProductsCountFilters, countStage, reloadKey = 0, orderBy }: UsePublishRtsListOpts) {
   const [rows, setRows] = useState<any[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -108,12 +104,14 @@ export function usePublishRtsList({ applyBaseFilters, reloadKey = 0, orderBy }: 
     const controller = new AbortController();
     (async () => {
       let q = supabase
-        .from('ready_to_shopify')
-        .select('vendor, products!inner(factories_display_name)');
-      q = applyBaseFilters(q);
+        .from('products')
+        .select('factories_display_name')
+        .not('factories_display_name', 'is', null)
+        .neq('factories_display_name', '');
+      q = applyProductsCountFilters(q);
       const { data } = await q.abortSignal(controller.signal);
       if (cancelled || !data) return;
-      const names = data.map((r: any) => r.vendor || r.products?.factories_display_name).filter(Boolean) as string[];
+      const names = data.map((r: any) => r.factories_display_name).filter(Boolean) as string[];
       const unique = Array.from(new Set(names));
       unique.sort((a, b) => a.localeCompare(b, 'zh'));
       setAvailableFactories(unique);
@@ -187,24 +185,32 @@ export function usePublishRtsList({ applyBaseFilters, reloadKey = 0, orderBy }: 
       setTotalCount(fallbackCount);
       setIsLoading(false);
 
-      buildFilters(supabase.from('ready_to_shopify').select(RTS_COUNT_SELECT, { count: 'exact', head: true }))
-        .abortSignal(countController.signal)
-        .then(({ count, error }: { count: number | null; error: { message?: string } | null }) => {
+      (async () => {
+        try {
+          const { data: count, error } = await supabase
+            .rpc('get_publish_rts_count', {
+              p_stage: countStage,
+              p_search: debouncedSearch.trim() || null,
+              p_level1: level1Filter || null,
+              p_level2: level2Filter || null,
+              p_factories: selectedFactories.length > 0 ? selectedFactories : null,
+            })
+            .abortSignal(countController.signal);
           if (!countController.signal.aborted && requestId === fetchSeq.current) {
             if (error) {
               console.warn('[usePublishRtsList] count error:', error.message);
               setTotalCount(fallbackCount);
             } else {
-              setTotalCount(count || 0);
+              setTotalCount(Number(count) || 0);
             }
           }
-        })
-        .catch((err) => {
+        } catch (err) {
           if (!countController.signal.aborted && requestId === fetchSeq.current) {
             console.warn('[usePublishRtsList] count failed:', err instanceof Error ? err.message : err);
             setTotalCount(fallbackCount);
           }
-        });
+        }
+      })();
     } catch {
       if (!dataController.signal.aborted && requestId === fetchSeq.current) {
         setRows([]);
@@ -212,7 +218,7 @@ export function usePublishRtsList({ applyBaseFilters, reloadKey = 0, orderBy }: 
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, pageSize, debouncedSearch, level1Filter, level2Filter, selectedFactories, reloadKey, resolvedOrderBy]);
+  }, [currentPage, pageSize, debouncedSearch, level1Filter, level2Filter, selectedFactories, reloadKey, resolvedOrderBy, countStage]);
 
   useEffect(() => { fetchRows(); }, [fetchRows]);
   useEffect(() => () => {
