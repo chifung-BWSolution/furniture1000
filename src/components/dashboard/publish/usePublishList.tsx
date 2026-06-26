@@ -57,6 +57,14 @@ export function usePublishList({ select, applyBaseFilters, reloadKey = 0, orderB
 
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Inline `orderBy={[...]}` from callers gets a new reference every render — stabilize
+  // so fetchRows doesn't re-run in a loop (spinner forever + brief product flash).
+  const orderByKey = JSON.stringify(orderBy ?? DEFAULT_ORDER);
+  const resolvedOrderBy = useMemo(
+    () => orderBy ?? DEFAULT_ORDER,
+    [orderByKey],
+  );
+
   // debounce search
   useEffect(() => {
     if (searchTimer.current) clearTimeout(searchTimer.current);
@@ -127,7 +135,7 @@ export function usePublishList({ select, applyBaseFilters, reloadKey = 0, orderB
         return q;
       };
 
-      const orders = orderBy ?? DEFAULT_ORDER;
+      const orders = resolvedOrderBy;
 
       const runQuery = async (spec: PublishListOrder[]) => {
         let q = buildFilters(supabase.from('products').select(select));
@@ -159,7 +167,7 @@ export function usePublishList({ select, applyBaseFilters, reloadKey = 0, orderB
       setIsLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, pageSize, debouncedSearch, level1Filter, level2Filter, selectedFactories, reloadKey, orderBy]);
+  }, [currentPage, pageSize, debouncedSearch, level1Filter, level2Filter, selectedFactories, reloadKey, resolvedOrderBy]);
 
   useEffect(() => { fetchRows(); }, [fetchRows]);
 
