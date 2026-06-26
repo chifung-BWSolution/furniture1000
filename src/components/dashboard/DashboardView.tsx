@@ -37,7 +37,9 @@ async function fetchDashboardStats(signal?: AbortSignal): Promise<DashboardStats
     })
     .single();
 
-  const { data, error } = await (signal ? request.abortSignal(signal) : request);
+  const { data, error } = await (
+    signal ? (request as any).abortSignal(signal) : request
+  );
   if (error) throw error;
 
   return {

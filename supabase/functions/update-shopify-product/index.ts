@@ -98,16 +98,25 @@ function buildMetafields(mf: Record<string, string> | undefined) {
   return out;
 }
 
+function firstSkuFromVariants(variants: Record<string, unknown>[]): string | null {
+  for (const variant of variants) {
+    const sku = typeof variant.sku === "string" ? variant.sku.trim() : "";
+    if (sku) return sku;
+  }
+  return null;
+}
+
 /**
  * update-shopify-product
  *
  * Single-direction sync: system → Shopify. Updates an EXISTING Shopify product
- * (title, body_html, variant price, images) and upserts its metafields.
+ * (title, body_html, variant price/SKU, images) and upserts its metafields.
  *
  * POST {
  *   shopify_product_id: string,                 // required — the live Shopify product id
  *   source_product_id?: string,                 // products.id, to mirror back to shopify_products
- *   title?, body_html?, price?, compare_at_price?,
+ *   title?, body_html?, price?, compare_at_price?, sku?,
+ *   variants?: { id?: string|number; index?: number; sku?: string }[],
  *   images?: string[],                          // ordered image URLs (first = primary)
  *   metafields?: { "namespace.key": value }     // map matching shopify_products columns
  * }
@@ -142,7 +151,7 @@ Deno.serve(async (req: Request) => {
       title, body_html: bodyHtml,
       price, compare_at_price: compareAtPrice,
       vendor, product_type: productType, tags,
-      images, metafields,
+      images, variants, sku, metafields,
       handle, seo_title: seoTitle, seo_description: seoDescription,
     } = body as {
       shopify_product_id?: string;
@@ -155,6 +164,8 @@ Deno.serve(async (req: Request) => {
       product_type?: string;
       tags?: string[] | string;
       images?: string[];
+      variants?: { id?: string | number; index?: number; sku?: string | null }[];
+      sku?: string | null;
       metafields?: Record<string, string>;
       handle?: string;
       seo_title?: string;
@@ -187,12 +198,40 @@ Deno.serve(async (req: Request) => {
         : String(tags || "");
     }
 
-    // Price → applied to every variant (these products are variant-less / single variant)
-    if (price != null && !isNaN(Number(price))) {
-      productUpdate.variants = existingVariants.map((v) => {
-        const nv: Record<string, unknown> = { id: v.id, price: Number(price).toFixed(2) };
-        if (compareAtPrice != null && !isNaN(Number(compareAtPrice)) && Number(compareAtPrice) > Number(price)) {
+    const requestedVariantSkus = new Map<string, string | null>();
+    if (Array.isArray(variants)) {
+      for (const [index, variant] of variants.entries()) {
+        const key = variant.id != null ? String(variant.id) : `index-${variant.index ?? index}`;
+        requestedVariantSkus.set(key, variant.sku == null ? null : String(variant.sku).trim());
+      }
+    }
+    const fallbackSku = sku == null ? undefined : String(sku).trim();
+    const shouldUpdateVariants =
+      (price != null && !isNaN(Number(price))) ||
+      requestedVariantSkus.size > 0 ||
+      fallbackSku !== undefined;
+
+    // Price/SKU → applied to variants. Price is currently shared across all variants.
+    if (shouldUpdateVariants) {
+      productUpdate.variants = existingVariants.map((v, index) => {
+        const nv: Record<string, unknown> = { id: v.id };
+        if (price != null && !isNaN(Number(price))) nv.price = Number(price).toFixed(2);
+        if (
+          price != null &&
+          compareAtPrice != null &&
+          !isNaN(Number(compareAtPrice)) &&
+          Number(compareAtPrice) > Number(price)
+        ) {
           nv.compare_at_price = Number(compareAtPrice).toFixed(2);
+        }
+        const idKey = v.id != null ? String(v.id) : "";
+        const indexKey = `index-${index}`;
+        if (requestedVariantSkus.has(idKey)) {
+          nv.sku = requestedVariantSkus.get(idKey) || "";
+        } else if (requestedVariantSkus.has(indexKey)) {
+          nv.sku = requestedVariantSkus.get(indexKey) || "";
+        } else if (fallbackSku !== undefined && existingVariants.length === 1) {
+          nv.sku = fallbackSku;
         }
         return nv;
       });
@@ -261,6 +300,11 @@ Deno.serve(async (req: Request) => {
       shopify_updated_at: String(updated.updated_at || new Date().toISOString()),
       ...mfColumns,
     };
+    const updatedVariants = Array.isArray(updated.variants) ? updated.variants as Record<string, unknown>[] : [];
+    if (shouldUpdateVariants) {
+      spUpdate.variants = updatedVariants;
+      spUpdate.sku = firstSkuFromVariants(updatedVariants) ?? fallbackSku ?? null;
+    }
     if (typeof title === "string" && title.trim()) spUpdate.title = title;
     if (typeof bodyHtml === "string") spUpdate.body_html = bodyHtml;
     if (typeof vendor === "string") spUpdate.vendor = vendor;

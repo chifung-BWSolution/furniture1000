@@ -42,6 +42,7 @@ export interface PublishedProductRow {
   images?: ShopifyImage[] | null;
   variants?: ShopifyVariant[] | null;
   tags?: string[] | null;
+  sku?: string | null;
   price: number | null;
   compare_at_price?: number | null;
   shopify_created_at?: string | null;
@@ -77,6 +78,10 @@ function fmtMoney(n: number | string | null | undefined): string {
 function variantLabel(v: ShopifyVariant): string {
   const opts = [v.option1, v.option2, v.option3].filter(Boolean).join(' / ');
   return opts || v.title || 'Default';
+}
+
+function variantEditKey(v: ShopifyVariant, index: number): string {
+  return v.id != null ? String(v.id) : `index-${index}`;
 }
 
 function ReadOnlyField({ label, value, mono }: { label: string; value: string | null | undefined; mono?: boolean }) {
@@ -118,6 +123,8 @@ export function PublishedProductDetailModal({
   const [editSeoTitle, setEditSeoTitle] = useState('');
   const [editSeoDesc, setEditSeoDesc] = useState('');
   const [editHandle, setEditHandle] = useState('');
+  const [editVariantSkus, setEditVariantSkus] = useState<Record<string, string>>({});
+  const [editFallbackSku, setEditFallbackSku] = useState('');
 
   useEffect(() => {
     supabase
@@ -147,6 +154,13 @@ export function PublishedProductDetailModal({
     setEditSeoTitle(r.title || '');
     setEditSeoDesc('');
     setEditHandle(r.handle || '');
+    setEditVariantSkus(
+      (Array.isArray(r.variants) ? r.variants : []).reduce<Record<string, string>>((acc, v, i) => {
+        acc[variantEditKey(v, i)] = v.sku || '';
+        return acc;
+      }, {})
+    );
+    setEditFallbackSku(r.sku || '');
     setSelectedImg(r.image_url || null);
   }, [r]);
 
@@ -179,6 +193,11 @@ export function PublishedProductDetailModal({
 
   const displayImg = (selectedImg && allImages.includes(selectedImg)) ? selectedImg : (allImages[0] || '');
   const variants: ShopifyVariant[] = Array.isArray(r.variants) ? r.variants : [];
+  const editableVariants = variants.map((v, i) => ({
+    id: v.id,
+    index: i,
+    sku: editVariantSkus[variantEditKey(v, i)] ?? '',
+  }));
 
   const inputCls = 'w-full rounded-lg border border-border bg-background px-3 py-2 text-sm font-body text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 transition-colors';
   const textareaCls = `${inputCls} resize-y`;
@@ -209,6 +228,8 @@ export function PublishedProductDetailModal({
           product_type: productType,
           tags,
           images: allImages.length > 0 ? allImages : undefined,
+          variants: editableVariants.length > 0 ? editableVariants : undefined,
+          sku: editableVariants.length === 0 ? (editFallbackSku.trim() || null) : undefined,
           metafields: Object.keys(metafields).length > 0 ? metafields : undefined,
           handle: editHandle.trim() || undefined,
           seo_title: editSeoTitle.trim() || undefined,
@@ -426,7 +447,7 @@ export function PublishedProductDetailModal({
               </div>
             </section>
 
-            {/* Variants — read-only */}
+            {/* Variants */}
             {variants.length > 0 && (
               <section className="rounded-xl border border-border bg-card p-5 space-y-3">
                 <div className="text-sm font-bold text-foreground">
@@ -443,17 +464,38 @@ export function PublishedProductDetailModal({
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border/60">
-                      {variants.map((v, i) => (
+                      {variants.map((v, i) => {
+                        const key = variantEditKey(v, i);
+                        return (
                         <tr key={v.id ?? i} className="hover:bg-muted/30">
                           <td className="px-3 py-2 font-medium text-foreground">{variantLabel(v)}</td>
-                          <td className="px-3 py-2 font-mono-data text-muted-foreground">{v.sku || '—'}</td>
+                          <td className="px-3 py-2">
+                            <input
+                              className="w-full min-w-[180px] rounded-md border border-border bg-background px-2 py-1.5 font-mono-data text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+                              value={editVariantSkus[key] ?? ''}
+                              onChange={(e) => setEditVariantSkus((prev) => ({ ...prev, [key]: e.target.value }))}
+                              placeholder="輸入 SKU"
+                            />
+                          </td>
                           <td className="px-3 py-2 text-right font-mono-data">{fmtMoney(v.price ?? null)}</td>
                           <td className="px-3 py-2 text-right font-mono-data text-muted-foreground">{v.inventory_quantity ?? '—'}</td>
                         </tr>
-                      ))}
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
+              </section>
+            )}
+            {variants.length === 0 && (
+              <section className="rounded-xl border border-border bg-card p-5 space-y-3">
+                <div className="text-sm font-bold text-foreground">SKU</div>
+                <input
+                  className={`${inputCls} font-mono-data`}
+                  value={editFallbackSku}
+                  onChange={(e) => setEditFallbackSku(e.target.value)}
+                  placeholder="輸入 SKU"
+                />
               </section>
             )}
 
