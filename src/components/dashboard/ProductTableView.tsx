@@ -31,6 +31,7 @@ import {
 } from '@/components/ui/tooltip';
 import { ProductDetailModal } from './ProductDetailModal';
 import { FGProductDetailModal } from './publish/FurnitureGroupCheckView';
+import type { ReadyToPublishServerList } from './publish/useReadyToPublishList';
 import {
   X,
   Plus,
@@ -313,6 +314,8 @@ interface ProductTableViewProps {
   isPublishing?: boolean;
   lastSyncTime?: string | null;
   readyToPublishMode?: boolean;
+  /** When set with readyToPublishMode, filters/pagination are server-driven. */
+  serverList?: ReadyToPublishServerList;
 }
 
 type TableTab = 'local' | 'shopify' | 'all';
@@ -338,6 +341,7 @@ export const ProductTableView = memo(function ProductTableView({
   isPublishing,
   lastSyncTime,
   readyToPublishMode = false,
+  serverList,
 }: ProductTableViewProps) {
   const [editingCell, setEditingCell] = useState<{ id: string; field: string } | null>(null);
   const [editValue, setEditValue] = useState('');
@@ -347,7 +351,6 @@ export const ProductTableView = memo(function ProductTableView({
   const [showRevertDialog, setShowRevertDialog] = useState(false);
   const [revertReasons, setRevertReasons] = useState<string[]>([]);
   const [revertOther, setRevertOther] = useState('');
-  const [skuSortDir, setSkuSortDir] = useState<'asc' | 'desc'>('asc');
   const REVERT_OPTIONS = ['產品情景圖修改', '產品圖片角度不足', '產品說明修正', '其他'];
   const [pickerSearch, setPickerSearch] = useState('');
   const [pickerFactoryFilter, setPickerFactoryFilter] = useState('');
@@ -358,12 +361,31 @@ export const ProductTableView = memo(function ProductTableView({
   const [detailProduct, setDetailProduct] = useState<Product | null>(null);
   const [currentPage, setCurrentPage] = useState(0);
 
+  const serverMode = readyToPublishMode && !!serverList;
+
   // ── Filters (same UX as 產品信息): search by name/SKU, L1/L2 category, factory, page size ──
-  const [searchQuery, setSearchQuery] = useState('');
-  const [pageSize, setPageSize] = useState(25);
-  const [level1Filter, setLevel1Filter] = useState('');
-  const [level2Filter, setLevel2Filter] = useState('');
-  const [factoryFilter, setFactoryFilter] = useState('');
+  const [localSearchQuery, setLocalSearchQuery] = useState('');
+  const [localPageSize, setLocalPageSize] = useState(25);
+  const [localLevel1Filter, setLocalLevel1Filter] = useState('');
+  const [localLevel2Filter, setLocalLevel2Filter] = useState('');
+  const [localFactoryFilter, setLocalFactoryFilter] = useState('');
+  const [localSkuSortDir, setLocalSkuSortDir] = useState<'asc' | 'desc'>('asc');
+
+  const searchQuery = serverMode ? serverList!.searchQuery : localSearchQuery;
+  const setSearchQuery = serverMode ? serverList!.setSearchQuery : setLocalSearchQuery;
+  const pageSize = serverMode ? serverList!.pageSize : localPageSize;
+  const setPageSize = serverMode ? serverList!.setPageSize : setLocalPageSize;
+  const level1Filter = serverMode ? serverList!.level1Filter : localLevel1Filter;
+  const setLevel1Filter = serverMode ? serverList!.setLevel1Filter : setLocalLevel1Filter;
+  const level2Filter = serverMode ? serverList!.level2Filter : localLevel2Filter;
+  const setLevel2Filter = serverMode ? serverList!.setLevel2Filter : setLocalLevel2Filter;
+  const factoryFilter = serverMode ? serverList!.factoryFilter : localFactoryFilter;
+  const setFactoryFilter = serverMode ? serverList!.setFactoryFilter : setLocalFactoryFilter;
+  const skuSortDir = serverMode ? serverList!.skuSortDir : localSkuSortDir;
+  const setSkuSortDir = serverMode ? serverList!.setSkuSortDir : setLocalSkuSortDir;
+  const currentPageIndex = serverMode ? serverList!.currentPage : currentPage;
+  const setCurrentPageIndex = serverMode ? serverList!.setCurrentPage : setCurrentPage;
+
   const [categoryPairs, setCategoryPairs] = useState<{ level1: string; level2: string }[]>([]);
   const PAGE_SIZE = pageSize;
 
@@ -382,8 +404,10 @@ export const ProductTableView = memo(function ProductTableView({
     [categoryPairs, level1Filter]
   );
   const factoryOptions = useMemo(
-    () => Array.from(new Set(products.map(p => p.factoriesDisplayName || p.factoryName || '').filter(Boolean))),
-    [products]
+    () => serverMode
+      ? serverList!.factoryOptions
+      : Array.from(new Set(products.map(p => p.factoriesDisplayName || p.factoryName || '').filter(Boolean))),
+    [products, serverMode, serverList]
   );
 
   // Shift-click range selection state
@@ -423,6 +447,7 @@ export const ProductTableView = memo(function ProductTableView({
 
   // Apply search (name/SKU), L1/L2 category, and factory filters.
   const filteredProducts = useMemo(() => {
+    if (serverMode) return tabProducts;
     const q = searchQuery.trim().toLowerCase();
     return tabProducts.filter(p => {
       if (q) {
@@ -446,43 +471,49 @@ export const ProductTableView = memo(function ProductTableView({
       }
       return true;
     });
-  }, [tabProducts, searchQuery, level1Filter, level2Filter, factoryFilter]);
+  }, [tabProducts, searchQuery, level1Filter, level2Filter, factoryFilter, serverMode]);
 
   const displayedProducts = useMemo(() => {
+    if (serverMode) return filteredProducts;
     if (!readyToPublishMode) return filteredProducts;
     return [...filteredProducts].sort((a, b) => {
       const cmp = compareSkuNatural(primarySortSku(a), primarySortSku(b));
       return skuSortDir === 'asc' ? cmp : -cmp;
     });
-  }, [filteredProducts, readyToPublishMode, skuSortDir]);
+  }, [filteredProducts, readyToPublishMode, skuSortDir, serverMode]);
 
-  const allFilteredIds = useMemo(() => displayedProducts.map(p => p.id), [displayedProducts]);
-  const allSelected = useMemo(
-    () => allFilteredIds.length > 0 && allFilteredIds.every(id => selectedIds.has(id)),
-    [allFilteredIds, selectedIds]
-  );
-
-  // Pagination
-  const totalPages = Math.ceil(displayedProducts.length / PAGE_SIZE);
+  const totalPages = serverMode
+    ? Math.max(1, Math.ceil(serverList!.totalCount / PAGE_SIZE))
+    : Math.ceil(displayedProducts.length / PAGE_SIZE);
   const paginatedProducts = useMemo(
-    () => displayedProducts.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE),
-    [displayedProducts, currentPage, PAGE_SIZE]
+    () => serverMode
+      ? displayedProducts
+      : displayedProducts.slice(currentPageIndex * PAGE_SIZE, (currentPageIndex + 1) * PAGE_SIZE),
+    [displayedProducts, currentPageIndex, PAGE_SIZE, serverMode]
   );
+  // Select-all applies to the current page only (e.g. 25 rows), not every filtered row.
+  const pageIds = useMemo(() => paginatedProducts.map(p => p.id), [paginatedProducts]);
+  const allPageSelected = useMemo(
+    () => pageIds.length > 0 && pageIds.every(id => selectedIds.has(id)),
+    [pageIds, selectedIds]
+  );
+  const filterMatchCount = serverMode ? serverList!.totalCount : filteredProducts.length;
 
-  // Reset page when tab or any filter changes
+  // Reset page when tab or any filter changes (client mode only)
   useEffect(() => {
+    if (serverMode) return;
     setCurrentPage(0);
-  }, [activeTab, filterProductId, searchQuery, level1Filter, level2Filter, factoryFilter, pageSize, skuSortDir]);
+  }, [activeTab, filterProductId, searchQuery, level1Filter, level2Filter, factoryFilter, pageSize, skuSortDir, serverMode]);
 
   // Handle checkbox click with shift-click range selection support
   const selectedIdsRef = useRef(selectedIds);
   selectedIdsRef.current = selectedIds;
-  const displayedProductsRef = useRef(displayedProducts);
-  displayedProductsRef.current = displayedProducts;
+  const displayedProductsRef = useRef(paginatedProducts);
+  displayedProductsRef.current = paginatedProducts;
 
   const handleCheckboxClick = useCallback((e: React.MouseEvent, productId: string, index: number) => {
     if (e.shiftKey && lastSelectedIndexRef.current !== null) {
-      // Range selection
+      // Range selection — indices are page-local (0 … pageSize-1)
       const start = Math.min(lastSelectedIndexRef.current, index);
       const end = Math.max(lastSelectedIndexRef.current, index);
       const rangeIds = displayedProductsRef.current.slice(start, end + 1).map(p => p.id);
@@ -550,10 +581,14 @@ export const ProductTableView = memo(function ProductTableView({
     setDetailProduct(null);
   }, [onUpdateProduct]);
 
-  // Memoized select all handler to prevent re-render cascades
-  const handleSelectAll = useCallback(() => {
-    onSelectAll(allFilteredIds);
-  }, [onSelectAll, allFilteredIds]);
+  // Memoized select-all handler — current page only
+  const handleSelectAll = useCallback((checked: boolean | 'indeterminate') => {
+    if (checked === true) {
+      onSelectAll(pageIds);
+    } else {
+      onSelectRange(pageIds, false);
+    }
+  }, [onSelectAll, onSelectRange, pageIds]);
 
   const handleOpenVariantModal = useCallback((product: Product) => {
     const dims = [product.dimensionLMm, product.dimensionWMm, product.dimensionHMm].filter(Boolean).join('x') || '';
@@ -785,18 +820,23 @@ export const ProductTableView = memo(function ProductTableView({
             </button>
           )}
           <span className="ml-auto font-mono-data text-[11px] text-muted-foreground">
-            符合 {filteredProducts.length} 件
+            符合 {filterMatchCount} 件
           </span>
         </div>
 
         {/* Table */}
-        <div className="flex-1 overflow-auto">
+        <div className="flex-1 overflow-auto relative">
+          {serverMode && serverList!.isLoading && (
+            <div className="absolute inset-0 z-20 flex items-center justify-center bg-background/60">
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
+            </div>
+          )}
           <table className="w-full min-w-[1200px]">
             <thead className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm">
               <tr className="border-b border-border">
                 <th className="w-12 px-4 py-3">
                   <Checkbox
-                    checked={allSelected}
+                    checked={allPageSelected}
                     onCheckedChange={handleSelectAll}
                   />
                 </th>
@@ -814,7 +854,7 @@ export const ProductTableView = memo(function ProductTableView({
                   {readyToPublishMode ? (
                     <button
                       type="button"
-                      onClick={() => setSkuSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
+                      onClick={() => setSkuSortDir(skuSortDir === 'asc' ? 'desc' : 'asc')}
                       title={skuSortDir === 'asc' ? 'SKU 升序（A→Z，1→9）' : 'SKU 降序（Z→A，9→1）'}
                       className="inline-flex items-center gap-1 font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground transition-colors hover:text-foreground"
                     >
@@ -870,7 +910,7 @@ export const ProductTableView = memo(function ProductTableView({
                   key={product.id}
                   product={product}
                   isSelected={selectedIds.has(product.id)}
-                  globalIndex={currentPage * PAGE_SIZE + i}
+                  globalIndex={i}
                   editingCell={editingCell?.id === product.id ? editingCell : null}
                   editValue={editingCell?.id === product.id ? editValue : ''}
                   onCheckboxClick={handleCheckboxClick}
@@ -888,7 +928,7 @@ export const ProductTableView = memo(function ProductTableView({
             </tbody>
           </table>
 
-          {filteredProducts.length === 0 && (
+          {!serverList?.isLoading && filterMatchCount === 0 && (
             <div className="flex flex-col items-center justify-center py-20">
               {activeTab === 'shopify' ? (
                 <>
@@ -916,14 +956,14 @@ export const ProductTableView = memo(function ProductTableView({
           {totalPages > 1 && (
             <div className="flex items-center justify-between border-t border-border px-6 py-3 bg-muted/20">
               <span className="font-mono-data text-[11px] text-muted-foreground">
-                第 {currentPage + 1} / {totalPages} 頁 · 共 {filteredProducts.length} 個產品
+                第 {currentPageIndex + 1} / {totalPages} 頁 · 共 {filterMatchCount} 個產品
               </span>
               <div className="flex items-center gap-2">
                 <Button
                   variant="outline"
                   size="sm"
-                  disabled={currentPage === 0}
-                  onClick={() => setCurrentPage(p => Math.max(0, p - 1))}
+                  disabled={currentPageIndex === 0}
+                  onClick={() => setCurrentPageIndex(Math.max(0, currentPageIndex - 1))}
                   className="h-7 px-3 text-xs font-mono-data"
                 >
                   上一頁
@@ -931,8 +971,8 @@ export const ProductTableView = memo(function ProductTableView({
                 <Button
                   variant="outline"
                   size="sm"
-                  disabled={currentPage >= totalPages - 1}
-                  onClick={() => setCurrentPage(p => Math.min(totalPages - 1, p + 1))}
+                  disabled={currentPageIndex >= totalPages - 1}
+                  onClick={() => setCurrentPageIndex(Math.min(totalPages - 1, currentPageIndex + 1))}
                   className="h-7 px-3 text-xs font-mono-data"
                 >
                   下一頁
