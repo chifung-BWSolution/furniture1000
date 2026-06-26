@@ -21,19 +21,6 @@ const DEFAULT_ORDER: PublishListOrder[] = [
   { column: 'imported_at', ascending: false },
 ];
 
-const RTS_LIST_SELECT = `
-  id, product_id, title, body_html, image_url, vendor, product_type, tags, price, sku, cost,
-  copy_done, copy_done_at, copy_queued_at, info_done, in_shopify_queue, revert_reason, imported_at,
-  material, "my_fields.materials",
-  products!inner (
-    id, title, description, description_html, image_url,
-    factories_display_name, level1_category, level2_category,
-    sale_price, price, cost_price, sku, model, factory_id, tags,
-    dimension_l_mm, dimension_w_mm, dimension_h_mm, in_stock, customize, revert_reason,
-    shopify_product_id
-  )
-`;
-
 interface UsePublishRtsListOpts {
   applyBaseFilters: (q: any) => any;
   applyProductsCountFilters: (q: any) => any;
@@ -144,40 +131,24 @@ export function usePublishRtsList({ applyBaseFilters, applyProductsCountFilters,
       const from = (currentPage - 1) * pageSize;
       const to = from + pageSize - 1;
 
-      const buildFilters = (q: any) => {
-        q = applyBaseFilters(q);
-        if (debouncedSearch.trim()) {
-          const term = debouncedSearch.trim().replace(/[,()]/g, ' ');
-          q = q.or(`title.ilike.%${term}%,sku.ilike.%${term}%,products.model.ilike.%${term}%,products.factory_id.ilike.%${term}%`);
-        }
-        if (level1Filter) q = q.eq('products.level1_category', level1Filter);
-        if (level2Filter) q = q.eq('products.level2_category', level2Filter);
-        if (selectedFactories.length > 0) {
-          q = q.or(selectedFactories.map((f) => `vendor.eq.${f},products.factories_display_name.eq.${f}`).join(','));
-        }
-        return q;
-      };
-
-      const orders = resolvedOrderBy;
-
-      const runQuery = async (spec: PublishListOrder[], signal: AbortSignal) => {
-        let q = buildFilters(supabase.from('ready_to_shopify').select(RTS_LIST_SELECT));
-        for (const o of spec) {
-          q = q.order(o.column, { ascending: o.ascending ?? false, nullsFirst: o.nullsFirst });
-        }
-        return q.range(from, to).abortSignal(signal);
-      };
-
-      let data: any[] | null = null;
-      const { data: d1, error: e1 } = await runQuery(orders, dataController.signal);
+      const { data, error } = await supabase
+        .rpc('get_publish_rts_rows', {
+          p_stage: countStage,
+          p_search: debouncedSearch.trim() || null,
+          p_level1: level1Filter || null,
+          p_level2: level2Filter || null,
+          p_factories: selectedFactories.length > 0 ? selectedFactories : null,
+          p_limit: pageSize,
+          p_offset: from,
+        })
+        .abortSignal(dataController.signal);
       if (dataController.signal.aborted || requestId !== fetchSeq.current) return;
-      if (e1) {
-        console.warn('[usePublishRtsList] primary order failed, falling back to imported_at:', e1.message);
-        const { data: d2 } = await runQuery([{ column: 'imported_at', ascending: false }], dataController.signal);
-        if (dataController.signal.aborted || requestId !== fetchSeq.current) return;
-        data = d2;
-      } else {
-        data = d1;
+      if (error) {
+        console.warn('[usePublishRtsList] rows error:', error.message);
+        setRows([]);
+        setTotalCount(0);
+        setIsLoading(false);
+        return;
       }
       const flattenedRows = (data || []).map(flattenRtsListRow);
       setRows(flattenedRows);
@@ -218,7 +189,7 @@ export function usePublishRtsList({ applyBaseFilters, applyProductsCountFilters,
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, pageSize, debouncedSearch, level1Filter, level2Filter, selectedFactories, reloadKey, resolvedOrderBy, countStage]);
+  }, [currentPage, pageSize, debouncedSearch, level1Filter, level2Filter, selectedFactories, reloadKey, countStage]);
 
   useEffect(() => { fetchRows(); }, [fetchRows]);
   useEffect(() => () => {
