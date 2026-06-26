@@ -10,6 +10,18 @@ import { supabase } from './supabase';
 // See memory: products-heavy-images-column.
 
 const BUCKET = 'product-images';
+const UPLOAD_MAX_RETRIES = 3;
+const UPLOAD_RETRY_BASE_MS = 800;
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** Never persist base64 blobs in Postgres — they blow up list queries and time out upserts. */
+export function stripBase64ForDb(value: string | null | undefined): string {
+  if (!value) return '';
+  return isBase64Image(value) ? '' : value;
+}
 
 /** True if a string is a base64 image data-URL (or a raw base64 blob) that needs uploading. */
 export function isBase64Image(value: string | null | undefined): boolean {
@@ -51,9 +63,7 @@ export async function uploadBase64Image(
     return base64;
   }
 
-  const { error } = await supabase.storage
-    .from(BUCKET)
-    .upload(filePath, bytes, { contentType: mimeType, upsert: true });
+  const { error } = await uploadWithRetry(filePath, bytes, mimeType);
   if (error) {
     console.warn('[imageStorage] storage upload error:', error.message);
     return base64; // non-destructive fallback
@@ -61,6 +71,25 @@ export async function uploadBase64Image(
 
   const { data } = supabase.storage.from(BUCKET).getPublicUrl(filePath);
   return data.publicUrl || base64;
+}
+
+async function uploadWithRetry(
+  filePath: string,
+  bytes: Uint8Array,
+  mimeType: string,
+): Promise<{ error: { message: string } | null }> {
+  let lastErr: { message: string } | null = null;
+  for (let attempt = 0; attempt < UPLOAD_MAX_RETRIES; attempt++) {
+    const { error } = await supabase.storage
+      .from(BUCKET)
+      .upload(filePath, bytes, { contentType: mimeType, upsert: true });
+    if (!error) return { error: null };
+    lastErr = error;
+    if (attempt < UPLOAD_MAX_RETRIES - 1) {
+      await sleep(UPLOAD_RETRY_BASE_MS * (attempt + 1));
+    }
+  }
+  return { error: lastErr };
 }
 
 /**
@@ -76,10 +105,9 @@ export async function uploadBase64Image(
  */
 export async function resolveRowsImagesToStorage<
   T extends { id: string },
->(rows: T[], concurrency = 3): Promise<T[]> {
+>(rows: T[], concurrency = 2): Promise<T[]> {
   const out: T[] = new Array(rows.length);
   let cursor = 0;
-  // Coerce loosely-typed row image fields to string for the uploader.
   const asStr = (v: unknown): string => (typeof v === 'string' ? v : '');
   async function worker() {
     while (cursor < rows.length) {
@@ -88,12 +116,16 @@ export async function resolveRowsImagesToStorage<
         image_url?: unknown; image_url_2?: unknown; image_url_3?: unknown;
       };
       const v1 = asStr(row.image_url), v2 = asStr(row.image_url_2), v3 = asStr(row.image_url_3);
-      const [u1, u2, u3] = await Promise.all([
-        v1 ? uploadBase64Image(v1, row.id, 'primary') : Promise.resolve(row.image_url ?? null),
-        v2 ? uploadBase64Image(v2, row.id, 'extra0') : Promise.resolve(row.image_url_2 ?? null),
-        v3 ? uploadBase64Image(v3, row.id, 'extra1') : Promise.resolve(row.image_url_3 ?? null),
-      ]);
-      out[i] = { ...row, image_url: u1, image_url_2: u2, image_url_3: u3 };
+      // Sequential per row — avoids 3× concurrent Storage POSTs that saturated the pool.
+      const u1 = v1 ? await uploadBase64Image(v1, row.id, 'primary') : (row.image_url ?? null);
+      const u2 = v2 ? await uploadBase64Image(v2, row.id, 'extra0') : (row.image_url_2 ?? null);
+      const u3 = v3 ? await uploadBase64Image(v3, row.id, 'extra1') : (row.image_url_3 ?? null);
+      out[i] = {
+        ...row,
+        image_url: isBase64Image(String(u1 ?? '')) ? '' : u1,
+        image_url_2: isBase64Image(String(u2 ?? '')) ? null : u2,
+        image_url_3: isBase64Image(String(u3 ?? '')) ? null : u3,
+      };
     }
   }
   await Promise.all(
@@ -111,7 +143,7 @@ export async function resolveImagesToStorage(
   productId: string,
   primary: string | null | undefined,
   extras: string[] = [],
-  concurrency = 3,
+  concurrency = 2,
 ): Promise<{ primary: string | null; extras: string[] }> {
   const resolvedPrimary = primary
     ? await uploadBase64Image(primary, productId, 'primary')

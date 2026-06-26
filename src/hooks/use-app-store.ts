@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { Product, ProductVariant, ProductStatus, ProductSource, AppSettings, ViewType } from '@/types/product';
 import { supabase } from '@/lib/supabase';
+import { resolveRowsImagesToStorage, stripBase64ForDb } from '@/lib/imageStorage';
 import { toast } from 'sonner';
 
 const generateId = () => Math.random().toString(36).substring(2, 15);
@@ -188,7 +189,7 @@ function dbRowToProduct(row: any, variants: any[]): Product {
   };
 }
 
-// Save products to Supabase
+// Save products to Supabase — batched upserts, images to Storage first (never base64 in DB).
 async function saveProductsToDb(productsToSave: Product[]) {
   const productRows = productsToSave.map(p => ({
     id: p.id,
@@ -200,7 +201,7 @@ async function saveProductsToDb(productsToSave: Product[]) {
     compare_at_price: p.compareAtPrice || null,
     collection: p.collection,
     status: p.status,
-    image_url: p.imageUrl,
+    image_url: stripBase64ForDb(p.imageUrl),
     error_message: p.errorMessage || null,
     shopify_product_id: p.shopifyProductId || null,
     sku: p.sku || '',
@@ -227,13 +228,22 @@ async function saveProductsToDb(productsToSave: Product[]) {
     delivery_term_name: p.deliveryTermName || null,
   }));
 
-  const { error: prodErr } = await supabase
-    .from('products')
-    .upsert(productRows, { onConflict: 'id' });
+  const resolvedRows = await resolveRowsImagesToStorage(productRows);
+  const stillHasBase64 = resolvedRows.some(
+    r => typeof r.image_url === 'string' && r.image_url.startsWith('data:'),
+  );
+  const UPSERT_CHUNK = stillHasBase64 ? 3 : 8;
 
-  if (prodErr) {
-    console.error('[Supabase] Error saving products:', prodErr);
-    throw prodErr;
+  for (let ci = 0; ci < resolvedRows.length; ci += UPSERT_CHUNK) {
+    const batch = resolvedRows.slice(ci, ci + UPSERT_CHUNK);
+    const { error: prodErr } = await supabase
+      .from('products')
+      .upsert(batch, { onConflict: 'id' });
+
+    if (prodErr) {
+      console.error(`[Supabase] Error saving products batch ${Math.floor(ci / UPSERT_CHUNK) + 1}:`, prodErr);
+      throw prodErr;
+    }
   }
 
   const productIds = productsToSave.map(p => p.id);
@@ -262,10 +272,13 @@ async function saveProductsToDb(productsToSave: Product[]) {
     }))
   );
 
-  if (allVariants.length > 0) {
+  const VARIANT_CHUNK = 50;
+  for (let vi = 0; vi < allVariants.length; vi += VARIANT_CHUNK) {
+    const batch = allVariants.slice(vi, vi + VARIANT_CHUNK);
+    if (batch.length === 0) continue;
     const { error: varErr } = await supabase
       .from('product_variants')
-      .insert(allVariants);
+      .insert(batch);
 
     if (varErr) {
       console.error('[Supabase] Error inserting variants:', varErr);
