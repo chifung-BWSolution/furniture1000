@@ -18,10 +18,8 @@ export default defineConfig({
       "react/jsx-dev-runtime",
       "react-router-dom",
       "base64-js", // 強制轉換這個報錯的模組
-      "pdfjs-dist", // 加回來，因為它需要 CommonJS 轉 ESM
-      "@react-pdf/renderer", // 確保它被 Vite 處理，解決兼容性問題
     ],
-    exclude: ["framer-motion"],
+    exclude: ["framer-motion", "pdfjs-dist", "@react-pdf/renderer", "xlsx"],
   },
   plugins: [react()],
   resolve: {
@@ -34,5 +32,65 @@ export default defineConfig({
     // @ts-ignore
     allowedHosts: process.env.TEMPO === "true" ? true : undefined,
     host: process.env.TEMPO === "true" ? "0.0.0.0" : undefined,
+  },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return undefined;
+          if (id.includes("@react-pdf/renderer")) {
+            return "vendor-react-pdf-renderer";
+          }
+          if (id.includes("@react-pdf/")) {
+            const parts = id.split("node_modules/")[1]?.split(/[\\/]/).filter(Boolean) ?? [];
+            return `vendor-${(parts[0] ?? "react-pdf").slice(1)}-${parts[1] ?? "core"}`;
+          }
+          if (id.includes("pdfkit")) {
+            return "vendor-pdfkit";
+          }
+          if (id.includes("fontkit") || id.includes("restructure") || id.includes("brotli")) {
+            return "vendor-fontkit";
+          }
+          if (id.includes("pdfjs-dist")) {
+            return "vendor-pdfjs";
+          }
+          if (id.includes("xlsx") || id.includes("jszip")) {
+            return "vendor-xlsx";
+          }
+          if (id.includes("recharts") || id.includes("d3-")) {
+            return "vendor-charts";
+          }
+          if (id.includes("@supabase")) {
+            return "vendor-supabase";
+          }
+          if (id.includes("@tiptap") || id.includes("prosemirror")) {
+            return "vendor-editor";
+          }
+          if (id.includes("framer-motion")) {
+            return "vendor-motion";
+          }
+          if (id.includes("@radix-ui")) {
+            return "vendor-radix";
+          }
+          if (
+            id.includes("react") ||
+            id.includes("react-dom") ||
+            id.includes("react-router")
+          ) {
+            return "vendor-react";
+          }
+          const parts = id.split("node_modules/")[1]?.split(/[\\/]/).filter(Boolean) ?? [];
+          const packageName = parts[0]?.startsWith("@")
+            ? `${parts[0].slice(1)}-${parts[1] ?? "pkg"}`
+            : parts[0] ?? "misc";
+          if (
+            ["babel-runtime", "detect-node-es", "dom-helpers", "is-url"].includes(packageName)
+          ) {
+            return undefined;
+          }
+          return `vendor-${packageName.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+        },
+      },
+    },
   },
 });

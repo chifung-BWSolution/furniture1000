@@ -8,12 +8,15 @@ import { DashboardView } from "./DashboardView";
 import { ProductTableView } from "./ProductTableView";
 import { SettingsView } from "./SettingsView";
 import { PublishModal } from "./PublishModal";
+import { FurnitureGroupCheckView } from "./publish/FurnitureGroupCheckView";
 import { Construction, WifiOff, RefreshCw } from "lucide-react";
 import { findSection, getSection } from "./navConfig";
 import { type PrimarySection, type ViewType } from "@/types/product";
 import { addToCatalog } from "@/lib/catalogStore";
 import { toast } from "sonner";
 import { checkSupabaseHealth, waitForSupabaseRecovery } from "@/lib/supabase";
+import { supabase as sb } from "@/lib/supabase";
+import { syncRtsWorkflowToProduct } from "@/lib/rtsProductSync";
 
 // Lazy-loaded heavy views (contain large dependencies like pdfjs-dist, @react-pdf/renderer, etc.)
 const AIProcessorView = lazy(() =>
@@ -52,9 +55,6 @@ const PublishPrecheckView = lazy(() =>
 );
 const PublishedProductsView = lazy(() =>
   import("./publish/PublishedProductsView").then((mod) => ({ default: mod.PublishedProductsView }))
-);
-const FurnitureGroupCheckView = lazy(() =>
-  import("./publish/FurnitureGroupCheckView").then((mod) => ({ default: mod.FurnitureGroupCheckView }))
 );
 // 分析報表 (Analytics Reports)
 const FactoryReportView = lazy(() =>
@@ -324,8 +324,6 @@ export function AppShell() {
             onUploadUnsyncedToMaster={store.publishSelected}
             onRevertToInfo={async (ids, reasons) => {
               // ids = ready_to_shopify.id (RTS row IDs — that is what ProductTableView stores)
-              const { supabase: sb } = await import('@/lib/supabase');
-              const { toast } = await import('sonner');
               const revertReason = (reasons.labels.length > 0 || reasons.other)
                 ? { labels: reasons.labels, other: reasons.other || null }
                 : null;
@@ -356,7 +354,6 @@ export function AppShell() {
                 toast.error('退回失敗', { description: updateErr.message });
                 return;
               }
-              const { syncRtsWorkflowToProduct } = await import('@/lib/rtsProductSync');
               await Promise.all(productIds.map((id) => syncRtsWorkflowToProduct(sb, id, {
                 ready_to_publish: false,
                 info_done: false,
@@ -370,8 +367,6 @@ export function AppShell() {
               });
             }}
             onBatchDeleteProducts={async (ids) => {
-              const { supabase: sb } = await import('@/lib/supabase');
-              const { toast } = await import('sonner');
               // ids are ready_to_shopify.id values — delete directly
               const { error } = await sb.from('ready_to_shopify').delete().in('id', ids);
               if (error) {

@@ -46,9 +46,31 @@ import {
   Upload,
   Search,
   Check,
+  ArrowUp,
+  ArrowDown,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
+
+/** Letters a→z, then numeric chunks 1→9 (natural / alphanumeric order). */
+function compareSkuNatural(a: string, b: string): number {
+  const ta = a.trim();
+  const tb = b.trim();
+  if (!ta && !tb) return 0;
+  if (!ta) return 1;
+  if (!tb) return -1;
+  return ta.localeCompare(tb, undefined, { numeric: true, sensitivity: 'base' });
+}
+
+function primarySortSku(product: Product): string {
+  const direct = (product.sku || '').trim();
+  if (direct) return direct;
+  const variantSkus = (product.variants ?? [])
+    .map((v) => (v.sku || '').trim())
+    .filter(Boolean);
+  if (variantSkus.length === 0) return '';
+  return variantSkus.slice().sort(compareSkuNatural)[0];
+}
 
 // ─── Memoized Table Row ─────────────────────────────────────────────────────
 interface ProductTableRowProps {
@@ -325,6 +347,7 @@ export const ProductTableView = memo(function ProductTableView({
   const [showRevertDialog, setShowRevertDialog] = useState(false);
   const [revertReasons, setRevertReasons] = useState<string[]>([]);
   const [revertOther, setRevertOther] = useState('');
+  const [skuSortDir, setSkuSortDir] = useState<'asc' | 'desc'>('asc');
   const REVERT_OPTIONS = ['產品情景圖修改', '產品圖片角度不足', '產品說明修正', '其他'];
   const [pickerSearch, setPickerSearch] = useState('');
   const [pickerFactoryFilter, setPickerFactoryFilter] = useState('');
@@ -425,38 +448,46 @@ export const ProductTableView = memo(function ProductTableView({
     });
   }, [tabProducts, searchQuery, level1Filter, level2Filter, factoryFilter]);
 
-  const allFilteredIds = useMemo(() => filteredProducts.map(p => p.id), [filteredProducts]);
+  const displayedProducts = useMemo(() => {
+    if (!readyToPublishMode) return filteredProducts;
+    return [...filteredProducts].sort((a, b) => {
+      const cmp = compareSkuNatural(primarySortSku(a), primarySortSku(b));
+      return skuSortDir === 'asc' ? cmp : -cmp;
+    });
+  }, [filteredProducts, readyToPublishMode, skuSortDir]);
+
+  const allFilteredIds = useMemo(() => displayedProducts.map(p => p.id), [displayedProducts]);
   const allSelected = useMemo(
     () => allFilteredIds.length > 0 && allFilteredIds.every(id => selectedIds.has(id)),
     [allFilteredIds, selectedIds]
   );
 
   // Pagination
-  const totalPages = Math.ceil(filteredProducts.length / PAGE_SIZE);
+  const totalPages = Math.ceil(displayedProducts.length / PAGE_SIZE);
   const paginatedProducts = useMemo(
-    () => filteredProducts.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE),
-    [filteredProducts, currentPage]
+    () => displayedProducts.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE),
+    [displayedProducts, currentPage, PAGE_SIZE]
   );
 
   // Reset page when tab or any filter changes
   useEffect(() => {
     setCurrentPage(0);
-  }, [activeTab, filterProductId, searchQuery, level1Filter, level2Filter, factoryFilter, pageSize]);
+  }, [activeTab, filterProductId, searchQuery, level1Filter, level2Filter, factoryFilter, pageSize, skuSortDir]);
 
   // Handle checkbox click with shift-click range selection support
   const selectedIdsRef = useRef(selectedIds);
   selectedIdsRef.current = selectedIds;
-  const filteredProductsRef = useRef(filteredProducts);
-  filteredProductsRef.current = filteredProducts;
+  const displayedProductsRef = useRef(displayedProducts);
+  displayedProductsRef.current = displayedProducts;
 
   const handleCheckboxClick = useCallback((e: React.MouseEvent, productId: string, index: number) => {
     if (e.shiftKey && lastSelectedIndexRef.current !== null) {
       // Range selection
       const start = Math.min(lastSelectedIndexRef.current, index);
       const end = Math.max(lastSelectedIndexRef.current, index);
-      const rangeIds = filteredProductsRef.current.slice(start, end + 1).map(p => p.id);
+      const rangeIds = displayedProductsRef.current.slice(start, end + 1).map(p => p.id);
       // Determine whether to select or deselect based on whether the anchor was being selected
-      const anchorId = filteredProductsRef.current[lastSelectedIndexRef.current]?.id;
+      const anchorId = displayedProductsRef.current[lastSelectedIndexRef.current]?.id;
       const shouldSelect = anchorId ? selectedIdsRef.current.has(anchorId) : true;
       onSelectRange(rangeIds, shouldSelect);
     } else {
@@ -780,9 +811,25 @@ export const ProductTableView = memo(function ProductTableView({
                   </span>
                 </th>
                 <th className="px-4 py-3 text-left">
-                  <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    產品編碼 (SKU)
-                  </span>
+                  {readyToPublishMode ? (
+                    <button
+                      type="button"
+                      onClick={() => setSkuSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
+                      title={skuSortDir === 'asc' ? 'SKU 升序（A→Z，1→9）' : 'SKU 降序（Z→A，9→1）'}
+                      className="inline-flex items-center gap-1 font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground transition-colors hover:text-foreground"
+                    >
+                      產品編碼 (SKU)
+                      {skuSortDir === 'asc' ? (
+                        <ArrowUp className="h-3 w-3 text-primary" />
+                      ) : (
+                        <ArrowDown className="h-3 w-3 text-primary" />
+                      )}
+                    </button>
+                  ) : (
+                    <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                      產品編碼 (SKU)
+                    </span>
+                  )}
                 </th>
                 <th className="px-4 py-3 text-left">
                   <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
