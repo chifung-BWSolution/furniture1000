@@ -1007,10 +1007,10 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
       // info_completed_at column may not exist until migration runs
       const fallback = await supabase
         .from('ready_to_shopify')
-        .select('id,product_id,title,image_url,vendor,product_type,price,tags,sku')
+        .select('id,product_id,title,image_url,vendor,product_type,price,tags,sku,imported_at')
         .eq('furniture_group_checked', false)
         .order('imported_at', { ascending: false });
-      data = fallback.data;
+      data = (fallback.data || []).map((row: any) => ({ ...row, info_completed_at: null }));
       error = fallback.error;
     }
 

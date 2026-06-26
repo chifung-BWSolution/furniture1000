@@ -860,15 +860,15 @@ export function QuotationDraftEditor({
         if (cached.deliveryDetails) {
           setDeliveryDetails(cached.deliveryDetails);
         }
-        if ((cached as Record<string, unknown>).installationFee) {
+        const cachedRecord = cached as unknown as Record<string, unknown>;
+        if (cachedRecord.installationFee) {
           setInstallationFee(
-            (cached as Record<string, unknown>)
-              .installationFee as typeof installationFee,
+            cachedRecord.installationFee as typeof installationFee,
           );
         }
-        if (typeof (cached as Record<string, unknown>).discountNote === "string") {
+        if (typeof cachedRecord.discountNote === "string") {
           setDiscountNote(
-            (cached as Record<string, unknown>).discountNote as string,
+            cachedRecord.discountNote as string,
           );
         }
         if (cached.termsContent) {

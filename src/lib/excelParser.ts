@@ -1123,6 +1123,7 @@ const COLUMN_PATTERNS: Record<keyof Omit<ColumnMapping, 'dimensionHeader'>, RegE
   imageCol: [/产品图片|產品圖片|product\s*image|photo|单图|單圖|产品图|產品圖/i],                 // Product image ONLY (not 效果圖)
   lifestyleImageCol: [/效果图|效果圖|lifestyle|scene\s*image|场景图|場景圖/i],           // Lifestyle images
   deliveryTermRef: [/貨期|货期|交期|lead\s*time|delivery\s*term|參考貨期|参考货期|生產周期|生产周期|production\s*lead/i],   // Delivery term reference
+  headerRowIndex: [],
 };
 
 /**
@@ -1298,7 +1299,7 @@ export async function parseExcelFile(
     cellStyles: true,
     cellDates: true,
     bookImages: false, // Images already extracted via JSZip
-  });
+  } as any);
   
   const sheetNames = workbook.SheetNames;
   console.log(`[ExcelParser] Found ${sheetNames.length} sheets: ${sheetNames.join(', ')}`);
@@ -2349,7 +2350,7 @@ export async function extractRawExcelTable(
     cellStyles: true,
     cellDates: true,
     bookImages: false,
-  });
+  } as any);
 
   const sheetNames = workbook.SheetNames;
   console.log(`[RawTable] Workbook has ${sheetNames.length} sheets: [${sheetNames.join(', ')}]`);
@@ -3246,7 +3247,7 @@ function extractImagesViaXLSX(fileBuffer: ArrayBuffer): ExcelImage[] {
     const workbook = XLSX.read(fileBuffer, {
       type: 'array',
       bookImages: true,
-    });
+    } as any);
     
     // @ts-ignore
     if (workbook.Workbook?.Media) {

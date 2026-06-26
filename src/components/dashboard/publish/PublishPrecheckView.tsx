@@ -179,11 +179,21 @@ export function PublishPrecheckView({ onNavigate, onProductsReadyToPublish }: Pr
     }
     setIsEntering(true);
     try {
+      const now = new Date().toISOString();
       const { error } = await supabase
         .from('products')
         .update({ ready_to_publish: true })
         .in('id', ids);
       if (error) throw new Error(error.message);
+      const { error: rtsError } = await supabase
+        .from('ready_to_shopify')
+        .update({
+          furniture_group_checked: true,
+          ready_to_publish_at: now,
+          info_done: true,
+        })
+        .in('product_id', ids);
+      if (rtsError) throw new Error(rtsError.message);
       setItems(prev => prev.filter(r => !ids.includes(r.id)));
       setSelectedIds(new Set());
       await onProductsReadyToPublish?.();

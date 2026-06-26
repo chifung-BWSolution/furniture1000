@@ -159,14 +159,14 @@ export function useFactoryLearning(factoryId: string, factoryName: string) {
    * Returns a NEW array — does not mutate input.
    */
   const applyCorrections = useCallback(
-    <T extends { modelNumber?: string; [key: string]: unknown }>(
+    <T extends { modelNumber?: string }>(
       products: T[],
     ): T[] => {
       const patterns = correctionCache.current[factoryId];
       if (!patterns || patterns.length === 0) return products;
 
       return products.map((product) => {
-        const updated = { ...product };
+        const updated = { ...product } as T & Record<string, unknown>;
         for (const pattern of patterns) {
           const field = pattern.fieldName as CorrectableField;
           // Apply only when model matches (if a model was provided) OR globally
@@ -193,7 +193,7 @@ export function useFactoryLearning(factoryId: string, factoryName: string) {
             (updated as any)[field] = pattern.correctedValue;
           }
         }
-        return updated;
+        return updated as T;
       });
     },
     [factoryId],

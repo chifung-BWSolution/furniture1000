@@ -447,11 +447,11 @@ export function useAppStore() {
         if (error && error.message.includes('ready_to_publish_at')) {
           const fallback = await supabase
             .from('ready_to_shopify')
-            .select('id,product_id,title,body_html,vendor,product_type,variants,tags,price,compare_at_price,shopify_product_id,status')
+            .select('id,product_id,title,body_html,vendor,product_type,variants,tags,price,compare_at_price,shopify_product_id,status,imported_at')
             .eq('furniture_group_checked', true)
             .order('imported_at', { ascending: false })
             .range(from, from + PAGE - 1);
-          data = fallback.data;
+          data = (fallback.data || []).map((row: any) => ({ ...row, ready_to_publish_at: null }));
           error = fallback.error;
         }
         if (error) { console.warn('[reloadReadyToPublish] query error:', error.message); break; }
@@ -459,26 +459,6 @@ export function useAppStore() {
         allRows = allRows.concat(data);
         if (data.length < PAGE) break;
         from += PAGE;
-      }
-
-      if (allRows.length === 0) {
-        if (gen === reloadReadyToPublishGen.current) setReadyToPublishList([]);
-        return;
-      }
-
-      // Defensive: hide RTS rows whose product already has shopify_product_id
-      // (e.g. publish succeeded on Shopify but local cleanup lagged).
-      const linkedProductIds = allRows.map((r) => r.product_id).filter(Boolean) as string[];
-      if (linkedProductIds.length > 0) {
-        const { data: alreadyLive } = await supabase
-          .from('products')
-          .select('id')
-          .in('id', linkedProductIds)
-          .not('shopify_product_id', 'is', null);
-        if (alreadyLive?.length) {
-          const liveSet = new Set(alreadyLive.map((p: { id: string }) => p.id));
-          allRows = allRows.filter((r) => !r.product_id || !liveSet.has(r.product_id));
-        }
       }
 
       if (allRows.length === 0) {

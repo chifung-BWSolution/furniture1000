@@ -22,6 +22,7 @@ export interface DraftData {
   items: Record<string, unknown>[];
   subtotal: number;
   discountNote?: string;
+  installationFee?: Record<string, unknown>;
 }
 
 function openDB(): Promise<IDBDatabase> {

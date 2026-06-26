@@ -2503,8 +2503,8 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         const remarks = getCellStr('remarks') ? simplifiedToTraditional(getCellStr('remarks')) : null;
         const specifications = getCellStr('specifications') ? simplifiedToTraditional(getCellStr('specifications')) : null;
         // image_url_2 / image_url_3: first check user-mapped column, then fall back to auto-extracted extra images
-        const imageUrl2 = getCellStr('image_url_2') || (row as any).productImageData2 || null;
-        const imageUrl3 = getCellStr('image_url_3') || (row as any).productImageData3 || null;
+        let imageUrl2 = getCellStr('image_url_2') || (row as any).productImageData2 || null;
+        let imageUrl3 = getCellStr('image_url_3') || (row as any).productImageData3 || null;
         // in_stock: mapped column text → boolean
         const inStockColMapped = fieldToCol['in_stock'] !== undefined;
         const inStockRaw = getCellStr('in_stock');

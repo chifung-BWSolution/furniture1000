@@ -30,14 +30,14 @@ export async function removeProductFromPublishPipeline(
 }
 
 /** Exclude products that already have a live Shopify ID (defensive list filter). */
-export function excludeAlreadyPublished<T extends { is: (col: string, op: string, val: null) => T }>(
+export function excludeAlreadyPublished<T extends { is: (col: string, val: null) => T }>(
   q: T,
 ): T {
   return q.is('shopify_product_id', null);
 }
 
 /** Same guard for ready_to_shopify lists (shopify_product_id lives on embedded products). */
-export function excludeAlreadyPublishedRts<T extends { is: (col: string, op: string, val: null) => T }>(
+export function excludeAlreadyPublishedRts<T extends { is: (col: string, val: null) => T }>(
   q: T,
 ): T {
   return q.is('products.shopify_product_id', null);

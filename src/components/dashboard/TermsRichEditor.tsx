@@ -284,7 +284,7 @@ export function TermsRichEditor({ value, onChange, editable = true }: TermsRichE
       // The preserveUnderlineSpaces function converts &nbsp; to \u00A0 which
       // ProseMirror treats as real text content (never stripped)
       const processed = preserveUnderlineSpaces(value);
-      editor.commands.setContent(processed, false);
+      editor.commands.setContent(processed, { emitUpdate: false });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value]);
