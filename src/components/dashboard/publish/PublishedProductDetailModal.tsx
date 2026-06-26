@@ -2,12 +2,18 @@ import { useState, useEffect, useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import {
   X, Loader2, Package, Tag, DollarSign, Ruler, Boxes, Store, RefreshCw, ImageIcon, Search,
+  Factory, ChevronsUpDown, Check,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { PUBLISH_STATE_META, type PublishState } from '@/constants/analytics-mock';
 import { Textarea } from '@/components/ui/textarea';
+import { Button } from '@/components/ui/button';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { CategoryTagPicker, type BwfCat } from './CategoryTagPicker';
+import { MANUFACTURERS } from '@/constants/manufacturers';
+import { fetchFactoriesWithIds, type FactoryItem } from '@/lib/factorySupabase';
 
 interface ShopifyVariant {
   id?: string | number;
@@ -125,6 +131,11 @@ export function PublishedProductDetailModal({
   const [editHandle, setEditHandle] = useState('');
   const [editVariantSkus, setEditVariantSkus] = useState<Record<string, string>>({});
   const [editFallbackSku, setEditFallbackSku] = useState('');
+  const [manufacturerOpen, setManufacturerOpen] = useState(false);
+  const [manufacturerSearch, setManufacturerSearch] = useState('');
+  const [manufacturerList, setManufacturerList] = useState<string[]>(MANUFACTURERS);
+  const [factoryItemsList, setFactoryItemsList] = useState<FactoryItem[]>([]);
+  const [manufacturerListLoading, setManufacturerListLoading] = useState(true);
 
   useEffect(() => {
     supabase
@@ -137,6 +148,24 @@ export function PublishedProductDetailModal({
       .select('id,name,parent_id,level,sort_order')
       .order('sort_order', { ascending: true })
       .then(({ data }) => { if (data) setBwfCats(data); });
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setManufacturerListLoading(true);
+      const fetched = await fetchFactoriesWithIds();
+      if (cancelled) return;
+      if (fetched.length > 0) {
+        setFactoryItemsList(fetched);
+        setManufacturerList(fetched.map((f) => f.display_name));
+      } else {
+        setFactoryItemsList([]);
+        setManufacturerList(MANUFACTURERS);
+      }
+      setManufacturerListLoading(false);
+    })();
+    return () => { cancelled = true; };
   }, []);
 
   useEffect(() => {
@@ -176,6 +205,16 @@ export function PublishedProductDetailModal({
   );
   const getLevel2Options = (l1: string) =>
     Array.from(new Set(categoryPairs.filter((p) => p.level1 === l1 && p.level2).map((p) => p.level2)));
+
+  const filteredManufacturers = useMemo(() => {
+    if (!manufacturerSearch.trim()) return manufacturerList;
+    const q = manufacturerSearch.toLowerCase();
+    return manufacturerList.filter((m) => {
+      if (m.toLowerCase().includes(q)) return true;
+      const item = factoryItemsList.find((f) => f.display_name === m);
+      return !!item?.factory_id && item.factory_id.toLowerCase().includes(q);
+    });
+  }, [manufacturerSearch, manufacturerList, factoryItemsList]);
 
   const rawImgs: ShopifyImage[] = Array.isArray(r.images) ? r.images : [];
   const sortedImgs = [...rawImgs].sort((a, b) => (a.position ?? 99) - (b.position ?? 99));
@@ -394,7 +433,102 @@ export function PublishedProductDetailModal({
               </div>
               <div>
                 <label className="mb-1 block text-xs font-medium text-muted-foreground">廠商 (Vendor)</label>
-                <input className={inputCls} value={editVendor} onChange={(e) => setEditVendor(e.target.value)} placeholder="廠商名稱" />
+                <Popover open={manufacturerOpen} onOpenChange={setManufacturerOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      role="combobox"
+                      aria-expanded={manufacturerOpen}
+                      className={cn(
+                        'h-10 w-full justify-between rounded-lg border-border bg-background px-3 font-body text-sm hover:bg-accent/50',
+                        !editVendor && 'text-muted-foreground'
+                      )}
+                    >
+                      <div className="flex min-w-0 items-center gap-2">
+                        <Factory className="h-3.5 w-3.5 shrink-0 text-primary/70" />
+                        <span className="truncate">
+                          {editVendor || '選擇或輸入廠家名稱...'}
+                        </span>
+                        {(() => {
+                          const item = factoryItemsList.find((f) => f.display_name === editVendor);
+                          return item?.factory_id ? (
+                            <span className="shrink-0 font-mono-data text-[10px] text-muted-foreground">({item.factory_id})</span>
+                          ) : null;
+                        })()}
+                      </div>
+                      <ChevronsUpDown className="ml-2 h-3.5 w-3.5 shrink-0 opacity-50" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" side="bottom" align="start">
+                    <Command shouldFilter={false}>
+                      <CommandInput
+                        placeholder="搜尋廠家..."
+                        className="font-body text-sm"
+                        value={manufacturerSearch}
+                        onValueChange={setManufacturerSearch}
+                      />
+                      <CommandList>
+                        {manufacturerListLoading ? (
+                          <div className="flex items-center justify-center gap-2 py-6">
+                            <Loader2 className="h-4 w-4 animate-spin text-primary" />
+                            <span className="font-body text-xs text-muted-foreground">載入廠家列表...</span>
+                          </div>
+                        ) : (
+                          <>
+                            <CommandEmpty>
+                              {manufacturerSearch.trim() ? (
+                                <div className="px-2 py-3 text-center">
+                                  <p className="font-body text-xs text-muted-foreground">找不到「{manufacturerSearch}」</p>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className="mt-2 gap-1.5 font-body text-xs text-primary"
+                                    onClick={() => {
+                                      setEditVendor(manufacturerSearch.trim());
+                                      setManufacturerOpen(false);
+                                      setManufacturerSearch('');
+                                    }}
+                                  >
+                                    <Check className="h-3 w-3" />
+                                    使用「{manufacturerSearch}」作為新廠家
+                                  </Button>
+                                </div>
+                              ) : (
+                                <p className="py-3 font-body text-xs text-muted-foreground">沒有找到廠家</p>
+                              )}
+                            </CommandEmpty>
+                            <CommandGroup>
+                              {filteredManufacturers.map((manufacturer) => {
+                                const item = factoryItemsList.find((f) => f.display_name === manufacturer);
+                                return (
+                                  <CommandItem
+                                    key={manufacturer}
+                                    value={manufacturer}
+                                    onSelect={() => {
+                                      setEditVendor(manufacturer);
+                                      setManufacturerOpen(false);
+                                      setManufacturerSearch('');
+                                    }}
+                                    className="cursor-pointer font-body text-sm"
+                                  >
+                                    <Factory className="mr-2 h-3.5 w-3.5 text-muted-foreground/50" />
+                                    <span className="truncate">{manufacturer}</span>
+                                    {item?.factory_id && (
+                                      <span className="ml-1 font-mono-data text-[10px] text-muted-foreground">({item.factory_id})</span>
+                                    )}
+                                    {editVendor === manufacturer && (
+                                      <Check className="ml-auto h-3.5 w-3.5 text-primary" />
+                                    )}
+                                  </CommandItem>
+                                );
+                              })}
+                            </CommandGroup>
+                          </>
+                        )}
+                      </CommandList>
+                    </Command>
+                  </PopoverContent>
+                </Popover>
               </div>
               <div>
                 <label className="mb-1 block text-xs font-medium text-muted-foreground">產品標籤</label>
