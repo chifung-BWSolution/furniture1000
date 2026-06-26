@@ -10,8 +10,9 @@ When you finish making code changes for the user (not for question-only or revie
 1. Run `git status` and `git diff` to review what changed.
 2. Stage only relevant files — never commit secrets (`.env`, credentials, tokens).
 3. Commit with a concise message (1–2 sentences, focus on why). Match repo style (`feat:`, `fix:`, `refactor:`, etc.).
-4. Push the **current branch**: `git push -u origin HEAD` (or `git push origin <branch>` if upstream already set).
-5. Briefly tell the user the commit hash, branch name, and that push succeeded (or report push errors).
+4. Push to **main**: `git push origin main`. Work on `main` directly unless the user asks for a feature branch.
+5. Briefly tell the user the commit hash and that push succeeded (or report push errors).
+6. End the reply with a new line: `大佬，我做完啦，請你檢查 !`
 
 Do this at the end of the same turn, without waiting for the user to ask again.
 
