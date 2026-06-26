@@ -9,6 +9,7 @@ import { ProductTableView } from "./ProductTableView";
 import { SettingsView } from "./SettingsView";
 import { PublishModal } from "./PublishModal";
 import { FurnitureGroupCheckView } from "./publish/FurnitureGroupCheckView";
+import { ReadyToPublishView } from "./publish/ReadyToPublishView";
 import { Construction, WifiOff, RefreshCw } from "lucide-react";
 import { findSection, getSection } from "./navConfig";
 import { type PrimarySection, type ViewType } from "@/types/product";
@@ -219,6 +220,8 @@ export function AppShell() {
   }, [store]);
   // Product to scroll-into-view when navigating from 發佈前檢查
   const [focusProductId, setFocusProductId] = useState<string | null>(null);
+  const rtpReloadRef = useRef<(() => void) | null>(null);
+  const [rtpTotalCount, setRtpTotalCount] = useState(0);
   // Real total/selected counts reported up from ListedProductsView (所有產品)
   const [listedStats, setListedStats] = useState<{ total: number; selected: number; selectedIds: string[] }>({ total: 0, selected: 0, selectedIds: [] });
   const selectedProducts = useMemo(() => {
@@ -230,17 +233,10 @@ export function AppShell() {
       return true;
     });
   }, [store.products, store.readyToPublishList, store.selectedProductIds]);
-  // 準備上載頁：直接使用 reloadReadyToPublish 填充的專用列表（不依賴主 products 狀態）
-  const readyToPublishProducts = store.readyToPublishList;
 
-  // Refresh ready-to-publish list whenever entering the page so older products
-  // (outside the first 100-row pagination window) still appear.
-  useEffect(() => {
-    if (store.currentView === 'ready-to-publish') {
-      store.reloadReadyToPublish();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store.currentView]);
+  const handleRtpReload = useCallback(() => {
+    rtpReloadRef.current?.();
+  }, []);
 
   const handleBulkPublish = useCallback(async () => {
     // 所有產品頁：「上傳到產品目錄」— 把已選產品標記 in_catalog（寫入 Supabase，跨裝置共用）
@@ -270,9 +266,10 @@ export function AppShell() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleConfirmPublish = useCallback(() => {
-    store.publishSelected();
-  }, [store]);
+  const handleConfirmPublish = useCallback(async () => {
+    await store.publishSelected();
+    handleRtpReload();
+  }, [store, handleRtpReload]);
 
   const handleClearEditingQuote = useCallback(() => {
     setEditingQuoteId(null);
@@ -300,23 +297,26 @@ export function AppShell() {
       case "furniture-group-check":
         return (
           <FurnitureGroupCheckView
-            onEnterReadyToPublish={async () => {
-              await store.reloadReadyToPublish();
+            onEnterReadyToPublish={() => {
               store.setCurrentView('ready-to-publish');
             }}
           />
         );
       case "ready-to-publish":
         return (
-          <ProductTableView
-            products={readyToPublishProducts}
+          <ReadyToPublishView
+            onRegisterReload={(fn) => { rtpReloadRef.current = fn; }}
+            onTotalCountChange={setRtpTotalCount}
             selectedIds={store.selectedProductIds}
             filterProductId={store.filterProductId}
             onToggleSelect={store.toggleProductSelection}
             onSelectAll={store.selectAllProducts}
             onSelectRange={store.selectRangeProducts}
             onUpdateProduct={store.updateProduct}
-            onUpdateRtsTags={store.updateReadyToPublishTags}
+            onUpdateRtsTags={async (rtsId, tags) => {
+              await store.updateReadyToPublishTags(rtsId, tags);
+              handleRtpReload();
+            }}
             onRetryPublish={store.retryPublish}
             onDeleteProduct={store.deleteProduct}
             onClearFilter={handleClearFilter}
@@ -361,7 +361,7 @@ export function AppShell() {
                 revert_reason: revertReason,
               })));
 
-              store.reloadReadyToPublish();
+              handleRtpReload();
               toast.success(`已退回 ${ids.length} 件產品至「產品文案」`, {
                 description: revertReason?.labels.length ? `原因：${revertReason.labels.join('、')}` : undefined,
               });
@@ -373,14 +373,13 @@ export function AppShell() {
                 toast.error('批量刪除失敗', { description: error.message });
                 return;
               }
-              store.reloadReadyToPublish();
+              handleRtpReload();
               toast.success(`已刪除 ${ids.length} 件產品`);
             }}
-            onVariantsSaved={() => store.reloadReadyToPublish()}
+            onVariantsSaved={handleRtpReload}
             isSyncing={store.isSyncing}
             isPublishing={store.isPublishing}
             lastSyncTime={store.lastSyncTime}
-            readyToPublishMode={true}
           />
         );
       case "listed-products":
@@ -585,7 +584,7 @@ export function AppShell() {
         <TopBar
           currentView={store.currentView}
           selectedCount={store.currentView === 'listed-products' ? listedStats.selected : store.selectedProductIds.size}
-          totalProducts={store.currentView === 'listed-products' ? listedStats.total : store.currentView === 'ready-to-publish' ? readyToPublishProducts.length : store.products.length}
+          totalProducts={store.currentView === 'listed-products' ? listedStats.total : store.currentView === 'ready-to-publish' ? rtpTotalCount : store.products.length}
           onBulkPublish={handleBulkPublish}
           onSave={store.saveProducts}
           isSaving={store.isSaving}

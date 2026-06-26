@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { stripBase64ForDb } from '@/lib/imageStorage';
 
 /** Mirror publish-workflow flags to products (待處理 / 目錄 filters still use products). */
 export async function syncRtsWorkflowToProduct(
@@ -50,10 +51,16 @@ export async function syncRtsContentToProduct(
     productsPatch.description = patch.body_html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
     productsPatch.description_html = patch.body_html;
   }
-  if (patch.image_url !== undefined) productsPatch.image_url = patch.image_url;
-  if (patch.image_url_2 !== undefined) productsPatch.image_url_2 = patch.image_url_2;
-  if (patch.image_url_3 !== undefined) productsPatch.image_url_3 = patch.image_url_3;
-  if (patch.images !== undefined) productsPatch.images = patch.images;
+  if (patch.image_url !== undefined) productsPatch.image_url = stripBase64ForDb(patch.image_url ?? '') || null;
+  if (patch.image_url_2 !== undefined) productsPatch.image_url_2 = stripBase64ForDb(patch.image_url_2 ?? '') || null;
+  if (patch.image_url_3 !== undefined) productsPatch.image_url_3 = stripBase64ForDb(patch.image_url_3 ?? '') || null;
+  if (patch.images !== undefined) {
+    productsPatch.images = Array.isArray(patch.images)
+      ? patch.images
+          .map((im) => ({ ...im, src: stripBase64ForDb(im.src) }))
+          .filter((im) => im.src)
+      : patch.images;
+  }
   if (patch.tags !== undefined) productsPatch.tags = patch.tags;
   if (patch.sku !== undefined) productsPatch.sku = patch.sku;
   if (patch.sale_price != null) productsPatch.sale_price = patch.sale_price;

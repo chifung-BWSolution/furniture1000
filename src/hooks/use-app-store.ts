@@ -428,196 +428,9 @@ export function useAppStore() {
   //   Step 1 – lightweight RTS fetch (no images) → render list immediately
   //   Step 2 – batch-fetch products rows for SKU/cost/dimensions/tags → patch in
   //   Step 3 – batch-fetch images 20 at a time → patch thumbnails progressively
+  // Legacy hook for post-publish refresh — 準備上載 list is now server-paginated in ReadyToPublishView.
   const reloadReadyToPublish = useCallback(async () => {
-    const gen = ++reloadReadyToPublishGen.current;
-    try {
-      // ── Step 1: lightweight RTS fetch (no image_url/images) ───────────────
-      const PAGE = 200;
-      let allRows: any[] = [];
-      let from = 0;
-      while (true) {
-        let q = supabase
-          .from('ready_to_shopify')
-          .select('id,product_id,title,body_html,vendor,product_type,variants,tags,price,compare_at_price,shopify_product_id,status,ready_to_publish_at,imported_at')
-          .eq('furniture_group_checked', true)
-          .order('ready_to_publish_at', { ascending: false, nullsFirst: false })
-          .order('imported_at', { ascending: false })
-          .range(from, from + PAGE - 1);
-        let { data, error } = await q;
-        if (error && error.message.includes('ready_to_publish_at')) {
-          const fallback = await supabase
-            .from('ready_to_shopify')
-            .select('id,product_id,title,body_html,vendor,product_type,variants,tags,price,compare_at_price,shopify_product_id,status,imported_at')
-            .eq('furniture_group_checked', true)
-            .order('imported_at', { ascending: false })
-            .range(from, from + PAGE - 1);
-          data = (fallback.data || []).map((row: any) => ({ ...row, ready_to_publish_at: null }));
-          error = fallback.error;
-        }
-        if (error) { console.warn('[reloadReadyToPublish] query error:', error.message); break; }
-        if (!data || data.length === 0) break;
-        allRows = allRows.concat(data);
-        if (data.length < PAGE) break;
-        from += PAGE;
-      }
-
-      if (allRows.length === 0) {
-        if (gen === reloadReadyToPublishGen.current) setReadyToPublishList([]);
-        return;
-      }
-
-      const rowToProduct = (row: any, extra?: any): Product => {
-        const variants: ProductVariant[] = Array.isArray(row.variants) && row.variants.length > 0
-          ? row.variants.map((v: any) => ({
-              id: String(v.id ?? Math.random().toString(36).slice(2)),
-              sku: v.sku ?? '',
-              price: typeof v.price === 'number' ? v.price : parseFloat(v.price) || 0,
-              size: v.option1 ?? v.title ?? '',
-              color: v.option2 ?? '',
-              inventory: v.inventory_quantity ?? 0,
-            }))
-          : [];
-        // tags: prefer products table (has real tags), fallback to RTS
-        const rawTags = extra?.tags ?? row.tags;
-        const tags: string[] = Array.isArray(rawTags)
-          ? rawTags
-          : typeof rawTags === 'string' && rawTags
-            ? rawTags.split(',').map((t: string) => t.trim()).filter(Boolean)
-            : [];
-        return {
-          id: row.id,
-          productId: row.product_id,
-          title: row.title || '',
-          description: row.body_html || '',
-          descriptionHtml: row.body_html || '',
-          tags,
-          price: row.price != null ? parseFloat(row.price) : 0,
-          compareAtPrice: row.compare_at_price != null ? parseFloat(row.compare_at_price) : undefined,
-          collection: row.product_type || '',
-          status: 'draft' as ProductStatus,
-          imageUrl: '',
-          shopifyProductId: row.shopify_product_id || null,
-          factoriesDisplayName: row.vendor || '',
-          createdAt: new Date().toISOString(),
-          source: 'local' as ProductSource,
-          variants,
-          readyToPublish: true,
-          // Fields from products table (populated in step 2)
-          sku: extra?.sku ?? undefined,
-          costPrice: extra?.cost_price != null ? parseFloat(extra.cost_price) : null,
-          salePrice: extra?.sale_price != null ? parseFloat(extra.sale_price) : 0,
-          dimensionLMm: extra?.dimension_l_mm ?? null,
-          dimensionWMm: extra?.dimension_w_mm ?? null,
-          dimensionHMm: extra?.dimension_h_mm ?? null,
-          category: extra?.category ?? undefined,
-          material: extra?.material ?? '',
-          factoryId: extra?.factory_id ?? null,
-          bwfMasterId: extra?.bwf_master_id ?? null,
-          productionLeadTime: extra?.production_date ?? null,
-          shippingDays: extra?.shipping_days ?? null,
-          shippingFee: extra?.shipping_fee ?? null,
-          remarks: extra?.remarks ?? null,
-        } as Product;
-      };
-
-      // Render list immediately (no SKU/cost/images yet)
-      const loaded = allRows.map(row => rowToProduct(row));
-      if (gen !== reloadReadyToPublishGen.current) return;
-      setReadyToPublishList(loaded);
-      console.log(`[reloadReadyToPublish] Loaded ${loaded.length} products (enrichment pending)`);
-
-      // ── Step 2: fetch products rows for SKU/cost/dimensions/tags ──────────
-      const productIds = allRows.map((r: any) => r.product_id).filter(Boolean);
-      const PROD_BATCH = 100;
-      const productMap: Record<string, any> = {};
-      for (let i = 0; i < productIds.length; i += PROD_BATCH) {
-        const { data: pRows } = await supabase
-          .from('products')
-          .select('id,sku,cost_price,sale_price,dimension_l_mm,dimension_w_mm,dimension_h_mm,tags,category,level1_category,level2_category,material,factory_id,bwf_master_id,production_date,shipping_days,shipping_fee,remarks,in_stock,customize')
-          .in('id', productIds.slice(i, i + PROD_BATCH));
-        (pRows || []).forEach((p: any) => { productMap[p.id] = p; });
-      }
-
-      // Build rtsId → productId map
-      const rtsToProductId: Record<string, string> = {};
-      allRows.forEach((r: any) => { if (r.product_id) rtsToProductId[r.id] = r.product_id; });
-
-      if (gen === reloadReadyToPublishGen.current) {
-        setReadyToPublishList(prev =>
-          prev.map(p => {
-            const prodId = rtsToProductId[p.id];
-            const extra = prodId ? productMap[prodId] : null;
-            if (!extra) return p;
-            // Preserve ready_to_shopify.tags (already on p from Step 1).
-            // Only fall back to products.tags when RTS had no tags at all.
-            const rtsTags: string[] = p.tags && p.tags.length > 0 ? p.tags : [];
-            const rawProductTags = extra.tags;
-            const productTags: string[] = Array.isArray(rawProductTags) ? rawProductTags
-              : typeof rawProductTags === 'string' && rawProductTags
-                ? rawProductTags.split(',').map((t: string) => t.trim()).filter(Boolean)
-                : [];
-            const tags: string[] = rtsTags.length > 0 ? rtsTags : productTags;
-            return {
-              ...p,
-              tags,
-              sku: extra.sku || p.sku,
-              costPrice: extra.cost_price != null ? parseFloat(extra.cost_price) : p.costPrice,
-              salePrice: extra.sale_price != null ? parseFloat(extra.sale_price) : p.salePrice,
-              dimensionLMm: extra.dimension_l_mm ?? p.dimensionLMm,
-              dimensionWMm: extra.dimension_w_mm ?? p.dimensionWMm,
-              dimensionHMm: extra.dimension_h_mm ?? p.dimensionHMm,
-              category: extra.category || p.category,
-              level1Category: extra.level1_category || (p as any).level1Category || null,
-              level2Category: extra.level2_category || (p as any).level2Category || null,
-              material: extra.material || p.material,
-              factoryId: extra.factory_id || p.factoryId,
-              bwfMasterId: extra.bwf_master_id || p.bwfMasterId,
-              productionLeadTime: extra.production_date ?? p.productionLeadTime,
-              shippingDays: extra.shipping_days ?? p.shippingDays,
-              shippingFee: extra.shipping_fee ?? p.shippingFee,
-              remarks: extra.remarks ?? p.remarks,
-              inStock: extra.in_stock != null ? Boolean(extra.in_stock) : (p as any).inStock ?? null,
-              customize: extra.customize ?? (p as any).customize ?? null,
-            };
-          })
-        );
-      }
-      console.log(`[reloadReadyToPublish] SKU/cost/dimensions patched`);
-
-      // ── Step 3: patch images in background batches of 20 ──────────────────
-      const IMG_BATCH = 20;
-      const rtsIds = allRows.map((r: any) => r.id);
-      for (let i = 0; i < rtsIds.length; i += IMG_BATCH) {
-        const batchIds = rtsIds.slice(i, i + IMG_BATCH);
-        const { data: imgRows } = await supabase
-          .from('ready_to_shopify')
-          .select('id,image_url,images')
-          .in('id', batchIds);
-        if (!imgRows || imgRows.length === 0) continue;
-        if (gen !== reloadReadyToPublishGen.current) return;
-        const imgMap: Record<string, { image_url: string; images: any[] }> = {};
-        imgRows.forEach((r: any) => { imgMap[r.id] = r; });
-        setReadyToPublishList(prev =>
-          prev.map(p => {
-            const img = imgMap[p.id];
-            if (!img) return p;
-            const primarySrc: string = img.image_url || '';
-            const allImages: { src: string; alt: string }[] = [];
-            if (primarySrc) allImages.push({ src: primarySrc, alt: p.title });
-            if (Array.isArray(img.images)) {
-              for (const im of img.images) {
-                const src: string = im?.src || im?.url || (typeof im === 'string' ? im : '');
-                if (src && src !== primarySrc) allImages.push({ src, alt: im?.alt || '' });
-              }
-            }
-            return { ...p, imageUrl: primarySrc, images: allImages.length > 0 ? allImages : undefined } as any;
-          })
-        );
-      }
-      console.log(`[reloadReadyToPublish] Images patched for all ${allRows.length} products`);
-    } catch (err) {
-      console.warn('[Supabase] Reload ready-to-publish error:', err);
-    }
+    /* no-op: use ReadyToPublishView.useReadyToPublishList().reload instead */
   }, []);
 
   const reloadProducts = useCallback(async () => {
@@ -1083,7 +896,34 @@ export function useAppStore() {
     const allAvailable = [...products, ...readyToPublishList];
     const seen = new Set<string>();
     const dedupedAvailable = allAvailable.filter(p => { if (seen.has(p.id)) return false; seen.add(p.id); return true; });
-    const selectedProducts = dedupedAvailable.filter(p => ids.includes(p.id));
+    let selectedProducts = dedupedAvailable.filter(p => ids.includes(p.id));
+
+    // Server-paginated 準備上載 may not keep every selected row in memory — resolve from DB.
+    if (selectedProducts.length < ids.length) {
+      const missingIds = ids.filter((id) => !selectedProducts.some((p) => p.id === id));
+      const { data: rtsPickRows } = await supabase
+        .from('ready_to_shopify')
+        .select('id, product_id, title, vendor, price, tags, sku, product_type, variants')
+        .in('id', missingIds);
+      for (const row of rtsPickRows ?? []) {
+        selectedProducts.push({
+          id: row.id,
+          productId: row.product_id,
+          title: row.title || '',
+          description: '',
+          tags: Array.isArray(row.tags) ? row.tags : [],
+          price: row.price != null ? parseFloat(String(row.price)) : 0,
+          collection: row.product_type || '',
+          status: 'draft',
+          imageUrl: '',
+          factoriesDisplayName: row.vendor || '',
+          createdAt: new Date().toISOString(),
+          source: 'local',
+          variants: [],
+          sku: row.sku || undefined,
+        } as Product);
+      }
+    }
 
     if (selectedProducts.length === 0) {
       console.warn('[uploadToMasterDb] No products selected');

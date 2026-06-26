@@ -6,7 +6,7 @@ import {
   X, Package, Tag, DollarSign, Search, RotateCcw, Save, Check, Ruler, Truck,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import { uploadBase64Image } from '@/lib/imageStorage';
+import { uploadBase64Image, stripBase64ForDb } from '@/lib/imageStorage';
 import { syncRtsWorkflowToProduct } from '@/lib/rtsProductSync';
 import { toast } from 'sonner';
 
@@ -416,8 +416,10 @@ export function FGProductDetailModal({
           resolvedImages.push(img);
         }
       }
-      const primaryImageUrl = resolvedImages[0] || null;
-      const imagesArr = resolvedImages.map((src, i) => ({ src, position: i + 1 }));
+      const primaryImageUrl = stripBase64ForDb(resolvedImages[0]) || null;
+      const imagesArr = resolvedImages
+        .map((src, i) => ({ src: stripBase64ForDb(src), position: i + 1 }))
+        .filter((im) => im.src);
 
       const productType = [editL1, editL2].filter(Boolean).join(' / ') || null;
       const priceNum = editPrice !== '' ? parseFloat(editPrice) : null;
@@ -961,19 +963,34 @@ export function FGProductDetailModal({
 
 export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
   const [items, setItems] = useState<FGItem[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [detailRtsId, setDetailRtsId] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
-  // ── Filters (same UX as 產品信息): search name/SKU, page size, L1/L2, factory ──
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [pageSize, setPageSize] = useState(25);
   const [currentPage, setCurrentPage] = useState(1);
   const [level1Filter, setLevel1Filter] = useState('');
   const [level2Filter, setLevel2Filter] = useState('');
   const [factoryFilter, setFactoryFilter] = useState('');
+  const [factoryOptions, setFactoryOptions] = useState<string[]>([]);
   const [categoryPairs, setCategoryPairs] = useState<{ level1: string; level2: string }[]>([]);
+
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fetchSeq = useRef(0);
+
+  useEffect(() => {
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    searchTimer.current = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+      setCurrentPage(1);
+    }, 300);
+    return () => { if (searchTimer.current) clearTimeout(searchTimer.current); };
+  }, [searchQuery]);
 
   useEffect(() => {
     supabase
@@ -983,65 +1000,44 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
       .then(({ data }) => { if (data) setCategoryPairs(data as { level1: string; level2: string }[]); });
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    supabase.rpc('get_publish_rts_factories', { p_stage: 'fg-check' }).then(({ data, error }) => {
+      if (cancelled || error) return;
+      setFactoryOptions((data as string[] | null) ?? []);
+    });
+    return () => { cancelled = true; };
+  }, [reloadKey]);
+
   const level1Options = useMemo(() => Array.from(new Set(categoryPairs.map(p => p.level1))), [categoryPairs]);
   const level2Options = useMemo(
     () => Array.from(new Set(categoryPairs.filter(p => p.level1 === level1Filter && p.level2).map(p => p.level2))),
     [categoryPairs, level1Filter]
   );
-  const factoryOptions = useMemo(
-    () => Array.from(new Set(items.map(i => i.factory).filter(f => f && f !== '—'))),
-    [items]
-  );
 
   const load = useCallback(async () => {
+    const requestId = ++fetchSeq.current;
     setIsLoading(true);
-    const selectCols = 'id,product_id,title,image_url,vendor,product_type,price,tags,sku,info_completed_at,imported_at';
-    let { data, error } = await supabase
-      .from('ready_to_shopify')
-      .select(selectCols)
-      .eq('furniture_group_checked', false)
-      .order('info_completed_at', { ascending: false, nullsFirst: false })
-      .order('imported_at', { ascending: false });
-
-    if (error) {
-      // info_completed_at column may not exist until migration runs
-      const fallback = await supabase
-        .from('ready_to_shopify')
-        .select('id,product_id,title,image_url,vendor,product_type,price,tags,sku,imported_at')
-        .eq('furniture_group_checked', false)
-        .order('imported_at', { ascending: false });
-      data = (fallback.data || []).map((row: any) => ({ ...row, info_completed_at: null }));
-      error = fallback.error;
-    }
-
-    if (error) {
-      toast.error('讀取失敗', { description: error.message });
-      setItems([]);
-    } else {
-      // Dedup by product_id — keep the most-recently-imported row per product
-      const seen = new Set<string>();
-      let deduped = (data || []).filter((r: any) => {
-        if (r.product_id && seen.has(r.product_id)) return false;
-        if (r.product_id) seen.add(r.product_id);
-        return true;
+    try {
+      const offset = (currentPage - 1) * pageSize;
+      const { data, error } = await supabase.rpc('get_fg_check_rows', {
+        p_search: debouncedSearch.trim() || null,
+        p_level1: level1Filter || null,
+        p_level2: level2Filter || null,
+        p_factory: factoryFilter || null,
+        p_limit: pageSize,
+        p_offset: offset,
       });
-
-      // Defensive: exclude products already live on Shopify
-      const productIds = deduped.map((r: any) => r.product_id).filter(Boolean) as string[];
-      if (productIds.length > 0) {
-        const { data: liveProducts } = await supabase
-          .from('products')
-          .select('id')
-          .in('id', productIds)
-          .not('shopify_product_id', 'is', null);
-        if (liveProducts?.length) {
-          const liveSet = new Set(liveProducts.map((p: { id: string }) => p.id));
-          deduped = deduped.filter((r: any) => !r.product_id || !liveSet.has(r.product_id));
-        }
+      if (requestId !== fetchSeq.current) return;
+      if (error) {
+        toast.error('讀取失敗', { description: error.message });
+        setItems([]);
+        setTotalCount(0);
+        setIsLoading(false);
+        return;
       }
 
-      setItems(deduped.map((r: any) => {
-        // product_type is stored as "L1 / L2"
+      setItems((data || []).map((r: any) => {
         const ptParts = (r.product_type || '').split(' / ');
         return {
           rtsId: r.id,
@@ -1057,36 +1053,32 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
           level2: ptParts[1]?.trim() || '',
         };
       }));
-    }
-    setIsLoading(false);
-  }, []);
+      const fallbackCount = offset + (data?.length ?? 0);
+      setTotalCount(fallbackCount);
+      setIsLoading(false);
 
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  // Apply search (name/SKU) + L1/L2 + factory filters.
-  const filteredItems = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
-    return items.filter(r => {
-      if (q) {
-        const title = r.title.toLowerCase();
-        const sku = r.sku.toLowerCase();
-        if (!title.includes(q) && !sku.includes(q)) return false;
+      supabase.rpc('get_fg_check_count', {
+        p_search: debouncedSearch.trim() || null,
+        p_level1: level1Filter || null,
+        p_level2: level2Filter || null,
+        p_factory: factoryFilter || null,
+      }).then(({ data: count, error: countErr }) => {
+        if (requestId === fetchSeq.current && !countErr) {
+          setTotalCount(Number(count) || 0);
+        }
+      });
+    } catch {
+      if (requestId === fetchSeq.current) {
+        setItems([]);
+        setIsLoading(false);
       }
-      if (level1Filter && r.level1 !== level1Filter) return false;
-      if (level2Filter && r.level2 !== level2Filter) return false;
-      if (factoryFilter && r.factory !== factoryFilter) return false;
-      return true;
-    });
-  }, [items, searchQuery, level1Filter, level2Filter, factoryFilter]);
+    }
+  }, [currentPage, pageSize, debouncedSearch, level1Filter, level2Filter, factoryFilter, reloadKey]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredItems.length / pageSize));
-  const pagedItems = useMemo(
-    () => filteredItems.slice((currentPage - 1) * pageSize, currentPage * pageSize),
-    [filteredItems, currentPage, pageSize]
-  );
-  useEffect(() => { setCurrentPage(1); }, [searchQuery, level1Filter, level2Filter, factoryFilter, pageSize]);
+  useEffect(() => { load(); }, [load]);
+  useEffect(() => { setCurrentPage(1); }, [level1Filter, level2Filter, factoryFilter, pageSize]);
+
+  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
 
   const toggleRow = (id: string) =>
     setSelected(prev => {
@@ -1095,11 +1087,11 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
       return n;
     });
 
-  // Select-all toggles the currently-filtered set (across all pages).
+  // Select-all toggles the current page only (server-side pagination).
   const toggleAll = (checked: boolean) =>
-    setSelected(checked ? new Set(filteredItems.map(r => r.rtsId)) : new Set());
+    setSelected(checked ? new Set(items.map(r => r.rtsId)) : new Set());
 
-  const allSelected = filteredItems.length > 0 && filteredItems.every(r => selected.has(r.rtsId));
+  const allSelected = items.length > 0 && items.every(r => selected.has(r.rtsId));
 
   const handleAddToReadyToPublish = async () => {
     if (selected.size === 0) { toast.message('請先勾選產品'); return; }
@@ -1125,10 +1117,11 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
       if (rtsError) throw new Error(rtsError.message);
 
       // Also set ready_to_publish=true on products table
-      const productIds = items
-        .filter(r => ids.includes(r.rtsId))
-        .map(r => r.productId)
-        .filter(Boolean);
+      const { data: rtsRows } = await supabase
+        .from('ready_to_shopify')
+        .select('id, product_id')
+        .in('id', ids);
+      const productIds = (rtsRows || []).map((r: { product_id: string }) => r.product_id).filter(Boolean);
       if (productIds.length > 0) {
         await supabase
           .from('products')
@@ -1136,8 +1129,8 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
           .in('id', productIds);
       }
 
-      setItems(prev => prev.filter(r => !ids.includes(r.rtsId)));
       setSelected(new Set());
+      setReloadKey((k) => k + 1);
       toast.success('已加入準備上載', { description: `${ids.length} 件產品已移至「準備上載」` });
       onEnterReadyToPublish?.();
     } catch (e) {
@@ -1152,12 +1145,15 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
   const handleRevertSelected = async () => {
     if (selected.size === 0) { toast.message('請先勾選要退回的產品'); return; }
     const rtsIds = Array.from(selected);
-    const revertItems = items.filter(r => rtsIds.includes(r.rtsId));
-    if (revertItems.length === 0) return;
-    if (!window.confirm(`確定要把已選的 ${revertItems.length} 件產品退回「產品文案」頁面嗎？`)) return;
+    if (rtsIds.length === 0) return;
+    if (!window.confirm(`確定要把已選的 ${rtsIds.length} 件產品退回「產品文案」頁面嗎？`)) return;
     setIsReverting(true);
     try {
-      const productIds = revertItems.map(r => r.productId).filter(Boolean);
+      const { data: rtsMeta } = await supabase
+        .from('ready_to_shopify')
+        .select('id, product_id')
+        .in('id', rtsIds);
+      const productIds = (rtsMeta || []).map((r: { product_id: string }) => r.product_id).filter(Boolean);
 
       // NOTE: do NOT delete the ready_to_shopify rows here. Reverting only moves
       // the product back to 產品文案 by resetting the products flags below; the
@@ -1191,10 +1187,9 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
         .in('id', rtsIds);
       if (rtsErr) throw new Error(rtsErr.message);
 
-      // Remove only the reverted rows from the local list + selection.
-      setItems(prev => prev.filter(r => !rtsIds.includes(r.rtsId)));
       setSelected(new Set());
-      toast.success('已退回產品文案', { description: `${revertItems.length} 件產品已退回「產品文案」頁面` });
+      setReloadKey((k) => k + 1);
+      toast.success('已退回產品文案', { description: `${rtsIds.length} 件產品已退回「產品文案」頁面` });
     } catch (e) {
       toast.error('退回失敗', { description: e instanceof Error ? e.message : '請稍後再試' });
     } finally {
@@ -1210,7 +1205,7 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
           <Sofa className="h-4 w-4 text-primary" />
           <h2 className="font-display text-sm font-bold">傢俬組檢查</h2>
           <span className="ml-1 rounded-full bg-primary/10 px-2.5 py-0.5 font-mono-data text-xs font-semibold text-primary">
-            {items.length} 件待確認
+            {totalCount} 件待確認
           </span>
         </div>
         <div className="flex items-center gap-2">
@@ -1282,7 +1277,7 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
             <X className="h-3 w-3" /> 清除篩選
           </button>
         )}
-        <span className="ml-auto font-mono-data text-[11px] text-muted-foreground">符合 {filteredItems.length} 件</span>
+        <span className="ml-auto font-mono-data text-[11px] text-muted-foreground">符合 {totalCount} 件</span>
       </div>
 
       {/* ── Table ── */}
@@ -1291,13 +1286,19 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
           <div className="flex h-40 items-center justify-center">
             <Loader2 className="h-6 w-6 animate-spin text-primary" />
           </div>
-        ) : filteredItems.length === 0 ? (
+        ) : totalCount === 0 && !debouncedSearch && !level1Filter && !level2Filter && !factoryFilter ? (
           <div className="flex flex-col items-center justify-center gap-3 py-24 text-center">
             <Sofa className="h-8 w-8 text-muted-foreground/40" />
-            <p className="font-display text-sm text-muted-foreground">{items.length === 0 ? '尚無待確認產品' : '沒有符合篩選的產品'}</p>
+            <p className="font-display text-sm text-muted-foreground">尚無待確認產品</p>
             <p className="font-body text-[12px] text-muted-foreground/70">
-              {items.length === 0 ? '到「產品信息」頁面勾選產品並按「完成」後，產品會送到此處' : '請調整搜尋或篩選條件'}
+              到「產品信息」頁面勾選產品並按「完成」後，產品會送到此處
             </p>
+          </div>
+        ) : items.length === 0 ? (
+          <div className="flex flex-col items-center justify-center gap-3 py-24 text-center">
+            <Sofa className="h-8 w-8 text-muted-foreground/40" />
+            <p className="font-display text-sm text-muted-foreground">沒有符合篩選的產品</p>
+            <p className="font-body text-[12px] text-muted-foreground/70">請調整搜尋或篩選條件</p>
           </div>
         ) : (
           <div className="overflow-hidden rounded-2xl border border-border bg-card">
@@ -1320,7 +1321,7 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-border/60">
-                {pagedItems.map(row => (
+                {items.map(row => (
                   <tr
                     key={row.rtsId}
                     className={cn(
@@ -1405,7 +1406,7 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
         )}
 
         {/* Pagination */}
-        {filteredItems.length > pageSize && (
+        {totalCount > pageSize && (
           <div className="mt-4 flex items-center justify-center gap-2">
             <button
               onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
@@ -1415,7 +1416,7 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
               上一頁
             </button>
             <span className="font-mono-data text-xs text-muted-foreground">
-              第 {currentPage} / {totalPages} 頁 · 共 {filteredItems.length} 件
+              第 {currentPage} / {totalPages} 頁 · 共 {totalCount} 件
             </span>
             <button
               onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
@@ -1433,7 +1434,7 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
         <FGProductDetailModal
           rtsId={detailRtsId}
           onClose={() => setDetailRtsId(null)}
-          onSaved={load}
+          onSaved={() => setReloadKey((k) => k + 1)}
         />
       )}
     </div>

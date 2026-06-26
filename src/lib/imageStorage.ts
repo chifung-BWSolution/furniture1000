@@ -163,3 +163,25 @@ export async function resolveImagesToStorage(
 
   return { primary: resolvedPrimary, extras: resolvedExtras };
 }
+
+/** Upload RTS primary + images[] to Storage; never return base64 for DB persistence. */
+export async function resolveRtsImageFieldsForDb(
+  productId: string,
+  primary: string | null | undefined,
+  imagesJson: { src: string; position?: number; alt?: string }[] | null | undefined,
+): Promise<{ image_url: string | null; images: { src: string; position?: number }[] | null }> {
+  const resolvedPrimary = primary
+    ? stripBase64ForDb(await uploadBase64Image(primary, productId, 'primary')) || null
+    : null;
+
+  const srcList = (imagesJson ?? []).map((im) => im.src).filter(Boolean);
+  const { extras } = await resolveImagesToStorage(productId, null, srcList);
+  const images = extras
+    .map((src, idx) => ({ src: stripBase64ForDb(src), position: idx + 1 }))
+    .filter((im) => im.src);
+
+  return {
+    image_url: resolvedPrimary,
+    images: images.length > 0 ? images : null,
+  };
+}

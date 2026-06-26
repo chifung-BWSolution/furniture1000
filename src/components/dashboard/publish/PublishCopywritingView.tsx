@@ -8,7 +8,7 @@ import {
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
-import { uploadBase64Image } from '@/lib/imageStorage';
+import { resolveRtsImageFieldsForDb } from '@/lib/imageStorage';
 import { excludeAlreadyPublishedRts } from '@/lib/publishPipeline';
 import { syncRtsContentToProduct, syncRtsWorkflowToProduct } from '@/lib/rtsProductSync';
 import { usePublishRtsList } from './usePublishRtsList';
@@ -292,26 +292,14 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
     if (!item) return;
     setIsSaving(true);
     try {
-      // Pre-upload any base64 images to Storage
-      let resolvedPrimary = primaryImg;
-      let resolvedExtras = [...extraImgs];
-      const isBase64 = (s: string) => s && !s.startsWith('http') && s.length > 100;
-      if (isBase64(primaryImg)) {
-        toast.loading('上傳主圖至儲存空間...', { id: 'save-img-upload' });
-        resolvedPrimary = await uploadBase64Image(primaryImg, activeId, 'primary');
-      }
-      const base64Extras = resolvedExtras.filter(isBase64);
-      if (base64Extras.length > 0) {
-        toast.loading(`上傳 ${base64Extras.length} 張額外圖片...`, { id: 'save-img-upload' });
-        resolvedExtras = await Promise.all(
-          resolvedExtras.map((src, idx) =>
-            isBase64(src) ? uploadBase64Image(src, activeId, `extra${idx}`) : Promise.resolve(src)
-          )
-        );
-      }
+      const { image_url: resolvedPrimary, images: imagesJsonArr } = await resolveRtsImageFieldsForDb(
+        activeId,
+        primaryImg,
+        extraImgs.map((src, idx) => ({ src, position: idx + 1 })),
+      );
       toast.dismiss('save-img-upload');
 
-      const imagesJson = resolvedExtras.map((src, idx) => ({ src, position: idx + 1 }));
+      const imagesJson = imagesJsonArr ?? [];
       const { error } = await supabase
         .from('ready_to_shopify')
         .upsert({
@@ -341,12 +329,13 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
           body_html: normalizeBodyHtmlForShopify(desc),
           sku: sku || null,
           image_url: resolvedPrimary || null,
-          image_url_2: resolvedExtras[0] || null,
-          image_url_3: resolvedExtras[1] || null,
+          image_url_2: imagesJson[0]?.src || null,
+          image_url_3: imagesJson[1]?.src || null,
           images: imagesJson.length > 0 ? imagesJson : null,
         });
+        const resolvedExtras = imagesJson.map((im) => im.src);
         // Update local image state to resolved HTTP URLs
-        if (resolvedPrimary !== primaryImg) setPrimaryImg(resolvedPrimary);
+        if (resolvedPrimary && resolvedPrimary !== primaryImg) setPrimaryImg(resolvedPrimary);
         if (resolvedExtras.some((s, i) => s !== extraImgs[i])) setExtraImgs(resolvedExtras);
         // Update saved snapshot so dirty indicator resets
         setSavedSnapshot({
@@ -371,28 +360,16 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
     if (!item) return;
     setIsSubmitting(true);
     try {
-      // 0. Pre-upload any base64 images to Storage so publish-to-shopify gets HTTP URLs
-      let resolvedPrimary = primaryImg;
-      let resolvedExtras = [...extraImgs];
-      const isBase64 = (s: string) => s && !s.startsWith('http') && s.length > 100;
-      if (isBase64(primaryImg)) {
-        toast.loading('上傳主圖至儲存空間...', { id: 'img-upload' });
-        resolvedPrimary = await uploadBase64Image(primaryImg, activeId, 'primary');
-      }
-      const base64Extras = resolvedExtras.filter(isBase64);
-      if (base64Extras.length > 0) {
-        toast.loading(`上傳 ${base64Extras.length} 張額外圖片...`, { id: 'img-upload' });
-        resolvedExtras = await Promise.all(
-          resolvedExtras.map((src, idx) =>
-            isBase64(src) ? uploadBase64Image(src, activeId, `extra${idx}`) : Promise.resolve(src)
-          )
-        );
-      }
+      const { image_url: resolvedPrimary, images: submitImagesJsonArr } = await resolveRtsImageFieldsForDb(
+        activeId,
+        primaryImg,
+        extraImgs.map((src, idx) => ({ src, position: idx + 1 })),
+      );
       toast.dismiss('img-upload');
 
-      const submitImagesJson = resolvedExtras.map((src, idx) => ({ src, position: idx + 1 }));
       const copyDoneAt = new Date().toISOString();
-      const imagesJson = resolvedExtras.map((src, idx) => ({ src, position: idx + 1 }));
+      const imagesJson = submitImagesJsonArr ?? [];
+      const resolvedExtras = imagesJson.map((im) => im.src);
 
       const { error: rtsError } = await supabase
         .from('ready_to_shopify')
@@ -430,7 +407,7 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
         image_url: resolvedPrimary || null,
         image_url_2: resolvedExtras[0] || null,
         image_url_3: resolvedExtras[1] || null,
-        images: submitImagesJson.length > 0 ? submitImagesJson : null,
+        images: imagesJson.length > 0 ? imagesJson : null,
       });
       await syncRtsWorkflowToProduct(supabase, activeId, {
         copy_done: true,

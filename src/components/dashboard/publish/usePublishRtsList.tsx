@@ -88,24 +88,14 @@ export function usePublishRtsList({ applyBaseFilters, applyProductsCountFilters,
 
   useEffect(() => {
     let cancelled = false;
-    const controller = new AbortController();
-    (async () => {
-      let q = supabase
-        .from('products')
-        .select('factories_display_name')
-        .not('factories_display_name', 'is', null)
-        .neq('factories_display_name', '');
-      q = applyProductsCountFilters(q);
-      const { data } = await q.abortSignal(controller.signal);
-      if (cancelled || !data) return;
-      const names = data.map((r: any) => r.factories_display_name).filter(Boolean) as string[];
-      const unique = Array.from(new Set(names));
-      unique.sort((a, b) => a.localeCompare(b, 'zh'));
-      setAvailableFactories(unique);
-    })();
-    return () => { cancelled = true; controller.abort(); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [reloadKey]);
+    supabase
+      .rpc('get_publish_rts_factories', { p_stage: countStage })
+      .then(({ data, error }) => {
+        if (cancelled || error) return;
+        setAvailableFactories((data as string[] | null) ?? []);
+      });
+    return () => { cancelled = true; };
+  }, [reloadKey, countStage]);
 
   useEffect(() => {
     const onClick = (e: MouseEvent) => {
