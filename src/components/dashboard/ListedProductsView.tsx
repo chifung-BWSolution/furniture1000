@@ -119,6 +119,7 @@ interface ListedProduct {
   dimensionWMm?: number | null;
   dimensionHMm?: number | null;
   productSku?: string | null;
+  sku?: string | null;
   isOnShopify?: boolean;
   shopifyTitle?: string | null;
   shopifyId?: string | null;
@@ -462,7 +463,7 @@ export function ListedProductsView({
         'material', 'model', 'specifications',
         'delivery_term_id', 'delivery_term_name',
         'dimension_l_mm', 'dimension_w_mm', 'dimension_h_mm',
-        'in_stock', 'customize', 'product_sku',
+        'in_stock', 'customize', 'product_sku', 'sku',
       ].join(',');
       // 重複商品模式且未選擇系列排序：先按 product_sku 聚集，NULL 最後；一般模式或系列排序用使用者選的排序。
       const baseDataQuery = supabase.from('products').select(LIST_COLUMNS);
@@ -588,6 +589,7 @@ export function ListedProductsView({
         dimensionWMm: row.dimension_w_mm != null ? parseInt(row.dimension_w_mm) : null,
         dimensionHMm: row.dimension_h_mm != null ? parseInt(row.dimension_h_mm) : null,
         productSku: row.product_sku || null,
+        sku: row.sku || null,
         // variants 先留空，下方背景非阻塞補上，讓首屏立即顯示
         variants: [],
       }));

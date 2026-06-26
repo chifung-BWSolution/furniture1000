@@ -98,6 +98,7 @@ interface ProductForDetail {
   dimensionHMm?: number | null;
   inStock?: boolean | null;
   customize?: string | null;
+  sku?: string | null;
 }
 
 interface ProductDetailModalProps {
@@ -396,6 +397,7 @@ export function ProductDetailModal({
   const [description, setDescription] = useState('');
   const [level1Category, setLevel1Category] = useState('');
   const [level2Category, setLevel2Category] = useState('');
+  const [sku, setSku] = useState('');
   const [costPrice, setCostPrice] = useState('');
   const [salePrice, setSalePrice] = useState('');
   const [factoryId, setFactoryId] = useState('');
@@ -434,6 +436,7 @@ export function ProductDetailModal({
       setDescription(product.descriptionHtml || product.description || '');
       setLevel1Category(product.level1Category || '');
       setLevel2Category(product.level2Category || '');
+      setSku(product.sku || '');
       setCostPrice(product.costPrice != null ? product.costPrice.toString() : '');
       setSalePrice(product.price != null ? product.price.toString() : '');
       setFactoryId(product.factoryId || '');
@@ -721,6 +724,7 @@ export function ProductDetailModal({
         customize: customizeLabel,
         images: localImagesList,
         image_url: localImagesList[0]?.src || product.imageUrl || null,
+        sku: sku.trim() || null,
       };
 
       const { error: localError } = await supabase
@@ -807,6 +811,7 @@ export function ProductDetailModal({
         dimensionHMm: parsedDimensionH,
         images: finalImages,
         imageUrl: finalImages[0]?.src || product.imageUrl || '',
+        sku: sku.trim() || null,
       };
 
       // ─── Step 3.5: If product is live on Shopify, push the edits there too ──
@@ -1214,6 +1219,19 @@ export function ProductDetailModal({
                         onChange={(e) => setDescription(e.target.value)}
                         className="font-body text-xs min-h-[120px] resize-y"
                         placeholder="輸入產品說明..."
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="detail-sku" className="font-body text-sm text-muted-foreground">
+                        SKU
+                      </Label>
+                      <Input
+                        id="detail-sku"
+                        value={sku}
+                        onChange={(e) => setSku(e.target.value)}
+                        className="font-body text-xs h-9 font-mono"
+                        placeholder="—"
                       />
                     </div>
 
