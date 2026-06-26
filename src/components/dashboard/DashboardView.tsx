@@ -21,12 +21,6 @@ interface DashboardStats {
   quotesThisMonth: number;
 }
 
-function deriveTier(price: number): 'A' | 'B' | 'C' {
-  if (price >= 4000) return 'A';
-  if (price >= 1500) return 'B';
-  return 'C';
-}
-
 function thisMonthRange(): { gte: string; lt: string } {
   const now = new Date();
   const start = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -34,45 +28,28 @@ function thisMonthRange(): { gte: string; lt: string } {
   return { gte: start.toISOString(), lt: end.toISOString() };
 }
 
-async function fetchDashboardStats(): Promise<DashboardStats> {
+async function fetchDashboardStats(signal?: AbortSignal): Promise<DashboardStats> {
   const { gte, lt } = thisMonthRange();
-  const [
-    { data: allProducts },
-    { data: monthProducts },
-    { data: copywritingRows },
-    { data: catalogRows },
-    { data: projects },
-    { data: invites },
-    { data: quotes },
-  ] = await Promise.all([
-    supabase.from('products').select('id, sale_price, price'),
-    supabase.from('products').select('id').gte('created_at', gte).lt('created_at', lt),
-    supabase.from('products').select('id').eq('in_shopify_queue', true).eq('copy_done', false),
-    supabase.from('products').select('id').eq('in_catalog', true),
-    supabase.from('design_projects').select('id').gte('created_at', gte).lt('created_at', lt),
-    supabase.from('project_invitations').select('id').gte('created_at', gte).lt('created_at', lt),
-    supabase.from('bwf_quote').select('id').gte('created_at', gte).lt('created_at', lt),
-  ]);
+  const request = supabase
+    .rpc('get_dashboard_stats', {
+      month_start: gte,
+      month_end: lt,
+    })
+    .single();
 
-  let tierA = 0, tierB = 0, tierC = 0;
-  for (const p of (allProducts ?? [])) {
-    const price = Number(p.sale_price ?? p.price ?? 0);
-    const tier = deriveTier(price);
-    if (tier === 'A') tierA++;
-    else if (tier === 'B') tierB++;
-    else tierC++;
-  }
+  const { data, error } = await (signal ? request.abortSignal(signal) : request);
+  if (error) throw error;
 
   return {
-    uploadedThisMonth: (monthProducts ?? []).length,
-    tierA,
-    tierB,
-    tierC,
-    copywritingPending: (copywritingRows ?? []).length,
-    catalogCount: (catalogRows ?? []).length,
-    projectsThisMonth: (projects ?? []).length,
-    invitesThisMonth: (invites ?? []).length,
-    quotesThisMonth: (quotes ?? []).length,
+    uploadedThisMonth: Number(data?.uploaded_this_month ?? 0),
+    tierA: Number(data?.tier_a ?? 0),
+    tierB: Number(data?.tier_b ?? 0),
+    tierC: Number(data?.tier_c ?? 0),
+    copywritingPending: Number(data?.copywriting_pending ?? 0),
+    catalogCount: Number(data?.catalog_count ?? 0),
+    projectsThisMonth: Number(data?.projects_this_month ?? 0),
+    invitesThisMonth: Number(data?.invites_this_month ?? 0),
+    quotesThisMonth: Number(data?.quotes_this_month ?? 0),
   };
 }
 
@@ -160,9 +137,18 @@ export function DashboardView({ onNavigateToAI, onNavigateToCopywriting }: Dashb
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    fetchDashboardStats()
+    const controller = new AbortController();
+    fetchDashboardStats(controller.signal)
       .then(setStats)
-      .finally(() => setLoading(false));
+      .catch((error) => {
+        if (!controller.signal.aborted) {
+          console.warn('[DashboardView] Failed to load dashboard stats:', error);
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setLoading(false);
+      });
+    return () => controller.abort();
   }, []);
 
   if (loading) {

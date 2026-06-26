@@ -56,6 +56,9 @@ export function usePublishList({ select, applyBaseFilters, reloadKey = 0, orderB
   const factoryRef = useRef<HTMLDivElement>(null);
 
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fetchSeq = useRef(0);
+  const dataAbortRef = useRef<AbortController | null>(null);
+  const countAbortRef = useRef<AbortController | null>(null);
 
   // Inline `orderBy={[...]}` from callers gets a new reference every render — stabilize
   // so fetchRows doesn't re-run in a loop (spinner forever + brief product flash).
@@ -75,30 +78,36 @@ export function usePublishList({ select, applyBaseFilters, reloadKey = 0, orderB
   // load category pairs
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
     (async () => {
-      const { data } = await supabase.from('product_category').select('level1, level2, sort_order').order('sort_order', { ascending: true });
+      const { data } = await supabase
+        .from('product_category')
+        .select('level1, level2, sort_order')
+        .order('sort_order', { ascending: true })
+        .abortSignal(controller.signal);
       if (!cancelled && data) {
         setCategoryPairs(
           data.map((r: any) => ({ level1: String(r.level1 ?? '').trim(), level2: String(r.level2 ?? '').trim() })).filter((p) => p.level1)
         );
       }
     })();
-    return () => { cancelled = true; };
+    return () => { cancelled = true; controller.abort(); };
   }, []);
 
   // load distinct factory names within this queue
   useEffect(() => {
     let cancelled = false;
+    const controller = new AbortController();
     (async () => {
       let q = supabase.from('products').select('factories_display_name').not('factories_display_name', 'is', null).neq('factories_display_name', '');
       q = applyBaseFilters(q);
-      const { data } = await q;
+      const { data } = await q.abortSignal(controller.signal);
       if (cancelled || !data) return;
       const unique = Array.from(new Set(data.map((r: any) => r.factories_display_name as string).filter(Boolean)));
       unique.sort((a, b) => a.localeCompare(b, 'zh'));
       setAvailableFactories(unique);
     })();
-    return () => { cancelled = true; };
+    return () => { cancelled = true; controller.abort(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [reloadKey]);
 
@@ -115,6 +124,14 @@ export function usePublishList({ select, applyBaseFilters, reloadKey = 0, orderB
   useEffect(() => { setCurrentPage(1); }, [level1Filter, level2Filter, selectedFactories, pageSize]);
 
   const fetchRows = useCallback(async () => {
+    const requestId = ++fetchSeq.current;
+    dataAbortRef.current?.abort();
+    countAbortRef.current?.abort();
+    const dataController = new AbortController();
+    const countController = new AbortController();
+    dataAbortRef.current = dataController;
+    countAbortRef.current = countController;
+
     setIsLoading(true);
     try {
       const from = (currentPage - 1) * pageSize;
@@ -137,20 +154,22 @@ export function usePublishList({ select, applyBaseFilters, reloadKey = 0, orderB
 
       const orders = resolvedOrderBy;
 
-      const runQuery = async (spec: PublishListOrder[]) => {
+      const runQuery = async (spec: PublishListOrder[], signal: AbortSignal) => {
         let q = buildFilters(supabase.from('products').select(select));
         for (const o of spec) {
           q = q.order(o.column, { ascending: o.ascending ?? false, nullsFirst: o.nullsFirst });
         }
-        return q.range(from, to);
+        return q.range(from, to).abortSignal(signal);
       };
 
       // Data query — newest stage entry first (per-page orderBy), with fallbacks.
       let data: any[] | null = null;
-      const { data: d1, error: e1 } = await runQuery(orders);
+      const { data: d1, error: e1 } = await runQuery(orders, dataController.signal);
+      if (dataController.signal.aborted || requestId !== fetchSeq.current) return;
       if (e1) {
         console.warn('[usePublishList] primary order failed, falling back to created_at:', e1.message);
-        const { data: d2 } = await runQuery([{ column: 'created_at', ascending: false }]);
+        const { data: d2 } = await runQuery([{ column: 'created_at', ascending: false }], dataController.signal);
+        if (dataController.signal.aborted || requestId !== fetchSeq.current) return;
         data = d2;
       } else {
         data = d1;
@@ -158,18 +177,30 @@ export function usePublishList({ select, applyBaseFilters, reloadKey = 0, orderB
       setRows(data || []);
       setIsLoading(false);
 
-      // Count query — fire-and-forget, updates the badge when it returns.
+      // Count query — fire-and-forget, but abort stale counts so tab switches and
+      // reloads cannot pile up HEAD requests against PostgREST.
       buildFilters(supabase.from('products').select('id', { count: 'exact', head: true }))
-        .then(({ count }: { count: number | null }) => setTotalCount(count || 0))
+        .abortSignal(countController.signal)
+        .then(({ count }: { count: number | null }) => {
+          if (!countController.signal.aborted && requestId === fetchSeq.current) {
+            setTotalCount(count || 0);
+          }
+        })
         .catch(() => { /* ignore count errors */ });
     } catch {
-      setRows([]);
-      setIsLoading(false);
+      if (!dataController.signal.aborted && requestId === fetchSeq.current) {
+        setRows([]);
+        setIsLoading(false);
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentPage, pageSize, debouncedSearch, level1Filter, level2Filter, selectedFactories, reloadKey, resolvedOrderBy]);
 
   useEffect(() => { fetchRows(); }, [fetchRows]);
+  useEffect(() => () => {
+    dataAbortRef.current?.abort();
+    countAbortRef.current?.abort();
+  }, []);
 
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
 
