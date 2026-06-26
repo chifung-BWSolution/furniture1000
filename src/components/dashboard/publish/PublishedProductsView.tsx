@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import {
   CheckCheck, Search, ArrowDownToLine, ArrowUpToLine, RotateCcw, ChevronDown,
-  CloudDownload, Loader2, X, Store, RefreshCw,
+  CloudDownload, Loader2, X, Store, RefreshCw, ArrowUp, ArrowDown,
 } from 'lucide-react';
 import { PUBLISH_STATE_META, type PublishState } from '@/constants/analytics-mock';
 import { supabase } from '@/lib/supabase';
@@ -81,6 +81,7 @@ interface DisplayProduct extends PublishedDisplayProduct {
   publishedAt: string;
   views: number;
   lastEditor: string;
+  costPrice: number | null;
 }
 
 const STATE_FILTERS: { key: PublishState | 'all'; label: string }[] = [
@@ -107,6 +108,7 @@ function rowToDisplay(r: ShopifyProductRow): DisplayProduct {
     publishedAt: r.published_at || r.imported_at,
     views: 0,
     lastEditor: '—',
+    costPrice: null,
     raw: r,
   };
 }
@@ -116,6 +118,31 @@ function fmtMoney(n: number | string | null | undefined): string {
   const num = typeof n === 'string' ? parseFloat(n) : n;
   if (!Number.isFinite(num)) return '—';
   return `$${num.toLocaleString()}`;
+}
+
+function formatVariantSkus(variants: ShopifyVariant[]): string {
+  const skus = variants.map((v) => (v.sku || '').trim()).filter(Boolean);
+  if (skus.length === 0) return '—';
+  return skus.join(', ');
+}
+
+/** Primary SKU for sorting — uses lexicographically smallest variant sku. */
+function primarySortSku(variants: ShopifyVariant[] | null | undefined): string {
+  const skus = (variants ?? [])
+    .map((v) => (v.sku || '').trim())
+    .filter(Boolean);
+  if (skus.length === 0) return '';
+  return skus.slice().sort(compareSkuNatural)[0];
+}
+
+/** Letters a→z, then numeric chunks 1→9 (natural / alphanumeric order). */
+function compareSkuNatural(a: string, b: string): number {
+  const ta = a.trim();
+  const tb = b.trim();
+  if (!ta && !tb) return 0;
+  if (!ta) return 1;
+  if (!tb) return -1;
+  return ta.localeCompare(tb, undefined, { numeric: true, sensitivity: 'base' });
 }
 
 export function PublishedProductsView() {
@@ -128,6 +155,8 @@ export function PublishedProductsView() {
   const [level2Filter, setLevel2Filter] = useState('');
   const [pageSize, setPageSize] = useState(25);
   const [currentPage, setCurrentPage] = useState(1);
+  /** Default ↑ = SKU ascending (a→z, 1→9). Click toggles to ↓ descending. */
+  const [skuSortDir, setSkuSortDir] = useState<'asc' | 'desc'>('asc');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [isFetchingPreview, setIsFetchingPreview] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
@@ -150,7 +179,24 @@ export function PublishedProductsView() {
       toast.error('讀取產品失敗', { description: error.message });
       setItems([]);
     } else {
-      setItems((data ?? []).map(rowToDisplay));
+      const rows = data ?? [];
+      const sourceIds = rows
+        .map((r) => r.source_product_id)
+        .filter(Boolean) as string[];
+      const costByProductId: Record<string, number> = {};
+      if (sourceIds.length > 0) {
+        const { data: costRows } = await supabase
+          .from('products')
+          .select('id, cost_price')
+          .in('id', sourceIds);
+        costRows?.forEach((p: { id: string; cost_price: number | null }) => {
+          if (p.cost_price != null) costByProductId[p.id] = Number(p.cost_price);
+        });
+      }
+      setItems(rows.map((r) => ({
+        ...rowToDisplay(r),
+        costPrice: r.source_product_id ? (costByProductId[r.source_product_id] ?? null) : null,
+      })));
     }
     setIsLoading(false);
   }, []);
@@ -315,13 +361,25 @@ export function PublishedProductsView() {
     return true;
   }), [items, search, stateFilter, factoryFilter, level1Filter, level2Filter]);
 
-  // Page-size pagination over the filtered list.
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const sorted = useMemo(() => {
+    const list = [...filtered];
+    list.sort((a, b) => {
+      const cmp = compareSkuNatural(
+        primarySortSku(a.raw.variants),
+        primarySortSku(b.raw.variants),
+      );
+      return skuSortDir === 'asc' ? cmp : -cmp;
+    });
+    return list;
+  }, [filtered, skuSortDir]);
+
+  // Page-size pagination over the sorted list.
+  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
   const paged = useMemo(
-    () => filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize),
-    [filtered, currentPage, pageSize]
+    () => sorted.slice((currentPage - 1) * pageSize, currentPage * pageSize),
+    [sorted, currentPage, pageSize]
   );
-  useEffect(() => { setCurrentPage(1); }, [search, stateFilter, factoryFilter, level1Filter, level2Filter, pageSize]);
+  useEffect(() => { setCurrentPage(1); }, [search, stateFilter, factoryFilter, level1Filter, level2Filter, pageSize, skuSortDir]);
 
   // Call delist-from-shopify edge function to archive products in Shopify,
   // then update the local shopify_products mirror table.
@@ -475,12 +533,26 @@ export function PublishedProductsView() {
                 <th className="px-3 py-2.5 text-left font-medium min-w-[120px]">材質描述</th>
                 <th className="px-3 py-2.5 text-left font-medium min-w-[110px]">標籤</th>
                 <th className="px-3 py-2.5 text-right font-medium min-w-[80px]">價格</th>
+                <th className="px-3 py-2.5 text-right font-medium min-w-[70px]">成本</th>
                 <th className="px-3 py-2.5 text-left font-medium min-w-[80px]">變體</th>
                 <th className="px-3 py-2.5 text-left font-medium min-w-[130px]">尺寸（LWH）</th>
                 <th className="px-3 py-2.5 text-left font-medium min-w-[110px]">廠家</th>
                 <th className="px-3 py-2.5 text-left font-medium min-w-[80px]">Factory ID</th>
-                <th className="px-3 py-2.5 text-right font-medium min-w-[70px]">成本</th>
-                <th className="px-3 py-2.5 text-right font-medium min-w-[80px]">售價</th>
+                <th className="px-3 py-2.5 text-left font-medium min-w-[100px]">
+                  <button
+                    type="button"
+                    onClick={() => setSkuSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
+                    title={skuSortDir === 'asc' ? 'SKU 升序（A→Z，1→9）' : 'SKU 降序（Z→A，9→1）'}
+                    className="inline-flex items-center gap-1 hover:text-foreground transition-colors"
+                  >
+                    SKU
+                    {skuSortDir === 'asc' ? (
+                      <ArrowUp className="h-3 w-3 text-primary" />
+                    ) : (
+                      <ArrowDown className="h-3 w-3 text-primary" />
+                    )}
+                  </button>
+                </th>
                 <th className="px-3 py-2.5 text-left font-medium min-w-[70px]">狀態</th>
                 <th className="px-3 py-2.5 text-right font-medium min-w-[100px]">操作</th>
               </tr>
@@ -491,7 +563,7 @@ export function PublishedProductsView() {
                 const variants: ShopifyVariant[] = Array.isArray(r.variants) ? r.variants : [];
                 const tags: string[] = Array.isArray(r.tags) ? r.tags : [];
                 const bodyText = r.body_html ? r.body_html.replace(/<[^>]*>/g, '') : '';
-                const firstVariantPrice = variants[0]?.price ?? null;
+                const skuText = formatVariantSkus(variants);
                 return (
                   <tr key={p.id} className="hover:bg-muted/30 cursor-pointer" onClick={() => openDetail(p)}>
                     <td className="px-4 py-2.5 sticky left-0 bg-card z-10" onClick={e => e.stopPropagation()}>
@@ -547,6 +619,10 @@ export function PublishedProductsView() {
                     <td className="px-3 py-2.5 text-right font-mono-data text-[12px] font-bold text-foreground whitespace-nowrap">
                       {fmtMoney(r.price)}
                     </td>
+                    {/* 成本 */}
+                    <td className="px-3 py-2.5 text-right font-mono-data text-[11px] text-muted-foreground whitespace-nowrap">
+                      {fmtMoney(p.costPrice)}
+                    </td>
                     {/* 變體 */}
                     <td className="px-3 py-2.5">
                       <span className="font-mono-data text-[11px] text-muted-foreground">{variants.length} 個變體</span>
@@ -569,11 +645,11 @@ export function PublishedProductsView() {
                     <td className="px-3 py-2.5">
                       <span className="font-mono-data text-[11px] text-muted-foreground/50">—</span>
                     </td>
-                    {/* 成本 */}
-                    <td className="px-3 py-2.5 text-right font-mono-data text-[11px] text-muted-foreground/50">—</td>
-                    {/* 售價 */}
-                    <td className="px-3 py-2.5 text-right font-mono-data text-[12px] font-semibold text-emerald-600 whitespace-nowrap">
-                      {fmtMoney(firstVariantPrice ?? r.compare_at_price ?? r.price)}
+                    {/* SKU — from shopify_products.variants[].sku */}
+                    <td className="px-3 py-2.5">
+                      <span className="font-mono-data text-[11px] text-foreground line-clamp-2 max-w-[120px] block" title={skuText}>
+                        {skuText}
+                      </span>
                     </td>
                     {/* 狀態 */}
                     <td className="px-3 py-2.5">
@@ -595,7 +671,7 @@ export function PublishedProductsView() {
                   </tr>
                 );
               })}
-              {filtered.length === 0 && (
+              {sorted.length === 0 && (
                 <tr><td colSpan={14} className="px-6 py-10 text-center text-[12px] text-muted-foreground/60">
                   {isLoading ? '載入中...' : '尚未從 Shopify 導入產品'}
                 </td></tr>
@@ -605,7 +681,7 @@ export function PublishedProductsView() {
         </div>
 
         {/* Pagination */}
-        {filtered.length > pageSize && (
+        {sorted.length > pageSize && (
           <div className="mt-4 flex items-center justify-center gap-2">
             <button
               onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
@@ -615,7 +691,7 @@ export function PublishedProductsView() {
               上一頁
             </button>
             <span className="font-mono-data text-xs text-muted-foreground">
-              第 {currentPage} / {totalPages} 頁 · 共 {filtered.length} 件
+              第 {currentPage} / {totalPages} 頁 · 共 {sorted.length} 件
             </span>
             <button
               onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
