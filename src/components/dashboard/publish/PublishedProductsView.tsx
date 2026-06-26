@@ -73,6 +73,8 @@ interface ShopifyProductRow {
   shop_domain?: string | null;
   'my_fields.normal_size'?: string | null;
   'my_fields.materials'?: string | null;
+  cost?: number | null;
+  sku?: string | null;
 }
 
 interface DisplayProduct extends PublishedDisplayProduct {
@@ -97,7 +99,7 @@ function shopifyStatusToState(status: string | null): PublishState {
   return 'unpublished';
 }
 
-function rowToDisplay(r: ShopifyProductRow): DisplayProduct {
+function rowToDisplay(r: ShopifyProductRow, costFallback: number | null = null): DisplayProduct {
   return {
     id: r.id,
     shopify_product_id: r.shopify_product_id,
@@ -108,9 +110,15 @@ function rowToDisplay(r: ShopifyProductRow): DisplayProduct {
     publishedAt: r.published_at || r.imported_at,
     views: 0,
     lastEditor: '—',
-    costPrice: null,
+    costPrice: r.cost != null ? Number(r.cost) : costFallback,
     raw: r,
   };
+}
+
+function resolveProductSku(row: ShopifyProductRow): string {
+  const direct = (row.sku || '').trim();
+  if (direct) return direct;
+  return formatVariantSkus(Array.isArray(row.variants) ? row.variants : []);
 }
 
 function fmtMoney(n: number | string | null | undefined): string {
@@ -126,8 +134,14 @@ function formatVariantSkus(variants: ShopifyVariant[]): string {
   return skus.join(', ');
 }
 
-/** Primary SKU for sorting — uses lexicographically smallest variant sku. */
-function primarySortSku(variants: ShopifyVariant[] | null | undefined): string {
+/** Primary SKU for sorting — prefers shopify_products.sku, then variants. */
+function primarySortSku(row: ShopifyProductRow): string {
+  const direct = (row.sku || '').trim();
+  if (direct) return direct;
+  return primarySortSkuFromVariants(row.variants);
+}
+
+function primarySortSkuFromVariants(variants: ShopifyVariant[] | null | undefined): string {
   const skus = (variants ?? [])
     .map((v) => (v.sku || '').trim())
     .filter(Boolean);
@@ -194,8 +208,10 @@ export function PublishedProductsView() {
         });
       }
       setItems(rows.map((r) => ({
-        ...rowToDisplay(r),
-        costPrice: r.source_product_id ? (costByProductId[r.source_product_id] ?? null) : null,
+        ...rowToDisplay(
+          r,
+          r.source_product_id ? (costByProductId[r.source_product_id] ?? null) : null,
+        ),
       })));
     }
     setIsLoading(false);
@@ -345,11 +361,8 @@ export function PublishedProductsView() {
     if (search) {
       const q = search.toLowerCase();
       const title = p.title.toLowerCase();
-      // SKU lives in variants[].sku
-      const skus = Array.isArray(p.raw.variants)
-        ? p.raw.variants.map((v) => (v.sku || '').toLowerCase()).join(' ')
-        : '';
-      if (!title.includes(q) && !skus.includes(q)) return false;
+      const skuHay = resolveProductSku(p.raw).toLowerCase();
+      if (!title.includes(q) && !skuHay.includes(q)) return false;
     }
     if (stateFilter !== 'all' && p.state !== stateFilter) return false;
     if (factoryFilter !== '全部' && p.factory !== factoryFilter) return false;
@@ -365,8 +378,8 @@ export function PublishedProductsView() {
     const list = [...filtered];
     list.sort((a, b) => {
       const cmp = compareSkuNatural(
-        primarySortSku(a.raw.variants),
-        primarySortSku(b.raw.variants),
+        primarySortSku(a.raw),
+        primarySortSku(b.raw),
       );
       return skuSortDir === 'asc' ? cmp : -cmp;
     });
@@ -563,7 +576,7 @@ export function PublishedProductsView() {
                 const variants: ShopifyVariant[] = Array.isArray(r.variants) ? r.variants : [];
                 const tags: string[] = Array.isArray(r.tags) ? r.tags : [];
                 const bodyText = r.body_html ? r.body_html.replace(/<[^>]*>/g, '') : '';
-                const skuText = formatVariantSkus(variants);
+                const skuText = resolveProductSku(r);
                 return (
                   <tr key={p.id} className="hover:bg-muted/30 cursor-pointer" onClick={() => openDetail(p)}>
                     <td className="px-4 py-2.5 sticky left-0 bg-card z-10" onClick={e => e.stopPropagation()}>
@@ -596,12 +609,12 @@ export function PublishedProductsView() {
                         {bodyText || '—'}
                       </div>
                     </td>
-                    {/* 材質描述 */}
-                    <td className="px-3 py-2.5">
+                    {/* 材質描述 — list view capped at 4 lines; full text in detail modal */}
+                    <td className="px-3 py-2.5" style={{ maxWidth: '120px' }}>
                       {r['my_fields.materials'] ? (
-                        <span className="font-body text-[11px] text-muted-foreground line-clamp-3 max-w-[110px] block">{r['my_fields.materials']}</span>
+                        <span className="font-body text-[11px] leading-snug text-muted-foreground line-clamp-4 block whitespace-pre-line break-words">{r['my_fields.materials']}</span>
                       ) : (
-                        <span className="font-body text-[11px] text-muted-foreground line-clamp-3 max-w-[110px] block">—</span>
+                        <span className="font-body text-[11px] text-muted-foreground">—</span>
                       )}
                     </td>
                     {/* 標籤 */}
