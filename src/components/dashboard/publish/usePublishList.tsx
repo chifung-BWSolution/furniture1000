@@ -7,6 +7,17 @@ import { Search, X, FolderTree, Factory, ChevronDown, ChevronLeft, ChevronRight,
 
 export type PageSize = 20 | 50 | 100;
 
+export type PublishListOrder = {
+  column: string;
+  ascending?: boolean;
+  nullsFirst?: boolean;
+};
+
+const DEFAULT_ORDER: PublishListOrder[] = [
+  { column: 'copy_queued_at', ascending: false, nullsFirst: false },
+  { column: 'created_at', ascending: false },
+];
+
 interface UsePublishListOpts {
   /** explicit column list for the data query */
   select: string;
@@ -14,9 +25,11 @@ interface UsePublishListOpts {
   applyBaseFilters: (q: any) => any;
   /** re-fetch trigger key — bump to reload (e.g. after 完成) */
   reloadKey?: number;
+  /** DB sort order — defaults to copy_queued_at DESC, created_at DESC */
+  orderBy?: PublishListOrder[];
 }
 
-export function usePublishList({ select, applyBaseFilters, reloadKey = 0 }: UsePublishListOpts) {
+export function usePublishList({ select, applyBaseFilters, reloadKey = 0, orderBy }: UsePublishListOpts) {
   const [rows, setRows] = useState<any[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -114,23 +127,22 @@ export function usePublishList({ select, applyBaseFilters, reloadKey = 0 }: UseP
         return q;
       };
 
-      // Data query — sort by copy_queued_at DESC (most recently queued/reverted first),
-      // falling back to created_at if the column doesn't exist yet.
+      const orders = orderBy ?? DEFAULT_ORDER;
+
+      const runQuery = async (spec: PublishListOrder[]) => {
+        let q = buildFilters(supabase.from('products').select(select));
+        for (const o of spec) {
+          q = q.order(o.column, { ascending: o.ascending ?? false, nullsFirst: o.nullsFirst });
+        }
+        return q.range(from, to);
+      };
+
+      // Data query — newest stage entry first (per-page orderBy), with fallbacks.
       let data: any[] | null = null;
-      const { data: d1, error: e1 } = await buildFilters(
-        supabase.from('products').select(select)
-          .order('copy_queued_at', { ascending: false, nullsFirst: false })
-          .order('created_at', { ascending: false })
-          .range(from, to)
-      );
+      const { data: d1, error: e1 } = await runQuery(orders);
       if (e1) {
-        // copy_queued_at column likely missing — fall back
-        console.warn('[usePublishList] copy_queued_at order failed, falling back to created_at:', e1.message);
-        const { data: d2 } = await buildFilters(
-          supabase.from('products').select(select)
-            .order('created_at', { ascending: false })
-            .range(from, to)
-        );
+        console.warn('[usePublishList] primary order failed, falling back to created_at:', e1.message);
+        const { data: d2 } = await runQuery([{ column: 'created_at', ascending: false }]);
         data = d2;
       } else {
         data = d1;
@@ -147,7 +159,7 @@ export function usePublishList({ select, applyBaseFilters, reloadKey = 0 }: UseP
       setIsLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, pageSize, debouncedSearch, level1Filter, level2Filter, selectedFactories, reloadKey]);
+  }, [currentPage, pageSize, debouncedSearch, level1Filter, level2Filter, selectedFactories, reloadKey, orderBy]);
 
   useEffect(() => { fetchRows(); }, [fetchRows]);
 

@@ -994,11 +994,24 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
 
   const load = useCallback(async () => {
     setIsLoading(true);
-    const { data, error } = await supabase
+    const selectCols = 'id,product_id,title,image_url,vendor,product_type,price,tags,sku,info_completed_at,imported_at';
+    let { data, error } = await supabase
       .from('ready_to_shopify')
-      .select('id,product_id,title,image_url,vendor,product_type,price,tags,sku')
+      .select(selectCols)
       .eq('furniture_group_checked', false)
+      .order('info_completed_at', { ascending: false, nullsFirst: false })
       .order('imported_at', { ascending: false });
+
+    if (error) {
+      // info_completed_at column may not exist until migration runs
+      const fallback = await supabase
+        .from('ready_to_shopify')
+        .select('id,product_id,title,image_url,vendor,product_type,price,tags,sku')
+        .eq('furniture_group_checked', false)
+        .order('imported_at', { ascending: false });
+      data = fallback.data;
+      error = fallback.error;
+    }
 
     if (error) {
       toast.error('讀取失敗', { description: error.message });
@@ -1080,7 +1093,10 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
       // Set furniture_group_checked=true → rows appear in 準備上載 query
       const { error: rtsError } = await supabase
         .from('ready_to_shopify')
-        .update({ furniture_group_checked: true })
+        .update({
+          furniture_group_checked: true,
+          ready_to_publish_at: new Date().toISOString(),
+        })
         .in('id', ids);
       if (rtsError) throw new Error(rtsError.message);
 

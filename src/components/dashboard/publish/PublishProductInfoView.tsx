@@ -92,6 +92,11 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
     select: 'id,title,image_url,price,sale_price,cost_price,sku,tags,dimension_l_mm,dimension_w_mm,dimension_h_mm,level1_category,level2_category,in_stock,customize,model,factories_display_name',
     applyBaseFilters: (q) => q.eq('in_shopify_queue', true).eq('info_done', false).eq('copy_done', true),
     reloadKey,
+    // Newest submissions from 產品文案 appear first.
+    orderBy: [
+      { column: 'copy_done_at', ascending: false, nullsFirst: false },
+      { column: 'created_at', ascending: false },
+    ],
   });
 
   // Fetch cost + image_url + images + materials from ready_to_shopify for each product
@@ -294,6 +299,7 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
     if (advance) {
       // false = waiting in 傢俬組檢查; true = cleared for 準備上載
       rtsUpdate.furniture_group_checked = false;
+      rtsUpdate.info_completed_at = new Date().toISOString();
       if (isStock || customizeVal != null) rtsUpdate.status = 'draft';
     }
     const { error: rtsErr } = await supabase
