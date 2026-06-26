@@ -7,6 +7,7 @@ import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { PUBLISH_STATE_META, type PublishState } from '@/constants/analytics-mock';
 import { Textarea } from '@/components/ui/textarea';
+import { CategoryTagPicker, type BwfCat } from './CategoryTagPicker';
 
 interface ShopifyVariant {
   id?: string | number;
@@ -102,6 +103,7 @@ export function PublishedProductDetailModal({
   const [isSaving, setIsSaving] = useState(false);
   const [selectedImg, setSelectedImg] = useState<string | null>(null);
   const [categoryPairs, setCategoryPairs] = useState<{ level1: string; level2: string }[]>([]);
+  const [bwfCats, setBwfCats] = useState<BwfCat[]>([]);
 
   const [editTitle, setEditTitle] = useState('');
   const [editBodyHtml, setEditBodyHtml] = useState('');
@@ -110,7 +112,7 @@ export function PublishedProductDetailModal({
   const [editL2, setEditL2] = useState('');
   const [editPrice, setEditPrice] = useState('');
   const [editCompareAtPrice, setEditCompareAtPrice] = useState('');
-  const [editTagsText, setEditTagsText] = useState('');
+  const [editTags, setEditTags] = useState<string[]>([]);
   const [editNormalSize, setEditNormalSize] = useState('');
   const [editMaterials, setEditMaterials] = useState('');
   const [editSeoTitle, setEditSeoTitle] = useState('');
@@ -123,6 +125,11 @@ export function PublishedProductDetailModal({
       .select('level1, level2, sort_order')
       .order('sort_order', { ascending: true })
       .then(({ data: cats }) => { if (cats) setCategoryPairs(cats as { level1: string; level2: string }[]); });
+    supabase
+      .from('bwf_product_categories')
+      .select('id,name,parent_id,level,sort_order')
+      .order('sort_order', { ascending: true })
+      .then(({ data }) => { if (data) setBwfCats(data); });
   }, []);
 
   useEffect(() => {
@@ -134,7 +141,7 @@ export function PublishedProductDetailModal({
     setEditL2(ptParts[1] || '');
     setEditPrice(r.price != null ? String(r.price) : '');
     setEditCompareAtPrice(r.compare_at_price != null ? String(r.compare_at_price) : '');
-    setEditTagsText(Array.isArray(r.tags) ? r.tags.join(', ') : '');
+    setEditTags(Array.isArray(r.tags) ? r.tags : []);
     setEditNormalSize(r['my_fields.normal_size'] || '');
     setEditMaterials(r['my_fields.materials'] || '');
     setEditSeoTitle(r.title || '');
@@ -185,7 +192,7 @@ export function PublishedProductDetailModal({
       const priceNum = editPrice !== '' ? parseFloat(editPrice) : null;
       const compareNum = editCompareAtPrice !== '' ? parseFloat(editCompareAtPrice) : null;
       const productType = [editL1, editL2].filter(Boolean).join(' / ') || '';
-      const tags = editTagsText.split(',').map((t) => t.trim()).filter(Boolean);
+      const tags = editTags;
       const metafields: Record<string, string> = {};
       if (editNormalSize.trim()) metafields['my_fields.normal_size'] = editNormalSize.trim();
       if (editMaterials.trim()) metafields['my_fields.materials'] = editMaterials.trim();
@@ -369,8 +376,12 @@ export function PublishedProductDetailModal({
                 <input className={inputCls} value={editVendor} onChange={(e) => setEditVendor(e.target.value)} placeholder="廠商名稱" />
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-muted-foreground">標籤（以逗號分隔）</label>
-                <input className={inputCls} value={editTagsText} onChange={(e) => setEditTagsText(e.target.value)} placeholder="標籤1, 標籤2" />
+                <label className="mb-1 block text-xs font-medium text-muted-foreground">產品標籤</label>
+                <CategoryTagPicker
+                  tags={editTags}
+                  categories={bwfCats}
+                  onChange={setEditTags}
+                />
               </div>
             </section>
 
