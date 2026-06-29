@@ -116,7 +116,7 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
     (async () => {
       const { data, error } = await supabase
         .from('ready_to_shopify')
-        .select('product_id, image_url, images')
+        .select('product_id, image_url, image_url_2, image_url_3, images')
         .in('product_id', productIds);
       if (cancelled || seq !== imagesFetchSeq.current) return;
       if (error) {

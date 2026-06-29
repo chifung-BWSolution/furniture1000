@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { uploadImageSourceToStorage, stripBase64ForDb, isHttpImageUrl } from '@/lib/imageStorage';
+import { mergeProductGalleryUrls } from '@/lib/rtsImages';
 import { syncRtsWorkflowToProduct } from '@/lib/rtsProductSync';
 import { toast } from 'sonner';
 
@@ -40,6 +41,8 @@ interface FGDetail {
   cost: number | null;
   sku: string | null;
   image_url: string | null;
+  image_url_2?: string | null;
+  image_url_3?: string | null;
   images: any[] | null;
   status: string | null;
   tags: string[] | null;
@@ -321,7 +324,7 @@ export function FGProductDetailModal({
         .from('ready_to_shopify')
         .select(
           'id,product_id,title,body_html,vendor,product_type,price,compare_at_price,cost,sku,' +
-          'image_url,images,status,tags,shopify_product_id,' +
+          'image_url,image_url_2,image_url_3,images,status,tags,shopify_product_id,' +
           'shopify_page_title,shopify_page_description,shopify_url,handle,' +
           'dimension_l_mm,dimension_w_mm,dimension_h_mm,in_stock,customize,imported_at'
         )
@@ -335,37 +338,23 @@ export function FGProductDetailModal({
       }
       const r = row as unknown as FGDetail;
       setData(r);
-      setSelectedImg(r.image_url || null);
-      const imgs: string[] = [];
-      const pushUnique = (src: string) => {
-        if (src && isHttpImageUrl(src) && !imgs.includes(src)) imgs.push(src);
-      };
-      pushUnique(r.image_url || '');
-      if (Array.isArray(r.images)) {
-        for (const img of r.images) {
-          const src: string = (img?.src || img?.url || (typeof img === 'string' ? img : '')) as string;
-          pushUnique(src);
-        }
-      }
-      if (imgs.length === 0 && r.product_id) {
+
+      // Gallery: merge RTS + products (same sources as 產品信息 lazy image fetch).
+      let prodImages: { image_url?: string | null; image_url_2?: string | null; image_url_3?: string | null; images?: unknown } | null = null;
+      if (r.product_id) {
         const { data: prod } = await supabase
           .from('products')
           .select('image_url, image_url_2, image_url_3, images')
           .eq('id', r.product_id)
           .maybeSingle();
-        if (prod) {
-          pushUnique(prod.image_url || '');
-          pushUnique(prod.image_url_2 || '');
-          pushUnique(prod.image_url_3 || '');
-          if (Array.isArray(prod.images)) {
-            for (const img of prod.images) {
-              const src: string = (img?.src || img?.url || (typeof img === 'string' ? img : '')) as string;
-              pushUnique(src);
-            }
-          }
-        }
+        prodImages = prod;
       }
       if (cancelled) return;
+
+      const merged = mergeProductGalleryUrls(r, prodImages);
+      const imgs = merged.filter((src) => isHttpImageUrl(src));
+
+      setSelectedImg(imgs[0] || r.image_url || null);
       setEditImages(imgs);
       initialImagesRef.current = [...imgs];
       if (imgs.length > 0 && !r.image_url) setSelectedImg(imgs[0]);
