@@ -130,46 +130,86 @@ export function SettingsView({ settings, onUpdateSettings }: SettingsViewProps) 
     setMigrationLog([]);
     stopMigrationRef.current = false;
 
+    const log = (line: string) => setMigrationLog((prev) => [...prev, line]);
     let totalConverted = 0;
     let totalSkipped = 0;
-    let round = 0;
 
+    const delay = () => new Promise((r) => setTimeout(r, 800));
+
+    // ── Step 1: ready_to_shopify ─────────────────────────────────────────────
+    log('▶ 第 1 步：ready_to_shopify（image_url / image_url_2 / image_url_3 / images）');
+    let rtsRound = 0;
     while (!stopMigrationRef.current) {
-      round++;
+      rtsRound++;
       try {
         const { data, error } = await supabase.functions.invoke('migrate-rts-images', {
           body: { batch_size: 5 },
         });
-
         if (error) {
-          setMigrationLog(prev => [...prev, `❌ 第 ${round} 批：錯誤 — ${error.message}`]);
+          log(`❌ ready_to_shopify 第 ${rtsRound} 批：${error.message}`);
           break;
         }
-
         const { processed, converted, skipped, remaining, done } = data as {
           processed: number; converted: number; skipped: number; remaining: number; done: boolean;
         };
-
         totalConverted += converted ?? 0;
         totalSkipped += skipped ?? 0;
-
-        setMigrationLog(prev => [
-          ...prev,
-          `第 ${round} 批：處理 ${processed} 張，成功 ${converted}，跳過 ${skipped}，剩餘 ${remaining}`,
-        ]);
-
+        log(`  第 ${rtsRound} 批：處理 ${processed}，成功 ${converted}，跳過 ${skipped}，剩餘 ${remaining}`);
         if (done || remaining === 0) {
-          setMigrationLog(prev => [...prev, `✅ 完成！共轉換 ${totalConverted} 張，跳過 ${totalSkipped} 張`]);
-          setMigrationDone(true);
+          log(`✅ ready_to_shopify 完成（共成功 ${totalConverted}，跳過 ${totalSkipped}）`);
           break;
         }
-
-        // Small delay between batches to avoid overloading storage
-        await new Promise(r => setTimeout(r, 800));
+        await delay();
       } catch (e) {
-        setMigrationLog(prev => [...prev, `❌ 第 ${round} 批：例外 — ${String(e)}`]);
+        log(`❌ ready_to_shopify 例外：${String(e)}`);
         break;
       }
+    }
+
+    if (stopMigrationRef.current) {
+      log('⏹ 已停止');
+      setMigrating(false);
+      return;
+    }
+
+    // ── Step 2: products ─────────────────────────────────────────────────────
+    log('▶ 第 2 步：products（image_url / image_url_2 / image_url_3 / images）');
+    let productsConverted = 0;
+    let productsSkipped = 0;
+    let cursor: string | null = null;
+    let prodRound = 0;
+
+    while (!stopMigrationRef.current) {
+      prodRound++;
+      try {
+        const { data, error } = await supabase.functions.invoke('migrate-products-images', {
+          body: { batch_size: 5, ...(cursor ? { after_id: cursor } : {}) },
+        });
+        if (error) {
+          log(`❌ products 第 ${prodRound} 批：${error.message}`);
+          break;
+        }
+        const { processed, converted, skipped, next_cursor, done } = data as {
+          processed: number; converted: number; skipped: number; next_cursor: string | null; done: boolean;
+        };
+        productsConverted += converted ?? 0;
+        productsSkipped += skipped ?? 0;
+        cursor = next_cursor;
+        log(`  第 ${prodRound} 批：處理 ${processed}，成功 ${converted}，跳過 ${skipped}${done ? '（已到表尾）' : ''}`);
+        if (done) {
+          log(`✅ products 完成（共成功 ${productsConverted}，跳過 ${productsSkipped}）`);
+          break;
+        }
+        await delay();
+      } catch (e) {
+        log(`❌ products 例外：${String(e)}`);
+        break;
+      }
+    }
+
+    if (!stopMigrationRef.current) {
+      log(`🎉 全部完成！ready_to_shopify + products 的 base64 已轉為 Storage URL`);
+      setMigrationDone(true);
     }
 
     setMigrating(false);
@@ -529,7 +569,7 @@ export function SettingsView({ settings, onUpdateSettings }: SettingsViewProps) 
           <div>
             <h3 className="font-display text-sm font-bold">修復產品圖片（Base64 → Storage URL）</h3>
             <p className="text-xs text-muted-foreground font-body">
-              將 ready_to_shopify 表中殘留的 base64 圖片上傳到 Supabase Storage，替換為正式 HTTP URL
+              先遷移 ready_to_shopify，再遷移 products 的 image_url / image_url_2 / image_url_3 / images 欄位
             </p>
           </div>
         </div>
@@ -546,7 +586,7 @@ export function SettingsView({ settings, onUpdateSettings }: SettingsViewProps) 
               ) : (
                 <ImageIcon className="h-4 w-4" />
               )}
-              {migrating ? '遷移中...' : '開始修復圖片'}
+              {migrating ? '遷移中...' : '開始完整遷移（兩表）'}
             </Button>
             {migrating && (
               <Button
@@ -574,7 +614,8 @@ export function SettingsView({ settings, onUpdateSettings }: SettingsViewProps) 
 
           <div className="rounded-lg bg-violet-500/5 border border-violet-500/20 p-3 space-y-1">
             <p className="text-[10px] text-violet-400 font-body">
-              每批處理 5 張圖片，自動循環直到全部完成。若中途停止，下次再按會從剩餘圖片繼續。
+              第 1 步：ready_to_shopify → 第 2 步：products。每批 5 筆，自動循環直到兩表完成。
+              請先部署 migrate-rts-images / migrate-products-images Edge Function 並執行 migration 20250196。
             </p>
           </div>
         </div>
