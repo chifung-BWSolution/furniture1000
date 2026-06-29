@@ -46,7 +46,7 @@ import { TagSelector } from './TagSelector';
 import { ColorSelector } from './ColorSelector';
 import { CascadingCategorySelector } from './CascadingCategorySelector';
 import { supabase } from '@/lib/supabase';
-import { resolveRowsImagesToStorage } from '@/lib/imageStorage';
+import { resolveRowsImagesToStorage, productImageFieldsPendingStorage } from '@/lib/imageStorage';
 import { fetchFactories, fetchFactoriesWithIds, FactoryItem } from '@/lib/factorySupabase';
 import { parseExcelFile, extractImagesFromWorkbook, extractRawExcelTable, ExcelProduct, ExcelImage, getFactoryRule, RawTableExtraction, cleanPrice, parseSmartDimensions, parseDeliveryTerm, resolveMappedRowImages } from '@/lib/excelParser';
 import { ExcelPreviewTable, ExcelPreviewData, ColumnMappingState, StandardHeaderValue, MultiSheetColumnMapping, MultiSheetDimUnits, DimUnit, PreviewAction } from '@/components/dashboard/ExcelPreviewTable';
@@ -3136,44 +3136,68 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         .map(p => p.page_number);
 
       if (action === 'queue-shopify') {
-        // Only add to local Shopify queue for items that SUCCEEDED in master DB
-        for (const item of correctedProds) {
-          if (!successfulLocalIds.has(item.id)) continue; // Skip failed items
-          const imageUrl = item.cropped_image_url || item.lifestyleImageUrl || '';
-          // Find master_id from DB response
-          const dbResult = dbResults.find((r: any) => r.local_id === item.id);
-          const product = {
-            title: item.title,
-            description: item.description,
-            descriptionHtml: item.description,
-            tags: item.tags,
-            price: item.price,
-            collection: item.collection,
-            imageUrl,
-            variants: [{
-              id: Math.random().toString(36).substring(7),
-              size: 'One Size',
-              color: item.color || 'Default',
-              sku: `SKU-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
+        const itemsToAdd = correctedProds.filter((item) => successfulLocalIds.has(item.id));
+        const stagingRows = itemsToAdd.map((item) => ({
+          item,
+          dbResult: dbResults.find((r: any) => r.local_id === item.id),
+          row: {
+            id: `excel-queue-${item.id}`,
+            image_url: item.cropped_image_url || '',
+            image_url_2: (item as any).imageUrl2 ?? null,
+            image_url_3: (item as any).imageUrl3 ?? null,
+            lifestyle_image_url: item.lifestyleImageUrl ?? null,
+          },
+        }));
+
+        if (stagingRows.length > 0) {
+          toast.loading('正在上傳產品圖片至 Storage…', { id: 'queue-img-upload' });
+          let resolvedImgRows;
+          try {
+            resolvedImgRows = await resolveRowsImagesToStorage(stagingRows.map((s) => s.row), 4);
+          } finally {
+            toast.dismiss('queue-img-upload');
+          }
+          if (resolvedImgRows.some((r) => productImageFieldsPendingStorage(r))) {
+            throw new Error('部分產品圖片未能轉為 Storage URL，已取消加入佇列');
+          }
+
+          for (let i = 0; i < stagingRows.length; i++) {
+            const { item, dbResult } = stagingRows[i];
+            const img = resolvedImgRows[i];
+            onAddProduct({
+              title: item.title,
+              description: item.description,
+              descriptionHtml: item.description,
+              tags: item.tags,
               price: item.price,
-              inventory: 100,
-            }],
-            factoriesDisplayName: selectedManufacturer || '',
-            factoryId: selectedFactoryId || null,
-            material: item.material || '',
-            dimensionLMm: item.dimensionLMm ?? null,
-            dimensionWMm: item.dimensionWMm ?? null,
-            dimensionHMm: item.dimensionHMm ?? null,
-            costPrice: item.costPrice ?? null,
-            factoryHighlight: selectedFactoryHighlights,
-            titleEn: item.titleEn || undefined,
-            titleZh: item.titleZh || undefined,
-            bwfMasterId: dbResult?.master_id || undefined,
-            deliveryTermId: item.deliveryTermId || null,
-            deliveryTermName: item.deliveryTermName || null,
-            lifestyleImageUrl: item.lifestyleImageUrl || null,
-          };
-          onAddProduct(product);
+              collection: item.collection,
+              imageUrl: (img.image_url as string) || '',
+              imageUrl2: (img.image_url_2 as string) || null,
+              imageUrl3: (img.image_url_3 as string) || null,
+              variants: [{
+                id: Math.random().toString(36).substring(7),
+                size: 'One Size',
+                color: item.color || 'Default',
+                sku: `SKU-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
+                price: item.price,
+                inventory: 100,
+              }],
+              factoriesDisplayName: selectedManufacturer || '',
+              factoryId: selectedFactoryId || null,
+              material: item.material || '',
+              dimensionLMm: item.dimensionLMm ?? null,
+              dimensionWMm: item.dimensionWMm ?? null,
+              dimensionHMm: item.dimensionHMm ?? null,
+              costPrice: item.costPrice ?? null,
+              factoryHighlight: selectedFactoryHighlights,
+              titleEn: item.titleEn || undefined,
+              titleZh: item.titleZh || undefined,
+              bwfMasterId: dbResult?.master_id || undefined,
+              deliveryTermId: item.deliveryTermId || null,
+              deliveryTermName: item.deliveryTermName || null,
+              lifestyleImageUrl: (img.lifestyle_image_url as string) || null,
+            } as any);
+          }
         }
         setAddedCount(successCount);
 
@@ -3217,7 +3241,8 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         const productRows = correctedProds
           .map(item => {
             const dbResult = dbResults.find((r: any) => r.local_id === item.id);
-            const imageUrl = item.cropped_image_url || item.lifestyleImageUrl || '';
+            const imageUrl = item.cropped_image_url || '';
+            const lifestyleUrl = item.lifestyleImageUrl || '';
             const newId = Math.random().toString(36).substring(2, 15);
             return {
               id: newId,
@@ -3230,6 +3255,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
               collection: item.collection,
               status: 'draft',
               image_url: imageUrl,
+              lifestyle_image_url: lifestyleUrl || null,
               error_message: null,
               shopify_product_id: null,
               sku: `SKU-${Math.random().toString(36).substring(2, 8).toUpperCase()}`,
@@ -3276,15 +3302,10 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
             toast.dismiss('catalog-img-upload');
           }
 
-          const stillBase64 = resolvedRows.filter(
-            (r) =>
-              (typeof r.image_url === 'string' && r.image_url.startsWith('data:')) ||
-              (typeof r.image_url_2 === 'string' && r.image_url_2.startsWith('data:')) ||
-              (typeof r.image_url_3 === 'string' && r.image_url_3.startsWith('data:')),
-          );
-          if (stillBase64.length > 0) {
+          const stillPending = resolvedRows.filter((r) => productImageFieldsPendingStorage(r));
+          if (stillPending.length > 0) {
             throw new Error(
-              `${stillBase64.length} 個產品的圖片上傳 Storage 失敗，已取消寫入（請檢查 Storage 設定後重試）`,
+              `${stillPending.length} 個產品的圖片未能轉為 Storage URL，已取消寫入（請檢查 Storage 設定後重試）`,
             );
           }
 

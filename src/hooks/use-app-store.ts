@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { Product, ProductVariant, ProductStatus, ProductSource, AppSettings, ViewType } from '@/types/product';
 import { supabase } from '@/lib/supabase';
 import { removeProductFromPublishPipeline } from '@/lib/publishPipeline';
-import { resolveRowsImagesToStorage, stripBase64ForDb } from '@/lib/imageStorage';
+import { resolveRowsImagesToStorage, productImageFieldsPendingStorage, stripBase64ForDb } from '@/lib/imageStorage';
 import { toast } from 'sonner';
 
 const generateId = () => Math.random().toString(36).substring(2, 15);
@@ -222,15 +222,7 @@ async function saveProductsToDb(productsToSave: Product[]) {
   }));
 
   const resolvedRows = await resolveRowsImagesToStorage(productRows);
-  const stillHasBase64 = resolvedRows.some(
-    (r) =>
-      (typeof r.image_url === 'string' && r.image_url.startsWith('data:')) ||
-      (typeof (r as { image_url_2?: string }).image_url_2 === 'string' &&
-        (r as { image_url_2?: string }).image_url_2!.startsWith('data:')) ||
-      (typeof (r as { image_url_3?: string }).image_url_3 === 'string' &&
-        (r as { image_url_3?: string }).image_url_3!.startsWith('data:')),
-  );
-  if (stillHasBase64) {
+  if (resolvedRows.some((r) => productImageFieldsPendingStorage(r))) {
     throw new Error('部分產品圖片未能上傳至 Storage，已取消儲存');
   }
   const UPSERT_CHUNK = 8;
@@ -674,49 +666,65 @@ export function useAppStore() {
     setProducts(prev => [newProduct, ...prev]);
     setHasUnsavedChanges(true);
 
-    // Immediately persist to local DB so ListedProductsView can see it
-    supabase.from('products').upsert({
-      id: newProduct.id,
-      title: newProduct.title,
-      description: newProduct.description,
-      description_html: newProduct.descriptionHtml || newProduct.description,
-      tags: newProduct.tags,
-      price: newProduct.price,
-      compare_at_price: newProduct.compareAtPrice || null,
-      collection: newProduct.collection,
-      status: newProduct.status,
-      image_url: newProduct.imageUrl,
-      error_message: null,
-      shopify_product_id: null,
-      sku: newProduct.sku || '',
-      created_at: newProduct.createdAt,
-      source: newProduct.source || 'local',
-      synced_at: newProduct.syncedAt || null,
-      upload_session_id: newProduct.uploadSessionId || null,
-      factories_display_name: newProduct.factoriesDisplayName || '',
-      factory_id: newProduct.factoryId || '',
-      bwf_master_id: newProduct.bwfMasterId || null,
-      cost_price: newProduct.costPrice ?? null,
-      sale_price: newProduct.salePrice ?? 0,
-      production_date: newProduct.productionLeadTime ?? null,
-      shipping_days: newProduct.shippingDays ?? null,
-      shipping_fee: newProduct.shippingFee ?? null,
-      remarks: newProduct.remarks || '',
-      color: newProduct.color || '',
-      dimension_l_mm: newProduct.dimensionLMm ?? null,
-      dimension_w_mm: newProduct.dimensionWMm ?? null,
-      dimension_h_mm: newProduct.dimensionHMm ?? null,
-      material: newProduct.material || '',
-      category: newProduct.category || null,
-      delivery_term_id: newProduct.deliveryTermId || null,
-      delivery_term_name: newProduct.deliveryTermName || null,
-    }, { onConflict: 'id' }).then(({ error }) => {
+    // Immediately persist to local DB — images must be Storage HTTP URLs, never base64.
+    (async () => {
+      const ext = product as Product & { imageUrl2?: string | null; imageUrl3?: string | null };
+      const [resolved] = await resolveRowsImagesToStorage([{
+        id: newProduct.id,
+        image_url: newProduct.imageUrl || '',
+        image_url_2: ext.imageUrl2 ?? null,
+        image_url_3: ext.imageUrl3 ?? null,
+        lifestyle_image_url: newProduct.lifestyleImageUrl ?? null,
+      }]);
+      if (productImageFieldsPendingStorage(resolved)) {
+        console.error('[addProduct] Image upload to Storage failed — product saved in memory only');
+        return;
+      }
+      const { error } = await supabase.from('products').upsert({
+        id: newProduct.id,
+        title: newProduct.title,
+        description: newProduct.description,
+        description_html: newProduct.descriptionHtml || newProduct.description,
+        tags: newProduct.tags,
+        price: newProduct.price,
+        compare_at_price: newProduct.compareAtPrice || null,
+        collection: newProduct.collection,
+        status: newProduct.status,
+        image_url: resolved.image_url,
+        image_url_2: resolved.image_url_2,
+        image_url_3: resolved.image_url_3,
+        lifestyle_image_url: resolved.lifestyle_image_url,
+        error_message: null,
+        shopify_product_id: null,
+        sku: newProduct.sku || '',
+        created_at: newProduct.createdAt,
+        source: newProduct.source || 'local',
+        synced_at: newProduct.syncedAt || null,
+        upload_session_id: newProduct.uploadSessionId || null,
+        factories_display_name: newProduct.factoriesDisplayName || '',
+        factory_id: newProduct.factoryId || '',
+        bwf_master_id: newProduct.bwfMasterId || null,
+        cost_price: newProduct.costPrice ?? null,
+        sale_price: newProduct.salePrice ?? 0,
+        production_date: newProduct.productionLeadTime ?? null,
+        shipping_days: newProduct.shippingDays ?? null,
+        shipping_fee: newProduct.shippingFee ?? null,
+        remarks: newProduct.remarks || '',
+        color: newProduct.color || '',
+        dimension_l_mm: newProduct.dimensionLMm ?? null,
+        dimension_w_mm: newProduct.dimensionWMm ?? null,
+        dimension_h_mm: newProduct.dimensionHMm ?? null,
+        material: newProduct.material || '',
+        category: newProduct.category || null,
+        delivery_term_id: newProduct.deliveryTermId || null,
+        delivery_term_name: newProduct.deliveryTermName || null,
+      }, { onConflict: 'id' });
       if (error) {
         console.error('[addProduct] Failed to persist to DB:', error.message);
       } else {
-        console.log(`[addProduct] ✅ Product ${newProduct.id} persisted to local DB immediately`);
+        console.log(`[addProduct] ✅ Product ${newProduct.id} persisted to local DB with Storage URLs`);
       }
-    });
+    })();
 
     return newProduct;
   }, []);

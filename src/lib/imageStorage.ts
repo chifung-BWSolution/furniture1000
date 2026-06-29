@@ -36,6 +36,24 @@ export function isHttpImageUrl(value: string | null | undefined): boolean {
   return value.startsWith('http://') || value.startsWith('https://');
 }
 
+/** DB image columns must be Storage/public HTTP URLs only — never base64 or blobs. */
+export function httpOnlyImageForDb(value: string | null | undefined): string | null {
+  const s = (value || '').trim();
+  if (!s) return null;
+  return isHttpImageUrl(s) ? s : null;
+}
+
+/** True when any image field is non-empty but not yet an HTTP URL (upload failed or skipped). */
+export function productImageFieldsPendingStorage(row: {
+  image_url?: unknown;
+  image_url_2?: unknown;
+  image_url_3?: unknown;
+  lifestyle_image_url?: unknown;
+}): boolean {
+  const fields = [row.image_url, row.image_url_2, row.image_url_3, row.lifestyle_image_url];
+  return fields.some((v) => typeof v === 'string' && v.trim() !== '' && !isHttpImageUrl(v));
+}
+
 /** PDF catalog import uses tiny SVG placeholders — not real product photos. */
 export function isSvgPlaceholder(value: string | null | undefined): boolean {
   return !!value && value.startsWith('data:image/svg+xml');
@@ -212,10 +230,10 @@ async function resolveRowImageFields<T extends ImageRow>(row: T): Promise<T> {
 
   return {
     ...row,
-    image_url: stripBase64ForDb(String(u1 ?? '')) || null,
-    image_url_2: stripBase64ForDb(String(u2 ?? '')) || null,
-    image_url_3: stripBase64ForDb(String(u3 ?? '')) || null,
-    lifestyle_image_url: stripBase64ForDb(String(uLife ?? '')) || null,
+    image_url: httpOnlyImageForDb(String(u1 ?? '')),
+    image_url_2: httpOnlyImageForDb(String(u2 ?? '')),
+    image_url_3: httpOnlyImageForDb(String(u3 ?? '')),
+    lifestyle_image_url: httpOnlyImageForDb(String(uLife ?? '')),
   } as T;
 }
 
