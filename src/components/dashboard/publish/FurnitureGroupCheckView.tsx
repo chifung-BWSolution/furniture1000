@@ -6,7 +6,7 @@ import {
   X, Package, Tag, DollarSign, Search, RotateCcw, Save, Check, Ruler, Truck,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import { uploadBase64Image, stripBase64ForDb } from '@/lib/imageStorage';
+import { uploadImageSourceToStorage, stripBase64ForDb, isHttpImageUrl } from '@/lib/imageStorage';
 import { syncRtsWorkflowToProduct } from '@/lib/rtsProductSync';
 import { toast } from 'sonner';
 
@@ -292,6 +292,7 @@ export function FGProductDetailModal({
   // freshly-added base64 data-URL (uploaded to Storage on save). The first entry
   // is the primary image_url; the rest become the images[] array.
   const [editImages, setEditImages] = useState<string[]>([]);
+  const initialImagesRef = useRef<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Fetch category options once
@@ -313,62 +314,85 @@ export function FGProductDetailModal({
     Array.from(new Set(categoryPairs.filter((p) => p.level1 === l1 && p.level2).map((p) => p.level2)));
 
   useEffect(() => {
+    let cancelled = false;
     setLoading(true);
-    supabase
-      .from('ready_to_shopify')
-      .select(
-        'id,product_id,title,body_html,vendor,product_type,price,compare_at_price,cost,sku,' +
-        'image_url,images,status,tags,shopify_product_id,' +
-        'shopify_page_title,shopify_page_description,shopify_url,handle,' +
-        'dimension_l_mm,dimension_w_mm,dimension_h_mm,in_stock,customize,imported_at'
-      )
-      .eq('id', rtsId)
-      .single()
-      .then(({ data: row, error }) => {
-        if (error || !row) {
-          toast.error('讀取產品詳情失敗');
-          onClose();
-          return;
+    (async () => {
+      const { data: row, error } = await supabase
+        .from('ready_to_shopify')
+        .select(
+          'id,product_id,title,body_html,vendor,product_type,price,compare_at_price,cost,sku,' +
+          'image_url,images,status,tags,shopify_product_id,' +
+          'shopify_page_title,shopify_page_description,shopify_url,handle,' +
+          'dimension_l_mm,dimension_w_mm,dimension_h_mm,in_stock,customize,imported_at'
+        )
+        .eq('id', rtsId)
+        .single();
+      if (cancelled) return;
+      if (error || !row) {
+        toast.error('讀取產品詳情失敗');
+        onClose();
+        return;
+      }
+      const r = row as unknown as FGDetail;
+      setData(r);
+      setSelectedImg(r.image_url || null);
+      const imgs: string[] = [];
+      const pushUnique = (src: string) => {
+        if (src && isHttpImageUrl(src) && !imgs.includes(src)) imgs.push(src);
+      };
+      pushUnique(r.image_url || '');
+      if (Array.isArray(r.images)) {
+        for (const img of r.images) {
+          const src: string = (img?.src || img?.url || (typeof img === 'string' ? img : '')) as string;
+          pushUnique(src);
         }
-        const r = row as unknown as FGDetail;
-        setData(r);
-        setSelectedImg(r.image_url || null);
-        // Init editable image gallery: primary first, then images[] (deduped)
-        const imgs: string[] = [];
-        if (r.image_url) imgs.push(r.image_url);
-        if (Array.isArray(r.images)) {
-          for (const img of r.images) {
-            const src: string = (img?.src || img?.url || (typeof img === 'string' ? img : '')) as string;
-            if (src && !imgs.includes(src)) imgs.push(src);
+      }
+      if (imgs.length === 0 && r.product_id) {
+        const { data: prod } = await supabase
+          .from('products')
+          .select('image_url, image_url_2, image_url_3, images')
+          .eq('id', r.product_id)
+          .maybeSingle();
+        if (prod) {
+          pushUnique(prod.image_url || '');
+          pushUnique(prod.image_url_2 || '');
+          pushUnique(prod.image_url_3 || '');
+          if (Array.isArray(prod.images)) {
+            for (const img of prod.images) {
+              const src: string = (img?.src || img?.url || (typeof img === 'string' ? img : '')) as string;
+              pushUnique(src);
+            }
           }
         }
-        setEditImages(imgs);
-        // Init editable fields
-        setEditTitle(r.title || '');
-        setEditBodyHtml(r.body_html || '');
-        setEditVendor(r.vendor || '');
-        setEditPrice(r.price != null ? String(r.price) : '');
-        setEditCompareAtPrice(r.compare_at_price != null ? String(r.compare_at_price) : '');
-        setEditSku(r.sku || '');
-        setCostRef(r.cost != null ? Number(r.cost) : null);
-        setEditDimL(r.dimension_l_mm != null ? String(r.dimension_l_mm) : '');
-        setEditDimW(r.dimension_w_mm != null ? String(r.dimension_w_mm) : '');
-        setEditDimH(r.dimension_h_mm != null ? String(r.dimension_h_mm) : '');
-        // 送貨資訊：in_stock=true → 現貨；customize 有值 → 全訂製 + 交期
-        if (r.in_stock === true) { setEditProductionType('stock'); setEditLeadTime(''); }
-        else if (r.customize) { setEditProductionType('custom'); setEditLeadTime(r.customize); }
-        else { setEditProductionType(null); setEditLeadTime(''); }
-        // Parse L1 / L2 from product_type ("L1 / L2" format)
-        const ptParts = (r.product_type || '').split(' / ');
-        setEditL1(ptParts[0] || '');
-        setEditL2(ptParts[1] || '');
-        const tList = Array.isArray(r.tags) ? r.tags : typeof r.tags === 'string' ? (r.tags as string).split(',').map((t: string) => t.trim()).filter(Boolean) : [];
-        setEditTags(tList);
-        setEditSeoTitle(r.shopify_page_title || '');
-        setEditSeoDesc(r.shopify_page_description || '');
-        setEditHandle(r.shopify_url || r.handle || '');
-        setLoading(false);
-      });
+      }
+      if (cancelled) return;
+      setEditImages(imgs);
+      initialImagesRef.current = [...imgs];
+      if (imgs.length > 0 && !r.image_url) setSelectedImg(imgs[0]);
+      setEditTitle(r.title || '');
+      setEditBodyHtml(r.body_html || '');
+      setEditVendor(r.vendor || '');
+      setEditPrice(r.price != null ? String(r.price) : '');
+      setEditCompareAtPrice(r.compare_at_price != null ? String(r.compare_at_price) : '');
+      setEditSku(r.sku || '');
+      setCostRef(r.cost != null ? Number(r.cost) : null);
+      setEditDimL(r.dimension_l_mm != null ? String(r.dimension_l_mm) : '');
+      setEditDimW(r.dimension_w_mm != null ? String(r.dimension_w_mm) : '');
+      setEditDimH(r.dimension_h_mm != null ? String(r.dimension_h_mm) : '');
+      if (r.in_stock === true) { setEditProductionType('stock'); setEditLeadTime(''); }
+      else if (r.customize) { setEditProductionType('custom'); setEditLeadTime(r.customize); }
+      else { setEditProductionType(null); setEditLeadTime(''); }
+      const ptParts = (r.product_type || '').split(' / ');
+      setEditL1(ptParts[0] || '');
+      setEditL2(ptParts[1] || '');
+      const tList = Array.isArray(r.tags) ? r.tags : typeof r.tags === 'string' ? (r.tags as string).split(',').map((t: string) => t.trim()).filter(Boolean) : [];
+      setEditTags(tList);
+      setEditSeoTitle(r.shopify_page_title || '');
+      setEditSeoDesc(r.shopify_page_description || '');
+      setEditHandle(r.shopify_url || r.handle || '');
+      setLoading(false);
+    })();
+    return () => { cancelled = true; };
   }, [rtsId, onClose]);
 
   useEffect(() => {
@@ -405,21 +429,24 @@ export function FGProductDetailModal({
     if (!data) return;
     setIsSaving(true);
     try {
-      // Upload any newly-added base64 images to Supabase Storage, keep HTTP URLs.
-      const resolvedImages: string[] = [];
-      for (let i = 0; i < editImages.length; i++) {
-        const img = editImages[i];
-        if (img.startsWith('data:')) {
-          const url = await uploadBase64Image(img, data.product_id || data.id, `fg${i}_${Date.now()}`);
-          resolvedImages.push(url);
-        } else {
-          resolvedImages.push(img);
+      const imagesChanged = JSON.stringify(editImages) !== JSON.stringify(initialImagesRef.current);
+
+      let primaryImageUrl: string | null = null;
+      let imagesArr: { src: string; position: number }[] | null = null;
+      let resolvedImages: string[] = [];
+
+      if (imagesChanged) {
+        for (let i = 0; i < editImages.length; i++) {
+          const img = editImages[i];
+          const url = await uploadImageSourceToStorage(img, data.product_id || data.id, `fg${i}_${Date.now()}`);
+          if (url) resolvedImages.push(url);
         }
+        primaryImageUrl = stripBase64ForDb(resolvedImages[0]) || null;
+        imagesArr = resolvedImages
+          .map((src, i) => ({ src: stripBase64ForDb(src), position: i + 1 }))
+          .filter((im) => im.src);
+        if (imagesArr.length === 0) imagesArr = null;
       }
-      const primaryImageUrl = stripBase64ForDb(resolvedImages[0]) || null;
-      const imagesArr = resolvedImages
-        .map((src, i) => ({ src: stripBase64ForDb(src), position: i + 1 }))
-        .filter((im) => im.src);
 
       const productType = [editL1, editL2].filter(Boolean).join(' / ') || null;
       const priceNum = editPrice !== '' ? parseFloat(editPrice) : null;
@@ -431,63 +458,7 @@ export function FGProductDetailModal({
       const customizeVal = editProductionType === 'custom' && editLeadTime ? editLeadTime : null;
       const inStockVal = isStock ? true : (editProductionType === 'custom' ? false : null);
 
-      // 1. ready_to_shopify — every editable field (產品文案 + 產品信息 內容)
-      const { error } = await supabase
-        .from('ready_to_shopify')
-        .update({
-          title: editTitle || null,
-          body_html: editBodyHtml || null,
-          product_type: productType,
-          vendor: editVendor || null,
-          sku: editSku || null,
-          price: isNaN(priceNum as number) ? null : priceNum,
-          compare_at_price: isNaN(compareNum as number) ? null : compareNum,
-          tags: editTags.length > 0 ? editTags : null,
-          shopify_page_title: editSeoTitle || null,
-          shopify_page_description: editSeoDesc || null,
-          shopify_url: editHandle || null,
-          handle: editHandle || null,
-          dimension_l_mm: dimL,
-          dimension_w_mm: dimW,
-          dimension_h_mm: dimH,
-          in_stock: inStockVal,
-          customize: customizeVal,
-          image_url: primaryImageUrl,
-          images: imagesArr.length > 0 ? imagesArr : null,
-        })
-        .eq('id', data.id);
-      if (error) throw new Error(error.message);
-
-      // 2. products — mirror the shared fields so 產品文案/產品信息 stay in sync.
-      // This MUST succeed too: if it fails we surface an error rather than
-      // silently leaving products out of sync with ready_to_shopify.
-      if (data.product_id) {
-        const { error: pErr } = await supabase
-          .from('products')
-          .update({
-            title: editTitle || null,
-            description: editBodyHtml || null,
-            sku: editSku || null,
-            sale_price: isNaN(priceNum as number) ? null : priceNum,
-            tags: editTags.length > 0 ? editTags : null,
-            level1_category: editL1 || null,
-            level2_category: editL2 || null,
-            dimension_l_mm: dimL,
-            dimension_w_mm: dimW,
-            dimension_h_mm: dimH,
-            in_stock: inStockVal,
-            customize: customizeVal,
-            image_url: primaryImageUrl,
-            image_url_2: resolvedImages[1] || null,
-            image_url_3: resolvedImages[2] || null,
-            images: imagesArr.length > 0 ? imagesArr : null,
-          })
-          .eq('id', data.product_id);
-        if (pErr) throw new Error(`products 同步失敗：${pErr.message}`);
-      }
-
-      setData(prev => prev ? {
-        ...prev,
+      const rtsUpdate: Record<string, unknown> = {
         title: editTitle || null,
         body_html: editBodyHtml || null,
         product_type: productType,
@@ -505,12 +476,78 @@ export function FGProductDetailModal({
         dimension_h_mm: dimH,
         in_stock: inStockVal,
         customize: customizeVal,
-        image_url: primaryImageUrl,
-        images: imagesArr.length > 0 ? imagesArr : null,
-      } : null);
-      // Replace any base64 entries with their uploaded HTTP URLs in the gallery
-      setEditImages(resolvedImages);
-      setSelectedImg(primaryImageUrl);
+      };
+      if (imagesChanged) {
+        rtsUpdate.image_url = primaryImageUrl;
+        rtsUpdate.images = imagesArr;
+      }
+
+      const { error } = await supabase
+        .from('ready_to_shopify')
+        .update(rtsUpdate)
+        .eq('id', data.id);
+      if (error) throw new Error(error.message);
+
+      if (data.product_id) {
+        const prodUpdate: Record<string, unknown> = {
+          title: editTitle || null,
+          description: editBodyHtml || null,
+          sku: editSku || null,
+          sale_price: isNaN(priceNum as number) ? null : priceNum,
+          tags: editTags.length > 0 ? editTags : null,
+          level1_category: editL1 || null,
+          level2_category: editL2 || null,
+          dimension_l_mm: dimL,
+          dimension_w_mm: dimW,
+          dimension_h_mm: dimH,
+          in_stock: inStockVal,
+          customize: customizeVal,
+        };
+        if (imagesChanged) {
+          prodUpdate.image_url = primaryImageUrl;
+          prodUpdate.image_url_2 = resolvedImages[1] || null;
+          prodUpdate.image_url_3 = resolvedImages[2] || null;
+          prodUpdate.images = imagesArr;
+        }
+        const { error: pErr } = await supabase
+          .from('products')
+          .update(prodUpdate)
+          .eq('id', data.product_id);
+        if (pErr) throw new Error(`products 同步失敗：${pErr.message}`);
+      }
+
+      setData(prev => {
+        if (!prev) return null;
+        const next = {
+          ...prev,
+          title: editTitle || null,
+          body_html: editBodyHtml || null,
+          product_type: productType,
+          vendor: editVendor || null,
+          sku: editSku || null,
+          price: isNaN(priceNum as number) ? null : priceNum,
+          compare_at_price: isNaN(compareNum as number) ? null : compareNum,
+          tags: editTags.length > 0 ? editTags : null,
+          shopify_page_title: editSeoTitle || null,
+          shopify_page_description: editSeoDesc || null,
+          shopify_url: editHandle || null,
+          handle: editHandle || null,
+          dimension_l_mm: dimL,
+          dimension_w_mm: dimW,
+          dimension_h_mm: dimH,
+          in_stock: inStockVal,
+          customize: customizeVal,
+        };
+        if (imagesChanged) {
+          return { ...next, image_url: primaryImageUrl, images: imagesArr };
+        }
+        return next;
+      });
+      if (imagesChanged) {
+        setEditImages(resolvedImages);
+        initialImagesRef.current = [...resolvedImages];
+        setSelectedImg(primaryImageUrl);
+      }
       toast.success('已儲存', { description: '產品資料已更新（已同步至產品文案/產品信息）' });
       onSaved?.();
     } catch (e) {
