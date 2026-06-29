@@ -17,60 +17,29 @@ function sleep(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function buildStoragePublicUrl(filePath: string): string {
+  const { data } = supabase.storage.from(BUCKET).getPublicUrl(filePath);
+  if (data?.publicUrl) return data.publicUrl;
+  const base = (import.meta.env.VITE_SUPABASE_URL || '').replace(/\/$/, '');
+  return `${base}/storage/v1/object/public/${BUCKET}/${filePath}`;
+}
+
 /** Never persist base64 blobs in Postgres — they blow up list queries and time out upserts. */
 export function stripBase64ForDb(value: string | null | undefined): string {
   if (!value) return '';
   return isBase64Image(value) ? '' : value;
 }
 
+export function isHttpImageUrl(value: string | null | undefined): boolean {
+  if (!value) return false;
+  return value.startsWith('http://') || value.startsWith('https://');
+}
+
 /** True if a string is a base64 image data-URL (or a raw base64 blob) that needs uploading. */
 export function isBase64Image(value: string | null | undefined): boolean {
   if (!value) return false;
-  if (value.startsWith('http://') || value.startsWith('https://')) return false;
+  if (isHttpImageUrl(value)) return false;
   return value.startsWith('data:image') || /^[A-Za-z0-9+/]{100}/.test(value);
-}
-
-/**
- * Upload a single base64 (or data-URL) image to Storage and return its public URL.
- * If the input is already an HTTP(S) URL, or not a base64 image, it is returned
- * unchanged. On upload failure the original string is returned (non-destructive),
- * so callers never lose the image — they just keep the base64 fallback.
- */
-export async function uploadBase64Image(
-  base64: string,
-  productId: string,
-  suffix: string,
-): Promise<string> {
-  if (!isBase64Image(base64)) return base64;
-
-  const mimeMatch = base64.match(/^data:(image\/[a-zA-Z+]+);base64,/);
-  const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
-  const ext = mimeType.split('/')[1]?.replace('jpeg', 'jpg') || 'jpg';
-  const base64Data = base64.includes(',') ? base64.split(',')[1] : base64;
-
-  // Unique-ish path: id + suffix + time. Random tail avoids collisions when a
-  // batch uploads several images within the same millisecond.
-  const rand = Math.floor(performance.now() * 1000) % 100000;
-  const filePath = `products/${productId}_${suffix}_${Date.now()}_${rand}.${ext}`;
-
-  let bytes: Uint8Array;
-  try {
-    const binaryStr = atob(base64Data);
-    bytes = new Uint8Array(binaryStr.length);
-    for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
-  } catch (e) {
-    console.warn('[imageStorage] base64 decode failed:', e);
-    return base64;
-  }
-
-  const { error } = await uploadWithRetry(filePath, bytes, mimeType);
-  if (error) {
-    console.warn('[imageStorage] storage upload error:', error.message);
-    return base64; // non-destructive fallback
-  }
-
-  const { data } = supabase.storage.from(BUCKET).getPublicUrl(filePath);
-  return data.publicUrl || base64;
 }
 
 async function uploadWithRetry(
@@ -90,6 +59,57 @@ async function uploadWithRetry(
     }
   }
   return { error: lastErr };
+}
+
+async function uploadBase64BlobToStorage(
+  base64: string,
+  productId: string,
+  suffix: string,
+): Promise<string> {
+  const mimeMatch = base64.match(/^data:(image\/[a-zA-Z+]+);base64,/);
+  const mimeType = mimeMatch ? mimeMatch[1] : 'image/jpeg';
+  const ext = mimeType.split('/')[1]?.replace('jpeg', 'jpg') || 'jpg';
+  const base64Data = base64.includes(',') ? base64.split(',')[1] : base64;
+
+  const rand = Math.floor(performance.now() * 1000) % 100000;
+  const filePath = `products/${productId}_${suffix}_${Date.now()}_${rand}.${ext}`;
+
+  let bytes: Uint8Array;
+  try {
+    const binaryStr = atob(base64Data);
+    bytes = new Uint8Array(binaryStr.length);
+    for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
+  } catch (e) {
+    throw e instanceof Error ? e : new Error('base64 decode failed');
+  }
+
+  const { error } = await uploadWithRetry(filePath, bytes, mimeType);
+  if (error) {
+    throw new Error(error.message);
+  }
+
+  return buildStoragePublicUrl(filePath);
+}
+
+/**
+ * Upload a single base64 (or data-URL) image to Storage and return its public URL.
+ * If the input is already an HTTP(S) URL, or not a base64 image, it is returned
+ * unchanged. On upload failure the original string is returned (non-destructive),
+ * so callers never lose the image — they just keep the base64 fallback.
+ */
+export async function uploadBase64Image(
+  base64: string,
+  productId: string,
+  suffix: string,
+): Promise<string> {
+  if (!isBase64Image(base64)) return base64;
+
+  try {
+    return await uploadBase64BlobToStorage(base64, productId, suffix);
+  } catch (e) {
+    console.warn('[imageStorage] storage upload error:', e instanceof Error ? e.message : e);
+    return base64;
+  }
 }
 
 /**
@@ -116,7 +136,6 @@ export async function resolveRowsImagesToStorage<
         image_url?: unknown; image_url_2?: unknown; image_url_3?: unknown;
       };
       const v1 = asStr(row.image_url), v2 = asStr(row.image_url_2), v3 = asStr(row.image_url_3);
-      // Sequential per row — avoids 3× concurrent Storage POSTs that saturated the pool.
       const u1 = v1 ? await uploadBase64Image(v1, row.id, 'primary') : (row.image_url ?? null);
       const u2 = v2 ? await uploadBase64Image(v2, row.id, 'extra0') : (row.image_url_2 ?? null);
       const u3 = v3 ? await uploadBase64Image(v3, row.id, 'extra1') : (row.image_url_3 ?? null);
@@ -164,24 +183,37 @@ export async function resolveImagesToStorage(
   return { primary: resolvedPrimary, extras: resolvedExtras };
 }
 
-/** Upload RTS primary + images[] to Storage; never return base64 for DB persistence. */
+/**
+ * Resolve RTS image_url + images[] for ready_to_shopify writes.
+ * Tries Storage upload first; on failure keeps base64 so migrate-rts-images cron
+ * can convert later. Never strips base64 — that was the bug that dropped images.
+ */
 export async function resolveRtsImageFieldsForDb(
   productId: string,
   primary: string | null | undefined,
   imagesJson: { src: string; position?: number; alt?: string }[] | null | undefined,
 ): Promise<{ image_url: string | null; images: { src: string; position?: number }[] | null }> {
-  const resolvedPrimary = primary
-    ? stripBase64ForDb(await uploadBase64Image(primary, productId, 'primary')) || null
+  const resolvedPrimary = primary?.trim()
+    ? (await uploadBase64Image(primary, productId, 'primary')) || null
     : null;
 
   const srcList = (imagesJson ?? []).map((im) => im.src).filter(Boolean);
   const { extras } = await resolveImagesToStorage(productId, null, srcList);
   const images = extras
-    .map((src, idx) => ({ src: stripBase64ForDb(src), position: idx + 1 }))
-    .filter((im) => im.src);
+    .filter(Boolean)
+    .map((src, idx) => ({ src, position: idx + 1 }));
 
   return {
     image_url: resolvedPrimary,
     images: images.length > 0 ? images : null,
   };
+}
+
+/** True when any RTS image field is still base64 and awaiting migrate-rts-images cron. */
+export function rtsImagesPendingMigration(row: {
+  image_url?: string | null;
+  images?: { src?: string }[] | null;
+}): boolean {
+  if (isBase64Image(row.image_url)) return true;
+  return (row.images ?? []).some((im) => isBase64Image(im.src));
 }

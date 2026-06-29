@@ -8,7 +8,7 @@ import {
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
-import { resolveRtsImageFieldsForDb } from '@/lib/imageStorage';
+import { resolveRtsImageFieldsForDb, rtsImagesPendingMigration } from '@/lib/imageStorage';
 import { excludeAlreadyPublishedRts } from '@/lib/publishPipeline';
 import { syncRtsContentToProduct, syncRtsWorkflowToProduct } from '@/lib/rtsProductSync';
 import { usePublishRtsList } from './usePublishRtsList';
@@ -283,6 +283,68 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
   }, [dragSrc, primaryImg, extraImgs]);
 
 
+  const persistCopywritingImages = async () => {
+    const hasImages = Boolean(primaryImg?.trim()) || extraImgs.length > 0;
+    if (hasImages) {
+      toast.loading('正在上傳圖片至 Storage…', { id: 'copywriting-img-upload' });
+    }
+    try {
+      return await resolveRtsImageFieldsForDb(
+        activeId!,
+        primaryImg,
+        extraImgs.map((src, idx) => ({ src, position: idx + 1 })),
+      );
+    } finally {
+      toast.dismiss('copywriting-img-upload');
+    }
+  };
+
+  const imageSaveHint = (resolvedPrimary: string | null, imagesJson: { src: string }[]) =>
+    rtsImagesPendingMigration({ image_url: resolvedPrimary, images: imagesJson })
+      ? '圖片已儲存；Storage 上傳未完成的部分將由系統定時轉換為 URL'
+      : '產品文案及圖片已同步至 ready_to_shopify';
+
+  const buildRtsPayload = (
+    item: CopyItem,
+    resolvedPrimary: string | null,
+    imagesJson: { src: string; position?: number }[],
+    extra?: { copy_done?: boolean; copy_done_at?: string },
+  ) => ({
+    product_id: activeId,
+    title: name,
+    sku: sku || null,
+    body_html: normalizeBodyHtmlForShopify(desc),
+    vendor: item.factory || null,
+    product_type: [item.level1, item.level2].filter(Boolean).join(' / ') || null,
+    handle: handle || slugify(name),
+    status: 'draft',
+    image_url: resolvedPrimary || null,
+    images: imagesJson.length > 0 ? imagesJson : null,
+    tags: item.tags.length > 0 ? item.tags : null,
+    price: item.salePrice ?? item.price ?? null,
+    shopify_page_title: seoTitle || name || null,
+    shopify_page_description: seoDesc || null,
+    shopify_url: handle || slugify(name) || null,
+    imported_at: new Date().toISOString(),
+    in_shopify_queue: true,
+    ...extra,
+  });
+
+  const applyResolvedImagesToState = (
+    resolvedPrimary: string | null,
+    imagesJson: { src: string; position?: number }[],
+  ) => {
+    const resolvedExtras = imagesJson.map((im) => im.src);
+    if (resolvedPrimary && resolvedPrimary !== primaryImg) setPrimaryImg(resolvedPrimary);
+    if (resolvedExtras.some((s, i) => s !== extraImgs[i])) setExtraImgs(resolvedExtras);
+    setSavedSnapshot({
+      name, sku, desc,
+      primaryImg: resolvedPrimary || '',
+      extraImgs: resolvedExtras,
+      seoTitle, seoDesc, handle,
+    });
+  };
+
   // Save — sync title + body_html to ready_to_shopify WITHOUT advancing copy_done
   // Product stays in 產品文案 so user can continue editing images etc.
   const [isSaving, setIsSaving] = useState(false);
@@ -292,60 +354,33 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
     if (!item) return;
     setIsSaving(true);
     try {
-      const { image_url: resolvedPrimary, images: imagesJsonArr } = await resolveRtsImageFieldsForDb(
-        activeId,
-        primaryImg,
-        extraImgs.map((src, idx) => ({ src, position: idx + 1 })),
-      );
-      toast.dismiss('save-img-upload');
-
+      const { image_url: resolvedPrimary, images: imagesJsonArr } = await persistCopywritingImages();
       const imagesJson = imagesJsonArr ?? [];
+
       const { error } = await supabase
         .from('ready_to_shopify')
-        .upsert({
-          product_id: activeId,
-          title: name,
-          sku: sku || null,
-          body_html: normalizeBodyHtmlForShopify(desc),
-          vendor: item.factory || null,
-          product_type: [item.level1, item.level2].filter(Boolean).join(' / ') || null,
-          handle: handle || slugify(name),
-          status: 'draft',
-          image_url: resolvedPrimary || null,
-          images: imagesJson.length > 0 ? imagesJson : null,
-          tags: item.tags.length > 0 ? item.tags : null,
-          price: item.salePrice ?? item.price ?? null,
-          shopify_page_title: seoTitle || name || null,
-          shopify_page_description: seoDesc || null,
-          shopify_url: handle || slugify(name) || null,
-          imported_at: new Date().toISOString(),
-        }, { onConflict: 'product_id' });
+        .upsert(buildRtsPayload(item, resolvedPrimary, imagesJson), { onConflict: 'product_id' });
 
       if (error) {
         toast.error('儲存失敗', { description: error.message });
-      } else {
-        await syncRtsContentToProduct(supabase, activeId, {
-          title: name,
-          body_html: normalizeBodyHtmlForShopify(desc),
-          sku: sku || null,
-          image_url: resolvedPrimary || null,
-          image_url_2: imagesJson[0]?.src || null,
-          image_url_3: imagesJson[1]?.src || null,
-          images: imagesJson.length > 0 ? imagesJson : null,
-        });
-        const resolvedExtras = imagesJson.map((im) => im.src);
-        // Update local image state to resolved HTTP URLs
-        if (resolvedPrimary && resolvedPrimary !== primaryImg) setPrimaryImg(resolvedPrimary);
-        if (resolvedExtras.some((s, i) => s !== extraImgs[i])) setExtraImgs(resolvedExtras);
-        // Update saved snapshot so dirty indicator resets
-        setSavedSnapshot({
-          name, sku, desc,
-          primaryImg: resolvedPrimary,
-          extraImgs: resolvedExtras,
-          seoTitle, seoDesc, handle,
-        });
-        toast.success('已儲存', { description: '產品文案已同步至 ready_to_shopify，可繼續修改圖片' });
+        return;
       }
+      if (primaryImg?.trim() && !resolvedPrimary) {
+        toast.error('圖片未能寫入資料庫', { description: '請重新上傳圖片後再試' });
+        return;
+      }
+
+      await syncRtsContentToProduct(supabase, activeId, {
+        title: name,
+        body_html: normalizeBodyHtmlForShopify(desc),
+        sku: sku || null,
+        image_url: resolvedPrimary || null,
+        image_url_2: imagesJson[0]?.src || null,
+        image_url_3: imagesJson[1]?.src || null,
+        images: imagesJson.length > 0 ? imagesJson : null,
+      });
+      applyResolvedImagesToState(resolvedPrimary, imagesJson);
+      toast.success('已儲存', { description: imageSaveHint(resolvedPrimary, imagesJson) });
     } catch {
       toast.error('儲存時發生錯誤，請重試');
     } finally {
@@ -360,43 +395,28 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
     if (!item) return;
     setIsSubmitting(true);
     try {
-      const { image_url: resolvedPrimary, images: submitImagesJsonArr } = await resolveRtsImageFieldsForDb(
-        activeId,
-        primaryImg,
-        extraImgs.map((src, idx) => ({ src, position: idx + 1 })),
-      );
-      toast.dismiss('img-upload');
-
+      const { image_url: resolvedPrimary, images: imagesJsonArr } = await persistCopywritingImages();
       const copyDoneAt = new Date().toISOString();
-      const imagesJson = submitImagesJsonArr ?? [];
+      const imagesJson = imagesJsonArr ?? [];
       const resolvedExtras = imagesJson.map((im) => im.src);
 
       const { error: rtsError } = await supabase
         .from('ready_to_shopify')
-        .upsert({
-          product_id: activeId,
-          title: name,
-          sku: sku || null,
-          body_html: normalizeBodyHtmlForShopify(desc),
-          vendor: item.factory || null,
-          product_type: [item.level1, item.level2].filter(Boolean).join(' / ') || null,
-          handle: handle || slugify(name),
-          status: 'draft',
-          image_url: resolvedPrimary || null,
-          images: imagesJson.length > 0 ? imagesJson : null,
-          tags: item.tags.length > 0 ? item.tags : null,
-          price: item.salePrice ?? item.price ?? null,
-          shopify_page_title: seoTitle || name || null,
-          shopify_page_description: seoDesc || null,
-          shopify_url: handle || slugify(name) || null,
-          imported_at: new Date().toISOString(),
-          copy_done: true,
-          copy_done_at: copyDoneAt,
-          revert_reason: null,
-        }, { onConflict: 'product_id' });
+        .upsert(
+          buildRtsPayload(item, resolvedPrimary, imagesJson, {
+            copy_done: true,
+            copy_done_at: copyDoneAt,
+            revert_reason: null,
+          }),
+          { onConflict: 'product_id' },
+        );
 
       if (rtsError) {
         toast.error('提交失敗', { description: rtsError.message });
+        return;
+      }
+      if (primaryImg?.trim() && !resolvedPrimary) {
+        toast.error('圖片未能寫入資料庫', { description: '請重新上傳圖片後再試' });
         return;
       }
 
@@ -415,7 +435,11 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
         revert_reason: null,
       });
 
-      toast.success('已提交到下一步', { description: '產品已移至「產品信息」，資料已同步至 ready_to_shopify' });
+      toast.success('已提交到下一步', {
+        description: rtsImagesPendingMigration({ image_url: resolvedPrimary, images: imagesJson })
+          ? '產品已移至「產品信息」；Storage 上傳未完成的部分將由系統定時轉換為 URL'
+          : '產品已移至「產品信息」，資料已同步至 ready_to_shopify',
+      });
 
       setActiveId(null);
       setReloadKey((k) => k + 1);
