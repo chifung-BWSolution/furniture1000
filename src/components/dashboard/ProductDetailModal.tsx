@@ -49,6 +49,7 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { supabase } from '@/lib/supabase';
+import { isHttpImageUrl } from '@/lib/imageStorage';
 import { uploadBase64Image } from '@/lib/imageStorage';
 import { toast } from 'sonner';
 // Color map utilities available if needed
@@ -496,6 +497,41 @@ export function ProductDetailModal({
       setPendingDeletePaths([]);
     }
   }, [product]);
+
+  // Lazy-load heavy fields (description_html, images) — list RPC omits them to avoid 500s.
+  useEffect(() => {
+    if (!open || !product?.id) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from('products')
+          .select('description_html, description, image_url, images, level1_category, level2_category')
+          .eq('id', product.id)
+          .maybeSingle();
+        if (cancelled || error || !data) {
+          if (error) console.warn('[ProductDetailModal] Heavy field fetch failed:', error.message);
+          return;
+        }
+        const html = data.description_html || data.description;
+        if (html) setDescription(html);
+        if (data.level1_category) setLevel1Category(data.level1_category);
+        if (data.level2_category) setLevel2Category(data.level2_category);
+        const rawImages = Array.isArray(data.images) ? data.images : [];
+        const httpImages = rawImages
+          .map((img: { src?: string; alt?: string; path?: string }) => img?.src)
+          .filter((src): src is string => isHttpImageUrl(src));
+        if (httpImages.length > 0) {
+          setImages(httpImages.map((src) => ({ src, alt: product.title || '' })));
+        } else if (isHttpImageUrl(data.image_url)) {
+          setImages([{ src: data.image_url!, alt: product.title || '' }]);
+        }
+      } catch (err) {
+        console.warn('[ProductDetailModal] Heavy field fetch error:', err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [open, product?.id, product?.title]);
 
   // Fetch categories directly from product_category table when modal opens
   useEffect(() => {

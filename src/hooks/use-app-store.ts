@@ -119,25 +119,17 @@ const DEFAULT_SETTINGS: AppSettings = {
   geminiProxyUrl: '',
 };
 
-// Explicit column list for the products list/grid loads.
-//
-// CRITICAL: never use `.select('*')` for list loads. The products table holds a
-// heavy `images` JSONB column (base64 data-URLs ~1MB each) plus image_url_2/3.
-// Selecting '*' across 100 rows can transfer ~100MB, which stalls the query,
-// saturates the connection pool, and is the real cause of the intermittent
-// Supabase "unhealthy" state. dbRowToProduct only consumes these light columns;
-// full images are loaded lazily when a single product is opened for editing.
-const PRODUCT_LIST_COLUMNS = [
-  'id', 'title', 'description', 'description_html', 'tags', 'price',
-  'compare_at_price', 'collection', 'status', 'image_url', 'error_message',
-  'shopify_product_id', 'sku', 'created_at', 'source', 'synced_at',
-  'upload_session_id', 'factories_display_name', 'factory_id', 'material',
-  'bwf_master_id', 'cost_price', 'sale_price',
-  'production_date', 'shipping_days', 'shipping_fee', 'remarks', 'color',
-  'category', 'dimension_l_mm', 'dimension_w_mm', 'dimension_h_mm',
-  'delivery_term_id', 'delivery_term_name', 'in_stock', 'customize',
-  'ready_to_publish',
-].join(',');
+const PRODUCT_LIST_PAGE_LIMIT = 100;
+
+/** Lightweight list page via RPC — never ships description_html or base64 image_url. */
+async function fetchProductsListPage(limit = PRODUCT_LIST_PAGE_LIMIT, offset = 0) {
+  const { data, error } = await supabase.rpc('get_products_list_page', {
+    p_limit: limit,
+    p_offset: offset,
+  });
+  if (error) return { rows: null as any[] | null, error };
+  return { rows: (data ?? []) as Record<string, unknown>[], error: null };
+}
 
 // Helper: convert DB row to Product
 function dbRowToProduct(row: any, variants: any[]): Product {
@@ -151,7 +143,7 @@ function dbRowToProduct(row: any, variants: any[]): Product {
     compareAtPrice: row.compare_at_price ? parseFloat(row.compare_at_price) : undefined,
     collection: row.collection,
     status: row.status as ProductStatus,
-    imageUrl: row.image_url,
+    imageUrl: typeof row.image_url === 'string' && row.image_url.startsWith('data:') ? undefined : row.image_url,
     errorMessage: row.error_message || undefined,
     shopifyProductId: row.shopify_product_id || null,
     sku: row.sku || undefined,
@@ -341,21 +333,12 @@ export function useAppStore() {
       setIsLoading(true);
       try {
         // Limit initial load to 100 products for performance
-        const PAGE_LIMIT = 100;
-
-        // Run count (estimated — uses planner stats, far faster than 'exact'
-        // on a large table) and the product page IN PARALLEL so they don't
-        // block each other.
         const countPromise = supabase
           .from('products')
           .select('id', { count: 'estimated', head: true });
-        const dataPromise = supabase
-          .from('products')
-          .select(PRODUCT_LIST_COLUMNS)
-          .order('created_at', { ascending: false })
-          .range(0, PAGE_LIMIT - 1);
+        const dataPromise = fetchProductsListPage(PRODUCT_LIST_PAGE_LIMIT, 0);
 
-        const [{ count: totalCount }, { data: productRows, error: prodErr }] =
+        const [{ count: totalCount }, { rows: productRows, error: prodErr }] =
           await Promise.all([countPromise, dataPromise]);
 
         setTotalProductCount(totalCount || 0);
@@ -441,12 +424,10 @@ export function useAppStore() {
         .select('id', { count: 'exact', head: true });
       setTotalProductCount(count || 0);
 
-      const PAGE_LIMIT = 100;
-      const { data: productRows, error: prodErr } = await supabase
-        .from('products')
-        .select(PRODUCT_LIST_COLUMNS)
-        .order('created_at', { ascending: false })
-        .range(0, PAGE_LIMIT - 1);
+      const { rows: productRows, error: prodErr } = await fetchProductsListPage(
+        PRODUCT_LIST_PAGE_LIMIT,
+        0,
+      );
 
       if (prodErr) {
         console.warn('[Supabase] Error reloading products:', prodErr.message);
