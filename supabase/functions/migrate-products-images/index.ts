@@ -61,8 +61,18 @@ async function uploadBase64(
   }
 }
 
+function isSvgPlaceholder(src: string): boolean {
+  return src.startsWith("data:image/svg+xml");
+}
+
 function isBase64(src: unknown): src is string {
-  return typeof src === "string" && (src.startsWith("data:") || (src.length > 100 && !src.startsWith("http")));
+  if (typeof src !== "string") return false;
+  if (isSvgPlaceholder(src)) return false;
+  return src.startsWith("data:") || (src.length > 100 && !src.startsWith("http"));
+}
+
+function isSvgField(src: unknown): src is string {
+  return typeof src === "string" && isSvgPlaceholder(src);
 }
 
 function imagesNeedMigration(images: unknown): boolean {
@@ -120,7 +130,13 @@ Deno.serve(async (req: Request) => {
 
     // Rows that actually need migration, capped at batchSize.
     const pending = rows.filter((r: any) =>
-      isBase64(r.image_url) || isBase64(r.image_url_2) || isBase64(r.image_url_3) || imagesNeedMigration(r.images)
+      isBase64(r.image_url) || isBase64(r.image_url_2) || isBase64(r.image_url_3)
+      || isSvgField(r.image_url) || isSvgField(r.image_url_2) || isSvgField(r.image_url_3)
+      || imagesNeedMigration(r.images)
+      || (Array.isArray(r.images) && r.images.some((img: any) => {
+        const src: string = img?.src || img?.url || (typeof img === "string" ? img : "");
+        return isSvgPlaceholder(src);
+      }))
     ).slice(0, batchSize);
 
     let converted = 0;
@@ -130,29 +146,41 @@ Deno.serve(async (req: Request) => {
       const pid = row.id as string;
       const updates: Record<string, unknown> = {};
 
-      if (isBase64(row.image_url)) {
+      if (isSvgField(row.image_url)) {
+        updates.image_url = "";
+      } else if (isBase64(row.image_url)) {
         const url = await uploadBase64(supabase, row.image_url, pid, "primary");
         if (url) updates.image_url = url; else skipped++;
       }
-      if (isBase64(row.image_url_2)) {
+      if (isSvgField(row.image_url_2)) {
+        updates.image_url_2 = null;
+      } else if (isBase64(row.image_url_2)) {
         const url = await uploadBase64(supabase, row.image_url_2, pid, "extra0");
         if (url) updates.image_url_2 = url; else skipped++;
       }
-      if (isBase64(row.image_url_3)) {
+      if (isSvgField(row.image_url_3)) {
+        updates.image_url_3 = null;
+      } else if (isBase64(row.image_url_3)) {
         const url = await uploadBase64(supabase, row.image_url_3, pid, "extra1");
         if (url) updates.image_url_3 = url; else skipped++;
       }
-      if (imagesNeedMigration(row.images)) {
+      if (Array.isArray(row.images)) {
         const resolved = await Promise.all(
           (row.images as any[]).map(async (img: any, idx: number) => {
             const src: string = img?.src || img?.url || (typeof img === "string" ? img : "");
+            if (isSvgPlaceholder(src)) return null;
             if (!isBase64(src)) return img;
             const url = await uploadBase64(supabase, src, pid, `img${idx}`);
             if (url) return typeof img === "string" ? url : { ...img, src: url };
-            return img; // keep original on failure
+            return img;
           })
         );
-        updates.images = resolved;
+        const filtered = resolved.filter((x) => x !== null);
+        if (filtered.length !== row.images.length || resolved.some((x) => x === null)) {
+          updates.images = filtered;
+        } else if (imagesNeedMigration(row.images)) {
+          updates.images = resolved;
+        }
       }
 
       if (Object.keys(updates).length > 0) {

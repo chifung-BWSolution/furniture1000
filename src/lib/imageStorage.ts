@@ -36,10 +36,16 @@ export function isHttpImageUrl(value: string | null | undefined): boolean {
   return value.startsWith('http://') || value.startsWith('https://');
 }
 
+/** PDF catalog import uses tiny SVG placeholders — not real product photos. */
+export function isSvgPlaceholder(value: string | null | undefined): boolean {
+  return !!value && value.startsWith('data:image/svg+xml');
+}
+
 /** True if a string is a base64 image data-URL (or a raw base64 blob). */
 export function isBase64Image(value: string | null | undefined): boolean {
   if (!value) return false;
   if (isHttpImageUrl(value)) return false;
+  if (isSvgPlaceholder(value)) return false;
   return value.startsWith('data:image') || /^[A-Za-z0-9+/]{100}/.test(value);
 }
 
