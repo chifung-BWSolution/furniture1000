@@ -1,5 +1,7 @@
 -- Expand ready_to_shopify image migration RPCs to cover image_url_2 / image_url_3.
 
+drop function if exists public.get_rts_image_migration_batch(integer);
+
 create or replace function public.rts_row_needs_image_migration(
   p_image_url text,
   p_image_url_2 text,

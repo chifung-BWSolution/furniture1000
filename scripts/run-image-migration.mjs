@@ -3,11 +3,22 @@
  * One-shot batch migration: base64 → Supabase Storage URL
  * for ready_to_shopify AND products tables.
  *
- * Usage:
- *   SUPABASE_URL=https://xxx.supabase.co \
- *   SUPABASE_ANON_KEY=eyJ... \
+ * Usage (token from Windows User env SUPABASE_ACCESS_TOKEN — never in files):
  *   node scripts/run-image-migration.mjs
  */
+
+import { readFileSync, existsSync } from 'node:fs';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dir = dirname(fileURLToPath(import.meta.url));
+const envLocal = join(__dir, '..', '.env.local');
+if (existsSync(envLocal)) {
+  for (const line of readFileSync(envLocal, 'utf8').split('\n')) {
+    const m = line.match(/^([^#=]+)=(.*)$/);
+    if (m && !process.env[m[1].trim()]) process.env[m[1].trim()] = m[2].trim();
+  }
+}
 
 const SUPABASE_URL = (process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '').replace(/\/$/, '');
 const ANON_KEY = process.env.SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY || '';
@@ -39,11 +50,19 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function migrateRts() {
   console.log('\n=== Step 1: ready_to_shopify ===');
   let round = 0;
+  let idle = 0;
   while (true) {
     round++;
     const data = await invoke('migrate-rts-images', { batch_size: 5 });
     console.log(`  batch ${round}:`, data);
     if (data.done || data.remaining === 0) break;
+    if ((data.processed ?? 0) === 0) {
+      idle++;
+      if (idle >= 3) {
+        console.warn('  stopping: 3 idle batches (rows may need manual review)');
+        break;
+      }
+    } else idle = 0;
     await sleep(800);
   }
 }
