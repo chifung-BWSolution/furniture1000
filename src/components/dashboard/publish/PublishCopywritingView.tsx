@@ -8,7 +8,7 @@ import {
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
-import { resolveRtsImageFieldsForDb, rtsImagesPendingMigration } from '@/lib/imageStorage';
+import { uploadFileToStorage, uploadImageSourceToStorage, isHttpImageUrl } from '@/lib/imageStorage';
 import { excludeAlreadyPublishedRts } from '@/lib/publishPipeline';
 import { syncRtsContentToProduct, syncRtsWorkflowToProduct } from '@/lib/rtsProductSync';
 import { usePublishRtsList } from './usePublishRtsList';
@@ -284,25 +284,29 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
 
 
   const persistCopywritingImages = async () => {
-    const hasImages = Boolean(primaryImg?.trim()) || extraImgs.length > 0;
-    if (hasImages) {
+    const hasNewUploads = [primaryImg, ...extraImgs].some(
+      (src) => src?.trim() && !isHttpImageUrl(src),
+    );
+    if (hasNewUploads) {
       toast.loading('正在上傳圖片至 Storage…', { id: 'copywriting-img-upload' });
     }
     try {
-      return await resolveRtsImageFieldsForDb(
-        activeId!,
-        primaryImg,
-        extraImgs.map((src, idx) => ({ src, position: idx + 1 })),
+      const resolvedPrimary = primaryImg?.trim()
+        ? await uploadImageSourceToStorage(primaryImg.trim(), activeId!, 'primary')
+        : null;
+      const resolvedExtras = await Promise.all(
+        extraImgs.map((src, idx) => uploadImageSourceToStorage(src, activeId!, `extra${idx}`)),
       );
+      const images = resolvedExtras
+        .filter((src): src is string => Boolean(src))
+        .map((src, idx) => ({ src, position: idx + 1 }));
+      return { image_url: resolvedPrimary, images: images.length > 0 ? images : null };
     } finally {
       toast.dismiss('copywriting-img-upload');
     }
   };
 
-  const imageSaveHint = (resolvedPrimary: string | null, imagesJson: { src: string }[]) =>
-    rtsImagesPendingMigration({ image_url: resolvedPrimary, images: imagesJson })
-      ? '圖片已儲存；Storage 上傳未完成的部分將由系統定時轉換為 URL'
-      : '產品文案及圖片已同步至 ready_to_shopify';
+  const imageSaveHint = () => '產品文案及圖片已同步至 ready_to_shopify';
 
   const buildRtsPayload = (
     item: CopyItem,
@@ -366,7 +370,7 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
         return;
       }
       if (primaryImg?.trim() && !resolvedPrimary) {
-        toast.error('圖片未能寫入資料庫', { description: '請重新上傳圖片後再試' });
+        toast.error('圖片未能上傳至 Storage', { description: '請重新選擇圖片後再試' });
         return;
       }
 
@@ -380,7 +384,7 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
         images: imagesJson.length > 0 ? imagesJson : null,
       });
       applyResolvedImagesToState(resolvedPrimary, imagesJson);
-      toast.success('已儲存', { description: imageSaveHint(resolvedPrimary, imagesJson) });
+      toast.success('已儲存', { description: imageSaveHint() });
     } catch {
       toast.error('儲存時發生錯誤，請重試');
     } finally {
@@ -416,7 +420,7 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
         return;
       }
       if (primaryImg?.trim() && !resolvedPrimary) {
-        toast.error('圖片未能寫入資料庫', { description: '請重新上傳圖片後再試' });
+        toast.error('圖片未能上傳至 Storage', { description: '請重新選擇圖片後再試' });
         return;
       }
 
@@ -436,9 +440,7 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
       });
 
       toast.success('已提交到下一步', {
-        description: rtsImagesPendingMigration({ image_url: resolvedPrimary, images: imagesJson })
-          ? '產品已移至「產品信息」；Storage 上傳未完成的部分將由系統定時轉換為 URL'
-          : '產品已移至「產品信息」，資料已同步至 ready_to_shopify',
+        description: '產品已移至「產品信息」，資料已同步至 ready_to_shopify',
       });
 
       setActiveId(null);
@@ -450,16 +452,47 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
     }
   };
 
-  const addPrimaryFile = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = () => setPrimaryImg(reader.result as string);
-    reader.readAsDataURL(file);
+  const [isUploadingPrimary, setIsUploadingPrimary] = useState(false);
+  const [isUploadingExtra, setIsUploadingExtra] = useState(false);
+
+  const uploadCopywritingFile = async (file: File, suffix: string): Promise<string | null> => {
+    if (!activeId) return null;
+    if (!file.type.startsWith('image/')) {
+      toast.error('格式不支援，請上傳圖片檔案');
+      return null;
+    }
+    if (file.size > MAX_IMG_BYTES) {
+      toast.error('圖片超過 5MB 上限');
+      return null;
+    }
+    try {
+      return await uploadFileToStorage(file, activeId, suffix);
+    } catch (err) {
+      toast.error('圖片上傳失敗', {
+        description: err instanceof Error ? err.message : '請稍後再試',
+      });
+      return null;
+    }
   };
 
-  const addExtraFile = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = () => setExtraImgs((prev) => [...prev, reader.result as string]);
-    reader.readAsDataURL(file);
+  const addPrimaryFile = async (file: File) => {
+    setIsUploadingPrimary(true);
+    try {
+      const url = await uploadCopywritingFile(file, `primary_${Date.now()}`);
+      if (url) setPrimaryImg(url);
+    } finally {
+      setIsUploadingPrimary(false);
+    }
+  };
+
+  const addExtraFile = async (file: File) => {
+    setIsUploadingExtra(true);
+    try {
+      const url = await uploadCopywritingFile(file, `extra_${Date.now()}`);
+      if (url) setExtraImgs((prev) => [...prev, url]);
+    } finally {
+      setIsUploadingExtra(false);
+    }
   };
 
   // Derive suitable usage scenes from category
@@ -760,7 +793,7 @@ ${rawDesc}
               </button>
             }
           >
-            <RichEditor value={desc} onChange={setDesc} forceUpdateKey={isGenerating ? 'generating' : String(editorKey)} />
+            <RichEditor value={desc} onChange={setDesc} productId={activeId} forceUpdateKey={isGenerating ? 'generating' : String(editorKey)} />
           </Section>
 
           {/* Shopify 產品圖片 — 左主圖 / 右其他圖，支援拖拉交換 */}
@@ -797,6 +830,11 @@ ${rawDesc}
                     >
                       <X className="h-3 w-3" />
                     </button>
+                  </div>
+                ) : isUploadingPrimary ? (
+                  <div className="flex h-40 w-40 flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-primary/40 text-primary">
+                    <Loader2 className="h-6 w-6 animate-spin" />
+                    <span className="text-[10.5px] font-medium">上傳中…</span>
                   </div>
                 ) : (
                   <button
@@ -939,8 +977,9 @@ ${rawDesc}
       </div>
 
       {/* Image Upload Dialog */}
-      {showImageUploadDialog && (
+      {showImageUploadDialog && activeId && (
         <ImageUploadDialog
+          productId={activeId}
           onConfirm={(srcs) => setExtraImgs((prev) => [...prev, ...srcs])}
           onClose={() => setShowImageUploadDialog(false)}
         />
@@ -964,7 +1003,9 @@ const PRESET_COLORS = [
   '#e6194b', '#f58231', '#ffe119', '#3cb44b', '#42d4f4', '#4363d8', '#911eb4', '#f032e6',
 ];
 
-function RichEditor({ value, onChange, forceUpdateKey }: { value: string; onChange: (v: string) => void; forceUpdateKey?: string }) {
+const MAX_IMG_BYTES = 5 * 1024 * 1024;
+
+function RichEditor({ value, onChange, productId, forceUpdateKey }: { value: string; onChange: (v: string) => void; productId: string | null; forceUpdateKey?: string }) {
   const editorRef = useRef<HTMLDivElement>(null);
   const imgInputRef = useRef<HTMLInputElement>(null);
   const [showColorPicker, setShowColorPicker] = useState(false);
@@ -1007,17 +1048,18 @@ function RichEditor({ value, onChange, forceUpdateKey }: { value: string; onChan
     if (sel) { sel.removeAllRanges(); sel.addRange(range); }
   };
 
-  const handleImageFile = (file: File) => {
+  const handleImageFile = async (file: File) => {
     if (!ALLOWED_IMG_TYPES.includes(file.type)) { toast.error('格式不支援，請上傳 PNG、JPG、WEBP 或 SVG'); return; }
     if (file.size > MAX_IMG_BYTES) { toast.error('圖片大小超過 5MB 上限'); return; }
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const dataUrl = e.target?.result as string;
+    if (!productId) { toast.error('請先選擇產品'); return; }
+    try {
+      const url = await uploadFileToStorage(file, productId, `desc_${Date.now()}`);
       editorRef.current?.focus();
-      document.execCommand('insertHTML', false, `<img src="${dataUrl}" style="max-width:100%;height:auto;" />`);
+      document.execCommand('insertHTML', false, `<img src="${url}" style="max-width:100%;height:auto;" />`);
       if (editorRef.current) onChange(editorRef.current.innerHTML);
-    };
-    reader.readAsDataURL(file);
+    } catch (err) {
+      toast.error('圖片上傳失敗', { description: err instanceof Error ? err.message : '請稍後再試' });
+    }
   };
 
   useEffect(() => {
@@ -1167,37 +1209,23 @@ function ImageLightbox({ src, onClose }: { src: string; onClose: () => void }) {
   );
 }
 
-// ─── Image resize helper ──────────────────────────────────────────────────────
-const MAX_IMG_SIZE = 1200;
-const MAX_IMG_BYTES = 5 * 1024 * 1024;
+// ─── Image resize helper (upload-only — never returns base64) ─────────────────
 
-async function resizeImage(file: File | Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    const url = URL.createObjectURL(file);
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      let { width, height } = img;
-      if (width > MAX_IMG_SIZE || height > MAX_IMG_SIZE) {
-        if (width > height) { height = Math.round((height / width) * MAX_IMG_SIZE); width = MAX_IMG_SIZE; }
-        else { width = Math.round((width / height) * MAX_IMG_SIZE); height = MAX_IMG_SIZE; }
-      }
-      const canvas = document.createElement('canvas');
-      canvas.width = width; canvas.height = height;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) { reject(new Error('canvas unavailable')); return; }
-      ctx.drawImage(img, 0, 0, width, height);
-      resolve(canvas.toDataURL('image/jpeg', 0.92));
-    };
-    img.onerror = reject;
-    img.src = url;
-  });
-}
-
-async function processImageFile(file: File): Promise<string | null> {
-  if (!file.type.startsWith('image/')) { toast.error('格式不支援，請上傳圖片檔案'); return null; }
-  if (file.size > MAX_IMG_BYTES) { toast.error('圖片超過 5MB 上限'); return null; }
-  return resizeImage(file);
+async function uploadDialogImage(file: File | Blob, productId: string, suffix: string): Promise<string | null> {
+  if (file instanceof File && !file.type.startsWith('image/')) {
+    toast.error('格式不支援，請上傳圖片檔案');
+    return null;
+  }
+  if (file.size > MAX_IMG_BYTES) {
+    toast.error('圖片超過 5MB 上限');
+    return null;
+  }
+  try {
+    return await uploadFileToStorage(file, productId, suffix);
+  } catch (err) {
+    toast.error('圖片上傳失敗', { description: err instanceof Error ? err.message : '請稍後再試' });
+    return null;
+  }
 }
 
 // ─── Image Upload Dialog ──────────────────────────────────────────────────────
@@ -1206,7 +1234,7 @@ interface ImageSlot {
   src: string;
 }
 
-function ImageUploadDialog({ onConfirm, onClose }: { onConfirm: (srcs: string[]) => void; onClose: () => void }) {
+function ImageUploadDialog({ productId, onConfirm, onClose }: { productId: string; onConfirm: (srcs: string[]) => void; onClose: () => void }) {
   const [slots, setSlots] = useState<ImageSlot[]>([{ src: '' }]);
   const [activeSlot, setActiveSlot] = useState(0);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -1224,7 +1252,6 @@ function ImageUploadDialog({ onConfirm, onClose }: { onConfirm: (srcs: string[])
   const setSrc = (idx: number, src: string) => setSlots((prev) => prev.map((s, i) => i === idx ? { src } : s));
 
   const processAndSet = async (file: File | Blob) => {
-    // Check size before processing
     if (file.size > MAX_IMG_BYTES) {
       const mb = (file.size / 1024 / 1024).toFixed(1);
       setSlotError(`圖片檔案大小為 ${mb}MB，已超過 5MB 上限，請重新選擇較小的圖片`);
@@ -1234,8 +1261,9 @@ function ImageUploadDialog({ onConfirm, onClose }: { onConfirm: (srcs: string[])
     setSlotError('');
     setIsProcessing(true);
     try {
-      const src = await resizeImage(file);
-      setSrc(activeSlot, src);
+      const url = await uploadDialogImage(file, productId, `dialog_${activeSlot}_${Date.now()}`);
+      if (url) setSrc(activeSlot, url);
+      else setSlotError('圖片上傳失敗，請重試');
     } catch { setSlotError('圖片處理失敗，請重試'); }
     finally { setIsProcessing(false); }
   };
@@ -1264,8 +1292,8 @@ function ImageUploadDialog({ onConfirm, onClose }: { onConfirm: (srcs: string[])
       return;
     }
     setSlotError('');
-    const src = await processImageFile(file);
-    if (src) setSrc(activeSlot, src);
+    const url = await uploadDialogImage(file, productId, `dialog_file_${Date.now()}`);
+    if (url) setSrc(activeSlot, url);
   };
 
   // Global paste listener

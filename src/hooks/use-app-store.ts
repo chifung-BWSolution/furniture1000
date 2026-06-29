@@ -223,9 +223,17 @@ async function saveProductsToDb(productsToSave: Product[]) {
 
   const resolvedRows = await resolveRowsImagesToStorage(productRows);
   const stillHasBase64 = resolvedRows.some(
-    r => typeof r.image_url === 'string' && r.image_url.startsWith('data:'),
+    (r) =>
+      (typeof r.image_url === 'string' && r.image_url.startsWith('data:')) ||
+      (typeof (r as { image_url_2?: string }).image_url_2 === 'string' &&
+        (r as { image_url_2?: string }).image_url_2!.startsWith('data:')) ||
+      (typeof (r as { image_url_3?: string }).image_url_3 === 'string' &&
+        (r as { image_url_3?: string }).image_url_3!.startsWith('data:')),
   );
-  const UPSERT_CHUNK = stillHasBase64 ? 3 : 8;
+  if (stillHasBase64) {
+    throw new Error('部分產品圖片未能上傳至 Storage，已取消儲存');
+  }
+  const UPSERT_CHUNK = 8;
 
   for (let ci = 0; ci < resolvedRows.length; ci += UPSERT_CHUNK) {
     const batch = resolvedRows.slice(ci, ci + UPSERT_CHUNK);

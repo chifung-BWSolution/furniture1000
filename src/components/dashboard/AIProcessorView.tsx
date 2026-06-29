@@ -3304,15 +3304,27 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
           });
 
         if (productRows.length > 0) {
-          // Upload any base64 cropped images to Storage FIRST, then persist only
-          // the resulting URLs — never store base64 in the products table (it
-          // bloats list queries and causes the Supabase "unhealthy" state).
-          const resolvedRows = await resolveRowsImagesToStorage(productRows);
+          toast.loading('正在上傳產品圖片至 Storage…', { id: 'catalog-img-upload' });
+          let resolvedRows;
+          try {
+            resolvedRows = await resolveRowsImagesToStorage(productRows, 4);
+          } finally {
+            toast.dismiss('catalog-img-upload');
+          }
 
-          // Batch upsert. Rows are now light (URLs, not base64) but keep modest
-          // chunks in case any upload failed and a base64 fallback remains.
-          const hasImages = resolvedRows.some(r => r.image_url && r.image_url.startsWith('data:'));
-          const LOCAL_CHUNK = hasImages ? 3 : 10;
+          const stillBase64 = resolvedRows.filter(
+            (r) =>
+              (typeof r.image_url === 'string' && r.image_url.startsWith('data:')) ||
+              (typeof r.image_url_2 === 'string' && r.image_url_2.startsWith('data:')) ||
+              (typeof r.image_url_3 === 'string' && r.image_url_3.startsWith('data:')),
+          );
+          if (stillBase64.length > 0) {
+            throw new Error(
+              `${stillBase64.length} 個產品的圖片上傳 Storage 失敗，已取消寫入（請檢查 Storage 設定後重試）`,
+            );
+          }
+
+          const LOCAL_CHUNK = 10;
           for (let ci = 0; ci < resolvedRows.length; ci += LOCAL_CHUNK) {
             const batch = resolvedRows.slice(ci, ci + LOCAL_CHUNK);
             const { error: upsertErr } = await supabase
