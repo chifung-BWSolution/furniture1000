@@ -2446,8 +2446,8 @@ export function ExcelPreviewTable({
             ) : (
               <span className="contents">
                 <Archive className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">上傳到產品目錄</span>
-                <span className="sm:hidden">目錄</span>
+                <span className="hidden sm:inline">上傳到待處理產品</span>
+                <span className="sm:hidden">待處理</span>
               </span>
             )}
           </Button>

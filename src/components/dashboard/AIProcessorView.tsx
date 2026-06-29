@@ -46,7 +46,7 @@ import { TagSelector } from './TagSelector';
 import { ColorSelector } from './ColorSelector';
 import { CascadingCategorySelector } from './CascadingCategorySelector';
 import { supabase } from '@/lib/supabase';
-import { resolveRowsImagesToStorage, productImageFieldsPendingStorage } from '@/lib/imageStorage';
+import { resolveRowsImagesToStorage, resolveRowsImagesToStorageWithRetry, productImageFieldsPendingStorage } from '@/lib/imageStorage';
 import { fetchFactories, fetchFactoriesWithIds, FactoryItem } from '@/lib/factorySupabase';
 import { parseExcelFile, extractImagesFromWorkbook, extractRawExcelTable, ExcelProduct, ExcelImage, getFactoryRule, RawTableExtraction, cleanPrice, parseSmartDimensions, parseDeliveryTerm, resolveMappedRowImages } from '@/lib/excelParser';
 import { ExcelPreviewTable, ExcelPreviewData, ColumnMappingState, StandardHeaderValue, MultiSheetColumnMapping, MultiSheetDimUnits, DimUnit, PreviewAction } from '@/components/dashboard/ExcelPreviewTable';
@@ -2705,7 +2705,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
     setAiError(null);
     setCatalogProductsWithRef([]);
 
-    const actionLabel = action === 'queue-shopify' ? '待上傳到 Shopify' : '上傳到產品目錄';
+    const actionLabel = action === 'queue-shopify' ? '待上傳到 Shopify' : '上傳到待處理產品';
     setProcessingProgress({ phase: 'extracting', message: `${actionLabel} — 處理中...` });
 
     try {
@@ -3294,59 +3294,107 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
           });
 
         if (productRows.length > 0) {
+          const IMAGE_UPLOAD_MAX_ATTEMPTS = 3; // 初次上傳 + 最多重試 2 次
           toast.loading('正在上傳產品圖片至 Storage…', { id: 'catalog-img-upload' });
           let resolvedRows;
+          let imageFailures: Array<{ index: number; reasons: string[] }> = [];
           try {
-            resolvedRows = await resolveRowsImagesToStorage(productRows, 4);
+            const result = await resolveRowsImagesToStorageWithRetry(productRows, {
+              maxAttempts: IMAGE_UPLOAD_MAX_ATTEMPTS,
+              concurrency: 4,
+              onRetry: (attempt, pendingCount) => {
+                setProcessingProgress({
+                  phase: 'extracting',
+                  message: `圖片上傳重試 (${attempt}/${IMAGE_UPLOAD_MAX_ATTEMPTS})，尚有 ${pendingCount} 個產品待處理…`,
+                });
+                toast.loading(`圖片重試 ${attempt}/${IMAGE_UPLOAD_MAX_ATTEMPTS}…`, { id: 'catalog-img-upload' });
+              },
+            });
+            resolvedRows = result.resolved;
+            imageFailures = result.failed;
           } finally {
             toast.dismiss('catalog-img-upload');
           }
 
-          const stillPending = resolvedRows.filter((r) => productImageFieldsPendingStorage(r));
-          if (stillPending.length > 0) {
-            throw new Error(
-              `${stillPending.length} 個產品的圖片未能轉為 Storage URL，已取消寫入（請檢查 Storage 設定後重試）`,
-            );
-          }
+          const failedIndexSet = new Set(imageFailures.map((f) => f.index));
+          const rowsToPersist = resolvedRows.filter((_, i) => !failedIndexSet.has(i));
 
-          const LOCAL_CHUNK = 10;
-          for (let ci = 0; ci < resolvedRows.length; ci += LOCAL_CHUNK) {
-            const batch = resolvedRows.slice(ci, ci + LOCAL_CHUNK);
-            const { error: upsertErr } = await supabase
-              .from('products')
-              .upsert(batch, { onConflict: 'id' });
-            if (upsertErr) {
-              console.error(`[PreviewAction:catalog-only] Batch ${Math.floor(ci/LOCAL_CHUNK)+1} failed:`, upsertErr.message);
-              throw new Error(`產品目錄儲存失敗：${upsertErr.message}`);
+          if (rowsToPersist.length > 0) {
+            const LOCAL_CHUNK = 10;
+            for (let ci = 0; ci < rowsToPersist.length; ci += LOCAL_CHUNK) {
+              const batch = rowsToPersist.slice(ci, ci + LOCAL_CHUNK);
+              const { error: upsertErr } = await supabase
+                .from('products')
+                .upsert(batch, { onConflict: 'id' });
+              if (upsertErr) {
+                console.error(`[PreviewAction:catalog-only] Batch ${Math.floor(ci / LOCAL_CHUNK) + 1} failed:`, upsertErr.message);
+                throw new Error(`待處理產品儲存失敗：${upsertErr.message}`);
+              }
+            }
+            console.log(`[PreviewAction:catalog-only] ✅ ${rowsToPersist.length} products persisted (${imageFailures.length} skipped due to image upload failure)`);
+
+            if (selectedManufacturer && mergedHighlights.length > 0) {
+              const { error: hlErr } = await supabase
+                .from('products')
+                .update({ factory_highlights: mergedHighlights })
+                .eq('factories_display_name', selectedManufacturer);
+              if (hlErr) console.warn('[catalog-only] factory_highlights back-fill failed:', hlErr.message);
             }
           }
-          console.log(`[PreviewAction:catalog-only] ✅ ${productRows.length} products persisted to products table only (not added to Shopify queue)`);
 
-          // Back-fill: keep ALL products of this factory in sync with the merged
-          // highlight set, so previously-uploaded products of the same factory
-          // also reflect the consolidated highlights.
-          if (selectedManufacturer && mergedHighlights.length > 0) {
-            const { error: hlErr } = await supabase
-              .from('products')
-              .update({ factory_highlights: mergedHighlights })
-              .eq('factories_display_name', selectedManufacturer);
-            if (hlErr) console.warn('[catalog-only] factory_highlights back-fill failed:', hlErr.message);
+          const successPageNumbers = correctedProds
+            .filter((_, i) => !failedIndexSet.has(i))
+            .map((p) => p.page_number);
+          if (successPageNumbers.length > 0) {
+            removeRowsFromPreview(successPageNumbers);
           }
+
+          if (imageFailures.length > 0) {
+            const failureLines = imageFailures.map((f) => {
+              const item = correctedProds[f.index];
+              const label = item?.title?.slice(0, 50) || `第 ${item?.page_number ?? f.index + 1} 行`;
+              return `• ${label}\n  ${f.reasons.join('\n  ')}`;
+            });
+            const errorMsg = [
+              `共 ${imageFailures.length} 個產品圖片在 ${IMAGE_UPLOAD_MAX_ATTEMPTS} 次上傳後仍失敗（已保留在列表，可修正後重新上傳）：`,
+              '',
+              ...failureLines,
+              '',
+              rowsToPersist.length > 0
+                ? `✅ 其餘 ${rowsToPersist.length} 個產品已成功寫入「待處理產品」並從列表移除。`
+                : '⚠️ 沒有任何產品寫入資料庫。',
+            ].join('\n');
+            setAiError(errorMsg);
+            if (rowsToPersist.length > 0) {
+              toast.success(`✅ ${rowsToPersist.length} 個產品已上傳到待處理產品`, {
+                description: `${imageFailures.length} 個產品圖片失敗，詳見上方錯誤訊息`,
+              });
+            } else {
+              toast.error('圖片上傳全部失敗', { description: '詳見上方錯誤訊息，修正後重新上傳' });
+            }
+            setProcessingProgress({
+              phase: 'complete',
+              message: rowsToPersist.length > 0
+                ? `✅ ${rowsToPersist.length} 個已上傳；${imageFailures.length} 個圖片失敗待重試`
+                : `⚠️ ${imageFailures.length} 個產品圖片上傳失敗`,
+            });
+          } else {
+            setAiError(null);
+            toast.success(`✅ ${rowsToPersist.length} 個產品已上傳到待處理產品`, {
+              description: '已寫入待處理產品，含一級/二級分類',
+            });
+            setProcessingProgress({
+              phase: 'complete',
+              message: `✅ ${rowsToPersist.length} 個產品已上傳到待處理產品`,
+            });
+          }
+        } else {
+          setProcessingProgress({
+            phase: 'complete',
+            message: '沒有可上傳的產品',
+          });
         }
 
-        const catalogCount = productRows.length;
-        toast.success(`✅ ${catalogCount} 個產品已上傳到產品目錄`, {
-          description: '已寫入「所有產品」，含一級/二級分類',
-        });
-        setProcessingProgress({
-          phase: 'complete',
-          message: `✅ ${catalogCount} 個產品已上傳到產品目錄 (僅目錄)`,
-        });
-        // catalog-only writes ALL selected rows → burn them all down
-        const allCatalogRowIndices = correctedProds.map(p => p.page_number);
-        if (allCatalogRowIndices.length > 0) {
-          removeRowsFromPreview(allCatalogRowIndices);
-        }
         setProcessingProgress(null);
         setIsGeneratingFromPreview(false);
         return;

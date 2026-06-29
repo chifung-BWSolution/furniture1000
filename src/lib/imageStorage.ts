@@ -297,6 +297,105 @@ export async function resolveRtsImageFieldsForDb(
   };
 }
 
+/** True when source had an image but resolved row has no HTTP URL (upload failed). */
+export function productImageUploadFailed(
+  source: {
+    image_url?: unknown;
+    image_url_2?: unknown;
+    image_url_3?: unknown;
+    lifestyle_image_url?: unknown;
+  },
+  resolved: {
+    image_url?: unknown;
+    image_url_2?: unknown;
+    image_url_3?: unknown;
+    lifestyle_image_url?: unknown;
+  },
+): boolean {
+  const keys = ['image_url', 'image_url_2', 'image_url_3', 'lifestyle_image_url'] as const;
+  for (const key of keys) {
+    const src = typeof source[key] === 'string' ? source[key].trim() : '';
+    const out = typeof resolved[key] === 'string' ? resolved[key].trim() : '';
+    if (src && !isHttpImageUrl(out)) return true;
+  }
+  return false;
+}
+
+const IMAGE_FIELD_LABELS: Record<string, string> = {
+  image_url: '主圖 (image_url)',
+  image_url_2: '產品圖片2 (image_url_2)',
+  image_url_3: '產品圖片3 (image_url_3)',
+  lifestyle_image_url: '效果圖 (lifestyle_image_url)',
+};
+
+/** Human-readable reasons when image upload to Storage did not produce HTTP URLs. */
+export function describeProductImageUploadFailures(
+  source: {
+    image_url?: unknown;
+    image_url_2?: unknown;
+    image_url_3?: unknown;
+    lifestyle_image_url?: unknown;
+  },
+  resolved: {
+    image_url?: unknown;
+    image_url_2?: unknown;
+    image_url_3?: unknown;
+    lifestyle_image_url?: unknown;
+  },
+): string[] {
+  const reasons: string[] = [];
+  const keys = ['image_url', 'image_url_2', 'image_url_3', 'lifestyle_image_url'] as const;
+  for (const key of keys) {
+    const src = typeof source[key] === 'string' ? source[key].trim() : '';
+    const out = typeof resolved[key] === 'string' ? resolved[key].trim() : '';
+    if (src && !isHttpImageUrl(out)) {
+      const kind = src.startsWith('data:') ? 'base64 嵌入圖' : src.slice(0, 48);
+      reasons.push(`${IMAGE_FIELD_LABELS[key]}：未能上傳至 Storage（${kind}${src.length > 48 ? '…' : ''}）`);
+    }
+  }
+  return reasons;
+}
+
+/** Upload row images with retries; re-reads from sourceRows each attempt for failed rows. */
+export async function resolveRowsImagesToStorageWithRetry<
+  T extends { id: string } & ImageRow,
+>(
+  sourceRows: T[],
+  options?: { maxAttempts?: number; concurrency?: number; onRetry?: (attempt: number, pendingCount: number) => void },
+): Promise<{
+  resolved: T[];
+  failed: Array<{ index: number; reasons: string[] }>;
+}> {
+  const maxAttempts = Math.max(1, options?.maxAttempts ?? 3);
+  const concurrency = options?.concurrency ?? 4;
+  let resolved = await resolveRowsImagesToStorage(sourceRows, concurrency);
+
+  for (let attempt = 2; attempt <= maxAttempts; attempt++) {
+    const pendingIndices = sourceRows
+      .map((_, i) => i)
+      .filter((i) => productImageUploadFailed(sourceRows[i], resolved[i]));
+    if (pendingIndices.length === 0) break;
+
+    options?.onRetry?.(attempt, pendingIndices.length);
+    const retried = await resolveRowsImagesToStorage(
+      pendingIndices.map((i) => sourceRows[i]),
+      concurrency,
+    );
+    for (let j = 0; j < pendingIndices.length; j++) {
+      resolved[pendingIndices[j]] = retried[j];
+    }
+  }
+
+  const failed = sourceRows
+    .map((source, index) => ({
+      index,
+      reasons: describeProductImageUploadFailures(source, resolved[index]),
+    }))
+    .filter((f) => f.reasons.length > 0);
+
+  return { resolved, failed };
+}
+
 /** @deprecated Legacy rows only — new uploads go straight to Storage. */
 export function rtsImagesPendingMigration(row: {
   image_url?: string | null;
