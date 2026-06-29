@@ -191,28 +191,46 @@ Deno.serve(async (req: Request) => {
     });
     if (fetchErr) return json({ error: fetchErr.message }, 500);
 
-    const pending = (allRows || []).filter(rowNeedsMigration);
     const { data: remainingBefore, error: countErr } = await supabase.rpc("get_rts_image_migration_count");
     if (countErr) console.warn("[migrate-rts-images] count error:", countErr.message);
-    const totalRemaining = typeof remainingBefore === "number" ? remainingBefore : pending.length;
+    const totalRemaining = typeof remainingBefore === "number" ? remainingBefore : (allRows?.length ?? 0);
 
     if (totalRemaining === 0) {
       return json({ processed: 0, converted: 0, skipped: 0, remaining: 0, done: true });
     }
 
-    const batch = pending.slice(0, batchSize);
+    // Trust SQL batch selector; re-fetch full row (images JSONB may be omitted from RPC payload).
+    const batch = (allRows || []).slice(0, batchSize);
 
     let converted = 0;
     let skipped = 0;
 
     for (const row of batch) {
       const pid = row.product_id;
+
+      // RPC may omit heavy images JSONB — load full image columns for this row.
+      const { data: fullRow, error: loadErr } = await supabase
+        .from("ready_to_shopify")
+        .select("image_url, image_url_2, image_url_3, images")
+        .eq("product_id", pid)
+        .maybeSingle();
+      if (loadErr) {
+        console.warn(`[migrate] load row ${pid}:`, loadErr.message);
+        skipped++;
+        continue;
+      }
+      const r = { ...row, ...fullRow };
+
+      if (!rowNeedsMigration(r)) {
+        continue;
+      }
+
       const updates: Record<string, unknown> = {};
 
       // Convert primary image
-      if (isBase64(row.image_url)) {
+      if (isBase64(r.image_url)) {
         console.log(`[migrate] Converting primary image for ${pid}...`);
-        const url = await uploadBase64(supabase, row.image_url, pid, "primary");
+        const url = await uploadBase64(supabase, r.image_url, pid, "primary");
         if (url) {
           updates.image_url = url;
           console.log(`[migrate] ✅ Primary → ${url.slice(0, 80)}`);
@@ -223,9 +241,9 @@ Deno.serve(async (req: Request) => {
       }
 
       // Convert image_url_2 / image_url_3
-      if (isBase64(row.image_url_2)) {
+      if (isBase64(r.image_url_2)) {
         console.log(`[migrate] Converting image_url_2 for ${pid}...`);
-        const url = await uploadBase64(supabase, row.image_url_2, pid, "extra0");
+        const url = await uploadBase64(supabase, r.image_url_2, pid, "extra0");
         if (url) {
           updates.image_url_2 = url;
           console.log(`[migrate] ✅ image_url_2 → ${url.slice(0, 80)}`);
@@ -234,9 +252,9 @@ Deno.serve(async (req: Request) => {
           skipped++;
         }
       }
-      if (isBase64(row.image_url_3)) {
+      if (isBase64(r.image_url_3)) {
         console.log(`[migrate] Converting image_url_3 for ${pid}...`);
-        const url = await uploadBase64(supabase, row.image_url_3, pid, "extra1");
+        const url = await uploadBase64(supabase, r.image_url_3, pid, "extra1");
         if (url) {
           updates.image_url_3 = url;
           console.log(`[migrate] ✅ image_url_3 → ${url.slice(0, 80)}`);
@@ -247,15 +265,15 @@ Deno.serve(async (req: Request) => {
       }
 
       // Convert extra images in images[] array
-      if (Array.isArray(row.images)) {
-        const hasBase64 = row.images.some((img: any) => {
+      if (Array.isArray(r.images)) {
+        const hasBase64 = r.images.some((img: any) => {
           const src: string = img?.src || img?.url || (typeof img === "string" ? img : "");
           return isBase64(src);
         });
         if (hasBase64) {
-          console.log(`[migrate] Converting ${row.images.length} extra images for ${pid}...`);
+          console.log(`[migrate] Converting ${r.images.length} extra images for ${pid}...`);
           const resolved = await Promise.all(
-            row.images.map(async (img: any, idx: number) => {
+            r.images.map(async (img: any, idx: number) => {
               const src: string = img?.src || img?.url || (typeof img === "string" ? img : "");
               if (!isBase64(src)) return img; // already URL, keep as-is
               const url = await uploadBase64(supabase, src, pid, `extra${idx}`);
