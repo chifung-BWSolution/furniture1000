@@ -48,7 +48,7 @@ import { CascadingCategorySelector } from './CascadingCategorySelector';
 import { supabase } from '@/lib/supabase';
 import { resolveRowsImagesToStorage } from '@/lib/imageStorage';
 import { fetchFactories, fetchFactoriesWithIds, FactoryItem } from '@/lib/factorySupabase';
-import { parseExcelFile, extractImagesFromWorkbook, extractRawExcelTable, ExcelProduct, ExcelImage, getFactoryRule, RawTableExtraction, cleanPrice, parseSmartDimensions, parseDeliveryTerm } from '@/lib/excelParser';
+import { parseExcelFile, extractImagesFromWorkbook, extractRawExcelTable, ExcelProduct, ExcelImage, getFactoryRule, RawTableExtraction, cleanPrice, parseSmartDimensions, parseDeliveryTerm, resolveMappedRowImages } from '@/lib/excelParser';
 import { ExcelPreviewTable, ExcelPreviewData, ColumnMappingState, StandardHeaderValue, MultiSheetColumnMapping, MultiSheetDimUnits, DimUnit, PreviewAction } from '@/components/dashboard/ExcelPreviewTable';
 import { simplifiedToTraditional, convertRowToTraditional } from '@/lib/chineseConverter';
 import { useFactoryLearning, CorrectableField } from '@/hooks/use-factory-learning';
@@ -2502,9 +2502,9 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         const shippingFee = getCellNum('shipping_fee');
         const remarks = getCellStr('remarks') ? simplifiedToTraditional(getCellStr('remarks')) : null;
         const specifications = getCellStr('specifications') ? simplifiedToTraditional(getCellStr('specifications')) : null;
-        // image_url_2 / image_url_3: first check user-mapped column, then fall back to auto-extracted extra images
-        let imageUrl2 = getCellStr('image_url_2') || (row as any).productImageData2 || null;
-        let imageUrl3 = getCellStr('image_url_3') || (row as any).productImageData3 || null;
+        // image_url_2 / image_url_3 resolved via mapping helper (embedded + column cells)
+        let imageUrl2: string | null = null;
+        let imageUrl3: string | null = null;
         // in_stock: mapped column text → boolean
         const inStockColMapped = fieldToCol['in_stock'] !== undefined;
         const inStockRaw = getCellStr('in_stock');
@@ -2575,46 +2575,20 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
           ? `${modelNumber} - ${material}`
           : title;
 
-        // Resolve image mapping: check if user swapped IMG-P and IMG-L targets
-        const imgProductTarget = sheetMapping['__img_product'] || 'product_image';
-        const imgLifestyleTarget = sheetMapping['__img_lifestyle'] || 'lifestyle_image';
-        const imgProduct2Target = sheetMapping['__img_product2'] || 'image_url_2';
-        const imgProduct3Target = sheetMapping['__img_product3'] || 'image_url_3';
-
-        // Apply imageOverrides from ExcelPreviewTable (key format: `${sheetName}:${rowIndex}:${type}`)
-        const productOverrideKey = `${sheetName}:${row.rowIndex}:product`;
-        const lifestyleOverrideKey = `${sheetName}:${row.rowIndex}:lifestyle`;
-        const product2OverrideKey = `${sheetName}:${row.rowIndex}:product2`;
-        const product3OverrideKey = `${sheetName}:${row.rowIndex}:product3`;
-        const overriddenProductImage = imageOverrides?.[productOverrideKey] || null;
-        const overriddenLifestyleImage = imageOverrides?.[lifestyleOverrideKey] || null;
-        const overriddenProduct2Image = imageOverrides?.[product2OverrideKey] || null;
-        const overriddenProduct3Image = imageOverrides?.[product3OverrideKey] || null;
-
-        // Resolved base images from row data (overrides take priority)
-        const rawImg1 = overriddenProductImage || row.productImageData || undefined;
-        const rawImg2 = overriddenProduct2Image || row.productImageData2 || undefined;
-        const rawImg3 = overriddenProduct3Image || row.productImageData3 || undefined;
-        const rawLifestyle = overriddenLifestyleImage || row.lifestyleImageData || undefined;
-
-        // Map each image slot to its target field based on user's dropdown selection
-        const imageSlots: Record<string, string | undefined> = {
-          product_image: undefined, lifestyle_image: undefined,
-          image_url_2: undefined, image_url_3: undefined,
-        };
-        const assign = (target: string, val: string | undefined) => {
-          if (target !== 'skip' && val && !imageSlots[target]) imageSlots[target] = val;
-        };
-        assign(imgProductTarget, rawImg1);
-        assign(imgLifestyleTarget, rawLifestyle);
-        assign(imgProduct2Target, rawImg2);
-        assign(imgProduct3Target, rawImg3);
-
-        let resolvedProductImage = imageSlots['product_image'];
-        let resolvedLifestyleImage = imageSlots['lifestyle_image'];
-        // Override imageUrl2/imageUrl3 from slot assignments if mapped
-        if (imageSlots['image_url_2']) imageUrl2 = imageSlots['image_url_2']!;
-        if (imageSlots['image_url_3']) imageUrl3 = imageSlots['image_url_3']!;
+        const {
+          resolvedProductImage,
+          resolvedLifestyleImage,
+          imageUrl2: mappedImg2,
+          imageUrl3: mappedImg3,
+        } = resolveMappedRowImages({
+          sheetMapping,
+          row,
+          sheetName,
+          imageOverrides,
+          getCellStr,
+        });
+        imageUrl2 = mappedImg2;
+        imageUrl3 = mappedImg3;
 
         return {
           id: `excel-preview-${row.rowIndex}-${idx}-${Math.random().toString(36).substring(7)}`,
@@ -2831,9 +2805,9 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         const shippingFee = getCellNum('shipping_fee');
         const remarks = getCellStr('remarks') ? simplifiedToTraditional(getCellStr('remarks')) : null;
         const specifications = getCellStr('specifications') ? simplifiedToTraditional(getCellStr('specifications')) : null;
-        // image_url_2 / image_url_3: first check user-mapped column, then fall back to auto-extracted extra images
-        const imageUrl2 = getCellStr('image_url_2') || (row as any).productImageData2 || null;
-        const imageUrl3 = getCellStr('image_url_3') || (row as any).productImageData3 || null;
+        // image_url_2 / image_url_3 resolved via mapping helper (embedded + column cells)
+        let imageUrl2: string | null = null;
+        let imageUrl3: string | null = null;
         // in_stock: mapped column text → boolean
         const inStockColMapped = fieldToCol['in_stock'] !== undefined;
         const inStockRaw = getCellStr('in_stock');
@@ -2919,30 +2893,20 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
           ? aiGeneratedName
           : (modelNumber && material ? `${modelNumber} - ${material}` : title);
 
-        // Resolve image mapping — apply imageOverrides from ExcelPreviewTable
-        const imgProductTarget = sheetMapping['__img_product'] || 'product_image';
-        const imgLifestyleTarget = sheetMapping['__img_lifestyle'] || 'lifestyle_image';
-        
-        // Look up overridden images from ExcelPreviewTable (key format: `${sheetName}:${rowIndex}:${type}`)
-        const productOverrideKey = `${sheetName}:${row.rowIndex}:product`;
-        const lifestyleOverrideKey = `${sheetName}:${row.rowIndex}:lifestyle`;
-        const overriddenProductImage = imageOverrides?.[productOverrideKey] || null;
-        const overriddenLifestyleImage = imageOverrides?.[lifestyleOverrideKey] || null;
-        
-        // Use override first, then fall back to row data
-        let resolvedProductImage = overriddenProductImage || row.productImageData || undefined;
-        let resolvedLifestyleImage = overriddenLifestyleImage || row.lifestyleImageData || undefined;
-
-        if (imgProductTarget === 'lifestyle_image' && imgLifestyleTarget === 'product_image') {
-          // Swap: use the resolved values but in opposite positions
-          const tempProduct = resolvedProductImage;
-          resolvedProductImage = resolvedLifestyleImage;
-          resolvedLifestyleImage = tempProduct;
-        } else if (imgProductTarget === 'skip') {
-          resolvedProductImage = undefined;
-        } else if (imgLifestyleTarget === 'skip') {
-          resolvedLifestyleImage = undefined;
-        }
+        const {
+          resolvedProductImage,
+          resolvedLifestyleImage,
+          imageUrl2: mappedImg2,
+          imageUrl3: mappedImg3,
+        } = resolveMappedRowImages({
+          sheetMapping,
+          row,
+          sheetName,
+          imageOverrides,
+          getCellStr,
+        });
+        imageUrl2 = mappedImg2;
+        imageUrl3 = mappedImg3;
 
         return {
           id: `excel-action-${row.rowIndex}-${idx}-${Math.random().toString(36).substring(7)}`,

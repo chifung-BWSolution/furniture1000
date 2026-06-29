@@ -3291,3 +3291,91 @@ function detectImageType(bytes: Uint8Array): string {
   if (bytes[0] === 0x52 && bytes[1] === 0x49) return 'webp';
   return 'png'; // default
 }
+
+/** Row + mapping inputs for embedded/column-mapped Excel images. */
+export interface MappedRowImageInput {
+  rowIndex: number;
+  productImageData?: string | null;
+  productImageData2?: string | null;
+  productImageData3?: string | null;
+  lifestyleImageData?: string | null;
+}
+
+/**
+ * Resolve product/lifestyle/extra images from Excel preview mapping.
+ * Sources (priority): imageOverrides → embedded drawing → mapped column cell text/URL.
+ */
+export function resolveMappedRowImages(args: {
+  sheetMapping: Record<string, string>;
+  row: MappedRowImageInput;
+  sheetName: string;
+  imageOverrides?: Record<string, string>;
+  getCellStr: (field: string) => string;
+}): {
+  resolvedProductImage?: string;
+  resolvedLifestyleImage?: string;
+  imageUrl2: string | null;
+  imageUrl3: string | null;
+} {
+  const { sheetMapping, row, sheetName, imageOverrides, getCellStr } = args;
+
+  const imgProductTarget = sheetMapping['__img_product'] || 'product_image';
+  const imgLifestyleTarget = sheetMapping['__img_lifestyle'] || 'lifestyle_image';
+  const imgProduct2Target = sheetMapping['__img_product2'] || 'image_url_2';
+  const imgProduct3Target = sheetMapping['__img_product3'] || 'image_url_3';
+
+  const productOverrideKey = `${sheetName}:${row.rowIndex}:product`;
+  const lifestyleOverrideKey = `${sheetName}:${row.rowIndex}:lifestyle`;
+  const product2OverrideKey = `${sheetName}:${row.rowIndex}:product2`;
+  const product3OverrideKey = `${sheetName}:${row.rowIndex}:product3`;
+
+  const pick = (...vals: (string | null | undefined)[]): string | undefined => {
+    for (const v of vals) {
+      const s = (v || '').trim();
+      if (s) return s;
+    }
+    return undefined;
+  };
+
+  const rawImg1 = pick(
+    imageOverrides?.[productOverrideKey],
+    row.productImageData,
+    getCellStr('product_image'),
+  );
+  const rawImg2 = pick(
+    imageOverrides?.[product2OverrideKey],
+    row.productImageData2,
+    getCellStr('image_url_2'),
+  );
+  const rawImg3 = pick(
+    imageOverrides?.[product3OverrideKey],
+    row.productImageData3,
+    getCellStr('image_url_3'),
+  );
+  const rawLifestyle = pick(
+    imageOverrides?.[lifestyleOverrideKey],
+    row.lifestyleImageData,
+    getCellStr('lifestyle_image'),
+  );
+
+  const imageSlots: Record<string, string | undefined> = {
+    product_image: undefined,
+    lifestyle_image: undefined,
+    image_url_2: undefined,
+    image_url_3: undefined,
+  };
+  const assign = (target: string, val: string | undefined) => {
+    if (target !== 'skip' && val && !imageSlots[target]) imageSlots[target] = val;
+  };
+  assign(imgProductTarget, rawImg1);
+  assign(imgLifestyleTarget, rawLifestyle);
+  assign(imgProduct2Target, rawImg2);
+  assign(imgProduct3Target, rawImg3);
+
+  return {
+    resolvedProductImage: imageSlots['product_image'],
+    resolvedLifestyleImage: imageSlots['lifestyle_image'],
+    imageUrl2: imageSlots['image_url_2'] || null,
+    imageUrl3: imageSlots['image_url_3'] || null,
+  };
+}
