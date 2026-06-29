@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import * as XLSX from 'xlsx';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
+import { reconcileProductsFromCategoryRegistry, syncCategoryRenames, type CategoryRename } from '@/lib/categorySync';
 import { toast } from 'sonner';
 import {
   FolderTree, Upload, Save, Plus, Trash2, Loader2, Search, X, Check,
@@ -40,8 +41,10 @@ function parseCategoryExcel(buf: ArrayBuffer): { level1: string; level2: string 
 
 export function ProductCategoryView() {
   const [rows, setRows] = useState<CategoryRow[]>([]);
+  const [originalRows, setOriginalRows] = useState<CategoryRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
   const [search, setSearch] = useState('');
   const [dirty, setDirty] = useState(false);
   // ids of rows that exist in DB and were removed in the UI — deleted on save
@@ -58,7 +61,9 @@ export function ProductCategoryView() {
         .select('*')
         .order('sort_order', { ascending: true });
       if (error) throw error;
-      setRows((data || []).map(mapRow));
+      const mapped = (data || []).map(mapRow);
+      setRows(mapped);
+      setOriginalRows(mapped);
       setDeletedIds([]);
       setDirty(false);
     } catch (err) {
@@ -157,6 +162,22 @@ export function ProductCategoryView() {
 
       // 2) update existing rows (id is a real DB uuid → not isNew)
       const existing = valid.filter((r) => !r.isNew);
+      const originalById = new Map(originalRows.map((r) => [r.id, r]));
+      const renames: CategoryRename[] = [];
+      for (const r of existing) {
+        const orig = originalById.get(r.id);
+        if (!orig) continue;
+        const newLevel1 = r.level1.trim();
+        const newLevel2 = r.level2.trim();
+        if (orig.level1 === newLevel1 && orig.level2 === newLevel2) continue;
+        renames.push({
+          oldLevel1: orig.level1,
+          oldLevel2: orig.level2,
+          newLevel1,
+          newLevel2,
+        });
+      }
+
       for (const r of existing) {
         const { error: updErr } = await supabase
           .from('product_category')
@@ -182,14 +203,65 @@ export function ProductCategoryView() {
         if (insErr) throw insErr;
       }
 
+      if (renames.length > 0) {
+        const { productErrors, rtsErrors } = await syncCategoryRenames(supabase, renames);
+        if (productErrors.length > 0 || rtsErrors.length > 0) {
+          toast.warning('分類已儲存，但部分產品同步失敗', {
+            description: [...productErrors, ...rtsErrors].slice(0, 2).join(' · '),
+          });
+        }
+      }
+
+      const registry = valid.map((r) => ({
+        level1: r.level1.trim(),
+        level2: r.level2.trim(),
+      }));
+      const { productErrors: reconcilePErr, rtsErrors: reconcileRErr } =
+        await reconcileProductsFromCategoryRegistry(supabase, registry);
+      if (reconcilePErr.length > 0 || reconcileRErr.length > 0) {
+        toast.warning('分類已儲存，但部分產品對帳同步失敗', {
+          description: [...reconcilePErr, ...reconcileRErr].slice(0, 2).join(' · '),
+        });
+      }
+
       toast.success('已儲存產品分類', {
-        description: `更新 ${existing.length} 筆、新增 ${fresh.length} 筆、刪除 ${deletedIds.length} 筆`,
+        description: renames.length > 0
+          ? `更新 ${existing.length} 筆、新增 ${fresh.length} 筆、刪除 ${deletedIds.length} 筆；已同步 ${renames.length} 組分類至 products 及 ready_to_shopify`
+          : `更新 ${existing.length} 筆、新增 ${fresh.length} 筆、刪除 ${deletedIds.length} 筆`,
       });
       await load();
     } catch (err) {
       toast.error('儲存失敗', { description: err instanceof Error ? err.message : '請稍後再試' });
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  /** Fix products / ready_to_shopify when category names changed but products still use old level1. */
+  const syncToProducts = async () => {
+    const registry = rows
+      .filter((r) => r.level1.trim() && r.level2.trim())
+      .map((r) => ({ level1: r.level1.trim(), level2: r.level2.trim() }));
+    if (registry.length === 0) {
+      toast.message('尚無可同步的分類');
+      return;
+    }
+    setIsSyncing(true);
+    try {
+      const { productErrors, rtsErrors } = await reconcileProductsFromCategoryRegistry(supabase, registry);
+      if (productErrors.length > 0 || rtsErrors.length > 0) {
+        toast.warning('部分產品同步失敗', {
+          description: [...productErrors, ...rtsErrors].slice(0, 2).join(' · '),
+        });
+      } else {
+        toast.success('已同步產品分類', {
+          description: 'products 及 ready_to_shopify.product_type 已對齊目前分類登記',
+        });
+      }
+    } catch (err) {
+      toast.error('同步失敗', { description: err instanceof Error ? err.message : '請稍後再試' });
+    } finally {
+      setIsSyncing(false);
     }
   };
 
@@ -230,6 +302,14 @@ export function ProductCategoryView() {
             <Upload className="h-3.5 w-3.5" /> 導入 Excel
           </button>
           <button
+            onClick={syncToProducts}
+            disabled={isSyncing || rows.length === 0}
+            className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
+          >
+            {isSyncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FolderTree className="h-3.5 w-3.5" />}
+            同步至產品
+          </button>
+          <button
             onClick={save}
             disabled={isSaving || !dirty}
             className="flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-xs font-semibold text-primary-foreground shadow-sm transition-opacity hover:opacity-90 disabled:opacity-50"
@@ -243,7 +323,7 @@ export function ProductCategoryView() {
       <div className="flex items-center gap-2 border-b border-border bg-indigo-500/5 px-6 py-1.5">
         <FolderTree className="h-3 w-3 text-indigo-500" />
         <span className="text-[11px] text-indigo-500 font-body">
-          記錄目前產品分類。可直接編輯文字、新增/刪除分類，或由 Excel 導入（第一欄一級分類、第二欄二級分類）。儲存後寫入 Supabase product_category 表。
+          記錄目前產品分類。可直接編輯文字、新增/刪除分類，或由 Excel 導入（第一欄一級分類、第二欄二級分類）。儲存後寫入 Supabase product_category 表，並同步更新 products 及 ready_to_shopify.product_type。
         </span>
       </div>
 
