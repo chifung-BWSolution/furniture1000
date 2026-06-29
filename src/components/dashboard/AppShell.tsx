@@ -171,7 +171,7 @@ export function AppShell() {
   useEffect(() => {
     let cancelled = false;
     let alreadyUnhealthy = false; // avoid stacking recovery pollers
-    const POLL_INTERVAL = 30_000; // check every 30s
+    const POLL_INTERVAL = 60_000; // check every 60s — avoid adding load while DB is stressed
 
     async function poll() {
       if (cancelled || alreadyUnhealthy) return;

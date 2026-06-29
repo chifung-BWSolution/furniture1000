@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { isHttpImageUrl } from '@/lib/imageStorage';
 import { stripBase64ForDb } from '@/lib/imageStorage';
 
 /** Mirror publish-workflow flags to products (待處理 / 目錄 filters still use products). */
@@ -84,14 +85,18 @@ export async function syncRtsContentToProduct(
 export function flattenRtsListRow(r: Record<string, unknown>): Record<string, unknown> {
   const p = (r.products ?? {}) as Record<string, unknown>;
   const ptParts = String(r.product_type ?? '').split(' / ');
+  const rtsImg = typeof r.image_url === 'string' ? r.image_url : '';
+  const prodImg = typeof p.image_url === 'string' ? p.image_url : '';
+  const lightImg = isHttpImageUrl(rtsImg) ? rtsImg : isHttpImageUrl(prodImg) ? prodImg : '';
+  const preview = String(r.description_preview ?? p.description ?? '').trim();
   return {
     ...r,
     id: r.product_id ?? p.id,
     rts_id: r.id,
     title: r.title ?? p.title,
-    description: p.description ?? r.body_html ?? '',
-    body_html: r.body_html ?? p.description_html ?? p.description,
-    image_url: r.image_url ?? p.image_url,
+    description: preview,
+    body_html: undefined,
+    image_url: lightImg,
     factories_display_name: p.factories_display_name ?? r.vendor,
     vendor: r.vendor ?? p.factories_display_name,
     level1_category: p.level1_category ?? ptParts[0]?.trim() ?? '',

@@ -46,14 +46,17 @@ async function uploadWithRetry(
   filePath: string,
   bytes: Uint8Array,
   mimeType: string,
-): Promise<{ error: { message: string } | null }> {
-  let lastErr: { message: string } | null = null;
+): Promise<{ error: { message: string; statusCode?: string } | null }> {
+  let lastErr: { message: string; statusCode?: string } | null = null;
   for (let attempt = 0; attempt < UPLOAD_MAX_RETRIES; attempt++) {
     const { error } = await supabase.storage
       .from(BUCKET)
       .upload(filePath, bytes, { contentType: mimeType, upsert: true });
     if (!error) return { error: null };
     lastErr = error;
+    // 4xx client errors won't succeed on retry — fail fast to avoid Storage storms.
+    const status = String((error as { statusCode?: string }).statusCode ?? '');
+    if (status.startsWith('4')) return { error: lastErr };
     if (attempt < UPLOAD_MAX_RETRIES - 1) {
       await sleep(UPLOAD_RETRY_BASE_MS * (attempt + 1));
     }

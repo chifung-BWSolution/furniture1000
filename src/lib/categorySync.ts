@@ -57,50 +57,14 @@ export async function syncCategoryRenames(
  */
 export async function reconcileProductsFromCategoryRegistry(
   supabase: SupabaseClient,
-  categories: { level1: string; level2: string }[],
+  _categories: { level1: string; level2: string }[],
 ): Promise<{ productErrors: string[]; rtsErrors: string[] }> {
-  const level2Counts = new Map<string, number>();
-  for (const { level2 } of categories) {
-    if (!level2) continue;
-    level2Counts.set(level2, (level2Counts.get(level2) ?? 0) + 1);
+  const { data, error } = await supabase.rpc('reconcile_category_registry');
+  if (error) return { productErrors: [error.message], rtsErrors: [] };
+  const productsUpdated = Number((data as { products_updated?: number })?.products_updated ?? 0);
+  const rtsUpdated = Number((data as { rts_updated?: number })?.rts_updated ?? 0);
+  if (productsUpdated === 0 && rtsUpdated === 0) {
+    return { productErrors: [], rtsErrors: [] };
   }
-
-  const productErrors: string[] = [];
-  const rtsErrors: string[] = [];
-
-  for (const { level1, level2 } of categories) {
-    if (!level2 || (level2Counts.get(level2) ?? 0) > 1) continue;
-
-    const newType = buildProductType(level1, level2);
-
-    const { data: affected, error: selectErr } = await supabase
-      .from('products')
-      .select('id')
-      .eq('level2_category', level2)
-      .neq('level1_category', level1);
-
-    if (selectErr) {
-      productErrors.push(selectErr.message);
-      continue;
-    }
-    if (!affected?.length) continue;
-
-    const { error: productsErr } = await supabase
-      .from('products')
-      .update({ level1_category: level1 })
-      .eq('level2_category', level2)
-      .neq('level1_category', level1);
-
-    if (productsErr) productErrors.push(productsErr.message);
-
-    const ids = affected.map((p) => p.id);
-    const { error: rtsErr } = await supabase
-      .from('ready_to_shopify')
-      .update({ product_type: newType })
-      .in('product_id', ids);
-
-    if (rtsErr) rtsErrors.push(rtsErr.message);
-  }
-
-  return { productErrors, rtsErrors };
+  return { productErrors: [], rtsErrors: [] };
 }
