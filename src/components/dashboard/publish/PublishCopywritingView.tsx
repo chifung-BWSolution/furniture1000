@@ -312,7 +312,7 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
     item: CopyItem,
     resolvedPrimary: string | null,
     imagesJson: { src: string; position?: number }[],
-    extra?: { copy_done?: boolean; copy_done_at?: string },
+    extra?: { copy_done?: boolean; copy_done_at?: string; revert_reason?: null },
   ) => ({
     product_id: activeId,
     title: name,

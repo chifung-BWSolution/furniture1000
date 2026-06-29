@@ -237,6 +237,23 @@ export async function resolveRowsImagesToStorage<
   return out;
 }
 
+/** Resolve a primary image + extra image URLs before DB upsert (catalog → RTS sync). */
+export async function resolveImagesToStorage(
+  productId: string,
+  primary: string | null,
+  extraInputs: string[],
+): Promise<{ primary: string | null; extras: string[] }> {
+  const resolvedPrimary = primary?.trim()
+    ? await uploadImageSourceToStorage(primary.trim(), productId, 'primary')
+    : null;
+
+  const resolvedExtras = (await Promise.all(
+    extraInputs.map((src, idx) => uploadImageSourceToStorage(src, productId, `extra${idx}`)),
+  )).filter((src): src is string => Boolean(src));
+
+  return { primary: resolvedPrimary, extras: resolvedExtras };
+}
+
 /** Resolve RTS image_url + images[] — all entries must be Storage URLs (no base64). */
 export async function resolveRtsImageFieldsForDb(
   productId: string,
