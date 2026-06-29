@@ -108,5 +108,12 @@ export function flattenRtsListRow(r: Record<string, unknown>): Record<string, un
     sku: r.sku ?? p.sku,
     tags: r.tags ?? p.tags,
     revert_reason: r.revert_reason ?? p.revert_reason,
+    // Product-info page fields — prefer ready_to_shopify, fall back to products mirror.
+    dimension_l_mm: r.dimension_l_mm ?? p.dimension_l_mm ?? null,
+    dimension_w_mm: r.dimension_w_mm ?? p.dimension_w_mm ?? null,
+    dimension_h_mm: r.dimension_h_mm ?? p.dimension_h_mm ?? null,
+    in_stock: r.in_stock ?? p.in_stock ?? null,
+    customize: r.customize ?? p.customize ?? null,
+    cost_price: p.cost_price ?? null,
   };
 }
