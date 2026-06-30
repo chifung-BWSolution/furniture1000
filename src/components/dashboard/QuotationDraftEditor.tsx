@@ -1546,9 +1546,6 @@ export function QuotationDraftEditor({
                         <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "60px" }}>
                           數量
                         </th>
-                        <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "80px" }}>
-                          貨期
-                        </th>
                         <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "120px" }}>
                           備註
                         </th>
@@ -1623,8 +1620,7 @@ export function QuotationDraftEditor({
                                 className="w-14 rounded-md border border-border bg-background px-2 py-1.5 font-mono-data text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
                               />
                             </td>
-                            {/* 貨期 / 備註 — empty for value-add service */}
-                            <td className="py-2 pr-2"></td>
+                            {/* 備註 — empty for value-add service */}
                             <td className="py-2 pr-2"></td>
                             {/* 小計 */}
                             <td className="py-2 pr-2">
@@ -1795,18 +1791,6 @@ export function QuotationDraftEditor({
                                 )
                               }
                               className="w-16 rounded-md border border-border bg-background px-2 py-1.5 font-mono-data text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
-                            />
-                          </td>
-                          {/* 貨期 */}
-                          <td className="py-2 pr-2">
-                            <input
-                              type="text"
-                              value={item.deliveryTermName || ""}
-                              placeholder="—"
-                              onChange={(e) =>
-                                updateItem(item.id, "deliveryTermName", e.target.value)
-                              }
-                              className="w-20 rounded-md border border-border bg-background px-2 py-1.5 font-body text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
                             />
                           </td>
                           {/* 備註 (Remarks) — rich text + images */}
