@@ -370,6 +370,28 @@ function createBlankProductItem(): QuotationItem {
   };
 }
 
+/** Rows created via 新建欄位 may have category/material but no product name — still export to PDF. */
+function hasQuoteItemContent(item: QuotationItem): boolean {
+  if (item.isCustomTerm) {
+    return Boolean((item.name || "").trim());
+  }
+  return Boolean(
+    (item.name || "").trim() ||
+      (item.category || "").trim() ||
+      (item.material || "").trim() ||
+      (item.color || "").trim() ||
+      (item.remarks || "").trim() ||
+      item.image ||
+      item.referenceImage ||
+      item.remarksImage ||
+      (item.unitPrice ?? 0) > 0 ||
+      item.costPrice != null ||
+      item.dimensionLMm != null ||
+      item.dimensionWMm != null ||
+      item.dimensionHMm != null,
+  );
+}
+
 const DEFAULT_ITEMS: QuotationItem[] = [
   {
     id: generateId(),
@@ -829,7 +851,7 @@ export function QuotationDraftEditor({
   const draftKey = existingQuote?.quoteId || "NEW";
 
   // 報價內容 is considered "有數據" if any row has a product name.
-  const hasQuoteData = items.some((it) => (it.name || "").trim());
+  const hasQuoteData = items.some(hasQuoteItemContent);
 
   // Unsaved-work guard: dirty when there is quote data that has NOT been saved
   // (已儲存) or submitted for review (版本審核). Registered to a module-level guard
@@ -1044,7 +1066,7 @@ export function QuotationDraftEditor({
     }));
 
     // Remove empty placeholder rows and append new ones
-    const nonEmptyItems = items.filter((item) => item.name);
+    const nonEmptyItems = items.filter(hasQuoteItemContent);
     setItems([...nonEmptyItems, ...newRows]);
     setActiveItemId(null);
   };
@@ -1080,7 +1102,7 @@ export function QuotationDraftEditor({
     deliveryDetails,
     termsContent,
     items: items
-      .filter((i) => i.name)
+      .filter(hasQuoteItemContent)
       .map((item) => ({
         image: item.image,
         referenceImage: item.referenceImage,
