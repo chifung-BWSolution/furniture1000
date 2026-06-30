@@ -1100,9 +1100,9 @@ export function useAppStore() {
       return {
         id: productId,
         rts_id: rts?.id || undefined,
-        handle: rts?.shopify_url || undefined,
-        shopify_page_title: rts?.shopify_page_title || rts?.title || p.title || undefined,
-        shopify_page_description: rts?.shopify_page_description || undefined,
+        handle: rts?.shopify_url?.trim() || undefined,
+        shopify_page_title: rts?.shopify_page_title?.trim() || undefined,
+        shopify_page_description: rts?.shopify_page_description?.trim() || undefined,
         title: rts?.title || p.title,
         description_html: rts?.body_html || p.descriptionHtml || p.description || '',
         tags: mergedTags,
@@ -1322,7 +1322,7 @@ export function useAppStore() {
     // Fetch the ready_to_shopify row for this product to get finalised content
     const { data: rtsRetryRows } = await supabase
       .from('ready_to_shopify')
-      .select('product_id,title,body_html,price,image_url,images,variants,product_type,tags')
+      .select('product_id,title,body_html,price,image_url,images,variants,product_type,tags,shopify_url,shopify_page_title,shopify_page_description,sku,vendor')
       .eq('product_id', id)
       .maybeSingle();
     const rts = rtsRetryRows as any;
@@ -1332,6 +1332,9 @@ export function useAppStore() {
 
     const payload = [{
       id: product.id,
+      handle: rts?.shopify_url?.trim() || undefined,
+      shopify_page_title: rts?.shopify_page_title?.trim() || undefined,
+      shopify_page_description: rts?.shopify_page_description?.trim() || undefined,
       title: rts?.title || product.title,
       description_html: rts?.body_html || product.descriptionHtml || product.description || '',
       tags: mergedTags,
@@ -1436,6 +1439,10 @@ export function useAppStore() {
               shopify_created_at: syncTimestamp,
               shopify_updated_at: syncTimestamp,
               imported_at: syncTimestamp,
+              shopify_page_title: rts?.shopify_page_title?.trim() || null,
+              shopify_page_description: rts?.shopify_page_description?.trim() || null,
+              shopify_url: rts?.shopify_url?.trim() || null,
+              handle: rts?.shopify_url?.trim() || null,
             }, { onConflict: 'shopify_product_id' });
           toast.success('產品已成功發佈至 Shopify', {
             action: {

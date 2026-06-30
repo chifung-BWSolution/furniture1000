@@ -108,6 +108,7 @@ async function applySeoBackfill(
     shopify_page_description: string | null;
     shopify_url: string | null;
   }>,
+  opts?: { fillOnlyNull?: boolean },
 ): Promise<number> {
   let updated = 0;
   const entries = Array.from(seoMap.entries());
@@ -115,6 +116,29 @@ async function applySeoBackfill(
   for (let i = 0; i < entries.length; i += BATCH) {
     const batch = entries.slice(i, i + BATCH);
     await Promise.all(batch.map(async ([shopifyId, seo]) => {
+      if (opts?.fillOnlyNull) {
+        const { data: row, error: fetchErr } = await supabase
+          .from("shopify_products")
+          .select("shopify_page_title, shopify_page_description, shopify_url")
+          .eq("shopify_product_id", shopifyId)
+          .maybeSingle();
+        if (fetchErr || !row) return;
+        const patch: Record<string, string> = {};
+        const curTitle = (row.shopify_page_title as string | null)?.trim();
+        const curDesc = (row.shopify_page_description as string | null)?.trim();
+        const curUrl = (row.shopify_url as string | null)?.trim();
+        if (!curTitle && seo.shopify_page_title) patch.shopify_page_title = seo.shopify_page_title;
+        if (!curDesc && seo.shopify_page_description) patch.shopify_page_description = seo.shopify_page_description;
+        if (!curUrl && seo.shopify_url) patch.shopify_url = seo.shopify_url;
+        if (Object.keys(patch).length === 0) return;
+        const { error } = await supabase
+          .from("shopify_products")
+          .update(patch)
+          .eq("shopify_product_id", shopifyId);
+        if (!error) updated++;
+        else console.error(`[sync-shopify-mirror] SEO fill ${shopifyId}:`, error.message);
+        return;
+      }
       const { error } = await supabase
         .from("shopify_products")
         .update(seo)
@@ -323,7 +347,7 @@ Deno.serve(async (req: Request) => {
     let seoBackfilled = 0;
     try {
       const seoMap = await fetchAllProductsSeoGraphQL(shopDomain, shopifyToken);
-      seoBackfilled = await applySeoBackfill(supabase, seoMap);
+      seoBackfilled = await applySeoBackfill(supabase, seoMap, { fillOnlyNull: true });
     } catch (e) {
       console.warn("[sync-shopify-mirror] SEO backfill skipped:", e instanceof Error ? e.message : String(e));
     }

@@ -145,6 +145,27 @@ async function exitPublishPipeline(
   }).eq("id", productId);
 }
 
+/** RTS shopify_url may be stored as "products/slug" — Shopify handle API wants "slug". */
+function normalizeShopifyHandle(raw: string | undefined | null): string | null {
+  if (!raw || typeof raw !== "string") return null;
+  let h = raw.trim().replace(/^\/+/, "");
+  if (h.startsWith("products/")) h = h.slice("products/".length);
+  return h || null;
+}
+
+/** Map ready_to_shopify SEO columns → mirror + Shopify Search engine listing fields. */
+function rtsSeoFields(product: ProductPayload): {
+  shopify_page_title: string | null;
+  shopify_page_description: string | null;
+  shopify_url: string | null;
+  handleForShopify: string | null;
+} {
+  const shopify_page_title = product.shopify_page_title?.trim() || null;
+  const shopify_page_description = product.shopify_page_description?.trim() || null;
+  const shopify_url = normalizeShopifyHandle(product.handle);
+  return { shopify_page_title, shopify_page_description, shopify_url, handleForShopify: shopify_url };
+}
+
 /** Update handle + SEO via GraphQL (REST product create does not set seo fields). */
 async function updateSeoAndHandle(
   shopDomain: string,
@@ -191,29 +212,29 @@ async function updateSeoAndHandle(
   return { ok: true };
 }
 
-/** Push SEO/handle to Shopify and return mirror columns for shopify_products. */
+/** Push RTS SEO fields to Shopify GraphQL and return mirror columns for shopify_products. */
 async function applyProductSeoMirror(
   storeHost: string,
   token: string,
   shopifyId: string,
   product: ProductPayload,
 ): Promise<Record<string, unknown>> {
-  const seoTitle = product.shopify_page_title?.trim() || undefined;
-  const seoDesc = product.shopify_page_description?.trim() || undefined;
-  const handle = product.handle?.trim() || undefined;
-  const out: Record<string, unknown> = {};
-  if (seoTitle) out.shopify_page_title = seoTitle;
-  if (seoDesc) out.shopify_page_description = seoDesc;
-  if (handle) out.shopify_url = handle;
-  if (!seoTitle && !seoDesc && !handle) return out;
+  const seo = rtsSeoFields(product);
+  const out: Record<string, unknown> = {
+    shopify_page_title: seo.shopify_page_title,
+    shopify_page_description: seo.shopify_page_description,
+    shopify_url: seo.shopify_url,
+  };
 
-  const result = await updateSeoAndHandle(storeHost, token, shopifyId, {
-    handle,
-    seoTitle,
-    seoDescription: seoDesc,
-  });
-  if (!result.ok) {
-    console.warn(`[publish-to-shopify] SEO/handle update failed for ${shopifyId}: ${result.error}`);
+  if (seo.handleForShopify || seo.shopify_page_title || seo.shopify_page_description) {
+    const result = await updateSeoAndHandle(storeHost, token, shopifyId, {
+      handle: seo.handleForShopify || undefined,
+      seoTitle: seo.shopify_page_title ?? "",
+      seoDescription: seo.shopify_page_description ?? "",
+    });
+    if (!result.ok) {
+      console.warn(`[publish-to-shopify] SEO/handle update failed for ${shopifyId}: ${result.error}`);
+    }
   }
   return out;
 }
@@ -550,9 +571,10 @@ Deno.serve(async (req: Request) => {
             { name: "尺寸(mm)" },
           ],
         };
-        // URL handle from ready_to_shopify.shopify_url (Shopify slugifies it)
-        if (product.handle && product.handle.trim()) {
-          shopifyProduct.handle = product.handle.trim();
+        // URL handle from ready_to_shopify.shopify_url
+        const createHandle = normalizeShopifyHandle(product.handle);
+        if (createHandle) {
+          shopifyProduct.handle = createHandle;
         }
 
         // ── Attach metafields (sent inline on product create) ──────────────
@@ -684,6 +706,7 @@ Deno.serve(async (req: Request) => {
                 await supabase.from("products").update({ status: "success", shopify_product_id: shopifyProductId, error_message: warningMsg, source: "local" }).eq("id", product.id);
 
                 const seoMirror = await applyProductSeoMirror(storeHost, shopifyAccessToken, shopifyProductId, product);
+                const publishedHandle = (seoMirror.shopify_url as string | null) || normalizeShopifyHandle(product.handle) || String(fallbackCreated.handle || "");
 
                 // 寫入 shopify_products mirror（fallback：無圖上傳成功）
                 try {
@@ -702,7 +725,7 @@ Deno.serve(async (req: Request) => {
                     body_html: product.description_html || null,
                     vendor: product.vendor || product.factory_name || null,
                     product_type: product.product_type || null,
-                    handle: product.handle || String(fallbackCreated.handle || ""),
+                    handle: publishedHandle,
                     status: "active",
                     published_at: new Date().toISOString(),
                     image_url: product.image_url || null,
@@ -775,6 +798,7 @@ Deno.serve(async (req: Request) => {
         await supabase.from("products").update({ status: "success", shopify_product_id: shopifyProductId, error_message: imageWarning || null, source: "local" }).eq("id", product.id);
 
         const seoMirror = await applyProductSeoMirror(storeHost, shopifyAccessToken, shopifyProductId, product);
+        const publishedHandle = (seoMirror.shopify_url as string | null) || normalizeShopifyHandle(product.handle) || String(createdProduct.handle || "");
 
         // ── Write to shopify_products mirror table ────────────────────────
         try {
@@ -795,7 +819,7 @@ Deno.serve(async (req: Request) => {
             body_html: product.description_html || null,
             vendor: product.vendor || product.factory_name || null,
             product_type: product.product_type || null,
-            handle: product.handle || String(createdProduct.handle || ""),
+            handle: publishedHandle,
             status: "active",
             published_at: new Date().toISOString(),
             image_url: resolvedImageUrl || product.image_url || null,
