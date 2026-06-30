@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect, useRef, lazy, Suspense } from "react";
+import { useState, useCallback, useEffect, useRef, lazy, Suspense } from "react";
 import { useAppStore } from "@/hooks/use-app-store";
 import { unsavedGuard } from "@/lib/unsavedGuard";
 import { SidebarNav } from "./SidebarNav";
@@ -18,6 +18,8 @@ import { toast } from "sonner";
 import { checkSupabaseHealth, waitForSupabaseRecovery } from "@/lib/supabase";
 import { supabase as sb } from "@/lib/supabase";
 import { syncRtsWorkflowToProduct } from "@/lib/rtsProductSync";
+import { resolveSelectedPublishProducts } from "@/lib/readyToPublishRow";
+import type { Product } from "@/types/product";
 
 // Lazy-loaded heavy views (contain large dependencies like pdfjs-dist, @react-pdf/renderer, etc.)
 const AIProcessorView = lazy(() =>
@@ -161,6 +163,7 @@ function PlaceholderView({
 export function AppShell() {
   const store = useAppStore();
   const [showPublishModal, setShowPublishModal] = useState(false);
+  const [publishModalProducts, setPublishModalProducts] = useState<Product[]>([]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [editingQuoteId, setEditingQuoteId] = useState<string | null>(null);
   // 方案 D: Supabase health monitoring
@@ -224,15 +227,7 @@ export function AppShell() {
   const [rtpTotalCount, setRtpTotalCount] = useState(0);
   // Real total/selected counts reported up from ListedProductsView (所有產品)
   const [listedStats, setListedStats] = useState<{ total: number; selected: number; selectedIds: string[] }>({ total: 0, selected: 0, selectedIds: [] });
-  const selectedProducts = useMemo(() => {
-    const all = [...store.products, ...store.readyToPublishList];
-    const seen = new Set<string>();
-    return all.filter(p => {
-      if (!store.selectedProductIds.has(p.id) || seen.has(p.id)) return false;
-      seen.add(p.id);
-      return true;
-    });
-  }, [store.products, store.readyToPublishList, store.selectedProductIds]);
+  const rtpPageProductsRef = useRef<Product[]>([]);
 
   const handleRtpReload = useCallback(() => {
     rtpReloadRef.current?.();
@@ -254,9 +249,19 @@ export function AppShell() {
       return;
     }
     if (store.selectedProductIds.size > 0) {
+      const ids = Array.from(store.selectedProductIds);
+      const inMemory = store.currentView === 'ready-to-publish'
+        ? rtpPageProductsRef.current
+        : [...store.products, ...store.readyToPublishList];
+      const resolved = await resolveSelectedPublishProducts(ids, inMemory);
+      if (resolved.length === 0) {
+        toast.message('請先勾選產品');
+        return;
+      }
+      setPublishModalProducts(resolved);
       setShowPublishModal(true);
     }
-  }, [store.selectedProductIds, store.currentView, listedStats.selectedIds]);
+  }, [store.selectedProductIds, store.currentView, store.products, store.readyToPublishList, listedStats.selectedIds]);
 
   // "加入到 準備上載" for 傢俬組檢查 — identical to the Shopify publish flow
   // (selectedProducts drives PublishModal which calls store.publishSelected)
@@ -307,6 +312,7 @@ export function AppShell() {
           <ReadyToPublishView
             onRegisterReload={(fn) => { rtpReloadRef.current = fn; }}
             onTotalCountChange={setRtpTotalCount}
+            onProductsChange={(products) => { rtpPageProductsRef.current = products; }}
             selectedIds={store.selectedProductIds}
             filterProductId={store.filterProductId}
             onToggleSelect={store.toggleProductSelection}
@@ -627,9 +633,12 @@ export function AppShell() {
       {/* Publish Confirmation Modal */}
       <PublishModal
         open={showPublishModal}
-        onClose={() => setShowPublishModal(false)}
+        onClose={() => {
+          setShowPublishModal(false);
+          setPublishModalProducts([]);
+        }}
         onConfirm={handleConfirmPublish}
-        products={selectedProducts}
+        products={publishModalProducts}
       />
     </div>
   );

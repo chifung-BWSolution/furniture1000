@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { Product, ProductVariant, ProductStatus, ProductSource, AppSettings, ViewType } from '@/types/product';
 import { supabase } from '@/lib/supabase';
 import { removeProductFromPublishPipeline } from '@/lib/publishPipeline';
+import { resolveSelectedPublishProducts } from '@/lib/readyToPublishRow';
 import { resolveRowsImagesToStorage, productImageFieldsPendingStorage, stripBase64ForDb } from '@/lib/imageStorage';
 import { toast } from 'sonner';
 
@@ -889,38 +890,10 @@ export function useAppStore() {
     const ids = Array.from(selectedProductIds);
     setIsPublishing(true);
 
-    // Search both the main list and the ready-to-publish list (they are separate state)
     const allAvailable = [...products, ...readyToPublishList];
     const seen = new Set<string>();
     const dedupedAvailable = allAvailable.filter(p => { if (seen.has(p.id)) return false; seen.add(p.id); return true; });
-    let selectedProducts = dedupedAvailable.filter(p => ids.includes(p.id));
-
-    // Server-paginated 準備上載 may not keep every selected row in memory — resolve from DB.
-    if (selectedProducts.length < ids.length) {
-      const missingIds = ids.filter((id) => !selectedProducts.some((p) => p.id === id));
-      const { data: rtsPickRows } = await supabase
-        .from('ready_to_shopify')
-        .select('id, product_id, title, vendor, price, tags, sku, product_type, variants')
-        .in('id', missingIds);
-      for (const row of rtsPickRows ?? []) {
-        selectedProducts.push({
-          id: row.id,
-          productId: row.product_id,
-          title: row.title || '',
-          description: '',
-          tags: Array.isArray(row.tags) ? row.tags : [],
-          price: row.price != null ? parseFloat(String(row.price)) : 0,
-          collection: row.product_type || '',
-          status: 'draft',
-          imageUrl: '',
-          factoriesDisplayName: row.vendor || '',
-          createdAt: new Date().toISOString(),
-          source: 'local',
-          variants: [],
-          sku: row.sku || undefined,
-        } as Product);
-      }
-    }
+    let selectedProducts = await resolveSelectedPublishProducts(ids, dedupedAvailable);
 
     if (selectedProducts.length === 0) {
       console.warn('[uploadToMasterDb] No products selected');
