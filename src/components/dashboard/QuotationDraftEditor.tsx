@@ -1471,7 +1471,7 @@ export function QuotationDraftEditor({
                   </div>
                 </div>
 
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto [&_th]:!text-sm [&_td_input]:!text-sm [&_td_textarea]:!text-sm [&_td_.font-mono-data]:!text-sm [&_td_span]:!text-sm">
                   <table className="w-full text-left">
                     <thead>
                       <tr className="border-b border-border">

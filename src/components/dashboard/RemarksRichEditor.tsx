@@ -228,7 +228,7 @@ export function RemarksRichEditor({
                 rows={2}
                 onChange={(e) => updateTextBlock(block.id, e.target.value)}
                 onPaste={handlePasteImage}
-                className="w-full resize-y rounded-md border border-border bg-background px-2 py-1 font-body text-[10px] leading-snug text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                className="w-full resize-y rounded-md border border-border bg-background px-2 py-1 font-body text-[12px] leading-snug text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
               />
             </div>
           ) : (
@@ -266,7 +266,7 @@ export function RemarksRichEditor({
         <button
           type="button"
           onClick={addTextBlock}
-          className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 font-body text-[9px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 font-body text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
           title="新增文字區塊"
         >
           <Plus className="h-2.5 w-2.5" />
@@ -276,7 +276,7 @@ export function RemarksRichEditor({
           type="button"
           onClick={() => fileRef.current?.click()}
           disabled={imageCount >= MAX_REMARKS_IMAGES}
-          className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 font-body text-[9px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+          className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 font-body text-[11px] text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
           title={`上傳圖片 (${imageCount}/${MAX_REMARKS_IMAGES})`}
         >
           <Upload className="h-2.5 w-2.5" />
@@ -286,7 +286,7 @@ export function RemarksRichEditor({
           type="button"
           onClick={() => fileRef.current?.click()}
           disabled={imageCount >= MAX_REMARKS_IMAGES}
-          className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 font-body text-[9px] text-primary/70 transition-colors hover:bg-primary/5 hover:text-primary disabled:cursor-not-allowed disabled:opacity-40"
+          className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 font-body text-[11px] text-primary/70 transition-colors hover:bg-primary/5 hover:text-primary disabled:cursor-not-allowed disabled:opacity-40"
           title="上傳或貼上圖片"
         >
           <ImagePlus className="h-2.5 w-2.5" />
