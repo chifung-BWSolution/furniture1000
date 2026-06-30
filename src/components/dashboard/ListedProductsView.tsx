@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { dedupeFactoryNames, expandFactoryFilterSelection } from '@/lib/factoryNames';
+import { cn } from '@/lib/utils';
 import { ProductVariant } from '@/types/product';
 import { StatusBadge } from './StatusBadge';
 import { Badge } from '@/components/ui/badge';
