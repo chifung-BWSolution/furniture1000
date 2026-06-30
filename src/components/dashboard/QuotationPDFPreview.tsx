@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { X, Download, Loader2, AlertTriangle } from 'lucide-react';
 import type { QuotationPDFData } from '@/types/quotation-pdf';
+import { parseRemarksContent } from '@/lib/remarksContent';
 
 export type { QuotationPDFData } from '@/types/quotation-pdf';
 
@@ -231,6 +232,34 @@ function parseHtmlForPdf(html: string): PdfBlock[] {
   return results;
 }
 
+function renderRemarksPdfContent(
+  remarks: string | undefined,
+  legacyImage: string | undefined,
+  Image: ReactPdfModule['Image'],
+  Text: ReactPdfModule['Text'],
+) {
+  const blocks = parseRemarksContent(remarks, legacyImage);
+  return blocks.map((block, i) => {
+    if (block.type === 'text' && block.content.trim()) {
+      return (
+        <Text key={`remarks-text-${i}`} style={styles.tableCellTextLeft}>
+          {block.content}
+        </Text>
+      );
+    }
+    if (block.type === 'image') {
+      return (
+        <Image
+          key={`remarks-img-${i}`}
+          src={block.src}
+          style={styles.remarksImage}
+        />
+      );
+    }
+    return null;
+  });
+}
+
 // ─── Styles (plain object — StyleSheet.create is a pass-through) ─────────────
 
 const styles: Record<string, any> = {
@@ -249,7 +278,7 @@ const styles: Record<string, any> = {
   colIndex: { width: '5%', display: 'flex', justifyContent: 'center', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd', paddingVertical: 4 },
   colDesc: { width: '12%', paddingLeft: 4, paddingRight: 4, paddingTop: 4, paddingBottom: 4, display: 'flex', flexDirection: 'column', justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
   colMaterial: { width: '26%', paddingLeft: 4, paddingRight: 4, paddingTop: 4, paddingBottom: 4, display: 'flex', flexDirection: 'column', justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
-  colRemarks: { width: '9%', paddingLeft: 4, paddingRight: 4, paddingTop: 4, paddingBottom: 4, display: 'flex', flexDirection: 'column', justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
+  colRemarks: { width: '9%', paddingLeft: 4, paddingRight: 4, paddingTop: 4, paddingBottom: 4, display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', borderRightWidth: 0.5, borderColor: '#ddd' },
   colImage: { width: '15%', paddingLeft: 4, paddingRight: 4, paddingTop: 4, paddingBottom: 4, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
   colQty: { width: '5%', display: 'flex', justifyContent: 'center', alignItems: 'center', textAlign: 'center', borderRightWidth: 0.5, borderColor: '#ddd', paddingVertical: 4 },
   colUnit: { width: '5%', display: 'flex', justifyContent: 'center', alignItems: 'center', textAlign: 'center', borderRightWidth: 0.5, borderColor: '#ddd', paddingVertical: 4 },
@@ -259,6 +288,7 @@ const styles: Record<string, any> = {
   tableCellText: { fontSize: 7, textAlign: 'center', lineHeight: 1.3 },
   tableCellTextLeft: { fontSize: 7, textAlign: 'left', lineHeight: 1.3, paddingLeft: 4 },
   productImage: { width: 50, height: 50, objectFit: 'cover', borderRadius: 2 },
+  remarksImage: { width: '100%', objectFit: 'contain', marginTop: 2, marginBottom: 2 },
   installRow: { flexDirection: 'row', borderBottomWidth: 0.5, borderColor: '#ddd', minHeight: 28 },
   totalRow: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 6, paddingRight: 4 },
   totalLabel: { fontSize: 10, fontWeight: 700, marginRight: 8, lineHeight: 1.4 },
@@ -400,7 +430,7 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
                 </View>
                 <View style={styles.colRemarks}>
                   <View style={{ width: '100%' }}>
-                    <Text style={styles.tableCellTextLeft}>{item?.remarks || ''}</Text>
+                    {renderRemarksPdfContent(item?.remarks, item?.remarksImage, Image, Text)}
                   </View>
                 </View>
                 <View style={styles.colImage}>

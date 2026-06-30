@@ -38,6 +38,7 @@ export interface QuotationPDFData {
     material?: string;
     color?: string;
     remarks?: string;
+    remarksImage?: string;
     dimensionLMm?: number | null;
     dimensionWMm?: number | null;
     dimensionHMm?: number | null;

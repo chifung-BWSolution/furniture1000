@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TermsRichEditor } from "@/components/dashboard/TermsRichEditor";
+import { RemarksRichEditor } from "@/components/dashboard/RemarksRichEditor";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import { SubmitReviewModal } from "@/components/dashboard/SubmitReviewModal";
@@ -346,92 +347,6 @@ function ReferenceImageCell({
         title={modalTitle}
       />
     </>
-  );
-}
-
-// Sub-component: Remarks Cell (text + image support)
-function RemarksCell({
-  text,
-  image,
-  onTextChange,
-  onImageChange,
-}: {
-  text: string;
-  image: string;
-  onTextChange: (val: string) => void;
-  onImageChange: (url: string) => void;
-}) {
-  const fileRef = useRef<HTMLInputElement>(null);
-
-  const handlePaste = async (e: React.ClipboardEvent) => {
-    const items = e.clipboardData?.items;
-    if (!items) return;
-    for (const item of Array.from(items)) {
-      if (item.type.startsWith("image/")) {
-        e.preventDefault();
-        const file = item.getAsFile();
-        if (file) {
-          const dataUrl = await fileToDataUrl(file);
-          onImageChange(dataUrl);
-        }
-        return;
-      }
-    }
-  };
-
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const dataUrl = await fileToDataUrl(file);
-      onImageChange(dataUrl);
-    }
-    e.target.value = "";
-  };
-
-  return (
-    <div className="flex flex-col gap-1 min-w-[100px]">
-      <div className="flex items-center gap-1">
-        <input
-          type="text"
-          value={text}
-          placeholder="備註..."
-          onChange={(e) => onTextChange(e.target.value)}
-          onPaste={handlePaste}
-          className="flex-1 rounded-md border border-border bg-background px-2 py-1 font-body text-[10px] text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
-        />
-        <button
-          type="button"
-          onClick={() => fileRef.current?.click()}
-          className="rounded p-1 text-muted-foreground/50 transition-colors hover:bg-primary/10 hover:text-primary"
-          title="上傳圖片"
-        >
-          <Upload className="h-3 w-3" />
-        </button>
-      </div>
-      {image && (
-        <div className="relative group w-10 h-10">
-          <img
-            src={image}
-            alt=""
-            className="h-10 w-10 rounded border border-border object-cover"
-          />
-          <button
-            type="button"
-            onClick={() => onImageChange("")}
-            className="absolute -top-1 -right-1 hidden group-hover:flex h-4 w-4 items-center justify-center rounded-full bg-rose-500 text-white shadow"
-          >
-            <X className="h-2.5 w-2.5" />
-          </button>
-        </div>
-      )}
-      <input
-        ref={fileRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={handleFileChange}
-      />
-    </div>
   );
 }
 
@@ -1139,6 +1054,7 @@ export function QuotationDraftEditor({
         material: item.material,
         color: item.color,
         remarks: item.remarks,
+        remarksImage: item.remarksImage,
         dimensionLMm: item.dimensionLMm,
         dimensionWMm: item.dimensionWMm,
         dimensionHMm: item.dimensionHMm,
@@ -1850,13 +1766,13 @@ export function QuotationDraftEditor({
                               className="w-20 rounded-md border border-border bg-background px-2 py-1.5 font-body text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
                             />
                           </td>
-                          {/* 備註 (supports text + image) */}
-                          <td className="py-2 pr-2">
-                            <RemarksCell
-                              text={item.remarks || ""}
-                              image={item.remarksImage || ""}
-                              onTextChange={(val) => updateItem(item.id, "remarks", val)}
-                              onImageChange={(url) => updateItem(item.id, "remarksImage", url)}
+                          {/* 備註 (Remarks) — rich text + images */}
+                          <td className="py-2 pr-2 align-top">
+                            <RemarksRichEditor
+                              key={item.id}
+                              value={item.remarks || ""}
+                              legacyImage={item.remarksImage}
+                              onChange={(val) => updateItem(item.id, "remarks", val)}
                             />
                           </td>
                           {/* 小計 */}
