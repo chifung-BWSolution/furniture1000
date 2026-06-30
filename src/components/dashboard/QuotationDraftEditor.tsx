@@ -1088,6 +1088,7 @@ export function QuotationDraftEditor({
   });
 
   const buildPDFData = (): QuotationPDFData => ({
+    // gpSummary (Contract Sum / Cost / Ship / Installation / GP) is editor-only — excluded here.
     companyInfo,
     clientInfo,
     quoteMeta: {
@@ -1873,7 +1874,7 @@ export function QuotationDraftEditor({
                       套用
                     </button>
                   </div>
-                  {/* GP summary */}
+                  {/* GP summary — internal margin calc; not exported to PDF preview */}
                   <div className="flex justify-center">
                     <div className="w-full max-w-[300px] overflow-hidden rounded-md border border-border text-xs">
                       <div className="flex items-center justify-between gap-4 border-b border-border px-3 py-2">

@@ -1,4 +1,6 @@
 export interface QuotationPDFData {
+  // Customer-facing PDF only. Editor-internal fields (gpSummary, priceMultiplier, etc.)
+  // must never be passed into QuotationPDFPreview / QuotationDocument.
   companyInfo: {
     name: string;
     address: string;
