@@ -290,10 +290,13 @@ function renderDescriptionPdfContent(
   Text: ReactPdfModule['Text'],
 ) {
   const dimText = formatDimensions(item);
-  const rows = [
-    { label: '\u985E\u5225', value: item?.category || '' },
-    { label: '\u898F\u683C(mm)', value: dimText ? `${dimText}mm` : '' },
-    { label: '\u984F\u8272', value: item?.color || '' },
+  const rows: Array<
+    | { kind: 'simple'; label: string; value: string }
+    | { kind: 'dimensions'; label: string; dimText: string }
+  > = [
+    { kind: 'simple', label: '\u985E\u5225', value: item?.category || '' },
+    { kind: 'dimensions', label: '\u898F\u683C(mm)', dimText },
+    { kind: 'simple', label: '\u984F\u8272', value: item?.color || '' },
   ];
 
   return (
@@ -302,9 +305,9 @@ function renderDescriptionPdfContent(
         <View
           key={row.label}
           style={{
-            flex: 1,
+            flex: row.kind === 'dimensions' ? 1.15 : 1,
             flexDirection: 'row',
-            minHeight: 18,
+            minHeight: row.kind === 'dimensions' ? 22 : 18,
             borderBottomWidth: i < rows.length - 1 ? 0.5 : 0,
             borderColor: '#ddd',
           }}
@@ -321,9 +324,18 @@ function renderDescriptionPdfContent(
           >
             <Text style={styles.tableCellText}>{row.label}</Text>
           </View>
-          <View style={{ width: '50%', justifyContent: 'center', paddingHorizontal: 2 }}>
-            <Text style={styles.descValueText}>{row.value}</Text>
-          </View>
+          {row.kind === 'dimensions' ? (
+            <View style={{ width: '50%', justifyContent: 'center', paddingHorizontal: 2, paddingVertical: 1 }}>
+              <Text style={styles.descDimLabelText}>W*D*H</Text>
+              {row.dimText ? (
+                <Text style={styles.descDimValueText}>{`${row.dimText}mm`}</Text>
+              ) : null}
+            </View>
+          ) : (
+            <View style={{ width: '50%', justifyContent: 'center', paddingHorizontal: 2 }}>
+              <Text style={styles.descValueText}>{row.value}</Text>
+            </View>
+          )}
         </View>
       ))}
     </View>
@@ -346,8 +358,8 @@ const styles: Record<string, any> = {
   tableHeader: { display: 'flex', flexDirection: 'row', backgroundColor: '#f5f5f5', borderBottomWidth: 0.5, borderColor: '#333', minHeight: 24, alignItems: 'center' },
   tableRow: { display: 'flex', flexDirection: 'row', borderBottomWidth: 0.5, borderColor: '#ddd', minHeight: 60, alignItems: 'stretch' },
   colIndex: { width: '5%', display: 'flex', justifyContent: 'center', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd', paddingVertical: 4 },
-  colDesc: { width: '12%', paddingLeft: 0, paddingRight: 0, paddingTop: 0, paddingBottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'stretch', borderRightWidth: 0.5, borderColor: '#ddd' },
-  colMaterial: { width: '26%', paddingLeft: 4, paddingRight: 4, paddingTop: 4, paddingBottom: 4, display: 'flex', flexDirection: 'column', justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
+  colDesc: { width: '16%', paddingLeft: 0, paddingRight: 0, paddingTop: 0, paddingBottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'stretch', borderRightWidth: 0.5, borderColor: '#ddd' },
+  colMaterial: { width: '22%', paddingLeft: 4, paddingRight: 4, paddingTop: 4, paddingBottom: 4, display: 'flex', flexDirection: 'column', justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
   colRemarks: { width: '9%', paddingLeft: 4, paddingRight: 4, paddingTop: 4, paddingBottom: 4, display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', borderRightWidth: 0.5, borderColor: '#ddd' },
   colImage: { width: '15%', paddingLeft: 4, paddingRight: 4, paddingTop: 4, paddingBottom: 4, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
   colQty: { width: '5%', display: 'flex', justifyContent: 'center', alignItems: 'center', textAlign: 'center', borderRightWidth: 0.5, borderColor: '#ddd', paddingVertical: 4 },
@@ -358,6 +370,8 @@ const styles: Record<string, any> = {
   tableCellText: { fontSize: 7, textAlign: 'center', lineHeight: 1.3 },
   tableCellTextLeft: { fontSize: 7, textAlign: 'left', lineHeight: 1.3, paddingLeft: 4 },
   descValueText: { fontSize: 6.5, textAlign: 'left', lineHeight: 1.3, paddingLeft: 2 },
+  descDimLabelText: { fontSize: 6, textAlign: 'left', lineHeight: 1.2, paddingLeft: 2, color: '#555' },
+  descDimValueText: { fontSize: 6, textAlign: 'left', lineHeight: 1.2, paddingLeft: 2 },
   productImage: { width: 50, height: 50, objectFit: 'cover', borderRadius: 2 },
   remarksImage: { width: '100%', objectFit: 'contain', marginTop: 2, marginBottom: 2 },
   installRow: { flexDirection: 'row', borderBottomWidth: 0.5, borderColor: '#ddd', minHeight: 28 },
