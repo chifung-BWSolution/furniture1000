@@ -536,6 +536,14 @@ export function QuotationDraftEditor({
         : null,
   });
 
+  const savedGpSummary = (savedProjectData as Record<string, unknown>).gpSummary as
+    | { ship?: number; installation?: number }
+    | undefined;
+  const [gpSummary, setGpSummary] = useState({
+    ship: savedGpSummary?.ship ?? 0,
+    installation: savedGpSummary?.installation ?? 0,
+  });
+
   // Terms content (editable)
   const DEFAULT_TERMS = {
     transport: `2.1 本報價包含於單一地址的一次性運輸及安裝費用。
@@ -780,12 +788,13 @@ export function QuotationDraftEditor({
   const isFreeInstallation = subtotal >= 12000;
   const installationAmount = isFreeInstallation ? 0 : (installationFee.amount ?? 0);
   const grandTotal = Math.max(0, subtotal - discountValue + installationAmount);
-  const totalCostPrice = items.some((item) => item.costPrice != null)
-    ? items.reduce(
-        (sum, item) => sum + (item.costPrice ?? 0) * item.quantity,
-        0,
-      )
-    : null;
+  const totalProductCost = items.reduce(
+    (sum, item) => sum + (item.costPrice ?? 0) * item.quantity,
+    0,
+  );
+  const gpValue = grandTotal - totalProductCost - gpSummary.ship - gpSummary.installation;
+  const gpPercent = grandTotal > 0 ? (gpValue / grandTotal) * 100 : 0;
+  const totalCostPrice = totalProductCost;
 
   // Version & submission modal state
   const [showSubmitModal, setShowSubmitModal] = useState(false);
@@ -851,7 +860,7 @@ export function QuotationDraftEditor({
   useEffect(() => {
     setPersisted(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, companyInfo, clientInfo, quoteMeta, deliveryDetails, termsContent, discountNote, installationFee]);
+  }, [items, companyInfo, clientInfo, quoteMeta, deliveryDetails, termsContent, discountNote, installationFee, gpSummary]);
 
   // Load draft from IndexedDB on mount (only for NEW quotes without existingQuote)
   // For existing quotes, QuickQuoteView handles loading the draft before passing projectData.
@@ -892,6 +901,13 @@ export function QuotationDraftEditor({
           setDiscountNote(
             cachedRecord.discountNote as string,
           );
+        }
+        if (cachedRecord.gpSummary) {
+          const gp = cachedRecord.gpSummary as { ship?: number; installation?: number };
+          setGpSummary({
+            ship: gp.ship ?? 0,
+            installation: gp.installation ?? 0,
+          });
         }
         if (cached.termsContent) {
           setTermsContent(cached.termsContent as typeof termsContent);
@@ -951,6 +967,7 @@ export function QuotationDraftEditor({
       subtotal,
       discountNote,
       installationFee,
+      gpSummary,
     }),
     [
       draftKey,
@@ -964,6 +981,7 @@ export function QuotationDraftEditor({
       subtotal,
       discountNote,
       installationFee,
+      gpSummary,
     ],
   );
 
@@ -1044,6 +1062,7 @@ export function QuotationDraftEditor({
     discountValue,
     grandTotal,
     installationFee,
+    gpSummary,
   });
 
   const buildPDFData = (): QuotationPDFData => ({
@@ -1724,11 +1743,22 @@ export function QuotationDraftEditor({
                               className="w-full min-w-[80px] rounded-md border border-border bg-background px-2 py-1.5 font-body text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
                             />
                           </td>
-                          {/* 成本價 — read-only from products */}
+                          {/* 成本價 */}
                           <td className="py-2 pr-2">
-                            <span className="inline-block w-20 rounded-md border border-border/60 bg-muted/30 px-2 py-1.5 font-mono-data text-xs text-muted-foreground">
-                              {item.costPrice != null ? item.costPrice.toLocaleString() : "—"}
-                            </span>
+                            <input
+                              type="number"
+                              value={item.costPrice ?? ""}
+                              placeholder="—"
+                              min={0}
+                              onChange={(e) =>
+                                updateItem(
+                                  item.id,
+                                  "costPrice",
+                                  e.target.value ? parseFloat(e.target.value) : null,
+                                )
+                              }
+                              className="w-20 rounded-md border border-border bg-background px-2 py-1.5 font-mono-data text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                            />
                           </td>
                           {/* 單價 */}
                           <td className="py-2 pr-2">
@@ -1798,8 +1828,8 @@ export function QuotationDraftEditor({
                   </table>
                 </div>
 
-                {/* Price Multiplier & Subtotal */}
-                <div className="mt-4 flex items-end justify-between border-t border-border pt-3">
+                {/* Price Multiplier, GP Summary & Subtotal */}
+                <div className="mt-4 grid grid-cols-1 items-end gap-4 border-t border-border pt-3 lg:grid-cols-3">
                   {/* 單價規則 - Unit price batch multiplier */}
                   <div className="flex items-center gap-2">
                     <span className="font-body text-xs text-primary font-medium">
@@ -1821,7 +1851,65 @@ export function QuotationDraftEditor({
                       套用
                     </button>
                   </div>
-                  <div className="flex flex-col items-end gap-2">
+                  {/* GP summary */}
+                  <div className="flex justify-center">
+                    <div className="w-full max-w-[300px] overflow-hidden rounded-md border border-border text-xs">
+                      <div className="flex items-center justify-between gap-4 border-b border-border px-3 py-2">
+                        <span className="font-body font-medium text-foreground">Contract Sum</span>
+                        <span className="font-mono-data text-foreground">
+                          HKD ${grandTotal.toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-4 border-b border-border px-3 py-2">
+                        <span className="font-body font-medium text-foreground">Cost</span>
+                        <span className="font-mono-data text-foreground">
+                          HKD ${totalProductCost.toLocaleString()}
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between gap-4 border-b border-border px-3 py-2">
+                        <span className="font-body font-medium text-foreground">Ship</span>
+                        <input
+                          type="number"
+                          min={0}
+                          value={gpSummary.ship || ""}
+                          placeholder="0"
+                          onChange={(e) =>
+                            setGpSummary((prev) => ({
+                              ...prev,
+                              ship: e.target.value === "" ? 0 : Math.max(0, parseFloat(e.target.value) || 0),
+                            }))
+                          }
+                          className="w-28 rounded-md border border-border bg-background px-2 py-1 font-mono-data text-xs text-foreground text-right focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                        />
+                      </div>
+                      <div className="flex items-center justify-between gap-4 border-b border-border px-3 py-2">
+                        <span className="font-body font-medium text-foreground">Installation</span>
+                        <input
+                          type="number"
+                          min={0}
+                          value={gpSummary.installation || ""}
+                          placeholder="0"
+                          onChange={(e) =>
+                            setGpSummary((prev) => ({
+                              ...prev,
+                              installation: e.target.value === "" ? 0 : Math.max(0, parseFloat(e.target.value) || 0),
+                            }))
+                          }
+                          className="w-28 rounded-md border border-border bg-background px-2 py-1 font-mono-data text-xs text-foreground text-right focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                        />
+                      </div>
+                      <div className="flex items-center justify-between gap-4 px-3 py-2 bg-muted/20">
+                        <span className="font-body font-medium text-foreground">GP</span>
+                        <span className="font-mono-data font-medium text-foreground">
+                          HKD ${gpValue.toLocaleString()}
+                          <span className="ml-2 text-muted-foreground">
+                            ({Math.round(gpPercent)}%)
+                          </span>
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-end gap-2 lg:col-start-3">
                     {/* 傢俱安裝費用 row (editable) */}
                     <div className="flex w-full items-stretch rounded-md border border-border overflow-hidden text-xs">
                       <div className="flex flex-col justify-center gap-1 px-3 py-2 bg-muted/30 border-r border-border" style={{ width: '45%' }}>
