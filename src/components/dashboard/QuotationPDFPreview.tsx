@@ -592,8 +592,9 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
     const n = parseFloat(String(raw));
     return isNaN(n) ? 0 : n;
   })();
-  const grandTotal = Math.max(0, (data.subtotal || 0) - discountValue);
-  const isFreeInstallation = grandTotal >= 12000;
+  const isFreeInstallation = (data.subtotal || 0) >= 12000;
+  const installationAmount = isFreeInstallation ? 0 : (data.installationFee?.amount ?? 0);
+  const grandTotal = Math.max(0, (data.subtotal || 0) - discountValue + installationAmount);
   const items = data.items || [];
 
   const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://26c0258f-253c-4e4e-9027-922d08aab63f.canvases.tempo.build';
@@ -639,7 +640,13 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
         <Text style={styles.tableCellText}>{isFreeInstallation ? 'FREE' : (data.installationFee?.freeLabel || '\u53E6\u8B70')}</Text>
       </View>
       <View style={{ width: '12.5%', padding: 4, justifyContent: 'center', alignItems: 'center' }}>
-        <Text style={styles.tableCellText}>{isFreeInstallation ? 'FREE' : (data.installationFee?.chargeLabel || '\u53E6\u8B70')}</Text>
+        <Text style={styles.tableCellText}>
+          {isFreeInstallation
+            ? 'FREE'
+            : installationAmount > 0
+              ? `HK$${installationAmount.toLocaleString()}`
+              : (data.installationFee?.chargeLabel || '\u53E6\u8B70')}
+        </Text>
       </View>
     </View>
   );

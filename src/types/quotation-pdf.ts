@@ -53,5 +53,6 @@ export interface QuotationPDFData {
     conditionText?: string;
     freeLabel?: string;
     chargeLabel?: string;
+    amount?: number | null;
   };
 }

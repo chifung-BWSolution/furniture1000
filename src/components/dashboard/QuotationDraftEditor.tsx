@@ -518,6 +518,7 @@ export function QuotationDraftEditor({
     conditionText: "訂單總金額滿 HK$12,000\n將不收取安裝費用",
     freeLabel: "另議",
     chargeLabel: "另議",
+    amount: null as number | null,
   };
   const savedInstallationFee = (savedProjectData as Record<string, unknown>)
     .installationFee as typeof DEFAULT_INSTALL_FEE | undefined;
@@ -529,6 +530,10 @@ export function QuotationDraftEditor({
     freeLabel: savedInstallationFee?.freeLabel || DEFAULT_INSTALL_FEE.freeLabel,
     chargeLabel:
       savedInstallationFee?.chargeLabel || DEFAULT_INSTALL_FEE.chargeLabel,
+    amount:
+      typeof savedInstallationFee?.amount === "number"
+        ? savedInstallationFee.amount
+        : null,
   });
 
   // Terms content (editable)
@@ -789,7 +794,9 @@ export function QuotationDraftEditor({
     const n = parseFloat(discountNote);
     return isNaN(n) ? 0 : n;
   })();
-  const grandTotal = Math.max(0, subtotal - discountValue);
+  const isFreeInstallation = subtotal >= 12000;
+  const installationAmount = isFreeInstallation ? 0 : (installationFee.amount ?? 0);
+  const grandTotal = Math.max(0, subtotal - discountValue + installationAmount);
   const totalCostPrice = items.some((item) => item.costPrice != null)
     ? items.reduce(
         (sum, item) => sum + (item.costPrice ?? 0) * item.quantity,
@@ -1521,9 +1528,6 @@ export function QuotationDraftEditor({
                         <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "60px" }}>
                           類別
                         </th>
-                        <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "140px" }}>
-                          產品名稱
-                        </th>
                         <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "160px" }}>
                           材質及明細
                         </th>
@@ -1583,8 +1587,8 @@ export function QuotationDraftEditor({
                                 onDragEnd={clearQuoteRowDrag}
                               />
                             </td>
-                            {/* full-width description spans 圖片→成本價 (8 cols) */}
-                            <td className="py-2 pr-2" colSpan={8}>
+                            {/* full-width description spans 圖片→成本價 (7 cols) */}
+                            <td className="py-2 pr-2" colSpan={7}>
                               <input
                                 type="text"
                                 value={item.name || ""}
@@ -1685,18 +1689,6 @@ export function QuotationDraftEditor({
                                 updateItem(item.id, "category", e.target.value)
                               }
                               className="w-full min-w-[50px] rounded-md border border-border bg-background px-2 py-1.5 font-body text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
-                            />
-                          </td>
-                          {/* 產品名稱 */}
-                          <td className="py-2 pr-2">
-                            <input
-                              type="text"
-                              value={item.name || ""}
-                              placeholder="未選擇產品"
-                              onChange={(e) =>
-                                updateItem(item.id, "name", e.target.value)
-                              }
-                              className="w-full min-w-[120px] rounded-md border border-border bg-background px-2 py-1.5 font-body text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
                             />
                           </td>
                           {/* 材質及明細 */}
@@ -1906,30 +1898,29 @@ export function QuotationDraftEditor({
                         />
                       </div>
                       <div className="flex items-center justify-center px-2 py-2 border-r border-border font-medium" style={{ width: '12.5%' }}>
-                        {grandTotal >= 12000 ? (
+                        {isFreeInstallation ? (
                           <span className="text-green-600">FREE</span>
                         ) : (
-                          <input
-                            type="text"
-                            value={installationFee.freeLabel}
-                            onChange={(e) =>
-                              setInstallationFee((prev) => ({ ...prev, freeLabel: e.target.value }))
-                            }
-                            className="w-full bg-transparent text-muted-foreground text-center focus:outline-none focus:ring-1 focus:ring-primary/30 rounded px-1"
-                          />
+                          <span className="text-muted-foreground">{installationFee.freeLabel}</span>
                         )}
                       </div>
                       <div className="flex items-center justify-center px-2 py-2 font-medium" style={{ width: '12.5%' }}>
-                        {grandTotal >= 12000 ? (
+                        {isFreeInstallation ? (
                           <span className="text-green-600">FREE</span>
                         ) : (
                           <input
-                            type="text"
-                            value={installationFee.chargeLabel}
-                            onChange={(e) =>
-                              setInstallationFee((prev) => ({ ...prev, chargeLabel: e.target.value }))
-                            }
-                            className="w-full bg-transparent text-muted-foreground text-center focus:outline-none focus:ring-1 focus:ring-primary/30 rounded px-1"
+                            type="number"
+                            min={0}
+                            value={installationFee.amount ?? ""}
+                            placeholder="另議"
+                            onChange={(e) => {
+                              const raw = e.target.value;
+                              setInstallationFee((prev) => ({
+                                ...prev,
+                                amount: raw === "" ? null : Math.max(0, parseFloat(raw) || 0),
+                              }));
+                            }}
+                            className="w-full bg-transparent text-right font-mono-data text-foreground placeholder:text-muted-foreground text-center focus:outline-none focus:ring-1 focus:ring-primary/30 rounded px-1"
                           />
                         )}
                       </div>
