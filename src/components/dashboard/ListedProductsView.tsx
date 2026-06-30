@@ -137,6 +137,19 @@ interface ListedProductsViewProps {
   mode?: 'all' | 'catalog';
 }
 
+/** 待處理產品列表共用 filter — 排除已「暫不考慮」及已進入發佈流程的列。 */
+function applyPendingProductsFilters(q: any) {
+  return q
+    .not('in_shopify_queue', 'is', true)
+    .not('info_done', 'is', true)
+    .not('ready_to_publish', 'is', true)
+    .not('copy_done', 'is', true)
+    .not('in_catalog', 'is', true)
+    .is('copy_done_at', null)
+    .is('copy_queued_at', null)
+    .not('dismissed', 'is', true);
+}
+
 export function ListedProductsView({
   onSyncFromShopify,
   isSyncing,
@@ -240,13 +253,7 @@ export function ListedProductsView({
 
       const applyVisibility = (q: any) => isCatalog
         ? q.eq('in_catalog', true)
-        : q.not('in_shopify_queue', 'is', true)
-            .not('info_done', 'is', true)
-            .not('ready_to_publish', 'is', true)
-            .not('copy_done', 'is', true)
-            .not('in_catalog', 'is', true)
-            .is('copy_done_at', null)
-            .is('copy_queued_at', null);
+        : applyPendingProductsFilters(q);
 
       // Paginated fetch helper
       const fetchAllPages = async (columns: string, extraFilter: (q: any) => any) => {
@@ -363,13 +370,7 @@ export function ListedProductsView({
       if (isCatalog) {
         q = q.eq('in_catalog', true);
       } else {
-        q = q.not('in_shopify_queue', 'is', true)
-             .not('info_done', 'is', true)
-             .not('ready_to_publish', 'is', true)
-             .not('copy_done', 'is', true)
-             .not('in_catalog', 'is', true)
-             .is('copy_done_at', null)
-             .is('copy_queued_at', null);
+        q = applyPendingProductsFilters(q);
       }
       const { data } = await q;
       if (cancelled || !data) return;
@@ -424,14 +425,7 @@ export function ListedProductsView({
       if (isCatalog) {
         countQuery = countQuery.eq('in_catalog', true);
       } else {
-        countQuery = countQuery
-          .not('in_shopify_queue', 'is', true)
-          .not('info_done', 'is', true)
-          .not('ready_to_publish', 'is', true)
-          .not('copy_done', 'is', true)
-          .not('in_catalog', 'is', true)
-          .is('copy_done_at', null)
-          .is('copy_queued_at', null);
+        countQuery = applyPendingProductsFilters(countQuery);
       }
 
       // 重複商品篩選：product_sku 為空，或屬於重複的 sku 集合
@@ -499,14 +493,7 @@ export function ListedProductsView({
       if (isCatalog) {
         dataQuery = dataQuery.eq('in_catalog', true);
       } else {
-        dataQuery = dataQuery
-          .not('in_shopify_queue', 'is', true)
-          .not('info_done', 'is', true)
-          .not('ready_to_publish', 'is', true)
-          .not('copy_done', 'is', true)
-          .not('in_catalog', 'is', true)
-          .is('copy_done_at', null)
-          .is('copy_queued_at', null);
+        dataQuery = applyPendingProductsFilters(dataQuery);
       }
 
       // 重複商品篩選
