@@ -9,6 +9,7 @@ import { supabase } from '@/lib/supabase';
 import { uploadImageSourceToStorage, stripBase64ForDb, isHttpImageUrl } from '@/lib/imageStorage';
 import { parseRtsGalleryUrls } from '@/lib/rtsImages';
 import { syncRtsWorkflowToProduct } from '@/lib/rtsProductSync';
+import { dedupeFactoryNames, normalizeFactoryDisplayName } from '@/lib/factoryNames';
 import { toast } from 'sonner';
 
 const ACCEPTED_IMAGE_TYPES = 'image/jpeg,image/jpg,image/webp,image/avif,image/png';
@@ -1017,7 +1018,7 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
     let cancelled = false;
     supabase.rpc('get_publish_rts_factories', { p_stage: 'fg-check' }).then(({ data, error }) => {
       if (cancelled || error) return;
-      setFactoryOptions((data as string[] | null) ?? []);
+      setFactoryOptions(dedupeFactoryNames((data as string[] | null) ?? []));
     });
     return () => { cancelled = true; };
   }, [reloadKey]);
@@ -1037,7 +1038,7 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
         p_search: debouncedSearch.trim() || null,
         p_level1: level1Filter || null,
         p_level2: level2Filter || null,
-        p_factory: factoryFilter || null,
+        p_factory: normalizeFactoryDisplayName(factoryFilter) || null,
         p_limit: pageSize,
         p_offset: offset,
       });
@@ -1074,7 +1075,7 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
         p_search: debouncedSearch.trim() || null,
         p_level1: level1Filter || null,
         p_level2: level2Filter || null,
-        p_factory: factoryFilter || null,
+        p_factory: normalizeFactoryDisplayName(factoryFilter) || null,
       }).then(({ data: count, error: countErr }) => {
         if (requestId === fetchSeq.current && !countErr) {
           setTotalCount(Number(count) || 0);

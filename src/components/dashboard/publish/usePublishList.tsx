@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { dedupeFactoryNames, expandFactoryFilterSelection } from '@/lib/factoryNames';
 import { supabase } from '@/lib/supabase';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -103,8 +104,7 @@ export function usePublishList({ select, applyBaseFilters, reloadKey = 0, orderB
       q = applyBaseFilters(q);
       const { data } = await q.abortSignal(controller.signal);
       if (cancelled || !data) return;
-      const unique = Array.from(new Set(data.map((r: any) => r.factories_display_name as string).filter(Boolean)));
-      unique.sort((a, b) => a.localeCompare(b, 'zh'));
+      const unique = dedupeFactoryNames(data.map((r: any) => r.factories_display_name as string));
       setAvailableFactories(unique);
     })();
     return () => { cancelled = true; controller.abort(); };
@@ -148,7 +148,7 @@ export function usePublishList({ select, applyBaseFilters, reloadKey = 0, orderB
         }
         if (level1Filter) q = q.eq('level1_category', level1Filter);
         if (level2Filter) q = q.eq('level2_category', level2Filter);
-        if (selectedFactories.length > 0) q = q.in('factories_display_name', selectedFactories);
+        if (selectedFactories.length > 0) q = q.in('factories_display_name', expandFactoryFilterSelection(selectedFactories));
         return q;
       };
 

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import { flattenRtsListRow } from '@/lib/rtsProductSync';
+import { dedupeFactoryNames, expandFactoryFilterSelection } from '@/lib/factoryNames';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -92,7 +93,7 @@ export function usePublishRtsList({ applyBaseFilters, applyProductsCountFilters,
       .rpc('get_publish_rts_factories', { p_stage: countStage })
       .then(({ data, error }) => {
         if (cancelled || error) return;
-        setAvailableFactories((data as string[] | null) ?? []);
+        setAvailableFactories(dedupeFactoryNames((data as string[] | null) ?? []));
       });
     return () => { cancelled = true; };
   }, [reloadKey, countStage]);
@@ -127,7 +128,7 @@ export function usePublishRtsList({ applyBaseFilters, applyProductsCountFilters,
           p_search: debouncedSearch.trim() || null,
           p_level1: level1Filter || null,
           p_level2: level2Filter || null,
-          p_factories: selectedFactories.length > 0 ? selectedFactories : null,
+          p_factories: selectedFactories.length > 0 ? expandFactoryFilterSelection(selectedFactories) : null,
           p_limit: pageSize,
           p_offset: from,
         })
@@ -154,7 +155,7 @@ export function usePublishRtsList({ applyBaseFilters, applyProductsCountFilters,
               p_search: debouncedSearch.trim() || null,
               p_level1: level1Filter || null,
               p_level2: level2Filter || null,
-              p_factories: selectedFactories.length > 0 ? selectedFactories : null,
+              p_factories: selectedFactories.length > 0 ? expandFactoryFilterSelection(selectedFactories) : null,
             })
             .abortSignal(countController.signal);
           if (!countController.signal.aborted && requestId === fetchSeq.current) {

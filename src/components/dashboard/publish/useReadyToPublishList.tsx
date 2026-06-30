@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
 import type { Product } from '@/types/product';
 import { mapReadyToPublishRow } from '@/lib/readyToPublishRow';
+import { dedupeFactoryNames, normalizeFactoryDisplayName } from '@/lib/factoryNames';
 
 export type ReadyToPublishPageSize = 20 | 25 | 50 | 100;
 
@@ -68,7 +69,7 @@ export function useReadyToPublishList(): { products: Product[]; serverList: Read
     let cancelled = false;
     supabase.rpc('get_publish_rts_factories', { p_stage: 'ready-to-publish' }).then(({ data, error }) => {
       if (cancelled || error) return;
-      setFactoryOptions((data as string[] | null) ?? []);
+      setFactoryOptions(dedupeFactoryNames((data as string[] | null) ?? []));
     });
     return () => { cancelled = true; };
   }, [reloadKey]);
@@ -90,7 +91,7 @@ export function useReadyToPublishList(): { products: Product[]; serverList: Read
           p_search: debouncedSearch.trim() || null,
           p_level1: level1Filter || null,
           p_level2: level2Filter || null,
-          p_factory: factoryFilter || null,
+          p_factory: normalizeFactoryDisplayName(factoryFilter) || null,
           p_sort: sortBy,
           p_sort_asc: sortBy === 'sku' ? skuSortDir === 'asc' : false,
           p_limit: pageSize,
@@ -120,7 +121,7 @@ export function useReadyToPublishList(): { products: Product[]; serverList: Read
               p_search: debouncedSearch.trim() || null,
               p_level1: level1Filter || null,
               p_level2: level2Filter || null,
-              p_factory: factoryFilter || null,
+              p_factory: normalizeFactoryDisplayName(factoryFilter) || null,
             })
             .abortSignal(countController.signal);
           if (!countController.signal.aborted && requestId === fetchSeq.current) {

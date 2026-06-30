@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { cn } from '@/lib/utils';
+import { dedupeFactoryNames, expandFactoryFilterSelection } from '@/lib/factoryNames';
 import { ProductVariant } from '@/types/product';
 import { StatusBadge } from './StatusBadge';
 import { Badge } from '@/components/ui/badge';
@@ -329,8 +329,7 @@ export function ListedProductsView({
         }
       }
 
-      const unique = Array.from(new Set(allFactoryNames));
-      unique.sort((a, b) => a.localeCompare(b, 'zh'));
+      const unique = dedupeFactoryNames(allFactoryNames);
       setAvailableFactories(unique);
     };
     fetchFactories();
@@ -413,7 +412,7 @@ export function ListedProductsView({
 
       // Apply factory filter to count query
       if (selectedFactories.length > 0) {
-        countQuery = countQuery.in('factories_display_name', selectedFactories);
+        countQuery = countQuery.in('factories_display_name', expandFactoryFilterSelection(selectedFactories));
       }
 
       // Apply category filters to count query
@@ -488,7 +487,7 @@ export function ListedProductsView({
 
       // Apply factory filter to data query
       if (selectedFactories.length > 0) {
-        dataQuery = dataQuery.in('factories_display_name', selectedFactories);
+        dataQuery = dataQuery.in('factories_display_name', expandFactoryFilterSelection(selectedFactories));
       }
 
       // Apply category filters to data query
