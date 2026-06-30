@@ -235,66 +235,70 @@ export function PublishedProductDetailModal({
 
   const displayImg = (selectedImg && allImages.includes(selectedImg)) ? selectedImg : (allImages[0] || '');
   const variants: ShopifyVariant[] = Array.isArray(r.variants) ? r.variants : [];
-  const editableVariants = variants.map((v, i) => ({
-    id: v.id,
-    index: i,
-    sku: editVariantSkus[variantEditKey(v, i)] ?? '',
-  }));
 
   const inputCls = 'w-full rounded-lg border border-border bg-background px-3 py-2 text-sm font-body text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 transition-colors';
   const textareaCls = `${inputCls} resize-y`;
 
   const handleSave = async () => {
     const shopifyId = r.shopify_product_id;
-    if (!shopifyId) { toast.error('此產品沒有 Shopify ID，無法同步'); return; }
+    if (!shopifyId) { toast.error('此產品沒有 Shopify ID，無法儲存'); return; }
     setIsSaving(true);
-    const toastId = toast.loading('正在更新 Shopify 產品...');
+    const toastId = toast.loading('正在儲存...');
     try {
       const priceNum = editPrice !== '' ? parseFloat(editPrice) : null;
       const compareNum = editCompareAtPrice !== '' ? parseFloat(editCompareAtPrice) : null;
-      const productType = [editL1, editL2].filter(Boolean).join(' / ') || '';
-      const tags = editTags;
-      const metafields: Record<string, string> = {};
-      if (editNormalSize.trim()) metafields['my_fields.normal_size'] = editNormalSize.trim();
-      if (editMaterials.trim()) metafields['my_fields.materials'] = editMaterials.trim();
+      const productType = [editL1, editL2].filter(Boolean).join(' / ') || null;
+      const handleNorm = editHandle.trim() || null;
+      const updatedVariants = (Array.isArray(r.variants) ? r.variants : []).map((v, i) => ({
+        ...v,
+        sku: editVariantSkus[variantEditKey(v, i)] ?? v.sku ?? '',
+      }));
+      const primarySku = updatedVariants.length === 0
+        ? (editFallbackSku.trim() || null)
+        : (updatedVariants.map(v => (v.sku || '').trim()).find(Boolean) || null);
 
-      const { data, error } = await supabase.functions.invoke('supabase-functions-update-shopify-product', {
-        body: {
-          shopify_product_id: shopifyId,
-          source_product_id: r.source_product_id ?? null,
-          title: editTitle,
-          body_html: editBodyHtml,
-          price: priceNum,
-          compare_at_price: compareNum,
-          vendor: editVendor,
-          product_type: productType,
-          tags,
-          images: allImages.length > 0 ? allImages : undefined,
-          variants: editableVariants.length > 0 ? editableVariants : undefined,
-          sku: editableVariants.length === 0 ? (editFallbackSku.trim() || null) : undefined,
-          metafields: Object.keys(metafields).length > 0 ? metafields : undefined,
-          handle: editHandle.trim() || undefined,
-          seo_title: editSeoTitle.trim() || undefined,
-          seo_description: editSeoDesc.trim() || undefined,
-        },
-      });
-      if (error || data?.error || data?.success === false) {
-        toast.error('Shopify 更新失敗', {
+      const updatePayload: Record<string, unknown> = {
+        title: editTitle || null,
+        body_html: editBodyHtml || null,
+        vendor: editVendor || null,
+        product_type: productType,
+        tags: editTags,
+        price: priceNum,
+        compare_at_price: compareNum,
+        image_url: allImages[0] || null,
+        images: allImages.length > 0 ? allImages.map((src, i) => ({ src, position: i + 1 })) : null,
+        variants: updatedVariants.length > 0 ? updatedVariants : r.variants,
+        sku: primarySku,
+        shopify_page_title: editSeoTitle.trim() || null,
+        shopify_page_description: editSeoDesc.trim() || null,
+        shopify_url: handleNorm,
+        handle: handleNorm,
+        'my_fields.normal_size': editNormalSize.trim() || null,
+        'my_fields.materials': editMaterials.trim() || null,
+      };
+
+      const { error } = await supabase
+        .from('shopify_products')
+        .update(updatePayload)
+        .eq('shopify_product_id', shopifyId);
+
+      if (error) {
+        toast.error('儲存失敗', {
           id: toastId,
-          description: error?.message || data?.error || '請稍後重試',
+          description: error.message,
           duration: 8000,
         });
         return;
       }
-      toast.success('已更新並同步到 Shopify', {
+      toast.success('已儲存至本地', {
         id: toastId,
-        description: '產品資料已更新到 Shopify 及本地。',
-        duration: 4000,
+        description: '按「與 Shopify 同步」將最新資料（含 SEO）推送到線上商店。',
+        duration: 5000,
       });
       onSaved();
       onClose();
     } catch (e) {
-      toast.error('Shopify 更新失敗', {
+      toast.error('儲存失敗', {
         id: toastId,
         description: e instanceof Error ? e.message : '未知錯誤',
         duration: 8000,
@@ -336,7 +340,7 @@ export function PublishedProductDetailModal({
             className="shrink-0 flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-bold text-primary-foreground shadow hover:opacity-90 disabled:opacity-50 transition-opacity"
           >
             {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            更新並同步到 Shopify
+            儲存
           </button>
         </div>
 

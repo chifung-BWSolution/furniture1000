@@ -222,9 +222,27 @@ export function PublishedProductsView() {
 
   // Mirror-sync with Shopify: upsert all live products, delete rows whose
   // Shopify product was deleted. Keeps 已上載產品 in lock-step with the store.
-  const syncMirror = useCallback(async (opts?: { silent?: boolean }) => {
+  const syncMirror = useCallback(async (opts?: { silent?: boolean; skipPush?: boolean }) => {
     setIsSyncing(true);
     try {
+      let pushSummary = '';
+      if (!opts?.skipPush) {
+        const { data: pushData, error: pushErr } = await supabase.functions.invoke(
+          'supabase-functions-update-shopify-product',
+          { body: { push_all_from_mirror: true } },
+        );
+        if (pushErr || pushData?.error) {
+          if (!opts?.silent) {
+            toast.error('推送到 Shopify 失敗', {
+              description: pushErr?.message || pushData?.error || '請稍後重試',
+            });
+          }
+          return;
+        }
+        pushSummary = `推送 ${pushData.pushed ?? 0} 件`;
+        if (pushData.failed > 0) pushSummary += `（${pushData.failed} 件失敗）`;
+      }
+
       const { data, error } = await supabase.functions.invoke('supabase-functions-sync-shopify-mirror', { body: {} });
       if (error || data?.error || data?.success === false) {
         if (!opts?.silent) toast.error('Shopify 同步失敗', { description: error?.message || data?.error || '請稍後重試' });
@@ -233,7 +251,11 @@ export function PublishedProductsView() {
       await loadProducts({ silent: true });
       if (!opts?.silent) {
         toast.success('已與 Shopify 同步', {
-          description: `線上 ${data.live} 件，更新 ${data.upserted} 件${data.deleted ? `，移除已刪除 ${data.deleted} 件` : ''}`,
+          description: [
+            pushSummary,
+            `鏡像更新 ${data.upserted ?? 0} 件`,
+            data.deleted ? `移除已刪除 ${data.deleted} 件` : '',
+          ].filter(Boolean).join(' · '),
         });
       }
     } catch (e) {
@@ -248,7 +270,7 @@ export function PublishedProductsView() {
   useEffect(() => {
     (async () => {
       await loadProducts();
-      void syncMirror({ silent: true });
+      void syncMirror({ silent: true, skipPush: true });
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -480,7 +502,7 @@ export function PublishedProductsView() {
           <button
             onClick={() => syncMirror()}
             disabled={isSyncing}
-            title="與 Shopify 同步：更新線上產品狀態，並移除已在 Shopify 刪除的產品"
+            title="與 Shopify 同步：將 Supabase 最新資料（含 SEO）推送到 Shopify，並更新本地鏡像狀態"
             className="flex items-center gap-1.5 rounded-lg border border-indigo-500/40 bg-indigo-500/10 px-3 py-2 text-xs font-semibold text-indigo-700 dark:text-indigo-400 hover:bg-indigo-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isSyncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}

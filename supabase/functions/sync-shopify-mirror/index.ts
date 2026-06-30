@@ -243,13 +243,26 @@ Deno.serve(async (req: Request) => {
 
     const liveIds = new Set(live.map((p) => String(p.id)));
 
-    // ── 2. Load existing mirror rows to preserve id / source_product_id ──
+    // ── 2. Load existing mirror rows to preserve id / source_product_id / local SEO ──
     const { data: existingRows } = await supabase
       .from("shopify_products")
-      .select("id, shopify_product_id, source_product_id");
-    const existingByShopifyId = new Map<string, { id: string; source_product_id: string | null }>();
-    (existingRows || []).forEach((r: { id: string; shopify_product_id: string; source_product_id: string | null }) => {
-      existingByShopifyId.set(String(r.shopify_product_id), { id: r.id, source_product_id: r.source_product_id });
+      .select("id, shopify_product_id, source_product_id, shopify_page_title, shopify_page_description, shopify_url");
+    const existingByShopifyId = new Map<string, {
+      id: string;
+      source_product_id: string | null;
+      shopify_page_title: string | null;
+      shopify_page_description: string | null;
+      shopify_url: string | null;
+    }>();
+    (existingRows || []).forEach((r: {
+      id: string;
+      shopify_product_id: string;
+      source_product_id: string | null;
+      shopify_page_title: string | null;
+      shopify_page_description: string | null;
+      shopify_url: string | null;
+    }) => {
+      existingByShopifyId.set(String(r.shopify_product_id), r);
     });
 
     // ── 3. UPSERT each live product into the mirror ──
@@ -266,6 +279,7 @@ Deno.serve(async (req: Request) => {
       const images = (sp.images as Record<string, unknown>[]) ?? [];
       const tags = ((sp.tags as string) || "").split(",").map((t) => t.trim()).filter(Boolean);
       const prev = existingByShopifyId.get(shopifyId);
+      const localUrl = prev?.shopify_url?.trim() || null;
 
       const row: Record<string, unknown> = {
         shopify_product_id: shopifyId,
@@ -273,8 +287,8 @@ Deno.serve(async (req: Request) => {
         body_html: sp.body_html ?? null,
         vendor: sp.vendor ?? null,
         product_type: sp.product_type ?? null,
-        handle: sp.handle ?? null,
-        shopify_url: sp.handle ?? null,
+        handle: localUrl || (sp.handle ?? null),
+        shopify_url: localUrl || (sp.handle ?? null),
         status: sp.status ?? "active",
         published_at: sp.published_at ?? null,
         image_url: (images[0]?.src as string) ?? null,

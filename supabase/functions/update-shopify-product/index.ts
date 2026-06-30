@@ -34,6 +34,32 @@ const METAFIELD_DEFS: Record<string, string> = {
   "custom.more_image_alt_4": "multi_line_text_field",
 };
 
+type PushPayload = {
+  source_product_id?: string | null;
+  title?: string;
+  body_html?: string;
+  price?: number | null;
+  compare_at_price?: number | null;
+  vendor?: string;
+  product_type?: string;
+  tags?: string[] | string;
+  images?: string[];
+  variants?: { id?: string | number; index?: number; sku?: string | null }[];
+  sku?: string | null;
+  metafields?: Record<string, string>;
+  handle?: string;
+  seo_title?: string;
+  seo_description?: string;
+};
+
+/** RTS / mirror shopify_url may be "products/slug" — Shopify handle wants "slug". */
+function normalizeShopifyHandle(raw: string | undefined | null): string | null {
+  if (!raw || typeof raw !== "string") return null;
+  let h = raw.trim().replace(/^\/+/, "");
+  if (h.startsWith("products/")) h = h.slice("products/".length);
+  return h || null;
+}
+
 /** Update handle + SEO via GraphQL (REST product PUT does not expose seo fields). */
 async function updateSeoAndHandle(
   shopDomain: string,
@@ -80,8 +106,7 @@ async function updateSeoAndHandle(
   return { ok: true };
 }
 
-/** Build Shopify-format metafields from a {"namespace.key": value} map.
- * Empty values and the reserved `shopify.*` namespace are skipped. */
+/** Build Shopify-format metafields from a {"namespace.key": value} map. */
 function buildMetafields(mf: Record<string, string> | undefined) {
   if (!mf) return [];
   const out: { namespace: string; key: string; type: string; value: string }[] = [];
@@ -106,194 +131,180 @@ function firstSkuFromVariants(variants: Record<string, unknown>[]): string | nul
   return null;
 }
 
-/**
- * update-shopify-product
- *
- * Single-direction sync: system → Shopify. Updates an EXISTING Shopify product
- * (title, body_html, variant price/SKU, images) and upserts its metafields.
- *
- * POST {
- *   shopify_product_id: string,                 // required — the live Shopify product id
- *   source_product_id?: string,                 // products.id, to mirror back to shopify_products
- *   title?, body_html?, price?, compare_at_price?, sku?,
- *   variants?: { id?: string|number; index?: number; sku?: string }[],
- *   images?: string[],                          // ordered image URLs (first = primary)
- *   metafields?: { "namespace.key": value }     // map matching shopify_products columns
- * }
- */
-Deno.serve(async (req: Request) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
-
-  try {
-    const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
-    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
-    if (!supabaseUrl || !supabaseKey) return json({ error: "Missing env vars" }, 400);
-    const supabase = createClient(supabaseUrl, supabaseKey);
-
-    // ── Shopify credentials (active connection → env fallback) ──
-    const { data: conn } = await supabase
-      .from("shopify_connections")
-      .select("shop_domain, access_token")
-      .eq("is_active", true)
-      .order("connected_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    const shopifyToken = conn?.access_token || Deno.env.get("SHOPIFY_ACCESS_TOKEN") || "";
-    const shopDomain = (conn?.shop_domain || Deno.env.get("SHOPIFY_STORE_URL") || "")
-      .replace(/^https?:\/\//, "").replace(/\/+$/, "");
-    if (!shopifyToken || !shopDomain) return json({ error: "Shopify credentials not configured." }, 400);
-
-    const body = await req.json().catch(() => ({}));
-    const {
-      shopify_product_id: shopifyId,
-      source_product_id: sourceProductId,
-      title, body_html: bodyHtml,
-      price, compare_at_price: compareAtPrice,
-      vendor, product_type: productType, tags,
-      images, variants, sku, metafields,
-      handle, seo_title: seoTitle, seo_description: seoDescription,
-    } = body as {
-      shopify_product_id?: string;
-      source_product_id?: string;
-      title?: string;
-      body_html?: string;
-      price?: number | null;
-      compare_at_price?: number | null;
-      vendor?: string;
-      product_type?: string;
-      tags?: string[] | string;
-      images?: string[];
-      variants?: { id?: string | number; index?: number; sku?: string | null }[];
-      sku?: string | null;
-      metafields?: Record<string, string>;
-      handle?: string;
-      seo_title?: string;
-      seo_description?: string;
-    };
-
-    if (!shopifyId) return json({ error: "shopify_product_id is required" }, 400);
-
-    const apiBase = `https://${shopDomain}/admin/api/2024-10`;
-    const headers = { "Content-Type": "application/json", "X-Shopify-Access-Token": shopifyToken };
-
-    // ── 1. Fetch the existing product to get variant ids (needed to update price) ──
-    const getResp = await fetch(`${apiBase}/products/${shopifyId}.json`, { headers });
-    if (!getResp.ok) {
-      const t = await getResp.text();
-      return json({ error: `Shopify GET failed (${getResp.status})`, detail: t.slice(0, 300) }, 502);
+function mirrorRowToPayload(row: Record<string, unknown>): PushPayload {
+  const metafields: Record<string, string> = {};
+  for (const col of Object.keys(METAFIELD_DEFS)) {
+    const v = row[col];
+    if (v != null && String(v).trim()) metafields[col] = String(v).trim();
+  }
+  const images: string[] = [];
+  if (Array.isArray(row.images)) {
+    for (const im of row.images) {
+      const src = typeof im === "string" ? im : (im as { src?: string })?.src;
+      if (src && /^https?:\/\//.test(src)) images.push(src);
     }
-    const existing = (await getResp.json()).product as Record<string, unknown>;
-    const existingVariants = (existing.variants as Record<string, unknown>[]) || [];
+  } else if (row.image_url && /^https?:\/\//.test(String(row.image_url))) {
+    images.push(String(row.image_url));
+  }
+  const handle = normalizeShopifyHandle(String(row.shopify_url || row.handle || "")) || undefined;
+  const variants = Array.isArray(row.variants)
+    ? (row.variants as Record<string, unknown>[]).map((v, index) => ({
+      id: v.id as string | number | undefined,
+      index,
+      sku: typeof v.sku === "string" ? v.sku : null,
+    }))
+    : undefined;
+  return {
+    source_product_id: (row.source_product_id as string | null) ?? null,
+    title: typeof row.title === "string" ? row.title : undefined,
+    body_html: typeof row.body_html === "string" ? row.body_html : undefined,
+    price: row.price != null ? Number(row.price) : undefined,
+    compare_at_price: row.compare_at_price != null ? Number(row.compare_at_price) : undefined,
+    vendor: typeof row.vendor === "string" ? row.vendor : undefined,
+    product_type: typeof row.product_type === "string" ? row.product_type : undefined,
+    tags: Array.isArray(row.tags) ? (row.tags as string[]) : undefined,
+    images: images.length > 0 ? images : undefined,
+    variants,
+    sku: typeof row.sku === "string" ? row.sku : undefined,
+    metafields: Object.keys(metafields).length > 0 ? metafields : undefined,
+    handle,
+    seo_title: typeof row.shopify_page_title === "string" ? row.shopify_page_title : undefined,
+    seo_description: typeof row.shopify_page_description === "string" ? row.shopify_page_description : undefined,
+  };
+}
 
-    // ── 2. Build the product update payload ──
-    const productUpdate: Record<string, unknown> = { id: Number(shopifyId) };
-    if (typeof title === "string" && title.trim()) productUpdate.title = title;
-    if (typeof bodyHtml === "string") productUpdate.body_html = bodyHtml;
-    if (typeof vendor === "string") productUpdate.vendor = vendor;
-    if (typeof productType === "string") productUpdate.product_type = productType;
-    if (tags !== undefined) {
-      productUpdate.tags = Array.isArray(tags)
-        ? tags.filter(Boolean).join(", ")
-        : String(tags || "");
+/** Push one product from payload → Shopify (+ optional mirror timestamp refresh). */
+async function pushProductToShopify(
+  supabase: ReturnType<typeof createClient>,
+  shopDomain: string,
+  shopifyToken: string,
+  shopifyId: string,
+  payload: PushPayload,
+  opts?: { skipMirrorWrite?: boolean },
+): Promise<{ success: boolean; error?: string; metafields_updated?: number; metafields_failed?: number }> {
+  const {
+    source_product_id: sourceProductId,
+    title, body_html: bodyHtml,
+    price, compare_at_price: compareAtPrice,
+    vendor, product_type: productType, tags,
+    images, variants, sku, metafields,
+    handle, seo_title: seoTitle, seo_description: seoDescription,
+  } = payload;
+
+  const apiBase = `https://${shopDomain}/admin/api/2024-10`;
+  const headers = { "Content-Type": "application/json", "X-Shopify-Access-Token": shopifyToken };
+
+  const getResp = await fetch(`${apiBase}/products/${shopifyId}.json`, { headers });
+  if (!getResp.ok) {
+    const t = await getResp.text();
+    return { success: false, error: `Shopify GET failed (${getResp.status}): ${t.slice(0, 200)}` };
+  }
+  const existing = (await getResp.json()).product as Record<string, unknown>;
+  const existingVariants = (existing.variants as Record<string, unknown>[]) || [];
+
+  const productUpdate: Record<string, unknown> = { id: Number(shopifyId) };
+  if (typeof title === "string" && title.trim()) productUpdate.title = title;
+  if (typeof bodyHtml === "string") productUpdate.body_html = bodyHtml;
+  if (typeof vendor === "string") productUpdate.vendor = vendor;
+  if (typeof productType === "string") productUpdate.product_type = productType;
+  if (tags !== undefined) {
+    productUpdate.tags = Array.isArray(tags)
+      ? tags.filter(Boolean).join(", ")
+      : String(tags || "");
+  }
+
+  const requestedVariantSkus = new Map<string, string | null>();
+  if (Array.isArray(variants)) {
+    for (const [index, variant] of variants.entries()) {
+      const key = variant.id != null ? String(variant.id) : `index-${variant.index ?? index}`;
+      requestedVariantSkus.set(key, variant.sku == null ? null : String(variant.sku).trim());
     }
+  }
+  const fallbackSku = sku == null ? undefined : String(sku).trim();
+  const shouldUpdateVariants =
+    (price != null && !isNaN(Number(price))) ||
+    requestedVariantSkus.size > 0 ||
+    fallbackSku !== undefined;
 
-    const requestedVariantSkus = new Map<string, string | null>();
-    if (Array.isArray(variants)) {
-      for (const [index, variant] of variants.entries()) {
-        const key = variant.id != null ? String(variant.id) : `index-${variant.index ?? index}`;
-        requestedVariantSkus.set(key, variant.sku == null ? null : String(variant.sku).trim());
+  if (shouldUpdateVariants) {
+    productUpdate.variants = existingVariants.map((v, index) => {
+      const nv: Record<string, unknown> = { id: v.id };
+      if (price != null && !isNaN(Number(price))) nv.price = Number(price).toFixed(2);
+      if (
+        price != null &&
+        compareAtPrice != null &&
+        !isNaN(Number(compareAtPrice)) &&
+        Number(compareAtPrice) > Number(price)
+      ) {
+        nv.compare_at_price = Number(compareAtPrice).toFixed(2);
       }
-    }
-    const fallbackSku = sku == null ? undefined : String(sku).trim();
-    const shouldUpdateVariants =
-      (price != null && !isNaN(Number(price))) ||
-      requestedVariantSkus.size > 0 ||
-      fallbackSku !== undefined;
+      const idKey = v.id != null ? String(v.id) : "";
+      const indexKey = `index-${index}`;
+      if (requestedVariantSkus.has(idKey)) {
+        nv.sku = requestedVariantSkus.get(idKey) || "";
+      } else if (requestedVariantSkus.has(indexKey)) {
+        nv.sku = requestedVariantSkus.get(indexKey) || "";
+      } else if (fallbackSku !== undefined && existingVariants.length === 1) {
+        nv.sku = fallbackSku;
+      }
+      return nv;
+    });
+  }
 
-    // Price/SKU → applied to variants. Price is currently shared across all variants.
-    if (shouldUpdateVariants) {
-      productUpdate.variants = existingVariants.map((v, index) => {
-        const nv: Record<string, unknown> = { id: v.id };
-        if (price != null && !isNaN(Number(price))) nv.price = Number(price).toFixed(2);
-        if (
-          price != null &&
-          compareAtPrice != null &&
-          !isNaN(Number(compareAtPrice)) &&
-          Number(compareAtPrice) > Number(price)
-        ) {
-          nv.compare_at_price = Number(compareAtPrice).toFixed(2);
-        }
-        const idKey = v.id != null ? String(v.id) : "";
-        const indexKey = `index-${index}`;
-        if (requestedVariantSkus.has(idKey)) {
-          nv.sku = requestedVariantSkus.get(idKey) || "";
-        } else if (requestedVariantSkus.has(indexKey)) {
-          nv.sku = requestedVariantSkus.get(indexKey) || "";
-        } else if (fallbackSku !== undefined && existingVariants.length === 1) {
-          nv.sku = fallbackSku;
-        }
-        return nv;
+  if (Array.isArray(images)) {
+    const valid = images.filter((u) => typeof u === "string" && /^https?:\/\//.test(u));
+    productUpdate.images = valid.map((src, i) => ({ src, position: i + 1 }));
+  }
+
+  const putResp = await fetch(`${apiBase}/products/${shopifyId}.json`, {
+    method: "PUT",
+    headers,
+    body: JSON.stringify({ product: productUpdate }),
+  });
+  if (!putResp.ok) {
+    const t = await putResp.text();
+    return { success: false, error: `Shopify PUT failed (${putResp.status}): ${t.slice(0, 200)}` };
+  }
+  const updated = (await putResp.json()).product as Record<string, unknown>;
+
+  const normalizedHandle = normalizeShopifyHandle(handle) || undefined;
+  const seoResult = await updateSeoAndHandle(shopDomain, shopifyToken, shopifyId, {
+    handle: normalizedHandle,
+    seoTitle: typeof seoTitle === "string" ? seoTitle : undefined,
+    seoDescription: typeof seoDescription === "string" ? seoDescription : undefined,
+  });
+  if (!seoResult.ok) {
+    return { success: false, error: seoResult.error || "SEO/handle update failed" };
+  }
+
+  const mfs = buildMetafields(metafields);
+  let mfOk = 0, mfFail = 0;
+  for (const mf of mfs) {
+    try {
+      const r = await fetch(`${apiBase}/products/${shopifyId}/metafields.json`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ metafield: { namespace: mf.namespace, key: mf.key, type: mf.type, value: mf.value } }),
       });
-    }
+      if (r.ok) mfOk++;
+      else {
+        const existingMf = await fetch(
+          `${apiBase}/products/${shopifyId}/metafields.json?namespace=${mf.namespace}&key=${mf.key}`,
+          { headers },
+        ).then((x) => x.ok ? x.json() : { metafields: [] }).catch(() => ({ metafields: [] }));
+        const mid = existingMf?.metafields?.[0]?.id;
+        if (mid) {
+          const pr = await fetch(`${apiBase}/metafields/${mid}.json`, {
+            method: "PUT", headers,
+            body: JSON.stringify({ metafield: { id: mid, type: mf.type, value: mf.value } }),
+          });
+          if (pr.ok) mfOk++; else mfFail++;
+        } else mfFail++;
+      }
+    } catch { mfFail++; }
+  }
 
-    // Images → replace the product image set with the supplied ordered URLs
-    if (Array.isArray(images)) {
-      const valid = images.filter((u) => typeof u === "string" && /^https?:\/\//.test(u));
-      productUpdate.images = valid.map((src, i) => ({ src, position: i + 1 }));
-    }
-
-    const putResp = await fetch(`${apiBase}/products/${shopifyId}.json`, {
-      method: "PUT",
-      headers,
-      body: JSON.stringify({ product: productUpdate }),
-    });
-    if (!putResp.ok) {
-      const t = await putResp.text();
-      return json({ error: `Shopify PUT failed (${putResp.status})`, detail: t.slice(0, 400) }, 502);
-    }
-    const updated = (await putResp.json()).product as Record<string, unknown>;
-
-    // ── 2b. Handle + SEO (GraphQL) ──
-    const seoResult = await updateSeoAndHandle(shopDomain, shopifyToken, shopifyId, {
-      handle: typeof handle === "string" ? handle : undefined,
-      seoTitle: typeof seoTitle === "string" ? seoTitle : undefined,
-      seoDescription: typeof seoDescription === "string" ? seoDescription : undefined,
-    });
-    if (!seoResult.ok) {
-      return json({ error: seoResult.error || "SEO/handle update failed" }, 502);
-    }
-
-    // ── 3. Upsert metafields (one POST each; Shopify upserts by namespace+key) ──
-    const mfs = buildMetafields(metafields);
-    let mfOk = 0, mfFail = 0;
-    for (const mf of mfs) {
-      try {
-        const r = await fetch(`${apiBase}/products/${shopifyId}/metafields.json`, {
-          method: "POST",
-          headers,
-          body: JSON.stringify({ metafield: { namespace: mf.namespace, key: mf.key, type: mf.type, value: mf.value } }),
-        });
-        if (r.ok) mfOk++;
-        else {
-          // 422 usually means it already exists → find id and PUT to overwrite
-          const existingMf = await fetch(
-            `${apiBase}/products/${shopifyId}/metafields.json?namespace=${mf.namespace}&key=${mf.key}`,
-            { headers }
-          ).then((x) => x.ok ? x.json() : { metafields: [] }).catch(() => ({ metafields: [] }));
-          const mid = existingMf?.metafields?.[0]?.id;
-          if (mid) {
-            const pr = await fetch(`${apiBase}/metafields/${mid}.json`, {
-              method: "PUT", headers,
-              body: JSON.stringify({ metafield: { id: mid, type: mf.type, value: mf.value } }),
-            });
-            if (pr.ok) mfOk++; else mfFail++;
-          } else mfFail++;
-        }
-      } catch { mfFail++; }
-    }
-
-    // ── 4. Mirror the new values back into shopify_products ──
+  if (!opts?.skipMirrorWrite) {
     const mfColumns: Record<string, string> = {};
     for (const mf of mfs) mfColumns[`${mf.namespace}.${mf.key}`] = mf.value;
     const spUpdate: Record<string, unknown> = {
@@ -324,18 +335,107 @@ Deno.serve(async (req: Request) => {
     } else if (mfs.length > 0) {
       spUpdate.metafields = mfs;
     }
-    if (typeof handle === "string" && handle.trim()) spUpdate.handle = handle.trim();
-    if (typeof handle === "string" && handle.trim()) spUpdate.shopify_url = handle.trim();
+    if (normalizedHandle) {
+      spUpdate.handle = normalizedHandle;
+      spUpdate.shopify_url = normalizedHandle;
+    }
     if (typeof seoTitle === "string") spUpdate.shopify_page_title = seoTitle.trim() || null;
     if (typeof seoDescription === "string") spUpdate.shopify_page_description = seoDescription.trim() || null;
     await supabase.from("shopify_products").update(spUpdate).eq("shopify_product_id", shopifyId);
+  }
+
+  return {
+    success: true,
+    metafields_updated: mfOk,
+    metafields_failed: mfFail,
+    ...(sourceProductId ? {} : {}),
+  };
+}
+
+/**
+ * update-shopify-product
+ *
+ * Single product push: POST { shopify_product_id, title?, body_html?, ... }
+ * Batch push from mirror: POST { push_all_from_mirror: true }
+ */
+Deno.serve(async (req: Request) => {
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+
+  try {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+    const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    if (!supabaseUrl || !supabaseKey) return json({ error: "Missing env vars" }, 400);
+    const supabase = createClient(supabaseUrl, supabaseKey);
+
+    const { data: conn } = await supabase
+      .from("shopify_connections")
+      .select("shop_domain, access_token")
+      .eq("is_active", true)
+      .order("connected_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    const shopifyToken = conn?.access_token || Deno.env.get("SHOPIFY_ACCESS_TOKEN") || "";
+    const shopDomain = (conn?.shop_domain || Deno.env.get("SHOPIFY_STORE_URL") || "")
+      .replace(/^https?:\/\//, "").replace(/\/+$/, "");
+    if (!shopifyToken || !shopDomain) return json({ error: "Shopify credentials not configured." }, 400);
+
+    const body = await req.json().catch(() => ({})) as {
+      push_all_from_mirror?: boolean;
+      shopify_product_id?: string;
+      source_product_id?: string;
+      title?: string;
+      body_html?: string;
+      price?: number | null;
+      compare_at_price?: number | null;
+      vendor?: string;
+      product_type?: string;
+      tags?: string[] | string;
+      images?: string[];
+      variants?: { id?: string | number; index?: number; sku?: string | null }[];
+      sku?: string | null;
+      metafields?: Record<string, string>;
+      handle?: string;
+      seo_title?: string;
+      seo_description?: string;
+    };
+
+    if (body.push_all_from_mirror) {
+      const { data: rows, error: fetchErr } = await supabase.from("shopify_products").select("*");
+      if (fetchErr) return json({ error: fetchErr.message }, 500);
+      let pushed = 0;
+      let failed = 0;
+      const errors: { shopify_product_id: string; error: string }[] = [];
+      for (const row of rows || []) {
+        const sid = String(row.shopify_product_id || "");
+        if (!/^\d+$/.test(sid)) continue;
+        const payload = mirrorRowToPayload(row as Record<string, unknown>);
+        const result = await pushProductToShopify(supabase, shopDomain, shopifyToken, sid, payload, { skipMirrorWrite: true });
+        if (result.success) {
+          pushed++;
+          await supabase.from("shopify_products").update({
+            shopify_updated_at: new Date().toISOString(),
+          }).eq("shopify_product_id", sid);
+        } else {
+          failed++;
+          if (errors.length < 20) errors.push({ shopify_product_id: sid, error: result.error || "unknown" });
+        }
+      }
+      return json({ success: true, mode: "push_all_from_mirror", pushed, failed, errors });
+    }
+
+    const shopifyId = body.shopify_product_id;
+    if (!shopifyId) return json({ error: "shopify_product_id is required" }, 400);
+
+    const result = await pushProductToShopify(supabase, shopDomain, shopifyToken, shopifyId, body);
+    if (!result.success) return json({ error: result.error || "Push failed" }, 502);
 
     return json({
       success: true,
       shopify_product_id: shopifyId,
-      source_product_id: sourceProductId || null,
-      metafields_updated: mfOk,
-      metafields_failed: mfFail,
+      source_product_id: body.source_product_id || null,
+      metafields_updated: result.metafields_updated,
+      metafields_failed: result.metafields_failed,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
