@@ -14,35 +14,98 @@ function json(body: unknown, status = 200) {
   });
 }
 
-/** Fetch SEO title/description from Shopify GraphQL (REST products.json omits seo). */
-async function fetchProductSeo(
+/** Fetch SEO for ALL products via GraphQL pagination (REST omits seo fields). */
+async function fetchAllProductsSeoGraphQL(
   shopDomain: string,
   token: string,
-  shopifyId: string,
-): Promise<{ shopify_page_title: string | null; shopify_page_description: string | null; shopify_url: string | null }> {
-  const resp = await fetch(`https://${shopDomain}/admin/api/2024-10/graphql.json`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": token },
-    body: JSON.stringify({
-      query: `query productSeo($id: ID!) {
-        product(id: $id) {
-          handle
-          seo { title description }
-        }
-      }`,
-      variables: { id: `gid://shopify/Product/${shopifyId}` },
-    }),
-  });
-  if (!resp.ok) return { shopify_page_title: null, shopify_page_description: null, shopify_url: null };
-  const j = await resp.json();
-  const product = j?.data?.product;
-  if (!product) return { shopify_page_title: null, shopify_page_description: null, shopify_url: null };
-  const seo = product.seo || {};
-  return {
-    shopify_page_title: typeof seo.title === "string" && seo.title.trim() ? seo.title.trim() : null,
-    shopify_page_description: typeof seo.description === "string" && seo.description.trim() ? seo.description.trim() : null,
-    shopify_url: typeof product.handle === "string" && product.handle.trim() ? product.handle.trim() : null,
-  };
+): Promise<Map<string, {
+  shopify_page_title: string | null;
+  shopify_page_description: string | null;
+  shopify_url: string | null;
+}>> {
+  const out = new Map<string, {
+    shopify_page_title: string | null;
+    shopify_page_description: string | null;
+    shopify_url: string | null;
+  }>();
+  let cursor: string | null = null;
+  const gqlHeaders = { "Content-Type": "application/json", "X-Shopify-Access-Token": token };
+
+  for (;;) {
+    const resp = await fetch(`https://${shopDomain}/admin/api/2024-10/graphql.json`, {
+      method: "POST",
+      headers: gqlHeaders,
+      body: JSON.stringify({
+        query: `query productsSeo($cursor: String) {
+          products(first: 250, after: $cursor) {
+            pageInfo { hasNextPage endCursor }
+            nodes {
+              id
+              title
+              handle
+              seo { title description }
+            }
+          }
+        }`,
+        variables: { cursor },
+      }),
+    });
+    if (!resp.ok) {
+      console.error("[sync-shopify-mirror] SEO GraphQL error:", resp.status, (await resp.text()).slice(0, 200));
+      break;
+    }
+    const j = await resp.json();
+    if (j?.errors?.length) {
+      console.error("[sync-shopify-mirror] SEO GraphQL errors:", JSON.stringify(j.errors).slice(0, 300));
+      break;
+    }
+    const conn = j?.data?.products;
+    const nodes = conn?.nodes ?? [];
+    for (const node of nodes) {
+      const gid = String(node?.id ?? "");
+      const shopifyId = gid.replace("gid://shopify/Product/", "");
+      if (!/^\d+$/.test(shopifyId)) continue;
+      const seo = node?.seo ?? {};
+      const handle = typeof node?.handle === "string" && node.handle.trim() ? node.handle.trim() : null;
+      const productTitle = typeof node?.title === "string" && node.title.trim() ? node.title.trim() : null;
+      const seoTitle = typeof seo.title === "string" && seo.title.trim() ? seo.title.trim() : null;
+      out.set(shopifyId, {
+        shopify_page_title: seoTitle || productTitle,
+        shopify_page_description: typeof seo.description === "string" && seo.description.trim() ? seo.description.trim() : null,
+        shopify_url: handle,
+      });
+    }
+    if (!conn?.pageInfo?.hasNextPage) break;
+    cursor = conn.pageInfo.endCursor ?? null;
+    if (!cursor) break;
+  }
+  return out;
+}
+
+/** Apply SEO map to shopify_products mirror rows (parallel batches). */
+async function applySeoBackfill(
+  supabase: ReturnType<typeof createClient>,
+  seoMap: Map<string, {
+    shopify_page_title: string | null;
+    shopify_page_description: string | null;
+    shopify_url: string | null;
+  }>,
+): Promise<number> {
+  let updated = 0;
+  const entries = Array.from(seoMap.entries());
+  const BATCH = 20;
+  for (let i = 0; i < entries.length; i += BATCH) {
+    const batch = entries.slice(i, i + BATCH);
+    await Promise.all(batch.map(async ([shopifyId, seo]) => {
+      const { error } = await supabase
+        .from("shopify_products")
+        .update(seo)
+        .eq("shopify_product_id", shopifyId);
+      if (!error) updated++;
+      else console.error(`[sync-shopify-mirror] SEO update ${shopifyId}:`, error.message);
+    }));
+  }
+  return updated;
 }
 
 /**
@@ -56,7 +119,8 @@ async function fetchProductSeo(
  *  3. DELETE any shopify_products row whose shopify_product_id is no longer on
  *     Shopify (product was deleted in the Shopify admin).
  *
- * POST {}  → returns { live, upserted, deleted }
+ * POST { backfill_seo?: boolean }  → SEO-only backfill (no mirror reconcile)
+ * POST {}                          → full mirror + SEO backfill
  *
  * Title/price/status always reflect Shopify (source of truth for the mirror).
  * Metafield columns are NOT touched here — they are owned by the import /
@@ -83,6 +147,21 @@ Deno.serve(async (req: Request) => {
     const shopDomain = (conn?.shop_domain || Deno.env.get("SHOPIFY_STORE_URL") || "")
       .replace(/^https?:\/\//, "").replace(/\/+$/, "");
     if (!shopifyToken || !shopDomain) return json({ error: "Shopify credentials not configured." }, 400);
+
+    let body: { backfill_seo?: boolean } = {};
+    try { body = await req.json(); } catch { /* empty body */ }
+
+    // ── SEO-only mode: pull Page title / Meta description / URL handle for all products ──
+    if (body.backfill_seo) {
+      const seoMap = await fetchAllProductsSeoGraphQL(shopDomain, shopifyToken);
+      const seoBackfilled = await applySeoBackfill(supabase, seoMap);
+      return json({
+        success: true,
+        mode: "backfill_seo",
+        shopify_products_fetched: seoMap.size,
+        seo_backfilled: seoBackfilled,
+      });
+    }
 
     const apiBase = `https://${shopDomain}/admin/api/2024-10`;
     const headers = { "X-Shopify-Access-Token": shopifyToken, "Content-Type": "application/json" };
@@ -153,6 +232,7 @@ Deno.serve(async (req: Request) => {
         vendor: sp.vendor ?? null,
         product_type: sp.product_type ?? null,
         handle: sp.handle ?? null,
+        shopify_url: sp.handle ?? null,
         status: sp.status ?? "active",
         published_at: sp.published_at ?? null,
         image_url: (images[0]?.src as string) ?? null,
@@ -221,25 +301,11 @@ Deno.serve(async (req: Request) => {
       console.warn("[sync-shopify-mirror] source_product_id backfill skipped:", e instanceof Error ? e.message : String(e));
     }
 
-    // ── 6. Backfill SEO fields missing from mirror (Shopify REST has no seo) ──
+    // ── 6. Backfill SEO for ALL live Shopify products (Page title, Meta description, URL handle) ──
     let seoBackfilled = 0;
     try {
-      const { data: needSeo } = await supabase
-        .from("shopify_products")
-        .select("shopify_product_id")
-        .or("shopify_page_description.is.null,shopify_page_title.is.null")
-        .limit(25);
-      for (const row of needSeo || []) {
-        const sid = String((row as { shopify_product_id: string }).shopify_product_id || "");
-        if (!/^\d+$/.test(sid)) continue;
-        const seo = await fetchProductSeo(shopDomain, shopifyToken, sid);
-        if (!seo.shopify_page_title && !seo.shopify_page_description && !seo.shopify_url) continue;
-        const { error: seoErr } = await supabase
-          .from("shopify_products")
-          .update(seo)
-          .eq("shopify_product_id", sid);
-        if (!seoErr) seoBackfilled++;
-      }
+      const seoMap = await fetchAllProductsSeoGraphQL(shopDomain, shopifyToken);
+      seoBackfilled = await applySeoBackfill(supabase, seoMap);
     } catch (e) {
       console.warn("[sync-shopify-mirror] SEO backfill skipped:", e instanceof Error ? e.message : String(e));
     }

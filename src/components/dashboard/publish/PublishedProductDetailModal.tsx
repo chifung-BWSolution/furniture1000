@@ -183,7 +183,7 @@ export function PublishedProductDetailModal({
     setEditTags(Array.isArray(r.tags) ? r.tags : []);
     setEditNormalSize(r['my_fields.normal_size'] || '');
     setEditMaterials(r['my_fields.materials'] || '');
-    setEditSeoTitle(r.shopify_page_title || r.title || '');
+    setEditSeoTitle(r.shopify_page_title || '');
     setEditSeoDesc(r.shopify_page_description || '');
     setEditHandle(r.shopify_url || r.handle || '');
     setEditVariantSkus(
