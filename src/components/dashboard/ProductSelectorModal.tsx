@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Search, X, ChevronLeft, ChevronRight, Package, Loader2, Check } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { fetchFactories } from '@/lib/factorySupabase';
@@ -49,6 +49,9 @@ interface ProductSelectorModalProps {
 export function ProductSelectorModal({ open, onClose, onSelect, existingProductNames = [] }: ProductSelectorModalProps) {
   const [search, setSearch] = useState('');
   const [factoryFilter, setFactoryFilter] = useState('');
+  const [level1Filter, setLevel1Filter] = useState('');
+  const [level2Filter, setLevel2Filter] = useState('');
+  const [categoryPairs, setCategoryPairs] = useState<{ level1: string; level2: string }[]>([]);
   const [factories, setFactories] = useState<string[]>([]);
   const [products, setProducts] = useState<MasterProduct[]>([]);
   const [selectedProducts, setSelectedProducts] = useState<Map<string, MasterProduct>>(new Map());
@@ -57,6 +60,42 @@ export function ProductSelectorModal({ open, onClose, onSelect, existingProductN
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
   const PAGE_SIZE = 20;
+
+  const level1Options = useMemo(
+    () => Array.from(new Set(categoryPairs.map((p) => p.level1))),
+    [categoryPairs],
+  );
+  const level2Options = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          categoryPairs
+            .filter((p) => p.level1 === level1Filter && p.level2)
+            .map((p) => p.level2),
+        ),
+      ),
+    [categoryPairs, level1Filter],
+  );
+
+  // Fetch 一級/二級分類 options (same source as 待處理產品)
+  useEffect(() => {
+    if (!open) return;
+    supabase
+      .from('product_category')
+      .select('level1, level2, sort_order')
+      .order('sort_order', { ascending: true })
+      .then(({ data }) => {
+        if (!data) return;
+        setCategoryPairs(
+          data
+            .map((r: { level1: string | null; level2: string | null }) => ({
+              level1: String(r.level1 ?? '').trim(),
+              level2: String(r.level2 ?? '').trim(),
+            }))
+            .filter((p) => p.level1),
+        );
+      });
+  }, [open]);
 
   // Fetch factories for filter dropdown
   useEffect(() => {
@@ -81,16 +120,32 @@ export function ProductSelectorModal({ open, onClose, onSelect, existingProductN
   }, [open]);
 
   // Fetch products - try edge function (master DB) first, fall back to local products table
-  const fetchProducts = useCallback(async (searchVal: string, factoryVal: string, pageVal: number) => {
+  const fetchProducts = useCallback(async (
+    searchVal: string,
+    factoryVal: string,
+    pageVal: number,
+    level1Val: string,
+    level2Val: string,
+    level2Categories: string[],
+  ) => {
     setIsLoading(true);
     try {
-      console.log('[ProductSelector] Fetching products...', { search: searchVal, factory: factoryVal, page: pageVal });
+      console.log('[ProductSelector] Fetching products...', {
+        search: searchVal,
+        factory: factoryVal,
+        level1: level1Val,
+        level2: level2Val,
+        page: pageVal,
+      });
       const { data, error } = await supabase.functions.invoke(
         'supabase-functions-fetch-product-catalog',
         {
           body: {
             search: searchVal.trim(),
             factory_name: factoryVal,
+            level1: level1Val,
+            level2: level2Val,
+            level2_categories: level2Categories,
             page: pageVal,
             page_size: PAGE_SIZE,
           },
@@ -99,7 +154,6 @@ export function ProductSelectorModal({ open, onClose, onSelect, existingProductN
 
       console.log('[ProductSelector] Response:', { data, error });
 
-      // If edge function succeeds and returns products
       if (!error && data && !data.error && Array.isArray(data.products)) {
         setProducts(data.products);
         setTotalPages(data.total_pages || 1);
@@ -107,26 +161,31 @@ export function ProductSelectorModal({ open, onClose, onSelect, existingProductN
         return;
       }
 
-      // Edge function failed — fall back to local products table
       console.warn('[ProductSelector] Edge function failed, falling back to local products table', error || data?.error);
-      await fetchFromLocalProducts(searchVal, factoryVal, pageVal);
+      await fetchFromLocalProducts(searchVal, factoryVal, pageVal, level1Val, level2Val);
     } catch (err) {
       console.error('[ProductSelector] Network error, falling back to local:', err);
-      await fetchFromLocalProducts(searchVal, factoryVal, pageVal);
+      await fetchFromLocalProducts(searchVal, factoryVal, pageVal, level1Val, level2Val);
     } finally {
       setIsLoading(false);
     }
   }, []);
 
   // Fallback: fetch from local products table
-  const fetchFromLocalProducts = useCallback(async (searchVal: string, factoryVal: string, pageVal: number) => {
+  const fetchFromLocalProducts = useCallback(async (
+    searchVal: string,
+    factoryVal: string,
+    pageVal: number,
+    level1Val: string,
+    level2Val: string,
+  ) => {
     try {
       const from = (pageVal - 1) * PAGE_SIZE;
       const to = from + PAGE_SIZE - 1;
 
       let query = supabase
         .from('products')
-        .select('id, title, images, sale_price, cost_price, factory_name, category, material, dimension_l_mm, dimension_w_mm, dimension_h_mm, color, remarks, delivery_term_name', {
+        .select('id, title, images, sale_price, cost_price, factory_name, category, level1_category, level2_category, material, dimension_l_mm, dimension_w_mm, dimension_h_mm, color, remarks, delivery_term_name', {
           count: 'exact',
         })
         .not('title', 'is', null)
@@ -138,6 +197,14 @@ export function ProductSelectorModal({ open, onClose, onSelect, existingProductN
 
       if (factoryVal.trim()) {
         query = query.eq('factory_name', factoryVal.trim());
+      }
+
+      if (level1Val.trim()) {
+        query = query.eq('level1_category', level1Val.trim());
+      }
+
+      if (level2Val.trim()) {
+        query = query.eq('level2_category', level2Val.trim());
       }
 
       query = query.order('created_at', { ascending: false }).range(from, to);
@@ -160,7 +227,7 @@ export function ProductSelectorModal({ open, onClose, onSelect, existingProductN
         sale_price: row.sale_price,
         cost_price: row.cost_price,
         factory_name: row.factory_name || '',
-        category: row.category || null,
+        category: row.level2_category || row.category || null,
         material: row.material || null,
         dimension_l_mm: row.dimension_l_mm,
         dimension_w_mm: row.dimension_w_mm,
@@ -184,6 +251,22 @@ export function ProductSelectorModal({ open, onClose, onSelect, existingProductN
   // Debounce timer ref
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const level2CategoriesForLevel1 = useMemo(() => {
+    if (!level1Filter || level2Filter) return [] as string[];
+    return level2Options;
+  }, [level1Filter, level2Filter, level2Options]);
+
+  const runFetch = useCallback((pageVal: number) => {
+    fetchProducts(
+      search,
+      factoryFilter,
+      pageVal,
+      level1Filter,
+      level2Filter,
+      level2CategoriesForLevel1,
+    );
+  }, [search, factoryFilter, level1Filter, level2Filter, level2CategoriesForLevel1, fetchProducts]);
+
   // Track the count of existing products for immediate display
   const existingCount = existingProductNames.length;
 
@@ -193,8 +276,10 @@ export function ProductSelectorModal({ open, onClose, onSelect, existingProductN
       setSelectedProducts(new Map());
       setSearch('');
       setFactoryFilter('');
+      setLevel1Filter('');
+      setLevel2Filter('');
       setPage(1);
-      fetchProducts('', '', 1);
+      fetchProducts('', '', 1, '', '', []);
     }
   }, [open, fetchProducts]);
 
@@ -222,18 +307,18 @@ export function ProductSelectorModal({ open, onClose, onSelect, existingProductN
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
       setPage(1);
-      fetchProducts(search, factoryFilter, 1);
+      runFetch(1);
     }, 400);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [search, factoryFilter, open, fetchProducts]);
+  }, [search, factoryFilter, level1Filter, level2Filter, open, runFetch]);
 
   // Page change (no debounce)
   useEffect(() => {
     if (!open || page === 1) return;
-    fetchProducts(search, factoryFilter, page);
-  }, [page]);
+    runFetch(page);
+  }, [page, open, runFetch]);
 
   const toggleProduct = (product: MasterProduct) => {
     setSelectedProducts((prev) => {
@@ -335,6 +420,39 @@ export function ProductSelectorModal({ open, onClose, onSelect, existingProductN
               </option>
             ))}
           </select>
+          <select
+            value={level1Filter}
+            onChange={(e) => {
+              setLevel1Filter(e.target.value);
+              setLevel2Filter('');
+              setPage(1);
+            }}
+            className="rounded-lg border border-border bg-background px-3 py-2.5 font-body text-sm text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+          >
+            <option value="">全部一級分類</option>
+            {level1Options.map((l1) => (
+              <option key={l1} value={l1}>
+                {l1}
+              </option>
+            ))}
+          </select>
+          {level1Filter && level2Options.length > 0 ? (
+            <select
+              value={level2Filter}
+              onChange={(e) => {
+                setLevel2Filter(e.target.value);
+                setPage(1);
+              }}
+              className="rounded-lg border border-border bg-background px-3 py-2.5 font-body text-sm text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+            >
+              <option value="">全部二級分類</option>
+              {level2Options.map((l2) => (
+                <option key={l2} value={l2}>
+                  {l2}
+                </option>
+              ))}
+            </select>
+          ) : null}
           <div className="flex items-center gap-2 font-mono-data text-xs text-muted-foreground">
             <Package className="h-3.5 w-3.5" />
             {total} 件產品

@@ -1557,7 +1557,7 @@ export function QuotationDraftEditor({
                           材質及明細
                         </th>
                         <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "120px" }}>
-                          尺寸(mm)
+                          尺寸(mm), 長x闊x高
                         </th>
                         <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "80px" }}>
                           顏色
