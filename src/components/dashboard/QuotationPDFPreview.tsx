@@ -444,8 +444,10 @@ function renderIllustrationPdfContent(
   }
 
   return (
-    <View style={styles.cellStackSlot}>
-      <Image src={(productImage || referenceImage)!} style={styles.productImage} />
+    <View style={{ width: '100%', flex: 1, flexDirection: 'column' }}>
+      <View style={styles.cellStackSlot}>
+        <Image src={(productImage || referenceImage)!} style={styles.cellStackImage} />
+      </View>
     </View>
   );
 }
@@ -543,10 +545,8 @@ const styles: Record<string, any> = {
   descValueText: { fontSize: 6.5, textAlign: 'left', lineHeight: 1.3, paddingLeft: 2 },
   descDimLabelText: { fontSize: 6, textAlign: 'left', lineHeight: 1.2, paddingLeft: 2, color: '#555' },
   descDimValueText: { fontSize: 6, textAlign: 'left', lineHeight: 1.2, paddingLeft: 2, width: '100%' },
-  productImage: { width: 50, height: 50, objectFit: 'contain', borderRadius: 2 },
-  remarksImage: { width: '100%', objectFit: 'contain', marginTop: 2, marginBottom: 2 },
   cellStackSlot: { flex: 1, width: '100%', justifyContent: 'center', alignItems: 'center', paddingVertical: 2, paddingHorizontal: 2 },
-  cellStackImage: { width: '100%', objectFit: 'contain' },
+  cellStackImage: { width: '100%', maxHeight: '100%', objectFit: 'contain' },
   remarksCellText: { fontSize: 7, textAlign: 'center', lineHeight: 1.3 },
   installRow: { flexDirection: 'row', borderBottomWidth: 0.5, borderColor: '#ddd', minHeight: 28 },
   totalRow: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 6, paddingRight: 4 },
