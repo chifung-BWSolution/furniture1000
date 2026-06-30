@@ -13,7 +13,9 @@ import {
   Loader2,
   Upload,
   X,
+  GripVertical,
 } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { TermsRichEditor } from "@/components/dashboard/TermsRichEditor";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
@@ -87,6 +89,49 @@ interface QuotationDraftEditorProps {
 }
 
 const generateId = () => Math.random().toString(36).substring(2, 12);
+
+function QuoteRowDragHandle({
+  itemId,
+  onDragStart,
+  onDragEnd,
+}: {
+  itemId: string;
+  onDragStart: (id: string) => void;
+  onDragEnd: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      draggable
+      onDragStart={(e) => {
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", itemId);
+        onDragStart(itemId);
+      }}
+      onDragEnd={onDragEnd}
+      className="cursor-grab rounded p-1 text-muted-foreground/45 transition-colors hover:bg-muted hover:text-muted-foreground active:cursor-grabbing"
+      title="拖曳調整順序"
+      aria-label="拖曳調整順序"
+    >
+      <GripVertical className="h-4 w-4" />
+    </button>
+  );
+}
+
+function quoteRowReorderClass(
+  index: number,
+  itemId: string,
+  draggingItemId: string | null,
+  dropInsertIndex: number | null,
+  extra?: string,
+) {
+  return cn(
+    extra,
+    draggingItemId === itemId && "opacity-50",
+    dropInsertIndex === index && "shadow-[inset_0_2px_0_0_hsl(var(--primary))]",
+    dropInsertIndex === index + 1 && "shadow-[inset_0_-2px_0_0_hsl(var(--primary))]",
+  );
+}
 
 // Helper: Convert file to base64 data URL
 const fileToDataUrl = (file: File): Promise<string> =>
@@ -728,6 +773,51 @@ export function QuotationDraftEditor({
       prev.map((item) => (item.id === id ? { ...item, [field]: value } : item)),
     );
   };
+
+  const [draggingItemId, setDraggingItemId] = useState<string | null>(null);
+  const [dropInsertIndex, setDropInsertIndex] = useState<number | null>(null);
+
+  const moveItem = useCallback((fromId: string, insertIndex: number) => {
+    setItems((prev) => {
+      const fromIndex = prev.findIndex((i) => i.id === fromId);
+      if (fromIndex === -1) return prev;
+      let toIndex = Math.max(0, Math.min(insertIndex, prev.length));
+      if (fromIndex < toIndex) toIndex -= 1;
+      if (fromIndex === toIndex) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, moved);
+      return next;
+    });
+  }, []);
+
+  const handleQuoteRowDragOver = useCallback(
+    (e: React.DragEvent<HTMLTableRowElement>, index: number) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      const rect = e.currentTarget.getBoundingClientRect();
+      setDropInsertIndex(e.clientY < rect.top + rect.height / 2 ? index : index + 1);
+    },
+    [],
+  );
+
+  const handleQuoteRowDrop = useCallback(
+    (e: React.DragEvent<HTMLTableRowElement>) => {
+      e.preventDefault();
+      const fromId = e.dataTransfer.getData("text/plain") || draggingItemId;
+      if (fromId && dropInsertIndex !== null) {
+        moveItem(fromId, dropInsertIndex);
+      }
+      setDraggingItemId(null);
+      setDropInsertIndex(null);
+    },
+    [draggingItemId, dropInsertIndex, moveItem],
+  );
+
+  const clearQuoteRowDrag = useCallback(() => {
+    setDraggingItemId(null);
+    setDropInsertIndex(null);
+  }, []);
 
   // Unit price multiplier (cost-based)
   const [priceMultiplier, setPriceMultiplier] = useState<string>("1");
@@ -1469,6 +1559,7 @@ export function QuotationDraftEditor({
                   <table className="w-full text-left">
                     <thead>
                       <tr className="border-b border-border">
+                        <th className="w-8 pb-2 pr-1 font-body text-xs font-medium text-muted-foreground"></th>
                         <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "50px" }}>
                           圖片
                         </th>
@@ -1508,13 +1599,34 @@ export function QuotationDraftEditor({
                         <th className="pb-2 font-body text-xs font-medium text-muted-foreground"></th>
                       </tr>
                     </thead>
-                    <tbody>
-                      {items.map((item) => (
+                    <tbody
+                      onDragLeave={(e) => {
+                        if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                          clearQuoteRowDrag();
+                        }
+                      }}
+                    >
+                      {items.map((item, index) => (
                         item.isCustomTerm ? (
                           <tr
                             key={item.id}
-                            className="border-b border-border/50 last:border-b-0 bg-amber-500/5"
+                            className={quoteRowReorderClass(
+                              index,
+                              item.id,
+                              draggingItemId,
+                              dropInsertIndex,
+                              "border-b border-border/50 last:border-b-0 bg-amber-500/5",
+                            )}
+                            onDragOver={(e) => handleQuoteRowDragOver(e, index)}
+                            onDrop={handleQuoteRowDrop}
                           >
+                            <td className="py-2 pr-1 align-middle">
+                              <QuoteRowDragHandle
+                                itemId={item.id}
+                                onDragStart={setDraggingItemId}
+                                onDragEnd={clearQuoteRowDrag}
+                              />
+                            </td>
                             {/* full-width description spans 圖片→成本價 (7 cols) */}
                             <td className="py-2 pr-2" colSpan={7}>
                               <input
@@ -1573,8 +1685,23 @@ export function QuotationDraftEditor({
                         ) : (
                         <tr
                           key={item.id}
-                          className="border-b border-border/50 last:border-b-0"
+                          className={quoteRowReorderClass(
+                            index,
+                            item.id,
+                            draggingItemId,
+                            dropInsertIndex,
+                            "border-b border-border/50 last:border-b-0",
+                          )}
+                          onDragOver={(e) => handleQuoteRowDragOver(e, index)}
+                          onDrop={handleQuoteRowDrop}
                         >
+                          <td className="py-2 pr-1 align-middle">
+                            <QuoteRowDragHandle
+                              itemId={item.id}
+                              onDragStart={setDraggingItemId}
+                              onDragEnd={clearQuoteRowDrag}
+                            />
+                          </td>
                           {/* 圖片 (Product Image) - editable */}
                           <td className="py-2 pr-2">
                             <ReferenceImageCell
