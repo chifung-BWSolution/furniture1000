@@ -1743,21 +1743,11 @@ export function QuotationDraftEditor({
                               className="w-full min-w-[80px] rounded-md border border-border bg-background px-2 py-1.5 font-body text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
                             />
                           </td>
-                          {/* 成本價 */}
+                          {/* 成本價 — read-only from products */}
                           <td className="py-2 pr-2">
-                            <input
-                              type="number"
-                              value={item.costPrice ?? ""}
-                              placeholder="—"
-                              onChange={(e) =>
-                                updateItem(
-                                  item.id,
-                                  "costPrice",
-                                  e.target.value ? parseFloat(e.target.value) : null,
-                                )
-                              }
-                              className="w-20 rounded-md border border-border bg-background px-2 py-1.5 font-mono-data text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
-                            />
+                            <span className="inline-block w-20 rounded-md border border-border/60 bg-muted/30 px-2 py-1.5 font-mono-data text-xs text-muted-foreground">
+                              {item.costPrice != null ? item.costPrice.toLocaleString() : "—"}
+                            </span>
                           </td>
                           {/* 單價 */}
                           <td className="py-2 pr-2">
