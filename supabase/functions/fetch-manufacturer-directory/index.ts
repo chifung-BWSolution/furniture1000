@@ -62,9 +62,11 @@ Deno.serve(async (req: Request) => {
     const factoryId = body.factory_id;
 
     // Fetch factories (required - throw on failure)
+    // Master DB stores title-case status values (e.g. "Active"); ilike matches user-facing "active".
     let factoriesQuery = masterSupabase
       .from("factories")
-      .select("id, display_name, factory_code")
+      .select("id, display_name, factory_code, created_at")
+      .ilike("status", "active")
       .order("display_name", { ascending: true });
 
     if (factoryId) {
