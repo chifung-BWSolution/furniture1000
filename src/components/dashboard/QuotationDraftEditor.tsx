@@ -1047,6 +1047,7 @@ export function QuotationDraftEditor({
       .filter((i) => i.name)
       .map((item) => ({
         image: item.image,
+        referenceImage: item.referenceImage,
         name: item.name,
         unitPrice: item.unitPrice,
         quantity: item.quantity,

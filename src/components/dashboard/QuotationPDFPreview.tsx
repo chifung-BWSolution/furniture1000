@@ -260,6 +260,29 @@ function renderRemarksPdfContent(
   });
 }
 
+function renderIllustrationPdfContent(
+  productImage: string | undefined,
+  referenceImage: string | undefined,
+  Image: ReactPdfModule['Image'],
+  Text: ReactPdfModule['Text'],
+) {
+  const hasProduct = Boolean(productImage);
+  const hasReference = Boolean(referenceImage);
+
+  if (!hasProduct && !hasReference) {
+    return <Text style={{ fontSize: 6, color: '#999' }}>{'\u2014'}</Text>;
+  }
+
+  if (hasProduct && hasReference) {
+    return [
+      <Image key="ill-product" src={productImage!} style={styles.remarksImage} />,
+      <Image key="ill-reference" src={referenceImage!} style={styles.remarksImage} />,
+    ];
+  }
+
+  return <Image src={(productImage || referenceImage)!} style={styles.productImage} />;
+}
+
 // ─── Styles (plain object — StyleSheet.create is a pass-through) ─────────────
 
 const styles: Record<string, any> = {
@@ -433,12 +456,16 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
                     {renderRemarksPdfContent(item?.remarks, item?.remarksImage, Image, Text)}
                   </View>
                 </View>
-                <View style={styles.colImage}>
-                  {item?.image ? (
-                    <Image src={item.image} style={styles.productImage} />
-                  ) : (
-                    <Text style={{ fontSize: 6, color: '#999' }}>{'\u2014'}</Text>
-                  )}
+                <View
+                  style={{
+                    ...styles.colImage,
+                    justifyContent:
+                      item?.image && item?.referenceImage ? 'flex-start' : 'center',
+                  }}
+                >
+                  <View style={{ width: item?.image && item?.referenceImage ? '100%' : undefined }}>
+                    {renderIllustrationPdfContent(item?.image, item?.referenceImage, Image, Text)}
+                  </View>
                 </View>
                 <View style={styles.colQty}><Text style={styles.tableCellText}>{item?.quantity || 0}</Text></View>
                 <View style={styles.colUnit}><Text style={styles.tableCellText}>{'\u5F35'}</Text></View>

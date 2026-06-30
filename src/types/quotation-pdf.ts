@@ -30,6 +30,7 @@ export interface QuotationPDFData {
   };
   items: {
     image: string;
+    referenceImage?: string;
     name: string;
     unitPrice: number;
     quantity: number;
