@@ -1701,7 +1701,7 @@ export function QuotationDraftEditor({
                             <textarea
                               value={item.material || ""}
                               placeholder="材質及明細..."
-                              rows={2}
+                              rows={4}
                               onChange={(e) =>
                                 updateItem(item.id, "material", e.target.value)
                               }
