@@ -61,22 +61,25 @@ async function loadReactPdfModule(): Promise<ReactPdfModule> {
           ],
         } as Parameters<typeof mod.Font.register>[0]);
         mod.Font.registerHyphenationCallback((word: string) => {
-          // Break at every CJK character so Chinese text can wrap inside narrow cells.
-          // Latin/numeric runs stay intact (rendered as single chunks).
+          // Allow CJK line breaks in narrow cells without inserting "-" at wrap points.
+          // Each char followed by '' gives break opportunities; empty segments are not rendered.
           const cjk = /[\u3000-\u30FF\u3400-\u9FFF\uF900-\uFAFF\uFF00-\uFFEF]/;
           if (!cjk.test(word)) return [word];
           const parts: string[] = [];
-          let buf = '';
+          let latin = '';
           for (const ch of word) {
             if (cjk.test(ch)) {
-              if (buf) { parts.push(buf); buf = ''; }
-              parts.push(ch);
+              if (latin) {
+                parts.push(latin);
+                latin = '';
+              }
+              parts.push(ch, '');
             } else {
-              buf += ch;
+              latin += ch;
             }
           }
-          if (buf) parts.push(buf);
-          return parts;
+          if (latin) parts.push(latin);
+          return parts.length ? parts : [word];
         });
         fontRegistered = true;
         console.log('PDF fonts registered successfully');
