@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 import { TermsRichEditor } from "@/components/dashboard/TermsRichEditor";
 import { RemarksRichEditor } from "@/components/dashboard/RemarksRichEditor";
 import { ColorSelector } from "@/components/dashboard/ColorSelector";
+import { matchMultipleColors } from "@/constants/color-map";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import { SubmitReviewModal } from "@/components/dashboard/SubmitReviewModal";
@@ -1026,9 +1027,9 @@ export function QuotationDraftEditor({
       costPrice: p.costPrice ?? null,
       unitPrice: p.unitPrice || p.costPrice || 0,
       quantity: 1,
-      category: p.category,
+      category: p.category?.trim() || "",
       material: p.material,
-      color: p.color,
+      color: p.color ? matchMultipleColors(p.color) || p.color.trim() : "",
       remarks: p.remarks,
       dimensionLMm: p.dimensionLMm,
       dimensionWMm: p.dimensionWMm,

@@ -2,6 +2,12 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Search, X, ChevronLeft, ChevronRight, Package, Loader2, Check } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { fetchFactories } from '@/lib/factorySupabase';
+import { matchMultipleColors } from '@/constants/color-map';
+
+function normalizeProductColor(raw?: string | null): string | undefined {
+  if (!raw?.trim()) return undefined;
+  return matchMultipleColors(raw) || raw.trim();
+}
 
 interface MasterProduct {
   id: string;
@@ -266,9 +272,9 @@ export function ProductSelectorModal({ open, onClose, onSelect, existingProductN
       name: p.title || '',
       unitPrice: p.sale_price || p.cost_price || 0,
       costPrice: p.cost_price,
-      category: p.category || undefined,
+      category: p.category?.trim() || undefined,
       material: p.material || undefined,
-      color: p.color || undefined,
+      color: normalizeProductColor(p.color),
       remarks: p.remarks || undefined,
       dimensionLMm: p.dimension_l_mm,
       dimensionWMm: p.dimension_w_mm,
