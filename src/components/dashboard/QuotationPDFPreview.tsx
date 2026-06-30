@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { X, Download, Loader2, AlertTriangle } from 'lucide-react';
 import type { QuotationPDFData } from '@/types/quotation-pdf';
 import { parseRemarksContent } from '@/lib/remarksContent';
+import { multiColorToChineseDisplay } from '@/constants/color-map';
 
 export type { QuotationPDFData } from '@/types/quotation-pdf';
 
@@ -296,7 +297,7 @@ function renderDescriptionPdfContent(
   > = [
     { kind: 'simple', label: '\u985E\u5225', value: item?.category || '' },
     { kind: 'dimensions', label: '\u898F\u683C(mm)', dimText },
-    { kind: 'simple', label: '\u984F\u8272', value: item?.color || '' },
+    { kind: 'simple', label: '\u984F\u8272', value: multiColorToChineseDisplay(item?.color || '') },
   ];
 
   return (
