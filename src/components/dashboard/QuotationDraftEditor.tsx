@@ -350,6 +350,26 @@ function ReferenceImageCell({
   );
 }
 
+function createBlankProductItem(): QuotationItem {
+  return {
+    id: generateId(),
+    image: "",
+    referenceImage: "",
+    name: "",
+    costPrice: null,
+    unitPrice: 0,
+    quantity: 1,
+    category: "",
+    material: "",
+    color: "",
+    remarks: "",
+    dimensionLMm: null,
+    dimensionWMm: null,
+    dimensionHMm: null,
+    deliveryTermName: "",
+  };
+}
+
 const DEFAULT_ITEMS: QuotationItem[] = [
   {
     id: generateId(),
@@ -647,17 +667,24 @@ export function QuotationDraftEditor({
   });
 
   const addItem = () => {
-    setItems((prev) => [
-      ...prev,
-      {
-        id: generateId(),
-        image: "",
-        name: "",
-        costPrice: null,
-        unitPrice: 0,
-        quantity: 1,
-      },
-    ]);
+    setItems((prev) => [...prev, createBlankProductItem()]);
+  };
+
+  const [lastFocusedItemId, setLastFocusedItemId] = useState<string | null>(null);
+
+  const insertBlankRowBelow = () => {
+    const newItem = createBlankProductItem();
+    setItems((prev) => {
+      if (!lastFocusedItemId) {
+        return [...prev, newItem];
+      }
+      const idx = prev.findIndex((i) => i.id === lastFocusedItemId);
+      if (idx === -1) return [...prev, newItem];
+      const next = [...prev];
+      next.splice(idx + 1, 0, newItem);
+      return next;
+    });
+    setLastFocusedItemId(newItem.id);
   };
 
   const addCustomTerm = () => {
@@ -1452,6 +1479,14 @@ export function QuotationDraftEditor({
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
+                      onClick={insertBlankRowBelow}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-border px-3 py-1.5 font-body text-sm font-medium text-foreground/80 transition-colors hover:bg-muted/50"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      新建欄位
+                    </button>
+                    <button
+                      type="button"
                       onClick={addCustomTerm}
                       className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-amber-500/50 px-3 py-1.5 font-body text-sm font-medium text-amber-600 transition-colors hover:bg-amber-500/5"
                     >
@@ -1534,6 +1569,7 @@ export function QuotationDraftEditor({
                               dropInsertIndex,
                               "border-b border-border/50 last:border-b-0 bg-amber-500/5",
                             )}
+                            onFocusCapture={() => setLastFocusedItemId(item.id)}
                             onDragOver={(e) => handleQuoteRowDragOver(e, index)}
                             onDrop={handleQuoteRowDrop}
                           >
@@ -1609,6 +1645,7 @@ export function QuotationDraftEditor({
                             dropInsertIndex,
                             "border-b border-border/50 last:border-b-0",
                           )}
+                          onFocusCapture={() => setLastFocusedItemId(item.id)}
                           onDragOver={(e) => handleQuoteRowDragOver(e, index)}
                           onDrop={handleQuoteRowDrop}
                         >
