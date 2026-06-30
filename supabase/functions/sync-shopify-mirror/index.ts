@@ -14,6 +14,19 @@ function json(body: unknown, status = 200) {
   });
 }
 
+/** Plain text for meta description when Shopify seo.description is unset. */
+function plainProductDescription(node: {
+  description?: string | null;
+  descriptionHtml?: string | null;
+}): string | null {
+  const direct = typeof node.description === "string" ? node.description.trim() : "";
+  if (direct) return direct;
+  const html = typeof node.descriptionHtml === "string" ? node.descriptionHtml : "";
+  if (!html) return null;
+  const text = html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  return text || null;
+}
+
 /** Fetch SEO for ALL products via GraphQL pagination (REST omits seo fields). */
 async function fetchAllProductsSeoGraphQL(
   shopDomain: string,
@@ -43,6 +56,8 @@ async function fetchAllProductsSeoGraphQL(
               id
               title
               handle
+              description
+              descriptionHtml
               seo { title description }
             }
           }
@@ -69,9 +84,12 @@ async function fetchAllProductsSeoGraphQL(
       const handle = typeof node?.handle === "string" && node.handle.trim() ? node.handle.trim() : null;
       const productTitle = typeof node?.title === "string" && node.title.trim() ? node.title.trim() : null;
       const seoTitle = typeof seo.title === "string" && seo.title.trim() ? seo.title.trim() : null;
+      const seoDesc = typeof seo.description === "string" && seo.description.trim() ? seo.description.trim() : null;
+      const fallbackDesc = plainProductDescription(node);
       out.set(shopifyId, {
         shopify_page_title: seoTitle || productTitle,
-        shopify_page_description: typeof seo.description === "string" && seo.description.trim() ? seo.description.trim() : null,
+        // Shopify Admin shows product description in Meta description when seo.description is unset.
+        shopify_page_description: seoDesc || fallbackDesc,
         shopify_url: handle,
       });
     }
