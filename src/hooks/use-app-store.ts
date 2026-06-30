@@ -1023,7 +1023,7 @@ export function useAppStore() {
     // finalised title, body_html, price, image_url, images, variants.
     const { data: rtsRows, error: rtsErr } = await supabase
       .from('ready_to_shopify')
-      .select('id,product_id,title,body_html,vendor,price,image_url,images,variants,product_type,tags,shopify_url,dimension_l_mm,dimension_w_mm,dimension_h_mm,material,"my_fields.materials",customize,sku')
+      .select('id,product_id,title,body_html,vendor,price,image_url,images,variants,product_type,tags,shopify_url,shopify_page_title,shopify_page_description,dimension_l_mm,dimension_w_mm,dimension_h_mm,material,"my_fields.materials",customize,sku')
       .in('product_id', productIdsToPublish);
     if (rtsErr) {
       console.warn('[publishToShopify] ready_to_shopify fetch error:', rtsErr.message);
@@ -1101,6 +1101,8 @@ export function useAppStore() {
         id: productId,
         rts_id: rts?.id || undefined,
         handle: rts?.shopify_url || undefined,
+        shopify_page_title: rts?.shopify_page_title || rts?.title || p.title || undefined,
+        shopify_page_description: rts?.shopify_page_description || undefined,
         title: rts?.title || p.title,
         description_html: rts?.body_html || p.descriptionHtml || p.description || '',
         tags: mergedTags,

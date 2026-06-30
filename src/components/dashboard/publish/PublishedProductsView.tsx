@@ -75,6 +75,9 @@ interface ShopifyProductRow {
   'my_fields.materials'?: string | null;
   cost?: number | null;
   sku?: string | null;
+  shopify_page_title?: string | null;
+  shopify_page_description?: string | null;
+  shopify_url?: string | null;
 }
 
 interface DisplayProduct extends PublishedDisplayProduct {

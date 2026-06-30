@@ -57,6 +57,9 @@ export interface PublishedProductRow {
   shop_domain?: string | null;
   'my_fields.normal_size'?: string | null;
   'my_fields.materials'?: string | null;
+  shopify_page_title?: string | null;
+  shopify_page_description?: string | null;
+  shopify_url?: string | null;
 }
 
 export interface PublishedDisplayProduct {
@@ -180,9 +183,9 @@ export function PublishedProductDetailModal({
     setEditTags(Array.isArray(r.tags) ? r.tags : []);
     setEditNormalSize(r['my_fields.normal_size'] || '');
     setEditMaterials(r['my_fields.materials'] || '');
-    setEditSeoTitle(r.title || '');
-    setEditSeoDesc('');
-    setEditHandle(r.handle || '');
+    setEditSeoTitle(r.shopify_page_title || r.title || '');
+    setEditSeoDesc(r.shopify_page_description || '');
+    setEditHandle(r.shopify_url || r.handle || '');
     setEditVariantSkus(
       (Array.isArray(r.variants) ? r.variants : []).reduce<Record<string, string>>((acc, v, i) => {
         acc[variantEditKey(v, i)] = v.sku || '';

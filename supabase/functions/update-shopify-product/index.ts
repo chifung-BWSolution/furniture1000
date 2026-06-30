@@ -325,6 +325,9 @@ Deno.serve(async (req: Request) => {
       spUpdate.metafields = mfs;
     }
     if (typeof handle === "string" && handle.trim()) spUpdate.handle = handle.trim();
+    if (typeof handle === "string" && handle.trim()) spUpdate.shopify_url = handle.trim();
+    if (typeof seoTitle === "string") spUpdate.shopify_page_title = seoTitle.trim() || null;
+    if (typeof seoDescription === "string") spUpdate.shopify_page_description = seoDescription.trim() || null;
     await supabase.from("shopify_products").update(spUpdate).eq("shopify_product_id", shopifyId);
 
     return json({

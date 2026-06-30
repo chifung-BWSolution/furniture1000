@@ -43,6 +43,8 @@ interface ProductPayload {
   rts_id?: string;
   // URL handle (ready_to_shopify.shopify_url).
   handle?: string;
+  shopify_page_title?: string;
+  shopify_page_description?: string;
   // Metafields as a map of "namespace.key" → value (matches DB columns),
   // OR a ready-made array of {namespace,key,type,value}.
   metafields?: Record<string, string> | { namespace: string; key: string; type?: string; value: string }[];
@@ -141,6 +143,79 @@ async function exitPublishPipeline(
     in_shopify_queue: false,
     ready_to_publish: false,
   }).eq("id", productId);
+}
+
+/** Update handle + SEO via GraphQL (REST product create does not set seo fields). */
+async function updateSeoAndHandle(
+  shopDomain: string,
+  token: string,
+  shopifyId: string,
+  opts: { handle?: string; seoTitle?: string; seoDescription?: string },
+): Promise<{ ok: boolean; error?: string }> {
+  const input: Record<string, unknown> = { id: `gid://shopify/Product/${shopifyId}` };
+  const hasHandle = typeof opts.handle === "string" && opts.handle.trim();
+  if (hasHandle) input.handle = opts.handle!.trim();
+  if (opts.seoTitle !== undefined || opts.seoDescription !== undefined) {
+    input.seo = {
+      title: opts.seoTitle ?? "",
+      description: opts.seoDescription ?? "",
+    };
+  }
+  if (!hasHandle && input.seo === undefined) return { ok: true };
+
+  const resp = await fetch(`https://${shopDomain}/admin/api/2024-10/graphql.json`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": token },
+    body: JSON.stringify({
+      query: `mutation productUpdate($input: ProductInput!) {
+        productUpdate(input: $input) {
+          product { id handle seo { title description } }
+          userErrors { field message }
+        }
+      }`,
+      variables: { input },
+    }),
+  });
+  if (!resp.ok) {
+    const t = await resp.text();
+    return { ok: false, error: `GraphQL SEO update failed (${resp.status}): ${t.slice(0, 200)}` };
+  }
+  const j = await resp.json();
+  const errors = j?.data?.productUpdate?.userErrors;
+  if (Array.isArray(errors) && errors.length > 0) {
+    return { ok: false, error: errors.map((e: { message: string }) => e.message).join("; ") };
+  }
+  if (j?.errors?.length) {
+    return { ok: false, error: j.errors.map((e: { message: string }) => e.message).join("; ") };
+  }
+  return { ok: true };
+}
+
+/** Push SEO/handle to Shopify and return mirror columns for shopify_products. */
+async function applyProductSeoMirror(
+  storeHost: string,
+  token: string,
+  shopifyId: string,
+  product: ProductPayload,
+): Promise<Record<string, unknown>> {
+  const seoTitle = product.shopify_page_title?.trim() || undefined;
+  const seoDesc = product.shopify_page_description?.trim() || undefined;
+  const handle = product.handle?.trim() || undefined;
+  const out: Record<string, unknown> = {};
+  if (seoTitle) out.shopify_page_title = seoTitle;
+  if (seoDesc) out.shopify_page_description = seoDesc;
+  if (handle) out.shopify_url = handle;
+  if (!seoTitle && !seoDesc && !handle) return out;
+
+  const result = await updateSeoAndHandle(storeHost, token, shopifyId, {
+    handle,
+    seoTitle,
+    seoDescription: seoDesc,
+  });
+  if (!result.ok) {
+    console.warn(`[publish-to-shopify] SEO/handle update failed for ${shopifyId}: ${result.error}`);
+  }
+  return out;
 }
 
 // ─── Image Validation & Upload Helpers ──────────────────────────────────────
@@ -608,6 +683,8 @@ Deno.serve(async (req: Request) => {
                 console.log(`[publish-to-shopify] ✅ FALLBACK SUCCESS: "${product.title}" → Shopify ID: ${shopifyProductId}`);
                 await supabase.from("products").update({ status: "success", shopify_product_id: shopifyProductId, error_message: warningMsg, source: "local" }).eq("id", product.id);
 
+                const seoMirror = await applyProductSeoMirror(storeHost, shopifyAccessToken, shopifyProductId, product);
+
                 // 寫入 shopify_products mirror（fallback：無圖上傳成功）
                 try {
                   const fbCreatedImages = (fallbackCreated.images as Record<string, unknown>[]) || [];
@@ -640,6 +717,7 @@ Deno.serve(async (req: Request) => {
                     shop_domain: storeHost,
                     metafields: shopifyMetafields.length > 0 ? shopifyMetafields : null,
                     ...fbMfColumns,
+                    ...seoMirror,
                   };
                   if (product.rts_id) fbSpRow.id = product.rts_id;
                   await supabase.from("shopify_products").upsert(fbSpRow, { onConflict: "shopify_product_id" });
@@ -696,6 +774,8 @@ Deno.serve(async (req: Request) => {
         console.log(`[publish-to-shopify] ✅ SUCCESS: "${product.title}" → Shopify ID: ${shopifyProductId}`);
         await supabase.from("products").update({ status: "success", shopify_product_id: shopifyProductId, error_message: imageWarning || null, source: "local" }).eq("id", product.id);
 
+        const seoMirror = await applyProductSeoMirror(storeHost, shopifyAccessToken, shopifyProductId, product);
+
         // ── Write to shopify_products mirror table ────────────────────────
         try {
           const spImages = (createdProduct.images as Record<string, unknown>[]) || [];
@@ -730,6 +810,7 @@ Deno.serve(async (req: Request) => {
             shop_domain: storeHost,
             metafields: shopifyMetafields.length > 0 ? shopifyMetafields : null,
             ...mfColumns,
+            ...seoMirror,
           };
           // id = ready_to_shopify row uuid (1:1 trace), when provided
           if (product.rts_id) spRow.id = product.rts_id;
