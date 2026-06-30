@@ -283,6 +283,53 @@ function renderIllustrationPdfContent(
   return <Image src={(productImage || referenceImage)!} style={styles.productImage} />;
 }
 
+function renderDescriptionPdfContent(
+  item: QuotationPDFData['items'][0] | undefined,
+  formatDimensions: (item: QuotationPDFData['items'][0] | undefined) => string,
+  View: ReactPdfModule['View'],
+  Text: ReactPdfModule['Text'],
+) {
+  const dimText = formatDimensions(item);
+  const rows = [
+    { label: '\u985E\u5225', value: item?.category || '' },
+    { label: '\u898F\u683C(mm)', value: dimText ? `${dimText}mm` : '' },
+    { label: '\u984F\u8272', value: item?.color || '' },
+  ];
+
+  return (
+    <View style={{ width: '100%', flex: 1, flexDirection: 'column' }}>
+      {rows.map((row, i) => (
+        <View
+          key={row.label}
+          style={{
+            flex: 1,
+            flexDirection: 'row',
+            minHeight: 18,
+            borderBottomWidth: i < rows.length - 1 ? 0.5 : 0,
+            borderColor: '#ddd',
+          }}
+        >
+          <View
+            style={{
+              width: '50%',
+              justifyContent: 'center',
+              alignItems: 'center',
+              paddingHorizontal: 2,
+              borderRightWidth: 0.5,
+              borderColor: '#ddd',
+            }}
+          >
+            <Text style={styles.tableCellText}>{row.label}</Text>
+          </View>
+          <View style={{ width: '50%', justifyContent: 'center', paddingHorizontal: 2 }}>
+            <Text style={styles.descValueText}>{row.value}</Text>
+          </View>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 // ─── Styles (plain object — StyleSheet.create is a pass-through) ─────────────
 
 const styles: Record<string, any> = {
@@ -299,7 +346,7 @@ const styles: Record<string, any> = {
   tableHeader: { display: 'flex', flexDirection: 'row', backgroundColor: '#f5f5f5', borderBottomWidth: 0.5, borderColor: '#333', minHeight: 24, alignItems: 'center' },
   tableRow: { display: 'flex', flexDirection: 'row', borderBottomWidth: 0.5, borderColor: '#ddd', minHeight: 60, alignItems: 'stretch' },
   colIndex: { width: '5%', display: 'flex', justifyContent: 'center', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd', paddingVertical: 4 },
-  colDesc: { width: '12%', paddingLeft: 4, paddingRight: 4, paddingTop: 4, paddingBottom: 4, display: 'flex', flexDirection: 'column', justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
+  colDesc: { width: '12%', paddingLeft: 0, paddingRight: 0, paddingTop: 0, paddingBottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'stretch', borderRightWidth: 0.5, borderColor: '#ddd' },
   colMaterial: { width: '26%', paddingLeft: 4, paddingRight: 4, paddingTop: 4, paddingBottom: 4, display: 'flex', flexDirection: 'column', justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
   colRemarks: { width: '9%', paddingLeft: 4, paddingRight: 4, paddingTop: 4, paddingBottom: 4, display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', borderRightWidth: 0.5, borderColor: '#ddd' },
   colImage: { width: '15%', paddingLeft: 4, paddingRight: 4, paddingTop: 4, paddingBottom: 4, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
@@ -310,6 +357,7 @@ const styles: Record<string, any> = {
   tableHeaderText: { fontSize: 6.5, fontWeight: 700, textAlign: 'center', lineHeight: 1.4 },
   tableCellText: { fontSize: 7, textAlign: 'center', lineHeight: 1.3 },
   tableCellTextLeft: { fontSize: 7, textAlign: 'left', lineHeight: 1.3, paddingLeft: 4 },
+  descValueText: { fontSize: 6.5, textAlign: 'left', lineHeight: 1.3, paddingLeft: 2 },
   productImage: { width: 50, height: 50, objectFit: 'cover', borderRadius: 2 },
   remarksImage: { width: '100%', objectFit: 'contain', marginTop: 2, marginBottom: 2 },
   installRow: { flexDirection: 'row', borderBottomWidth: 0.5, borderColor: '#ddd', minHeight: 28 },
@@ -403,7 +451,7 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
         <View style={styles.table}>
           <View style={styles.tableHeader}>
             <View style={styles.colIndex}><Text style={styles.tableHeaderText}>{'\u5E8F\u865F'}</Text></View>
-            <View style={styles.colDesc}><Text style={styles.tableHeaderText}>{'\u7522\u54C1\u540D\u7A31'}</Text></View>
+            <View style={styles.colDesc}><Text style={styles.tableHeaderText}>{'\u8AAA\u660E'}</Text></View>
             <View style={styles.colMaterial}><Text style={styles.tableHeaderText}>{'\u6750\u8CEA\u53CA\u660E\u7D30'}</Text></View>
             <View style={styles.colRemarks}><Text style={styles.tableHeaderText}>{'\u5099\u6CE8'}</Text></View>
             <View style={styles.colImage}><Text style={styles.tableHeaderText}>{'\u5716\u4F8B'}</Text></View>
@@ -433,22 +481,11 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
               <View style={styles.tableRow} key={idx} wrap={false}>
                 <View style={styles.colIndex}><Text style={styles.tableCellText}>{idx + 1}</Text></View>
                 <View style={styles.colDesc}>
-                  <View style={{ width: '100%' }}>
-                    <Text style={styles.tableCellTextLeft}>{item?.name || ''}</Text>
-                  </View>
+                  {renderDescriptionPdfContent(item, formatDimensions, View, Text)}
                 </View>
                 <View style={styles.colMaterial}>
                   <View style={{ width: '100%' }}>
                     <Text style={styles.tableCellTextLeft}>{item?.material || ''}</Text>
-                    {formatDimensions(item) ? (
-                      <Text style={{ fontSize: 6.5, color: '#555', marginTop: 2, textAlign: 'left', paddingLeft: 4, lineHeight: 1.3 }}>
-                        {formatDimensions(item)}mm {item?.color ? `/ ${item.color}` : ''}
-                      </Text>
-                    ) : item?.color ? (
-                      <Text style={{ fontSize: 6.5, color: '#555', marginTop: 2, textAlign: 'left', paddingLeft: 4, lineHeight: 1.3 }}>
-                        {item.color}
-                      </Text>
-                    ) : null}
                   </View>
                 </View>
                 <View style={styles.colRemarks}>

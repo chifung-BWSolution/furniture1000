@@ -1531,6 +1531,9 @@ export function QuotationDraftEditor({
                           尺寸(mm)
                         </th>
                         <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "80px" }}>
+                          顏色
+                        </th>
+                        <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "80px" }}>
                           成本價
                         </th>
                         <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "80px" }}>
@@ -1580,8 +1583,8 @@ export function QuotationDraftEditor({
                                 onDragEnd={clearQuoteRowDrag}
                               />
                             </td>
-                            {/* full-width description spans 圖片→成本價 (7 cols) */}
-                            <td className="py-2 pr-2" colSpan={7}>
+                            {/* full-width description spans 圖片→成本價 (8 cols) */}
+                            <td className="py-2 pr-2" colSpan={8}>
                               <input
                                 type="text"
                                 value={item.name || ""}
@@ -1741,6 +1744,18 @@ export function QuotationDraftEditor({
                                 className="w-12 rounded-md border border-border bg-background px-1 py-1.5 font-mono-data text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
                               />
                             </div>
+                          </td>
+                          {/* 顏色 */}
+                          <td className="py-2 pr-2">
+                            <input
+                              type="text"
+                              value={item.color || ""}
+                              placeholder="—"
+                              onChange={(e) =>
+                                updateItem(item.id, "color", e.target.value)
+                              }
+                              className="w-full min-w-[70px] rounded-md border border-border bg-background px-2 py-1.5 font-body text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                            />
                           </td>
                           {/* 成本價 */}
                           <td className="py-2 pr-2">
