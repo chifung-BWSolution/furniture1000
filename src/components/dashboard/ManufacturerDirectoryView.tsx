@@ -33,7 +33,6 @@ interface FactoryRecord {
   phone: string | null;
   location: string | null;
   project_number: number | null;
-  working_folder: string | null;
   join_date: string | null;
 }
 
@@ -183,9 +182,6 @@ export function ManufacturerDirectoryView() {
                 <TableHead className="font-display text-xs font-semibold w-[80px]">
                   訂單數
                 </TableHead>
-                <TableHead className="font-display text-xs font-semibold min-w-[140px]">
-                  工作檔案
-                </TableHead>
                 <TableHead className="font-display text-xs font-semibold w-[110px]">
                   加入日期
                 </TableHead>
@@ -238,14 +234,6 @@ export function ManufacturerDirectoryView() {
                       </span>
                     </TableCell>
                     <TableCell>
-                      <span
-                        className="font-mono-data text-[11px] text-muted-foreground line-clamp-2"
-                        title={factory.working_folder || undefined}
-                      >
-                        {factory.working_folder || '—'}
-                      </span>
-                    </TableCell>
-                    <TableCell>
                       <span className="font-mono-data text-[11px] text-muted-foreground">
                         {formatJoinDate(factory.join_date)}
                       </span>
@@ -270,7 +258,7 @@ export function ManufacturerDirectoryView() {
 
               {filteredFactories.length === 0 && !isLoading && (
                 <TableRow>
-                  <TableCell colSpan={9} className="h-32 text-center">
+                  <TableCell colSpan={8} className="h-32 text-center">
                     <div className="flex flex-col items-center gap-2 text-muted-foreground">
                       <Search className="h-8 w-8 opacity-30" />
                       <p className="font-body text-sm">沒有找到匹配的廠家</p>
