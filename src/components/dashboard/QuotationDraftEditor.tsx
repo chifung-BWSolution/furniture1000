@@ -18,8 +18,6 @@ import {
 import { cn } from "@/lib/utils";
 import { TermsRichEditor } from "@/components/dashboard/TermsRichEditor";
 import { RemarksRichEditor } from "@/components/dashboard/RemarksRichEditor";
-import { ColorSelector } from "@/components/dashboard/ColorSelector";
-import { matchMultipleColors } from "@/constants/color-map";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import { SubmitReviewModal } from "@/components/dashboard/SubmitReviewModal";
@@ -1029,7 +1027,7 @@ export function QuotationDraftEditor({
       quantity: 1,
       category: p.category?.trim() || "",
       material: p.material,
-      color: p.color ? matchMultipleColors(p.color) || p.color.trim() : "",
+      color: p.color?.trim() || "",
       remarks: p.remarks,
       dimensionLMm: p.dimensionLMm,
       dimensionWMm: p.dimensionWMm,
@@ -1749,11 +1747,12 @@ export function QuotationDraftEditor({
                           </td>
                           {/* 顏色 */}
                           <td className="py-2 pr-2">
-                            <ColorSelector
+                            <input
+                              type="text"
                               value={item.color || ""}
-                              onChange={(val) => updateItem(item.id, "color", val)}
                               placeholder="—"
-                              className="h-[34px] w-full min-w-[80px] text-xs"
+                              onChange={(e) => updateItem(item.id, "color", e.target.value)}
+                              className="w-full min-w-[80px] rounded-md border border-border bg-background px-2 py-1.5 font-body text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
                             />
                           </td>
                           {/* 成本價 */}

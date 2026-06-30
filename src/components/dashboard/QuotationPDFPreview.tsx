@@ -256,6 +256,130 @@ function wrapDimensionsAtStars(dimText: string, maxChars = 11): string[] {
   return lines;
 }
 
+type QuotationItem = QuotationPDFData['items'][0];
+type TablePageEntry = { item: QuotationItem; idx: number };
+
+const TABLE_HEADER_HEIGHT = 24;
+const INSTALL_ROW_HEIGHT = 36;
+// A4 usable ≈762pt; page 1 reserves space for logo, title, info, totals, delivery
+const FIRST_PAGE_TABLE_MAX = 340;
+const CONTINUATION_PAGE_TABLE_MAX = 620;
+
+function estimateQuotationRowHeight(item: QuotationItem | undefined): number {
+  if (!item) return 60;
+  if (item.isCustomTerm) return 28;
+
+  const materialLineCount = Math.max(1, (item.material || '').split('\n').filter((l) => l.trim()).length);
+  const materialHeight = materialLineCount * 10 + 20;
+
+  const remarksBlocks = parseRemarksContent(item.remarks, item.remarksImage).filter(
+    (b) => (b.type === 'text' && b.content.trim()) || b.type === 'image',
+  ).length;
+  const remarksHeight = remarksBlocks > 0 ? remarksBlocks * 45 : 24;
+
+  const hasBothImages = Boolean(item.image && item.referenceImage);
+  const imageHeight = hasBothImages ? 90 : item.image || item.referenceImage ? 70 : 24;
+
+  return Math.max(60, materialHeight, remarksHeight, imageHeight, 72);
+}
+
+function paginateQuotationTableRows(items: QuotationItem[]): TablePageEntry[][] {
+  if (items.length === 0) return [[]];
+
+  const pages: TablePageEntry[][] = [];
+  let current: TablePageEntry[] = [];
+  let usedHeight = TABLE_HEADER_HEIGHT;
+  let pageIndex = 0;
+
+  items.forEach((item, idx) => {
+    const rowHeight = estimateQuotationRowHeight(item);
+    const maxHeight = pageIndex === 0 ? FIRST_PAGE_TABLE_MAX : CONTINUATION_PAGE_TABLE_MAX;
+    const installReserve = idx === items.length - 1 ? INSTALL_ROW_HEIGHT : 0;
+
+    if (current.length > 0 && usedHeight + rowHeight + installReserve > maxHeight) {
+      pages.push(current);
+      current = [];
+      usedHeight = 0;
+      pageIndex += 1;
+    }
+
+    current.push({ item, idx });
+    usedHeight += rowHeight;
+  });
+
+  if (current.length > 0) pages.push(current);
+  return pages;
+}
+
+function tableSegmentStyle(pageIndex: number) {
+  return {
+    width: '100%',
+    borderLeftWidth: 0.5,
+    borderRightWidth: 0.5,
+    borderTopWidth: 0.5,
+    borderBottomWidth: 0.5,
+    borderColor: '#333',
+    marginTop: pageIndex === 0 ? 8 : 0,
+  };
+}
+
+function renderQuotationTableRow(
+  item: QuotationItem,
+  idx: number,
+  formatDimensions: (item: QuotationItem | undefined) => string,
+  View: ReactPdfModule['View'],
+  Text: ReactPdfModule['Text'],
+  Image: ReactPdfModule['Image'],
+  isLastInSegment: boolean,
+) {
+  const rowStyle = isLastInSegment
+    ? { ...styles.tableRow, borderBottomWidth: 0 }
+    : styles.tableRow;
+
+  if (item?.isCustomTerm) {
+    return (
+      <View style={{ display: 'flex', flexDirection: 'row', borderBottomWidth: isLastInSegment ? 0 : 0.5, borderColor: '#ddd', minHeight: 28, alignItems: 'stretch' }} key={idx} wrap={false}>
+        <View style={styles.colIndex}><Text style={styles.tableCellText}>{idx + 1}</Text></View>
+        <View style={{ width: '62%', paddingLeft: 6, paddingRight: 6, paddingTop: 6, paddingBottom: 6, display: 'flex', flexDirection: 'column', justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' }}>
+          <Text style={styles.tableCellTextLeft}>{item?.name || ''}</Text>
+        </View>
+        <View style={styles.colQty}><Text style={styles.tableCellText}>{item?.quantity || 0}</Text></View>
+        <View style={styles.colUnit}><Text style={styles.tableCellText}>{'\u5F35'}</Text></View>
+        <View style={styles.colUnitPrice}><Text style={styles.tableCellText}>HK${(item?.unitPrice || 0).toLocaleString()}</Text></View>
+        <View style={styles.colSubtotal}><Text style={styles.tableCellText}>HK${((item?.unitPrice || 0) * (item?.quantity || 0)).toLocaleString()}</Text></View>
+      </View>
+    );
+  }
+
+  return (
+    <View style={rowStyle} key={idx} wrap={false}>
+      <View style={styles.colIndex}><Text style={styles.tableCellText}>{idx + 1}</Text></View>
+      <View style={styles.colDesc}>
+        {renderDescriptionPdfContent(item, formatDimensions, View, Text)}
+      </View>
+      <View style={styles.colMaterial}>
+        <View style={{ width: '100%' }}>
+          <Text style={styles.tableCellTextLeft}>{item?.material || ''}</Text>
+        </View>
+      </View>
+      <View style={styles.colRemarks}>
+        <View style={{ width: '100%', flex: 1 }}>
+          {renderRemarksPdfContent(item?.remarks, item?.remarksImage, View, Image, Text)}
+        </View>
+      </View>
+      <View style={styles.colImage}>
+        <View style={{ width: '100%', flex: 1 }}>
+          {renderIllustrationPdfContent(item?.image, item?.referenceImage, View, Image, Text)}
+        </View>
+      </View>
+      <View style={styles.colQty}><Text style={styles.tableCellText}>{item?.quantity || 0}</Text></View>
+      <View style={styles.colUnit}><Text style={styles.tableCellText}>{'\u5F35'}</Text></View>
+      <View style={styles.colUnitPrice}><Text style={styles.tableCellText}>HK${(item?.unitPrice || 0).toLocaleString()}</Text></View>
+      <View style={styles.colSubtotal}><Text style={styles.tableCellText}>HK${((item?.unitPrice || 0) * (item?.quantity || 0)).toLocaleString()}</Text></View>
+    </View>
+  );
+}
+
 function renderRemarksPdfContent(
   remarks: string | undefined,
   legacyImage: string | undefined,
@@ -484,6 +608,42 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
     return parts.length > 0 ? parts.join('*') : '';
   };
 
+  const tablePages = paginateQuotationTableRows(items);
+
+  const renderTableHeader = () => (
+    <View style={styles.tableHeader}>
+      <View style={styles.colIndex}><Text style={styles.tableHeaderText}>{'\u5E8F\u865F'}</Text></View>
+      <View style={styles.colDesc}><Text style={styles.tableHeaderText}>{'\u8AAA\u660E'}</Text></View>
+      <View style={styles.colMaterial}><Text style={styles.tableHeaderText}>{'\u6750\u8CEA\u53CA\u660E\u7D30'}</Text></View>
+      <View style={styles.colRemarks}><Text style={styles.tableHeaderText}>{'\u5099\u6CE8'}</Text></View>
+      <View style={styles.colImage}><Text style={styles.tableHeaderText}>{'\u5716\u4F8B'}</Text></View>
+      <View style={styles.colQty}><Text style={styles.tableHeaderText}>{'\u6578\u91CF'}</Text></View>
+      <View style={styles.colUnit}><Text style={styles.tableHeaderText}>{'\u55AE\u4F4D'}</Text></View>
+      <View style={styles.colUnitPrice}><Text style={styles.tableHeaderText}>{'\u55AE\u50F9 (HKD)'}</Text></View>
+      <View style={styles.colSubtotal}><Text style={styles.tableHeaderText}>{'\u7E3D\u50F9 (HKD)'}</Text></View>
+    </View>
+  );
+
+  const renderInstallRow = () => (
+    <View style={{ ...styles.installRow, borderBottomWidth: 0 }} wrap={false}>
+      <View style={{ width: '57%', padding: 4, justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' }}>
+        <Text style={{ fontSize: 7, fontWeight: 700, lineHeight: 1.4 }}>{data.installationFee?.title || '\u50A2\u4FF1\u5B89\u88DD\u8CBB\u7528'}</Text>
+        <Text style={{ fontSize: 6.5, color: '#666', lineHeight: 1.4 }}>{data.installationFee?.subtitle || '\u5B89\u88DD\u6E05\u55AE\u4E2D\u50A2\u4FF1\u7522\u54C1\u4E26\u6E05\u7406\u5305\u88DD\u5783\u573E'}</Text>
+      </View>
+      <View style={{ width: '20%', padding: 4, justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' }}>
+        <Text style={{ fontSize: 6.5, textAlign: 'center', lineHeight: 1.4 }}>
+          {data.installationFee?.conditionText || '\u8A02\u55AE\u7E3D\u91D1\u984D\u6EFF HK$12,000\n\u5C07\u4E0D\u6536\u53D6\u5B89\u88DD\u8CBB\u7528'}
+        </Text>
+      </View>
+      <View style={{ width: '10.5%', padding: 4, justifyContent: 'center', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd' }}>
+        <Text style={styles.tableCellText}>{isFreeInstallation ? 'FREE' : (data.installationFee?.freeLabel || '\u53E6\u8B70')}</Text>
+      </View>
+      <View style={{ width: '12.5%', padding: 4, justifyContent: 'center', alignItems: 'center' }}>
+        <Text style={styles.tableCellText}>{isFreeInstallation ? 'FREE' : (data.installationFee?.chargeLabel || '\u53E6\u8B70')}</Text>
+      </View>
+    </View>
+  );
+
   return (
     <Document>
       {/* Page 1 - Product Table */}
@@ -509,83 +669,31 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
           </View>
         </View>
 
-        <View style={styles.table}>
-          <View style={styles.tableHeader}>
-            <View style={styles.colIndex}><Text style={styles.tableHeaderText}>{'\u5E8F\u865F'}</Text></View>
-            <View style={styles.colDesc}><Text style={styles.tableHeaderText}>{'\u8AAA\u660E'}</Text></View>
-            <View style={styles.colMaterial}><Text style={styles.tableHeaderText}>{'\u6750\u8CEA\u53CA\u660E\u7D30'}</Text></View>
-            <View style={styles.colRemarks}><Text style={styles.tableHeaderText}>{'\u5099\u6CE8'}</Text></View>
-            <View style={styles.colImage}><Text style={styles.tableHeaderText}>{'\u5716\u4F8B'}</Text></View>
-            <View style={styles.colQty}><Text style={styles.tableHeaderText}>{'\u6578\u91CF'}</Text></View>
-            <View style={styles.colUnit}><Text style={styles.tableHeaderText}>{'\u55AE\u4F4D'}</Text></View>
-            <View style={styles.colUnitPrice}><Text style={styles.tableHeaderText}>{'\u55AE\u50F9 (HKD)'}</Text></View>
-            <View style={styles.colSubtotal}><Text style={styles.tableHeaderText}>{'\u7E3D\u50F9 (HKD)'}</Text></View>
-          </View>
-
-          {items.map((item, idx) => {
-            if (item?.isCustomTerm) {
-              // Description spans 說明→圖例 (4 cols: 12+26+9+15 = 62%); 數量/單位/單價/總價 keep their widths so columns align with product rows
-              return (
-                <View style={{ display: 'flex', flexDirection: 'row', borderBottomWidth: 0.5, borderColor: '#ddd', minHeight: 28, alignItems: 'stretch' }} key={idx} wrap={false}>
-                  <View style={styles.colIndex}><Text style={styles.tableCellText}>{idx + 1}</Text></View>
-                  <View style={{ width: '62%', paddingLeft: 6, paddingRight: 6, paddingTop: 6, paddingBottom: 6, display: 'flex', flexDirection: 'column', justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' }}>
-                    <Text style={styles.tableCellTextLeft}>{item?.name || ''}</Text>
-                  </View>
-                  <View style={styles.colQty}><Text style={styles.tableCellText}>{item?.quantity || 0}</Text></View>
-                  <View style={styles.colUnit}><Text style={styles.tableCellText}>{'\u5F35'}</Text></View>
-                  <View style={styles.colUnitPrice}><Text style={styles.tableCellText}>HK${(item?.unitPrice || 0).toLocaleString()}</Text></View>
-                  <View style={styles.colSubtotal}><Text style={styles.tableCellText}>HK${((item?.unitPrice || 0) * (item?.quantity || 0)).toLocaleString()}</Text></View>
-                </View>
-              );
-            }
-            return (
-              <View style={styles.tableRow} key={idx} wrap={false}>
-                <View style={styles.colIndex}><Text style={styles.tableCellText}>{idx + 1}</Text></View>
-                <View style={styles.colDesc}>
-                  {renderDescriptionPdfContent(item, formatDimensions, View, Text)}
-                </View>
-                <View style={styles.colMaterial}>
-                  <View style={{ width: '100%' }}>
-                    <Text style={styles.tableCellTextLeft}>{item?.material || ''}</Text>
-                  </View>
-                </View>
-                <View style={styles.colRemarks}>
-                  <View style={{ width: '100%', flex: 1 }}>
-                    {renderRemarksPdfContent(item?.remarks, item?.remarksImage, View, Image, Text)}
-                  </View>
-                </View>
-                <View style={styles.colImage}>
-                  <View style={{ width: '100%', flex: 1 }}>
-                    {renderIllustrationPdfContent(item?.image, item?.referenceImage, View, Image, Text)}
-                  </View>
-                </View>
-                <View style={styles.colQty}><Text style={styles.tableCellText}>{item?.quantity || 0}</Text></View>
-                <View style={styles.colUnit}><Text style={styles.tableCellText}>{'\u5F35'}</Text></View>
-                <View style={styles.colUnitPrice}><Text style={styles.tableCellText}>HK${(item?.unitPrice || 0).toLocaleString()}</Text></View>
-                <View style={styles.colSubtotal}><Text style={styles.tableCellText}>HK${((item?.unitPrice || 0) * (item?.quantity || 0)).toLocaleString()}</Text></View>
-              </View>
-            );
-          })}
-
-          {/* Installation Fee Row — column widths align with product row: title+condition span 77% (序號→單位), free=10.5% (單價), charge=12.5% (總價) */}
-          <View style={styles.installRow} wrap={false}>
-            <View style={{ width: '57%', padding: 4, justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' }}>
-              <Text style={{ fontSize: 7, fontWeight: 700, lineHeight: 1.4 }}>{data.installationFee?.title || '\u50A2\u4FF1\u5B89\u88DD\u8CBB\u7528'}</Text>
-              <Text style={{ fontSize: 6.5, color: '#666', lineHeight: 1.4 }}>{data.installationFee?.subtitle || '\u5B89\u88DD\u6E05\u55AE\u4E2D\u50A2\u4FF1\u7522\u54C1\u4E26\u6E05\u7406\u5305\u88DD\u5783\u573E'}</Text>
+        {tablePages.map((pageRows, pageIdx) => {
+          const isLastTablePage = pageIdx === tablePages.length - 1;
+          return (
+            <View
+              key={`table-page-${pageIdx}`}
+              style={tableSegmentStyle(pageIdx)}
+              wrap={false}
+              break={pageIdx > 0}
+            >
+              {pageIdx === 0 ? renderTableHeader() : null}
+              {pageRows.map(({ item, idx }, rowIdx) =>
+                renderQuotationTableRow(
+                  item,
+                  idx,
+                  formatDimensions,
+                  View,
+                  Text,
+                  Image,
+                  rowIdx === pageRows.length - 1 && !isLastTablePage,
+                ),
+              )}
+              {isLastTablePage ? renderInstallRow() : null}
             </View>
-            <View style={{ width: '20%', padding: 4, justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' }}>
-              <Text style={{ fontSize: 6.5, textAlign: 'center', lineHeight: 1.4 }}>
-                {data.installationFee?.conditionText || '\u8A02\u55AE\u7E3D\u91D1\u984D\u6EFF HK$12,000\n\u5C07\u4E0D\u6536\u53D6\u5B89\u88DD\u8CBB\u7528'}
-              </Text>
-            </View>
-            <View style={{ width: '10.5%', padding: 4, justifyContent: 'center', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd' }}>
-              <Text style={styles.tableCellText}>{isFreeInstallation ? 'FREE' : (data.installationFee?.freeLabel || '\u53E6\u8B70')}</Text>
-            </View>
-            <View style={{ width: '12.5%', padding: 4, justifyContent: 'center', alignItems: 'center' }}>
-              <Text style={styles.tableCellText}>{isFreeInstallation ? 'FREE' : (data.installationFee?.chargeLabel || '\u53E6\u8B70')}</Text>
-            </View>
-          </View>
-        </View>
+          );
+        })}
 
         {discountValue > 0 ? (
           <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 6, paddingRight: 4 }}>

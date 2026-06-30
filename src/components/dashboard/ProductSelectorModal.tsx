@@ -2,11 +2,10 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { Search, X, ChevronLeft, ChevronRight, Package, Loader2, Check } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { fetchFactories } from '@/lib/factorySupabase';
-import { matchMultipleColors } from '@/constants/color-map';
 
 function normalizeProductColor(raw?: string | null): string | undefined {
   if (!raw?.trim()) return undefined;
-  return matchMultipleColors(raw) || raw.trim();
+  return raw.trim();
 }
 
 interface MasterProduct {
