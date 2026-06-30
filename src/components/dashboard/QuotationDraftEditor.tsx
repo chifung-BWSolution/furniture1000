@@ -675,23 +675,6 @@ export function QuotationDraftEditor({
     setItems((prev) => [...prev, createBlankProductItem()]);
   };
 
-  const [lastFocusedItemId, setLastFocusedItemId] = useState<string | null>(null);
-
-  const insertBlankRowBelow = () => {
-    const newItem = createBlankProductItem();
-    setItems((prev) => {
-      if (!lastFocusedItemId) {
-        return [...prev, newItem];
-      }
-      const idx = prev.findIndex((i) => i.id === lastFocusedItemId);
-      if (idx === -1) return [...prev, newItem];
-      const next = [...prev];
-      next.splice(idx + 1, 0, newItem);
-      return next;
-    });
-    setLastFocusedItemId(newItem.id);
-  };
-
   const addCustomTerm = () => {
     setItems((prev) => [
       ...prev,
@@ -1486,7 +1469,7 @@ export function QuotationDraftEditor({
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
-                      onClick={insertBlankRowBelow}
+                      onClick={addItem}
                       className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-border px-3 py-1.5 font-body text-sm font-medium text-foreground/80 transition-colors hover:bg-muted/50"
                     >
                       <Plus className="h-3.5 w-3.5" />
@@ -1573,7 +1556,6 @@ export function QuotationDraftEditor({
                               dropInsertIndex,
                               "border-b border-border/50 last:border-b-0 bg-amber-500/5",
                             )}
-                            onFocusCapture={() => setLastFocusedItemId(item.id)}
                             onDragOver={(e) => handleQuoteRowDragOver(e, index)}
                             onDrop={handleQuoteRowDrop}
                           >
@@ -1648,7 +1630,6 @@ export function QuotationDraftEditor({
                             dropInsertIndex,
                             "border-b border-border/50 last:border-b-0",
                           )}
-                          onFocusCapture={() => setLastFocusedItemId(item.id)}
                           onDragOver={(e) => handleQuoteRowDragOver(e, index)}
                           onDrop={handleQuoteRowDrop}
                         >
