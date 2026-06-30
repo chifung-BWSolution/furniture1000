@@ -236,34 +236,36 @@ function parseHtmlForPdf(html: string): PdfBlock[] {
 function renderRemarksPdfContent(
   remarks: string | undefined,
   legacyImage: string | undefined,
+  View: ReactPdfModule['View'],
   Image: ReactPdfModule['Image'],
   Text: ReactPdfModule['Text'],
 ) {
-  const blocks = parseRemarksContent(remarks, legacyImage);
-  return blocks.map((block, i) => {
-    if (block.type === 'text' && block.content.trim()) {
-      return (
-        <Text key={`remarks-text-${i}`} style={styles.tableCellTextLeft}>
-          {block.content}
-        </Text>
-      );
-    }
-    if (block.type === 'image') {
-      return (
-        <Image
-          key={`remarks-img-${i}`}
-          src={block.src}
-          style={styles.remarksImage}
-        />
-      );
-    }
-    return null;
-  });
+  const blocks = parseRemarksContent(remarks, legacyImage).filter(
+    (block) =>
+      (block.type === 'text' && block.content.trim()) || block.type === 'image',
+  );
+
+  if (blocks.length === 0) return null;
+
+  return (
+    <View style={{ width: '100%', flex: 1, flexDirection: 'column' }}>
+      {blocks.map((block, i) => (
+        <View key={`remarks-block-${i}`} style={styles.cellStackSlot}>
+          {block.type === 'text' ? (
+            <Text style={styles.remarksCellText}>{block.content}</Text>
+          ) : (
+            <Image src={block.src} style={styles.cellStackImage} />
+          )}
+        </View>
+      ))}
+    </View>
+  );
 }
 
 function renderIllustrationPdfContent(
   productImage: string | undefined,
   referenceImage: string | undefined,
+  View: ReactPdfModule['View'],
   Image: ReactPdfModule['Image'],
   Text: ReactPdfModule['Text'],
 ) {
@@ -271,17 +273,31 @@ function renderIllustrationPdfContent(
   const hasReference = Boolean(referenceImage);
 
   if (!hasProduct && !hasReference) {
-    return <Text style={{ fontSize: 6, color: '#999' }}>{'\u2014'}</Text>;
+    return (
+      <View style={styles.cellStackSlot}>
+        <Text style={{ fontSize: 6, color: '#999', textAlign: 'center' }}>{'\u2014'}</Text>
+      </View>
+    );
   }
 
   if (hasProduct && hasReference) {
-    return [
-      <Image key="ill-product" src={productImage!} style={styles.remarksImage} />,
-      <Image key="ill-reference" src={referenceImage!} style={styles.remarksImage} />,
-    ];
+    return (
+      <View style={{ width: '100%', flex: 1, flexDirection: 'column' }}>
+        <View style={{ ...styles.cellStackSlot, borderBottomWidth: 0.5, borderColor: '#ddd' }}>
+          <Image src={productImage!} style={styles.cellStackImage} />
+        </View>
+        <View style={styles.cellStackSlot}>
+          <Image src={referenceImage!} style={styles.cellStackImage} />
+        </View>
+      </View>
+    );
   }
 
-  return <Image src={(productImage || referenceImage)!} style={styles.productImage} />;
+  return (
+    <View style={styles.cellStackSlot}>
+      <Image src={(productImage || referenceImage)!} style={styles.productImage} />
+    </View>
+  );
 }
 
 function renderDescriptionPdfContent(
@@ -361,8 +377,8 @@ const styles: Record<string, any> = {
   colIndex: { width: '5%', display: 'flex', justifyContent: 'center', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd', paddingVertical: 4 },
   colDesc: { width: '16%', paddingLeft: 0, paddingRight: 0, paddingTop: 0, paddingBottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'stretch', borderRightWidth: 0.5, borderColor: '#ddd' },
   colMaterial: { width: '22%', paddingLeft: 4, paddingRight: 4, paddingTop: 4, paddingBottom: 4, display: 'flex', flexDirection: 'column', justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
-  colRemarks: { width: '9%', paddingLeft: 4, paddingRight: 4, paddingTop: 4, paddingBottom: 4, display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', borderRightWidth: 0.5, borderColor: '#ddd' },
-  colImage: { width: '15%', paddingLeft: 4, paddingRight: 4, paddingTop: 4, paddingBottom: 4, display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
+  colRemarks: { width: '9%', paddingLeft: 2, paddingRight: 2, paddingTop: 0, paddingBottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'stretch', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
+  colImage: { width: '15%', paddingLeft: 0, paddingRight: 0, paddingTop: 0, paddingBottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'stretch', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
   colQty: { width: '5%', display: 'flex', justifyContent: 'center', alignItems: 'center', textAlign: 'center', borderRightWidth: 0.5, borderColor: '#ddd', paddingVertical: 4 },
   colUnit: { width: '5%', display: 'flex', justifyContent: 'center', alignItems: 'center', textAlign: 'center', borderRightWidth: 0.5, borderColor: '#ddd', paddingVertical: 4 },
   colUnitPrice: { width: '10.5%', display: 'flex', justifyContent: 'center', alignItems: 'center', textAlign: 'center', borderRightWidth: 0.5, borderColor: '#ddd', paddingVertical: 4 },
@@ -373,8 +389,11 @@ const styles: Record<string, any> = {
   descValueText: { fontSize: 6.5, textAlign: 'left', lineHeight: 1.3, paddingLeft: 2 },
   descDimLabelText: { fontSize: 6, textAlign: 'left', lineHeight: 1.2, paddingLeft: 2, color: '#555' },
   descDimValueText: { fontSize: 6, textAlign: 'left', lineHeight: 1.2, paddingLeft: 2 },
-  productImage: { width: 50, height: 50, objectFit: 'cover', borderRadius: 2 },
+  productImage: { width: 50, height: 50, objectFit: 'contain', borderRadius: 2 },
   remarksImage: { width: '100%', objectFit: 'contain', marginTop: 2, marginBottom: 2 },
+  cellStackSlot: { flex: 1, width: '100%', justifyContent: 'center', alignItems: 'center', paddingVertical: 2, paddingHorizontal: 2 },
+  cellStackImage: { width: '100%', objectFit: 'contain' },
+  remarksCellText: { fontSize: 7, textAlign: 'center', lineHeight: 1.3 },
   installRow: { flexDirection: 'row', borderBottomWidth: 0.5, borderColor: '#ddd', minHeight: 28 },
   totalRow: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 6, paddingRight: 4 },
   totalLabel: { fontSize: 10, fontWeight: 700, marginRight: 8, lineHeight: 1.4 },
@@ -504,19 +523,13 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
                   </View>
                 </View>
                 <View style={styles.colRemarks}>
-                  <View style={{ width: '100%' }}>
-                    {renderRemarksPdfContent(item?.remarks, item?.remarksImage, Image, Text)}
+                  <View style={{ width: '100%', flex: 1 }}>
+                    {renderRemarksPdfContent(item?.remarks, item?.remarksImage, View, Image, Text)}
                   </View>
                 </View>
-                <View
-                  style={{
-                    ...styles.colImage,
-                    justifyContent:
-                      item?.image && item?.referenceImage ? 'flex-start' : 'center',
-                  }}
-                >
-                  <View style={{ width: item?.image && item?.referenceImage ? '100%' : undefined }}>
-                    {renderIllustrationPdfContent(item?.image, item?.referenceImage, Image, Text)}
+                <View style={styles.colImage}>
+                  <View style={{ width: '100%', flex: 1 }}>
+                    {renderIllustrationPdfContent(item?.image, item?.referenceImage, View, Image, Text)}
                   </View>
                 </View>
                 <View style={styles.colQty}><Text style={styles.tableCellText}>{item?.quantity || 0}</Text></View>
