@@ -65,7 +65,9 @@ Deno.serve(async (req: Request) => {
     // Master DB stores title-case status values (e.g. "Active"); ilike matches user-facing "active".
     let factoriesQuery = masterSupabase
       .from("factories")
-      .select("id, display_name, factory_code, created_at")
+      .select(
+        "id, display_name, factory_code, created_at, contact_person, phone, location, project_number, working_folder, join_date"
+      )
       .ilike("status", "active")
       .order("display_name", { ascending: true });
 
