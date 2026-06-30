@@ -233,6 +233,29 @@ function parseHtmlForPdf(html: string): PdfBlock[] {
   return results;
 }
 
+function wrapDimensionsAtStars(dimText: string, maxChars = 11): string[] {
+  if (!dimText) return [];
+  if (dimText.length <= maxChars) return [dimText];
+
+  const parts = dimText.split('*').filter(Boolean);
+  if (parts.length <= 1) return [dimText];
+
+  const lines: string[] = [];
+  let current = '';
+  for (let i = 0; i < parts.length; i++) {
+    const withStar = i < parts.length - 1 ? `${parts[i]}*` : parts[i];
+    const combined = current ? `${current}${withStar}` : withStar;
+    if (combined.length > maxChars && current) {
+      lines.push(current);
+      current = withStar;
+    } else {
+      current = combined;
+    }
+  }
+  if (current) lines.push(current);
+  return lines;
+}
+
 function renderRemarksPdfContent(
   remarks: string | undefined,
   legacyImage: string | undefined,
@@ -283,7 +306,7 @@ function renderIllustrationPdfContent(
   if (hasProduct && hasReference) {
     return (
       <View style={{ width: '100%', flex: 1, flexDirection: 'column' }}>
-        <View style={{ ...styles.cellStackSlot, borderBottomWidth: 0.5, borderColor: '#ddd' }}>
+        <View style={styles.cellStackSlot}>
           <Image src={productImage!} style={styles.cellStackImage} />
         </View>
         <View style={styles.cellStackSlot}>
@@ -322,9 +345,9 @@ function renderDescriptionPdfContent(
         <View
           key={row.label}
           style={{
-            flex: row.kind === 'dimensions' ? 1.15 : 1,
+            flex: row.kind === 'dimensions' ? 1.3 : 1,
             flexDirection: 'row',
-            minHeight: row.kind === 'dimensions' ? 22 : 18,
+            minHeight: row.kind === 'dimensions' ? 26 : 18,
             borderBottomWidth: i < rows.length - 1 ? 0.5 : 0,
             borderColor: '#ddd',
           }}
@@ -344,9 +367,13 @@ function renderDescriptionPdfContent(
           {row.kind === 'dimensions' ? (
             <View style={{ width: '50%', justifyContent: 'center', paddingHorizontal: 2, paddingVertical: 1 }}>
               <Text style={styles.descDimLabelText}>W*D*H</Text>
-              {row.dimText ? (
-                <Text style={styles.descDimValueText}>{`${row.dimText}mm`}</Text>
-              ) : null}
+              {row.dimText
+                ? wrapDimensionsAtStars(row.dimText).map((line, li) => (
+                    <Text key={`dim-line-${li}`} style={styles.descDimValueText}>
+                      {line}
+                    </Text>
+                  ))
+                : null}
             </View>
           ) : (
             <View style={{ width: '50%', justifyContent: 'center', paddingHorizontal: 2 }}>
@@ -388,7 +415,7 @@ const styles: Record<string, any> = {
   tableCellTextLeft: { fontSize: 7, textAlign: 'left', lineHeight: 1.3, paddingLeft: 4 },
   descValueText: { fontSize: 6.5, textAlign: 'left', lineHeight: 1.3, paddingLeft: 2 },
   descDimLabelText: { fontSize: 6, textAlign: 'left', lineHeight: 1.2, paddingLeft: 2, color: '#555' },
-  descDimValueText: { fontSize: 6, textAlign: 'left', lineHeight: 1.2, paddingLeft: 2 },
+  descDimValueText: { fontSize: 6, textAlign: 'left', lineHeight: 1.2, paddingLeft: 2, width: '100%' },
   productImage: { width: 50, height: 50, objectFit: 'contain', borderRadius: 2 },
   remarksImage: { width: '100%', objectFit: 'contain', marginTop: 2, marginBottom: 2 },
   cellStackSlot: { flex: 1, width: '100%', justifyContent: 'center', alignItems: 'center', paddingVertical: 2, paddingHorizontal: 2 },
