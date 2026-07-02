@@ -315,18 +315,20 @@ function ImageUploadModal({
 }
 
 // Sub-component: Reference Image Cell (modal upload) — editor-only sizing
-const QUOTE_EDITOR_IMAGE_CELL_PX = 140;
+const QUOTE_CARD_IMAGE_PX = 180;
 
 function ReferenceImageCell({
   value,
   onChange,
   modalTitle = "上傳圖片",
-  sizePx = QUOTE_EDITOR_IMAGE_CELL_PX,
+  sizePx = QUOTE_CARD_IMAGE_PX,
+  imageFit = "contain",
 }: {
   value: string;
   onChange: (url: string) => void;
   modalTitle?: string;
   sizePx?: number;
+  imageFit?: "cover" | "contain";
 }) {
   const [modalOpen, setModalOpen] = useState(false);
 
@@ -340,7 +342,14 @@ function ReferenceImageCell({
       >
         {value ? (
           <>
-            <img src={value} alt="" className="h-full w-full object-cover" />
+            <img
+              src={value}
+              alt=""
+              className={cn(
+                "h-full w-full bg-muted/20",
+                imageFit === "contain" ? "object-contain" : "object-cover",
+              )}
+            />
             <button
               type="button"
               onClick={(e) => {
@@ -397,6 +406,9 @@ const QUOTE_NUMBER_INPUT_CLASS =
 
 const QUOTE_COMPACT_NUMBER_INPUT_CLASS = `${QUOTE_NUMBER_INPUT_CLASS} min-w-0`;
 
+/** Left column width — 類別、顏色、備註等短文字欄 */
+const QUOTE_LEFT_COL_CLASS = "w-[15em] max-w-full shrink-0";
+
 function QuoteProductItemCard({
   item,
   index,
@@ -437,10 +449,10 @@ function QuoteProductItemCard({
           <QuoteRowDragHandle itemId={item.id} onDragStart={onDragStart} onDragEnd={onDragEnd} />
         </div>
         <div className="min-w-0 flex-1 space-y-3">
-          {/* Row 1: 類別 · 尺寸 · 顏色 · 材質及明細 */}
-          <div className="flex flex-wrap items-start gap-3">
-            <div className="flex shrink-0 flex-wrap items-start gap-3">
-              <QuoteFieldBlock label="類別" className="w-[15em] max-w-full">
+          {/* Row 1: 類別 · 尺寸 · 顏色 ｜ 材質及明細 */}
+          <div className="flex items-start gap-3">
+            <div className={cn(QUOTE_LEFT_COL_CLASS, "space-y-2")}>
+              <QuoteFieldBlock label="類別">
                 <input
                   type="text"
                   value={item.category || ""}
@@ -450,7 +462,7 @@ function QuoteProductItemCard({
                   className={QUOTE_SHORT_TEXT_INPUT_CLASS}
                 />
               </QuoteFieldBlock>
-              <QuoteFieldBlock label="尺寸(mm), 長x闊x高" className="shrink-0">
+              <QuoteFieldBlock label="尺寸(mm), 長x闊x高">
                 <div className="flex w-fit items-center gap-0.5">
                   <input
                     type="number"
@@ -486,7 +498,7 @@ function QuoteProductItemCard({
                   />
                 </div>
               </QuoteFieldBlock>
-              <QuoteFieldBlock label="顏色" className="w-[15em] max-w-full">
+              <QuoteFieldBlock label="顏色">
                 <input
                   type="text"
                   value={item.color || ""}
@@ -497,7 +509,7 @@ function QuoteProductItemCard({
                 />
               </QuoteFieldBlock>
             </div>
-            <QuoteFieldBlock label="材質及明細" className="min-w-[min(100%,16rem)] flex-1">
+            <QuoteFieldBlock label="材質及明細" className="min-w-0 flex-1">
               <textarea
                 value={item.material || ""}
                 placeholder="材質及明細..."
@@ -508,24 +520,24 @@ function QuoteProductItemCard({
             </QuoteFieldBlock>
           </div>
 
-          {/* Row 2: 備註 */}
-          <QuoteFieldBlock label="備註">
-            <RemarksRichEditor
-              key={item.id}
-              value={item.remarks || ""}
-              legacyImage={item.remarksImage}
-              onChange={(val) => updateItem(item.id, "remarks", val)}
-            />
-          </QuoteFieldBlock>
-
-          {/* Row 3: 圖片 · 參考圖 · 數量 · 單位 · 成本價 · 單價 · 小計 */}
-          <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
+          {/* Row 2: 備註 · 圖片 · 參考圖 · 數量 · 單位 · 成本價 · 單價 · 小計 */}
+          <div className="flex flex-wrap items-end gap-x-3 gap-y-3">
+            <QuoteFieldBlock label="備註" className={QUOTE_LEFT_COL_CLASS}>
+              <RemarksRichEditor
+                key={item.id}
+                compact
+                value={item.remarks || ""}
+                legacyImage={item.remarksImage}
+                onChange={(val) => updateItem(item.id, "remarks", val)}
+              />
+            </QuoteFieldBlock>
             <QuoteFieldBlock label="圖片" className="shrink-0">
               <ReferenceImageCell
                 value={item.image || ""}
                 onChange={(url) => updateItem(item.id, "image", url)}
                 modalTitle="上傳產品圖片"
-                sizePx={140}
+                sizePx={QUOTE_CARD_IMAGE_PX}
+                imageFit="contain"
               />
             </QuoteFieldBlock>
             <QuoteFieldBlock label="參考圖" className="shrink-0">
@@ -533,7 +545,8 @@ function QuoteProductItemCard({
                 value={item.referenceImage || ""}
                 onChange={(url) => updateItem(item.id, "referenceImage", url)}
                 modalTitle="上傳參考圖"
-                sizePx={140}
+                sizePx={QUOTE_CARD_IMAGE_PX}
+                imageFit="contain"
               />
             </QuoteFieldBlock>
             <div className="ml-auto flex flex-wrap items-end justify-end gap-2">

@@ -64,12 +64,15 @@ interface RemarksRichEditorProps {
   value: string;
   legacyImage?: string;
   onChange: (serialized: string) => void;
+  /** Narrow layout for quote item cards — single-line text, smaller image previews */
+  compact?: boolean;
 }
 
 export function RemarksRichEditor({
   value,
   legacyImage,
   onChange,
+  compact = false,
 }: RemarksRichEditorProps) {
   const [blocks, setBlocks] = useState<RemarksBlock[]>(() =>
     parseRemarksContent(value, legacyImage),
@@ -201,7 +204,10 @@ export function RemarksRichEditor({
 
   return (
     <div
-      className="flex min-w-[220px] flex-col gap-1"
+      className={cn(
+        "flex flex-col gap-1",
+        compact ? "min-w-0 max-w-full" : "min-w-[220px]",
+      )}
       onDragLeave={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget as Node)) {
           clearDrag();
@@ -225,10 +231,13 @@ export function RemarksRichEditor({
               <textarea
                 value={block.content}
                 placeholder="備註文字..."
-                rows={2}
+                rows={compact ? 1 : 2}
                 onChange={(e) => updateTextBlock(block.id, e.target.value)}
                 onPaste={handlePasteImage}
-                className="w-full resize-y rounded-md border border-border bg-background px-2 py-1 font-body text-xs leading-snug text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                className={cn(
+                  "w-full resize-y rounded-md border border-border bg-background px-2 py-1 font-body text-xs leading-snug text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30",
+                  compact && "min-h-[34px]",
+                )}
               />
             </div>
           ) : (
@@ -237,7 +246,10 @@ export function RemarksRichEditor({
                 src={block.src}
                 alt=""
                 draggable={false}
-                className="max-h-20 w-full rounded border border-border object-contain"
+                className={cn(
+                  "w-full rounded border border-border object-contain",
+                  compact ? "max-h-24" : "max-h-20",
+                )}
               />
               <button
                 type="button"
