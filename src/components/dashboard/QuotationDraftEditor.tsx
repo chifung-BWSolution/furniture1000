@@ -353,19 +353,21 @@ function ReferenceImageCell({
   );
 }
 
-function InfoPanelTab({
+function InfoPanelColumn({
   title,
   collapsed,
   onToggle,
+  children,
 }: {
   title: string;
   collapsed: boolean;
   onToggle: () => void;
+  children: ReactNode;
 }) {
   return (
     <section
       className={cn(
-        "overflow-hidden rounded-xl border bg-card shadow-sm",
+        "self-start overflow-hidden rounded-xl border bg-card shadow-sm",
         !collapsed && "border-primary/35 ring-1 ring-primary/15",
       )}
     >
@@ -377,26 +379,16 @@ function InfoPanelTab({
         <h2 className="font-display text-sm font-bold text-foreground/80">{title}</h2>
         <ChevronDown
           className={cn(
-            "h-4 w-4 text-muted-foreground transition-transform",
+            "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
             !collapsed && "rotate-180",
           )}
         />
       </button>
-    </section>
-  );
-}
-
-function InfoPanelBody({
-  title,
-  children,
-}: {
-  title: string;
-  children: ReactNode;
-}) {
-  return (
-    <section className="rounded-xl border border-border bg-card px-4 pb-4 pt-3 shadow-sm">
-      <h3 className="mb-3 font-display text-sm font-bold text-foreground/80">{title}</h3>
-      {children}
+      {!collapsed && (
+        <div className="space-y-3 border-t border-border/60 px-3 pb-4 pt-3">
+          {children}
+        </div>
+      )}
     </section>
   );
 }
@@ -1213,333 +1205,310 @@ export function QuotationDraftEditor({
           </div>
 
           {/* Info panels + action buttons — above 報價內容 */}
-          <div className="mb-5 flex flex-col gap-3">
-            <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-              <div className="grid min-w-0 flex-1 grid-cols-2 gap-2 xl:grid-cols-4">
-                <InfoPanelTab
-                  title="公司資訊"
-                  collapsed={collapseCompany}
-                  onToggle={() => setCollapseCompany((v) => !v)}
-                />
-                <InfoPanelTab
-                  title="專案分類"
-                  collapsed={collapseProject}
-                  onToggle={() => setCollapseProject((v) => !v)}
-                />
-                <InfoPanelTab
-                  title="客戶資訊"
-                  collapsed={collapseClient}
-                  onToggle={() => setCollapseClient((v) => !v)}
-                />
-                <InfoPanelTab
-                  title="報價資訊"
-                  collapsed={collapseQuoteMeta}
-                  onToggle={() => setCollapseQuoteMeta((v) => !v)}
-                />
-              </div>
-
-              <div className="flex shrink-0 items-center justify-end gap-3 xl:pt-1">
-                <button
-                  type="button"
-                  onClick={() => setShowPDFPreview(true)}
-                  className="inline-flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-4 py-2 font-body text-sm font-medium text-primary transition-colors hover:bg-primary/10"
-                >
-                  <Eye className="h-4 w-4" />
-                  預覽 PDF
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSaveDraft}
-                  disabled={isSavingDraft}
-                  className={`inline-flex items-center gap-2 rounded-lg border px-4 py-2 font-body text-sm font-medium transition-colors ${
-                    isSavingDraft
-                      ? "border-border text-muted-foreground cursor-not-allowed opacity-60"
-                      : draftSavedAt
-                        ? "border-emerald-500/30 bg-emerald-500/5 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10"
-                        : "border-border text-foreground hover:bg-accent"
-                  }`}
-                >
-                  {isSavingDraft ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : draftSavedAt ? (
-                    <Check className="h-4 w-4" />
-                  ) : (
-                    <Save className="h-4 w-4" />
-                  )}
-                  {isSavingDraft
-                    ? "儲存中..."
-                    : draftSavedAt
-                      ? "已儲存"
-                      : "儲存草稿"}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowSubmitModal(true)}
-                  className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 font-body text-sm font-semibold text-primary-foreground shadow-md shadow-primary/20 transition-all hover:bg-primary/90 active:scale-[0.98]"
-                >
-                  <ShieldCheck className="h-4 w-4" />
-                  版本審核
-                </button>
-              </div>
-            </div>
-
-            {!collapseCompany && (
-              <InfoPanelBody title="公司資訊">
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                  <div>
-                    <label className="mb-1 block font-body text-xs text-muted-foreground">
-                      公司名稱
-                    </label>
-                    <div className="rounded-md border border-border/50 bg-muted/30 px-3 py-2 font-mono-data text-xs text-foreground/80">
-                      {companyInfo.name}
-                    </div>
-                  </div>
-                  <div className="sm:col-span-2 lg:col-span-3">
-                    <label className="mb-1 block font-body text-xs text-muted-foreground">
-                      地址
-                    </label>
-                    <textarea
-                      value={companyInfo.address}
-                      onChange={(e) =>
-                        setCompanyInfo((p) => ({
-                          ...p,
-                          address: e.target.value,
-                        }))
-                      }
-                      rows={2}
-                      className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1 block font-body text-xs text-muted-foreground">
-                      電話
-                    </label>
-                    <input
-                      type="text"
-                      value={companyInfo.phone}
-                      onChange={(e) =>
-                        setCompanyInfo((p) => ({ ...p, phone: e.target.value }))
-                      }
-                      className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1 block font-body text-xs text-muted-foreground">
-                      電郵
-                    </label>
-                    <input
-                      type="email"
-                      value={companyInfo.email}
-                      onChange={(e) =>
-                        setCompanyInfo((p) => ({ ...p, email: e.target.value }))
-                      }
-                      className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1 block font-body text-xs text-muted-foreground">
-                      網站
-                    </label>
-                    <input
-                      type="text"
-                      value={companyInfo.website}
-                      onChange={(e) =>
-                        setCompanyInfo((p) => ({
-                          ...p,
-                          website: e.target.value,
-                        }))
-                      }
-                      className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
-                    />
+          <div className="mb-5 flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+            <div className="grid min-w-0 flex-1 grid-cols-2 items-start gap-2 xl:grid-cols-4">
+              <InfoPanelColumn
+                title="公司資訊"
+                collapsed={collapseCompany}
+                onToggle={() => setCollapseCompany((v) => !v)}
+              >
+                <div>
+                  <label className="mb-1 block font-body text-xs text-muted-foreground">
+                    公司名稱
+                  </label>
+                  <div className="rounded-md border border-border/50 bg-muted/30 px-3 py-2 font-mono-data text-xs text-foreground/80">
+                    {companyInfo.name}
                   </div>
                 </div>
-              </InfoPanelBody>
-            )}
+                <div>
+                  <label className="mb-1 block font-body text-xs text-muted-foreground">
+                    地址
+                  </label>
+                  <textarea
+                    value={companyInfo.address}
+                    onChange={(e) =>
+                      setCompanyInfo((p) => ({
+                        ...p,
+                        address: e.target.value,
+                      }))
+                    }
+                    rows={2}
+                    className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block font-body text-xs text-muted-foreground">
+                    電話
+                  </label>
+                  <input
+                    type="text"
+                    value={companyInfo.phone}
+                    onChange={(e) =>
+                      setCompanyInfo((p) => ({ ...p, phone: e.target.value }))
+                    }
+                    className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block font-body text-xs text-muted-foreground">
+                    電郵
+                  </label>
+                  <input
+                    type="email"
+                    value={companyInfo.email}
+                    onChange={(e) =>
+                      setCompanyInfo((p) => ({ ...p, email: e.target.value }))
+                    }
+                    className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block font-body text-xs text-muted-foreground">
+                    網站
+                  </label>
+                  <input
+                    type="text"
+                    value={companyInfo.website}
+                    onChange={(e) =>
+                      setCompanyInfo((p) => ({
+                        ...p,
+                        website: e.target.value,
+                      }))
+                    }
+                    className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                  />
+                </div>
+              </InfoPanelColumn>
 
-            {!collapseProject && (
-              <InfoPanelBody title="專案分類">
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <div>
-                    <label className="mb-1.5 block font-body text-xs text-muted-foreground">
-                      客戶產業
-                    </label>
-                    <div className="flex flex-wrap gap-1.5">
-                      {formData.clientIndustry.map((tag) => (
-                        <span
-                          key={tag}
-                          className="inline-flex rounded-full bg-primary/10 px-2.5 py-0.5 font-body text-[10px] font-medium text-primary"
-                        >
-                          {tag}
-                        </span>
-                      ))}
-                      {formData.clientIndustry.length === 0 && (
-                        <span className="font-body text-xs text-muted-foreground/60">
-                          —
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div>
-                    <label className="mb-1.5 block font-body text-xs text-muted-foreground">
-                      報價類型
-                    </label>
-                    <div className="flex flex-wrap gap-1.5">
-                      {formData.quotationType.map((tag) => (
-                        <span
-                          key={tag}
-                          className="inline-flex rounded-full bg-orange-500/10 px-2.5 py-0.5 font-body text-[10px] font-medium text-orange-600 dark:text-orange-400"
-                        >
-                          {tag}
-                        </span>
-                      ))}
-                      {formData.quotationType.length === 0 && (
-                        <span className="font-body text-xs text-muted-foreground/60">
-                          —
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div>
-                    <label className="mb-1.5 block font-body text-xs text-muted-foreground">
-                      服務範圍
-                    </label>
-                    <div className="flex flex-wrap gap-1.5">
-                      {formData.serviceScope.map((tag) => (
-                        <span
-                          key={tag}
-                          className="inline-flex rounded-full bg-emerald-500/10 px-2.5 py-0.5 font-body text-[10px] font-medium text-emerald-600 dark:text-emerald-400"
-                        >
-                          {tag}
-                        </span>
-                      ))}
-                      {formData.serviceScope.length === 0 && (
-                        <span className="font-body text-xs text-muted-foreground/60">
-                          —
-                        </span>
-                      )}
-                    </div>
+              <InfoPanelColumn
+                title="專案分類"
+                collapsed={collapseProject}
+                onToggle={() => setCollapseProject((v) => !v)}
+              >
+                <div>
+                  <label className="mb-1.5 block font-body text-xs text-muted-foreground">
+                    客戶產業
+                  </label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {formData.clientIndustry.map((tag) => (
+                      <span
+                        key={tag}
+                        className="inline-flex rounded-full bg-primary/10 px-2.5 py-0.5 font-body text-[10px] font-medium text-primary"
+                      >
+                        {tag}
+                      </span>
+                    ))}
+                    {formData.clientIndustry.length === 0 && (
+                      <span className="font-body text-xs text-muted-foreground/60">
+                        —
+                      </span>
+                    )}
                   </div>
                 </div>
-                <p className="mt-3 font-body text-[10px] text-muted-foreground/60">
+                <div>
+                  <label className="mb-1.5 block font-body text-xs text-muted-foreground">
+                    報價類型
+                  </label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {formData.quotationType.map((tag) => (
+                      <span
+                        key={tag}
+                        className="inline-flex rounded-full bg-orange-500/10 px-2.5 py-0.5 font-body text-[10px] font-medium text-orange-600 dark:text-orange-400"
+                      >
+                        {tag}
+                      </span>
+                    ))}
+                    {formData.quotationType.length === 0 && (
+                      <span className="font-body text-xs text-muted-foreground/60">
+                        —
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div>
+                  <label className="mb-1.5 block font-body text-xs text-muted-foreground">
+                    服務範圍
+                  </label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {formData.serviceScope.map((tag) => (
+                      <span
+                        key={tag}
+                        className="inline-flex rounded-full bg-emerald-500/10 px-2.5 py-0.5 font-body text-[10px] font-medium text-emerald-600 dark:text-emerald-400"
+                      >
+                        {tag}
+                      </span>
+                    ))}
+                    {formData.serviceScope.length === 0 && (
+                      <span className="font-body text-xs text-muted-foreground/60">
+                        —
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <p className="font-body text-[10px] text-muted-foreground/60">
                   * 如需修改，請點擊「基本資訊」回到編輯頁
                 </p>
-              </InfoPanelBody>
-            )}
+              </InfoPanelColumn>
 
-            {!collapseClient && (
-              <InfoPanelBody title="客戶資訊">
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <div>
-                    <label className="mb-1 block font-body text-xs text-muted-foreground">
-                      姓名
-                    </label>
-                    <input
-                      type="text"
-                      value={clientInfo.name}
-                      onChange={(e) =>
-                        setClientInfo((p) => ({ ...p, name: e.target.value }))
-                      }
-                      className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1 block font-body text-xs text-muted-foreground">
-                      電話
-                    </label>
-                    <input
-                      type="text"
-                      value={clientInfo.phone}
-                      onChange={(e) =>
-                        setClientInfo((p) => ({ ...p, phone: e.target.value }))
-                      }
-                      className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1 block font-body text-xs text-muted-foreground">
-                      電郵
-                    </label>
-                    <input
-                      type="email"
-                      value={clientInfo.email}
-                      onChange={(e) =>
-                        setClientInfo((p) => ({ ...p, email: e.target.value }))
-                      }
-                      className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
-                    />
-                  </div>
+              <InfoPanelColumn
+                title="客戶資訊"
+                collapsed={collapseClient}
+                onToggle={() => setCollapseClient((v) => !v)}
+              >
+                <div>
+                  <label className="mb-1 block font-body text-xs text-muted-foreground">
+                    姓名
+                  </label>
+                  <input
+                    type="text"
+                    value={clientInfo.name}
+                    onChange={(e) =>
+                      setClientInfo((p) => ({ ...p, name: e.target.value }))
+                    }
+                    className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                  />
                 </div>
-              </InfoPanelBody>
-            )}
+                <div>
+                  <label className="mb-1 block font-body text-xs text-muted-foreground">
+                    電話
+                  </label>
+                  <input
+                    type="text"
+                    value={clientInfo.phone}
+                    onChange={(e) =>
+                      setClientInfo((p) => ({ ...p, phone: e.target.value }))
+                    }
+                    className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block font-body text-xs text-muted-foreground">
+                    電郵
+                  </label>
+                  <input
+                    type="email"
+                    value={clientInfo.email}
+                    onChange={(e) =>
+                      setClientInfo((p) => ({ ...p, email: e.target.value }))
+                    }
+                    className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                  />
+                </div>
+              </InfoPanelColumn>
 
-            {!collapseQuoteMeta && (
-              <InfoPanelBody title="報價資訊">
-                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-                  <div>
-                    <label className="mb-1 block font-body text-xs text-muted-foreground">
-                      報價單號
-                    </label>
-                    <input
-                      type="text"
-                      value={quoteMeta.projectName}
-                      onChange={(e) =>
-                        setQuoteMeta((p) => ({
-                          ...p,
-                          projectName: e.target.value,
-                        }))
-                      }
-                      className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1 block font-body text-xs text-muted-foreground">
-                      負責人
-                    </label>
-                    <input
-                      type="text"
-                      value={quoteMeta.pmName}
-                      onChange={(e) =>
-                        setQuoteMeta((p) => ({ ...p, pmName: e.target.value }))
-                      }
-                      className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
-                    />
-                  </div>
-                  <div>
-                    <label className="mb-1 block font-body text-xs text-muted-foreground">
-                      報價有效期 (天)
-                    </label>
-                    <input
-                      type="number"
-                      value={quoteMeta.validity}
-                      onChange={(e) =>
-                        setQuoteMeta((p) => ({
-                          ...p,
-                          validity: e.target.value,
-                        }))
-                      }
-                      className="w-full rounded-md border border-border bg-background px-3 py-2 font-mono-data text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
-                    />
-                  </div>
-                  <div className="sm:col-span-2 lg:col-span-4">
-                    <label className="mb-1 block font-body text-xs text-muted-foreground">
-                      送貨地址
-                    </label>
-                    <textarea
-                      value={quoteMeta.deliveryAddress}
-                      onChange={(e) =>
-                        setQuoteMeta((p) => ({
-                          ...p,
-                          deliveryAddress: e.target.value,
-                        }))
-                      }
-                      placeholder="請輸入送貨地址"
-                      rows={3}
-                      className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
-                    />
-                  </div>
+              <InfoPanelColumn
+                title="報價資訊"
+                collapsed={collapseQuoteMeta}
+                onToggle={() => setCollapseQuoteMeta((v) => !v)}
+              >
+                <div>
+                  <label className="mb-1 block font-body text-xs text-muted-foreground">
+                    報價單號
+                  </label>
+                  <input
+                    type="text"
+                    value={quoteMeta.projectName}
+                    onChange={(e) =>
+                      setQuoteMeta((p) => ({
+                        ...p,
+                        projectName: e.target.value,
+                      }))
+                    }
+                    className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                  />
                 </div>
-              </InfoPanelBody>
-            )}
+                <div>
+                  <label className="mb-1 block font-body text-xs text-muted-foreground">
+                    負責人
+                  </label>
+                  <input
+                    type="text"
+                    value={quoteMeta.pmName}
+                    onChange={(e) =>
+                      setQuoteMeta((p) => ({ ...p, pmName: e.target.value }))
+                    }
+                    className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block font-body text-xs text-muted-foreground">
+                    報價有效期 (天)
+                  </label>
+                  <input
+                    type="number"
+                    value={quoteMeta.validity}
+                    onChange={(e) =>
+                      setQuoteMeta((p) => ({
+                        ...p,
+                        validity: e.target.value,
+                      }))
+                    }
+                    className="w-full rounded-md border border-border bg-background px-3 py-2 font-mono-data text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block font-body text-xs text-muted-foreground">
+                    送貨地址
+                  </label>
+                  <textarea
+                    value={quoteMeta.deliveryAddress}
+                    onChange={(e) =>
+                      setQuoteMeta((p) => ({
+                        ...p,
+                        deliveryAddress: e.target.value,
+                      }))
+                    }
+                    placeholder="請輸入送貨地址"
+                    rows={3}
+                    className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                  />
+                </div>
+              </InfoPanelColumn>
+            </div>
+
+            <div className="flex shrink-0 items-center justify-end gap-3 xl:pt-1">
+              <button
+                type="button"
+                onClick={() => setShowPDFPreview(true)}
+                className="inline-flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-4 py-2 font-body text-sm font-medium text-primary transition-colors hover:bg-primary/10"
+              >
+                <Eye className="h-4 w-4" />
+                預覽 PDF
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveDraft}
+                disabled={isSavingDraft}
+                className={`inline-flex items-center gap-2 rounded-lg border px-4 py-2 font-body text-sm font-medium transition-colors ${
+                  isSavingDraft
+                    ? "border-border text-muted-foreground cursor-not-allowed opacity-60"
+                    : draftSavedAt
+                      ? "border-emerald-500/30 bg-emerald-500/5 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10"
+                      : "border-border text-foreground hover:bg-accent"
+                }`}
+              >
+                {isSavingDraft ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : draftSavedAt ? (
+                  <Check className="h-4 w-4" />
+                ) : (
+                  <Save className="h-4 w-4" />
+                )}
+                {isSavingDraft
+                  ? "儲存中..."
+                  : draftSavedAt
+                    ? "已儲存"
+                    : "儲存草稿"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowSubmitModal(true)}
+                className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 font-body text-sm font-semibold text-primary-foreground shadow-md shadow-primary/20 transition-all hover:bg-primary/90 active:scale-[0.98]"
+              >
+                <ShieldCheck className="h-4 w-4" />
+                版本審核
+              </button>
+            </div>
           </div>
 
           <div className="space-y-5">
