@@ -347,7 +347,7 @@ function renderQuotationTableRow(
           <Text style={styles.tableCellTextLeft}>{item?.name || ''}</Text>
         </View>
         <View style={styles.colQty}><Text style={styles.tableCellText}>{item?.quantity || 0}</Text></View>
-        <View style={styles.colUnit}><Text style={styles.tableCellText}>{'\u5F35'}</Text></View>
+        <View style={styles.colUnit}><Text style={styles.tableCellText}>{item?.unit || ''}</Text></View>
         <View style={styles.colUnitPrice}><Text style={styles.tableCellText}>HK${(item?.unitPrice || 0).toLocaleString()}</Text></View>
         <View style={styles.colSubtotal}><Text style={styles.tableCellText}>HK${((item?.unitPrice || 0) * (item?.quantity || 0)).toLocaleString()}</Text></View>
       </View>
@@ -376,7 +376,7 @@ function renderQuotationTableRow(
         </View>
       </View>
       <View style={styles.colQty}><Text style={styles.tableCellText}>{item?.quantity || 0}</Text></View>
-      <View style={styles.colUnit}><Text style={styles.tableCellText}>{'\u5F35'}</Text></View>
+      <View style={styles.colUnit}><Text style={styles.tableCellText}>{item?.unit || ''}</Text></View>
       <View style={styles.colUnitPrice}><Text style={styles.tableCellText}>HK${(item?.unitPrice || 0).toLocaleString()}</Text></View>
       <View style={styles.colSubtotal}><Text style={styles.tableCellText}>HK${((item?.unitPrice || 0) * (item?.quantity || 0)).toLocaleString()}</Text></View>
     </View>

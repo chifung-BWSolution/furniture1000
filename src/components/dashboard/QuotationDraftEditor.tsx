@@ -393,6 +393,16 @@ function InfoPanelColumn({
   );
 }
 
+const DIMENSION_INPUT_CLASS =
+  "w-12 rounded-md border border-border bg-background px-1 py-1.5 font-mono-data text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none";
+
+function parseNonNegativeDimension(value: string): number | null {
+  if (value.trim() === "") return null;
+  const n = parseInt(value, 10);
+  if (Number.isNaN(n)) return null;
+  return Math.max(0, n);
+}
+
 function createBlankProductItem(): QuotationItem {
   return {
     id: generateId(),
@@ -1164,6 +1174,7 @@ export function QuotationDraftEditor({
         dimensionHMm: item.dimensionHMm,
         deliveryTermName: item.deliveryTermName,
         isCustomTerm: item.isCustomTerm,
+        unit: item.unit,
       })),
     subtotal,
     discountNote,
@@ -1686,32 +1697,35 @@ export function QuotationDraftEditor({
                             <div className="flex items-center gap-0.5">
                               <input
                                 type="number"
+                                min={0}
                                 value={item.dimensionLMm ?? ""}
                                 placeholder="L"
                                 onChange={(e) =>
-                                  updateItem(item.id, "dimensionLMm", e.target.value ? parseInt(e.target.value) : null)
+                                  updateItem(item.id, "dimensionLMm", parseNonNegativeDimension(e.target.value))
                                 }
-                                className="w-12 rounded-md border border-border bg-background px-1 py-1.5 font-mono-data text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                                className={DIMENSION_INPUT_CLASS}
                               />
                               <span className="text-xs text-muted-foreground">×</span>
                               <input
                                 type="number"
+                                min={0}
                                 value={item.dimensionWMm ?? ""}
                                 placeholder="W"
                                 onChange={(e) =>
-                                  updateItem(item.id, "dimensionWMm", e.target.value ? parseInt(e.target.value) : null)
+                                  updateItem(item.id, "dimensionWMm", parseNonNegativeDimension(e.target.value))
                                 }
-                                className="w-12 rounded-md border border-border bg-background px-1 py-1.5 font-mono-data text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                                className={DIMENSION_INPUT_CLASS}
                               />
                               <span className="text-xs text-muted-foreground">×</span>
                               <input
                                 type="number"
+                                min={0}
                                 value={item.dimensionHMm ?? ""}
                                 placeholder="H"
                                 onChange={(e) =>
-                                  updateItem(item.id, "dimensionHMm", e.target.value ? parseInt(e.target.value) : null)
+                                  updateItem(item.id, "dimensionHMm", parseNonNegativeDimension(e.target.value))
                                 }
-                                className="w-12 rounded-md border border-border bg-background px-1 py-1.5 font-mono-data text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                                className={DIMENSION_INPUT_CLASS}
                               />
                             </div>
                           </td>
