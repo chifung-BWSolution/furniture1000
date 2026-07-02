@@ -364,34 +364,27 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote }: QuickQuo
         {/* Header */}
         <div className="mb-8">
           {currentStep === 4 ? (
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex min-w-0 items-start gap-3">
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (loadedQuoteData) {
-                      setLoadedQuoteData(null);
-                      onClearEditingQuote?.();
-                    } else {
-                      setCurrentStep(3);
-                    }
-                  }}
-                  className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-border px-4 py-2 font-body text-sm font-medium text-foreground transition-colors hover:bg-accent"
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                  上一步
-                </button>
-                <div className="min-w-0">
-                  <h1 className="font-display text-2xl font-bold tracking-tight text-foreground">
-                    報價單草稿編輯
-                  </h1>
-                  <p className="mt-1 font-body text-sm text-muted-foreground">
-                    請確認並編輯以下報價單內容，完成後可提交審核
-                  </p>
-                </div>
-              </div>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  if (loadedQuoteData) {
+                    setLoadedQuoteData(null);
+                    onClearEditingQuote?.();
+                  } else {
+                    setCurrentStep(3);
+                  }
+                }}
+                className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-border px-4 py-2 font-body text-sm font-medium text-foreground transition-colors hover:bg-accent"
+              >
+                <ChevronLeft className="h-4 w-4" />
+                上一步
+              </button>
+              <h1 className="shrink-0 font-display text-2xl font-bold tracking-tight text-foreground">
+                報價單草稿編輯
+              </h1>
               {loadedQuoteData && (
-                <p className="shrink-0 pt-1 text-right font-body text-sm text-muted-foreground">
+                <p className="ml-6 font-body text-sm text-muted-foreground lg:ml-16">
                   <span className="font-mono-data text-xs tracking-wider text-primary">
                     {loadedQuoteData.quoteId}
                   </span>

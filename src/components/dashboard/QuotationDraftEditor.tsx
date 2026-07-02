@@ -63,6 +63,7 @@ interface QuotationItem {
   costPrice?: number | null;
   unitPrice: number;
   quantity: number;
+  unit?: string;
   category?: string;
   material?: string;
   color?: string;
@@ -401,6 +402,7 @@ function createBlankProductItem(): QuotationItem {
     costPrice: null,
     unitPrice: 0,
     quantity: 1,
+    unit: "",
     category: "",
     material: "",
     color: "",
@@ -726,6 +728,7 @@ export function QuotationDraftEditor({
         costPrice: item.costPrice ?? null,
         unitPrice: item.unitPrice || 0,
         quantity: item.quantity || 1,
+        unit: (item as { unit?: string }).unit || "",
         category: item.category,
         material: item.material,
         color: item.color,
@@ -1523,17 +1526,8 @@ export function QuotationDraftEditor({
                     <thead>
                       <tr className="border-b border-border">
                         <th className="w-8 pb-2 pr-1 font-body text-xs font-medium text-muted-foreground"></th>
-                        <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "100px" }}>
-                          圖片
-                        </th>
-                        <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "120px" }}>
-                          參考圖
-                        </th>
                         <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "60px" }}>
                           類別
-                        </th>
-                        <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "280px" }}>
-                          材質及明細
                         </th>
                         <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "120px" }}>
                           尺寸(mm), 長x闊x高
@@ -1541,17 +1535,29 @@ export function QuotationDraftEditor({
                         <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "80px" }}>
                           顏色
                         </th>
+                        <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "280px" }}>
+                          材質及明細
+                        </th>
+                        <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "240px" }}>
+                          備註
+                        </th>
+                        <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "100px" }}>
+                          圖片
+                        </th>
+                        <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "120px" }}>
+                          參考圖
+                        </th>
+                        <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "60px" }}>
+                          數量
+                        </th>
+                        <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ width: "4em", minWidth: "4em" }}>
+                          單位
+                        </th>
                         <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "80px" }}>
                           成本價
                         </th>
                         <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "80px" }}>
                           單價
-                        </th>
-                        <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "60px" }}>
-                          數量
-                        </th>
-                        <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "240px" }}>
-                          備註
                         </th>
                         <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "70px" }}>
                           小計
@@ -1587,7 +1593,7 @@ export function QuotationDraftEditor({
                                 onDragEnd={clearQuoteRowDrag}
                               />
                             </td>
-                            {/* full-width description spans 圖片→成本價 (7 cols) */}
+                            {/* description spans 類別→參考圖 (7 cols) */}
                             <td className="py-2 pr-2" colSpan={7}>
                               <input
                                 type="text"
@@ -1599,6 +1605,22 @@ export function QuotationDraftEditor({
                                 className="w-full rounded-md border border-border bg-background px-3 py-1.5 font-body text-xs text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
                               />
                             </td>
+                            {/* 數量 */}
+                            <td className="py-2 pr-2">
+                              <input
+                                type="number"
+                                value={item.quantity || ""}
+                                placeholder="1"
+                                onChange={(e) =>
+                                  updateItem(item.id, "quantity", e.target.value ? parseInt(e.target.value) : 0)
+                                }
+                                className="w-16 rounded-md border border-border bg-background px-2 py-1.5 font-mono-data text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                              />
+                            </td>
+                            {/* 單位 — empty for value-add service */}
+                            <td className="py-2 pr-2"></td>
+                            {/* 成本價 — empty for value-add service */}
+                            <td className="py-2 pr-2"></td>
                             {/* 單價 */}
                             <td className="py-2 pr-2">
                               <input
@@ -1611,20 +1633,6 @@ export function QuotationDraftEditor({
                                 className="w-20 rounded-md border border-border bg-background px-2 py-1.5 font-mono-data text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
                               />
                             </td>
-                            {/* 數量 */}
-                            <td className="py-2 pr-2">
-                              <input
-                                type="number"
-                                value={item.quantity || ""}
-                                placeholder="1"
-                                onChange={(e) =>
-                                  updateItem(item.id, "quantity", e.target.value ? parseInt(e.target.value) : 0)
-                                }
-                                className="w-14 rounded-md border border-border bg-background px-2 py-1.5 font-mono-data text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
-                              />
-                            </td>
-                            {/* 備註 — empty for value-add service */}
-                            <td className="py-2 pr-2"></td>
                             {/* 小計 */}
                             <td className="py-2 pr-2">
                               <span className="font-mono-data text-xs font-medium text-foreground">
@@ -1661,23 +1669,7 @@ export function QuotationDraftEditor({
                               onDragEnd={clearQuoteRowDrag}
                             />
                           </td>
-                          {/* 圖片 (Product Image) - editable */}
-                          <td className="py-2 pr-2">
-                            <ReferenceImageCell
-                              value={item.image || ""}
-                              onChange={(url) => updateItem(item.id, "image", url)}
-                              modalTitle="上傳產品圖片"
-                            />
-                          </td>
-                          {/* 參考圖 (Reference Image) */}
-                          <td className="py-2 pr-2">
-                            <ReferenceImageCell
-                              value={item.referenceImage || ""}
-                              onChange={(url) => updateItem(item.id, "referenceImage", url)}
-                              modalTitle="上傳參考圖"
-                            />
-                          </td>
-                          {/* 類別 (Category) */}
+                          {/* 類別 */}
                           <td className="py-2 pr-2">
                             <input
                               type="text"
@@ -1687,18 +1679,6 @@ export function QuotationDraftEditor({
                                 updateItem(item.id, "category", e.target.value)
                               }
                               className="w-full min-w-[50px] rounded-md border border-border bg-background px-2 py-1.5 font-body text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
-                            />
-                          </td>
-                          {/* 材質及明細 */}
-                          <td className="py-2 pr-2">
-                            <textarea
-                              value={item.material || ""}
-                              placeholder="材質及明細..."
-                              rows={4}
-                              onChange={(e) =>
-                                updateItem(item.id, "material", e.target.value)
-                              }
-                              className="w-full min-w-[260px] rounded-md border border-border bg-background px-2 py-1.5 font-body text-xs leading-relaxed text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 resize-y"
                             />
                           </td>
                           {/* 尺寸 */}
@@ -1745,6 +1725,71 @@ export function QuotationDraftEditor({
                               className="w-full min-w-[80px] rounded-md border border-border bg-background px-2 py-1.5 font-body text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
                             />
                           </td>
+                          {/* 材質及明細 */}
+                          <td className="py-2 pr-2">
+                            <textarea
+                              value={item.material || ""}
+                              placeholder="材質及明細..."
+                              rows={4}
+                              onChange={(e) =>
+                                updateItem(item.id, "material", e.target.value)
+                              }
+                              className="w-full min-w-[260px] rounded-md border border-border bg-background px-2 py-1.5 font-body text-xs leading-relaxed text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 resize-y"
+                            />
+                          </td>
+                          {/* 備註 */}
+                          <td className="py-2 pr-2 align-top">
+                            <RemarksRichEditor
+                              key={item.id}
+                              value={item.remarks || ""}
+                              legacyImage={item.remarksImage}
+                              onChange={(val) => updateItem(item.id, "remarks", val)}
+                            />
+                          </td>
+                          {/* 圖片 */}
+                          <td className="py-2 pr-2">
+                            <ReferenceImageCell
+                              value={item.image || ""}
+                              onChange={(url) => updateItem(item.id, "image", url)}
+                              modalTitle="上傳產品圖片"
+                            />
+                          </td>
+                          {/* 參考圖 */}
+                          <td className="py-2 pr-2">
+                            <ReferenceImageCell
+                              value={item.referenceImage || ""}
+                              onChange={(url) => updateItem(item.id, "referenceImage", url)}
+                              modalTitle="上傳參考圖"
+                            />
+                          </td>
+                          {/* 數量 */}
+                          <td className="py-2 pr-2">
+                            <input
+                              type="number"
+                              value={item.quantity || ""}
+                              placeholder="1"
+                              min={1}
+                              onChange={(e) =>
+                                updateItem(
+                                  item.id,
+                                  "quantity",
+                                  parseInt(e.target.value) || 1,
+                                )
+                              }
+                              className="w-16 rounded-md border border-border bg-background px-2 py-1.5 font-mono-data text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                            />
+                          </td>
+                          {/* 單位 */}
+                          <td className="py-2 pr-2">
+                            <input
+                              type="text"
+                              value={item.unit || ""}
+                              placeholder="—"
+                              maxLength={4}
+                              onChange={(e) => updateItem(item.id, "unit", e.target.value)}
+                              className="w-[4em] min-w-[4em] max-w-[4em] rounded-md border border-border bg-background px-1 py-1.5 font-body text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                            />
+                          </td>
                           {/* 成本價 */}
                           <td className="py-2 pr-2">
                             <input
@@ -1777,32 +1822,6 @@ export function QuotationDraftEditor({
                                 )
                               }
                               className="w-20 rounded-md border border-border bg-background px-2 py-1.5 font-mono-data text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
-                            />
-                          </td>
-                          {/* 數量 */}
-                          <td className="py-2 pr-2">
-                            <input
-                              type="number"
-                              value={item.quantity || ""}
-                              placeholder="1"
-                              min={1}
-                              onChange={(e) =>
-                                updateItem(
-                                  item.id,
-                                  "quantity",
-                                  parseInt(e.target.value) || 1,
-                                )
-                              }
-                              className="w-16 rounded-md border border-border bg-background px-2 py-1.5 font-mono-data text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
-                            />
-                          </td>
-                          {/* 備註 (Remarks) — rich text + images */}
-                          <td className="py-2 pr-2 align-top">
-                            <RemarksRichEditor
-                              key={item.id}
-                              value={item.remarks || ""}
-                              legacyImage={item.remarksImage}
-                              onChange={(val) => updateItem(item.id, "remarks", val)}
                             />
                           </td>
                           {/* 小計 */}
