@@ -440,6 +440,11 @@ const QUOTE_QTY_COST_FIELD_CLASS = cn(
   "xl:ml-[9rem]",
 );
 
+/** Full-width dimension inputs — same column width as 備註 */
+const QUOTE_DIMENSION_INPUT_CLASS = cn(
+  "min-w-0 flex-1 rounded-md border border-border bg-background px-1 py-1.5 font-mono-data text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none",
+);
+
 function QuoteProductItemCard({
   item,
   index,
@@ -482,7 +487,7 @@ function QuoteProductItemCard({
         </div>
 
         {/* Row 1 — col 2: 類別 · 尺寸 · 顏色 */}
-        <div className="col-start-2 row-start-1 space-y-2">
+        <div className="col-start-2 row-start-1 min-w-0 w-full space-y-2">
           <QuoteFieldBlock label="類別">
             <input
               type="text"
@@ -490,11 +495,11 @@ function QuoteProductItemCard({
               placeholder="—"
               maxLength={15}
               onChange={(e) => updateItem(item.id, "category", e.target.value)}
-              className={QUOTE_SHORT_TEXT_INPUT_CLASS}
+              className={QUOTE_INPUT_CLASS}
             />
           </QuoteFieldBlock>
-          <QuoteFieldBlock label="尺寸(mm), 長x闊x高">
-            <div className="flex w-fit items-center gap-0.5">
+          <QuoteFieldBlock label="尺寸(mm), 長 x 闊 x 高">
+            <div className="flex w-full min-w-0 items-center gap-1">
               <input
                 type="number"
                 min={0}
@@ -503,9 +508,9 @@ function QuoteProductItemCard({
                 onChange={(e) =>
                   updateItem(item.id, "dimensionLMm", parseNonNegativeDimension(e.target.value))
                 }
-                className={DIMENSION_INPUT_CLASS}
+                className={QUOTE_DIMENSION_INPUT_CLASS}
               />
-              <span className="text-xs text-muted-foreground">×</span>
+              <span className="shrink-0 text-xs text-muted-foreground">×</span>
               <input
                 type="number"
                 min={0}
@@ -514,9 +519,9 @@ function QuoteProductItemCard({
                 onChange={(e) =>
                   updateItem(item.id, "dimensionWMm", parseNonNegativeDimension(e.target.value))
                 }
-                className={DIMENSION_INPUT_CLASS}
+                className={QUOTE_DIMENSION_INPUT_CLASS}
               />
-              <span className="text-xs text-muted-foreground">×</span>
+              <span className="shrink-0 text-xs text-muted-foreground">×</span>
               <input
                 type="number"
                 min={0}
@@ -525,7 +530,7 @@ function QuoteProductItemCard({
                 onChange={(e) =>
                   updateItem(item.id, "dimensionHMm", parseNonNegativeDimension(e.target.value))
                 }
-                className={DIMENSION_INPUT_CLASS}
+                className={QUOTE_DIMENSION_INPUT_CLASS}
               />
             </div>
           </QuoteFieldBlock>
@@ -536,7 +541,7 @@ function QuoteProductItemCard({
               placeholder="—"
               maxLength={15}
               onChange={(e) => updateItem(item.id, "color", e.target.value)}
-              className={QUOTE_SHORT_TEXT_INPUT_CLASS}
+              className={QUOTE_INPUT_CLASS}
             />
           </QuoteFieldBlock>
         </div>
