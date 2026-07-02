@@ -365,6 +365,338 @@ function ReferenceImageCell({
   );
 }
 
+function QuoteFieldBlock({
+  label,
+  children,
+  className,
+}: {
+  label: string;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={cn("min-w-0", className)}>
+      <label className="mb-1 block font-body text-xs font-medium text-muted-foreground">
+        {label}
+      </label>
+      {children}
+    </div>
+  );
+}
+
+const QUOTE_INPUT_CLASS =
+  "w-full rounded-md border border-border bg-background px-2 py-1.5 font-body text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30";
+
+const QUOTE_NUMBER_INPUT_CLASS =
+  "w-full rounded-md border border-border bg-background px-2 py-1.5 font-mono-data text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30";
+
+function QuoteProductItemCard({
+  item,
+  index,
+  draggingItemId,
+  dropInsertIndex,
+  onDragOver,
+  onDrop,
+  onDragStart,
+  onDragEnd,
+  updateItem,
+  removeItem,
+}: {
+  item: QuotationItem;
+  index: number;
+  draggingItemId: string | null;
+  dropInsertIndex: number | null;
+  onDragOver: (e: React.DragEvent<HTMLDivElement>, index: number) => void;
+  onDrop: (e: React.DragEvent<HTMLDivElement>) => void;
+  onDragStart: (id: string) => void;
+  onDragEnd: () => void;
+  updateItem: (id: string, field: keyof QuotationItem, value: string | number | null) => void;
+  removeItem: (id: string) => void;
+}) {
+  return (
+    <div
+      className={quoteRowReorderClass(
+        index,
+        item.id,
+        draggingItemId,
+        dropInsertIndex,
+        "rounded-lg border border-border bg-background p-4",
+      )}
+      onDragOver={(e) => onDragOver(e, index)}
+      onDrop={onDrop}
+    >
+      <div className="flex gap-3">
+        <div className="pt-6 shrink-0">
+          <QuoteRowDragHandle itemId={item.id} onDragStart={onDragStart} onDragEnd={onDragEnd} />
+        </div>
+        <div className="min-w-0 flex-1 space-y-3">
+          {/* Row 1: 類別 · 尺寸 · 顏色 */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <QuoteFieldBlock label="類別">
+              <input
+                type="text"
+                value={item.category || ""}
+                placeholder="—"
+                onChange={(e) => updateItem(item.id, "category", e.target.value)}
+                className={QUOTE_INPUT_CLASS}
+              />
+            </QuoteFieldBlock>
+            <QuoteFieldBlock label="尺寸(mm), 長x闊x高">
+              <div className="flex items-center gap-0.5">
+                <input
+                  type="number"
+                  min={0}
+                  value={item.dimensionLMm ?? ""}
+                  placeholder="L"
+                  onChange={(e) =>
+                    updateItem(item.id, "dimensionLMm", parseNonNegativeDimension(e.target.value))
+                  }
+                  className={DIMENSION_INPUT_CLASS}
+                />
+                <span className="text-xs text-muted-foreground">×</span>
+                <input
+                  type="number"
+                  min={0}
+                  value={item.dimensionWMm ?? ""}
+                  placeholder="W"
+                  onChange={(e) =>
+                    updateItem(item.id, "dimensionWMm", parseNonNegativeDimension(e.target.value))
+                  }
+                  className={DIMENSION_INPUT_CLASS}
+                />
+                <span className="text-xs text-muted-foreground">×</span>
+                <input
+                  type="number"
+                  min={0}
+                  value={item.dimensionHMm ?? ""}
+                  placeholder="H"
+                  onChange={(e) =>
+                    updateItem(item.id, "dimensionHMm", parseNonNegativeDimension(e.target.value))
+                  }
+                  className={DIMENSION_INPUT_CLASS}
+                />
+              </div>
+            </QuoteFieldBlock>
+            <QuoteFieldBlock label="顏色">
+              <input
+                type="text"
+                value={item.color || ""}
+                placeholder="—"
+                onChange={(e) => updateItem(item.id, "color", e.target.value)}
+                className={QUOTE_INPUT_CLASS}
+              />
+            </QuoteFieldBlock>
+          </div>
+
+          {/* Row 2: 材質及明細 */}
+          <QuoteFieldBlock label="材質及明細">
+            <textarea
+              value={item.material || ""}
+              placeholder="材質及明細..."
+              rows={4}
+              onChange={(e) => updateItem(item.id, "material", e.target.value)}
+              className={`${QUOTE_INPUT_CLASS} min-h-[88px] resize-y leading-relaxed`}
+            />
+          </QuoteFieldBlock>
+
+          {/* Row 3: 備註 */}
+          <QuoteFieldBlock label="備註">
+            <RemarksRichEditor
+              key={item.id}
+              value={item.remarks || ""}
+              legacyImage={item.remarksImage}
+              onChange={(val) => updateItem(item.id, "remarks", val)}
+            />
+          </QuoteFieldBlock>
+
+          {/* Row 4: 圖片 · 參考圖 · 數量 · 單位 · 成本價 · 單價 · 小計 */}
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8 xl:grid-cols-[repeat(8,minmax(0,1fr))_auto]">
+            <QuoteFieldBlock label="圖片">
+              <ReferenceImageCell
+                value={item.image || ""}
+                onChange={(url) => updateItem(item.id, "image", url)}
+                modalTitle="上傳產品圖片"
+              />
+            </QuoteFieldBlock>
+            <QuoteFieldBlock label="參考圖">
+              <ReferenceImageCell
+                value={item.referenceImage || ""}
+                onChange={(url) => updateItem(item.id, "referenceImage", url)}
+                modalTitle="上傳參考圖"
+              />
+            </QuoteFieldBlock>
+            <QuoteFieldBlock label="數量">
+              <input
+                type="number"
+                value={item.quantity || ""}
+                placeholder="1"
+                min={1}
+                onChange={(e) =>
+                  updateItem(item.id, "quantity", parseInt(e.target.value) || 1)
+                }
+                className={QUOTE_NUMBER_INPUT_CLASS}
+              />
+            </QuoteFieldBlock>
+            <QuoteFieldBlock label="單位">
+              <input
+                type="text"
+                value={item.unit || ""}
+                placeholder="—"
+                maxLength={4}
+                onChange={(e) => updateItem(item.id, "unit", e.target.value)}
+                className={`${QUOTE_INPUT_CLASS} w-[4em] min-w-[4em] max-w-[4em]`}
+              />
+            </QuoteFieldBlock>
+            <QuoteFieldBlock label="成本價">
+              <input
+                type="number"
+                value={item.costPrice ?? ""}
+                placeholder="—"
+                min={0}
+                onChange={(e) =>
+                  updateItem(
+                    item.id,
+                    "costPrice",
+                    e.target.value ? parseFloat(e.target.value) : null,
+                  )
+                }
+                className={QUOTE_NUMBER_INPUT_CLASS}
+              />
+            </QuoteFieldBlock>
+            <QuoteFieldBlock label="單價">
+              <input
+                type="number"
+                value={item.unitPrice || ""}
+                placeholder="0"
+                min={0}
+                onChange={(e) =>
+                  updateItem(item.id, "unitPrice", parseFloat(e.target.value) || 0)
+                }
+                className={QUOTE_NUMBER_INPUT_CLASS}
+              />
+            </QuoteFieldBlock>
+            <QuoteFieldBlock label="小計">
+              <div className="flex h-[34px] items-center rounded-md border border-border/60 bg-muted/20 px-2">
+                <span className="font-mono-data text-xs font-medium text-foreground">
+                  ${(item.unitPrice * item.quantity).toLocaleString()}
+                </span>
+              </div>
+            </QuoteFieldBlock>
+            <div className="flex items-end justify-end pb-0.5">
+              <button
+                type="button"
+                onClick={() => removeItem(item.id)}
+                className="rounded-md p-1.5 text-muted-foreground/50 transition-colors hover:bg-rose-500/10 hover:text-rose-500"
+                title="刪除"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function QuoteCustomTermCard({
+  item,
+  index,
+  draggingItemId,
+  dropInsertIndex,
+  onDragOver,
+  onDrop,
+  onDragStart,
+  onDragEnd,
+  updateItem,
+  removeItem,
+}: {
+  item: QuotationItem;
+  index: number;
+  draggingItemId: string | null;
+  dropInsertIndex: number | null;
+  onDragOver: (e: React.DragEvent<HTMLDivElement>, index: number) => void;
+  onDrop: (e: React.DragEvent<HTMLDivElement>) => void;
+  onDragStart: (id: string) => void;
+  onDragEnd: () => void;
+  updateItem: (id: string, field: keyof QuotationItem, value: string | number | null) => void;
+  removeItem: (id: string) => void;
+}) {
+  return (
+    <div
+      className={quoteRowReorderClass(
+        index,
+        item.id,
+        draggingItemId,
+        dropInsertIndex,
+        "rounded-lg border border-amber-500/30 bg-amber-500/5 p-4",
+      )}
+      onDragOver={(e) => onDragOver(e, index)}
+      onDrop={onDrop}
+    >
+      <div className="flex gap-3">
+        <div className="pt-6 shrink-0">
+          <QuoteRowDragHandle itemId={item.id} onDragStart={onDragStart} onDragEnd={onDragEnd} />
+        </div>
+        <div className="min-w-0 flex-1 space-y-3">
+          <QuoteFieldBlock label="增值服務說明">
+            <input
+              type="text"
+              value={item.name || ""}
+              placeholder="輸入額外增值服務（例如：清拆、拆裝舊家私等）..."
+              onChange={(e) => updateItem(item.id, "name", e.target.value)}
+              className={QUOTE_INPUT_CLASS}
+            />
+          </QuoteFieldBlock>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+            <QuoteFieldBlock label="數量">
+              <input
+                type="number"
+                value={item.quantity || ""}
+                placeholder="1"
+                min={1}
+                onChange={(e) =>
+                  updateItem(item.id, "quantity", e.target.value ? parseInt(e.target.value) : 0)
+                }
+                className={QUOTE_NUMBER_INPUT_CLASS}
+              />
+            </QuoteFieldBlock>
+            <QuoteFieldBlock label="單價">
+              <input
+                type="number"
+                value={item.unitPrice || ""}
+                placeholder="0"
+                min={0}
+                onChange={(e) =>
+                  updateItem(item.id, "unitPrice", e.target.value ? parseFloat(e.target.value) : 0)
+                }
+                className={QUOTE_NUMBER_INPUT_CLASS}
+              />
+            </QuoteFieldBlock>
+            <QuoteFieldBlock label="小計">
+              <div className="flex h-[34px] items-center rounded-md border border-border/60 bg-muted/20 px-2">
+                <span className="font-mono-data text-xs font-medium text-foreground">
+                  ${(item.unitPrice * item.quantity).toLocaleString()}
+                </span>
+              </div>
+            </QuoteFieldBlock>
+            <div className="flex items-end justify-end pb-0.5">
+              <button
+                type="button"
+                onClick={() => removeItem(item.id)}
+                className="rounded-md p-1.5 text-muted-foreground/50 transition-colors hover:bg-rose-500/10 hover:text-rose-500"
+                title="刪除"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function InfoPanelColumn({
   title,
   collapsed,
@@ -818,7 +1150,7 @@ export function QuotationDraftEditor({
   }, []);
 
   const handleQuoteRowDragOver = useCallback(
-    (e: React.DragEvent<HTMLTableRowElement>, index: number) => {
+    (e: React.DragEvent<HTMLDivElement>, index: number) => {
       e.preventDefault();
       e.dataTransfer.dropEffect = "move";
       const rect = e.currentTarget.getBoundingClientRect();
@@ -828,7 +1160,7 @@ export function QuotationDraftEditor({
   );
 
   const handleQuoteRowDrop = useCallback(
-    (e: React.DragEvent<HTMLTableRowElement>) => {
+    (e: React.DragEvent<HTMLDivElement>) => {
       e.preventDefault();
       const fromId = e.dataTransfer.getData("text/plain") || draggingItemId;
       if (fromId && dropInsertIndex !== null) {
@@ -1544,335 +1876,45 @@ export function QuotationDraftEditor({
                   </div>
                 </div>
 
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left">
-                    <thead>
-                      <tr className="border-b border-border">
-                        <th className="w-8 pb-2 pr-1 font-body text-xs font-medium text-muted-foreground"></th>
-                        <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "60px" }}>
-                          類別
-                        </th>
-                        <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "120px" }}>
-                          尺寸(mm), 長x闊x高
-                        </th>
-                        <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "80px" }}>
-                          顏色
-                        </th>
-                        <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "280px" }}>
-                          材質及明細
-                        </th>
-                        <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "240px" }}>
-                          備註
-                        </th>
-                        <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "100px" }}>
-                          圖片
-                        </th>
-                        <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "120px" }}>
-                          參考圖
-                        </th>
-                        <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "60px" }}>
-                          數量
-                        </th>
-                        <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ width: "4em", minWidth: "4em" }}>
-                          單位
-                        </th>
-                        <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "80px" }}>
-                          成本價
-                        </th>
-                        <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "80px" }}>
-                          單價
-                        </th>
-                        <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "70px" }}>
-                          小計
-                        </th>
-                        <th className="pb-2 font-body text-xs font-medium text-muted-foreground"></th>
-                      </tr>
-                    </thead>
-                    <tbody
-                      onDragLeave={(e) => {
-                        if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                          clearQuoteRowDrag();
-                        }
-                      }}
-                    >
-                      {items.map((item, index) => (
-                        item.isCustomTerm ? (
-                          <tr
-                            key={item.id}
-                            className={quoteRowReorderClass(
-                              index,
-                              item.id,
-                              draggingItemId,
-                              dropInsertIndex,
-                              "border-b border-border/50 last:border-b-0 bg-amber-500/5",
-                            )}
-                            onDragOver={(e) => handleQuoteRowDragOver(e, index)}
-                            onDrop={handleQuoteRowDrop}
-                          >
-                            <td className="py-2 pr-1 align-middle">
-                              <QuoteRowDragHandle
-                                itemId={item.id}
-                                onDragStart={setDraggingItemId}
-                                onDragEnd={clearQuoteRowDrag}
-                              />
-                            </td>
-                            {/* description spans 類別→參考圖 (7 cols) */}
-                            <td className="py-2 pr-2" colSpan={7}>
-                              <input
-                                type="text"
-                                value={item.name || ""}
-                                placeholder="輸入額外增值服務（例如：清拆、拆裝舊家私等）..."
-                                onChange={(e) =>
-                                  updateItem(item.id, "name", e.target.value)
-                                }
-                                className="w-full rounded-md border border-border bg-background px-3 py-1.5 font-body text-xs text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
-                              />
-                            </td>
-                            {/* 數量 */}
-                            <td className="py-2 pr-2">
-                              <input
-                                type="number"
-                                value={item.quantity || ""}
-                                placeholder="1"
-                                onChange={(e) =>
-                                  updateItem(item.id, "quantity", e.target.value ? parseInt(e.target.value) : 0)
-                                }
-                                className="w-16 rounded-md border border-border bg-background px-2 py-1.5 font-mono-data text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
-                              />
-                            </td>
-                            {/* 單位 — empty for value-add service */}
-                            <td className="py-2 pr-2"></td>
-                            {/* 成本價 — empty for value-add service */}
-                            <td className="py-2 pr-2"></td>
-                            {/* 單價 */}
-                            <td className="py-2 pr-2">
-                              <input
-                                type="number"
-                                value={item.unitPrice || ""}
-                                placeholder="0"
-                                onChange={(e) =>
-                                  updateItem(item.id, "unitPrice", e.target.value ? parseFloat(e.target.value) : 0)
-                                }
-                                className="w-20 rounded-md border border-border bg-background px-2 py-1.5 font-mono-data text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
-                              />
-                            </td>
-                            {/* 小計 */}
-                            <td className="py-2 pr-2">
-                              <span className="font-mono-data text-xs font-medium text-foreground">
-                                ${(item.unitPrice * item.quantity).toLocaleString()}
-                              </span>
-                            </td>
-                            <td className="py-2">
-                              <button
-                                type="button"
-                                onClick={() => removeItem(item.id)}
-                                className="rounded-md p-1.5 text-muted-foreground/50 transition-colors hover:bg-rose-500/10 hover:text-rose-500"
-                              >
-                                <Trash2 className="h-3.5 w-3.5" />
-                              </button>
-                            </td>
-                          </tr>
-                        ) : (
-                        <tr
-                          key={item.id}
-                          className={quoteRowReorderClass(
-                            index,
-                            item.id,
-                            draggingItemId,
-                            dropInsertIndex,
-                            "border-b border-border/50 last:border-b-0",
-                          )}
-                          onDragOver={(e) => handleQuoteRowDragOver(e, index)}
-                          onDrop={handleQuoteRowDrop}
-                        >
-                          <td className="py-2 pr-1 align-middle">
-                            <QuoteRowDragHandle
-                              itemId={item.id}
-                              onDragStart={setDraggingItemId}
-                              onDragEnd={clearQuoteRowDrag}
-                            />
-                          </td>
-                          {/* 類別 */}
-                          <td className="py-2 pr-2">
-                            <input
-                              type="text"
-                              value={item.category || ""}
-                              placeholder="—"
-                              onChange={(e) =>
-                                updateItem(item.id, "category", e.target.value)
-                              }
-                              className="w-full min-w-[50px] rounded-md border border-border bg-background px-2 py-1.5 font-body text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
-                            />
-                          </td>
-                          {/* 尺寸 */}
-                          <td className="py-2 pr-2">
-                            <div className="flex items-center gap-0.5">
-                              <input
-                                type="number"
-                                min={0}
-                                value={item.dimensionLMm ?? ""}
-                                placeholder="L"
-                                onChange={(e) =>
-                                  updateItem(item.id, "dimensionLMm", parseNonNegativeDimension(e.target.value))
-                                }
-                                className={DIMENSION_INPUT_CLASS}
-                              />
-                              <span className="text-xs text-muted-foreground">×</span>
-                              <input
-                                type="number"
-                                min={0}
-                                value={item.dimensionWMm ?? ""}
-                                placeholder="W"
-                                onChange={(e) =>
-                                  updateItem(item.id, "dimensionWMm", parseNonNegativeDimension(e.target.value))
-                                }
-                                className={DIMENSION_INPUT_CLASS}
-                              />
-                              <span className="text-xs text-muted-foreground">×</span>
-                              <input
-                                type="number"
-                                min={0}
-                                value={item.dimensionHMm ?? ""}
-                                placeholder="H"
-                                onChange={(e) =>
-                                  updateItem(item.id, "dimensionHMm", parseNonNegativeDimension(e.target.value))
-                                }
-                                className={DIMENSION_INPUT_CLASS}
-                              />
-                            </div>
-                          </td>
-                          {/* 顏色 */}
-                          <td className="py-2 pr-2">
-                            <input
-                              type="text"
-                              value={item.color || ""}
-                              placeholder="—"
-                              onChange={(e) => updateItem(item.id, "color", e.target.value)}
-                              className="w-full min-w-[80px] rounded-md border border-border bg-background px-2 py-1.5 font-body text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
-                            />
-                          </td>
-                          {/* 材質及明細 */}
-                          <td className="py-2 pr-2">
-                            <textarea
-                              value={item.material || ""}
-                              placeholder="材質及明細..."
-                              rows={4}
-                              onChange={(e) =>
-                                updateItem(item.id, "material", e.target.value)
-                              }
-                              className="w-full min-w-[260px] rounded-md border border-border bg-background px-2 py-1.5 font-body text-xs leading-relaxed text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 resize-y"
-                            />
-                          </td>
-                          {/* 備註 */}
-                          <td className="py-2 pr-2 align-top">
-                            <RemarksRichEditor
-                              key={item.id}
-                              value={item.remarks || ""}
-                              legacyImage={item.remarksImage}
-                              onChange={(val) => updateItem(item.id, "remarks", val)}
-                            />
-                          </td>
-                          {/* 圖片 */}
-                          <td className="py-2 pr-2">
-                            <ReferenceImageCell
-                              value={item.image || ""}
-                              onChange={(url) => updateItem(item.id, "image", url)}
-                              modalTitle="上傳產品圖片"
-                            />
-                          </td>
-                          {/* 參考圖 */}
-                          <td className="py-2 pr-2">
-                            <ReferenceImageCell
-                              value={item.referenceImage || ""}
-                              onChange={(url) => updateItem(item.id, "referenceImage", url)}
-                              modalTitle="上傳參考圖"
-                            />
-                          </td>
-                          {/* 數量 */}
-                          <td className="py-2 pr-2">
-                            <input
-                              type="number"
-                              value={item.quantity || ""}
-                              placeholder="1"
-                              min={1}
-                              onChange={(e) =>
-                                updateItem(
-                                  item.id,
-                                  "quantity",
-                                  parseInt(e.target.value) || 1,
-                                )
-                              }
-                              className="w-16 rounded-md border border-border bg-background px-2 py-1.5 font-mono-data text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
-                            />
-                          </td>
-                          {/* 單位 */}
-                          <td className="py-2 pr-2">
-                            <input
-                              type="text"
-                              value={item.unit || ""}
-                              placeholder="—"
-                              maxLength={4}
-                              onChange={(e) => updateItem(item.id, "unit", e.target.value)}
-                              className="w-[4em] min-w-[4em] max-w-[4em] rounded-md border border-border bg-background px-1 py-1.5 font-body text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
-                            />
-                          </td>
-                          {/* 成本價 */}
-                          <td className="py-2 pr-2">
-                            <input
-                              type="number"
-                              value={item.costPrice ?? ""}
-                              placeholder="—"
-                              min={0}
-                              onChange={(e) =>
-                                updateItem(
-                                  item.id,
-                                  "costPrice",
-                                  e.target.value ? parseFloat(e.target.value) : null,
-                                )
-                              }
-                              className="w-20 rounded-md border border-border bg-background px-2 py-1.5 font-mono-data text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
-                            />
-                          </td>
-                          {/* 單價 */}
-                          <td className="py-2 pr-2">
-                            <input
-                              type="number"
-                              value={item.unitPrice || ""}
-                              placeholder="0"
-                              min={0}
-                              onChange={(e) =>
-                                updateItem(
-                                  item.id,
-                                  "unitPrice",
-                                  parseFloat(e.target.value) || 0,
-                                )
-                              }
-                              className="w-20 rounded-md border border-border bg-background px-2 py-1.5 font-mono-data text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
-                            />
-                          </td>
-                          {/* 小計 */}
-                          <td className="py-2 pr-2">
-                            <span className="font-mono-data text-xs font-medium text-foreground">
-                              $
-                              {(
-                                item.unitPrice * item.quantity
-                              ).toLocaleString()}
-                            </span>
-                          </td>
-                          <td className="py-2">
-                            <button
-                              type="button"
-                              onClick={() => removeItem(item.id)}
-                              className="rounded-md p-1.5 text-muted-foreground/50 transition-colors hover:bg-rose-500/10 hover:text-rose-500"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          </td>
-                        </tr>
-                        )
-                      ))}
-                    </tbody>
-                  </table>
+                <div
+                  className="space-y-3"
+                  onDragLeave={(e) => {
+                    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                      clearQuoteRowDrag();
+                    }
+                  }}
+                >
+                  {items.map((item, index) =>
+                    item.isCustomTerm ? (
+                      <QuoteCustomTermCard
+                        key={item.id}
+                        item={item}
+                        index={index}
+                        draggingItemId={draggingItemId}
+                        dropInsertIndex={dropInsertIndex}
+                        onDragOver={handleQuoteRowDragOver}
+                        onDrop={handleQuoteRowDrop}
+                        onDragStart={setDraggingItemId}
+                        onDragEnd={clearQuoteRowDrag}
+                        updateItem={updateItem}
+                        removeItem={removeItem}
+                      />
+                    ) : (
+                      <QuoteProductItemCard
+                        key={item.id}
+                        item={item}
+                        index={index}
+                        draggingItemId={draggingItemId}
+                        dropInsertIndex={dropInsertIndex}
+                        onDragOver={handleQuoteRowDragOver}
+                        onDrop={handleQuoteRowDrop}
+                        onDragStart={setDraggingItemId}
+                        onDragEnd={clearQuoteRowDrag}
+                        updateItem={updateItem}
+                        removeItem={removeItem}
+                      />
+                    ),
+                  )}
                 </div>
 
                 {/* Price Multiplier, GP Summary & Subtotal */}
