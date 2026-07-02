@@ -501,14 +501,14 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
     if (/大班椅|行政椅|老闆椅|executive/.test(combined)) return '辦公室行政房、老闆房、高管辦公室';
     if (/辦公椅|電腦椅|工作椅|mesh|網背/.test(combined)) return '開放式辦公室、工作站、共享辦公空間';
     if (/會議椅|培訓椅|training/.test(combined)) return '會議室、培訓中心、多功能廳';
-    if (/沙發|接待|lounge|休閑/.test(combined)) return '辦公室接待區、客廳、酒店大堂';
+    if (/沙發|接待|lounge|休閑/.test(combined)) return '辦公室接待區、酒店大堂、商業休閒區';
     if (/課室|學生|學校|school|classroom/.test(combined)) return '學校課室、補習社、教育中心';
     if (/實驗室|lab/.test(combined)) return '實驗室、科研中心、醫療機構';
     if (/餐廳|dining|餐飲/.test(combined)) return '餐廳、咖啡廳、食堂';
     if (/班台|辦公桌|executive desk|工作臺/.test(combined)) return '辦公室、行政房、工作空間';
-    if (/儲物|storage|書櫃|文件/.test(combined)) return '辦公室、圖書館、學校、家居';
+    if (/儲物|storage|書櫃|文件/.test(combined)) return '辦公室、圖書館、學校、商業空間';
     if (/前台|接待台|reception/.test(combined)) return '公司前台、酒店接待處、服務台';
-    if (/茶几|coffee table|角幾/.test(combined)) return '客廳、辦公室休息區、酒店大堂';
+    if (/茶几|coffee table|角幾/.test(combined)) return '辦公室休息區、酒店大堂、商業接待區';
     return '辦公室、商業空間、公共場所';
   };
 
@@ -596,25 +596,35 @@ ${rawDesc || '（暫無原文，請根據產品名稱及分類發揮）'}
     try {
       const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
       const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+      const categoryParts = [product.level1, product.level2].filter(Boolean).join(' › ');
+      const scenes = deriveScenes(product.level1, product.level2);
       const productTitle = name || product.title;
 
-      const prompt = `你是一位 SEO 專家，專門為香港電商網站撰寫高品質的 Meta Description。
+      const prompt = `你是一位專門為香港 B2B 商業傢私電商撰寫 SEO Meta Description 的資深文案，服務對象是企業採購、設計師及工程項目客戶。全部內容必須使用香港繁體中文（如「傢私」、「梳化」、「閣下」等港式用語）。
 
 請根據以下產品資訊，撰寫一段繁體中文的 Meta Description：
 
 【產品名稱】${productTitle}
+【產品分類】${categoryParts || '商業傢私'}
+【適用場景】${scenes}
 【產品說明內容】
 ${rawDesc}
 
+【定位要求】
+- 文案定位為「商業傢私 / 商用傢具」，面向辦公室、商業空間、企業及公共項目採購
+- 適用場景以商用、辦公、商業空間為主（如：辦公室、會議室、接待區、酒店、學校、餐飲商業空間等）
+- 絕對禁止使用「家居、家用、居家、住宅、家庭、家居生活、溫馨家居、家居空間」等家用/住宅相關字眼
+- 若原文出現家用語境，請改寫為商用、辦公或商業空間語境
+
 【生成原則】
 - ≤140 個中文字 / ≤140 英文字元，連標點符號在內總字元數絕對不可超過 160 個字元
-- 從讀者角度出發，思考什麼樣的敘述會讓讀者有興趣點開網頁，避免無意義的關鍵字堆疊
-- 針對此產品獨特賣點撰寫，讓描述有別於其他產品頁面，獨一無二
+- 從 B2B 採購者角度出發，突出商用價值、耐用性、專業形象或空間效益，避免無意義關鍵字堆疊
+- 針對此產品獨特賣點撰寫，讓描述有別於其他產品頁面
 
 【輸出要求】
 - 只輸出 Meta Description 正文，不要加標題、不要加引號
-- 繁體中文，語氣自然親切
-- 直接點出產品核心價值及適用場景`;
+- 繁體中文，語氣專業、簡潔、有說服力
+- 直接點出產品核心價值及商用適用場景`;
 
       const res = await fetch(`${supabaseUrl}/functions/v1/supabase-functions-gemini-proxy`, {
         method: 'POST',
