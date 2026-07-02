@@ -416,17 +416,19 @@ const QUOTE_COMPACT_NUMBER_INPUT_CLASS = `${QUOTE_NUMBER_INPUT_CLASS} min-w-0`;
 const QUOTE_LEFT_COL_CLASS = "w-[15em] max-w-full shrink-0";
 
 /**
- * Single grid — drag col 1; flex spacer keeps 單位/小計 anchored at the card's right edge.
- * Below xl: capped middle cols. At xl: middle cols extend to ~客戶資訊 right edge; cols 5–6 sit at 報價資訊 column.
+ * Single grid — fixed track widths at all breakpoints; xl alignment uses margin nudge, not calc column shrink.
+ * Cols: drag | 左欄 | 材質/圖 | 參考圖 | 數量/成本 | 單價 | (flex) | 單位/小計 | 刪除
  */
 const QUOTE_CARD_GRID = cn(
   "grid w-full auto-rows-min items-start gap-x-3 gap-y-3",
   "grid-cols-[1.75rem_minmax(0,15em)_minmax(6.5rem,min(16rem,1fr))_minmax(6.5rem,min(16rem,1fr))_5.5rem_5.5rem_minmax(0,1fr)_6.5rem_auto]",
-  // 56% ≈ 75% of info-panel flex-1 width on a full-width card; 2rem = four xl gap-2 gutters before col 5
-  "xl:gap-x-2 xl:grid-cols-[1.75rem_minmax(0,15em)_minmax(8rem,calc((56%-1.75rem-15em-2rem)/2))_minmax(8rem,calc((56%-1.75rem-15em-2rem)/2))_5.5rem_5.5rem_minmax(0,1fr)_6.5rem_auto]",
 );
 
-/** Offset within col 5 so 數量/成本 labels align under 「訊」 (panel px-4 + 3 chars) */
+/** xl: shift media block right — align left edge with 「專」 in 專案分類; widths unchanged */
+const QUOTE_CARD_MEDIA_XL_SHIFT = "xl:ml-[4rem]";
+/** xl: shift pricing block right — align 數量/成本 with 「訊」 in 報價資訊; widths unchanged */
+const QUOTE_CARD_PRICING_XL_SHIFT = "xl:ml-[11rem]";
+/** Fine-tune label under 「訊」 (panel header px-4 + 3 chars) */
 const QUOTE_CARD_QTY_COST_ALIGN = "xl:pl-[calc(1rem+3em)]";
 
 function QuoteProductItemCard({
@@ -531,7 +533,10 @@ function QuoteProductItemCard({
         </div>
 
         {/* Row 1 — cols 3–4: 材質及明細 */}
-        <QuoteFieldBlock label="材質及明細" className="col-span-2 col-start-3 row-start-1 min-w-0">
+        <QuoteFieldBlock
+          label="材質及明細"
+          className={cn("col-span-2 col-start-3 row-start-1 min-w-0", QUOTE_CARD_MEDIA_XL_SHIFT)}
+        >
           <textarea
             value={item.material || ""}
             placeholder="材質及明細..."
@@ -544,7 +549,11 @@ function QuoteProductItemCard({
         {/* Row 1 — col 5: 數量 */}
         <QuoteFieldBlock
           label="數量"
-          className={cn("col-start-5 row-start-1 min-w-0", QUOTE_CARD_QTY_COST_ALIGN)}
+          className={cn(
+            "col-start-5 row-start-1 min-w-0",
+            QUOTE_CARD_PRICING_XL_SHIFT,
+            QUOTE_CARD_QTY_COST_ALIGN,
+          )}
         >
           <input
             type="number"
@@ -582,7 +591,10 @@ function QuoteProductItemCard({
         </QuoteFieldBlock>
 
         {/* Row 2 — cols 3–4: 圖片 · 參考圖 */}
-        <QuoteFieldBlock label="圖片" className="col-start-3 row-start-2 min-w-0">
+        <QuoteFieldBlock
+          label="圖片"
+          className={cn("col-start-3 row-start-2 min-w-0", QUOTE_CARD_MEDIA_XL_SHIFT)}
+        >
           <ReferenceImageCell
             value={item.image || ""}
             onChange={(url) => updateItem(item.id, "image", url)}
@@ -591,7 +603,10 @@ function QuoteProductItemCard({
             fluid
           />
         </QuoteFieldBlock>
-        <QuoteFieldBlock label="參考圖" className="col-start-4 row-start-2 min-w-0">
+        <QuoteFieldBlock
+          label="參考圖"
+          className={cn("col-start-4 row-start-2 min-w-0", QUOTE_CARD_MEDIA_XL_SHIFT)}
+        >
           <ReferenceImageCell
             value={item.referenceImage || ""}
             onChange={(url) => updateItem(item.id, "referenceImage", url)}
@@ -604,7 +619,11 @@ function QuoteProductItemCard({
         {/* Row 2 — cols 5–6: 成本價 · 單價 */}
         <QuoteFieldBlock
           label="成本價"
-          className={cn("col-start-5 row-start-2 min-w-0", QUOTE_CARD_QTY_COST_ALIGN)}
+          className={cn(
+            "col-start-5 row-start-2 min-w-0",
+            QUOTE_CARD_PRICING_XL_SHIFT,
+            QUOTE_CARD_QTY_COST_ALIGN,
+          )}
         >
           <input
             type="number"
@@ -621,7 +640,10 @@ function QuoteProductItemCard({
             className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
           />
         </QuoteFieldBlock>
-        <QuoteFieldBlock label="單價" className="col-start-6 row-start-2 min-w-0">
+        <QuoteFieldBlock
+          label="單價"
+          className={cn("col-start-6 row-start-2 min-w-0", QUOTE_CARD_PRICING_XL_SHIFT)}
+        >
           <input
             type="number"
             value={item.unitPrice || ""}
