@@ -340,7 +340,7 @@ function ReferenceImageCell({
       <div
         className={cn(
           "relative flex aspect-square items-center justify-center overflow-hidden rounded-md border border-dashed border-border bg-muted/30 cursor-pointer group",
-          fluid && "mx-auto w-full min-h-[6.5rem] max-w-[9rem]",
+          fluid && "w-full min-h-[6.5rem]",
         )}
         style={fluid ? undefined : { width: sizePx, height: sizePx }}
         onClick={() => setModalOpen(true)}
@@ -423,7 +423,7 @@ const QUOTE_CARD_COL_GAP = "gap-3";
  * Cols: 左欄 | 圖片區 | 參考圖區 | 成本/數量 | 單價 | 小計/單位 | 刪除
  */
 const QUOTE_CARD_GRID_COLS =
-  "grid w-full items-start grid-cols-[minmax(0,15em)_minmax(6.5rem,9rem)_minmax(6.5rem,9rem)_5.5rem_5.5rem_6.5rem_auto]";
+  "grid w-full items-start grid-cols-[minmax(0,15em)_minmax(6.5rem,1fr)_minmax(6.5rem,1fr)_5.5rem_5.5rem_6.5rem_auto]";
 
 function QuoteProductItemCard({
   item,
