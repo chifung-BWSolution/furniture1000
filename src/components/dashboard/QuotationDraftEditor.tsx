@@ -323,20 +323,26 @@ function ReferenceImageCell({
   modalTitle = "上傳圖片",
   sizePx = QUOTE_CARD_IMAGE_PX,
   imageFit = "contain",
+  fluid = false,
 }: {
   value: string;
   onChange: (url: string) => void;
   modalTitle?: string;
   sizePx?: number;
   imageFit?: "cover" | "contain";
+  /** Expand to fill grid column width (keeps square aspect ratio) */
+  fluid?: boolean;
 }) {
   const [modalOpen, setModalOpen] = useState(false);
 
   return (
     <>
       <div
-        className="relative flex aspect-square items-center justify-center overflow-hidden rounded-md border border-dashed border-border bg-muted/30 cursor-pointer group"
-        style={{ width: sizePx, height: sizePx }}
+        className={cn(
+          "relative flex aspect-square items-center justify-center overflow-hidden rounded-md border border-dashed border-border bg-muted/30 cursor-pointer group",
+          fluid && "w-full min-h-[9rem]",
+        )}
+        style={fluid ? undefined : { width: sizePx, height: sizePx }}
         onClick={() => setModalOpen(true)}
         title={value ? "點擊查看或更換圖片" : "點擊上傳圖片"}
       >
@@ -412,9 +418,13 @@ const QUOTE_LEFT_COL_CLASS = "w-[15em] max-w-full shrink-0";
 /** Uniform horizontal gap between field columns in quote item cards */
 const QUOTE_CARD_COL_GAP = "gap-4";
 
-/** Row 1: 左欄 · 材質及明細(限寬) · 數量 · 單位 */
+/** Row 1: 左欄 · 材質及明細(伸展) · 數量 · 單位 */
 const QUOTE_CARD_ROW1_GRID =
-  "grid items-start grid-cols-[minmax(0,15em)_minmax(12rem,26rem)_3.5rem_4em]";
+  "grid w-full items-start grid-cols-[minmax(0,15em)_minmax(16rem,1fr)_3.5rem_4em]";
+
+/** Row 2: 備註 · 圖片 · 參考圖 · 成本價 · 單價 · 小計 · 刪除 */
+const QUOTE_CARD_ROW2_GRID =
+  "grid w-full items-start grid-cols-[minmax(0,15em)_minmax(9rem,1fr)_minmax(9rem,1fr)_5.5rem_5.5rem_6.5rem_auto]";
 
 function QuoteProductItemCard({
   item,
@@ -550,8 +560,8 @@ function QuoteProductItemCard({
           </div>
 
           {/* Row 2: 備註 · 圖片 · 參考圖 · 成本價 · 單價 · 小計 */}
-          <div className={cn("flex flex-wrap items-start", QUOTE_CARD_COL_GAP)}>
-            <QuoteFieldBlock label="備註" className={QUOTE_LEFT_COL_CLASS}>
+          <div className={cn(QUOTE_CARD_ROW2_GRID, QUOTE_CARD_COL_GAP)}>
+            <QuoteFieldBlock label="備註" className="min-w-0">
               <RemarksRichEditor
                 key={item.id}
                 compact
@@ -560,25 +570,25 @@ function QuoteProductItemCard({
                 onChange={(val) => updateItem(item.id, "remarks", val)}
               />
             </QuoteFieldBlock>
-            <QuoteFieldBlock label="圖片" className="shrink-0">
+            <QuoteFieldBlock label="圖片" className="min-w-0">
               <ReferenceImageCell
                 value={item.image || ""}
                 onChange={(url) => updateItem(item.id, "image", url)}
                 modalTitle="上傳產品圖片"
-                sizePx={QUOTE_CARD_IMAGE_PX}
                 imageFit="contain"
+                fluid
               />
             </QuoteFieldBlock>
-            <QuoteFieldBlock label="參考圖" className="shrink-0">
+            <QuoteFieldBlock label="參考圖" className="min-w-0">
               <ReferenceImageCell
                 value={item.referenceImage || ""}
                 onChange={(url) => updateItem(item.id, "referenceImage", url)}
                 modalTitle="上傳參考圖"
-                sizePx={QUOTE_CARD_IMAGE_PX}
                 imageFit="contain"
+                fluid
               />
             </QuoteFieldBlock>
-            <QuoteFieldBlock label="成本價" className="w-[5.5rem] shrink-0">
+            <QuoteFieldBlock label="成本價" className="min-w-0">
               <input
                 type="number"
                 value={item.costPrice ?? ""}
@@ -594,7 +604,7 @@ function QuoteProductItemCard({
                 className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
               />
             </QuoteFieldBlock>
-            <QuoteFieldBlock label="單價" className="w-[5.5rem] shrink-0">
+            <QuoteFieldBlock label="單價" className="min-w-0">
               <input
                 type="number"
                 value={item.unitPrice || ""}
@@ -606,7 +616,7 @@ function QuoteProductItemCard({
                 className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
               />
             </QuoteFieldBlock>
-            <QuoteFieldBlock label="小計" className="w-[6.5rem] shrink-0">
+            <QuoteFieldBlock label="小計" className="min-w-0">
               <div className="flex h-[34px] items-center rounded-md border border-border/60 bg-muted/20 px-2">
                 <span className="truncate font-mono-data text-xs font-medium text-foreground">
                   ${(item.unitPrice * item.quantity).toLocaleString()}
