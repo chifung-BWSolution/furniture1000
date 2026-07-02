@@ -170,17 +170,19 @@ function validateImageFile(file: File): string | null {
   return null;
 }
 
-// Sub-component: Image Upload Modal
+// Sub-component: Image preview + upload modal
 function ImageUploadModal({
   open,
   onClose,
   onSelect,
   title,
+  previewUrl,
 }: {
   open: boolean;
   onClose: () => void;
   onSelect: (dataUrl: string) => void;
   title: string;
+  previewUrl?: string;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const dropRef = useRef<HTMLButtonElement>(null);
@@ -221,7 +223,6 @@ function ImageUploadModal({
       }
     };
     window.addEventListener("paste", handler);
-    // Auto-focus drop area so right-click → paste context menu works
     dropRef.current?.focus();
     return () => window.removeEventListener("paste", handler);
   }, [open]);
@@ -247,7 +248,7 @@ function ImageUploadModal({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-md rounded-xl bg-card p-5 shadow-xl"
+        className="w-full max-w-xl rounded-xl bg-card p-5 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mb-3 flex items-center justify-between">
@@ -261,6 +262,16 @@ function ImageUploadModal({
           </button>
         </div>
 
+        {previewUrl ? (
+          <div className="mb-4 flex max-h-[50vh] items-center justify-center overflow-hidden rounded-lg border border-border bg-muted/20 p-3">
+            <img
+              src={previewUrl}
+              alt=""
+              className="max-h-[46vh] max-w-full object-contain"
+            />
+          </div>
+        ) : null}
+
         <button
           ref={dropRef}
           type="button"
@@ -272,11 +283,11 @@ function ImageUploadModal({
           }}
           onDragLeave={() => setDragActive(false)}
           onDrop={handleDrop}
-          className={`flex w-full flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed px-4 py-10 transition-colors ${
+          className={`flex w-full flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed px-4 py-8 transition-colors ${
             dragActive
               ? "border-primary bg-primary/5"
               : "border-border bg-muted/30 hover:border-primary/50 hover:bg-primary/5"
-          } disabled:opacity-60 disabled:cursor-not-allowed`}
+          } disabled:cursor-not-allowed disabled:opacity-60`}
         >
           {busy ? (
             <Loader2 className="h-6 w-6 animate-spin text-primary" />
@@ -284,7 +295,7 @@ function ImageUploadModal({
             <Upload className="h-6 w-6 text-primary" />
           )}
           <span className="font-body text-xs font-medium text-foreground">
-            {busy ? "上傳中..." : "點擊、拖放或貼上 (Ctrl+V) 圖片"}
+            {busy ? "上傳中..." : previewUrl ? "點擊、拖放或貼上 (Ctrl+V) 更換圖片" : "點擊、拖放或貼上 (Ctrl+V) 圖片"}
           </span>
           <span className="font-body text-xs text-muted-foreground">
             支援 PNG、JPG、JPEG、WEBP、TIFF、SVG（最大 10 MB）
@@ -323,7 +334,7 @@ function ReferenceImageCell({
         className="relative flex aspect-square items-center justify-center overflow-hidden rounded-md border border-dashed border-border bg-muted/30 cursor-pointer group"
         style={{ width: QUOTE_EDITOR_IMAGE_CELL_PX, height: QUOTE_EDITOR_IMAGE_CELL_PX }}
         onClick={() => setModalOpen(true)}
-        title="點擊上傳圖片"
+        title={value ? "點擊查看或更換圖片" : "點擊上傳圖片"}
       >
         {value ? (
           <>
@@ -348,6 +359,7 @@ function ReferenceImageCell({
         onClose={() => setModalOpen(false)}
         onSelect={(url) => onChange(url)}
         title={modalTitle}
+        previewUrl={value || undefined}
       />
     </>
   );
