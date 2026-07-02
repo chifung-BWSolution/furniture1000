@@ -357,6 +357,7 @@ async function pushProductToShopify(
  *
  * Single product push: POST { shopify_product_id, title?, body_html?, ... }
  * Batch push from mirror: POST { push_all_from_mirror: true }
+ *   → PUT each existing Shopify product by shopify_product_id (never creates new products).
  */
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -405,10 +406,14 @@ Deno.serve(async (req: Request) => {
       if (fetchErr) return json({ error: fetchErr.message }, 500);
       let pushed = 0;
       let failed = 0;
+      let skipped = 0;
       const errors: { shopify_product_id: string; error: string }[] = [];
       for (const row of rows || []) {
         const sid = String(row.shopify_product_id || "");
-        if (!/^\d+$/.test(sid)) continue;
+        if (!/^\d+$/.test(sid)) {
+          skipped++;
+          continue;
+        }
         const payload = mirrorRowToPayload(row as Record<string, unknown>);
         const result = await pushProductToShopify(supabase, shopDomain, shopifyToken, sid, payload, { skipMirrorWrite: true });
         if (result.success) {
@@ -421,7 +426,7 @@ Deno.serve(async (req: Request) => {
           if (errors.length < 20) errors.push({ shopify_product_id: sid, error: result.error || "unknown" });
         }
       }
-      return json({ success: true, mode: "push_all_from_mirror", pushed, failed, errors });
+      return json({ success: true, mode: "push_all_from_mirror", pushed, failed, skipped, errors });
     }
 
     const shopifyId = body.shopify_product_id;

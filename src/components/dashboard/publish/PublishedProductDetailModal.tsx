@@ -292,7 +292,7 @@ export function PublishedProductDetailModal({
       }
       toast.success('已儲存至本地', {
         id: toastId,
-        description: '按「與 Shopify 同步」將最新資料（含 SEO）推送到線上商店。',
+        description: '按「與 Shopify 同步」將 Supabase 資料推送至 Shopify 線上商店（僅更新現有產品）。',
         duration: 5000,
       });
       onSaved();

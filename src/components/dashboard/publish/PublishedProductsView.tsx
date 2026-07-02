@@ -220,58 +220,58 @@ export function PublishedProductsView() {
     if (!opts?.silent) setIsLoading(false);
   }, []);
 
-  // Mirror-sync with Shopify: upsert all live products, delete rows whose
-  // Shopify product was deleted. Keeps 已上載產品 in lock-step with the store.
-  const syncMirror = useCallback(async (opts?: { silent?: boolean; skipPush?: boolean }) => {
+  // One-way push: update existing Shopify products from shopify_products mirror.
+  // Pull from Shopify is handled separately via「從 Shopify 導入」.
+  const pushToShopify = useCallback(async () => {
     setIsSyncing(true);
+    const toastId = toast.loading('正在推送至 Shopify…');
     try {
-      let pushSummary = '';
-      if (!opts?.skipPush) {
-        const { data: pushData, error: pushErr } = await supabase.functions.invoke(
-          'supabase-functions-update-shopify-product',
-          { body: { push_all_from_mirror: true } },
-        );
-        if (pushErr || pushData?.error) {
-          if (!opts?.silent) {
-            toast.error('推送到 Shopify 失敗', {
-              description: pushErr?.message || pushData?.error || '請稍後重試',
-            });
-          }
-          return;
-        }
-        pushSummary = `推送 ${pushData.pushed ?? 0} 件`;
-        if (pushData.failed > 0) pushSummary += `（${pushData.failed} 件失敗）`;
-      }
-
-      const { data, error } = await supabase.functions.invoke('supabase-functions-sync-shopify-mirror', { body: {} });
-      if (error || data?.error || data?.success === false) {
-        if (!opts?.silent) toast.error('Shopify 同步失敗', { description: error?.message || data?.error || '請稍後重試' });
+      const { data: pushData, error: pushErr } = await supabase.functions.invoke(
+        'supabase-functions-update-shopify-product',
+        { body: { push_all_from_mirror: true } },
+      );
+      if (pushErr || pushData?.error) {
+        toast.error('推送到 Shopify 失敗', {
+          id: toastId,
+          description: pushErr?.message || pushData?.error || '請稍後重試',
+        });
         return;
       }
-      await loadProducts({ silent: true });
-      if (!opts?.silent) {
-        toast.success('已與 Shopify 同步', {
+      const pushed = pushData.pushed ?? 0;
+      const failed = pushData.failed ?? 0;
+      const skipped = pushData.skipped ?? 0;
+      if (failed > 0) {
+        toast.warning('部分產品推送失敗', {
+          id: toastId,
           description: [
-            pushSummary,
-            `鏡像更新 ${data.upserted ?? 0} 件`,
-            data.deleted ? `移除已刪除 ${data.deleted} 件` : '',
+            `成功 ${pushed} 件`,
+            failed ? `失敗 ${failed} 件` : '',
+            skipped ? `略過 ${skipped} 件（無 Shopify ID）` : '',
           ].filter(Boolean).join(' · '),
+          duration: 8000,
+        });
+      } else {
+        toast.success('已推送至 Shopify', {
+          id: toastId,
+          description: [
+            `已更新 ${pushed} 件現有產品`,
+            skipped ? `略過 ${skipped} 件（無 Shopify ID）` : '',
+          ].filter(Boolean).join(' · '),
+          duration: 6000,
         });
       }
     } catch (e) {
-      if (!opts?.silent) toast.error('Shopify 同步失敗', { description: e instanceof Error ? e.message : '未知錯誤' });
+      toast.error('推送到 Shopify 失敗', {
+        id: toastId,
+        description: e instanceof Error ? e.message : '未知錯誤',
+      });
     } finally {
       setIsSyncing(false);
     }
-  }, [loadProducts]);
+  }, []);
 
-  // On first load, show the local mirror first. Shopify reconciliation can be
-  // slow, so run it in the background instead of blocking the page render.
   useEffect(() => {
-    (async () => {
-      await loadProducts();
-      void syncMirror({ silent: true, skipPush: true });
-    })();
+    void loadProducts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -532,20 +532,21 @@ export function PublishedProductsView() {
           </span>
         </div>
         <div className="flex items-center gap-2">
-          {/* 與 Shopify 同步（鏡像）按鈕 */}
+          {/* 單向推送：Supabase shopify_products → 更新 Shopify 現有產品 */}
           <button
-            onClick={() => syncMirror()}
+            onClick={() => pushToShopify()}
             disabled={isSyncing}
-            title="與 Shopify 同步：將 Supabase 最新資料（含 SEO）推送到 Shopify，並更新本地鏡像狀態"
+            title="將 Supabase shopify_products 資料推送至 Shopify，更新現有產品（標題、描述、SEO、價格、Metafields 等）。不會從 Shopify 回傳資料。"
             className="flex items-center gap-1.5 rounded-lg border border-indigo-500/40 bg-indigo-500/10 px-3 py-2 text-xs font-semibold text-indigo-700 dark:text-indigo-400 hover:bg-indigo-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isSyncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-            {isSyncing ? '同步中...' : '與 Shopify 同步'}
+            {isSyncing ? '推送中...' : '與 Shopify 同步'}
           </button>
-          {/* 從 Shopify 導入按鈕 */}
+          {/* 單向導入：Shopify → Supabase shopify_products */}
           <button
             onClick={handleOpenImportDialog}
             disabled={isFetchingPreview}
+            title="從 Shopify 導入產品資料至 Supabase，更新本頁列表（標題、描述、價格、Metafields 等）。不會推送至 Shopify。"
             className="flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isFetchingPreview ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CloudDownload className="h-3.5 w-3.5" />}
