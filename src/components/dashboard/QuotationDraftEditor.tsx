@@ -449,7 +449,7 @@ function QuoteProductItemCard({
           <QuoteRowDragHandle itemId={item.id} onDragStart={onDragStart} onDragEnd={onDragEnd} />
         </div>
         <div className="min-w-0 flex-1 space-y-3">
-          {/* Row 1: 類別 · 尺寸 · 顏色 ｜ 材質及明細 */}
+          {/* Row 1: 類別 · 尺寸 · 顏色 ｜ 材質及明細 · 數量 · 單位 */}
           <div className="flex items-start gap-3">
             <div className={cn(QUOTE_LEFT_COL_CLASS, "space-y-2")}>
               <QuoteFieldBlock label="類別">
@@ -518,9 +518,33 @@ function QuoteProductItemCard({
                 className={`${QUOTE_INPUT_CLASS} resize-y leading-relaxed`}
               />
             </QuoteFieldBlock>
+            <div className="flex shrink-0 flex-col gap-2">
+              <QuoteFieldBlock label="數量" className="w-14">
+                <input
+                  type="number"
+                  value={item.quantity || ""}
+                  placeholder="1"
+                  min={1}
+                  onChange={(e) =>
+                    updateItem(item.id, "quantity", parseInt(e.target.value) || 1)
+                  }
+                  className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
+                />
+              </QuoteFieldBlock>
+              <QuoteFieldBlock label="單位" className="w-[4em]">
+                <input
+                  type="text"
+                  value={item.unit || ""}
+                  placeholder="—"
+                  maxLength={4}
+                  onChange={(e) => updateItem(item.id, "unit", e.target.value)}
+                  className={QUOTE_INPUT_CLASS}
+                />
+              </QuoteFieldBlock>
+            </div>
           </div>
 
-          {/* Row 2: 備註 · 圖片 · 參考圖 · 數量 · 單位 · 成本價 · 單價 · 小計 */}
+          {/* Row 2: 備註 · 圖片 · 參考圖 · 成本價 · 單價 · 小計 */}
           <div className="flex flex-wrap items-start gap-x-3 gap-y-3">
             <QuoteFieldBlock label="備註" className={QUOTE_LEFT_COL_CLASS}>
               <RemarksRichEditor
@@ -550,28 +574,6 @@ function QuoteProductItemCard({
               />
             </QuoteFieldBlock>
             <div className="ml-auto flex flex-wrap items-start justify-end gap-2">
-              <QuoteFieldBlock label="數量" className="w-14 shrink-0">
-                <input
-                  type="number"
-                  value={item.quantity || ""}
-                  placeholder="1"
-                  min={1}
-                  onChange={(e) =>
-                    updateItem(item.id, "quantity", parseInt(e.target.value) || 1)
-                  }
-                  className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
-                />
-              </QuoteFieldBlock>
-              <QuoteFieldBlock label="單位" className="w-[4em] shrink-0">
-                <input
-                  type="text"
-                  value={item.unit || ""}
-                  placeholder="—"
-                  maxLength={4}
-                  onChange={(e) => updateItem(item.id, "unit", e.target.value)}
-                  className={QUOTE_INPUT_CLASS}
-                />
-              </QuoteFieldBlock>
               <QuoteFieldBlock label="成本價" className="w-[5.5rem] shrink-0">
                 <input
                   type="number"
