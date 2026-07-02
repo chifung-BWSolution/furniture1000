@@ -416,15 +416,17 @@ const QUOTE_COMPACT_NUMBER_INPUT_CLASS = `${QUOTE_NUMBER_INPUT_CLASS} min-w-0`;
 const QUOTE_LEFT_COL_CLASS = "w-[15em] max-w-full shrink-0";
 
 /**
- * Single grid (both rows share tracks) — drag in col 1; flexible spacer pushes 單位/小計 to the far right.
- * Cols: drag | 左欄 | 材質/圖 | 參考圖 | 數量/成本 | 單價 | (flex) | 單位/小計 | 刪除
+ * Single grid — drag col 1; flex spacer keeps 單位/小計 anchored at the card's right edge.
+ * Below xl: capped middle cols. At xl: middle cols extend to ~客戶資訊 right edge; cols 5–6 sit at 報價資訊 column.
  */
 const QUOTE_CARD_GRID = cn(
   "grid w-full auto-rows-min items-start gap-x-3 gap-y-3",
   "grid-cols-[1.75rem_minmax(0,15em)_minmax(6.5rem,min(16rem,1fr))_minmax(6.5rem,min(16rem,1fr))_5.5rem_5.5rem_minmax(0,1fr)_6.5rem_auto]",
+  // 56% ≈ 75% of info-panel flex-1 width on a full-width card; 2rem = four xl gap-2 gutters before col 5
+  "xl:gap-x-2 xl:grid-cols-[1.75rem_minmax(0,15em)_minmax(8rem,calc((56%-1.75rem-15em-2rem)/2))_minmax(8rem,calc((56%-1.75rem-15em-2rem)/2))_5.5rem_5.5rem_minmax(0,1fr)_6.5rem_auto]",
 );
 
-/** Match info-panel header px-4 + 3 chars before 「訊」 in 報價資訊 (xl only) */
+/** Offset within col 5 so 數量/成本 labels align under 「訊」 (panel px-4 + 3 chars) */
 const QUOTE_CARD_QTY_COST_ALIGN = "xl:pl-[calc(1rem+3em)]";
 
 function QuoteProductItemCard({
