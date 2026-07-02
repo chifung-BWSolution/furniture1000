@@ -303,7 +303,9 @@ function ImageUploadModal({
   );
 }
 
-// Sub-component: Reference Image Cell (modal upload)
+// Sub-component: Reference Image Cell (modal upload) — editor-only sizing
+const QUOTE_EDITOR_IMAGE_CELL_PX = 96; // 2× previous 48px thumbnail
+
 function ReferenceImageCell({
   value,
   onChange,
@@ -318,7 +320,8 @@ function ReferenceImageCell({
   return (
     <>
       <div
-        className="relative flex h-12 w-12 aspect-square items-center justify-center rounded-md border border-dashed border-border bg-muted/30 overflow-hidden cursor-pointer group"
+        className="relative flex aspect-square items-center justify-center overflow-hidden rounded-md border border-dashed border-border bg-muted/30 cursor-pointer group"
+        style={{ width: QUOTE_EDITOR_IMAGE_CELL_PX, height: QUOTE_EDITOR_IMAGE_CELL_PX }}
         onClick={() => setModalOpen(true)}
         title="點擊上傳圖片"
       >
@@ -331,13 +334,13 @@ function ReferenceImageCell({
                 e.stopPropagation();
                 onChange("");
               }}
-              className="absolute -top-1 -right-1 hidden group-hover:flex h-4 w-4 items-center justify-center rounded-full bg-rose-500 text-white shadow"
+              className="absolute -top-1 -right-1 hidden group-hover:flex h-5 w-5 items-center justify-center rounded-full bg-rose-500 text-white shadow"
             >
-              <X className="h-2.5 w-2.5" />
+              <X className="h-3 w-3" />
             </button>
           </>
         ) : (
-          <ImagePlus className="h-4 w-4 text-muted-foreground/40" />
+          <ImagePlus className="h-8 w-8 text-muted-foreground/40" />
         )}
       </div>
       <ImageUploadModal
@@ -487,12 +490,11 @@ export function QuotationDraftEditor({
       }
     | undefined;
 
-  // Left panel section collapse states (all collapsed by default)
+  // Info panel section collapse states (all collapsed by default)
   const [collapseCompany, setCollapseCompany] = useState(true);
   const [collapseProject, setCollapseProject] = useState(true);
   const [collapseClient, setCollapseClient] = useState(true);
   const [collapseQuoteMeta, setCollapseQuoteMeta] = useState(true);
-  const anyExpanded = !collapseCompany || !collapseProject || !collapseClient || !collapseQuoteMeta;
 
   // Company info (editable)
   const [companyInfo, setCompanyInfo] = useState({
@@ -1132,86 +1134,39 @@ export function QuotationDraftEditor({
         {/* Header — span full available width (parent already adds small side
             padding) so 報價內容 stretches left-and-right and needs less scrolling */}
         <div className="mx-auto w-full max-w-none">
-          <div className="mb-6 flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <button
-                type="button"
-                onClick={onBack}
-                className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                title="返回"
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </button>
-              {existingQuote && (
-                <div>
-                  <p className="font-body text-sm text-muted-foreground">
-                    <span className="font-mono-data text-xs tracking-wider text-primary">
-                      {existingQuote.quoteId}
-                    </span>
-                    <span className="mx-2 text-border">·</span>
-                    目前版本{" "}
-                    <span className="font-semibold">
-                      {existingQuote.version}
-                    </span>
-                    <span className="mx-2 text-border">·</span>
-                    送出新版本將為{" "}
-                    <span className="font-semibold text-primary">
-                      {currentVersion}
-                    </span>
-                  </p>
-                </div>
-              )}
-            </div>
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={() => setShowPDFPreview(true)}
-                className="inline-flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-4 py-2 font-body text-sm font-medium text-primary transition-colors hover:bg-primary/10"
-              >
-                <Eye className="h-4 w-4" />
-                預覽 PDF
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveDraft}
-                disabled={isSavingDraft}
-                className={`inline-flex items-center gap-2 rounded-lg border px-4 py-2 font-body text-sm font-medium transition-colors ${
-                  isSavingDraft
-                    ? "border-border text-muted-foreground cursor-not-allowed opacity-60"
-                    : draftSavedAt
-                      ? "border-emerald-500/30 bg-emerald-500/5 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10"
-                      : "border-border text-foreground hover:bg-accent"
-                }`}
-              >
-                {isSavingDraft ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : draftSavedAt ? (
-                  <Check className="h-4 w-4" />
-                ) : (
-                  <Save className="h-4 w-4" />
-                )}
-                {isSavingDraft
-                  ? "儲存中..."
-                  : draftSavedAt
-                    ? "已儲存"
-                    : "儲存草稿"}
-              </button>
-              <button
-                type="button"
-                onClick={() => setShowSubmitModal(true)}
-                className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 font-body text-sm font-semibold text-primary-foreground shadow-md shadow-primary/20 transition-all hover:bg-primary/90 active:scale-[0.98]"
-              >
-                <ShieldCheck className="h-4 w-4" />
-                版本審核
-              </button>
-            </div>
+          <div className="mb-4 flex items-center gap-4">
+            <button
+              type="button"
+              onClick={onBack}
+              className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              title="返回"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            {existingQuote && (
+              <div>
+                <p className="font-body text-sm text-muted-foreground">
+                  <span className="font-mono-data text-xs tracking-wider text-primary">
+                    {existingQuote.quoteId}
+                  </span>
+                  <span className="mx-2 text-border">·</span>
+                  目前版本{" "}
+                  <span className="font-semibold">
+                    {existingQuote.version}
+                  </span>
+                  <span className="mx-2 text-border">·</span>
+                  送出新版本將為{" "}
+                  <span className="font-semibold text-primary">
+                    {currentVersion}
+                  </span>
+                </p>
+              </div>
+            )}
           </div>
 
-          {/* 3-Column Grid */}
-          <div className="grid grid-cols-1 gap-5 lg:grid-cols-12">
-            {/* LEFT COLUMN — kept narrow so 報價內容 gets maximum width. Slightly
-                wider when a panel is open to fit its form fields. */}
-            <div className={`space-y-2 ${anyExpanded ? 'lg:col-span-3 xl:col-span-2' : 'lg:col-span-2'}`}>
+          {/* Info panels + action buttons — above 報價內容 */}
+          <div className="mb-5 flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+            <div className="grid min-w-0 flex-1 grid-cols-2 gap-2 xl:grid-cols-4">
               {/* 公司資訊 */}
               <section className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
                 <button
@@ -1497,11 +1452,54 @@ export function QuotationDraftEditor({
                   </div>
                 </div>}
               </section>
-
             </div>
 
-            {/* CENTER COLUMN — expands as left column shrinks */}
-            <div className={`space-y-5 ${anyExpanded ? 'lg:col-span-9 xl:col-span-10' : 'lg:col-span-10'}`}>
+            <div className="flex shrink-0 items-center justify-end gap-3 xl:pt-1">
+              <button
+                type="button"
+                onClick={() => setShowPDFPreview(true)}
+                className="inline-flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-4 py-2 font-body text-sm font-medium text-primary transition-colors hover:bg-primary/10"
+              >
+                <Eye className="h-4 w-4" />
+                預覽 PDF
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveDraft}
+                disabled={isSavingDraft}
+                className={`inline-flex items-center gap-2 rounded-lg border px-4 py-2 font-body text-sm font-medium transition-colors ${
+                  isSavingDraft
+                    ? "border-border text-muted-foreground cursor-not-allowed opacity-60"
+                    : draftSavedAt
+                      ? "border-emerald-500/30 bg-emerald-500/5 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10"
+                      : "border-border text-foreground hover:bg-accent"
+                }`}
+              >
+                {isSavingDraft ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : draftSavedAt ? (
+                  <Check className="h-4 w-4" />
+                ) : (
+                  <Save className="h-4 w-4" />
+                )}
+                {isSavingDraft
+                  ? "儲存中..."
+                  : draftSavedAt
+                    ? "已儲存"
+                    : "儲存草稿"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowSubmitModal(true)}
+                className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 font-body text-sm font-semibold text-primary-foreground shadow-md shadow-primary/20 transition-all hover:bg-primary/90 active:scale-[0.98]"
+              >
+                <ShieldCheck className="h-4 w-4" />
+                版本審核
+              </button>
+            </div>
+          </div>
+
+          <div className="space-y-5">
               {/* 報價內容表格 */}
               <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
                 <div className="mb-4 flex items-center justify-between">
@@ -1544,16 +1542,16 @@ export function QuotationDraftEditor({
                     <thead>
                       <tr className="border-b border-border">
                         <th className="w-8 pb-2 pr-1 font-body text-xs font-medium text-muted-foreground"></th>
-                        <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "50px" }}>
+                        <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "100px" }}>
                           圖片
                         </th>
-                        <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "60px" }}>
+                        <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "120px" }}>
                           參考圖
                         </th>
                         <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "60px" }}>
                           類別
                         </th>
-                        <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "160px" }}>
+                        <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "280px" }}>
                           材質及明細
                         </th>
                         <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "120px" }}>
@@ -1571,7 +1569,7 @@ export function QuotationDraftEditor({
                         <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "60px" }}>
                           數量
                         </th>
-                        <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "120px" }}>
+                        <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "240px" }}>
                           備註
                         </th>
                         <th className="pb-2 pr-2 font-body text-xs font-medium text-muted-foreground" style={{ minWidth: "70px" }}>
@@ -1719,7 +1717,7 @@ export function QuotationDraftEditor({
                               onChange={(e) =>
                                 updateItem(item.id, "material", e.target.value)
                               }
-                              className="w-full min-w-[140px] rounded-md border border-border bg-background px-2 py-1.5 font-body text-xs leading-relaxed text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 resize-y"
+                              className="w-full min-w-[260px] rounded-md border border-border bg-background px-2 py-1.5 font-body text-xs leading-relaxed text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 resize-y"
                             />
                           </td>
                           {/* 尺寸 */}
@@ -2198,7 +2196,6 @@ export function QuotationDraftEditor({
                   </div>
                 </div>
               </section>
-            </div>
           </div>
 
           {/* Footer Navigation */}

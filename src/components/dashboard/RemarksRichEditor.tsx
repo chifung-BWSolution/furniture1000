@@ -201,7 +201,7 @@ export function RemarksRichEditor({
 
   return (
     <div
-      className="flex min-w-[120px] flex-col gap-1"
+      className="flex min-w-[220px] flex-col gap-1"
       onDragLeave={(e) => {
         if (!e.currentTarget.contains(e.relatedTarget as Node)) {
           clearDrag();
