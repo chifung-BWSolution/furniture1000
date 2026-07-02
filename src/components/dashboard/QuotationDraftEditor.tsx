@@ -286,7 +286,7 @@ function ImageUploadModal({
           <span className="font-body text-xs font-medium text-foreground">
             {busy ? "上傳中..." : "點擊、拖放或貼上 (Ctrl+V) 圖片"}
           </span>
-          <span className="font-body text-[10px] text-muted-foreground">
+          <span className="font-body text-xs text-muted-foreground">
             支援 PNG、JPG、JPEG、WEBP、TIFF、SVG（最大 10 MB）
           </span>
         </button>
@@ -1293,7 +1293,7 @@ export function QuotationDraftEditor({
                     {formData.clientIndustry.map((tag) => (
                       <span
                         key={tag}
-                        className="inline-flex rounded-full bg-primary/10 px-2.5 py-0.5 font-body text-[10px] font-medium text-primary"
+                        className="inline-flex rounded-full bg-primary/10 px-2.5 py-0.5 font-body text-xs font-medium text-primary"
                       >
                         {tag}
                       </span>
@@ -1313,7 +1313,7 @@ export function QuotationDraftEditor({
                     {formData.quotationType.map((tag) => (
                       <span
                         key={tag}
-                        className="inline-flex rounded-full bg-orange-500/10 px-2.5 py-0.5 font-body text-[10px] font-medium text-orange-600 dark:text-orange-400"
+                        className="inline-flex rounded-full bg-orange-500/10 px-2.5 py-0.5 font-body text-xs font-medium text-orange-600 dark:text-orange-400"
                       >
                         {tag}
                       </span>
@@ -1333,7 +1333,7 @@ export function QuotationDraftEditor({
                     {formData.serviceScope.map((tag) => (
                       <span
                         key={tag}
-                        className="inline-flex rounded-full bg-emerald-500/10 px-2.5 py-0.5 font-body text-[10px] font-medium text-emerald-600 dark:text-emerald-400"
+                        className="inline-flex rounded-full bg-emerald-500/10 px-2.5 py-0.5 font-body text-xs font-medium text-emerald-600 dark:text-emerald-400"
                       >
                         {tag}
                       </span>
@@ -1345,7 +1345,7 @@ export function QuotationDraftEditor({
                     )}
                   </div>
                 </div>
-                <p className="font-body text-[10px] text-muted-foreground/60">
+                <p className="font-body text-xs text-muted-foreground/60">
                   * 如需修改，請點擊「基本資訊」回到編輯頁
                 </p>
               </InfoPanelColumn>
@@ -2086,7 +2086,7 @@ export function QuotationDraftEditor({
                   }
                   editable={termsEditMode}
                 />
-                <div className="hidden space-y-4 font-body text-[11px] leading-relaxed text-foreground/80">
+                <div className="hidden space-y-4 font-body text-xs leading-relaxed text-foreground/80">
                   {/* 運輸及安裝條款 (legacy - kept for PDF compat) */}
                   <div>
                     <h3 className="mb-2 font-display text-xs font-semibold text-foreground">
@@ -2102,7 +2102,7 @@ export function QuotationDraftEditor({
                           }))
                         }
                         rows={8}
-                        className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-[11px] leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 resize-y"
+                        className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 resize-y"
                       />
                     ) : (
                       <div className="space-y-1.5 pl-1 whitespace-pre-line">
@@ -2126,7 +2126,7 @@ export function QuotationDraftEditor({
                           }))
                         }
                         rows={7}
-                        className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-[11px] leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 resize-y"
+                        className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 resize-y"
                       />
                     ) : (
                       <div className="space-y-1.5 pl-1 whitespace-pre-line">
@@ -2150,7 +2150,7 @@ export function QuotationDraftEditor({
                           }))
                         }
                         rows={4}
-                        className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-[11px] leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 resize-y"
+                        className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 resize-y"
                       />
                     ) : (
                       <div className="space-y-1.5 pl-1 whitespace-pre-line">
@@ -2174,7 +2174,7 @@ export function QuotationDraftEditor({
                           }))
                         }
                         rows={10}
-                        className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-[11px] leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 resize-y"
+                        className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 resize-y"
                       />
                     ) : (
                       <div className="space-y-1.5 pl-1 whitespace-pre-line">
@@ -2198,7 +2198,7 @@ export function QuotationDraftEditor({
                           }))
                         }
                         rows={8}
-                        className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-[11px] leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 resize-y"
+                        className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 resize-y"
                       />
                     ) : (
                       <div className="space-y-1.5 pl-1 whitespace-pre-line">

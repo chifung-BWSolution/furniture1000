@@ -419,7 +419,7 @@ export function TermsRichEditor({ value, onChange, editable = true }: TermsRichE
 
       <EditorContent
         editor={editor}
-        className="terms-rich-editor min-h-[280px] max-h-[480px] overflow-y-auto px-3 py-2.5 font-body text-[11px] leading-relaxed text-foreground focus-within:outline-none"
+        className="terms-rich-editor min-h-[280px] max-h-[480px] overflow-y-auto px-3 py-2.5 font-body text-xs leading-relaxed text-foreground focus-within:outline-none"
       />
     </div>
   );
