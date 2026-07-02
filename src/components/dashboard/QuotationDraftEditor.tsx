@@ -437,78 +437,78 @@ function QuoteProductItemCard({
           <QuoteRowDragHandle itemId={item.id} onDragStart={onDragStart} onDragEnd={onDragEnd} />
         </div>
         <div className="min-w-0 flex-1 space-y-3">
-          {/* Row 1: 類別 · 尺寸 · 顏色 */}
+          {/* Row 1: 類別 · 尺寸 · 顏色 · 材質及明細 */}
           <div className="flex flex-wrap items-start gap-3">
-            <QuoteFieldBlock label="類別" className="w-[15em] max-w-full shrink-0">
-              <input
-                type="text"
-                value={item.category || ""}
-                placeholder="—"
-                maxLength={15}
-                onChange={(e) => updateItem(item.id, "category", e.target.value)}
-                className={QUOTE_SHORT_TEXT_INPUT_CLASS}
-              />
-            </QuoteFieldBlock>
-            <QuoteFieldBlock label="尺寸(mm), 長x闊x高" className="min-w-[12rem] flex-1">
-              <div className="flex w-fit items-center gap-0.5">
+            <div className="flex shrink-0 flex-wrap items-start gap-3">
+              <QuoteFieldBlock label="類別" className="w-[15em] max-w-full">
                 <input
-                  type="number"
-                  min={0}
-                  value={item.dimensionLMm ?? ""}
-                  placeholder="L"
-                  onChange={(e) =>
-                    updateItem(item.id, "dimensionLMm", parseNonNegativeDimension(e.target.value))
-                  }
-                  className={DIMENSION_INPUT_CLASS}
+                  type="text"
+                  value={item.category || ""}
+                  placeholder="—"
+                  maxLength={15}
+                  onChange={(e) => updateItem(item.id, "category", e.target.value)}
+                  className={QUOTE_SHORT_TEXT_INPUT_CLASS}
                 />
-                <span className="text-xs text-muted-foreground">×</span>
+              </QuoteFieldBlock>
+              <QuoteFieldBlock label="尺寸(mm), 長x闊x高" className="shrink-0">
+                <div className="flex w-fit items-center gap-0.5">
+                  <input
+                    type="number"
+                    min={0}
+                    value={item.dimensionLMm ?? ""}
+                    placeholder="L"
+                    onChange={(e) =>
+                      updateItem(item.id, "dimensionLMm", parseNonNegativeDimension(e.target.value))
+                    }
+                    className={DIMENSION_INPUT_CLASS}
+                  />
+                  <span className="text-xs text-muted-foreground">×</span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={item.dimensionWMm ?? ""}
+                    placeholder="W"
+                    onChange={(e) =>
+                      updateItem(item.id, "dimensionWMm", parseNonNegativeDimension(e.target.value))
+                    }
+                    className={DIMENSION_INPUT_CLASS}
+                  />
+                  <span className="text-xs text-muted-foreground">×</span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={item.dimensionHMm ?? ""}
+                    placeholder="H"
+                    onChange={(e) =>
+                      updateItem(item.id, "dimensionHMm", parseNonNegativeDimension(e.target.value))
+                    }
+                    className={DIMENSION_INPUT_CLASS}
+                  />
+                </div>
+              </QuoteFieldBlock>
+              <QuoteFieldBlock label="顏色" className="w-[15em] max-w-full">
                 <input
-                  type="number"
-                  min={0}
-                  value={item.dimensionWMm ?? ""}
-                  placeholder="W"
-                  onChange={(e) =>
-                    updateItem(item.id, "dimensionWMm", parseNonNegativeDimension(e.target.value))
-                  }
-                  className={DIMENSION_INPUT_CLASS}
+                  type="text"
+                  value={item.color || ""}
+                  placeholder="—"
+                  maxLength={15}
+                  onChange={(e) => updateItem(item.id, "color", e.target.value)}
+                  className={QUOTE_SHORT_TEXT_INPUT_CLASS}
                 />
-                <span className="text-xs text-muted-foreground">×</span>
-                <input
-                  type="number"
-                  min={0}
-                  value={item.dimensionHMm ?? ""}
-                  placeholder="H"
-                  onChange={(e) =>
-                    updateItem(item.id, "dimensionHMm", parseNonNegativeDimension(e.target.value))
-                  }
-                  className={DIMENSION_INPUT_CLASS}
-                />
-              </div>
-            </QuoteFieldBlock>
-            <QuoteFieldBlock label="顏色" className="w-[15em] max-w-full shrink-0">
-              <input
-                type="text"
-                value={item.color || ""}
-                placeholder="—"
-                maxLength={15}
-                onChange={(e) => updateItem(item.id, "color", e.target.value)}
-                className={QUOTE_SHORT_TEXT_INPUT_CLASS}
+              </QuoteFieldBlock>
+            </div>
+            <QuoteFieldBlock label="材質及明細" className="min-w-[min(100%,16rem)] flex-1">
+              <textarea
+                value={item.material || ""}
+                placeholder="材質及明細..."
+                rows={7}
+                onChange={(e) => updateItem(item.id, "material", e.target.value)}
+                className={`${QUOTE_INPUT_CLASS} resize-y leading-relaxed`}
               />
             </QuoteFieldBlock>
           </div>
 
-          {/* Row 2: 材質及明細 */}
-          <QuoteFieldBlock label="材質及明細">
-            <textarea
-              value={item.material || ""}
-              placeholder="材質及明細..."
-              rows={7}
-              onChange={(e) => updateItem(item.id, "material", e.target.value)}
-              className={`${QUOTE_INPUT_CLASS} resize-y leading-relaxed`}
-            />
-          </QuoteFieldBlock>
-
-          {/* Row 3: 備註 */}
+          {/* Row 2: 備註 */}
           <QuoteFieldBlock label="備註">
             <RemarksRichEditor
               key={item.id}
@@ -518,7 +518,7 @@ function QuoteProductItemCard({
             />
           </QuoteFieldBlock>
 
-          {/* Row 4: 圖片 · 參考圖 · 數量 · 單位 · 成本價 · 單價 · 小計 */}
+          {/* Row 3: 圖片 · 參考圖 · 數量 · 單位 · 成本價 · 單價 · 小計 */}
           <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
             <QuoteFieldBlock label="圖片" className="shrink-0">
               <ReferenceImageCell
