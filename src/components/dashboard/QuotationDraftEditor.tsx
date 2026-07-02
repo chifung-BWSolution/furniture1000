@@ -427,17 +427,17 @@ const QUOTE_CARD_GRID = cn(
 
 /** xl: shift media block right — align with 「案」 in 專案分類 (position only) */
 const QUOTE_CARD_MEDIA_XL_SHIFT = "xl:ml-[4rem]";
-/** xl: shift 數量/成本/單價 right toward 「訊」 in 報價資訊 */
+/** xl: shift 單價 only — 數量/成本 use separate offset below */
 const QUOTE_CARD_PRICING_XL_SHIFT = "xl:ml-[15rem]";
-/** ~6 Chinese chars — 數量、成本價、單價 (single-line labels + inputs) */
+/** ~6 Chinese chars — 單價 (single-line label + input) */
 const QUOTE_PRICING_FIELD_CLASS = cn(
   "w-[6em] min-w-[6em] max-w-[6em] shrink-0 [&_label]:whitespace-nowrap",
   QUOTE_CARD_PRICING_XL_SHIFT,
 );
-/** Label nudge under 「訊」 — on label only so input width stays 6em */
-const QUOTE_PRICING_QTY_COST_FIELD_CLASS = cn(
-  QUOTE_PRICING_FIELD_CLASS,
-  "[&_label]:xl:pl-[calc(1rem+3em)]",
+/** 數量 · 成本價 — same col, left-aligned labels, 6rem left of 單價 offset */
+const QUOTE_QTY_COST_FIELD_CLASS = cn(
+  "w-[6em] min-w-[6em] max-w-[6em] shrink-0 [&_label]:whitespace-nowrap",
+  "xl:ml-[9rem]",
 );
 
 function QuoteProductItemCard({
@@ -558,7 +558,7 @@ function QuoteProductItemCard({
         {/* Row 1 — col 5: 數量 */}
         <QuoteFieldBlock
           label="數量"
-          className={cn("col-start-5 row-start-1", QUOTE_PRICING_QTY_COST_FIELD_CLASS)}
+          className={cn("col-start-5 row-start-1", QUOTE_QTY_COST_FIELD_CLASS)}
         >
           <input
             type="number"
@@ -624,7 +624,7 @@ function QuoteProductItemCard({
         {/* Row 2 — cols 5–6: 成本價 · 單價 */}
         <QuoteFieldBlock
           label="成本價"
-          className={cn("col-start-5 row-start-2", QUOTE_PRICING_QTY_COST_FIELD_CLASS)}
+          className={cn("col-start-5 row-start-2", QUOTE_QTY_COST_FIELD_CLASS)}
         >
           <input
             type="number"
