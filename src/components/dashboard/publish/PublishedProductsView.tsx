@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import {
   CheckCheck, Search, ArrowDownToLine, ArrowUpToLine, RotateCcw, ChevronDown,
@@ -420,6 +420,40 @@ export function PublishedProductsView() {
   );
   useEffect(() => { setCurrentPage(1); }, [search, stateFilter, factoryFilter, level1Filter, level2Filter, pageSize, skuSortDir]);
 
+  // Drop selections that fall outside the current filter set.
+  useEffect(() => {
+    setSelected((prev) => {
+      if (prev.size === 0) return prev;
+      const validIds = new Set(sorted.map((p) => p.id));
+      const next = new Set(Array.from(prev).filter((id) => validIds.has(id)));
+      return next.size === prev.size ? prev : next;
+    });
+  }, [sorted]);
+
+  const pageAllSelected = paged.length > 0 && paged.every((p) => selected.has(p.id));
+  const pageSomeSelected = paged.some((p) => selected.has(p.id)) && !pageAllSelected;
+  const selectionSpansPages = useMemo(() => {
+    if (selected.size === 0) return false;
+    const pageIdSet = new Set(paged.map((p) => p.id));
+    return Array.from(selected).some((id) => !pageIdSet.has(id));
+  }, [selected, paged]);
+
+  const pageSelectAllRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (pageSelectAllRef.current) {
+      pageSelectAllRef.current.indeterminate = pageSomeSelected;
+    }
+  }, [pageSomeSelected]);
+
+  const togglePageSelectAll = (checked: boolean) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (checked) paged.forEach((p) => next.add(p.id));
+      else paged.forEach((p) => next.delete(p.id));
+      return next;
+    });
+  };
+
   // Call delist-from-shopify edge function to archive products in Shopify,
   // then update the local shopify_products mirror table.
   const callDelistEdgeFunction = async (shopifyProductIds: string[]): Promise<{ ok: boolean; error?: string }> => {
@@ -549,13 +583,21 @@ export function PublishedProductsView() {
         </div>
       </div>
 
-      {/* state filter pills */}
-      <div className="flex shrink-0 items-center gap-1.5 border-b border-border bg-card px-6 py-2">
-        {STATE_FILTERS.map((f) => (
-          <button key={f.key} onClick={() => setStateFilter(f.key)} className={cn('rounded-full border px-3 py-1 text-[11.5px] font-medium transition-colors', stateFilter === f.key ? 'border-primary bg-primary text-primary-foreground' : 'border-border text-muted-foreground hover:text-foreground')}>
-            {f.label}
-          </button>
-        ))}
+      {/* state filter pills + selection summary */}
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-card px-6 py-2">
+        <div className="flex items-center gap-1.5">
+          {STATE_FILTERS.map((f) => (
+            <button key={f.key} onClick={() => setStateFilter(f.key)} className={cn('rounded-full border px-3 py-1 text-[11.5px] font-medium transition-colors', stateFilter === f.key ? 'border-primary bg-primary text-primary-foreground' : 'border-border text-muted-foreground hover:text-foreground')}>
+              {f.label}
+            </button>
+          ))}
+        </div>
+        {selected.size > 0 && (
+          <span className="shrink-0 font-mono-data text-[11px] text-muted-foreground">
+            已選 <span className="font-semibold text-foreground">{selected.size}</span> / 共 {sorted.length} 件
+            {selectionSpansPages && <span className="text-primary">（含跨頁）</span>}
+          </span>
+        )}
       </div>
 
       {/* table */}
@@ -565,7 +607,14 @@ export function PublishedProductsView() {
             <thead className="bg-muted/50 text-[11px] uppercase tracking-wider text-muted-foreground">
               <tr>
                 <th className="w-10 px-4 py-2.5 sticky left-0 bg-muted/50 z-10">
-                  <input type="checkbox" className="rounded border-border" checked={filtered.length > 0 && filtered.every((p) => selected.has(p.id))} onChange={(e) => setSelected(e.target.checked ? new Set(filtered.map((p) => p.id)) : new Set())} />
+                  <input
+                    ref={pageSelectAllRef}
+                    type="checkbox"
+                    className="rounded border-border"
+                    title="全選本頁"
+                    checked={pageAllSelected}
+                    onChange={(e) => togglePageSelectAll(e.target.checked)}
+                  />
                 </th>
                 <th className="px-3 py-2.5 text-left font-medium min-w-[200px] sticky left-10 bg-muted/50 z-10">產品</th>
                 <th className="px-3 py-2.5 text-left font-medium min-w-[140px]">描述</th>
