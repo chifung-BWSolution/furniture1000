@@ -577,8 +577,11 @@ function QuoteProductItemCard({
           />
         </QuoteFieldBlock>
 
-        {/* Row 1 — col 8: 單位 (far right, aligned with 小計) */}
-        <QuoteFieldBlock label="單位" className="col-start-8 row-start-1 min-w-0">
+        {/* Row 1 — col 6: 單位 (aligned with 單價 below) */}
+        <QuoteFieldBlock
+          label="單位"
+          className={cn("col-start-6 row-start-1", QUOTE_PRICING_FIELD_CLASS)}
+        >
           <input
             type="text"
             value={item.unit || ""}
@@ -628,7 +631,7 @@ function QuoteProductItemCard({
 
         {/* Row 2 — cols 5–6: 成本價 · 單價 */}
         <QuoteFieldBlock
-          label="成本價"
+          label="CNY¥成本價"
           className={cn("col-start-5 row-start-2", QUOTE_QTY_COST_FIELD_CLASS)}
         >
           <input
@@ -647,7 +650,7 @@ function QuoteProductItemCard({
           />
         </QuoteFieldBlock>
         <QuoteFieldBlock
-          label="單價"
+          label="HKD$單價"
           className={cn("col-start-6 row-start-2", QUOTE_PRICING_FIELD_CLASS)}
         >
           <input
@@ -661,8 +664,8 @@ function QuoteProductItemCard({
             className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
           />
         </QuoteFieldBlock>
-        {/* Row 2 — col 8: 小計 (far right, aligned with 單位) */}
-        <QuoteFieldBlock label="小計" className="col-start-8 row-start-2 min-w-0">
+        {/* Row 2 — col 8: 小計 */}
+        <QuoteFieldBlock label="HKD$小計" className="col-start-8 row-start-2 min-w-0">
           <div className="flex h-[34px] items-center rounded-md border border-border/60 bg-muted/20 px-2">
             <span className="truncate font-mono-data text-xs font-medium text-foreground">
               ${(item.unitPrice * item.quantity).toLocaleString()}
