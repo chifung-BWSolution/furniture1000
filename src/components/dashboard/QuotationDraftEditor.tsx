@@ -416,18 +416,19 @@ const QUOTE_COMPACT_NUMBER_INPUT_CLASS = `${QUOTE_NUMBER_INPUT_CLASS} min-w-0`;
 const QUOTE_LEFT_COL_CLASS = "w-[15em] max-w-full shrink-0";
 
 /**
- * Single grid — fixed track widths at all breakpoints; xl alignment uses margin nudge, not calc column shrink.
- * Cols: drag | 左欄 | 材質/圖 | 參考圖 | 數量/成本 | 單價 | (flex) | 單位/小計 | 刪除
+ * Grid track widths — below xl: fixed caps. At xl: cols 3–4 use wider calc tracks (size only);
+ * position alignment uses ml nudge on the field blocks, not column shrink on pricing cols.
  */
 const QUOTE_CARD_GRID = cn(
   "grid w-full auto-rows-min items-start gap-x-3 gap-y-3",
   "grid-cols-[1.75rem_minmax(0,15em)_minmax(6.5rem,min(16rem,1fr))_minmax(6.5rem,min(16rem,1fr))_5.5rem_5.5rem_minmax(0,1fr)_6.5rem_auto]",
+  "xl:gap-x-2 xl:grid-cols-[1.75rem_minmax(0,15em)_minmax(8rem,calc((56%-1.75rem-15em-2rem)/2))_minmax(8rem,calc((56%-1.75rem-15em-2rem)/2))_5.5rem_5.5rem_minmax(0,1fr)_6.5rem_auto]",
 );
 
-/** xl: shift media block right — align left edge with 「專」 in 專案分類; widths unchanged */
+/** xl: shift media block right — align with 「案」 in 專案分類 (position only) */
 const QUOTE_CARD_MEDIA_XL_SHIFT = "xl:ml-[4rem]";
-/** xl: shift pricing block right — align 數量/成本 with 「訊」 in 報價資訊; widths unchanged */
-const QUOTE_CARD_PRICING_XL_SHIFT = "xl:ml-[11rem]";
+/** xl: shift 數量/成本/單價 right toward 「訊」 in 報價資訊 */
+const QUOTE_CARD_PRICING_XL_SHIFT = "xl:ml-[15rem]";
 /** Fine-tune label under 「訊」 (panel header px-4 + 3 chars) */
 const QUOTE_CARD_QTY_COST_ALIGN = "xl:pl-[calc(1rem+3em)]";
 
