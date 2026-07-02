@@ -340,7 +340,7 @@ function ReferenceImageCell({
       <div
         className={cn(
           "relative flex aspect-square items-center justify-center overflow-hidden rounded-md border border-dashed border-border bg-muted/30 cursor-pointer group",
-          fluid && "w-full min-h-[9rem]",
+          fluid && "mx-auto w-full min-h-[6.5rem] max-w-[9rem]",
         )}
         style={fluid ? undefined : { width: sizePx, height: sizePx }}
         onClick={() => setModalOpen(true)}
@@ -416,15 +416,14 @@ const QUOTE_COMPACT_NUMBER_INPUT_CLASS = `${QUOTE_NUMBER_INPUT_CLASS} min-w-0`;
 const QUOTE_LEFT_COL_CLASS = "w-[15em] max-w-full shrink-0";
 
 /** Uniform horizontal gap between field columns in quote item cards */
-const QUOTE_CARD_COL_GAP = "gap-4";
+const QUOTE_CARD_COL_GAP = "gap-3";
 
-/** Row 1: 左欄 · 材質及明細(伸展) · 數量 · 單位 */
-const QUOTE_CARD_ROW1_GRID =
-  "grid w-full items-start grid-cols-[minmax(0,15em)_minmax(16rem,1fr)_3.5rem_4em]";
-
-/** Row 2: 備註 · 圖片 · 參考圖 · 成本價 · 單價 · 小計 · 刪除 */
-const QUOTE_CARD_ROW2_GRID =
-  "grid w-full items-start grid-cols-[minmax(0,15em)_minmax(9rem,1fr)_minmax(9rem,1fr)_5.5rem_5.5rem_6.5rem_auto]";
+/**
+ * Shared 7-column grid — row 1 & 2 align 數量↔成本價、單位↔小計 vertically.
+ * Cols: 左欄 | 圖片區 | 參考圖區 | 成本/數量 | 單價 | 小計/單位 | 刪除
+ */
+const QUOTE_CARD_GRID_COLS =
+  "grid w-full items-start grid-cols-[minmax(0,15em)_minmax(6.5rem,9rem)_minmax(6.5rem,9rem)_5.5rem_5.5rem_6.5rem_auto]";
 
 function QuoteProductItemCard({
   item,
@@ -467,8 +466,8 @@ function QuoteProductItemCard({
         </div>
         <div className="min-w-0 flex-1 space-y-3">
           {/* Row 1: 類別 · 尺寸 · 顏色 ｜ 材質及明細 · 數量 · 單位 */}
-          <div className={cn(QUOTE_CARD_ROW1_GRID, QUOTE_CARD_COL_GAP)}>
-            <div className="space-y-2">
+          <div className={cn(QUOTE_CARD_GRID_COLS, QUOTE_CARD_COL_GAP)}>
+            <div className="col-start-1 space-y-2">
               <QuoteFieldBlock label="類別">
                 <input
                   type="text"
@@ -526,7 +525,7 @@ function QuoteProductItemCard({
                 />
               </QuoteFieldBlock>
             </div>
-            <QuoteFieldBlock label="材質及明細" className="min-w-0">
+            <QuoteFieldBlock label="材質及明細" className="col-span-2 min-w-0">
               <textarea
                 value={item.material || ""}
                 placeholder="材質及明細..."
@@ -535,7 +534,7 @@ function QuoteProductItemCard({
                 className={`${QUOTE_INPUT_CLASS} resize-y leading-relaxed`}
               />
             </QuoteFieldBlock>
-            <QuoteFieldBlock label="數量" className="min-w-0">
+            <QuoteFieldBlock label="數量" className="col-start-4 min-w-0">
               <input
                 type="number"
                 value={item.quantity || ""}
@@ -547,7 +546,7 @@ function QuoteProductItemCard({
                 className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
               />
             </QuoteFieldBlock>
-            <QuoteFieldBlock label="單位" className="min-w-0">
+            <QuoteFieldBlock label="單位" className="col-start-6 min-w-0">
               <input
                 type="text"
                 value={item.unit || ""}
@@ -560,7 +559,7 @@ function QuoteProductItemCard({
           </div>
 
           {/* Row 2: 備註 · 圖片 · 參考圖 · 成本價 · 單價 · 小計 */}
-          <div className={cn(QUOTE_CARD_ROW2_GRID, QUOTE_CARD_COL_GAP)}>
+          <div className={cn(QUOTE_CARD_GRID_COLS, QUOTE_CARD_COL_GAP)}>
             <QuoteFieldBlock label="備註" className="min-w-0">
               <RemarksRichEditor
                 key={item.id}
