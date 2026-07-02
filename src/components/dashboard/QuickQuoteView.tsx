@@ -6,6 +6,14 @@ import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { loadDraft } from '@/lib/draftStore';
 
+function getNextQuoteVersion(version: string): string {
+  const match = version.match(/^v(\d+)\.(\d+)$/);
+  if (match) {
+    return `v${parseInt(match[1], 10)}.${parseInt(match[2], 10) + 1}`;
+  }
+  return 'v1.1';
+}
+
 interface QuoteFormData {
   company: string;
   projectManager: string;
@@ -355,14 +363,59 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote }: QuickQuo
       <div className={cn('mx-auto', currentStep === 4 ? 'w-full max-w-none' : 'max-w-3xl')}>
         {/* Header */}
         <div className="mb-8">
-          <h1 className="font-display text-2xl font-bold tracking-tight text-foreground">
-            {currentStep === 4 ? '報價單草稿編輯' : '建立新報價單'}
-          </h1>
-          <p className="mt-1 font-body text-sm text-muted-foreground">
-            {currentStep === 4
-              ? '請確認並編輯以下報價單內容，完成後可提交審核'
-              : '填寫專案資料，AI 將為您生成專業報價'}
-          </p>
+          {currentStep === 4 ? (
+            <div className="flex items-start justify-between gap-4">
+              <div className="flex min-w-0 items-start gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (loadedQuoteData) {
+                      setLoadedQuoteData(null);
+                      onClearEditingQuote?.();
+                    } else {
+                      setCurrentStep(3);
+                    }
+                  }}
+                  className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-border px-4 py-2 font-body text-sm font-medium text-foreground transition-colors hover:bg-accent"
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  上一步
+                </button>
+                <div className="min-w-0">
+                  <h1 className="font-display text-2xl font-bold tracking-tight text-foreground">
+                    報價單草稿編輯
+                  </h1>
+                  <p className="mt-1 font-body text-sm text-muted-foreground">
+                    請確認並編輯以下報價單內容，完成後可提交審核
+                  </p>
+                </div>
+              </div>
+              {loadedQuoteData && (
+                <p className="shrink-0 pt-1 text-right font-body text-sm text-muted-foreground">
+                  <span className="font-mono-data text-xs tracking-wider text-primary">
+                    {loadedQuoteData.quoteId}
+                  </span>
+                  <span className="mx-2 text-border">·</span>
+                  目前版本{' '}
+                  <span className="font-semibold">{loadedQuoteData.version}</span>
+                  <span className="mx-2 text-border">·</span>
+                  送出新版本將為{' '}
+                  <span className="font-semibold text-primary">
+                    {getNextQuoteVersion(loadedQuoteData.version)}
+                  </span>
+                </p>
+              )}
+            </div>
+          ) : (
+            <>
+              <h1 className="font-display text-2xl font-bold tracking-tight text-foreground">
+                建立新報價單
+              </h1>
+              <p className="mt-1 font-body text-sm text-muted-foreground">
+                填寫專案資料，AI 將為您生成專業報價
+              </p>
+            </>
+          )}
         </div>
 
         {/* Stepper */}

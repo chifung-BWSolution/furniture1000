@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, lazy, Suspense, useRef, type ReactNode } from "react";
 import {
-  ChevronLeft,
   ChevronDown,
   Plus,
   Trash2,
@@ -472,7 +471,7 @@ const DEFAULT_ITEMS: QuotationItem[] = [
 
 export function QuotationDraftEditor({
   formData,
-  onBack,
+  onBack: _onBack,
   existingQuote,
 }: QuotationDraftEditorProps) {
   // Determine initial values from existingQuote or defaults
@@ -1174,36 +1173,6 @@ export function QuotationDraftEditor({
         {/* Header — span full available width (parent already adds small side
             padding) so 報價內容 stretches left-and-right and needs less scrolling */}
         <div className="mx-auto w-full max-w-none">
-          <div className="mb-4 flex items-center gap-4">
-            <button
-              type="button"
-              onClick={onBack}
-              className="flex h-9 w-9 items-center justify-center rounded-lg border border-border text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-              title="返回"
-            >
-              <ChevronLeft className="h-4 w-4" />
-            </button>
-            {existingQuote && (
-              <div>
-                <p className="font-body text-sm text-muted-foreground">
-                  <span className="font-mono-data text-xs tracking-wider text-primary">
-                    {existingQuote.quoteId}
-                  </span>
-                  <span className="mx-2 text-border">·</span>
-                  目前版本{" "}
-                  <span className="font-semibold">
-                    {existingQuote.version}
-                  </span>
-                  <span className="mx-2 text-border">·</span>
-                  送出新版本將為{" "}
-                  <span className="font-semibold text-primary">
-                    {currentVersion}
-                  </span>
-                </p>
-              </div>
-            )}
-          </div>
-
           {/* Info panels + action buttons — above 報價內容 */}
           <div className="mb-5 flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
             <div className="grid min-w-0 flex-1 grid-cols-2 items-start gap-2 xl:grid-cols-4">
@@ -2208,18 +2177,6 @@ export function QuotationDraftEditor({
                   </div>
                 </div>
               </section>
-          </div>
-
-          {/* Footer Navigation */}
-          <div className="mt-8 flex items-center justify-between border-t border-border pt-6 pb-8">
-            <button
-              type="button"
-              onClick={onBack}
-              className="inline-flex items-center gap-2 rounded-lg border border-border px-5 py-2.5 font-body text-sm font-medium text-foreground transition-colors hover:bg-accent"
-            >
-              <ChevronLeft className="h-4 w-4" />
-              上一步
-            </button>
           </div>
         </div>
       </div>
