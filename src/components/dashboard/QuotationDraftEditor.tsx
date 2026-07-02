@@ -315,16 +315,18 @@ function ImageUploadModal({
 }
 
 // Sub-component: Reference Image Cell (modal upload) — editor-only sizing
-const QUOTE_EDITOR_IMAGE_CELL_PX = 96; // 2× previous 48px thumbnail
+const QUOTE_EDITOR_IMAGE_CELL_PX = 140;
 
 function ReferenceImageCell({
   value,
   onChange,
   modalTitle = "上傳圖片",
+  sizePx = QUOTE_EDITOR_IMAGE_CELL_PX,
 }: {
   value: string;
   onChange: (url: string) => void;
   modalTitle?: string;
+  sizePx?: number;
 }) {
   const [modalOpen, setModalOpen] = useState(false);
 
@@ -332,7 +334,7 @@ function ReferenceImageCell({
     <>
       <div
         className="relative flex aspect-square items-center justify-center overflow-hidden rounded-md border border-dashed border-border bg-muted/30 cursor-pointer group"
-        style={{ width: QUOTE_EDITOR_IMAGE_CELL_PX, height: QUOTE_EDITOR_IMAGE_CELL_PX }}
+        style={{ width: sizePx, height: sizePx }}
         onClick={() => setModalOpen(true)}
         title={value ? "點擊查看或更換圖片" : "點擊上傳圖片"}
       >
@@ -387,8 +389,13 @@ function QuoteFieldBlock({
 const QUOTE_INPUT_CLASS =
   "w-full rounded-md border border-border bg-background px-2 py-1.5 font-body text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30";
 
+/** ~15 Chinese characters — 類別、顏色 */
+const QUOTE_SHORT_TEXT_INPUT_CLASS = `${QUOTE_INPUT_CLASS} max-w-[15em]`;
+
 const QUOTE_NUMBER_INPUT_CLASS =
   "w-full rounded-md border border-border bg-background px-2 py-1.5 font-mono-data text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30";
+
+const QUOTE_COMPACT_NUMBER_INPUT_CLASS = `${QUOTE_NUMBER_INPUT_CLASS} min-w-0`;
 
 function QuoteProductItemCard({
   item,
@@ -431,18 +438,19 @@ function QuoteProductItemCard({
         </div>
         <div className="min-w-0 flex-1 space-y-3">
           {/* Row 1: 類別 · 尺寸 · 顏色 */}
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <QuoteFieldBlock label="類別">
+          <div className="flex flex-wrap items-start gap-3">
+            <QuoteFieldBlock label="類別" className="w-[15em] max-w-full shrink-0">
               <input
                 type="text"
                 value={item.category || ""}
                 placeholder="—"
+                maxLength={15}
                 onChange={(e) => updateItem(item.id, "category", e.target.value)}
-                className={QUOTE_INPUT_CLASS}
+                className={QUOTE_SHORT_TEXT_INPUT_CLASS}
               />
             </QuoteFieldBlock>
-            <QuoteFieldBlock label="尺寸(mm), 長x闊x高">
-              <div className="flex items-center gap-0.5">
+            <QuoteFieldBlock label="尺寸(mm), 長x闊x高" className="min-w-[12rem] flex-1">
+              <div className="flex w-fit items-center gap-0.5">
                 <input
                   type="number"
                   min={0}
@@ -477,13 +485,14 @@ function QuoteProductItemCard({
                 />
               </div>
             </QuoteFieldBlock>
-            <QuoteFieldBlock label="顏色">
+            <QuoteFieldBlock label="顏色" className="w-[15em] max-w-full shrink-0">
               <input
                 type="text"
                 value={item.color || ""}
                 placeholder="—"
+                maxLength={15}
                 onChange={(e) => updateItem(item.id, "color", e.target.value)}
-                className={QUOTE_INPUT_CLASS}
+                className={QUOTE_SHORT_TEXT_INPUT_CLASS}
               />
             </QuoteFieldBlock>
           </div>
@@ -493,9 +502,9 @@ function QuoteProductItemCard({
             <textarea
               value={item.material || ""}
               placeholder="材質及明細..."
-              rows={4}
+              rows={7}
               onChange={(e) => updateItem(item.id, "material", e.target.value)}
-              className={`${QUOTE_INPUT_CLASS} min-h-[88px] resize-y leading-relaxed`}
+              className={`${QUOTE_INPUT_CLASS} resize-y leading-relaxed`}
             />
           </QuoteFieldBlock>
 
@@ -510,83 +519,85 @@ function QuoteProductItemCard({
           </QuoteFieldBlock>
 
           {/* Row 4: 圖片 · 參考圖 · 數量 · 單位 · 成本價 · 單價 · 小計 */}
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-8 xl:grid-cols-[repeat(8,minmax(0,1fr))_auto]">
-            <QuoteFieldBlock label="圖片">
+          <div className="flex flex-wrap items-end gap-x-4 gap-y-3">
+            <QuoteFieldBlock label="圖片" className="shrink-0">
               <ReferenceImageCell
                 value={item.image || ""}
                 onChange={(url) => updateItem(item.id, "image", url)}
                 modalTitle="上傳產品圖片"
+                sizePx={140}
               />
             </QuoteFieldBlock>
-            <QuoteFieldBlock label="參考圖">
+            <QuoteFieldBlock label="參考圖" className="shrink-0">
               <ReferenceImageCell
                 value={item.referenceImage || ""}
                 onChange={(url) => updateItem(item.id, "referenceImage", url)}
                 modalTitle="上傳參考圖"
+                sizePx={140}
               />
             </QuoteFieldBlock>
-            <QuoteFieldBlock label="數量">
-              <input
-                type="number"
-                value={item.quantity || ""}
-                placeholder="1"
-                min={1}
-                onChange={(e) =>
-                  updateItem(item.id, "quantity", parseInt(e.target.value) || 1)
-                }
-                className={QUOTE_NUMBER_INPUT_CLASS}
-              />
-            </QuoteFieldBlock>
-            <QuoteFieldBlock label="單位">
-              <input
-                type="text"
-                value={item.unit || ""}
-                placeholder="—"
-                maxLength={4}
-                onChange={(e) => updateItem(item.id, "unit", e.target.value)}
-                className={`${QUOTE_INPUT_CLASS} w-[4em] min-w-[4em] max-w-[4em]`}
-              />
-            </QuoteFieldBlock>
-            <QuoteFieldBlock label="成本價">
-              <input
-                type="number"
-                value={item.costPrice ?? ""}
-                placeholder="—"
-                min={0}
-                onChange={(e) =>
-                  updateItem(
-                    item.id,
-                    "costPrice",
-                    e.target.value ? parseFloat(e.target.value) : null,
-                  )
-                }
-                className={QUOTE_NUMBER_INPUT_CLASS}
-              />
-            </QuoteFieldBlock>
-            <QuoteFieldBlock label="單價">
-              <input
-                type="number"
-                value={item.unitPrice || ""}
-                placeholder="0"
-                min={0}
-                onChange={(e) =>
-                  updateItem(item.id, "unitPrice", parseFloat(e.target.value) || 0)
-                }
-                className={QUOTE_NUMBER_INPUT_CLASS}
-              />
-            </QuoteFieldBlock>
-            <QuoteFieldBlock label="小計">
-              <div className="flex h-[34px] items-center rounded-md border border-border/60 bg-muted/20 px-2">
-                <span className="font-mono-data text-xs font-medium text-foreground">
-                  ${(item.unitPrice * item.quantity).toLocaleString()}
-                </span>
-              </div>
-            </QuoteFieldBlock>
-            <div className="flex items-end justify-end pb-0.5">
+            <div className="ml-auto flex flex-wrap items-end justify-end gap-2">
+              <QuoteFieldBlock label="數量" className="w-14 shrink-0">
+                <input
+                  type="number"
+                  value={item.quantity || ""}
+                  placeholder="1"
+                  min={1}
+                  onChange={(e) =>
+                    updateItem(item.id, "quantity", parseInt(e.target.value) || 1)
+                  }
+                  className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
+                />
+              </QuoteFieldBlock>
+              <QuoteFieldBlock label="單位" className="w-[4em] shrink-0">
+                <input
+                  type="text"
+                  value={item.unit || ""}
+                  placeholder="—"
+                  maxLength={4}
+                  onChange={(e) => updateItem(item.id, "unit", e.target.value)}
+                  className={QUOTE_INPUT_CLASS}
+                />
+              </QuoteFieldBlock>
+              <QuoteFieldBlock label="成本價" className="w-[5.5rem] shrink-0">
+                <input
+                  type="number"
+                  value={item.costPrice ?? ""}
+                  placeholder="—"
+                  min={0}
+                  onChange={(e) =>
+                    updateItem(
+                      item.id,
+                      "costPrice",
+                      e.target.value ? parseFloat(e.target.value) : null,
+                    )
+                  }
+                  className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
+                />
+              </QuoteFieldBlock>
+              <QuoteFieldBlock label="單價" className="w-[5.5rem] shrink-0">
+                <input
+                  type="number"
+                  value={item.unitPrice || ""}
+                  placeholder="0"
+                  min={0}
+                  onChange={(e) =>
+                    updateItem(item.id, "unitPrice", parseFloat(e.target.value) || 0)
+                  }
+                  className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
+                />
+              </QuoteFieldBlock>
+              <QuoteFieldBlock label="小計" className="w-[6.5rem] shrink-0">
+                <div className="flex h-[34px] items-center rounded-md border border-border/60 bg-muted/20 px-2">
+                  <span className="truncate font-mono-data text-xs font-medium text-foreground">
+                    ${(item.unitPrice * item.quantity).toLocaleString()}
+                  </span>
+                </div>
+              </QuoteFieldBlock>
               <button
                 type="button"
                 onClick={() => removeItem(item.id)}
-                className="rounded-md p-1.5 text-muted-foreground/50 transition-colors hover:bg-rose-500/10 hover:text-rose-500"
+                className="mb-0.5 shrink-0 rounded-md p-1.5 text-muted-foreground/50 transition-colors hover:bg-rose-500/10 hover:text-rose-500"
                 title="刪除"
               >
                 <Trash2 className="h-4 w-4" />
