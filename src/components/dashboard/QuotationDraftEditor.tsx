@@ -518,8 +518,8 @@ function QuoteProductItemCard({
                 className={`${QUOTE_INPUT_CLASS} resize-y leading-relaxed`}
               />
             </QuoteFieldBlock>
-            <div className="flex shrink-0 flex-col gap-2">
-              <QuoteFieldBlock label="數量" className="w-14">
+            <div className="flex shrink-0 items-start gap-2">
+              <QuoteFieldBlock label="數量" className="w-14 shrink-0">
                 <input
                   type="number"
                   value={item.quantity || ""}
@@ -531,7 +531,7 @@ function QuoteProductItemCard({
                   className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
                 />
               </QuoteFieldBlock>
-              <QuoteFieldBlock label="單位" className="w-[4em]">
+              <QuoteFieldBlock label="單位" className="w-[4em] shrink-0">
                 <input
                   type="text"
                   value={item.unit || ""}
