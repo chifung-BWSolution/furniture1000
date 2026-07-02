@@ -416,41 +416,16 @@ const QUOTE_COMPACT_NUMBER_INPUT_CLASS = `${QUOTE_NUMBER_INPUT_CLASS} min-w-0`;
 const QUOTE_LEFT_COL_CLASS = "w-[15em] max-w-full shrink-0";
 
 /**
- * Below xl: 8-col grid with drag track — row 1 & 2 share tracks for label / vertical alignment.
- * At xl: 7-col grid inside flex-1 (3×1fr + pricing) mirrors info-panel column widths; toolbar spacer on the right.
+ * Single grid (both rows share tracks) — drag in col 1; flexible spacer pushes 單位/小計 to the far right.
+ * Cols: drag | 左欄 | 材質/圖 | 參考圖 | 數量/成本 | 單價 | (flex) | 單位/小計 | 刪除
  */
-const QUOTE_CARD_GRID_MAX_XL = cn(
+const QUOTE_CARD_GRID = cn(
   "grid w-full auto-rows-min items-start gap-x-3 gap-y-3",
-  "grid-cols-[minmax(0,15em)_minmax(6.5rem,min(16rem,1fr))_minmax(6.5rem,min(16rem,1fr))_5.5rem_5.5rem_6.5rem_auto]",
+  "grid-cols-[1.75rem_minmax(0,15em)_minmax(6.5rem,min(16rem,1fr))_minmax(6.5rem,min(16rem,1fr))_5.5rem_5.5rem_minmax(0,1fr)_6.5rem_auto]",
 );
 
-const QUOTE_CARD_GRID_XL = cn(
-  "grid w-full auto-rows-min items-start gap-x-2 gap-y-3",
-  "grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_5.5rem_5.5rem_6.5rem_auto]",
-);
-
-/** Match info-panel header px-4 + 3 chars before 「訊」 in 報價資訊 */
+/** Match info-panel header px-4 + 3 chars before 「訊」 in 報價資訊 (xl only) */
 const QUOTE_CARD_QTY_COST_ALIGN = "xl:pl-[calc(1rem+3em)]";
-
-/** Invisible duplicate of the toolbar button group — keeps flex-1 width equal to info panels row */
-function QuoteEditorToolbarSpacer() {
-  return (
-    <div
-      aria-hidden
-      className="pointer-events-none hidden shrink-0 items-center justify-end gap-3 xl:flex xl:invisible xl:pt-1"
-    >
-      <span className="inline-flex items-center gap-2 rounded-lg border px-4 py-2 font-body text-sm">
-        預覽 PDF
-      </span>
-      <span className="inline-flex items-center gap-2 rounded-lg border px-4 py-2 font-body text-sm">
-        儲存草稿
-      </span>
-      <span className="inline-flex items-center gap-2 rounded-lg px-4 py-2 font-body text-sm font-semibold">
-        版本審核
-      </span>
-    </div>
-  );
-}
 
 function QuoteProductItemCard({
   item,
@@ -482,20 +457,19 @@ function QuoteProductItemCard({
         item.id,
         draggingItemId,
         dropInsertIndex,
-        "relative rounded-lg border border-border bg-background p-4 pl-10 xl:pl-4",
+        "rounded-lg border border-border bg-background p-4",
       )}
       onDragOver={(e) => onDragOver(e, index)}
       onDrop={onDrop}
     >
-      {/* Drag — grid col below xl; absolute gutter at xl so pricing grid aligns with info panels */}
-      <div className="absolute left-2 top-6 flex justify-center xl:left-1.5">
-        <QuoteRowDragHandle itemId={item.id} onDragStart={onDragStart} onDragEnd={onDragEnd} />
-      </div>
+      <div className={QUOTE_CARD_GRID}>
+        {/* Col 1 — drag handle (both rows) */}
+        <div className="col-start-1 row-span-2 row-start-1 flex justify-center pt-6">
+          <QuoteRowDragHandle itemId={item.id} onDragStart={onDragStart} onDragEnd={onDragEnd} />
+        </div>
 
-      <div className="xl:flex xl:items-start xl:justify-between xl:gap-3">
-        <div className={cn("min-w-0 max-xl:grid xl:flex-1", QUOTE_CARD_GRID_MAX_XL, "xl:grid", QUOTE_CARD_GRID_XL)}>
-        {/* Row 1 — left stack */}
-        <div className="col-start-1 row-start-1 space-y-2 xl:col-start-1 xl:row-start-1">
+        {/* Row 1 — col 2: 類別 · 尺寸 · 顏色 */}
+        <div className="col-start-2 row-start-1 space-y-2">
           <QuoteFieldBlock label="類別">
             <input
               type="text"
@@ -554,11 +528,8 @@ function QuoteProductItemCard({
           </QuoteFieldBlock>
         </div>
 
-        {/* Row 1 — cols 3–4 (xl: 2–3): 材質及明細 */}
-        <QuoteFieldBlock
-          label="材質及明細"
-          className="col-span-2 col-start-2 row-start-1 min-w-0 xl:col-start-2 xl:col-span-2 xl:row-start-1"
-        >
+        {/* Row 1 — cols 3–4: 材質及明細 */}
+        <QuoteFieldBlock label="材質及明細" className="col-span-2 col-start-3 row-start-1 min-w-0">
           <textarea
             value={item.material || ""}
             placeholder="材質及明細..."
@@ -568,13 +539,10 @@ function QuoteProductItemCard({
           />
         </QuoteFieldBlock>
 
-        {/* Row 1 — col 5 (xl: 4): 數量 — under 報價資訊「訊」 */}
+        {/* Row 1 — col 5: 數量 */}
         <QuoteFieldBlock
           label="數量"
-          className={cn(
-            "col-start-4 row-start-1 min-w-0 xl:col-start-4 xl:row-start-1",
-            QUOTE_CARD_QTY_COST_ALIGN,
-          )}
+          className={cn("col-start-5 row-start-1 min-w-0", QUOTE_CARD_QTY_COST_ALIGN)}
         >
           <input
             type="number"
@@ -588,11 +556,8 @@ function QuoteProductItemCard({
           />
         </QuoteFieldBlock>
 
-        {/* Row 1 — col 7 (xl: 6): 單位 — vertically aligned with 小計 */}
-        <QuoteFieldBlock
-          label="單位"
-          className="col-start-6 row-start-1 min-w-0 xl:col-start-6 xl:row-start-1"
-        >
+        {/* Row 1 — col 8: 單位 (far right, aligned with 小計) */}
+        <QuoteFieldBlock label="單位" className="col-start-8 row-start-1 min-w-0">
           <input
             type="text"
             value={item.unit || ""}
@@ -603,11 +568,8 @@ function QuoteProductItemCard({
           />
         </QuoteFieldBlock>
 
-        {/* Row 2 — 備註 (same label row as 圖片/成本價/…) */}
-        <QuoteFieldBlock
-          label="備註"
-          className="col-start-1 row-start-2 min-w-0 xl:col-start-1 xl:row-start-2"
-        >
+        {/* Row 2 — col 2: 備註 */}
+        <QuoteFieldBlock label="備註" className="col-start-2 row-start-2 min-w-0">
           <RemarksRichEditor
             key={item.id}
             compact
@@ -617,11 +579,8 @@ function QuoteProductItemCard({
           />
         </QuoteFieldBlock>
 
-        {/* Row 2 — 圖片 · 參考圖 */}
-        <QuoteFieldBlock
-          label="圖片"
-          className="col-start-2 row-start-2 min-w-0 xl:col-start-2 xl:row-start-2"
-        >
+        {/* Row 2 — cols 3–4: 圖片 · 參考圖 */}
+        <QuoteFieldBlock label="圖片" className="col-start-3 row-start-2 min-w-0">
           <ReferenceImageCell
             value={item.image || ""}
             onChange={(url) => updateItem(item.id, "image", url)}
@@ -630,10 +589,7 @@ function QuoteProductItemCard({
             fluid
           />
         </QuoteFieldBlock>
-        <QuoteFieldBlock
-          label="參考圖"
-          className="col-start-3 row-start-2 min-w-0 xl:col-start-3 xl:row-start-2"
-        >
+        <QuoteFieldBlock label="參考圖" className="col-start-4 row-start-2 min-w-0">
           <ReferenceImageCell
             value={item.referenceImage || ""}
             onChange={(url) => updateItem(item.id, "referenceImage", url)}
@@ -643,13 +599,10 @@ function QuoteProductItemCard({
           />
         </QuoteFieldBlock>
 
-        {/* Row 2 — 成本價 · 單價 · 小計 */}
+        {/* Row 2 — cols 5–6: 成本價 · 單價 */}
         <QuoteFieldBlock
           label="成本價"
-          className={cn(
-            "col-start-4 row-start-2 min-w-0 xl:col-start-4 xl:row-start-2",
-            QUOTE_CARD_QTY_COST_ALIGN,
-          )}
+          className={cn("col-start-5 row-start-2 min-w-0", QUOTE_CARD_QTY_COST_ALIGN)}
         >
           <input
             type="number"
@@ -666,10 +619,7 @@ function QuoteProductItemCard({
             className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
           />
         </QuoteFieldBlock>
-        <QuoteFieldBlock
-          label="單價"
-          className="col-start-5 row-start-2 min-w-0 xl:col-start-5 xl:row-start-2"
-        >
+        <QuoteFieldBlock label="單價" className="col-start-6 row-start-2 min-w-0">
           <input
             type="number"
             value={item.unitPrice || ""}
@@ -681,10 +631,8 @@ function QuoteProductItemCard({
             className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
           />
         </QuoteFieldBlock>
-        <QuoteFieldBlock
-          label="小計"
-          className="col-start-6 row-start-2 min-w-0 xl:col-start-6 xl:row-start-2"
-        >
+        {/* Row 2 — col 8: 小計 (far right, aligned with 單位) */}
+        <QuoteFieldBlock label="小計" className="col-start-8 row-start-2 min-w-0">
           <div className="flex h-[34px] items-center rounded-md border border-border/60 bg-muted/20 px-2">
             <span className="truncate font-mono-data text-xs font-medium text-foreground">
               ${(item.unitPrice * item.quantity).toLocaleString()}
@@ -692,8 +640,8 @@ function QuoteProductItemCard({
           </div>
         </QuoteFieldBlock>
 
-        {/* Row 2 — 刪除 */}
-        <div className="col-start-7 row-start-2 shrink-0 xl:col-start-7 xl:row-start-2">
+        {/* Row 2 — col 9: 刪除 */}
+        <div className="col-start-9 row-start-2 shrink-0">
           <div className="mb-1 h-4" aria-hidden="true" />
           <button
             type="button"
@@ -704,8 +652,6 @@ function QuoteProductItemCard({
             <Trash2 className="h-4 w-4" />
           </button>
         </div>
-        </div>
-        <QuoteEditorToolbarSpacer />
       </div>
     </div>
   );
