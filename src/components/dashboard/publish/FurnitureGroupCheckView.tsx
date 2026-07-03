@@ -813,9 +813,11 @@ export function FGProductDetailModal({
                   <div>
                     <label className="mb-1 block text-xs font-medium text-muted-foreground">成本參考</label>
                     <div className="flex items-center rounded-lg border border-border bg-background focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/20">
-                      <span className="pl-3 font-mono text-xs text-muted-foreground/60">¥</span>
+                      <span className="shrink-0 select-none border-r border-border/60 px-3 py-2 font-mono text-xs text-muted-foreground/60 bg-muted/30 rounded-l-lg">
+                        ¥
+                      </span>
                       <input
-                        className={`${inputCls} border-0 pl-2 text-amber-600 dark:text-amber-400 focus:ring-0`}
+                        className="w-full min-w-0 bg-transparent px-3 py-2 text-sm font-body text-amber-600 dark:text-amber-400 focus:outline-none"
                         type="number"
                         min="0"
                         step="0.01"
