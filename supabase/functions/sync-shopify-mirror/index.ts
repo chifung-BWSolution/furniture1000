@@ -318,10 +318,10 @@ Deno.serve(async (req: Request) => {
     }
 
     // ── 4. DELETE orphan mirror rows (deleted on Shopify) ──
+    // Includes merged child rows (configurable set) — those products were removed on Shopify
+    // during variant merge and must not linger as stale "已下架" entries in the mirror.
     let deleted = 0;
     const orphanIds = (existingRows || [])
-      .filter((r: { shopify_product_id: string; configurable?: string | null }) =>
-        !r.configurable?.trim())
       .map((r: { shopify_product_id: string }) => String(r.shopify_product_id))
       .filter((id) => /^\d+$/.test(id) && !liveIds.has(id)); // only numeric Shopify ids, not local placeholders
     if (orphanIds.length > 0) {

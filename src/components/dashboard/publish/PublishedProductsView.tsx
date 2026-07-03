@@ -215,6 +215,7 @@ export function PublishedProductsView() {
   const [importSearch, setImportSearch] = useState('');
 
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isReconcilingMirror, setIsReconcilingMirror] = useState(false);
 
   const loadProducts = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setIsLoading(true);
@@ -324,6 +325,39 @@ export function PublishedProductsView() {
       setIsSyncing(false);
     }
   }, [items, selected, loadProducts]);
+
+  /** Pull live Shopify catalog → shopify_products mirror (reconcile + remove deleted). */
+  const reconcileMirrorFromShopify = useCallback(async () => {
+    setIsReconcilingMirror(true);
+    const toastId = toast.loading('正在從 Shopify 同步產品目錄…');
+    try {
+      const { data, error } = await supabase.functions.invoke(
+        'supabase-functions-sync-shopify-mirror',
+        { body: {} },
+      );
+      if (error || data?.error || data?.success === false) {
+        toast.error('同步失敗', {
+          id: toastId,
+          description: await parseInvokeError(error, data),
+          duration: 8000,
+        });
+        return;
+      }
+      await loadProducts({ silent: true });
+      toast.success('已更新 Shopify 目錄', {
+        id: toastId,
+        description: `Shopify ${data.live ?? '?'} 件 · 更新 ${data.upserted ?? 0} 件 · 移除 ${data.deleted ?? 0} 件`,
+        duration: 8000,
+      });
+    } catch (e) {
+      toast.error('同步失敗', {
+        id: toastId,
+        description: e instanceof Error ? e.message : '未知錯誤',
+      });
+    } finally {
+      setIsReconcilingMirror(false);
+    }
+  }, [loadProducts]);
 
   useEffect(() => {
     void loadProducts();
@@ -587,6 +621,16 @@ export function PublishedProductsView() {
           </span>
         </div>
         <div className="flex items-center gap-2">
+          {/* Shopify catalog → shopify_products mirror reconcile */}
+          <button
+            onClick={() => reconcileMirrorFromShopify()}
+            disabled={isReconcilingMirror}
+            title="從 Shopify 讀取最新產品目錄，更新本頁列表，並移除 Shopify 已刪除的產品（含合併後的子產品）"
+            className="flex items-center gap-1.5 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-xs font-semibold text-sky-700 dark:text-sky-400 hover:bg-sky-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isReconcilingMirror ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Store className="h-3.5 w-3.5" />}
+            {isReconcilingMirror ? '同步中...' : '更新 Shopify 目錄'}
+          </button>
           {/* 單向推送：Supabase shopify_products → 更新 Shopify 現有產品 */}
           <button
             onClick={() => pushToShopify()}

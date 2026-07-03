@@ -44,7 +44,7 @@ type PushPayload = {
   product_type?: string;
   tags?: string[] | string;
   images?: string[];
-  variants?: { id?: string | number; index?: number; sku?: string | null }[];
+  variants?: { id?: string | number; index?: number; sku?: string | null; option1?: string | null; price?: number | string | null }[];
   sku?: string | null;
   metafields?: Record<string, string>;
   handle?: string;
@@ -174,6 +174,8 @@ function mirrorRowToPayload(row: Record<string, unknown>): PushPayload {
       id: v.id as string | number | undefined,
       index,
       sku: typeof v.sku === "string" ? v.sku : null,
+      option1: typeof v.option1 === "string" ? v.option1 : null,
+      price: v.price != null ? v.price as number | string : null,
     }))
     : undefined;
   return {
@@ -236,22 +238,39 @@ async function pushProductToShopify(
   }
 
   const requestedVariantSkus = new Map<string, string | null>();
+  const requestedVariantOptions = new Map<string, string | null>();
+  const requestedVariantPrices = new Map<string, string | null>();
   if (Array.isArray(variants)) {
     for (const [index, variant] of variants.entries()) {
       const key = variant.id != null ? String(variant.id) : `index-${variant.index ?? index}`;
       requestedVariantSkus.set(key, variant.sku == null ? null : String(variant.sku).trim());
+      if (variant.option1 != null) {
+        requestedVariantOptions.set(key, String(variant.option1).trim());
+      }
+      if (variant.price != null && !isNaN(Number(variant.price))) {
+        requestedVariantPrices.set(key, Number(variant.price).toFixed(2));
+      }
     }
   }
   const fallbackSku = sku == null ? undefined : String(sku).trim();
   const shouldUpdateVariants =
     (price != null && !isNaN(Number(price))) ||
     requestedVariantSkus.size > 0 ||
+    requestedVariantOptions.size > 0 ||
+    requestedVariantPrices.size > 0 ||
     fallbackSku !== undefined;
 
   if (shouldUpdateVariants) {
     productUpdate.variants = existingVariants.map((v, index) => {
       const nv: Record<string, unknown> = { id: v.id };
-      if (price != null && !isNaN(Number(price))) nv.price = Number(price).toFixed(2);
+      const idKey = v.id != null ? String(v.id) : "";
+      const indexKey = `index-${index}`;
+      const variantPrice = requestedVariantPrices.get(idKey) ?? requestedVariantPrices.get(indexKey);
+      if (variantPrice != null) {
+        nv.price = variantPrice;
+      } else if (price != null && !isNaN(Number(price))) {
+        nv.price = Number(price).toFixed(2);
+      }
       if (
         price != null &&
         compareAtPrice != null &&
@@ -260,14 +279,17 @@ async function pushProductToShopify(
       ) {
         nv.compare_at_price = Number(compareAtPrice).toFixed(2);
       }
-      const idKey = v.id != null ? String(v.id) : "";
-      const indexKey = `index-${index}`;
       if (requestedVariantSkus.has(idKey)) {
         nv.sku = requestedVariantSkus.get(idKey) || "";
       } else if (requestedVariantSkus.has(indexKey)) {
         nv.sku = requestedVariantSkus.get(indexKey) || "";
       } else if (fallbackSku !== undefined && existingVariants.length === 1) {
         nv.sku = fallbackSku;
+      }
+      if (requestedVariantOptions.has(idKey)) {
+        nv.option1 = requestedVariantOptions.get(idKey) || "";
+      } else if (requestedVariantOptions.has(indexKey)) {
+        nv.option1 = requestedVariantOptions.get(indexKey) || "";
       }
       return nv;
     });
@@ -467,7 +489,7 @@ Deno.serve(async (req: Request) => {
       product_type?: string;
       tags?: string[] | string;
       images?: string[];
-      variants?: { id?: string | number; index?: number; sku?: string | null }[];
+      variants?: { id?: string | number; index?: number; sku?: string | null; option1?: string | null; price?: number | string | null }[];
       sku?: string | null;
       metafields?: Record<string, string>;
       handle?: string;
