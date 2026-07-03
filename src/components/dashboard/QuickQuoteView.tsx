@@ -275,9 +275,7 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote }: QuickQuo
     if (!formData.clientPhone.trim()) {
       newErrors.clientPhone = '請填寫客戶電話';
     }
-    if (!formData.clientEmail.trim()) {
-      newErrors.clientEmail = '請填寫客戶電郵';
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.clientEmail)) {
+    if (formData.clientEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.clientEmail)) {
       newErrors.clientEmail = '請輸入有效的電郵地址';
     }
     if (formData.clientIndustry.length === 0) {
@@ -575,7 +573,7 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote }: QuickQuo
 
                 <div>
                   <label className="mb-1.5 block font-body text-sm font-medium text-foreground">
-                    客戶電郵 <span className="text-red-500">*</span>
+                    客戶電郵
                   </label>
                   <input
                     type="email"
