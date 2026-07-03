@@ -246,7 +246,7 @@ Deno.serve(async (req: Request) => {
     // ── 2. Load existing mirror rows to preserve id / source_product_id / local SEO ──
     const { data: existingRows } = await supabase
       .from("shopify_products")
-      .select("id, shopify_product_id, source_product_id, shopify_page_title, shopify_page_description, shopify_url");
+      .select("id, shopify_product_id, source_product_id, shopify_page_title, shopify_page_description, shopify_url, configurable");
     const existingByShopifyId = new Map<string, {
       id: string;
       source_product_id: string | null;
@@ -320,6 +320,8 @@ Deno.serve(async (req: Request) => {
     // ── 4. DELETE orphan mirror rows (deleted on Shopify) ──
     let deleted = 0;
     const orphanIds = (existingRows || [])
+      .filter((r: { shopify_product_id: string; configurable?: string | null }) =>
+        !r.configurable?.trim())
       .map((r: { shopify_product_id: string }) => String(r.shopify_product_id))
       .filter((id) => /^\d+$/.test(id) && !liveIds.has(id)); // only numeric Shopify ids, not local placeholders
     if (orphanIds.length > 0) {

@@ -105,6 +105,7 @@ interface ShopifyProductRow {
   'my_fields.materials'?: string | null;
   cost?: number | null;
   sku?: string | null;
+  configurable?: string | null;
   shopify_page_title?: string | null;
   shopify_page_description?: string | null;
   shopify_url?: string | null;
@@ -220,6 +221,7 @@ export function PublishedProductsView() {
     const { data, error } = await supabase
       .from('shopify_products')
       .select('*')
+      .is('configurable', null)
       .order('imported_at', { ascending: false })
       .order('published_at', { ascending: false, nullsFirst: true });
     if (error) {
