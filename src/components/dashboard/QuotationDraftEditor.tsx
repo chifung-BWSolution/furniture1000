@@ -11,6 +11,7 @@ import {
   Upload,
   X,
   GripVertical,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TermsRichEditor } from "@/components/dashboard/TermsRichEditor";

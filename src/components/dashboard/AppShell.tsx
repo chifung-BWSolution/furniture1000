@@ -556,9 +556,7 @@ export function AppShell() {
     }
     store.setCurrentView(view);
     store.setFilterProductId(null);
-    if (view !== "quick-quote") {
-      setEditingQuoteId(null);
-    }
+    setEditingQuoteId(null);
   };
 
   const handleSectionChange = (section: PrimarySection) => {
