@@ -1,7 +1,7 @@
 /** Default 條款及付款 text for quotation drafts. */
 
 /** Bump when the canonical template changes — saved quotes below this version are rebuilt. */
-export const QUOTATION_TERMS_TEMPLATE_VERSION = 4;
+export const QUOTATION_TERMS_TEMPLATE_VERSION = 5;
 
 /**
  * Glyphs that Noto Sans TC mis-renders in react-pdf (e.g. 爲 → "2").
@@ -96,12 +96,23 @@ function sectionHeading(label: string): string {
   return `<p><strong>${label}</strong></p>`;
 }
 
-/** Preserve intentional blank lines (payment section). */
-function linesToParagraphs(text: string): string {
-  return text
-    .split("\n")
-    .map((l) => (l.trim() ? `<p>${l}</p>` : "<p></p>"))
-    .join("");
+const BOLD_PAYMENT_LABELS = ["戶口名稱", "銀行名稱", "戶口號碼"] as const;
+
+function paymentLineToParagraph(line: string): string {
+  const trimmed = line.trim();
+  if (!trimmed) return "<p></p>";
+  for (const label of BOLD_PAYMENT_LABELS) {
+    const prefix = `${label}:`;
+    if (trimmed.startsWith(prefix)) {
+      const value = trimmed.slice(prefix.length).trimStart();
+      return `<p><strong>${label}:</strong> ${value}</p>`;
+    }
+  }
+  return `<p>${trimmed}</p>`;
+}
+
+function paymentTextToParagraphs(text: string): string {
+  return text.split("\n").map(paymentLineToParagraph).join("");
 }
 
 /** Compact lines — no extra blank lines between numbered clauses. */
@@ -130,13 +141,20 @@ function hasBoldSectionHeaders(html: string): boolean {
   return [1, 2, 3, 4, 5, 6].every(boldTag);
 }
 
-/** v4 template: inline 送貨地址, bold section headings 1–6, updated payment lines. */
+function hasBoldBankLabels(html: string): boolean {
+  return BOLD_PAYMENT_LABELS.every((label) =>
+    new RegExp(`<(?:strong|b)>${label}:`, "i").test(html),
+  );
+}
+
+/** v5 template: bold bank field labels in section 2. */
 export function isCurrentTermsFormat(terms?: SavedTermsContent | null): boolean {
   const html = terms?.fullHtml?.trim();
   if (!html || !html.includes("送貨地址")) return false;
   if (!hasInlineDeliveryAddressLine(html)) return false;
   if (/<h3>\s*[2-6]/i.test(html)) return false;
   if (!hasBoldSectionHeaders(html)) return false;
+  if (!hasBoldBankLabels(html)) return false;
   return true;
 }
 
@@ -148,7 +166,7 @@ export function buildDefaultTermsFullHtml(
     `<p></p>`,
     `<p></p>`,
     sectionHeading("2&nbsp;&nbsp;付款資料"),
-    linesToParagraphs(terms.payment),
+    paymentTextToParagraphs(terms.payment),
     `<p></p>`,
     sectionHeading("3&nbsp;&nbsp;運輸及安裝條款"),
     linesToParagraphsCompact(terms.transport),
