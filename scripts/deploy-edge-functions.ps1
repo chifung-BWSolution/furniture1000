@@ -55,4 +55,9 @@ Deploy-Function `
   -FilePath (Join-Path $root 'supabase\functions\sync-shopify-mirror\index.ts') `
   -Name 'sync-shopify-mirror'
 
+Deploy-Function `
+  -Slug 'supabase-functions-pms-sso' `
+  -FilePath (Join-Path $root 'supabase\functions\pms-sso\index.ts') `
+  -Name 'pms-sso'
+
 Write-Host 'All functions deployed successfully.'

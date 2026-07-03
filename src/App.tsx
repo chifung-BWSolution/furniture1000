@@ -1,11 +1,19 @@
 import { Suspense, lazy, Component, type ReactNode } from "react";
 import { Routes, Route } from "react-router-dom";
 import { Toaster } from "sonner";
+import { AuthProvider } from "@/contexts/AuthProvider";
+import { RequireAuth } from "@/components/auth/RequireAuth";
 import Home from "./components/home";
 
 const ShopifyCallback = lazy(() =>
   import("./components/auth/ShopifyCallback").then((m) => ({
     default: m.ShopifyCallback,
+  })),
+);
+
+const PmsSsoCallback = lazy(() =>
+  import("./components/auth/PmsSsoCallback").then((m) => ({
+    default: m.PmsSsoCallback,
   })),
 );
 
@@ -82,20 +90,30 @@ class ErrorBoundary extends Component<
 function App() {
   return (
     <ErrorBoundary>
-      <Toaster position="top-right" richColors closeButton />
-      <Suspense
-        fallback={
-          <div className="flex h-screen w-screen items-center justify-center">
-            <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
-          </div>
-        }
-      >
-        <Routes>
-          <Route path="/auth/shopify/callback" element={<ShopifyCallback />} />
-          <Route path="/manufacturers/:factoryCode" element={<FactoryDetailPage />} />
-          <Route path="/*" element={<Home />} />
-        </Routes>
-      </Suspense>
+      <AuthProvider>
+        <Toaster position="top-right" richColors closeButton />
+        <Suspense
+          fallback={
+            <div className="flex h-screen w-screen items-center justify-center">
+              <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
+            </div>
+          }
+        >
+          <Routes>
+            <Route path="/auth/shopify/callback" element={<ShopifyCallback />} />
+            <Route path="/auth/pms/callback" element={<PmsSsoCallback />} />
+            <Route
+              path="/manufacturers/:factoryCode"
+              element={
+                <RequireAuth>
+                  <FactoryDetailPage />
+                </RequireAuth>
+              }
+            />
+            <Route path="/*" element={<Home />} />
+          </Routes>
+        </Suspense>
+      </AuthProvider>
     </ErrorBoundary>
   );
 }
