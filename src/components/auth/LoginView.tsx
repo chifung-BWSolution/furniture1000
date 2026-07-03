@@ -1,9 +1,38 @@
+import { useEffect } from 'react';
 import { LogIn, ShoppingBag } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 const PMS_SSO_START_URL = import.meta.env.VITE_PMS_SSO_START_URL?.trim() || '';
 
+function getPmsOrigin(): string | null {
+  if (!PMS_SSO_START_URL) return null;
+  try {
+    return new URL(PMS_SSO_START_URL).origin;
+  } catch {
+    return null;
+  }
+}
+
 export function LoginView() {
+  useEffect(() => {
+    if (!PMS_SSO_START_URL) return;
+
+    const params = new URLSearchParams(window.location.search);
+    const returnTo = params.get('return_to');
+
+    // PMS SSO start sends unauthenticated users to APP_URL/login?return_to=...
+    // If NEXT_PUBLIC_APP_URL on PMS3.0 points at Furniture, we land here in a loop.
+    // Bounce back to PMS login on the correct host.
+    if (returnTo?.includes('bwf/sso')) {
+      const pmsOrigin = getPmsOrigin();
+      if (pmsOrigin) {
+        window.location.replace(
+          `${pmsOrigin}/login?return_to=${encodeURIComponent(returnTo)}`,
+        );
+      }
+    }
+  }, []);
+
   const handleSignIn = () => {
     if (!PMS_SSO_START_URL) {
       console.error('[LoginView] VITE_PMS_SSO_START_URL is not configured');
@@ -45,4 +74,4 @@ export function LoginView() {
       </div>
     </div>
   );
-}
+};

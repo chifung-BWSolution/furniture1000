@@ -1,4 +1,11 @@
 {
+  "redirects": [
+    {
+      "source": "/api/bwf/sso/start",
+      "destination": "https://bwteam-project.com/api/bwf/sso/start",
+      "permanent": false
+    }
+  ],
   "rewrites": [
     { "source": "/((?!assets/).*)", "destination": "/index.html" }
   ],
