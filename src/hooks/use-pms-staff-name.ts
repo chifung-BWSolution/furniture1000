@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { fetchPmsStaffName } from '@/lib/supabaseMaster';
+import { fetchPmsStaffName } from '@/lib/pmsStaff';
 
 /**
  * Load PMS v3 staff.name for the current auth user (public.users → staff).

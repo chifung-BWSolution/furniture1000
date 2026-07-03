@@ -60,4 +60,9 @@ Deploy-Function `
   -FilePath (Join-Path $root 'supabase\functions\pms-sso\index.ts') `
   -Name 'pms-sso'
 
+Deploy-Function `
+  -Slug 'supabase-functions-fetch-pms-staff-name' `
+  -FilePath (Join-Path $root 'supabase\functions\fetch-pms-staff-name\index.ts') `
+  -Name 'fetch-pms-staff-name'
+
 Write-Host 'All functions deployed successfully.'

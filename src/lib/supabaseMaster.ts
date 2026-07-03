@@ -53,8 +53,9 @@ export const MASTER_PROJECT_CONFIG = {
 
 /**
  * Resolve PMS v3 staff.name for the logged-in auth user via public.users.member_id.
+ * Used as a fallback when the edge function is unavailable.
  */
-export async function fetchPmsStaffName(authUserId: string): Promise<string | null> {
+export async function fetchPmsStaffNameFromMaster(authUserId: string): Promise<string | null> {
   const client = getMasterSupabaseClient();
   if (!client) return null;
 
