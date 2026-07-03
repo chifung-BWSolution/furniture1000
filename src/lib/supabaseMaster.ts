@@ -50,3 +50,27 @@ export const MASTER_PROJECT_CONFIG = {
   url: MASTER_PROJECT_URL,
   projectId: 'kqwktnplkqucsbasyfjl',
 } as const;
+
+/**
+ * Resolve PMS v3 staff.name for the logged-in auth user via public.users.member_id.
+ */
+export async function fetchPmsStaffName(authUserId: string): Promise<string | null> {
+  const client = getMasterSupabaseClient();
+  if (!client) return null;
+
+  const { data, error } = await client
+    .from('users')
+    .select('staff!fk_users_member_id(name)')
+    .eq('auth_user_id', authUserId)
+    .maybeSingle();
+
+  if (error) {
+    console.warn('[fetchPmsStaffName]', error.message);
+    return null;
+  }
+
+  const row = data as { staff?: { name?: string | null } | { name?: string | null }[] | null } | null;
+  const staff = row?.staff;
+  const name = (Array.isArray(staff) ? staff[0]?.name : staff?.name)?.trim();
+  return name || null;
+}
