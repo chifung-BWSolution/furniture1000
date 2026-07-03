@@ -2,11 +2,11 @@
 /**
  * Reference: PMS3.0 API route handler for SSO start.
  *
- * Flow:
- *   1. User hits GET /bwf/sso/start on PMS (must have valid PMS Supabase session)
- *   2. PMS page verifies session, invokes supabase-functions-bwf-sso-start
- *   3. Edge function syncs user + mints Furniture SSO code
- *   4. Browser redirects to exchange_url → Furniture /auth/pms/callback?code=...
+ * Flow (implement in PMS3.0 — https://github.com/chifung-BWSolution/PMS3.0):
+ *   1. User hits GET /api/bwf/sso/start (must have valid PMS Supabase session)
+ *   2. PMS3.0 verifies session, reads user id + email
+ *   3. PMS3.0 calls Furniture edge function action=mint with shared secret
+ *   4. PMS3.0 redirects browser to exchange_url → Furniture /auth/pms/callback?code=...
  *
  * Env (PMS server):
  *   BWF_SUPABASE_URL=https://riaubhtruisbwdlwjzur.supabase.co
@@ -87,7 +87,7 @@ async function mintCode(userId, email) {
 if (process.argv[2] === '--dry-run') {
   console.log('PMS SSO mint endpoint:', `${BWF_URL}/functions/v1/supabase-functions-pms-sso`);
   console.log('Furniture callback:', `${FURNITURE_APP}/auth/pms/callback`);
-  console.log('Set VITE_PMS_SSO_START_URL to https://bwteam-marketing.com/bwf/sso/start');
+  console.log('Set VITE_PMS_SSO_START_URL to your PMS3.0 SSO start route (see github.com/chifung-BWSolution/PMS3.0).');
   process.exit(0);
 }
 
