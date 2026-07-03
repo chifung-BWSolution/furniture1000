@@ -43,6 +43,7 @@ export async function syncRtsContentToProduct(
     in_stock?: boolean | null;
     customize?: string | null;
     material?: string | null;
+    'my_fields.materials'?: string | null;
     cost_price?: number | null;
   },
 ): Promise<void> {
@@ -115,6 +116,7 @@ export function flattenRtsListRow(r: Record<string, unknown>): Record<string, un
     dimension_h_mm: r.dimension_h_mm ?? p.dimension_h_mm ?? null,
     in_stock: r.in_stock ?? p.in_stock ?? null,
     customize: r.customize ?? p.customize ?? null,
+    cost: r.cost ?? p.cost_price ?? null,
     cost_price: p.cost_price ?? null,
   };
 }
