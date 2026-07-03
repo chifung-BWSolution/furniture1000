@@ -1,7 +1,12 @@
 import { AppShell } from '@/components/dashboard/AppShell';
+import { RequireAuth } from '@/components/auth/RequireAuth';
 
 function Home() {
-  return <AppShell />;
+  return (
+    <RequireAuth>
+      <AppShell />
+    </RequireAuth>
+  );
 }
 
 export default Home;

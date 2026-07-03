@@ -1,7 +1,9 @@
 import { cn } from '@/lib/utils';
-import { ShoppingBag } from 'lucide-react';
+import { LogOut, ShoppingBag } from 'lucide-react';
 import { NAV_CONFIG, type PrimaryItem } from './navConfig';
 import { type PrimarySection } from '@/types/product';
+import { useAuth } from '@/contexts/AuthProvider';
+import { Button } from '@/components/ui/button';
 
 interface PrimaryTopNavProps {
   activeSection: PrimarySection;
@@ -10,6 +12,7 @@ interface PrimaryTopNavProps {
 }
 
 export function PrimaryTopNav({ activeSection, onSectionChange }: PrimaryTopNavProps) {
+  const { user, signOut } = useAuth();
   return (
     <header className="sticky top-0 z-40 flex h-[68px] shrink-0 items-center border-b border-border bg-background/95 px-6 backdrop-blur-xl">
       {/* Logo */}
@@ -47,6 +50,23 @@ export function PrimaryTopNav({ activeSection, onSectionChange }: PrimaryTopNavP
           );
         })}
       </nav>
+
+      {user && (
+        <div className="ml-4 flex shrink-0 items-center gap-3 border-l border-border pl-4">
+          <span className="hidden max-w-[180px] truncate text-xs text-muted-foreground sm:inline">
+            {user.email}
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 gap-1.5 text-xs text-muted-foreground"
+            onClick={() => void signOut()}
+          >
+            <LogOut className="h-3.5 w-3.5" />
+            登出
+          </Button>
+        </div>
+      )}
     </header>
   );
 }
