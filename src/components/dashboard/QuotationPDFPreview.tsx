@@ -555,7 +555,7 @@ const styles: Record<string, any> = {
   sectionTitle: { fontSize: 9, fontWeight: 700, marginTop: 16, marginBottom: 4, lineHeight: 1.4 },
   sectionText: { fontSize: 7.5, lineHeight: 1.8, marginBottom: 2 },
   boldText: { fontWeight: 700 },
-  termsTitle: { fontSize: 9, fontWeight: 700, marginTop: 12, marginBottom: 6, textDecoration: 'underline', lineHeight: 1.4 },
+  termsTitle: { fontSize: 9, fontWeight: 700, marginTop: 8, marginBottom: 6, textDecoration: 'underline', lineHeight: 1.4 },
   termItem: { fontSize: 7, lineHeight: 1.7, marginBottom: 1.5, textAlign: 'left' },
   termSubTitle: { fontSize: 8, fontWeight: 700, marginTop: 8, marginBottom: 3, lineHeight: 1.4 },
   // Keep the signature block compact enough to stay on the same page as the
@@ -720,36 +720,20 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
         <Text style={styles.sectionTitle}>{'<\u8A02\u55AE\u78BA\u8A8D\u53CA\u4EA4\u4ED8\u7D30\u7BC0>'}</Text>
         <Text style={styles.sectionText}>{data.deliveryDetails || ''}</Text>
 
-        <Text
-          style={{ position: 'absolute', bottom: 30, right: 40, fontSize: 10, color: '#000', zIndex: 100 }}
-          render={({ pageNumber }: { pageNumber: number }) => `\u7B2C ${pageNumber} \u9801`}
-          fixed
-        />
-      </Page>
-
-      {/* Page 2 - Terms & Conditions */}
-      <Page size="A4" style={styles.page}>
-        <View style={styles.headerRow}>
-          <Image src={logoUrl} style={styles.logo} />
-        </View>
-
         <Text style={styles.termsTitle}>{'\u689D\u6B3E\u53CA\u4ED8\u6B3E'}</Text>
 
         {data.termsContent?.fullHtml && (data.termsContent.fullHtml.replace(/<[^>]*>/g, '').replace(/\s/g, '').length > 0 || /<u[^>]*>/i.test(data.termsContent.fullHtml)) ? (
           parseHtmlForPdf(data.termsContent.fullHtml).map((item, i) => {
-            // Check if any segment is an underlineBlank — needs View-based rendering
             const hasUnderlineBlank = item.segments.some(s => s.underlineBlank);
             const baseStyle = item.type === 'heading' ? styles.termSubTitle : styles.termItem;
 
             if (hasUnderlineBlank) {
-              // Use flexDirection row View so we can render borderBottom for blank underlines
               const viewStyle: any = { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: baseStyle.marginBottom || 0, marginTop: baseStyle.marginTop || 0 };
               const textBaseStyle: any = { fontSize: baseStyle.fontSize || 7, lineHeight: baseStyle.lineHeight || 1.7, fontWeight: baseStyle.fontWeight };
               return (
                 <View key={i} style={viewStyle}>
                   {item.segments.map((seg, j) => {
                     if (seg.underlineBlank) {
-                      // Render as a View with borderBottom to simulate underlined blank space
                       return (
                         <View key={j} style={{ borderBottomWidth: 0.5, borderBottomColor: '#1a1a1a', flexGrow: 1, minWidth: 120, height: (baseStyle.fontSize || 7) + 2, marginBottom: 0 }} />
                       );
@@ -812,11 +796,6 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
           </>
         )}
 
-        {/* Customer signature — kept on the same page as the terms. wrap={false}
-            stops the block itself from splitting; a small minPresenceAhead means it
-            only moves to a new page when very little room is left (a high value here
-            would PUSH it off the page, which is the bug we are fixing). The block was
-            also made shorter (signatureMiddle 70→36) so it fits after the terms. */}
         <View style={styles.signatureSection} wrap={false} minPresenceAhead={20}>
           <View style={styles.signatureBlock}>
             <Text style={styles.signatureTitle}>{'\u5BA2\u6236\u78BA\u8A8D'}</Text>

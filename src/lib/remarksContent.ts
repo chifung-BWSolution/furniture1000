@@ -2,9 +2,19 @@ export type RemarksBlock =
   | { type: "text"; content: string; id: string }
   | { type: "image"; src: string; id: string };
 
-export const MAX_REMARKS_IMAGES = 4;
+export const MAX_REMARKS_IMAGES = 2;
 
 const newBlockId = () => Math.random().toString(36).slice(2, 12);
+
+/** Keep at most MAX_REMARKS_IMAGES image blocks (first N in order). */
+function capRemarksImageBlocks(blocks: RemarksBlock[]): RemarksBlock[] {
+  let images = 0;
+  return blocks.filter((b) => {
+    if (b.type !== "image") return true;
+    images += 1;
+    return images <= MAX_REMARKS_IMAGES;
+  });
+}
 
 function normalizeBlock(raw: unknown): RemarksBlock | null {
   if (!raw || typeof raw !== "object") return null;
@@ -31,7 +41,7 @@ export function parseRemarksContent(
       const parsed = JSON.parse(trimmed) as unknown;
       if (Array.isArray(parsed)) {
         const blocks = parsed.map(normalizeBlock).filter(Boolean) as RemarksBlock[];
-        if (blocks.length > 0) return blocks;
+        if (blocks.length > 0) return capRemarksImageBlocks(blocks);
       }
     } catch {
       // fall through to plain text
@@ -47,7 +57,7 @@ export function parseRemarksContent(
   if (legacyImage) {
     blocks.push({ type: "image", src: legacyImage, id: newBlockId() });
   }
-  return blocks;
+  return capRemarksImageBlocks(blocks);
 }
 
 /** Serialize blocks for storage in `products.remarks` / draft items. */
