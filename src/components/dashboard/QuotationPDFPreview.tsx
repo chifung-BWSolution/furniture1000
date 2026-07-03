@@ -366,7 +366,7 @@ function tableSegmentStyle(pageIndex: number) {
     borderRightWidth: 0.5,
     borderTopWidth: 0.5,
     borderBottomWidth: 0.5,
-    borderColor: '#333',
+    borderColor: TABLE_BORDER,
     marginTop: pageIndex === 0 ? 4 : 0,
   };
 }
@@ -386,7 +386,7 @@ function renderQuotationTableRow(
 
   if (item?.isCustomTerm) {
     return (
-      <View style={{ display: 'flex', flexDirection: 'row', borderBottomWidth: isLastInSegment ? 0 : 0.5, borderColor: '#ddd', minHeight: 28, alignItems: 'stretch' }} key={idx} wrap={false}>
+      <View style={{ display: 'flex', flexDirection: 'row', borderBottomWidth: isLastInSegment ? 0 : 0.5, borderColor: TABLE_BORDER, minHeight: 28, alignItems: 'stretch' }} key={idx} wrap={false}>
         <View style={styles.colIndex}><Text style={styles.tableCellText}>{idx + 1}</Text></View>
         <View style={{ width: '62%', paddingLeft: 6, paddingRight: 6, paddingTop: 6, paddingBottom: 6, display: 'flex', flexDirection: 'column', justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' }}>
           <Text style={styles.tableCellTextLeft}>{item?.name || ''}</Text>
@@ -571,8 +571,10 @@ function renderDescriptionPdfContent(
 
 // ─── Styles (plain object — StyleSheet.create is a pass-through) ─────────────
 
+const TABLE_BORDER = '#333';
+
 const styles: Record<string, any> = {
-  page: { fontFamily: 'NotoSansTC', fontSize: 8, lineHeight: 1.4, paddingTop: 22, paddingBottom: 50, paddingHorizontal: 40, color: '#1a1a1a' },
+  page: { fontFamily: 'NotoSansTC', fontSize: 8, lineHeight: 1.4, paddingTop: 22, paddingBottom: 50, paddingHorizontal: 20, color: '#1a1a1a' },
   headerBlock: { marginBottom: 8 },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   logo: { width: 130, height: 32, objectFit: 'contain', marginBottom: 4 },
@@ -582,14 +584,14 @@ const styles: Record<string, any> = {
   infoRight: { width: '50%' },
   infoLine: { fontSize: 8, marginBottom: 1, lineHeight: 1.5 },
   infoBold: { fontWeight: 700 },
-  table: { width: '100%', borderWidth: 0.5, borderColor: '#333', marginTop: 8 },
-  tableHeader: { display: 'flex', flexDirection: 'row', backgroundColor: '#f5f5f5', borderBottomWidth: 0.5, borderColor: '#333', minHeight: 24, alignItems: 'center' },
-  tableRow: { display: 'flex', flexDirection: 'row', borderBottomWidth: 0.5, borderColor: '#ddd', minHeight: 60, alignItems: 'stretch' },
+  table: { width: '100%', borderWidth: 0.5, borderColor: TABLE_BORDER, marginTop: 8 },
+  tableHeader: { display: 'flex', flexDirection: 'row', backgroundColor: '#f5f5f5', borderBottomWidth: 0.5, borderColor: TABLE_BORDER, minHeight: 24, alignItems: 'center' },
+  tableRow: { display: 'flex', flexDirection: 'row', borderBottomWidth: 0.5, borderColor: TABLE_BORDER, minHeight: 60, alignItems: 'stretch' },
   colIndex: { width: '5%', display: 'flex', justifyContent: 'center', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd', paddingVertical: 4 },
-  colDesc: { width: '16%', paddingLeft: 0, paddingRight: 0, paddingTop: 0, paddingBottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'stretch', borderRightWidth: 0.5, borderColor: '#ddd' },
-  colMaterial: { width: '22%', paddingLeft: 4, paddingRight: 4, paddingTop: 4, paddingBottom: 4, display: 'flex', flexDirection: 'column', justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
+  colDesc: { width: '12.4%', paddingLeft: 0, paddingRight: 0, paddingTop: 0, paddingBottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'stretch', borderRightWidth: 0.5, borderColor: '#ddd' },
+  colMaterial: { width: '29.2%', paddingLeft: 4, paddingRight: 4, paddingTop: 4, paddingBottom: 4, display: 'flex', flexDirection: 'column', justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
   colRemarks: { width: '9%', paddingLeft: 2, paddingRight: 2, paddingTop: 0, paddingBottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'stretch', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
-  colImage: { width: '15%', paddingLeft: 0, paddingRight: 0, paddingTop: 0, paddingBottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'stretch', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
+  colImage: { width: '11.4%', paddingLeft: 0, paddingRight: 0, paddingTop: 0, paddingBottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'stretch', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
   colQty: { width: '5%', display: 'flex', justifyContent: 'center', alignItems: 'center', textAlign: 'center', borderRightWidth: 0.5, borderColor: '#ddd', paddingVertical: 4 },
   colUnit: { width: '5%', display: 'flex', justifyContent: 'center', alignItems: 'center', textAlign: 'center', borderRightWidth: 0.5, borderColor: '#ddd', paddingVertical: 4 },
   colUnitPrice: { width: '10.5%', display: 'flex', justifyContent: 'center', alignItems: 'center', textAlign: 'center', borderRightWidth: 0.5, borderColor: '#ddd', paddingVertical: 4 },
@@ -604,7 +606,7 @@ const styles: Record<string, any> = {
   cellImageSlot: { width: '100%', justifyContent: 'center', alignItems: 'center', paddingVertical: 2, paddingHorizontal: 2 },
   cellStackImage: { width: '100%', maxHeight: '100%', objectFit: 'contain' },
   remarksCellText: { fontSize: 7, textAlign: 'center', lineHeight: 1.3 },
-  installRow: { flexDirection: 'row', borderBottomWidth: 0.5, borderColor: '#ddd', minHeight: 28 },
+  installRow: { flexDirection: 'row', borderBottomWidth: 0.5, borderColor: TABLE_BORDER, minHeight: 28 },
   totalRow: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 6, paddingRight: 4 },
   totalLabel: { fontSize: 10, fontWeight: 700, marginRight: 8, lineHeight: 1.4 },
   totalValue: { fontSize: 10, fontWeight: 700, lineHeight: 1.4 },
@@ -771,9 +773,11 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
           </View>
         ) : null}
 
-        <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 2, paddingRight: 4 }}>
+        <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 2, paddingRight: 4, alignItems: 'flex-end' }}>
           <Text style={{ ...styles.totalLabel, width: 60, textAlign: 'right', marginRight: 8 }}>{'\u7E3D\u91D1\u984D'}:</Text>
-          <Text style={{ ...styles.totalValue, width: 90, textAlign: 'right' }}>HK${grandTotal.toLocaleString()}</Text>
+          <View style={{ borderBottomWidth: 1, borderBottomColor: TABLE_BORDER, minWidth: 90, paddingBottom: 1 }}>
+            <Text style={{ ...styles.totalValue, width: 90, textAlign: 'right' }}>HK${grandTotal.toLocaleString()}</Text>
+          </View>
         </View>
 
         <Text style={styles.sectionTitle}>{'<\u8A02\u55AE\u78BA\u8A8D\u53CA\u4EA4\u4ED8\u7D30\u7BC0>'}</Text>

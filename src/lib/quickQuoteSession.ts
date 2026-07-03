@@ -16,6 +16,43 @@ export function resetQuickQuoteSessionStorage(email: string | null | undefined):
   if (typeof window === 'undefined') return;
   sessionStorage.removeItem(quickQuoteStepKey(email));
   sessionStorage.removeItem(quickQuoteFormKey(email));
+  sessionStorage.removeItem(quickQuoteEditingIdKey(email));
+}
+
+export function quickQuoteEditingIdKey(email: string | null | undefined): string {
+  return `bwf:quickQuote:${normalizeEmail(email)}:editingQuoteId`;
+}
+
+export function readQuickQuoteEditingId(email: string | null | undefined): string | null {
+  if (typeof window === 'undefined') return null;
+  const v = sessionStorage.getItem(quickQuoteEditingIdKey(email));
+  return v && v.trim() ? v : null;
+}
+
+export function writeQuickQuoteEditingId(
+  email: string | null | undefined,
+  quoteId: string | null,
+): void {
+  if (typeof window === 'undefined') return;
+  const key = quickQuoteEditingIdKey(email);
+  if (quoteId) sessionStorage.setItem(key, quoteId);
+  else sessionStorage.removeItem(key);
+}
+
+function draftRestoreNoticeKey(email: string | null | undefined, quoteId: string): string {
+  return `bwf:quickQuote:${normalizeEmail(email)}:draftNotice:${quoteId}`;
+}
+
+/** Show draft-restore toast at most once per browser tab session per quote. */
+export function shouldShowDraftRestoreNotice(
+  email: string | null | undefined,
+  quoteId: string,
+): boolean {
+  if (typeof window === 'undefined') return false;
+  const key = draftRestoreNoticeKey(email, quoteId);
+  if (sessionStorage.getItem(key)) return false;
+  sessionStorage.setItem(key, '1');
+  return true;
 }
 
 export function readQuickQuoteStep(email: string | null | undefined): number {

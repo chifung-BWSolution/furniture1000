@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef, lazy, Suspense } from "react";
 import { useAppStore } from "@/hooks/use-app-store";
 import { unsavedGuard } from "@/lib/unsavedGuard";
-import { resetQuickQuoteSessionStorage } from "@/lib/quickQuoteSession";
+import { resetQuickQuoteSessionStorage, readQuickQuoteEditingId, writeQuickQuoteEditingId } from "@/lib/quickQuoteSession";
 import { deleteDraft, makeDraftKey } from "@/lib/draftStore";
 import { useAuth } from "@/contexts/AuthProvider";
 import { SidebarNav } from "./SidebarNav";
@@ -169,8 +169,22 @@ export function AppShell() {
   const [showPublishModal, setShowPublishModal] = useState(false);
   const [publishModalProducts, setPublishModalProducts] = useState<Product[]>([]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [editingQuoteId, setEditingQuoteId] = useState<string | null>(null);
+  const [editingQuoteId, setEditingQuoteIdRaw] = useState<string | null>(null);
   const [quickQuoteFreshKey, setQuickQuoteFreshKey] = useState(0);
+
+  const setEditingQuoteId = useCallback(
+    (id: string | null) => {
+      setEditingQuoteIdRaw(id);
+      writeQuickQuoteEditingId(user?.email, id);
+    },
+    [user?.email],
+  );
+
+  useEffect(() => {
+    if (store.currentView !== "quick-quote") return;
+    const saved = readQuickQuoteEditingId(user?.email);
+    if (saved) setEditingQuoteIdRaw(saved);
+  }, [user?.email, store.currentView]);
   // 方案 D: Supabase health monitoring
   const [dbUnhealthy, setDbUnhealthy] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);

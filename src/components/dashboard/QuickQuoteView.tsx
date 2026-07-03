@@ -12,6 +12,7 @@ import {
   quickQuoteStepKey,
   readQuickQuoteStep,
   resetQuickQuoteSessionStorage,
+  shouldShowDraftRestoreNotice,
 } from '@/lib/quickQuoteSession';
 
 const LazyQuotationPDFPreviewModal = lazy(() =>
@@ -123,6 +124,7 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
   const [formData, setFormData] = useState<QuoteFormData>(() => DEFAULT_FORM_DATA());
   const [pdfPreviewData, setPdfPreviewData] = useState<QuotationPDFData | null>(null);
   const sessionRestoredRef = useRef(false);
+  const loadedQuoteIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (authLoading || editingQuoteId || freshSessionKey > 0) return;
@@ -174,11 +176,16 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
 
   // Load existing quote when editingQuoteId is provided
   useEffect(() => {
+    if (authLoading) return;
+
     if (!editingQuoteId) {
-      // Reset if no quote ID
+      loadedQuoteIdRef.current = null;
       setLoadedQuoteData(null);
       return;
     }
+
+    // Avoid re-fetching when auth settles or the tab regains focus (prevents duplicate restore toasts)
+    if (loadedQuoteIdRef.current === editingQuoteId) return;
 
     const loadQuote = async () => {
       setIsLoadingQuote(true);
@@ -257,8 +264,12 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
           submitter: data.submitter,
           projectData: projectDataToUse,
         });
+        loadedQuoteIdRef.current = editingQuoteId;
 
-        if (usingLocalDraft) {
+        if (
+          usingLocalDraft &&
+          shouldShowDraftRestoreNotice(userEmail, editingQuoteId)
+        ) {
           toast.info('已從本地草稿恢復', {
             description: `上次本地儲存於 ${new Date(cachedDraft!.updatedAt).toLocaleString('zh-HK')}`,
           });
@@ -268,6 +279,7 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
         setIsQuotationReady(true);
         setCurrentStep(4);
       } catch (err: unknown) {
+        loadedQuoteIdRef.current = null;
         const message = err instanceof Error ? err.message : '無法載入報價單';
         toast.error('載入失敗', { description: message });
         // Go back to list
@@ -278,7 +290,7 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
     };
 
     loadQuote();
-  }, [editingQuoteId, onClearEditingQuote, userEmail]);
+  }, [editingQuoteId, onClearEditingQuote, userEmail, authLoading]);
 
   const updateField = (field: keyof QuoteFormData, value: string | string[]) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
