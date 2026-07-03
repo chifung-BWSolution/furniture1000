@@ -29,7 +29,14 @@ import {
   type DraftData,
 } from "@/lib/draftStore";
 import { unsavedGuard } from "@/lib/unsavedGuard";
-import { QUOTE_UNSAVED_LEAVE_MESSAGE, resetQuickQuoteSessionStorage } from "@/lib/quickQuoteSession";
+import { QUOTE_UNSAVED_LEAVE_MESSAGE, resetQuickQuoteSessionStorage, shouldShowDraftRestoreNotice } from "@/lib/quickQuoteSession";
+import {
+  DEFAULT_QUOTATION_TERMS,
+  buildDefaultTermsFullHtml,
+  injectDeliveryAddressIntoTermsHtml,
+  isDeliveryAddressFilled,
+  resolveDeliveryAddress,
+} from "@/lib/quotationDefaultTerms";
 
 interface QuoteFormData {
   company: string;
@@ -90,29 +97,39 @@ const generateId = () => Math.random().toString(36).substring(2, 12);
 
 function QuoteRowDragHandle({
   itemId,
+  serialNumber,
   onDragStart,
   onDragEnd,
 }: {
   itemId: string;
+  serialNumber: number;
   onDragStart: (id: string) => void;
   onDragEnd: () => void;
 }) {
   return (
-    <button
-      type="button"
-      draggable
-      onDragStart={(e) => {
-        e.dataTransfer.effectAllowed = "move";
-        e.dataTransfer.setData("text/plain", itemId);
-        onDragStart(itemId);
-      }}
-      onDragEnd={onDragEnd}
-      className="cursor-grab rounded p-1 text-muted-foreground/45 transition-colors hover:bg-muted hover:text-muted-foreground active:cursor-grabbing"
-      title="拖曳調整順序"
-      aria-label="拖曳調整順序"
-    >
-      <GripVertical className="h-4 w-4" />
-    </button>
+    <div className="flex flex-col items-center gap-0.5">
+      <span
+        className="font-display text-sm font-semibold tabular-nums leading-none text-foreground/75"
+        aria-hidden
+      >
+        {serialNumber}
+      </span>
+      <button
+        type="button"
+        draggable
+        onDragStart={(e) => {
+          e.dataTransfer.effectAllowed = "move";
+          e.dataTransfer.setData("text/plain", itemId);
+          onDragStart(itemId);
+        }}
+        onDragEnd={onDragEnd}
+        className="cursor-grab rounded p-1 text-muted-foreground/45 transition-colors hover:bg-muted hover:text-muted-foreground active:cursor-grabbing"
+        title="拖曳調整順序"
+        aria-label={`序號 ${serialNumber}，拖曳調整順序`}
+      >
+        <GripVertical className="h-4 w-4" />
+      </button>
+    </div>
   );
 }
 
@@ -478,9 +495,14 @@ function QuoteProductItemCard({
       onDrop={onDrop}
     >
       <div className={QUOTE_CARD_GRID}>
-        {/* Col 1 — drag handle (both rows) */}
-        <div className="col-start-1 row-span-2 row-start-1 flex justify-center pt-6">
-          <QuoteRowDragHandle itemId={item.id} onDragStart={onDragStart} onDragEnd={onDragEnd} />
+        {/* Col 1 — serial + drag handle (both rows) */}
+        <div className="col-start-1 row-span-2 row-start-1 flex justify-center pt-4">
+          <QuoteRowDragHandle
+            itemId={item.id}
+            serialNumber={index + 1}
+            onDragStart={onDragStart}
+            onDragEnd={onDragEnd}
+          />
         </div>
 
         {/* Row 1 — col 2: 類別 · 尺寸 · 顏色 */}
@@ -723,8 +745,13 @@ function QuoteCustomTermCard({
       onDrop={onDrop}
     >
       <div className="flex gap-3">
-        <div className="pt-6 shrink-0">
-          <QuoteRowDragHandle itemId={item.id} onDragStart={onDragStart} onDragEnd={onDragEnd} />
+        <div className="shrink-0 pt-4">
+          <QuoteRowDragHandle
+            itemId={item.id}
+            serialNumber={index + 1}
+            onDragStart={onDragStart}
+            onDragEnd={onDragEnd}
+          />
         </div>
         <div className="min-w-0 flex-1 space-y-3">
           <QuoteFieldBlock label="增值服務說明">
@@ -1053,87 +1080,21 @@ export function QuotationDraftEditor({
     installation: savedGpSummary?.installation ?? 0,
   });
 
-  // Terms content (editable)
-  const DEFAULT_TERMS = {
-    transport: `2.1 本報價包含於單一地址的一次性運輸及安裝費用。
-2.2 交付暫不涵蓋大嶼山、長洲、坪洲、南丫島及其他離島地區，包括禁區、5.5噸貨車無法進入路段、展覽場地、倉庫、酒店、裝修單位、船屋、地盤或貨櫃碼頭。若需特殊運送（如經露台懸掛），客戶須自行安排或者另行收費。
-2.3 送貨及安裝的標準時間：星期一至六，09:00-18:00（公眾假期除外）。超出時間須另行收費。
-2.4 遇惡劣天氣 、洪水或道路封閉，交付可能延遲。本公司將於24 小時內聯絡，並於7 天內補送。
-2.5 送貨及安裝期間，現場須安全、清潔且無阻礙，否則本公司保留拒絕權利。
-2.6 安裝不包括電工服務（如電插座安裝）、吊櫃上牆和收口服務，建議聘請合格技工。
-2.7 運輸過程若需要叩關，因叩關過程導致的送貨及安裝延誤，本公司不負任何責任。並可重新安排送貨時間。`,
-    extraFees: `3.1 卸貨區高度須達3.3 米，否則街上卸貨每件加收HKD 200。
-3.2 更改交付日期須於3 天前電郵通知，否則收取HKD 500 行政費。本公司提供首5 天免費儲存，逾期每日每立方米收取HKD80。
-3.3 若交付當日無人接收，須重新安排並收取額外交付費。
-3.4 清拆舊家具不包括在內，須另行報價。
-3.5 樓梯搬運每層每立方米收取HKD 100（限8 層）。
-3.6 交付限 100 米範圍，超出每100 米加收HKD 500。`,
-    warranty: `4.1 保養期為 1 年，自交付日起計算。不適用於不當使用、意外損壞或正常磨損。超過保養期后，進行維修，只收取材料及運輸安裝費用。
-4.2 如貨品有任何損壞或問題，客戶須於產品交付後7天内通知本公司。如貨品有任何損壞或問題而客人不接受時，上限只賠償為貨價10%。
-4.3 瑕疵評估以 1000mm 距離觀察為準，輕微差異（如顏色或收邊）不在範圍。`,
-    other: `5.1 產品貨款未全部付清之前，產品歸屬權為本公司。
-5.2 若需家具安裝固定上墻，需要保證所安裝墻體具有足夠的受力，且必須安裝墻體背板用作安裝上墻的結構件。
-5.3 產品顏色及花紋可能有輕微差異（因顯示器或批次），屬正常，不接受退換。
-5.4 本報價以發票內容為準，圖片及樣本僅供參考。任何更改須以書面通知，本公司不接受口頭承諾。
-5.5 所有規格經確認無誤。本合同經雙方簽署及蓋印後生效。
-5.6 如合約產生任何爭議，雙方無法達成共識，爭議無法解決，將提交香港國際仲裁中心仲裁。
-5.7 本報價有效期為30 天。
-5.8 責任限制：本公司對間接損失（如延誤造成的商業損失）不承擔責任。最高賠償限於訂單總額。
-5.9 不可抗力：如疫情、自然災害等不可控事件，本公司免除相關責任，但將盡力通知並減輕影響。`,
-    payment: `付款條款: 須支付70%訂金於生產前，餘下30%於交付前支付。若未支付餘款，本公司將不安排交付或安裝。
-
-銀行賬戶資料:
-戶口名稱: Branding Works Design Ltd
-銀行名稱: 香港上海匯豐銀行
-戶口號碼: 747-058683-001
-
-若以支票轉賬/信用卡付款，貨期以實際款項到賬日期爲準。`,
-  };
-
-  const buildDefaultFullHtml = (t: typeof DEFAULT_TERMS) =>
-    [
-      `<h3>1&nbsp;&nbsp;付款資料</h3>`,
-      t.payment
-        .split("\n")
-        .map((l) => (l.trim() ? `<p>${l}</p>` : "<p></p>"))
-        .join(""),
-      `<h3>2&nbsp;&nbsp;運輸及安裝條款</h3>`,
-      t.transport
-        .split("\n")
-        .map((l) => (l.trim() ? `<p>${l}</p>` : "<p></p>"))
-        .join(""),
-      `<h3>3&nbsp;&nbsp;額外費用</h3>`,
-      t.extraFees
-        .split("\n")
-        .map((l) => (l.trim() ? `<p>${l}</p>` : "<p></p>"))
-        .join(""),
-      `<h3>4&nbsp;&nbsp;保養及維修</h3>`,
-      t.warranty
-        .split("\n")
-        .map((l) => (l.trim() ? `<p>${l}</p>` : "<p></p>"))
-        .join(""),
-      `<h3>5&nbsp;&nbsp;其他</h3>`,
-      t.other
-        .split("\n")
-        .map((l) => (l.trim() ? `<p>${l}</p>` : "<p></p>"))
-        .join(""),
-    ].join("");
-
-  // Detect if saved terms still use old (incorrect) numbering, e.g. "3.1 本報價".
-  // If so, discard saved terms and fall back to corrected DEFAULT_TERMS.
-  const savedTransportIsOld =
-    typeof savedTermsContent?.transport === 'string' &&
-    savedTermsContent.transport.trimStart().startsWith('3.');
-  const effectiveSavedTerms = savedTransportIsOld ? undefined : savedTermsContent;
+  // Terms content (editable) — new quotes use DEFAULT_QUOTATION_TERMS (incl. section 1 送貨地址)
+  const hasSavedTerms =
+    savedTermsContent &&
+    (Boolean(savedTermsContent.fullHtml?.replace(/<[^>]*>/g, "").trim()) ||
+      Boolean(savedTermsContent.payment?.trim()));
+  const effectiveSavedTerms = hasSavedTerms ? savedTermsContent : undefined;
 
   const [termsContent, setTermsContent] = useState({
-    transport: effectiveSavedTerms?.transport || DEFAULT_TERMS.transport,
-    extraFees: effectiveSavedTerms?.extraFees || DEFAULT_TERMS.extraFees,
-    warranty: effectiveSavedTerms?.warranty || DEFAULT_TERMS.warranty,
-    other: effectiveSavedTerms?.other || DEFAULT_TERMS.other,
-    payment: effectiveSavedTerms?.payment || DEFAULT_TERMS.payment,
+    transport: effectiveSavedTerms?.transport || DEFAULT_QUOTATION_TERMS.transport,
+    extraFees: effectiveSavedTerms?.extraFees || DEFAULT_QUOTATION_TERMS.extraFees,
+    warranty: effectiveSavedTerms?.warranty || DEFAULT_QUOTATION_TERMS.warranty,
+    other: effectiveSavedTerms?.other || DEFAULT_QUOTATION_TERMS.other,
+    payment: effectiveSavedTerms?.payment || DEFAULT_QUOTATION_TERMS.payment,
     fullHtml:
-      effectiveSavedTerms?.fullHtml || buildDefaultFullHtml(DEFAULT_TERMS),
+      effectiveSavedTerms?.fullHtml || buildDefaultTermsFullHtml(DEFAULT_QUOTATION_TERMS),
   });
   const [termsEditMode, setTermsEditMode] = useState(false);
   const [termsSaving, setTermsSaving] = useState(false);
@@ -1308,6 +1269,16 @@ export function QuotationDraftEditor({
 
   // Version & submission modal state
   const [showSubmitModal, setShowSubmitModal] = useState(false);
+
+  const handleOpenSubmitReview = () => {
+    if (
+      !isDeliveryAddressFilled(termsContent.fullHtml, quoteMeta.deliveryAddress)
+    ) {
+      toast.error("送貨地址未填上");
+      return;
+    }
+    setShowSubmitModal(true);
+  };
   const [currentVersion] = useState(() => {
     if (existingQuote?.version) {
       // Increment the minor version: v1.1 -> v1.2, v1.2 -> v1.3
@@ -1327,6 +1298,7 @@ export function QuotationDraftEditor({
 
   // Draft auto-save state
   const [draftLoaded, setDraftLoaded] = useState(false);
+  const draftHydratedRef = useRef<string | null>(null);
   // True once 版本審核 has been done with the current content; cleared on edit.
   const [persisted, setPersisted] = useState(false);
 
@@ -1375,10 +1347,15 @@ export function QuotationDraftEditor({
   // For existing quotes, QuickQuoteView handles loading the draft before passing projectData.
   useEffect(() => {
     if (existingQuote) {
-      // Already hydrated from QuickQuoteView which checks IndexedDB
+      draftHydratedRef.current = storageKey;
       setDraftLoaded(true);
       return;
     }
+    if (draftHydratedRef.current === storageKey) {
+      setDraftLoaded(true);
+      return;
+    }
+    draftHydratedRef.current = storageKey;
     let cancelled = false;
     (async () => {
       try {
@@ -1443,9 +1420,13 @@ export function QuotationDraftEditor({
             })),
           );
         }
-        toast.info("已恢復未提交的報價內容", {
-          description: `上次編輯於 ${new Date(cached.updatedAt).toLocaleString("zh-HK")}`,
-        });
+        if (
+          shouldShowDraftRestoreNotice(userEmail, rawQuoteId)
+        ) {
+          toast.info("已恢復未提交的報價內容", {
+            description: `上次編輯於 ${new Date(cached.updatedAt).toLocaleString("zh-HK")}`,
+          });
+        }
       } catch {
         // IndexedDB not available or error — silently continue
       } finally {
@@ -1563,12 +1544,22 @@ export function QuotationDraftEditor({
     gpSummary,
   });
 
-  const buildPDFData = (): QuotationPDFData => ({
+  const buildPDFData = (): QuotationPDFData => {
+    const deliveryAddress = resolveDeliveryAddress(
+      termsContent.fullHtml,
+      quoteMeta.deliveryAddress,
+    );
+    const fullHtmlForPdf = deliveryAddress
+      ? injectDeliveryAddressIntoTermsHtml(termsContent.fullHtml, deliveryAddress)
+      : termsContent.fullHtml;
+
+    return {
     // gpSummary (Contract Sum / Cost / Ship / Installation / GP) is editor-only — excluded here.
     companyInfo,
     clientInfo,
     quoteMeta: {
       ...quoteMeta,
+      deliveryAddress,
       quoteNumber: quoteMeta.projectName || existingQuote?.quoteId || "",
       date: new Date().toLocaleDateString("zh-HK", {
         year: "numeric",
@@ -1577,7 +1568,10 @@ export function QuotationDraftEditor({
       }),
     },
     deliveryDetails,
-    termsContent,
+    termsContent: {
+      ...termsContent,
+      fullHtml: fullHtmlForPdf,
+    },
     items: items
       .filter(hasQuoteItemContent)
       .map((item) => ({
@@ -1601,7 +1595,8 @@ export function QuotationDraftEditor({
     subtotal,
     discountNote,
     installationFee,
-  });
+  };
+  };
 
   return (
     <>
@@ -1882,7 +1877,7 @@ export function QuotationDraftEditor({
               </button>
               <button
                 type="button"
-                onClick={() => setShowSubmitModal(true)}
+                onClick={handleOpenSubmitReview}
                 className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 font-body text-sm font-semibold text-primary-foreground shadow-md shadow-primary/20 transition-all hover:bg-primary/90 active:scale-[0.98]"
               >
                 <ShieldCheck className="h-4 w-4" />
