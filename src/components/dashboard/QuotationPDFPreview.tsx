@@ -289,9 +289,11 @@ const INSTALL_ROW_HEIGHT = 36;
 const PDF_TABLE_WIDTH_PT = 555;
 const REMARKS_COL_WIDTH_PT = PDF_TABLE_WIDTH_PT * 0.09;
 const ILLUSTRATION_COL_WIDTH_PT = PDF_TABLE_WIDTH_PT * 0.114;
-// A4 usable ≈770pt; page 1 overhead ≈ logo/title/info (~110pt)
-const FIRST_PAGE_TABLE_MAX = 620;
-const CONTINUATION_PAGE_TABLE_MAX = 720;
+// A4 usable ≈770pt (842 − padding 22/50); page 1 reserves logo/title/info (~150pt)
+const PAGE_USABLE_HEIGHT = 770;
+const PAGE1_HEADER_OVERHEAD = 150;
+const FIRST_PAGE_TABLE_MAX = PAGE_USABLE_HEIGHT - PAGE1_HEADER_OVERHEAD;
+const CONTINUATION_PAGE_TABLE_MAX = PAGE_USABLE_HEIGHT - 24;
 
 function pdfRemarksImageHeight(imageCount: number): number {
   if (imageCount <= 0) return 0;
@@ -303,28 +305,41 @@ function pdfIllustrationImageHeight(dual: boolean): number {
   return Math.round(ILLUSTRATION_COL_WIDTH_PT * (dual ? 0.72 : 0.85));
 }
 
-/** Conservative row height for manual page segmentation (actual render uses minHeight 60). */
+/** Row height estimate aligned with actual PDF render (image columns drive row height). */
 function estimateQuotationRowHeight(item: QuotationItem | undefined): number {
   if (!item) return 60;
   if (item.isCustomTerm) return 30;
 
-  const materialLines = (item.material || '').split('\n').filter((l) => l.trim()).length;
-  const materialExtra = Math.max(0, materialLines - 3) * 7;
+  const materialLineCount = Math.max(
+    1,
+    (item.material || "").split("\n").filter((l) => l.trim()).length,
+  );
+  const materialHeight = materialLineCount * 10 + 16;
 
   const remarkBlocks = parseRemarksContent(item.remarks, item.remarksImage).filter(
-    (b) => (b.type === 'text' && b.content.trim()) || b.type === 'image',
+    (b) => (b.type === "text" && b.content.trim()) || b.type === "image",
   );
-  const remarkImageCount = remarkBlocks.filter((b) => b.type === 'image').length;
-  const remarksExtra = remarkImageCount > 0 ? pdfRemarksImageHeight(remarkImageCount) * 0.35 : 0;
+  const remarkTextCount = remarkBlocks.filter((b) => b.type === "text").length;
+  const remarkImageCount = remarkBlocks.filter((b) => b.type === "image").length;
+  const remarksHeight =
+    remarkBlocks.length > 0
+      ? remarkTextCount * 18 +
+        remarkImageCount * pdfRemarksImageHeight(remarkImageCount) +
+        12
+      : 0;
 
   const hasProduct = Boolean(item.image?.trim());
   const hasReference = Boolean(item.referenceImage?.trim());
-  const illustrationExtra =
-    (hasProduct ? 1 : 0) + (hasReference ? 1 : 0) > 0
-      ? pdfIllustrationImageHeight(hasProduct && hasReference) * 0.35
+  const dualIllustration = hasProduct && hasReference;
+  const illustrationCount = (hasProduct ? 1 : 0) + (hasReference ? 1 : 0);
+  const illustrationHeight =
+    illustrationCount > 0
+      ? illustrationCount * pdfIllustrationImageHeight(dualIllustration) + 12
       : 0;
 
-  return Math.min(130, 58 + materialExtra + remarksExtra + illustrationExtra);
+  const descHeight = 62;
+
+  return Math.max(60, descHeight, materialHeight, remarksHeight, illustrationHeight);
 }
 
 function paginateQuotationTableRows(items: QuotationItem[]): TablePageEntry[][] {
@@ -343,7 +358,7 @@ function paginateQuotationTableRows(items: QuotationItem[]): TablePageEntry[][] 
     if (current.length > 0 && usedHeight + rowHeight + installReserve > maxHeight) {
       pages.push(current);
       current = [];
-      usedHeight = 0;
+      usedHeight = TABLE_HEADER_HEIGHT;
       pageIndex += 1;
     }
 
@@ -737,14 +752,15 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
 
         {tablePages.map((pageRows, pageIdx) => {
           const isLastTablePage = pageIdx === tablePages.length - 1;
+          const isFirstSegment = pageIdx === 0;
           return (
             <View
               key={`table-page-${pageIdx}`}
               style={tableSegmentStyle(pageIdx)}
-              wrap={false}
+              wrap={isFirstSegment ? undefined : false}
               break={pageIdx > 0}
             >
-              {pageIdx === 0 ? renderTableHeader() : null}
+              {renderTableHeader()}
               {pageRows.map(({ item, idx }, rowIdx) =>
                 renderQuotationTableRow(
                   item,
