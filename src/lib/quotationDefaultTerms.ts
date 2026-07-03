@@ -1,13 +1,14 @@
 /** Default 條款及付款 text for quotation drafts. */
 
 /** Bump when the canonical template changes — saved quotes below this version are rebuilt. */
-export const QUOTATION_TERMS_TEMPLATE_VERSION = 3;
+export const QUOTATION_TERMS_TEMPLATE_VERSION = 4;
 
 /** Visible underline length for「1  送貨地址 : ________」 */
 export const DELIVERY_ADDRESS_BLANK = "&nbsp;".repeat(56);
 
 export const DEFAULT_QUOTATION_TERMS = {
-  payment: `付款條款: 須支付70%訂金於生產前，餘下30%於交付前支付。若未支付餘款，本公司將不安排交付或安裝。
+  payment: `須支付 70% 訂金於生產前，餘下 30% 於交付前支付。若未支付餘款，本公司將不安排交付或安裝。
+政府單位及NGO可在確認訂單後生產，收到貨後30天內付清全款。
 
 銀行賬戶資料:
 戶口名稱: Branding Works Design Ltd
@@ -104,7 +105,7 @@ function hasBoldSectionHeaders(html: string): boolean {
   return [1, 2, 3, 4, 5, 6].every(boldTag);
 }
 
-/** v3 template: inline 送貨地址, bold section headings 1–6. */
+/** v4 template: inline 送貨地址, bold section headings 1–6, updated payment lines. */
 export function isCurrentTermsFormat(terms?: SavedTermsContent | null): boolean {
   const html = terms?.fullHtml?.trim();
   if (!html || !html.includes("送貨地址")) return false;
