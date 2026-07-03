@@ -3,6 +3,31 @@
 /** Bump when the canonical template changes — saved quotes below this version are rebuilt. */
 export const QUOTATION_TERMS_TEMPLATE_VERSION = 4;
 
+/**
+ * Glyphs that Noto Sans TC mis-renders in react-pdf (e.g. 爲 → "2").
+ * Map to HK-standard forms before PDF output and when loading saved terms.
+ */
+export function normalizeQuotationPdfGlyphs(text: string): string {
+  if (!text) return text;
+  return text.replace(/\u7232/g, "\u70BA"); // 爲 → 為
+}
+
+function normalizeTermsRecord(
+  saved: SavedTermsContent | null | undefined,
+): SavedTermsContent | null | undefined {
+  if (!saved) return saved;
+  const norm = (s?: string) => (s ? normalizeQuotationPdfGlyphs(s) : s);
+  return {
+    ...saved,
+    payment: norm(saved.payment),
+    transport: norm(saved.transport),
+    extraFees: norm(saved.extraFees),
+    warranty: norm(saved.warranty),
+    other: norm(saved.other),
+    fullHtml: norm(saved.fullHtml),
+  };
+}
+
 /** Visible underline length for「1  送貨地址 : ________」 */
 export const DELIVERY_ADDRESS_BLANK = "&nbsp;".repeat(56);
 
@@ -17,7 +42,7 @@ export const DEFAULT_QUOTATION_TERMS = {
 
 戶口號碼: 747-058683-001
 
-若以支票轉賬/信用卡付款，貨期以實際款項到賬日期爲準。`,
+若以支票轉賬/信用卡付款，貨期以實際款項到賬日期為準。`,
   transport: `3.1 本報價包含於單一地址的一次性運輸及安裝費用。
 3.2 交付暫不涵蓋大嶼山、長洲、坪洲、南丫島及其他離島地區，包括禁區、5.5噸貨車無法進入路段、展覽場地、倉庫、酒店、裝修單位、船屋、地盤或貨櫃碼頭。若需特殊運送（如經露台懸掛），客戶須自行安排或者另行收費。
 3.3 送貨及安裝的標準時間：星期一至六，09:00-18:00（公眾假期除外）。超出時間須另行收費。
@@ -31,7 +56,7 @@ export const DEFAULT_QUOTATION_TERMS = {
 4.4 清拆舊家具不包括在內，須另行報價。
 4.5 樓梯搬運每層每立方米收取HKD 100（限8 層）。
 4.6 交付限 100 米範圍，超出每100 米加收HKD 500。`,
-  warranty: `5.1 保養期為 1 年，自交付日起計算。不適用於不當使用、意外損壞或正常磨損。超過保養期后，進行維修，只收取材料及運輸安裝費用。
+  warranty: `5.1 保養期為 1 年，自交付日起計算。不適用於不當使用、意外損壞或正常磨損。超過保養期後，進行維修，只收取材料及運輸安裝費用。
 5.2 如貨品有任何損壞或問題，客戶須於產品交付後7天内通知本公司。如貨品有任何損壞或問題而客人不接受時，上限只賠償為貨價10%。
 5.3 瑕疵評估以 1000mm 距離觀察為準，輕微差異（如顏色或收邊）不在範圍。`,
   other: `6.1 產品貨款未全部付清之前，產品歸屬權為本公司。
@@ -158,6 +183,7 @@ export function migrateTermsContentToCurrent(
   saved?: SavedTermsContent | null,
   deliveryAddress?: string,
 ): ResolvedTermsContent {
+  saved = normalizeTermsRecord(saved) ?? saved;
   const addressFromMeta = (deliveryAddress ?? "").trim();
   const addressFromTerms = saved?.fullHtml
     ? extractDeliveryAddressFromTermsHtml(saved.fullHtml)

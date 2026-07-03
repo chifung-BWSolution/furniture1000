@@ -3,6 +3,7 @@ import { X, Download, Loader2, AlertTriangle } from 'lucide-react';
 import type { QuotationPDFData } from '@/types/quotation-pdf';
 import { parseRemarksContent } from '@/lib/remarksContent';
 import { multiColorToChineseDisplay } from '@/constants/color-map';
+import { normalizeQuotationPdfGlyphs } from '@/lib/quotationDefaultTerms';
 
 export type { QuotationPDFData } from '@/types/quotation-pdf';
 
@@ -166,7 +167,7 @@ function parseHtmlForPdf(html: string): PdfBlock[] {
         return segments;
       }
       if (text.length > 0) {
-        segments.push({ text, ...inherited });
+        segments.push({ text: normalizeQuotationPdfGlyphs(text), ...inherited });
       }
       return segments;
     }
@@ -202,7 +203,7 @@ function parseHtmlForPdf(html: string): PdfBlock[] {
 
   const walk = (node: Node) => {
     if (node.nodeType === Node.TEXT_NODE) {
-      const text = node.textContent?.trim() || '';
+      const text = normalizeQuotationPdfGlyphs(node.textContent?.trim() || '');
       if (text) results.push({ type: 'text', segments: [{ text }] });
       return;
     }
@@ -251,7 +252,7 @@ function renderPlainTermLines(
 ) {
   return (text || '').split('\n').map((line, i) =>
     line.trim()
-      ? <Text key={`${keyPrefix}-${i}`} style={styles.termItem}>{line}</Text>
+      ? <Text key={`${keyPrefix}-${i}`} style={styles.termItem}>{normalizeQuotationPdfGlyphs(line)}</Text>
       : <View key={`${keyPrefix}-${i}`} style={styles.termSpacer} />,
   );
 }
@@ -694,7 +695,7 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
         </View>
 
         <Text style={styles.sectionTitle}>{'<\u8A02\u55AE\u78BA\u8A8D\u53CA\u4EA4\u4ED8\u7D30\u7BC0>'}</Text>
-        <Text style={styles.sectionText}>{data.deliveryDetails || ''}</Text>
+        <Text style={styles.sectionText}>{normalizeQuotationPdfGlyphs(data.deliveryDetails || '')}</Text>
 
         <Text style={styles.termsTitle}>{'\u689D\u6B3E\u53CA\u4ED8\u6B3E'}</Text>
 
