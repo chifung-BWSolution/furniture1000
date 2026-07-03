@@ -840,12 +840,6 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
             <Text style={styles.signatureDate}>{'\u7C3D\u7F72\u65E5\u671F:'}</Text>
           </View>
         </View>
-
-        <Text
-          style={{ position: 'absolute', bottom: 30, right: 40, fontSize: 10, color: '#000', zIndex: 100 }}
-          render={({ pageNumber }: { pageNumber: number }) => `\u7B2C ${pageNumber} \u9801`}
-          fixed
-        />
       </Page>
     </Document>
   );
