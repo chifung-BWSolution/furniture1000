@@ -352,12 +352,45 @@ async function pushProductToShopify(
   };
 }
 
+/** Push mirror rows to Shopify (existing products only — never creates). */
+async function pushMirrorRows(
+  supabase: ReturnType<typeof createClient>,
+  shopDomain: string,
+  shopifyToken: string,
+  rows: Record<string, unknown>[],
+) {
+  let pushed = 0;
+  let failed = 0;
+  let skipped = 0;
+  const errors: { shopify_product_id: string; error: string }[] = [];
+  for (const row of rows) {
+    const sid = String(row.shopify_product_id || "");
+    if (!/^\d+$/.test(sid)) {
+      skipped++;
+      continue;
+    }
+    const payload = mirrorRowToPayload(row);
+    const result = await pushProductToShopify(supabase, shopDomain, shopifyToken, sid, payload, { skipMirrorWrite: true });
+    if (result.success) {
+      pushed++;
+      await supabase.from("shopify_products").update({
+        shopify_updated_at: new Date().toISOString(),
+      }).eq("shopify_product_id", sid);
+    } else {
+      failed++;
+      if (errors.length < 20) errors.push({ shopify_product_id: sid, error: result.error || "unknown" });
+    }
+  }
+  return { pushed, failed, skipped, errors };
+}
+
 /**
  * update-shopify-product
  *
  * Single product push: POST { shopify_product_id, title?, body_html?, ... }
- * Batch push from mirror: POST { push_all_from_mirror: true }
- *   → PUT each existing Shopify product by shopify_product_id (never creates new products).
+ * Push one mirror row: POST { push_from_mirror: true, shopify_product_id }
+ * Push selected mirror rows: POST { shopify_product_ids: string[] }
+ * Batch push all mirror rows: POST { push_all_from_mirror: true }
  */
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -383,6 +416,8 @@ Deno.serve(async (req: Request) => {
 
     const body = await req.json().catch(() => ({})) as {
       push_all_from_mirror?: boolean;
+      push_from_mirror?: boolean;
+      shopify_product_ids?: string[];
       shopify_product_id?: string;
       source_product_id?: string;
       title?: string;
@@ -404,29 +439,37 @@ Deno.serve(async (req: Request) => {
     if (body.push_all_from_mirror) {
       const { data: rows, error: fetchErr } = await supabase.from("shopify_products").select("*");
       if (fetchErr) return json({ error: fetchErr.message }, 500);
-      let pushed = 0;
-      let failed = 0;
-      let skipped = 0;
-      const errors: { shopify_product_id: string; error: string }[] = [];
-      for (const row of rows || []) {
-        const sid = String(row.shopify_product_id || "");
-        if (!/^\d+$/.test(sid)) {
-          skipped++;
-          continue;
-        }
-        const payload = mirrorRowToPayload(row as Record<string, unknown>);
-        const result = await pushProductToShopify(supabase, shopDomain, shopifyToken, sid, payload, { skipMirrorWrite: true });
-        if (result.success) {
-          pushed++;
-          await supabase.from("shopify_products").update({
-            shopify_updated_at: new Date().toISOString(),
-          }).eq("shopify_product_id", sid);
-        } else {
-          failed++;
-          if (errors.length < 20) errors.push({ shopify_product_id: sid, error: result.error || "unknown" });
-        }
+      const stats = await pushMirrorRows(supabase, shopDomain, shopifyToken, (rows || []) as Record<string, unknown>[]);
+      return json({ success: true, mode: "push_all_from_mirror", ...stats });
+    }
+
+    if (Array.isArray(body.shopify_product_ids) && body.shopify_product_ids.length > 0) {
+      const ids = body.shopify_product_ids.map(String).filter((id) => /^\d+$/.test(id));
+      if (ids.length === 0) return json({ error: "No valid numeric shopify_product_ids" }, 400);
+      const { data: rows, error: fetchErr } = await supabase
+        .from("shopify_products")
+        .select("*")
+        .in("shopify_product_id", ids);
+      if (fetchErr) return json({ error: fetchErr.message }, 500);
+      const stats = await pushMirrorRows(supabase, shopDomain, shopifyToken, (rows || []) as Record<string, unknown>[]);
+      return json({ success: true, mode: "push_selected_from_mirror", ...stats });
+    }
+
+    if (body.push_from_mirror && body.shopify_product_id) {
+      const sid = String(body.shopify_product_id);
+      if (!/^\d+$/.test(sid)) return json({ error: "Invalid shopify_product_id" }, 400);
+      const { data: row, error: fetchErr } = await supabase
+        .from("shopify_products")
+        .select("*")
+        .eq("shopify_product_id", sid)
+        .maybeSingle();
+      if (fetchErr) return json({ error: fetchErr.message }, 500);
+      if (!row) return json({ error: `No shopify_products row for ${sid}` }, 404);
+      const stats = await pushMirrorRows(supabase, shopDomain, shopifyToken, [row as Record<string, unknown>]);
+      if (stats.failed > 0) {
+        return json({ success: false, error: stats.errors[0]?.error || "Push failed", ...stats }, 502);
       }
-      return json({ success: true, mode: "push_all_from_mirror", pushed, failed, skipped, errors });
+      return json({ success: true, mode: "push_from_mirror", ...stats });
     }
 
     const shopifyId = body.shopify_product_id;

@@ -220,43 +220,62 @@ export function PublishedProductsView() {
     if (!opts?.silent) setIsLoading(false);
   }, []);
 
-  // One-way push: update existing Shopify products from shopify_products mirror.
-  // Pull from Shopify is handled separately via「從 Shopify 導入」.
+  // One-way push: update selected Shopify products from shopify_products mirror.
+  // One product per edge-function call avoids relay/timeout when syncing many rows.
   const pushToShopify = useCallback(async () => {
+    const selectedRows = items.filter((p) => selected.has(p.id));
+    if (selectedRows.length === 0) {
+      toast.message('請先勾選要同步至 Shopify 的產品');
+      return;
+    }
+    const shopifyIds = selectedRows
+      .map((p) => p.shopify_product_id)
+      .filter((id) => /^\d+$/.test(id));
+    if (shopifyIds.length === 0) {
+      toast.error('選中產品沒有有效的 Shopify Product ID，無法同步');
+      return;
+    }
+
     setIsSyncing(true);
-    const toastId = toast.loading('正在推送至 Shopify…');
+    const toastId = toast.loading(`正在推送至 Shopify (0/${shopifyIds.length})…`);
+    let pushed = 0;
+    let failed = 0;
+    let firstErr: string | undefined;
+
     try {
-      const { data: pushData, error: pushErr } = await supabase.functions.invoke(
-        'supabase-functions-update-shopify-product',
-        { body: { push_all_from_mirror: true } },
-      );
-      if (pushErr || pushData?.error) {
-        toast.error('推送到 Shopify 失敗', {
-          id: toastId,
-          description: pushErr?.message || pushData?.error || '請稍後重試',
-        });
-        return;
+      for (let i = 0; i < shopifyIds.length; i++) {
+        const id = shopifyIds[i];
+        toast.loading(`正在推送至 Shopify (${i + 1}/${shopifyIds.length})…`, { id: toastId });
+
+        const { data, error } = await supabase.functions.invoke(
+          'supabase-functions-update-shopify-product',
+          { body: { push_from_mirror: true, shopify_product_id: id } },
+        );
+
+        if (error || data?.error || data?.success === false) {
+          failed++;
+          if (!firstErr) firstErr = error?.message || data?.error || '未知錯誤';
+        } else {
+          pushed++;
+        }
       }
-      const pushed = pushData.pushed ?? 0;
-      const failed = pushData.failed ?? 0;
-      const skipped = pushData.skipped ?? 0;
-      if (failed > 0) {
+
+      if (failed > 0 && pushed > 0) {
         toast.warning('部分產品推送失敗', {
           id: toastId,
-          description: [
-            `成功 ${pushed} 件`,
-            failed ? `失敗 ${failed} 件` : '',
-            skipped ? `略過 ${skipped} 件（無 Shopify ID）` : '',
-          ].filter(Boolean).join(' · '),
+          description: `成功 ${pushed} 件 · 失敗 ${failed} 件${firstErr ? ` — ${firstErr.slice(0, 120)}` : ''}`,
+          duration: 8000,
+        });
+      } else if (failed > 0) {
+        toast.error('推送到 Shopify 失敗', {
+          id: toastId,
+          description: firstErr || '請稍後重試',
           duration: 8000,
         });
       } else {
         toast.success('已推送至 Shopify', {
           id: toastId,
-          description: [
-            `已更新 ${pushed} 件現有產品`,
-            skipped ? `略過 ${skipped} 件（無 Shopify ID）` : '',
-          ].filter(Boolean).join(' · '),
+          description: `已更新 ${pushed} 件現有產品（含 SEO）`,
           duration: 6000,
         });
       }
@@ -268,7 +287,7 @@ export function PublishedProductsView() {
     } finally {
       setIsSyncing(false);
     }
-  }, []);
+  }, [items, selected]);
 
   useEffect(() => {
     void loadProducts();
@@ -536,11 +555,11 @@ export function PublishedProductsView() {
           <button
             onClick={() => pushToShopify()}
             disabled={isSyncing}
-            title="將 Supabase shopify_products 資料推送至 Shopify，更新現有產品（標題、描述、SEO、價格、Metafields 等）。不會從 Shopify 回傳資料。"
+            title="將已勾選產品的 Supabase 資料推送至 Shopify，更新現有產品（標題、描述、SEO、價格、Metafields 等）"
             className="flex items-center gap-1.5 rounded-lg border border-indigo-500/40 bg-indigo-500/10 px-3 py-2 text-xs font-semibold text-indigo-700 dark:text-indigo-400 hover:bg-indigo-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isSyncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-            {isSyncing ? '推送中...' : '與 Shopify 同步'}
+            {isSyncing ? '推送中...' : selected.size > 0 ? `與 Shopify 同步 (${selected.size})` : '與 Shopify 同步'}
           </button>
           {/* 單向導入：Shopify → Supabase shopify_products */}
           <button
