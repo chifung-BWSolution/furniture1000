@@ -287,11 +287,12 @@ const PDF_TABLE_WIDTH_PT = 555;
 const REMARKS_COL_WIDTH_PT = PDF_TABLE_WIDTH_PT * 0.09;
 const ILLUSTRATION_COL_WIDTH_PT = PDF_TABLE_WIDTH_PT * 0.114;
 
-/** Shared top/left/right border for each table band — rows paginate naturally via wrap={false}. */
+/** Shared border for each table band — bottom line closes the row at page breaks. */
 const tableBandBorder = {
   borderTopWidth: 0.5,
   borderLeftWidth: 0.5,
   borderRightWidth: 0.5,
+  borderBottomWidth: 0.5,
   borderColor: TABLE_BORDER,
 };
 
@@ -531,7 +532,7 @@ const styles: Record<string, any> = {
   cellImageSlot: { width: '100%', justifyContent: 'center', alignItems: 'center', paddingVertical: 2, paddingHorizontal: 2 },
   cellStackImage: { width: '100%', maxHeight: '100%', objectFit: 'contain' },
   remarksCellText: { fontSize: 7, textAlign: 'center', lineHeight: 1.3 },
-  installRow: { flexDirection: 'row', minHeight: 28, borderBottomWidth: 0.5, ...tableBandBorder },
+  installRow: { flexDirection: 'row', minHeight: 28, ...tableBandBorder },
   totalRow: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 6, paddingRight: 4 },
   totalLabel: { fontSize: 10, fontWeight: 700, marginRight: 8, lineHeight: 1.4 },
   totalValue: { fontSize: 10, fontWeight: 700, lineHeight: 1.4 },
