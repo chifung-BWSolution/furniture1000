@@ -289,8 +289,8 @@ const PDF_TABLE_WIDTH_PT = 515;
 const REMARKS_COL_WIDTH_PT = PDF_TABLE_WIDTH_PT * 0.09;
 const ILLUSTRATION_COL_WIDTH_PT = PDF_TABLE_WIDTH_PT * 0.15;
 // A4 usable ≈762pt; page 1 reserves space for logo, title, info, totals, delivery
-const FIRST_PAGE_TABLE_MAX = 340;
-const CONTINUATION_PAGE_TABLE_MAX = 620;
+const FIRST_PAGE_TABLE_MAX = 372;
+const CONTINUATION_PAGE_TABLE_MAX = 638;
 
 function pdfRemarksImageHeight(imageCount: number): number {
   if (imageCount <= 0) return 0;
@@ -367,7 +367,7 @@ function tableSegmentStyle(pageIndex: number) {
     borderTopWidth: 0.5,
     borderBottomWidth: 0.5,
     borderColor: '#333',
-    marginTop: pageIndex === 0 ? 8 : 0,
+    marginTop: pageIndex === 0 ? 4 : 0,
   };
 }
 
@@ -572,14 +572,15 @@ function renderDescriptionPdfContent(
 // ─── Styles (plain object — StyleSheet.create is a pass-through) ─────────────
 
 const styles: Record<string, any> = {
-  page: { fontFamily: 'NotoSansTC', fontSize: 8, lineHeight: 1.4, paddingTop: 30, paddingBottom: 50, paddingHorizontal: 40, color: '#1a1a1a' },
-  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 },
-  logo: { width: 130, height: 36, objectFit: 'contain' },
-  titleCenter: { fontSize: 16, fontWeight: 700, textAlign: 'center', lineHeight: 1.4, marginBottom: 20 },
-  infoRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 },
+  page: { fontFamily: 'NotoSansTC', fontSize: 8, lineHeight: 1.4, paddingTop: 22, paddingBottom: 50, paddingHorizontal: 40, color: '#1a1a1a' },
+  headerBlock: { marginBottom: 8 },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
+  logo: { width: 130, height: 32, objectFit: 'contain', marginBottom: 4 },
+  titleCenter: { fontSize: 16, fontWeight: 700, textAlign: 'center', lineHeight: 1.3, marginBottom: 0 },
+  infoRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
   infoLeft: { width: '45%' },
   infoRight: { width: '50%' },
-  infoLine: { fontSize: 8, marginBottom: 2, lineHeight: 1.6 },
+  infoLine: { fontSize: 8, marginBottom: 1, lineHeight: 1.5 },
   infoBold: { fontWeight: 700 },
   table: { width: '100%', borderWidth: 0.5, borderColor: '#333', marginTop: 8 },
   tableHeader: { display: 'flex', flexDirection: 'row', backgroundColor: '#f5f5f5', borderBottomWidth: 0.5, borderColor: '#333', minHeight: 24, alignItems: 'center' },
@@ -714,10 +715,12 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
     <Document>
       {/* Page 1 - Product Table */}
       <Page size="A4" style={styles.page}>
-        <View style={styles.headerRow}>
-          <Image src={logoUrl} style={styles.logo} />
+        <View style={styles.headerBlock}>
+          <View style={styles.headerRow}>
+            <Image src={logoUrl} style={styles.logo} />
+          </View>
+          <Text style={styles.titleCenter}>{'\u50A2\u4FF1\u5831\u50F9\u55AE'}</Text>
         </View>
-        <Text style={styles.titleCenter}>{'\u50A2\u4FF1\u5831\u50F9\u55AE'}</Text>
         <View style={styles.infoRow}>
           <View style={styles.infoLeft}>
             <Text style={styles.infoLine}>{'\u5BA2\u6236\u540D\u7A31'}: {data.clientInfo?.name || ''}</Text>
@@ -762,7 +765,7 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
         })}
 
         {discountValue > 0 ? (
-          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 6, paddingRight: 4 }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 4, paddingRight: 4 }}>
             <Text style={{ fontSize: 8, marginRight: 8, lineHeight: 1.4, width: 60, textAlign: 'right' }}>Discount:</Text>
             <Text style={{ fontSize: 8, lineHeight: 1.4, width: 90, textAlign: 'right' }}>HK${discountValue.toLocaleString()}</Text>
           </View>

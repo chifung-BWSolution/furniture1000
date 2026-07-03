@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
 import { cn } from '@/lib/utils';
 import { Check, ChevronRight, ChevronLeft, Sparkles, Loader2 } from 'lucide-react';
 import { QuotationDraftEditor } from '@/components/dashboard/QuotationDraftEditor';
@@ -6,12 +6,19 @@ import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { loadDraft, deleteDraft, makeDraftKey } from '@/lib/draftStore';
 import { useAuth } from '@/contexts/AuthProvider';
+import type { QuotationPDFData } from '@/types/quotation-pdf';
 import {
   quickQuoteFormKey,
   quickQuoteStepKey,
   readQuickQuoteStep,
   resetQuickQuoteSessionStorage,
 } from '@/lib/quickQuoteSession';
+
+const LazyQuotationPDFPreviewModal = lazy(() =>
+  import('@/components/dashboard/QuotationPDFPreview').then((mod) => ({
+    default: mod.QuotationPDFPreviewModal,
+  })),
+);
 
 function getNextQuoteVersion(version: string): string {
   const match = version.match(/^v(\d+)\.(\d+)$/);
@@ -114,9 +121,15 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
     projectData: Record<string, unknown>;
   } | null>(null);
   const [formData, setFormData] = useState<QuoteFormData>(() => DEFAULT_FORM_DATA());
+  const [pdfPreviewData, setPdfPreviewData] = useState<QuotationPDFData | null>(null);
+  const sessionRestoredRef = useRef(false);
 
   useEffect(() => {
     if (authLoading || editingQuoteId || freshSessionKey > 0) return;
+    if (!userEmail) return;
+    if (sessionRestoredRef.current) return;
+
+    sessionRestoredRef.current = true;
     const step = readQuickQuoteStep(userEmail);
     setCurrentStep(step);
     setIsQuotationReady(step === 4);
@@ -127,6 +140,12 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
       // ignore
     }
   }, [authLoading, userEmail, editingQuoteId, freshSessionKey]);
+
+  useEffect(() => {
+    if (freshSessionKey > 0) {
+      sessionRestoredRef.current = false;
+    }
+  }, [freshSessionKey]);
 
   const resetToNewQuote = useCallback(() => {
     setCurrentStep(1);
@@ -958,6 +977,7 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
             <QuotationDraftEditor
               formData={formData}
               userEmail={userEmail}
+              onOpenPdfPreview={setPdfPreviewData}
               onBack={() => {
                 if (loadedQuoteData) {
                   setLoadedQuoteData(null);
@@ -972,6 +992,22 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
         )}
       </div>
     </div>
+
+      {pdfPreviewData && (
+        <Suspense
+          fallback={
+            <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50">
+              <div className="text-white">Loading PDF Preview...</div>
+            </div>
+          }
+        >
+          <LazyQuotationPDFPreviewModal
+            open
+            onClose={() => setPdfPreviewData(null)}
+            data={pdfPreviewData}
+          />
+        </Suspense>
+      )}
     </>
   );
 }

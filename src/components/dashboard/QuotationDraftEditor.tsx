@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, lazy, Suspense, useRef, type ReactNode } from "react";
+import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
 import {
   ChevronDown,
   Plus,
@@ -30,12 +30,6 @@ import {
 } from "@/lib/draftStore";
 import { unsavedGuard } from "@/lib/unsavedGuard";
 import { QUOTE_UNSAVED_LEAVE_MESSAGE, resetQuickQuoteSessionStorage } from "@/lib/quickQuoteSession";
-
-const LazyQuotationPDFPreviewModal = lazy(() =>
-  import("@/components/dashboard/QuotationPDFPreview").then((mod) => ({
-    default: mod.QuotationPDFPreviewModal,
-  })),
-);
 
 interface QuoteFormData {
   company: string;
@@ -81,6 +75,7 @@ interface QuotationDraftEditorProps {
   formData: QuoteFormData;
   onBack: () => void;
   userEmail?: string | null;
+  onOpenPdfPreview?: (data: QuotationPDFData) => void;
   existingQuote?: {
     quoteId: string;
     version: string;
@@ -922,6 +917,7 @@ export function QuotationDraftEditor({
   formData,
   onBack: _onBack,
   userEmail,
+  onOpenPdfPreview,
   existingQuote,
 }: QuotationDraftEditorProps) {
   // Determine initial values from existingQuote or defaults
@@ -1328,9 +1324,6 @@ export function QuotationDraftEditor({
   // Product selector modal state
   const [showProductSelector, setShowProductSelector] = useState(false);
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
-
-  // PDF Preview modal state
-  const [showPDFPreview, setShowPDFPreview] = useState(false);
 
   // Draft auto-save state
   const [draftLoaded, setDraftLoaded] = useState(false);
@@ -1881,7 +1874,7 @@ export function QuotationDraftEditor({
             <div className="flex shrink-0 items-center justify-end gap-3 xl:pt-1">
               <button
                 type="button"
-                onClick={() => setShowPDFPreview(true)}
+                onClick={() => onOpenPdfPreview?.(buildPDFData())}
                 className="inline-flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-4 py-2 font-body text-sm font-medium text-primary transition-colors hover:bg-primary/10"
               >
                 <Eye className="h-4 w-4" />
@@ -2359,22 +2352,6 @@ export function QuotationDraftEditor({
         existingProductNames={[]}
       />
 
-      {/* PDF Preview Modal */}
-      {showPDFPreview && (
-        <Suspense
-          fallback={
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-              <div className="text-white">Loading PDF Preview...</div>
-            </div>
-          }
-        >
-          <LazyQuotationPDFPreviewModal
-            open={showPDFPreview}
-            onClose={() => setShowPDFPreview(false)}
-            data={buildPDFData()}
-          />
-        </Suspense>
-      )}
     </>
   );
 }
