@@ -275,13 +275,18 @@ function estimateQuotationRowHeight(item: QuotationItem | undefined): number {
   const materialLineCount = Math.max(1, (item.material || '').split('\n').filter((l) => l.trim()).length);
   const materialHeight = materialLineCount * 10 + 20;
 
-  const remarksBlocks = parseRemarksContent(item.remarks, item.remarksImage).filter(
+  const remarkBlocks = parseRemarksContent(item.remarks, item.remarksImage).filter(
     (b) => (b.type === 'text' && b.content.trim()) || b.type === 'image',
-  ).length;
-  const remarksHeight = remarksBlocks > 0 ? remarksBlocks * 45 : 24;
+  );
+  const remarkTextCount = remarkBlocks.filter((b) => b.type === 'text').length;
+  const remarkImageCount = remarkBlocks.filter((b) => b.type === 'image').length;
+  const remarksHeight =
+    remarkBlocks.length > 0 ? remarkTextCount * 22 + remarkImageCount * 58 : 24;
 
-  const hasBothImages = Boolean(item.image && item.referenceImage);
-  const imageHeight = hasBothImages ? 90 : item.image || item.referenceImage ? 70 : 24;
+  const hasProductImage = Boolean(item.image?.trim());
+  const hasReferenceImage = Boolean(item.referenceImage?.trim());
+  const imageHeight =
+    hasProductImage && hasReferenceImage ? 130 : hasProductImage || hasReferenceImage ? 75 : 24;
 
   return Math.max(60, materialHeight, remarksHeight, imageHeight, 72);
 }
@@ -366,14 +371,10 @@ function renderQuotationTableRow(
         </View>
       </View>
       <View style={styles.colRemarks}>
-        <View style={{ width: '100%', flex: 1 }}>
-          {renderRemarksPdfContent(item?.remarks, item?.remarksImage, View, Image, Text)}
-        </View>
+        {renderRemarksPdfContent(item?.remarks, item?.remarksImage, View, Image, Text)}
       </View>
       <View style={styles.colImage}>
-        <View style={{ width: '100%', flex: 1 }}>
-          {renderIllustrationPdfContent(item?.image, item?.referenceImage, View, Image, Text)}
-        </View>
+        {renderIllustrationPdfContent(item?.image, item?.referenceImage, View, Image, Text)}
       </View>
       <View style={styles.colQty}><Text style={styles.tableCellText}>{item?.quantity || 0}</Text></View>
       <View style={styles.colUnit}><Text style={styles.tableCellText}>{item?.unit || ''}</Text></View>
@@ -398,13 +399,16 @@ function renderRemarksPdfContent(
   if (blocks.length === 0) return null;
 
   return (
-    <View style={{ width: '100%', flex: 1, flexDirection: 'column' }}>
+    <View style={styles.cellContentColumn}>
       {blocks.map((block, i) => (
-        <View key={`remarks-block-${i}`} style={styles.cellStackSlot}>
+        <View
+          key={`remarks-block-${i}`}
+          style={block.type === 'text' ? styles.cellTextBlock : styles.cellImageBlock}
+        >
           {block.type === 'text' ? (
             <Text style={styles.remarksCellText}>{block.content}</Text>
           ) : (
-            <Image src={block.src} style={styles.cellStackImage} />
+            <Image src={block.src} style={styles.cellNaturalImage} />
           )}
         </View>
       ))}
@@ -419,12 +423,12 @@ function renderIllustrationPdfContent(
   Image: ReactPdfModule['Image'],
   Text: ReactPdfModule['Text'],
 ) {
-  const hasProduct = Boolean(productImage);
-  const hasReference = Boolean(referenceImage);
+  const hasProduct = Boolean(productImage?.trim());
+  const hasReference = Boolean(referenceImage?.trim());
 
   if (!hasProduct && !hasReference) {
     return (
-      <View style={styles.cellStackSlot}>
+      <View style={styles.cellTextBlock}>
         <Text style={{ fontSize: 6, color: '#999', textAlign: 'center' }}>{'\u2014'}</Text>
       </View>
     );
@@ -432,21 +436,21 @@ function renderIllustrationPdfContent(
 
   if (hasProduct && hasReference) {
     return (
-      <View style={{ width: '100%', flex: 1, flexDirection: 'column' }}>
-        <View style={styles.cellStackSlot}>
-          <Image src={productImage!} style={styles.cellStackImage} />
+      <View style={styles.cellContentColumn}>
+        <View style={styles.cellImageBlock}>
+          <Image src={productImage!} style={styles.cellNaturalImage} />
         </View>
-        <View style={styles.cellStackSlot}>
-          <Image src={referenceImage!} style={styles.cellStackImage} />
+        <View style={styles.cellImageBlock}>
+          <Image src={referenceImage!} style={styles.cellNaturalImage} />
         </View>
       </View>
     );
   }
 
   return (
-    <View style={{ width: '100%', flex: 1, flexDirection: 'column' }}>
-      <View style={styles.cellStackSlot}>
-        <Image src={(productImage || referenceImage)!} style={styles.cellStackImage} />
+    <View style={styles.cellContentColumn}>
+      <View style={styles.cellImageBlock}>
+        <Image src={(productImage || referenceImage)!} style={styles.cellNaturalImage} />
       </View>
     </View>
   );
@@ -533,8 +537,8 @@ const styles: Record<string, any> = {
   colIndex: { width: '5%', display: 'flex', justifyContent: 'center', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd', paddingVertical: 4 },
   colDesc: { width: '16%', paddingLeft: 0, paddingRight: 0, paddingTop: 0, paddingBottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'stretch', borderRightWidth: 0.5, borderColor: '#ddd' },
   colMaterial: { width: '22%', paddingLeft: 4, paddingRight: 4, paddingTop: 4, paddingBottom: 4, display: 'flex', flexDirection: 'column', justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
-  colRemarks: { width: '9%', paddingLeft: 2, paddingRight: 2, paddingTop: 0, paddingBottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'stretch', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
-  colImage: { width: '15%', paddingLeft: 0, paddingRight: 0, paddingTop: 0, paddingBottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'stretch', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
+  colRemarks: { width: '9%', paddingLeft: 2, paddingRight: 2, paddingTop: 2, paddingBottom: 2, display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
+  colImage: { width: '15%', paddingLeft: 0, paddingRight: 0, paddingTop: 2, paddingBottom: 2, display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
   colQty: { width: '5%', display: 'flex', justifyContent: 'center', alignItems: 'center', textAlign: 'center', borderRightWidth: 0.5, borderColor: '#ddd', paddingVertical: 4 },
   colUnit: { width: '5%', display: 'flex', justifyContent: 'center', alignItems: 'center', textAlign: 'center', borderRightWidth: 0.5, borderColor: '#ddd', paddingVertical: 4 },
   colUnitPrice: { width: '10.5%', display: 'flex', justifyContent: 'center', alignItems: 'center', textAlign: 'center', borderRightWidth: 0.5, borderColor: '#ddd', paddingVertical: 4 },
@@ -545,8 +549,10 @@ const styles: Record<string, any> = {
   descValueText: { fontSize: 6.5, textAlign: 'left', lineHeight: 1.3, paddingLeft: 2 },
   descDimLabelText: { fontSize: 6, textAlign: 'left', lineHeight: 1.2, paddingLeft: 2, color: '#555' },
   descDimValueText: { fontSize: 6, textAlign: 'left', lineHeight: 1.2, paddingLeft: 2, width: '100%' },
-  cellStackSlot: { flex: 1, width: '100%', justifyContent: 'center', alignItems: 'center', paddingVertical: 2, paddingHorizontal: 2 },
-  cellStackImage: { width: '100%', maxHeight: '100%', objectFit: 'contain' },
+  cellContentColumn: { width: '100%', flexDirection: 'column', alignItems: 'center' },
+  cellTextBlock: { width: '100%', paddingVertical: 2, paddingHorizontal: 2 },
+  cellImageBlock: { width: '100%', paddingVertical: 2, paddingHorizontal: 2, alignItems: 'center' },
+  cellNaturalImage: { width: '100%', objectFit: 'contain' },
   remarksCellText: { fontSize: 7, textAlign: 'center', lineHeight: 1.3 },
   installRow: { flexDirection: 'row', borderBottomWidth: 0.5, borderColor: '#ddd', minHeight: 28 },
   totalRow: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 6, paddingRight: 4 },
