@@ -1,16 +1,11 @@
 /** Default 條款及付款 text for quotation drafts. */
 
+import { normalizeQuotationPdfGlyphs } from "@/lib/quotationPdfGlyphs";
+
+export { normalizeQuotationPdfGlyphs } from "@/lib/quotationPdfGlyphs";
+
 /** Bump when the canonical template changes — saved quotes below this version are rebuilt. */
 export const QUOTATION_TERMS_TEMPLATE_VERSION = 5;
-
-/**
- * Glyphs that Noto Sans TC mis-renders in react-pdf (e.g. 爲 → "2").
- * Map to HK-standard forms before PDF output and when loading saved terms.
- */
-export function normalizeQuotationPdfGlyphs(text: string): string {
-  if (!text) return text;
-  return text.replace(/\u7232/g, "\u70BA"); // 爲 → 為
-}
 
 function normalizeTermsRecord(
   saved: SavedTermsContent | null | undefined,

@@ -3,7 +3,7 @@ import { X, Download, Loader2, AlertTriangle } from 'lucide-react';
 import type { QuotationPDFData } from '@/types/quotation-pdf';
 import { parseRemarksContent } from '@/lib/remarksContent';
 import { multiColorToChineseDisplay } from '@/constants/color-map';
-import { normalizeQuotationPdfGlyphs } from '@/lib/quotationDefaultTerms';
+import { normalizeQuotationPdfGlyphs, pdfDisplayText } from '@/lib/quotationPdfGlyphs';
 
 export type { QuotationPDFData } from '@/types/quotation-pdf';
 
@@ -26,10 +26,11 @@ let fontRegistered = false;
 // 枱 and the complete Traditional Chinese repertoire (verified by cmap inspection).
 const NOTO_SANS_TC_REGULAR = 'https://fonts.gstatic.com/s/notosanstc/v39/-nFuOG829Oofr2wohFbTp9ifNAn722rq0MXz76Cy_Co.ttf';
 const NOTO_SANS_TC_BOLD = 'https://fonts.gstatic.com/s/notosanstc/v39/-nFuOG829Oofr2wohFbTp9ifNAn722rq0MXz70e1_Co.ttf';
-// Simplified Chinese fallback for any glyph still not present in the TC font
-// (e.g. 简, 体, etc. from supplier names / product specs).
-const NOTO_SANS_SC_REGULAR = 'https://cdn.jsdelivr.net/fontsource/fonts/noto-sans-sc@latest/chinese-simplified-400-normal.ttf';
-const NOTO_SANS_SC_BOLD = 'https://cdn.jsdelivr.net/fontsource/fonts/noto-sans-sc@latest/chinese-simplified-700-normal.ttf';
+// Full Noto Sans SC (not a language subset) — fallback when TC lacks a glyph entirely.
+const NOTO_SANS_SC_REGULAR =
+  'https://fonts.gstatic.com/ea/notosanssc/v1/NotoSansSC-Regular.otf';
+const NOTO_SANS_SC_BOLD =
+  'https://fonts.gstatic.com/ea/notosanssc/v1/NotoSansSC-Bold.otf';
 
 async function loadReactPdfModule(): Promise<ReactPdfModule> {
   if (cachedModule) return cachedModule;
@@ -49,9 +50,8 @@ async function loadReactPdfModule(): Promise<ReactPdfModule> {
             { src: NOTO_SANS_TC_BOLD, fontWeight: 700 },
           ],
         });
-        // Fallback: Noto Sans SC — covers Simplified Chinese glyphs missing
-        // from the TC font. react-pdf picks this for any glyph not found
-        // in the primary family when fallback: true is set.
+        // Fallback: full Noto Sans SC for glyphs absent from TC. Wrong-glyph cases
+        // (e.g. 爲 → "2") are handled by normalizeQuotationPdfGlyphs() before render.
         // (cast: react-pdf's types omit the runtime-supported `fallback` flag.)
         mod.Font.register({
           family: 'NotoSansSC',
@@ -320,10 +320,10 @@ function renderQuotationTableRow(
       <View style={{ ...styles.tableRow, minHeight: 28 }} key={idx} wrap={false}>
         <View style={styles.colIndex}><Text style={styles.tableCellText}>{idx + 1}</Text></View>
         <View style={{ width: '62%', paddingLeft: 6, paddingRight: 6, paddingTop: 6, paddingBottom: 6, display: 'flex', flexDirection: 'column', justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' }}>
-          <Text style={styles.tableCellTextLeft}>{item?.name || ''}</Text>
+          <Text style={styles.tableCellTextLeft}>{pdfDisplayText(item?.name || '')}</Text>
         </View>
         <View style={styles.colQty}><Text style={styles.tableCellText}>{item?.quantity || 0}</Text></View>
-        <View style={styles.colUnit}><Text style={styles.tableCellText}>{item?.unit || ''}</Text></View>
+        <View style={styles.colUnit}><Text style={styles.tableCellText}>{pdfDisplayText(item?.unit || '')}</Text></View>
         <View style={styles.colUnitPrice}><Text style={styles.tableCellText}>HK${(item?.unitPrice || 0).toLocaleString()}</Text></View>
         <View style={styles.colSubtotal}><Text style={styles.tableCellText}>HK${((item?.unitPrice || 0) * (item?.quantity || 0)).toLocaleString()}</Text></View>
       </View>
@@ -337,7 +337,7 @@ function renderQuotationTableRow(
         {renderDescriptionPdfContent(item, formatDimensions, View, Text)}
       </View>
       <View style={styles.colMaterial}>
-        <Text style={styles.tableCellTextLeft}>{item?.material || ''}</Text>
+        <Text style={styles.tableCellTextLeft}>{pdfDisplayText(item?.material || '')}</Text>
       </View>
       <View style={styles.colRemarks}>
         <View style={{ width: '100%', flex: 1 }}>
@@ -350,7 +350,7 @@ function renderQuotationTableRow(
         </View>
       </View>
       <View style={styles.colQty}><Text style={styles.tableCellText}>{item?.quantity || 0}</Text></View>
-      <View style={styles.colUnit}><Text style={styles.tableCellText}>{item?.unit || ''}</Text></View>
+      <View style={styles.colUnit}><Text style={styles.tableCellText}>{pdfDisplayText(item?.unit || '')}</Text></View>
       <View style={styles.colUnitPrice}><Text style={styles.tableCellText}>HK${(item?.unitPrice || 0).toLocaleString()}</Text></View>
       <View style={styles.colSubtotal}><Text style={styles.tableCellText}>HK${((item?.unitPrice || 0) * (item?.quantity || 0)).toLocaleString()}</Text></View>
     </View>
@@ -382,7 +382,7 @@ function renderRemarksPdfContent(
           style={block.type === 'image' ? styles.cellImageSlot : styles.cellStackSlot}
         >
           {block.type === 'text' ? (
-            <Text style={styles.remarksCellText}>{block.content}</Text>
+            <Text style={styles.remarksCellText}>{pdfDisplayText(block.content)}</Text>
           ) : (
             <Image
               src={block.src}
@@ -482,14 +482,14 @@ function renderDescriptionPdfContent(
               {row.dimText
                 ? wrapDimensionsAtStars(row.dimText).map((line, li) => (
                     <Text key={`dim-line-${li}`} style={styles.descDimValueText}>
-                      {line}
+                      {pdfDisplayText(line)}
                     </Text>
                   ))
                 : null}
             </View>
           ) : (
             <View style={{ width: '50%', justifyContent: 'center', paddingHorizontal: 2 }}>
-              <Text style={styles.descValueText}>{row.value}</Text>
+              <Text style={styles.descValueText}>{pdfDisplayText(row.value)}</Text>
             </View>
           )}
         </View>
@@ -615,16 +615,16 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
   const renderInstallRow = () => (
     <View style={styles.installRow} wrap={false}>
       <View style={{ width: '57%', padding: 4, justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' }}>
-        <Text style={{ fontSize: 7, fontWeight: 700, lineHeight: 1.4 }}>{data.installationFee?.title || '\u50A2\u4FF1\u5B89\u88DD\u8CBB\u7528'}</Text>
-        <Text style={{ fontSize: 6.5, color: '#666', lineHeight: 1.4 }}>{data.installationFee?.subtitle || '\u5B89\u88DD\u6E05\u55AE\u4E2D\u50A2\u4FF1\u7522\u54C1\u4E26\u6E05\u7406\u5305\u88DD\u5783\u573E'}</Text>
+        <Text style={{ fontSize: 7, fontWeight: 700, lineHeight: 1.4 }}>{pdfDisplayText(data.installationFee?.title || '\u50A2\u4FF1\u5B89\u88DD\u8CBB\u7528')}</Text>
+        <Text style={{ fontSize: 6.5, color: '#666', lineHeight: 1.4 }}>{pdfDisplayText(data.installationFee?.subtitle || '\u5B89\u88DD\u6E05\u55AE\u4E2D\u50A2\u4FF1\u7522\u54C1\u4E26\u6E05\u7406\u5305\u88DD\u5783\u573E')}</Text>
       </View>
       <View style={{ width: '20%', padding: 4, justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' }}>
         <Text style={{ fontSize: 6.5, textAlign: 'center', lineHeight: 1.4 }}>
-          {data.installationFee?.conditionText || '\u8A02\u55AE\u7E3D\u91D1\u984D\u6EFF HK$12,000\n\u5C07\u4E0D\u6536\u53D6\u5B89\u88DD\u8CBB\u7528'}
+          {pdfDisplayText(data.installationFee?.conditionText || '\u8A02\u55AE\u7E3D\u91D1\u984D\u6EFF HK$12,000\n\u5C07\u4E0D\u6536\u53D6\u5B89\u88DD\u8CBB\u7528')}
         </Text>
       </View>
       <View style={{ width: '10.5%', padding: 4, justifyContent: 'center', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd' }}>
-        <Text style={styles.tableCellText}>{isFreeInstallation ? 'FREE' : (data.installationFee?.freeLabel || '\u53E6\u8B70')}</Text>
+        <Text style={styles.tableCellText}>{isFreeInstallation ? 'FREE' : pdfDisplayText(data.installationFee?.freeLabel || '\u53E6\u8B70')}</Text>
       </View>
       <View style={{ width: '12.5%', padding: 4, justifyContent: 'center', alignItems: 'center' }}>
         <Text style={styles.tableCellText}>
@@ -632,7 +632,7 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
             ? 'FREE'
             : installationAmount > 0
               ? `HK$${installationAmount.toLocaleString()}`
-              : (data.installationFee?.chargeLabel || '\u53E6\u8B70')}
+              : pdfDisplayText(data.installationFee?.chargeLabel || '\u53E6\u8B70')}
         </Text>
       </View>
     </View>
@@ -650,18 +650,18 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
         </View>
         <View style={styles.infoRow}>
           <View style={styles.infoLeft}>
-            <Text style={styles.infoLine}>{'\u5BA2\u6236\u540D\u7A31'}: {data.clientInfo?.name || ''}</Text>
-            <Text style={styles.infoLine}>{'\u5BA2\u6236\u96FB\u8A71'}: {data.clientInfo?.phone || ''}</Text>
+            <Text style={styles.infoLine}>{'\u5BA2\u6236\u540D\u7A31'}: {pdfDisplayText(data.clientInfo?.name || '')}</Text>
+            <Text style={styles.infoLine}>{'\u5BA2\u6236\u96FB\u8A71'}: {pdfDisplayText(data.clientInfo?.phone || '')}</Text>
             <Text style={styles.infoLine}>{'\u5831\u50F9\u55AE\u865F'}: {quoteNumber}</Text>
             <Text style={styles.infoLine}>{'\u65E5\u3000\u671F'}: {today}</Text>
-            <Text style={styles.infoLine}>{'\u9805\u76EE\u8CA0\u8CAC\u4EBA'}: {data.quoteMeta?.pmName || ''}</Text>
+            <Text style={styles.infoLine}>{'\u9805\u76EE\u8CA0\u8CAC\u4EBA'}: {pdfDisplayText(data.quoteMeta?.pmName || '')}</Text>
           </View>
           <View style={styles.infoRight}>
-            <Text style={styles.infoLine}>{'\u516C\u53F8'}: {data.companyInfo?.name || ''}</Text>
-            <Text style={styles.infoLine}>{'\u5730\u5740'}: {data.companyInfo?.address || ''}</Text>
-            <Text style={styles.infoLine}>{'\u96FB\u8A71'}: {data.companyInfo?.phone || ''}</Text>
-            <Text style={styles.infoLine}>{'\u96FB\u90F5'}: {data.companyInfo?.email || ''}</Text>
-            <Text style={styles.infoLine}>{'\u7DB2\u7AD9'}: {data.companyInfo?.website || ''}</Text>
+            <Text style={styles.infoLine}>{'\u516C\u53F8'}: {pdfDisplayText(data.companyInfo?.name || '')}</Text>
+            <Text style={styles.infoLine}>{'\u5730\u5740'}: {pdfDisplayText(data.companyInfo?.address || '')}</Text>
+            <Text style={styles.infoLine}>{'\u96FB\u8A71'}: {pdfDisplayText(data.companyInfo?.phone || '')}</Text>
+            <Text style={styles.infoLine}>{'\u96FB\u90F5'}: {pdfDisplayText(data.companyInfo?.email || '')}</Text>
+            <Text style={styles.infoLine}>{'\u7DB2\u7AD9'}: {pdfDisplayText(data.companyInfo?.website || '')}</Text>
           </View>
         </View>
 
@@ -695,7 +695,7 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
         </View>
 
         <Text style={styles.sectionTitle}>{'<\u8A02\u55AE\u78BA\u8A8D\u53CA\u4EA4\u4ED8\u7D30\u7BC0>'}</Text>
-        <Text style={styles.sectionText}>{normalizeQuotationPdfGlyphs(data.deliveryDetails || '')}</Text>
+        <Text style={styles.sectionText}>{pdfDisplayText(data.deliveryDetails || '')}</Text>
 
         <Text style={styles.termsTitle}>{'\u689D\u6B3E\u53CA\u4ED8\u6B3E'}</Text>
 
@@ -747,7 +747,7 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
           <>
             <Text style={styles.termItem}>
               <Text style={styles.boldText}>{'1\u3000\u4EA4\u4ED8\u5730\u5740: '}</Text>
-              {data.quoteMeta?.deliveryAddress || '\u5BA2\u6236\u9808\u63D0\u4F9B\u6E96\u78BA\u4EA4\u4ED8\u5730\u5740\u3002\u672C\u5831\u50F9\u9069\u7528\u65BC\u9999\u6E2F\u6A19\u6E96\u5730\u5340\u3002'}
+              {pdfDisplayText(data.quoteMeta?.deliveryAddress || '\u5BA2\u6236\u9808\u63D0\u4F9B\u6E96\u78BA\u4EA4\u4ED8\u5730\u5740\u3002\u672C\u5831\u50F9\u9069\u7528\u65BC\u9999\u6E2F\u6A19\u6E96\u5730\u5340\u3002')}
             </Text>
 
             <Text style={styles.termSubTitle}>{'2\u3000\u4ed8\u6b3e\u689d\u6b3e'}</Text>
