@@ -385,18 +385,6 @@ async function pushProductToShopify(
     typeof updated.handle === "string" ? updated.handle.trim() : existingHandle
   ) || undefined;
 
-  // push_from_mirror: always write back Shopify's authoritative handle to the mirror.
-  if (opts?.skipMirrorWrite && liveHandle) {
-    const { error: mirrorErr } = await supabase.from("shopify_products").update({
-      handle: liveHandle,
-      shopify_url: liveHandle,
-      shopify_updated_at: String(updated.updated_at || new Date().toISOString()),
-    }).eq("shopify_product_id", shopifyId);
-    if (mirrorErr) {
-      console.warn(`[update-shopify-product] mirror handle sync failed for ${shopifyId}:`, mirrorErr.message);
-    }
-  }
-
   return {
     success: true,
     live_handle: liveHandle,
