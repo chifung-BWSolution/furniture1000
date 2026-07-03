@@ -264,7 +264,7 @@ type TablePageEntry = { item: QuotationItem; idx: number };
 
 const TABLE_HEADER_HEIGHT = 24;
 const INSTALL_ROW_HEIGHT = 36;
-// A4 content width ≈ 515pt (595 − 40×2 horizontal padding)
+// A4 content width ≈ 515pt — used for proportional image heights in narrow columns
 const PDF_TABLE_WIDTH_PT = 515;
 const REMARKS_COL_WIDTH_PT = PDF_TABLE_WIDTH_PT * 0.09;
 const ILLUSTRATION_COL_WIDTH_PT = PDF_TABLE_WIDTH_PT * 0.15;
@@ -272,7 +272,6 @@ const ILLUSTRATION_COL_WIDTH_PT = PDF_TABLE_WIDTH_PT * 0.15;
 const FIRST_PAGE_TABLE_MAX = 340;
 const CONTINUATION_PAGE_TABLE_MAX = 620;
 
-/** Height per image at full column width (width-limited, proportional). */
 function pdfRemarksImageHeight(imageCount: number): number {
   if (imageCount <= 0) return 0;
   const ratio = imageCount === 1 ? 1.15 : 0.9;
@@ -280,17 +279,15 @@ function pdfRemarksImageHeight(imageCount: number): number {
 }
 
 function pdfIllustrationImageHeight(dual: boolean): number {
-  const ratio = dual ? 0.72 : 0.85;
-  return Math.round(ILLUSTRATION_COL_WIDTH_PT * ratio);
+  return Math.round(ILLUSTRATION_COL_WIDTH_PT * (dual ? 0.72 : 0.85));
 }
 
 function estimateQuotationRowHeight(item: QuotationItem | undefined): number {
   if (!item) return 60;
   if (item.isCustomTerm) return 28;
 
-  const materialLines = (item.material || '').split('\n').filter((l) => l.trim());
-  const materialLineCount = Math.max(1, materialLines.length);
-  const materialHeight = materialLineCount * 11 + 16;
+  const materialLineCount = Math.max(1, (item.material || '').split('\n').filter((l) => l.trim()).length);
+  const materialHeight = materialLineCount * 10 + 20;
 
   const remarkBlocks = parseRemarksContent(item.remarks, item.remarksImage).filter(
     (b) => (b.type === 'text' && b.content.trim()) || b.type === 'image',
@@ -299,21 +296,19 @@ function estimateQuotationRowHeight(item: QuotationItem | undefined): number {
   const remarkImageCount = remarkBlocks.filter((b) => b.type === 'image').length;
   const remarksHeight =
     remarkBlocks.length > 0
-      ? remarkTextCount * 20 + remarkImageCount * pdfRemarksImageHeight(remarkImageCount) + 8
+      ? remarkTextCount * 22 + remarkImageCount * pdfRemarksImageHeight(remarkImageCount) + 8
       : 24;
 
-  const hasProductImage = Boolean(item.image?.trim());
-  const hasReferenceImage = Boolean(item.referenceImage?.trim());
-  const dualIllustration = hasProductImage && hasReferenceImage;
-  const illustrationCount = (hasProductImage ? 1 : 0) + (hasReferenceImage ? 1 : 0);
+  const hasProduct = Boolean(item.image?.trim());
+  const hasReference = Boolean(item.referenceImage?.trim());
+  const dualIllustration = hasProduct && hasReference;
+  const illustrationCount = (hasProduct ? 1 : 0) + (hasReference ? 1 : 0);
   const imageHeight =
     illustrationCount > 0
       ? illustrationCount * pdfIllustrationImageHeight(dualIllustration) + 8
       : 24;
 
-  const descHeight = 62;
-
-  return Math.max(60, materialHeight, remarksHeight, imageHeight, descHeight);
+  return Math.max(60, materialHeight, remarksHeight, imageHeight, 72);
 }
 
 function paginateQuotationTableRows(items: QuotationItem[]): TablePageEntry[][] {
@@ -365,10 +360,9 @@ function renderQuotationTableRow(
   Image: ReactPdfModule['Image'],
   isLastInSegment: boolean,
 ) {
-  const rowMinHeight = estimateQuotationRowHeight(item);
   const rowStyle = isLastInSegment
-    ? { ...styles.tableRow, borderBottomWidth: 0, minHeight: rowMinHeight }
-    : { ...styles.tableRow, minHeight: rowMinHeight };
+    ? { ...styles.tableRow, borderBottomWidth: 0 }
+    : styles.tableRow;
 
   if (item?.isCustomTerm) {
     return (
@@ -392,42 +386,24 @@ function renderQuotationTableRow(
         {renderDescriptionPdfContent(item, formatDimensions, View, Text)}
       </View>
       <View style={styles.colMaterial}>
-        {renderMaterialPdfContent(item?.material, View, Text)}
+        <View style={{ width: '100%' }}>
+          <Text style={styles.tableCellTextLeft}>{item?.material || ''}</Text>
+        </View>
       </View>
       <View style={styles.colRemarks}>
-        {renderRemarksPdfContent(item?.remarks, item?.remarksImage, View, Image, Text)}
+        <View style={{ width: '100%', flex: 1 }}>
+          {renderRemarksPdfContent(item?.remarks, item?.remarksImage, View, Image, Text)}
+        </View>
       </View>
       <View style={styles.colImage}>
-        {renderIllustrationPdfContent(item?.image, item?.referenceImage, View, Image, Text)}
+        <View style={{ width: '100%', flex: 1 }}>
+          {renderIllustrationPdfContent(item?.image, item?.referenceImage, View, Image, Text)}
+        </View>
       </View>
       <View style={styles.colQty}><Text style={styles.tableCellText}>{item?.quantity || 0}</Text></View>
       <View style={styles.colUnit}><Text style={styles.tableCellText}>{item?.unit || ''}</Text></View>
       <View style={styles.colUnitPrice}><Text style={styles.tableCellText}>HK${(item?.unitPrice || 0).toLocaleString()}</Text></View>
       <View style={styles.colSubtotal}><Text style={styles.tableCellText}>HK${((item?.unitPrice || 0) * (item?.quantity || 0)).toLocaleString()}</Text></View>
-    </View>
-  );
-}
-
-function renderMaterialPdfContent(
-  material: string | undefined,
-  View: ReactPdfModule['View'],
-  Text: ReactPdfModule['Text'],
-) {
-  const lines = (material || '').split('\n').filter((l) => l.trim());
-  if (lines.length === 0) {
-    return (
-      <View style={{ width: '100%' }}>
-        <Text style={styles.tableCellTextLeft}>{''}</Text>
-      </View>
-    );
-  }
-  return (
-    <View style={{ width: '100%', flexDirection: 'column' }}>
-      {lines.map((line, i) => (
-        <Text key={`material-line-${i}`} style={styles.tableCellTextLeft}>
-          {line}
-        </Text>
-      ))}
     </View>
   );
 }
@@ -450,11 +426,11 @@ function renderRemarksPdfContent(
   const remarkImgHeight = pdfRemarksImageHeight(imageCount);
 
   return (
-    <View style={styles.cellContentColumn}>
+    <View style={{ width: '100%', flex: 1, flexDirection: 'column' }}>
       {blocks.map((block, i) => (
         <View
           key={`remarks-block-${i}`}
-          style={block.type === 'text' ? styles.cellTextBlock : styles.cellImageBlock}
+          style={block.type === 'image' ? styles.cellImageSlot : styles.cellStackSlot}
         >
           {block.type === 'text' ? (
             <Text style={styles.remarksCellText}>{block.content}</Text>
@@ -490,11 +466,11 @@ function renderIllustrationPdfContent(
 
   if (dual) {
     return (
-      <View style={styles.cellContentColumn}>
-        <View style={styles.cellImageBlock}>
+      <View style={{ width: '100%', flex: 1, flexDirection: 'column', justifyContent: 'center' }}>
+        <View style={styles.cellImageSlot}>
           <Image src={productImage!} style={imgStyle} />
         </View>
-        <View style={styles.cellImageBlock}>
+        <View style={styles.cellImageSlot}>
           <Image src={referenceImage!} style={imgStyle} />
         </View>
       </View>
@@ -502,8 +478,8 @@ function renderIllustrationPdfContent(
   }
 
   return (
-    <View style={styles.cellContentColumn}>
-      <View style={styles.cellImageBlock}>
+    <View style={{ width: '100%', flex: 1, flexDirection: 'column', justifyContent: 'center' }}>
+      <View style={styles.cellImageSlot}>
         <Image src={(productImage || referenceImage)!} style={imgStyle} />
       </View>
     </View>
@@ -527,11 +503,12 @@ function renderDescriptionPdfContent(
   ];
 
   return (
-    <View style={{ width: '100%', flex: 1, flexDirection: 'column', justifyContent: 'center' }}>
+    <View style={{ width: '100%', flex: 1, flexDirection: 'column' }}>
       {rows.map((row, i) => (
         <View
           key={row.label}
           style={{
+            flex: row.kind === 'dimensions' ? 1.3 : 1,
             flexDirection: 'row',
             minHeight: row.kind === 'dimensions' ? 26 : 18,
             borderBottomWidth: i < rows.length - 1 ? 0.5 : 0,
@@ -589,9 +566,9 @@ const styles: Record<string, any> = {
   tableRow: { display: 'flex', flexDirection: 'row', borderBottomWidth: 0.5, borderColor: '#ddd', minHeight: 60, alignItems: 'stretch' },
   colIndex: { width: '5%', display: 'flex', justifyContent: 'center', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd', paddingVertical: 4 },
   colDesc: { width: '16%', paddingLeft: 0, paddingRight: 0, paddingTop: 0, paddingBottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'stretch', borderRightWidth: 0.5, borderColor: '#ddd' },
-  colMaterial: { width: '22%', paddingLeft: 4, paddingRight: 4, paddingTop: 4, paddingBottom: 4, display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', borderRightWidth: 0.5, borderColor: '#ddd' },
-  colRemarks: { width: '9%', paddingLeft: 2, paddingRight: 2, paddingTop: 4, paddingBottom: 4, display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
-  colImage: { width: '15%', paddingLeft: 2, paddingRight: 2, paddingTop: 4, paddingBottom: 4, display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
+  colMaterial: { width: '22%', paddingLeft: 4, paddingRight: 4, paddingTop: 4, paddingBottom: 4, display: 'flex', flexDirection: 'column', justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
+  colRemarks: { width: '9%', paddingLeft: 2, paddingRight: 2, paddingTop: 0, paddingBottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'stretch', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
+  colImage: { width: '15%', paddingLeft: 0, paddingRight: 0, paddingTop: 0, paddingBottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'stretch', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
   colQty: { width: '5%', display: 'flex', justifyContent: 'center', alignItems: 'center', textAlign: 'center', borderRightWidth: 0.5, borderColor: '#ddd', paddingVertical: 4 },
   colUnit: { width: '5%', display: 'flex', justifyContent: 'center', alignItems: 'center', textAlign: 'center', borderRightWidth: 0.5, borderColor: '#ddd', paddingVertical: 4 },
   colUnitPrice: { width: '10.5%', display: 'flex', justifyContent: 'center', alignItems: 'center', textAlign: 'center', borderRightWidth: 0.5, borderColor: '#ddd', paddingVertical: 4 },
@@ -602,9 +579,9 @@ const styles: Record<string, any> = {
   descValueText: { fontSize: 6.5, textAlign: 'left', lineHeight: 1.3, paddingLeft: 2 },
   descDimLabelText: { fontSize: 6, textAlign: 'left', lineHeight: 1.2, paddingLeft: 2, color: '#555' },
   descDimValueText: { fontSize: 6, textAlign: 'left', lineHeight: 1.2, paddingLeft: 2, width: '100%' },
-  cellContentColumn: { width: '100%', flexDirection: 'column', alignItems: 'center' },
-  cellTextBlock: { width: '100%', paddingVertical: 2, paddingHorizontal: 2 },
-  cellImageBlock: { width: '100%', paddingVertical: 2, paddingHorizontal: 1, alignItems: 'center' },
+  cellStackSlot: { flex: 1, width: '100%', justifyContent: 'center', alignItems: 'center', paddingVertical: 2, paddingHorizontal: 2 },
+  cellImageSlot: { width: '100%', justifyContent: 'center', alignItems: 'center', paddingVertical: 2, paddingHorizontal: 2 },
+  cellStackImage: { width: '100%', maxHeight: '100%', objectFit: 'contain' },
   remarksCellText: { fontSize: 7, textAlign: 'center', lineHeight: 1.3 },
   installRow: { flexDirection: 'row', borderBottomWidth: 0.5, borderColor: '#ddd', minHeight: 28 },
   totalRow: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 6, paddingRight: 4 },
