@@ -43,7 +43,7 @@ export async function syncRtsContentToProduct(
     in_stock?: boolean | null;
     customize?: string | null;
     material?: string | null;
-    'my_fields.materials'?: string | null;
+    cost_price?: number | null;
   },
 ): Promise<void> {
   const productsPatch: Record<string, unknown> = {};
@@ -75,6 +75,7 @@ export async function syncRtsContentToProduct(
   if (patch.customize !== undefined) productsPatch.customize = patch.customize;
   if (patch.material !== undefined) productsPatch.material = patch.material;
   if (patch['my_fields.materials'] !== undefined) productsPatch.material = patch['my_fields.materials'];
+  if (patch.cost_price !== undefined) productsPatch.cost_price = patch.cost_price;
 
   if (Object.keys(productsPatch).length === 0) return;
   const { error } = await supabase.from('products').update(productsPatch).eq('id', productId);

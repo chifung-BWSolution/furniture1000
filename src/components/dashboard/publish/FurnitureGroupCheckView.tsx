@@ -287,8 +287,8 @@ export function FGProductDetailModal({
   const [editDimH, setEditDimH] = useState('');
   const [editProductionType, setEditProductionType] = useState<ProductionType>(null);
   const [editLeadTime, setEditLeadTime] = useState('');
-  // 成本參考 (read-only, from ready_to_shopify.cost)
-  const [costRef, setCostRef] = useState<number | null>(null);
+  // 成本參考 — editable, syncs to ready_to_shopify.cost + products.cost_price
+  const [editCostRef, setEditCostRef] = useState('');
 
   // Editable image gallery. Each entry is either an existing HTTP URL or a
   // freshly-added base64 data-URL (uploaded to Storage on save). The first entry
@@ -351,7 +351,7 @@ export function FGProductDetailModal({
       setEditPrice(r.price != null ? String(r.price) : '');
       setEditCompareAtPrice(r.compare_at_price != null ? String(r.compare_at_price) : '');
       setEditSku(r.sku || '');
-      setCostRef(r.cost != null ? Number(r.cost) : null);
+      setEditCostRef(r.cost != null ? String(r.cost) : '');
       setEditDimL(r.dimension_l_mm != null ? String(r.dimension_l_mm) : '');
       setEditDimW(r.dimension_w_mm != null ? String(r.dimension_w_mm) : '');
       setEditDimH(r.dimension_h_mm != null ? String(r.dimension_h_mm) : '');
@@ -428,6 +428,7 @@ export function FGProductDetailModal({
       const productType = [editL1, editL2].filter(Boolean).join(' / ') || null;
       const priceNum = editPrice !== '' ? parseFloat(editPrice) : null;
       const compareNum = editCompareAtPrice !== '' ? parseFloat(editCompareAtPrice) : null;
+      const costNum = editCostRef !== '' ? parseFloat(editCostRef) : null;
       const dimL = editDimL !== '' ? parseInt(editDimL) : null;
       const dimW = editDimW !== '' ? parseInt(editDimW) : null;
       const dimH = editDimH !== '' ? parseInt(editDimH) : null;
@@ -443,6 +444,7 @@ export function FGProductDetailModal({
         sku: editSku || null,
         price: isNaN(priceNum as number) ? null : priceNum,
         compare_at_price: isNaN(compareNum as number) ? null : compareNum,
+        cost: isNaN(costNum as number) ? null : costNum,
         tags: editTags.length > 0 ? editTags : null,
         shopify_page_title: editSeoTitle || null,
         shopify_page_description: editSeoDesc || null,
@@ -471,6 +473,7 @@ export function FGProductDetailModal({
           description: editBodyHtml || null,
           sku: editSku || null,
           sale_price: isNaN(priceNum as number) ? null : priceNum,
+          cost_price: isNaN(costNum as number) ? null : costNum,
           tags: editTags.length > 0 ? editTags : null,
           level1_category: editL1 || null,
           level2_category: editL2 || null,
@@ -504,6 +507,7 @@ export function FGProductDetailModal({
           sku: editSku || null,
           price: isNaN(priceNum as number) ? null : priceNum,
           compare_at_price: isNaN(compareNum as number) ? null : compareNum,
+          cost: isNaN(costNum as number) ? null : costNum,
           tags: editTags.length > 0 ? editTags : null,
           shopify_page_title: editSeoTitle || null,
           shopify_page_description: editSeoDesc || null,
@@ -805,15 +809,20 @@ export function FGProductDetailModal({
                       placeholder="—"
                     />
                   </div>
-                  {/* ready_to_shopify.cost — 成本參考 (read-only) */}
+                  {/* ready_to_shopify.cost — 成本參考 */}
                   <div>
                     <label className="mb-1 block text-xs font-medium text-muted-foreground">成本參考</label>
-                    <div className="flex h-[38px] items-center rounded-lg border border-border/50 bg-muted/30 px-3">
-                      {costRef != null ? (
-                        <span className="font-mono text-sm font-semibold text-amber-600 dark:text-amber-400">¥{costRef.toFixed(0)}</span>
-                      ) : (
-                        <span className="text-xs text-muted-foreground/40">—</span>
-                      )}
+                    <div className="flex items-center rounded-lg border border-border bg-background focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/20">
+                      <span className="pl-3 font-mono text-xs text-muted-foreground/60">¥</span>
+                      <input
+                        className={`${inputCls} border-0 pl-2 text-amber-600 dark:text-amber-400 focus:ring-0`}
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={editCostRef}
+                        onChange={(e) => setEditCostRef(e.target.value)}
+                        placeholder="—"
+                      />
                     </div>
                   </div>
                 </div>

@@ -30,7 +30,7 @@ interface InfoItem {
   factory: string;
   price: number;
   costPrice: number | null;
-  // cost from ready_to_shopify.cost — read-only reference
+  // cost from ready_to_shopify.cost — editable on save
   costRef: number | null;
   dimL: number | null;
   dimW: number | null;
@@ -253,6 +253,7 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
     const rtsUpdate: Record<string, any> = {
       sku: it.sku || null,
       price: it.price,
+      cost: it.costRef,
       tags: it.tags.length > 0 ? it.tags : null,
       product_type: [it.level1, it.level2].filter(Boolean).join(' / ') || null,
       dimension_l_mm: it.dimL,
@@ -285,6 +286,7 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
     await syncRtsContentToProduct(supabase, it.id, {
       sku: it.sku || null,
       sale_price: it.price,
+      cost_price: it.costRef,
       tags: it.tags,
       level1_category: it.level1 || null,
       level2_category: it.level2 || null,
@@ -438,16 +440,19 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
                         <input type="number" value={it.price} onChange={(e) => patch(it.id, { price: Number(e.target.value) })} className="w-full bg-transparent px-2 py-2 font-mono-data text-[13px] focus:outline-none" />
                       </div>
                     </Field>
-                    {/* cost reference — read-only */}
+                    {/* cost reference — editable, syncs to ready_to_shopify.cost + products.cost_price */}
                     <Field label="成本參考" icon={<DollarSign className="h-3 w-3" />}>
-                      <div className="flex h-[38px] items-center rounded-lg border border-border/50 bg-muted/30 px-3">
-                        {it.costRef != null ? (
-                          <span className="font-mono-data text-[13px] font-semibold text-amber-600 dark:text-amber-400">
-                            ¥{it.costRef.toFixed(0)}
-                          </span>
-                        ) : (
-                          <span className="font-body text-[12px] text-muted-foreground/40">—</span>
-                        )}
+                      <div className="flex items-center rounded-lg border border-border bg-background focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/20">
+                        <span className="pl-3 font-mono-data text-[12px] text-muted-foreground/60">¥</span>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={it.costRef ?? ''}
+                          onChange={(e) => patch(it.id, { costRef: e.target.value === '' ? null : Number(e.target.value) })}
+                          placeholder="—"
+                          className="w-full bg-transparent px-2 py-2 font-mono-data text-[13px] text-amber-600 dark:text-amber-400 focus:outline-none"
+                        />
                       </div>
                     </Field>
                     {/* SKU */}
