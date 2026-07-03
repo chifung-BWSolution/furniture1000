@@ -9,6 +9,36 @@ import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { PublishedProductDetailModal, type PublishedDisplayProduct } from './PublishedProductDetailModal';
 
+async function parseInvokeError(
+  error: unknown,
+  data?: { error?: string } | null,
+): Promise<string> {
+  if (data?.error) return data.error;
+  if (!error || typeof error !== 'object') return '未知錯誤';
+  const err = error as {
+    message?: string;
+    name?: string;
+    context?: { json?: () => Promise<unknown>; text?: () => Promise<string> };
+  };
+  if (err.name === 'FunctionsHttpError' && err.context) {
+    try {
+      if (typeof err.context.json === 'function') {
+        const body = await err.context.json() as { error?: string };
+        if (body?.error) return body.error;
+      } else if (typeof err.context.text === 'function') {
+        const raw = await err.context.text();
+        try {
+          const body = JSON.parse(raw) as { error?: string };
+          if (body?.error) return body.error;
+        } catch {
+          return raw.slice(0, 200);
+        }
+      }
+    } catch { /* ignore parse errors */ }
+  }
+  return err.message || '未知錯誤';
+}
+
 interface ShopifyVariant {
   id?: string | number;
   title?: string;
@@ -228,9 +258,11 @@ export function PublishedProductsView() {
       toast.message('請先勾選要同步至 Shopify 的產品');
       return;
     }
-    const shopifyIds = selectedRows
-      .map((p) => p.shopify_product_id)
-      .filter((id) => /^\d+$/.test(id));
+    const shopifyIds = [...new Set(
+      selectedRows
+        .map((p) => p.shopify_product_id)
+        .filter((id) => /^\d+$/.test(id)),
+    )];
     if (shopifyIds.length === 0) {
       toast.error('選中產品沒有有效的 Shopify Product ID，無法同步');
       return;
@@ -254,11 +286,13 @@ export function PublishedProductsView() {
 
         if (error || data?.error || data?.success === false) {
           failed++;
-          if (!firstErr) firstErr = error?.message || data?.error || '未知錯誤';
+          if (!firstErr) firstErr = await parseInvokeError(error, data);
         } else {
           pushed++;
         }
       }
+
+      if (pushed > 0) await loadProducts({ silent: true });
 
       if (failed > 0 && pushed > 0) {
         toast.warning('部分產品推送失敗', {
@@ -287,7 +321,7 @@ export function PublishedProductsView() {
     } finally {
       setIsSyncing(false);
     }
-  }, [items, selected]);
+  }, [items, selected, loadProducts]);
 
   useEffect(() => {
     void loadProducts();

@@ -131,6 +131,28 @@ function firstSkuFromVariants(variants: Record<string, unknown>[]): string | nul
   return null;
 }
 
+/** Another mirror row already claims this URL handle — Shopify handles must be unique. */
+async function mirrorHandleUsedByOther(
+  supabase: ReturnType<typeof createClient>,
+  handle: string,
+  shopifyId: string,
+): Promise<boolean> {
+  const { data: byUrl } = await supabase
+    .from("shopify_products")
+    .select("shopify_product_id")
+    .eq("shopify_url", handle)
+    .neq("shopify_product_id", shopifyId)
+    .limit(1);
+  if (byUrl && byUrl.length > 0) return true;
+  const { data: byHandle } = await supabase
+    .from("shopify_products")
+    .select("shopify_product_id")
+    .eq("handle", handle)
+    .neq("shopify_product_id", shopifyId)
+    .limit(1);
+  return !!(byHandle && byHandle.length > 0);
+}
+
 function mirrorRowToPayload(row: Record<string, unknown>): PushPayload {
   const metafields: Record<string, string> = {};
   for (const col of Object.keys(METAFIELD_DEFS)) {
@@ -266,10 +288,30 @@ async function pushProductToShopify(
     return { success: false, error: `Shopify PUT failed (${putResp.status}): ${t.slice(0, 200)}` };
   }
   const updated = (await putResp.json()).product as Record<string, unknown>;
+  const existingHandle = typeof existing.handle === "string" ? existing.handle.trim() : "";
 
   const normalizedHandle = normalizeShopifyHandle(handle) || undefined;
+  let handleForSeo: string | undefined = normalizedHandle;
+  if (normalizedHandle && normalizedHandle !== existingHandle) {
+    const usedByOther = await mirrorHandleUsedByOther(supabase, normalizedHandle, shopifyId);
+    if (usedByOther) {
+      console.warn(
+        `[update-shopify-product] Skip duplicate handle "${normalizedHandle}" for product ${shopifyId} — keeping Shopify handle "${existingHandle}"`,
+      );
+      handleForSeo = undefined;
+      if (opts?.skipMirrorWrite && existingHandle) {
+        await supabase.from("shopify_products").update({
+          shopify_url: existingHandle,
+          handle: existingHandle,
+        }).eq("shopify_product_id", shopifyId);
+      }
+    }
+  } else if (normalizedHandle && normalizedHandle === existingHandle) {
+    handleForSeo = undefined;
+  }
+
   const seoResult = await updateSeoAndHandle(shopDomain, shopifyToken, shopifyId, {
-    handle: normalizedHandle,
+    handle: handleForSeo,
     seoTitle: typeof seoTitle === "string" ? seoTitle : undefined,
     seoDescription: typeof seoDescription === "string" ? seoDescription : undefined,
   });
@@ -336,8 +378,9 @@ async function pushProductToShopify(
       spUpdate.metafields = mfs;
     }
     if (normalizedHandle) {
-      spUpdate.handle = normalizedHandle;
-      spUpdate.shopify_url = normalizedHandle;
+      const resolvedHandle = (handleForSeo ?? existingHandle) || normalizedHandle;
+      spUpdate.handle = resolvedHandle;
+      spUpdate.shopify_url = resolvedHandle;
     }
     if (typeof seoTitle === "string") spUpdate.shopify_page_title = seoTitle.trim() || null;
     if (typeof seoDescription === "string") spUpdate.shopify_page_description = seoDescription.trim() || null;
@@ -467,7 +510,7 @@ Deno.serve(async (req: Request) => {
       if (!row) return json({ error: `No shopify_products row for ${sid}` }, 404);
       const stats = await pushMirrorRows(supabase, shopDomain, shopifyToken, [row as Record<string, unknown>]);
       if (stats.failed > 0) {
-        return json({ success: false, error: stats.errors[0]?.error || "Push failed", ...stats }, 502);
+        return json({ success: false, error: stats.errors[0]?.error || "Push failed", ...stats });
       }
       return json({ success: true, mode: "push_from_mirror", ...stats });
     }
