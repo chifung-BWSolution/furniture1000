@@ -14,6 +14,10 @@ import {
   resetQuickQuoteSessionStorage,
   shouldShowDraftRestoreNotice,
 } from '@/lib/quickQuoteSession';
+import {
+  migrateTermsContentToCurrent,
+  type SavedTermsContent,
+} from '@/lib/quotationDefaultTerms';
 
 const LazyQuotationPDFPreviewModal = lazy(() =>
   import('@/components/dashboard/QuotationPDFPreview').then((mod) => ({
@@ -230,6 +234,17 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
             usingLocalDraft = true;
           }
         }
+
+        const quoteMetaForTerms = projectDataToUse.quoteMeta as
+          | { deliveryAddress?: string }
+          | undefined;
+        projectDataToUse = {
+          ...projectDataToUse,
+          termsContent: migrateTermsContentToCurrent(
+            projectDataToUse.termsContent as SavedTermsContent | undefined,
+            quoteMetaForTerms?.deliveryAddress,
+          ),
+        };
 
         const savedFormData = projectDataToUse.formData as QuoteFormData | undefined;
 

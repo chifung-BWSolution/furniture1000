@@ -1090,6 +1090,24 @@ export function QuotationDraftEditor({
   const [termsEditMode, setTermsEditMode] = useState(false);
   const [termsSaving, setTermsSaving] = useState(false);
 
+  // Re-apply canonical terms template when opening any saved quote (DB or IndexedDB).
+  useEffect(() => {
+    setTermsContent((prev) => {
+      const migrated = migrateTermsContentToCurrent(
+        prev as SavedTermsContent,
+        quoteMeta.deliveryAddress,
+      );
+      if (
+        migrated.fullHtml === prev.fullHtml &&
+        migrated.templateVersion === prev.templateVersion
+      ) {
+        return prev;
+      }
+      return migrated;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [existingQuote?.quoteId]);
+
   const saveTermsToDb = async () => {
     if (!existingQuote?.quoteId) {
       // Not yet saved to DB — just toggle off edit mode

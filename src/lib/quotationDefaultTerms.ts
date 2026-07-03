@@ -1,5 +1,8 @@
 /** Default 條款及付款 text for quotation drafts. */
 
+/** Bump when the canonical template changes — saved quotes below this version are rebuilt. */
+export const QUOTATION_TERMS_TEMPLATE_VERSION = 3;
+
 /** Visible underline length for「1  送貨地址 : ________」 */
 export const DELIVERY_ADDRESS_BLANK = "&nbsp;".repeat(56);
 
@@ -50,6 +53,7 @@ export type SavedTermsContent = {
   other?: string;
   payment?: string;
   fullHtml?: string;
+  templateVersion?: number;
 };
 
 export type ResolvedTermsContent = {
@@ -59,6 +63,7 @@ export type ResolvedTermsContent = {
   other: string;
   payment: string;
   fullHtml: string;
+  templateVersion: number;
 };
 
 function sectionHeading(label: string): string {
@@ -94,11 +99,9 @@ function hasInlineDeliveryAddressLine(html: string): boolean {
 }
 
 function hasBoldSectionHeaders(html: string): boolean {
-  return (
-    /<strong>\s*2(?:&nbsp;|\s)/i.test(html) &&
-    /<strong>\s*3(?:&nbsp;|\s)/i.test(html) &&
-    /<strong>\s*6(?:&nbsp;|\s)/i.test(html)
-  );
+  const boldTag = (n: number) =>
+    new RegExp(`<(?:strong|b)>\\s*${n}(?:&nbsp;|\\s)`, "i").test(html);
+  return [1, 2, 3, 4, 5, 6].every(boldTag);
 }
 
 /** v3 template: inline 送貨地址, bold section headings 1–6. */
@@ -135,34 +138,44 @@ export function buildDefaultTermsFullHtml(
   ].join("");
 }
 
+function buildResolvedTerms(
+  fullHtml: string,
+  saved?: SavedTermsContent | null,
+): ResolvedTermsContent {
+  return {
+    transport: saved?.transport ?? DEFAULT_QUOTATION_TERMS.transport,
+    extraFees: saved?.extraFees ?? DEFAULT_QUOTATION_TERMS.extraFees,
+    warranty: saved?.warranty ?? DEFAULT_QUOTATION_TERMS.warranty,
+    other: saved?.other ?? DEFAULT_QUOTATION_TERMS.other,
+    payment: saved?.payment ?? DEFAULT_QUOTATION_TERMS.payment,
+    fullHtml,
+    templateVersion: QUOTATION_TERMS_TEMPLATE_VERSION,
+  };
+}
+
 export function migrateTermsContentToCurrent(
   saved?: SavedTermsContent | null,
   deliveryAddress?: string,
 ): ResolvedTermsContent {
   const addressFromMeta = (deliveryAddress ?? "").trim();
+  const addressFromTerms = saved?.fullHtml
+    ? extractDeliveryAddressFromTermsHtml(saved.fullHtml)
+    : "";
+  const address = addressFromMeta || addressFromTerms;
 
-  if (saved && isCurrentTermsFormat(saved)) {
-    const address =
-      addressFromMeta ||
-      extractDeliveryAddressFromTermsHtml(saved.fullHtml ?? "");
-    let fullHtml =
-      saved.fullHtml ?? buildDefaultTermsFullHtml(DEFAULT_QUOTATION_TERMS);
+  const isLatestSaved =
+    saved?.templateVersion === QUOTATION_TERMS_TEMPLATE_VERSION &&
+    Boolean(saved.fullHtml?.trim()) &&
+    isCurrentTermsFormat(saved);
+
+  if (isLatestSaved) {
+    let fullHtml = saved!.fullHtml!;
     if (address && !extractDeliveryAddressFromTermsHtml(fullHtml)) {
       fullHtml = injectDeliveryAddressIntoTermsHtml(fullHtml, address);
     }
-    return {
-      transport: saved.transport ?? DEFAULT_QUOTATION_TERMS.transport,
-      extraFees: saved.extraFees ?? DEFAULT_QUOTATION_TERMS.extraFees,
-      warranty: saved.warranty ?? DEFAULT_QUOTATION_TERMS.warranty,
-      other: saved.other ?? DEFAULT_QUOTATION_TERMS.other,
-      payment: saved.payment ?? DEFAULT_QUOTATION_TERMS.payment,
-      fullHtml,
-    };
+    return buildResolvedTerms(fullHtml, saved);
   }
 
-  const address =
-    addressFromMeta ||
-    (saved?.fullHtml ? extractDeliveryAddressFromTermsHtml(saved.fullHtml) : "");
   let fullHtml = buildDefaultTermsFullHtml(DEFAULT_QUOTATION_TERMS);
   if (address) {
     fullHtml = injectDeliveryAddressIntoTermsHtml(fullHtml, address);
@@ -174,6 +187,7 @@ export function migrateTermsContentToCurrent(
     other: DEFAULT_QUOTATION_TERMS.other,
     payment: DEFAULT_QUOTATION_TERMS.payment,
     fullHtml,
+    templateVersion: QUOTATION_TERMS_TEMPLATE_VERSION,
   };
 }
 
