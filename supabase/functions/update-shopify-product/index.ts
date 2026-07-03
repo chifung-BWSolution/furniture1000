@@ -299,12 +299,6 @@ async function pushProductToShopify(
         `[update-shopify-product] Skip duplicate handle "${normalizedHandle}" for product ${shopifyId} — keeping Shopify handle "${existingHandle}"`,
       );
       handleForSeo = undefined;
-      if (opts?.skipMirrorWrite && existingHandle) {
-        await supabase.from("shopify_products").update({
-          shopify_url: existingHandle,
-          handle: existingHandle,
-        }).eq("shopify_product_id", shopifyId);
-      }
     }
   } else if (normalizedHandle && normalizedHandle === existingHandle) {
     handleForSeo = undefined;
@@ -387,8 +381,25 @@ async function pushProductToShopify(
     await supabase.from("shopify_products").update(spUpdate).eq("shopify_product_id", shopifyId);
   }
 
+  const liveHandle = (
+    typeof updated.handle === "string" ? updated.handle.trim() : existingHandle
+  ) || undefined;
+
+  // push_from_mirror: always write back Shopify's authoritative handle to the mirror.
+  if (opts?.skipMirrorWrite && liveHandle) {
+    const { error: mirrorErr } = await supabase.from("shopify_products").update({
+      handle: liveHandle,
+      shopify_url: liveHandle,
+      shopify_updated_at: String(updated.updated_at || new Date().toISOString()),
+    }).eq("shopify_product_id", shopifyId);
+    if (mirrorErr) {
+      console.warn(`[update-shopify-product] mirror handle sync failed for ${shopifyId}:`, mirrorErr.message);
+    }
+  }
+
   return {
     success: true,
+    live_handle: liveHandle,
     metafields_updated: mfOk,
     metafields_failed: mfFail,
     ...(sourceProductId ? {} : {}),
@@ -416,9 +427,6 @@ async function pushMirrorRows(
     const result = await pushProductToShopify(supabase, shopDomain, shopifyToken, sid, payload, { skipMirrorWrite: true });
     if (result.success) {
       pushed++;
-      await supabase.from("shopify_products").update({
-        shopify_updated_at: new Date().toISOString(),
-      }).eq("shopify_product_id", sid);
     } else {
       failed++;
       if (errors.length < 20) errors.push({ shopify_product_id: sid, error: result.error || "unknown" });
