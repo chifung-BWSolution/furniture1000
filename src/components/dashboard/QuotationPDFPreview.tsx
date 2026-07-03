@@ -280,17 +280,11 @@ function wrapDimensionsAtStars(dimText: string, maxChars = 11): string[] {
 }
 
 type QuotationItem = QuotationPDFData['items'][0];
-type TablePageEntry = { item: QuotationItem; idx: number };
 
-const TABLE_HEADER_HEIGHT = 24;
-const INSTALL_ROW_HEIGHT = 36;
-// A4 content width ≈ 515pt — used for proportional image heights in narrow columns
-const PDF_TABLE_WIDTH_PT = 515;
+// A4 content width ≈ 555pt (595 − 20×2 horizontal padding)
+const PDF_TABLE_WIDTH_PT = 555;
 const REMARKS_COL_WIDTH_PT = PDF_TABLE_WIDTH_PT * 0.09;
-const ILLUSTRATION_COL_WIDTH_PT = PDF_TABLE_WIDTH_PT * 0.15;
-// A4 usable ≈762pt; page 1 reserves space for logo, title, info, totals, delivery
-const FIRST_PAGE_TABLE_MAX = 372;
-const CONTINUATION_PAGE_TABLE_MAX = 638;
+const ILLUSTRATION_COL_WIDTH_PT = PDF_TABLE_WIDTH_PT * 0.114;
 
 function pdfRemarksImageHeight(imageCount: number): number {
   if (imageCount <= 0) return 0;
@@ -300,75 +294,6 @@ function pdfRemarksImageHeight(imageCount: number): number {
 
 function pdfIllustrationImageHeight(dual: boolean): number {
   return Math.round(ILLUSTRATION_COL_WIDTH_PT * (dual ? 0.72 : 0.85));
-}
-
-function estimateQuotationRowHeight(item: QuotationItem | undefined): number {
-  if (!item) return 60;
-  if (item.isCustomTerm) return 28;
-
-  const materialLineCount = Math.max(1, (item.material || '').split('\n').filter((l) => l.trim()).length);
-  const materialHeight = materialLineCount * 10 + 20;
-
-  const remarkBlocks = parseRemarksContent(item.remarks, item.remarksImage).filter(
-    (b) => (b.type === 'text' && b.content.trim()) || b.type === 'image',
-  );
-  const remarkTextCount = remarkBlocks.filter((b) => b.type === 'text').length;
-  const remarkImageCount = remarkBlocks.filter((b) => b.type === 'image').length;
-  const remarksHeight =
-    remarkBlocks.length > 0
-      ? remarkTextCount * 22 + remarkImageCount * pdfRemarksImageHeight(remarkImageCount) + 8
-      : 24;
-
-  const hasProduct = Boolean(item.image?.trim());
-  const hasReference = Boolean(item.referenceImage?.trim());
-  const dualIllustration = hasProduct && hasReference;
-  const illustrationCount = (hasProduct ? 1 : 0) + (hasReference ? 1 : 0);
-  const imageHeight =
-    illustrationCount > 0
-      ? illustrationCount * pdfIllustrationImageHeight(dualIllustration) + 8
-      : 24;
-
-  return Math.max(60, materialHeight, remarksHeight, imageHeight, 72);
-}
-
-function paginateQuotationTableRows(items: QuotationItem[]): TablePageEntry[][] {
-  if (items.length === 0) return [[]];
-
-  const pages: TablePageEntry[][] = [];
-  let current: TablePageEntry[] = [];
-  let usedHeight = TABLE_HEADER_HEIGHT;
-  let pageIndex = 0;
-
-  items.forEach((item, idx) => {
-    const rowHeight = estimateQuotationRowHeight(item);
-    const maxHeight = pageIndex === 0 ? FIRST_PAGE_TABLE_MAX : CONTINUATION_PAGE_TABLE_MAX;
-    const installReserve = idx === items.length - 1 ? INSTALL_ROW_HEIGHT : 0;
-
-    if (current.length > 0 && usedHeight + rowHeight + installReserve > maxHeight) {
-      pages.push(current);
-      current = [];
-      usedHeight = 0;
-      pageIndex += 1;
-    }
-
-    current.push({ item, idx });
-    usedHeight += rowHeight;
-  });
-
-  if (current.length > 0) pages.push(current);
-  return pages;
-}
-
-function tableSegmentStyle(pageIndex: number) {
-  return {
-    width: '100%',
-    borderLeftWidth: 0.5,
-    borderRightWidth: 0.5,
-    borderTopWidth: 0.5,
-    borderBottomWidth: 0.5,
-    borderColor: TABLE_BORDER,
-    marginTop: pageIndex === 0 ? 4 : 0,
-  };
 }
 
 function renderQuotationTableRow(
@@ -671,8 +596,6 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
     return parts.length > 0 ? parts.join('*') : '';
   };
 
-  const tablePages = paginateQuotationTableRows(items);
-
   const renderTableHeader = () => (
     <View style={styles.tableHeader}>
       <View style={styles.colIndex}><Text style={styles.tableHeaderText}>{'\u5E8F\u865F'}</Text></View>
@@ -740,31 +663,21 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
           </View>
         </View>
 
-        {tablePages.map((pageRows, pageIdx) => {
-          const isLastTablePage = pageIdx === tablePages.length - 1;
-          return (
-            <View
-              key={`table-page-${pageIdx}`}
-              style={tableSegmentStyle(pageIdx)}
-              wrap={false}
-              break={pageIdx > 0}
-            >
-              {pageIdx === 0 ? renderTableHeader() : null}
-              {pageRows.map(({ item, idx }, rowIdx) =>
-                renderQuotationTableRow(
-                  item,
-                  idx,
-                  formatDimensions,
-                  View,
-                  Text,
-                  Image,
-                  rowIdx === pageRows.length - 1 && !isLastTablePage,
-                ),
-              )}
-              {isLastTablePage ? renderInstallRow() : null}
-            </View>
-          );
-        })}
+        <View style={styles.table}>
+          {renderTableHeader()}
+          {items.map((item, idx) =>
+            renderQuotationTableRow(
+              item,
+              idx,
+              formatDimensions,
+              View,
+              Text,
+              Image,
+              false,
+            ),
+          )}
+          {renderInstallRow()}
+        </View>
 
         {discountValue > 0 ? (
           <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 4, paddingRight: 4 }}>
