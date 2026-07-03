@@ -31,11 +31,11 @@ import {
 import { unsavedGuard } from "@/lib/unsavedGuard";
 import { QUOTE_UNSAVED_LEAVE_MESSAGE, resetQuickQuoteSessionStorage, shouldShowDraftRestoreNotice } from "@/lib/quickQuoteSession";
 import {
-  DEFAULT_QUOTATION_TERMS,
-  buildDefaultTermsFullHtml,
   injectDeliveryAddressIntoTermsHtml,
   isDeliveryAddressFilled,
+  migrateTermsContentToCurrent,
   resolveDeliveryAddress,
+  type SavedTermsContent,
 } from "@/lib/quotationDefaultTerms";
 
 interface QuoteFormData {
@@ -1080,22 +1080,13 @@ export function QuotationDraftEditor({
     installation: savedGpSummary?.installation ?? 0,
   });
 
-  // Terms content (editable) — new quotes use DEFAULT_QUOTATION_TERMS (incl. section 1 送貨地址)
-  const hasSavedTerms =
-    savedTermsContent &&
-    (Boolean(savedTermsContent.fullHtml?.replace(/<[^>]*>/g, "").trim()) ||
-      Boolean(savedTermsContent.payment?.trim()));
-  const effectiveSavedTerms = hasSavedTerms ? savedTermsContent : undefined;
-
-  const [termsContent, setTermsContent] = useState({
-    transport: effectiveSavedTerms?.transport || DEFAULT_QUOTATION_TERMS.transport,
-    extraFees: effectiveSavedTerms?.extraFees || DEFAULT_QUOTATION_TERMS.extraFees,
-    warranty: effectiveSavedTerms?.warranty || DEFAULT_QUOTATION_TERMS.warranty,
-    other: effectiveSavedTerms?.other || DEFAULT_QUOTATION_TERMS.other,
-    payment: effectiveSavedTerms?.payment || DEFAULT_QUOTATION_TERMS.payment,
-    fullHtml:
-      effectiveSavedTerms?.fullHtml || buildDefaultTermsFullHtml(DEFAULT_QUOTATION_TERMS),
-  });
+  // Terms content — migrate legacy templates (incl. saved DB quotes & IndexedDB drafts)
+  const [termsContent, setTermsContent] = useState(() =>
+    migrateTermsContentToCurrent(
+      savedTermsContent as SavedTermsContent | undefined,
+      savedQuoteMeta?.deliveryAddress,
+    ),
+  );
   const [termsEditMode, setTermsEditMode] = useState(false);
   const [termsSaving, setTermsSaving] = useState(false);
 
@@ -1396,7 +1387,13 @@ export function QuotationDraftEditor({
           });
         }
         if (cached.termsContent) {
-          setTermsContent(cached.termsContent as typeof termsContent);
+          const cachedMeta = cached.quoteMeta as { deliveryAddress?: string } | undefined;
+          setTermsContent(
+            migrateTermsContentToCurrent(
+              cached.termsContent as SavedTermsContent,
+              cachedMeta?.deliveryAddress,
+            ),
+          );
         }
         if (cached.items && cached.items.length > 0) {
           setItems(

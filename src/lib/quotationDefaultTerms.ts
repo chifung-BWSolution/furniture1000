@@ -49,6 +49,69 @@ export const DEFAULT_QUOTATION_TERMS = {
 
 export type QuotationDefaultTerms = typeof DEFAULT_QUOTATION_TERMS;
 
+export type SavedTermsContent = {
+  transport?: string;
+  extraFees?: string;
+  warranty?: string;
+  other?: string;
+  payment?: string;
+  fullHtml?: string;
+};
+
+export type ResolvedTermsContent = {
+  transport: string;
+  extraFees: string;
+  warranty: string;
+  other: string;
+  payment: string;
+  fullHtml: string;
+};
+
+/** New template always opens with section 1「送貨地址」. */
+export function isCurrentTermsFormat(terms?: SavedTermsContent | null): boolean {
+  if (!terms?.fullHtml?.trim()) return false;
+  return terms.fullHtml.includes("送貨地址");
+}
+
+export function migrateTermsContentToCurrent(
+  saved?: SavedTermsContent | null,
+  deliveryAddress?: string,
+): ResolvedTermsContent {
+  const addressFromMeta = (deliveryAddress ?? "").trim();
+
+  if (saved && isCurrentTermsFormat(saved)) {
+    const address =
+      addressFromMeta ||
+      extractDeliveryAddressFromTermsHtml(saved.fullHtml ?? "");
+    let fullHtml =
+      saved.fullHtml ?? buildDefaultTermsFullHtml(DEFAULT_QUOTATION_TERMS);
+    if (address && !extractDeliveryAddressFromTermsHtml(fullHtml)) {
+      fullHtml = injectDeliveryAddressIntoTermsHtml(fullHtml, address);
+    }
+    return {
+      transport: saved.transport ?? DEFAULT_QUOTATION_TERMS.transport,
+      extraFees: saved.extraFees ?? DEFAULT_QUOTATION_TERMS.extraFees,
+      warranty: saved.warranty ?? DEFAULT_QUOTATION_TERMS.warranty,
+      other: saved.other ?? DEFAULT_QUOTATION_TERMS.other,
+      payment: saved.payment ?? DEFAULT_QUOTATION_TERMS.payment,
+      fullHtml,
+    };
+  }
+
+  let fullHtml = buildDefaultTermsFullHtml(DEFAULT_QUOTATION_TERMS);
+  if (addressFromMeta) {
+    fullHtml = injectDeliveryAddressIntoTermsHtml(fullHtml, addressFromMeta);
+  }
+  return {
+    transport: DEFAULT_QUOTATION_TERMS.transport,
+    extraFees: DEFAULT_QUOTATION_TERMS.extraFees,
+    warranty: DEFAULT_QUOTATION_TERMS.warranty,
+    other: DEFAULT_QUOTATION_TERMS.other,
+    payment: DEFAULT_QUOTATION_TERMS.payment,
+    fullHtml,
+  };
+}
+
 function linesToParagraphs(text: string): string {
   return text
     .split("\n")
