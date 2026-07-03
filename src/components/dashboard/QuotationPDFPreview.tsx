@@ -126,7 +126,7 @@ interface PdfInlineSegment {
 
 /** Parsed block element for PDF rendering */
 interface PdfBlock {
-  type: 'heading' | 'text';
+  type: 'heading' | 'text' | 'spacer';
   segments: PdfInlineSegment[];
 }
 
@@ -214,9 +214,15 @@ function parseHtmlForPdf(html: string): PdfBlock[] {
         if (segments.length > 0) results.push({ type: 'heading', segments });
       } else if (tag === 'p') {
         const segments = extractInlineSegments(el);
-        // Check if there's any actual visible content (text or underline blanks)
-        const hasContent = segments.some(s => s.text.trim().length > 0 || s.underline || s.underlineBlank);
-        if (hasContent) results.push({ type: 'text', segments });
+        const hasContent = segments.some(
+          (s) => s.text.trim().length > 0 || s.underline || s.underlineBlank,
+        );
+        if (hasContent) {
+          results.push({ type: 'text', segments });
+        } else {
+          // TipTap uses empty <p> / <p><br></p> for intentional blank lines between sections
+          results.push({ type: 'spacer', segments: [] });
+        }
       } else if (tag === 'li') {
         const segments = extractInlineSegments(el);
         // Prepend bullet
@@ -234,6 +240,20 @@ function parseHtmlForPdf(html: string): PdfBlock[] {
 
   doc.body.childNodes.forEach(walk);
   return results;
+}
+
+/** Render plain-text term lines, preserving intentional blank lines as vertical spacers */
+function renderPlainTermLines(
+  text: string | undefined,
+  keyPrefix: string,
+  Text: ReactPdfModule['Text'],
+  View: ReactPdfModule['View'],
+) {
+  return (text || '').split('\n').map((line, i) =>
+    line.trim()
+      ? <Text key={`${keyPrefix}-${i}`} style={styles.termItem}>{line}</Text>
+      : <View key={`${keyPrefix}-${i}`} style={styles.termSpacer} />,
+  );
 }
 
 function wrapDimensionsAtStars(dimText: string, maxChars = 11): string[] {
@@ -592,6 +612,7 @@ const styles: Record<string, any> = {
   boldText: { fontWeight: 700 },
   termsTitle: { fontSize: 9, fontWeight: 700, marginTop: 8, marginBottom: 6, textDecoration: 'underline', lineHeight: 1.4 },
   termItem: { fontSize: 7, lineHeight: 1.7, marginBottom: 1.5, textAlign: 'left' },
+  termSpacer: { height: 10 },
   termSubTitle: { fontSize: 8, fontWeight: 700, marginTop: 8, marginBottom: 3, lineHeight: 1.4 },
   // Keep the signature block compact enough to stay on the same page as the
   // terms (with wrap={false}). The previous marginTop 36 + signatureMiddle 70
@@ -759,6 +780,10 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
 
         {data.termsContent?.fullHtml && (data.termsContent.fullHtml.replace(/<[^>]*>/g, '').replace(/\s/g, '').length > 0 || /<u[^>]*>/i.test(data.termsContent.fullHtml)) ? (
           parseHtmlForPdf(data.termsContent.fullHtml).map((item, i) => {
+            if (item.type === 'spacer') {
+              return <View key={i} style={styles.termSpacer} />;
+            }
+
             const hasUnderlineBlank = item.segments.some(s => s.underlineBlank);
             const baseStyle = item.type === 'heading' ? styles.termSubTitle : styles.termItem;
 
@@ -805,29 +830,19 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
             </Text>
 
             <Text style={styles.termSubTitle}>{'2\u3000\u4ed8\u6b3e\u689d\u6b3e'}</Text>
-            {(data.termsContent?.payment || '').split('\n').map((line: string, i: number) => (
-              line.trim() ? <Text key={i} style={styles.termItem}>{line}</Text> : null
-            ))}
+            {renderPlainTermLines(data.termsContent?.payment, 'payment', Text, View)}
 
             <Text style={styles.termSubTitle}>{'3\u3000\u904b\u8f38\u53ca\u5b89\u88dd\u689d\u6b3e'}</Text>
-            {(data.termsContent?.transport || '').split('\n').map((line: string, i: number) => (
-              line.trim() ? <Text key={i} style={styles.termItem}>{line}</Text> : null
-            ))}
+            {renderPlainTermLines(data.termsContent?.transport, 'transport', Text, View)}
 
             <Text style={styles.termSubTitle}>{'4\u3000\u984d\u5916\u8cbb\u7528'}</Text>
-            {(data.termsContent?.extraFees || '').split('\n').map((line: string, i: number) => (
-              line.trim() ? <Text key={i} style={styles.termItem}>{line}</Text> : null
-            ))}
+            {renderPlainTermLines(data.termsContent?.extraFees, 'extraFees', Text, View)}
 
             <Text style={styles.termSubTitle}>{'5\u3000\u4fdd\u990a\u53ca\u7dad\u4fee'}</Text>
-            {(data.termsContent?.warranty || '').split('\n').map((line: string, i: number) => (
-              line.trim() ? <Text key={i} style={styles.termItem}>{line}</Text> : null
-            ))}
+            {renderPlainTermLines(data.termsContent?.warranty, 'warranty', Text, View)}
 
             <Text style={styles.termSubTitle}>{'6\u3000\u5176\u4ed6'}</Text>
-            {(data.termsContent?.other || '').split('\n').map((line: string, i: number) => (
-              line.trim() ? <Text key={i} style={styles.termItem}>{line}</Text> : null
-            ))}
+            {renderPlainTermLines(data.termsContent?.other, 'other', Text, View)}
           </>
         )}
 
