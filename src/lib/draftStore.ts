@@ -10,8 +10,18 @@ const DB_NAME = 'bwf_quote_drafts';
 const DB_VERSION = 1;
 const STORE_NAME = 'drafts';
 
+/** Composite IndexedDB key scoped to the logged-in user. */
+export function makeDraftKey(
+  userEmail: string | null | undefined,
+  quoteId: string,
+): string {
+  const email = userEmail?.trim().toLowerCase() || 'anonymous';
+  const id = quoteId?.trim() || 'NEW';
+  return `${email}::${id}`;
+}
+
 export interface DraftData {
-  quoteId: string; // key — use "NEW" for unsaved quotes
+  quoteId: string; // IndexedDB key — use makeDraftKey(userEmail, rawQuoteId)
   updatedAt: number; // Date.now()
   formData: Record<string, unknown>;
   companyInfo: Record<string, unknown>;

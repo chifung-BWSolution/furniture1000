@@ -3,13 +3,11 @@ import {
   ChevronDown,
   Plus,
   Trash2,
-  Save,
   ShieldCheck,
   ImagePlus,
   Eye,
   Pencil,
   Check,
-  Loader2,
   Upload,
   X,
   GripVertical,
@@ -26,9 +24,11 @@ import {
   saveDraft,
   loadDraft,
   deleteDraft,
+  makeDraftKey,
   type DraftData,
 } from "@/lib/draftStore";
 import { unsavedGuard } from "@/lib/unsavedGuard";
+import { QUOTE_UNSAVED_LEAVE_MESSAGE, resetQuickQuoteSessionStorage } from "@/lib/quickQuoteSession";
 
 const LazyQuotationPDFPreviewModal = lazy(() =>
   import("@/components/dashboard/QuotationPDFPreview").then((mod) => ({
@@ -79,6 +79,7 @@ interface QuotationItem {
 interface QuotationDraftEditorProps {
   formData: QuoteFormData;
   onBack: () => void;
+  userEmail?: string | null;
   existingQuote?: {
     quoteId: string;
     version: string;
@@ -919,6 +920,7 @@ const DEFAULT_ITEMS: QuotationItem[] = [
 export function QuotationDraftEditor({
   formData,
   onBack: _onBack,
+  userEmail,
   existingQuote,
 }: QuotationDraftEditorProps) {
   // Determine initial values from existingQuote or defaults
@@ -1329,31 +1331,33 @@ export function QuotationDraftEditor({
   // PDF Preview modal state
   const [showPDFPreview, setShowPDFPreview] = useState(false);
 
-  // Draft save state
-  const [isSavingDraft, setIsSavingDraft] = useState(false);
-  const [draftSavedAt, setDraftSavedAt] = useState<number | null>(null);
+  // Draft auto-save state
   const [draftLoaded, setDraftLoaded] = useState(false);
-  // True once 已儲存 or 版本審核 has been done with the current content; cleared on edit.
+  // True once 版本審核 has been done with the current content; cleared on edit.
   const [persisted, setPersisted] = useState(false);
 
   // Derive the draft key: use existing quoteId or "NEW"
-  const draftKey = existingQuote?.quoteId || "NEW";
+  const rawQuoteId = existingQuote?.quoteId || "NEW";
+  const storageKey = makeDraftKey(userEmail, rawQuoteId);
 
   // 報價內容 is considered "有數據" if any row has a product name.
   const hasQuoteData = items.some(hasQuoteItemContent);
 
-  // Unsaved-work guard: dirty when there is quote data that has NOT been saved
-  // (已儲存) or submitted for review (版本審核). Registered to a module-level guard
-  // that AppShell + beforeunload check before navigating away.
+  // Unsaved-work guard: dirty when there is quote data not yet submitted via 版本審核.
   const isDirty = draftLoaded && hasQuoteData && !persisted;
 
   useEffect(() => {
-    unsavedGuard.set(
-      isDirty,
-      '報價內容尚未儲存。離開前請按「已儲存」或「版本審核」，否則內容將會遺失。',
-    );
+    unsavedGuard.set(isDirty, QUOTE_UNSAVED_LEAVE_MESSAGE);
     return () => unsavedGuard.clear();
   }, [isDirty]);
+
+  useEffect(() => {
+    unsavedGuard.setLeaveHandler(() => {
+      deleteDraft(storageKey).catch(() => {});
+      resetQuickQuoteSessionStorage(userEmail);
+    });
+    return () => unsavedGuard.setLeaveHandler(null);
+  }, [storageKey, userEmail]);
 
   // Warn on browser tab close / refresh while dirty.
   useEffect(() => {
@@ -1384,7 +1388,7 @@ export function QuotationDraftEditor({
     let cancelled = false;
     (async () => {
       try {
-        const cached = await loadDraft(draftKey);
+        const cached = await loadDraft(storageKey);
         if (cancelled || !cached) {
           setDraftLoaded(true);
           return;
@@ -1445,9 +1449,8 @@ export function QuotationDraftEditor({
             })),
           );
         }
-        setDraftSavedAt(cached.updatedAt);
-        toast.info("已從本地草稿恢復", {
-          description: `上次儲存於 ${new Date(cached.updatedAt).toLocaleString("zh-HK")}`,
+        toast.info("已恢復未提交的報價內容", {
+          description: `上次編輯於 ${new Date(cached.updatedAt).toLocaleString("zh-HK")}`,
         });
       } catch {
         // IndexedDB not available or error — silently continue
@@ -1459,12 +1462,12 @@ export function QuotationDraftEditor({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [draftKey]);
+  }, [storageKey, existingQuote]);
 
-  // Build draft data for saving
+  // Build draft data for auto-save (IndexedDB — survives refresh; cleared on 版本審核 or leave)
   const buildDraftData = useCallback(
     (): DraftData => ({
-      quoteId: draftKey,
+      quoteId: storageKey,
       updatedAt: Date.now(),
       formData: formData as unknown as Record<string, unknown>,
       companyInfo: companyInfo as unknown as Record<string, unknown>,
@@ -1481,7 +1484,7 @@ export function QuotationDraftEditor({
       gpSummary,
     }),
     [
-      draftKey,
+      storageKey,
       formData,
       companyInfo,
       clientInfo,
@@ -1496,24 +1499,14 @@ export function QuotationDraftEditor({
     ],
   );
 
-  // Save draft handler
-  const handleSaveDraft = useCallback(async () => {
-    setIsSavingDraft(true);
-    try {
-      await saveDraft(buildDraftData());
-      const now = Date.now();
-      setDraftSavedAt(now);
-      setPersisted(true);
-      toast.success("草稿已儲存到本地", {
-        description: `儲存時間: ${new Date(now).toLocaleString("zh-HK")}`,
-      });
-    } catch (err) {
-      console.warn("Failed to save draft to IndexedDB", err);
-      toast.error("草稿儲存失敗");
-    } finally {
-      setIsSavingDraft(false);
-    }
-  }, [buildDraftData]);
+  // Auto-save draft locally while editing (no manual 儲存草稿 button).
+  useEffect(() => {
+    if (!draftLoaded || !hasQuoteData || persisted) return;
+    const timer = window.setTimeout(() => {
+      saveDraft(buildDraftData()).catch(() => {});
+    }, 800);
+    return () => window.clearTimeout(timer);
+  }, [draftLoaded, hasQuoteData, persisted, buildDraftData]);
 
   const handleProductSelected = (
     products: {
@@ -1892,31 +1885,6 @@ export function QuotationDraftEditor({
               >
                 <Eye className="h-4 w-4" />
                 預覽 PDF
-              </button>
-              <button
-                type="button"
-                onClick={handleSaveDraft}
-                disabled={isSavingDraft}
-                className={`inline-flex items-center gap-2 rounded-lg border px-4 py-2 font-body text-sm font-medium transition-colors ${
-                  isSavingDraft
-                    ? "border-border text-muted-foreground cursor-not-allowed opacity-60"
-                    : draftSavedAt
-                      ? "border-emerald-500/30 bg-emerald-500/5 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10"
-                      : "border-border text-foreground hover:bg-accent"
-                }`}
-              >
-                {isSavingDraft ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : draftSavedAt ? (
-                  <Check className="h-4 w-4" />
-                ) : (
-                  <Save className="h-4 w-4" />
-                )}
-                {isSavingDraft
-                  ? "儲存中..."
-                  : draftSavedAt
-                    ? "已儲存"
-                    : "儲存草稿"}
               </button>
               <button
                 type="button"
@@ -2369,8 +2337,9 @@ export function QuotationDraftEditor({
           setPersisted(true);
           unsavedGuard.clear();
           // Clean up local draft after successful submission
-          deleteDraft(draftKey).catch(() => {});
-          if (quoteId) deleteDraft(quoteId).catch(() => {});
+          deleteDraft(storageKey).catch(() => {});
+          if (quoteId) deleteDraft(makeDraftKey(userEmail, quoteId)).catch(() => {});
+          resetQuickQuoteSessionStorage(userEmail);
         }}
         totalAmount={grandTotal}
         totalCostPrice={totalCostPrice}

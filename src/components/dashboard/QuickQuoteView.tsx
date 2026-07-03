@@ -1,10 +1,17 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import { Check, ChevronRight, ChevronLeft, Sparkles, Loader2 } from 'lucide-react';
 import { QuotationDraftEditor } from '@/components/dashboard/QuotationDraftEditor';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
-import { loadDraft } from '@/lib/draftStore';
+import { loadDraft, deleteDraft, makeDraftKey } from '@/lib/draftStore';
+import { useAuth } from '@/contexts/AuthProvider';
+import {
+  quickQuoteFormKey,
+  quickQuoteStepKey,
+  readQuickQuoteStep,
+  resetQuickQuoteSessionStorage,
+} from '@/lib/quickQuoteSession';
 
 function getNextQuoteVersion(version: string): string {
   const match = version.match(/^v(\d+)\.(\d+)$/);
@@ -61,28 +68,42 @@ const STEPS = [
 interface QuickQuoteViewProps {
   editingQuoteId?: string | null;
   onClearEditingQuote?: () => void;
+  /** Increment to reset wizard to 建立新報價單 step 1. */
+  freshSessionKey?: number;
 }
 
-const STEP_STORAGE_KEY = 'bwf:quickQuote:currentStep';
-const FORM_STORAGE_KEY = 'bwf:quickQuote:formData';
+const DEFAULT_FORM_DATA = (): QuoteFormData => ({
+  company: 'Branding Works Design Ltd',
+  projectManager: '',
+  projectName: '',
+  clientName: '',
+  clientPhone: '',
+  clientEmail: '',
+  clientIndustry: [],
+  clientIndustryOther: '',
+  quotationType: [],
+  serviceScope: [],
+  officeArea: '',
+  headcount: '',
+  budgetMin: '',
+  budgetMax: '',
+  workPeriod: '',
+  validityDays: '30',
+  remarks: '',
+});
 
-export function QuickQuoteView({ editingQuoteId, onClearEditingQuote }: QuickQuoteViewProps) {
-  const [currentStep, setCurrentStep] = useState<number>(() => {
-    if (typeof window === 'undefined') return 1;
-    const saved = sessionStorage.getItem(STEP_STORAGE_KEY);
-    const n = saved ? parseInt(saved, 10) : 1;
-    return Number.isFinite(n) && n >= 1 && n <= 4 ? n : 1;
-  });
-  const [isQuotationReady, setIsQuotationReady] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return false;
-    return sessionStorage.getItem(STEP_STORAGE_KEY) === '4';
-  });
+export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessionKey = 0 }: QuickQuoteViewProps) {
+  const { user, loading: authLoading } = useAuth();
+  const userEmail = user?.email ?? null;
+
+  const [currentStep, setCurrentStep] = useState(1);
+  const [isQuotationReady, setIsQuotationReady] = useState(false);
   const [isLoadingQuote, setIsLoadingQuote] = useState(false);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    sessionStorage.setItem(STEP_STORAGE_KEY, String(currentStep));
-  }, [currentStep]);
+    sessionStorage.setItem(quickQuoteStepKey(userEmail), String(currentStep));
+  }, [currentStep, userEmail]);
 
   const [loadedQuoteData, setLoadedQuoteData] = useState<{
     quoteId: string;
@@ -92,44 +113,44 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote }: QuickQuo
     submitter: string;
     projectData: Record<string, unknown>;
   } | null>(null);
-  const [formData, setFormData] = useState<QuoteFormData>(() => {
-    const defaults: QuoteFormData = {
-      company: 'Branding Works Design Ltd',
-      projectManager: '',
-      projectName: '',
-      clientName: '',
-      clientPhone: '',
-      clientEmail: '',
-      clientIndustry: [],
-      clientIndustryOther: '',
-      quotationType: [],
-      serviceScope: [],
-      officeArea: '',
-      headcount: '',
-      budgetMin: '',
-      budgetMax: '',
-      workPeriod: '',
-      validityDays: '30',
-      remarks: '',
-    };
-    if (typeof window === 'undefined') return defaults;
+  const [formData, setFormData] = useState<QuoteFormData>(() => DEFAULT_FORM_DATA());
+
+  useEffect(() => {
+    if (authLoading || editingQuoteId || freshSessionKey > 0) return;
+    const step = readQuickQuoteStep(userEmail);
+    setCurrentStep(step);
+    setIsQuotationReady(step === 4);
     try {
-      const raw = sessionStorage.getItem(FORM_STORAGE_KEY);
-      if (raw) return { ...defaults, ...JSON.parse(raw) };
+      const raw = sessionStorage.getItem(quickQuoteFormKey(userEmail));
+      if (raw) setFormData({ ...DEFAULT_FORM_DATA(), ...JSON.parse(raw) });
     } catch {
       // ignore
     }
-    return defaults;
-  });
+  }, [authLoading, userEmail, editingQuoteId, freshSessionKey]);
+
+  const resetToNewQuote = useCallback(() => {
+    setCurrentStep(1);
+    setIsQuotationReady(false);
+    setLoadedQuoteData(null);
+    setFormData(DEFAULT_FORM_DATA());
+    setErrors({});
+    resetQuickQuoteSessionStorage(userEmail);
+    deleteDraft(makeDraftKey(userEmail, 'NEW')).catch(() => {});
+  }, [userEmail]);
+
+  useEffect(() => {
+    if (freshSessionKey === 0) return;
+    resetToNewQuote();
+  }, [freshSessionKey, resetToNewQuote]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
     try {
-      sessionStorage.setItem(FORM_STORAGE_KEY, JSON.stringify(formData));
+      sessionStorage.setItem(quickQuoteFormKey(userEmail), JSON.stringify(formData));
     } catch {
       // ignore
     }
-  }, [formData]);
+  }, [formData, userEmail]);
   const [errors, setErrors] = useState<Partial<Record<keyof QuoteFormData, string>>>({});
 
   // Load existing quote when editingQuoteId is provided
@@ -146,7 +167,7 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote }: QuickQuo
         // 1) Check IndexedDB for a local draft first
         let cachedDraft: Awaited<ReturnType<typeof loadDraft>> = null;
         try {
-          cachedDraft = await loadDraft(editingQuoteId);
+          cachedDraft = await loadDraft(makeDraftKey(userEmail, editingQuoteId));
         } catch {
           // IndexedDB unavailable — fall through to API
         }
@@ -238,7 +259,7 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote }: QuickQuo
     };
 
     loadQuote();
-  }, [editingQuoteId, onClearEditingQuote]);
+  }, [editingQuoteId, onClearEditingQuote, userEmail]);
 
   const updateField = (field: keyof QuoteFormData, value: string | string[]) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -936,6 +957,7 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote }: QuickQuo
           <div className="mt-6">
             <QuotationDraftEditor
               formData={formData}
+              userEmail={userEmail}
               onBack={() => {
                 if (loadedQuoteData) {
                   setLoadedQuoteData(null);

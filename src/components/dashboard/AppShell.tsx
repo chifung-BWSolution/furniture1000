@@ -1,6 +1,9 @@
 import { useState, useCallback, useEffect, useRef, lazy, Suspense } from "react";
 import { useAppStore } from "@/hooks/use-app-store";
 import { unsavedGuard } from "@/lib/unsavedGuard";
+import { resetQuickQuoteSessionStorage } from "@/lib/quickQuoteSession";
+import { deleteDraft, makeDraftKey } from "@/lib/draftStore";
+import { useAuth } from "@/contexts/AuthProvider";
 import { SidebarNav } from "./SidebarNav";
 import { PrimaryTopNav } from "./PrimaryTopNav";
 import { TopBar } from "./TopBar";
@@ -162,10 +165,12 @@ function PlaceholderView({
 
 export function AppShell() {
   const store = useAppStore();
+  const { user } = useAuth();
   const [showPublishModal, setShowPublishModal] = useState(false);
   const [publishModalProducts, setPublishModalProducts] = useState<Product[]>([]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [editingQuoteId, setEditingQuoteId] = useState<string | null>(null);
+  const [quickQuoteFreshKey, setQuickQuoteFreshKey] = useState(0);
   // 方案 D: Supabase health monitoring
   const [dbUnhealthy, setDbUnhealthy] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
@@ -494,7 +499,9 @@ export function AppShell() {
       case "quick-quote":
         return (
           <QuickQuoteView
+            key={`quick-quote-${quickQuoteFreshKey}`}
             editingQuoteId={editingQuoteId}
+            freshSessionKey={quickQuoteFreshKey}
             onClearEditingQuote={() => {
               setEditingQuoteId(null);
               store.setCurrentView("quotation-list");
@@ -512,7 +519,7 @@ export function AppShell() {
         return (
           <QuotationListView
             onOpenQuote={(quoteId) => {
-              // Set the quote ID to edit and navigate to the editor
+              if (!unsavedGuard.confirmLeave()) return;
               setEditingQuoteId(quoteId);
               store.setCurrentView("quick-quote");
             }}
@@ -530,11 +537,19 @@ export function AppShell() {
   const activeSection: PrimarySection = findSection(store.currentView);
 
   const handleViewChange = (view: typeof store.currentView) => {
-    // Guard: warn before leaving an unsaved 報價單草稿 (生成報價單) page
-    if (view !== store.currentView && unsavedGuard.isDirty) {
-      const ok = window.confirm(unsavedGuard.message);
-      if (!ok) return;
-      unsavedGuard.clear();
+    if (view === "quick-quote") {
+      if (unsavedGuard.isDirty && !unsavedGuard.confirmLeave()) return;
+      resetQuickQuoteSessionStorage(user?.email);
+      void deleteDraft(makeDraftKey(user?.email, "NEW"));
+      setEditingQuoteId(null);
+      setQuickQuoteFreshKey((k) => k + 1);
+      store.setCurrentView("quick-quote");
+      store.setFilterProductId(null);
+      return;
+    }
+
+    if (view !== store.currentView && unsavedGuard.isDirty && !unsavedGuard.confirmLeave()) {
+      return;
     }
     if (store.currentView === 'category-management' && view !== 'category-management') {
       store.reloadProducts();
