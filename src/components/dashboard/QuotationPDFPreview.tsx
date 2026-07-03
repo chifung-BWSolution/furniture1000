@@ -280,20 +280,20 @@ function wrapDimensionsAtStars(dimText: string, maxChars = 11): string[] {
 }
 
 type QuotationItem = QuotationPDFData['items'][0];
-type TablePageEntry = { item: QuotationItem; idx: number };
 
 const TABLE_BORDER = '#333';
-const TABLE_HEADER_HEIGHT = 24;
-const INSTALL_ROW_HEIGHT = 36;
 // A4 content width ≈ 555pt (595 − 20×2 horizontal padding)
 const PDF_TABLE_WIDTH_PT = 555;
 const REMARKS_COL_WIDTH_PT = PDF_TABLE_WIDTH_PT * 0.09;
 const ILLUSTRATION_COL_WIDTH_PT = PDF_TABLE_WIDTH_PT * 0.114;
-// A4 usable ≈770pt (842 − padding 22/50); page 1 reserves logo/title/info (~150pt)
-const PAGE_USABLE_HEIGHT = 770;
-const PAGE1_HEADER_OVERHEAD = 150;
-const FIRST_PAGE_TABLE_MAX = PAGE_USABLE_HEIGHT - PAGE1_HEADER_OVERHEAD;
-const CONTINUATION_PAGE_TABLE_MAX = PAGE_USABLE_HEIGHT - 24;
+
+/** Shared top/left/right border for each table band — rows paginate naturally via wrap={false}. */
+const tableBandBorder = {
+  borderTopWidth: 0.5,
+  borderLeftWidth: 0.5,
+  borderRightWidth: 0.5,
+  borderColor: TABLE_BORDER,
+};
 
 function pdfRemarksImageHeight(imageCount: number): number {
   if (imageCount <= 0) return 0;
@@ -305,84 +305,6 @@ function pdfIllustrationImageHeight(dual: boolean): number {
   return Math.round(ILLUSTRATION_COL_WIDTH_PT * (dual ? 0.72 : 0.85));
 }
 
-/** Row height estimate aligned with actual PDF render (image columns drive row height). */
-function estimateQuotationRowHeight(item: QuotationItem | undefined): number {
-  if (!item) return 60;
-  if (item.isCustomTerm) return 30;
-
-  const materialLineCount = Math.max(
-    1,
-    (item.material || "").split("\n").filter((l) => l.trim()).length,
-  );
-  const materialHeight = materialLineCount * 10 + 16;
-
-  const remarkBlocks = parseRemarksContent(item.remarks, item.remarksImage).filter(
-    (b) => (b.type === "text" && b.content.trim()) || b.type === "image",
-  );
-  const remarkTextCount = remarkBlocks.filter((b) => b.type === "text").length;
-  const remarkImageCount = remarkBlocks.filter((b) => b.type === "image").length;
-  const remarksHeight =
-    remarkBlocks.length > 0
-      ? remarkTextCount * 18 +
-        remarkImageCount * pdfRemarksImageHeight(remarkImageCount) +
-        12
-      : 0;
-
-  const hasProduct = Boolean(item.image?.trim());
-  const hasReference = Boolean(item.referenceImage?.trim());
-  const dualIllustration = hasProduct && hasReference;
-  const illustrationCount = (hasProduct ? 1 : 0) + (hasReference ? 1 : 0);
-  const illustrationHeight =
-    illustrationCount > 0
-      ? illustrationCount * pdfIllustrationImageHeight(dualIllustration) + 12
-      : 0;
-
-  const descHeight = 62;
-
-  return Math.max(60, descHeight, materialHeight, remarksHeight, illustrationHeight);
-}
-
-function paginateQuotationTableRows(items: QuotationItem[]): TablePageEntry[][] {
-  if (items.length === 0) return [[]];
-
-  const pages: TablePageEntry[][] = [];
-  let current: TablePageEntry[] = [];
-  let usedHeight = TABLE_HEADER_HEIGHT;
-  let pageIndex = 0;
-
-  items.forEach((item, idx) => {
-    const rowHeight = estimateQuotationRowHeight(item);
-    const maxHeight = pageIndex === 0 ? FIRST_PAGE_TABLE_MAX : CONTINUATION_PAGE_TABLE_MAX;
-    const installReserve = idx === items.length - 1 ? INSTALL_ROW_HEIGHT : 0;
-
-    if (current.length > 0 && usedHeight + rowHeight + installReserve > maxHeight) {
-      pages.push(current);
-      current = [];
-      usedHeight = TABLE_HEADER_HEIGHT;
-      pageIndex += 1;
-    }
-
-    current.push({ item, idx });
-    usedHeight += rowHeight;
-  });
-
-  if (current.length > 0) pages.push(current);
-  return pages;
-}
-
-/** Bordered table chunk — one closed box per PDF page segment (top/left/right/bottom). */
-function tableSegmentStyle(pageIndex: number) {
-  return {
-    width: '100%',
-    borderLeftWidth: 0.5,
-    borderRightWidth: 0.5,
-    borderTopWidth: 0.5,
-    borderBottomWidth: 0.5,
-    borderColor: TABLE_BORDER,
-    marginTop: pageIndex === 0 ? 8 : 0,
-  };
-}
-
 function renderQuotationTableRow(
   item: QuotationItem,
   idx: number,
@@ -390,15 +312,10 @@ function renderQuotationTableRow(
   View: ReactPdfModule['View'],
   Text: ReactPdfModule['Text'],
   Image: ReactPdfModule['Image'],
-  isLastInSegment: boolean,
 ) {
-  const rowStyle = isLastInSegment
-    ? { ...styles.tableRow, borderBottomWidth: 0 }
-    : styles.tableRow;
-
   if (item?.isCustomTerm) {
     return (
-      <View style={{ display: 'flex', flexDirection: 'row', borderBottomWidth: isLastInSegment ? 0 : 0.5, borderColor: TABLE_BORDER, minHeight: 28, alignItems: 'stretch' }} key={idx} wrap={false}>
+      <View style={{ ...styles.tableRow, minHeight: 28 }} key={idx} wrap={false}>
         <View style={styles.colIndex}><Text style={styles.tableCellText}>{idx + 1}</Text></View>
         <View style={{ width: '62%', paddingLeft: 6, paddingRight: 6, paddingTop: 6, paddingBottom: 6, display: 'flex', flexDirection: 'column', justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' }}>
           <Text style={styles.tableCellTextLeft}>{item?.name || ''}</Text>
@@ -412,15 +329,13 @@ function renderQuotationTableRow(
   }
 
   return (
-    <View style={rowStyle} key={idx} wrap={false}>
+    <View style={styles.tableRow} key={idx} wrap={false}>
       <View style={styles.colIndex}><Text style={styles.tableCellText}>{idx + 1}</Text></View>
       <View style={styles.colDesc}>
         {renderDescriptionPdfContent(item, formatDimensions, View, Text)}
       </View>
       <View style={styles.colMaterial}>
-        <View style={{ width: '100%' }}>
-          <Text style={styles.tableCellTextLeft}>{item?.material || ''}</Text>
-        </View>
+        <Text style={styles.tableCellTextLeft}>{item?.material || ''}</Text>
       </View>
       <View style={styles.colRemarks}>
         <View style={{ width: '100%', flex: 1 }}>
@@ -594,12 +509,12 @@ const styles: Record<string, any> = {
   infoRight: { width: '50%' },
   infoLine: { fontSize: 8, marginBottom: 1, lineHeight: 1.5 },
   infoBold: { fontWeight: 700 },
-  table: { width: '100%' },
-  tableHeader: { display: 'flex', flexDirection: 'row', backgroundColor: '#f5f5f5', borderBottomWidth: 0.5, borderColor: TABLE_BORDER, minHeight: 24, alignItems: 'center' },
-  tableRow: { display: 'flex', flexDirection: 'row', borderBottomWidth: 0.5, borderColor: TABLE_BORDER, minHeight: 60, alignItems: 'stretch' },
+  table: { width: '100%', marginTop: 8 },
+  tableHeader: { display: 'flex', flexDirection: 'row', backgroundColor: '#f5f5f5', minHeight: 24, alignItems: 'center', ...tableBandBorder },
+  tableRow: { display: 'flex', flexDirection: 'row', minHeight: 60, alignItems: 'stretch', ...tableBandBorder },
   colIndex: { width: '5%', display: 'flex', justifyContent: 'center', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd', paddingVertical: 4 },
   colDesc: { width: '12.4%', paddingLeft: 0, paddingRight: 0, paddingTop: 0, paddingBottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'stretch', borderRightWidth: 0.5, borderColor: '#ddd' },
-  colMaterial: { width: '29.2%', paddingLeft: 4, paddingRight: 4, paddingTop: 4, paddingBottom: 4, display: 'flex', flexDirection: 'column', justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
+  colMaterial: { width: '29.2%', paddingLeft: 4, paddingRight: 4, paddingTop: 4, paddingBottom: 4, display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', alignSelf: 'stretch', borderRightWidth: 0.5, borderColor: '#ddd' },
   colRemarks: { width: '9%', paddingLeft: 2, paddingRight: 2, paddingTop: 0, paddingBottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'stretch', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
   colImage: { width: '11.4%', paddingLeft: 0, paddingRight: 0, paddingTop: 0, paddingBottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'stretch', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
   colQty: { width: '5%', display: 'flex', justifyContent: 'center', alignItems: 'center', textAlign: 'center', borderRightWidth: 0.5, borderColor: '#ddd', paddingVertical: 4 },
@@ -608,7 +523,7 @@ const styles: Record<string, any> = {
   colSubtotal: { width: '12.5%', display: 'flex', justifyContent: 'center', alignItems: 'center', textAlign: 'center', paddingVertical: 4 },
   tableHeaderText: { fontSize: 6.5, fontWeight: 700, textAlign: 'center', lineHeight: 1.4 },
   tableCellText: { fontSize: 7, textAlign: 'center', lineHeight: 1.3 },
-  tableCellTextLeft: { fontSize: 7, textAlign: 'left', lineHeight: 1.3, paddingLeft: 4 },
+  tableCellTextLeft: { fontSize: 7, textAlign: 'left', lineHeight: 1.45, paddingLeft: 4 },
   descValueText: { fontSize: 6.5, textAlign: 'left', lineHeight: 1.3, paddingLeft: 2 },
   descDimLabelText: { fontSize: 6, textAlign: 'left', lineHeight: 1.2, paddingLeft: 2, color: '#555' },
   descDimValueText: { fontSize: 6, textAlign: 'left', lineHeight: 1.2, paddingLeft: 2, width: '100%' },
@@ -616,7 +531,7 @@ const styles: Record<string, any> = {
   cellImageSlot: { width: '100%', justifyContent: 'center', alignItems: 'center', paddingVertical: 2, paddingHorizontal: 2 },
   cellStackImage: { width: '100%', maxHeight: '100%', objectFit: 'contain' },
   remarksCellText: { fontSize: 7, textAlign: 'center', lineHeight: 1.3 },
-  installRow: { flexDirection: 'row', borderBottomWidth: 0.5, borderColor: TABLE_BORDER, minHeight: 28 },
+  installRow: { flexDirection: 'row', minHeight: 28, borderBottomWidth: 0.5, ...tableBandBorder },
   totalRow: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 6, paddingRight: 4 },
   totalLabel: { fontSize: 10, fontWeight: 700, marginRight: 8, lineHeight: 1.4 },
   totalValue: { fontSize: 10, fontWeight: 700, lineHeight: 1.4 },
@@ -681,8 +596,6 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
     return parts.length > 0 ? parts.join('*') : '';
   };
 
-  const tablePages = paginateQuotationTableRows(items);
-
   const renderTableHeader = () => (
     <View style={styles.tableHeader}>
       <View style={styles.colIndex}><Text style={styles.tableHeaderText}>{'\u5E8F\u865F'}</Text></View>
@@ -698,7 +611,7 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
   );
 
   const renderInstallRow = () => (
-    <View style={{ ...styles.installRow, borderBottomWidth: 0 }} wrap={false}>
+    <View style={styles.installRow} wrap={false}>
       <View style={{ width: '57%', padding: 4, justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' }}>
         <Text style={{ fontSize: 7, fontWeight: 700, lineHeight: 1.4 }}>{data.installationFee?.title || '\u50A2\u4FF1\u5B89\u88DD\u8CBB\u7528'}</Text>
         <Text style={{ fontSize: 6.5, color: '#666', lineHeight: 1.4 }}>{data.installationFee?.subtitle || '\u5B89\u88DD\u6E05\u55AE\u4E2D\u50A2\u4FF1\u7522\u54C1\u4E26\u6E05\u7406\u5305\u88DD\u5783\u573E'}</Text>
@@ -750,32 +663,20 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
           </View>
         </View>
 
-        {tablePages.map((pageRows, pageIdx) => {
-          const isLastTablePage = pageIdx === tablePages.length - 1;
-          const isFirstSegment = pageIdx === 0;
-          return (
-            <View
-              key={`table-page-${pageIdx}`}
-              style={tableSegmentStyle(pageIdx)}
-              wrap={isFirstSegment ? undefined : false}
-              break={pageIdx > 0}
-            >
-              {renderTableHeader()}
-              {pageRows.map(({ item, idx }, rowIdx) =>
-                renderQuotationTableRow(
-                  item,
-                  idx,
-                  formatDimensions,
-                  View,
-                  Text,
-                  Image,
-                  rowIdx === pageRows.length - 1 && !isLastTablePage,
-                ),
-              )}
-              {isLastTablePage ? renderInstallRow() : null}
-            </View>
-          );
-        })}
+        <View style={styles.table}>
+          {renderTableHeader()}
+          {items.map((item, idx) =>
+            renderQuotationTableRow(
+              item,
+              idx,
+              formatDimensions,
+              View,
+              Text,
+              Image,
+            ),
+          )}
+          {renderInstallRow()}
+        </View>
 
         {discountValue > 0 ? (
           <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 4, paddingRight: 4 }}>
