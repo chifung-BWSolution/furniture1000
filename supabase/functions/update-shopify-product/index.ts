@@ -44,7 +44,14 @@ type PushPayload = {
   product_type?: string;
   tags?: string[] | string;
   images?: string[];
-  variants?: { id?: string | number; index?: number; sku?: string | null; option1?: string | null; price?: number | string | null }[];
+  variants?: {
+    id?: string | number;
+    index?: number;
+    sku?: string | null;
+    option1?: string | null;
+    price?: number | string | null;
+    image_id?: string | number | null;
+  }[];
   sku?: string | null;
   metafields?: Record<string, string>;
   handle?: string;
@@ -176,6 +183,7 @@ function mirrorRowToPayload(row: Record<string, unknown>): PushPayload {
       sku: typeof v.sku === "string" ? v.sku : null,
       option1: typeof v.option1 === "string" ? v.option1 : null,
       price: v.price != null ? v.price as number | string : null,
+      image_id: v.image_id != null ? v.image_id as string | number : null,
     }))
     : undefined;
   return {
@@ -195,6 +203,35 @@ function mirrorRowToPayload(row: Record<string, unknown>): PushPayload {
     seo_title: typeof row.shopify_page_title === "string" ? row.shopify_page_title : undefined,
     seo_description: typeof row.shopify_page_description === "string" ? row.shopify_page_description : undefined,
   };
+}
+
+/** Push mirror variant.image_id values to Shopify (admin thumbnail uses this field). */
+async function syncVariantImageIds(
+  apiBase: string,
+  headers: Record<string, string>,
+  shopifyId: string,
+  mirrorVariants: NonNullable<PushPayload["variants"]>,
+  liveVariants: Record<string, unknown>[],
+): Promise<number> {
+  let synced = 0;
+  for (const mv of mirrorVariants) {
+    if (mv.id == null || mv.image_id == null) continue;
+    const live = liveVariants.find((v) => String(v.id) === String(mv.id));
+    if (live && Number(live.image_id) === Number(mv.image_id)) continue;
+    const resp = await fetch(`${apiBase}/products/${shopifyId}/variants/${mv.id}.json`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({ variant: { id: Number(mv.id), image_id: Number(mv.image_id) } }),
+    });
+    if (resp.ok) synced++;
+    else {
+      console.warn(
+        `[update-shopify-product] variant image_id sync failed ${mv.id}:`,
+        (await resp.text()).slice(0, 120),
+      );
+    }
+  }
+  return synced;
 }
 
 /** Push one product from payload → Shopify (+ optional mirror timestamp refresh). */
@@ -341,6 +378,14 @@ async function pushProductToShopify(
     return { success: false, error: seoResult.error || "SEO/handle update failed" };
   }
 
+  let variantImagesSynced = 0;
+  if (Array.isArray(variants) && variants.some((v) => v.image_id != null)) {
+    const liveVariants = (updated.variants as Record<string, unknown>[]) || existingVariants;
+    variantImagesSynced = await syncVariantImageIds(
+      apiBase, headers, shopifyId, variants, liveVariants,
+    );
+  }
+
   const mfs = buildMetafields(metafields);
   let mfOk = 0, mfFail = 0;
   for (const mf of mfs) {
@@ -422,6 +467,7 @@ async function pushProductToShopify(
     live_handle: liveHandle,
     metafields_updated: mfOk,
     metafields_failed: mfFail,
+    variant_images_synced: variantImagesSynced,
     ...(sourceProductId ? {} : {}),
   };
 }

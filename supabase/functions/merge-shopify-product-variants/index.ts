@@ -102,6 +102,31 @@ async function collectSpecImageSources(
   return out;
 }
 
+function normalizeImageUrl(src: string): string {
+  try {
+    const u = new URL(src);
+    return `${u.origin}${u.pathname}`;
+  } catch {
+    return src.split("?")[0] ?? src;
+  }
+}
+
+async function setVariantImageId(
+  apiBase: string,
+  headers: Record<string, string>,
+  parentId: string,
+  variantId: number,
+  imageId: number,
+): Promise<{ ok: boolean; error?: string }> {
+  const resp = await fetch(`${apiBase}/products/${parentId}/variants/${variantId}.json`, {
+    method: "PUT",
+    headers,
+    body: JSON.stringify({ variant: { id: variantId, image_id: imageId } }),
+  });
+  if (resp.ok) return { ok: true };
+  return { ok: false, error: (await resp.text()).slice(0, 200) };
+}
+
 /** Attach collected images to merged variants on the parent product. */
 async function attachVariantImages(
   apiBase: string,
@@ -127,52 +152,43 @@ async function attachVariantImages(
     if (variant?.id == null) continue;
     const variantId = Number(variant.id);
 
-    const currentImageId = variant.image_id != null ? Number(variant.image_id) : null;
-    const currentImg = currentImageId != null
-      ? images.find((im) => Number(im.id) === currentImageId)
-      : undefined;
-    if (currentImg?.src === src) {
-      attached.push({ sku: spec.sku, image_id: currentImageId!, src });
-      continue;
-    }
+    const normSrc = normalizeImageUrl(src);
+    let target = images.find(
+      (im) => isHttpUrl(im.src) && normalizeImageUrl(im.src as string) === normSrc,
+    );
 
-    let target = images.find((im) => im.src === src);
-    if (target?.id != null) {
-      const imageId = Number(target.id);
-      const existingIds = Array.isArray(target.variant_ids)
-        ? (target.variant_ids as unknown[]).map((id) => Number(id)).filter(Number.isFinite)
-        : [];
-      if (!existingIds.includes(variantId)) {
-        const putResp = await fetch(`${apiBase}/products/${parentId}/images/${imageId}.json`, {
-          method: "PUT",
-          headers,
-          body: JSON.stringify({ image: { id: imageId, variant_ids: [...existingIds, variantId] } }),
-        });
-        if (!putResp.ok) {
-          failed.push({ sku: spec.sku, error: (await putResp.text()).slice(0, 200) });
-          continue;
-        }
-        target = ((await putResp.json()).image as ShopifyRecord) ?? target;
-        images = images.map((im) => (Number(im.id) === imageId ? target! : im));
+    if (!target?.id) {
+      const postResp = await fetch(`${apiBase}/products/${parentId}/images.json`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ image: { src } }),
+      });
+      if (!postResp.ok) {
+        failed.push({ sku: spec.sku, error: (await postResp.text()).slice(0, 200) });
+        continue;
       }
-      attached.push({ sku: spec.sku, image_id: imageId, src });
+      const newImg = (await postResp.json()).image as ShopifyRecord;
+      if (newImg?.id == null) {
+        failed.push({ sku: spec.sku, error: "Image POST returned no id" });
+        continue;
+      }
+      target = newImg;
+      images.push(newImg);
+    }
+
+    const imageId = Number(target.id);
+    const currentImageId = variant.image_id != null ? Number(variant.image_id) : null;
+    if (currentImageId === imageId) {
+      attached.push({ sku: spec.sku, image_id: imageId, src: String(target.src ?? src) });
       continue;
     }
 
-    const postResp = await fetch(`${apiBase}/products/${parentId}/images.json`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ image: { src, variant_ids: [variantId] } }),
-    });
-    if (!postResp.ok) {
-      failed.push({ sku: spec.sku, error: (await postResp.text()).slice(0, 200) });
+    const setResult = await setVariantImageId(apiBase, headers, parentId, variantId, imageId);
+    if (!setResult.ok) {
+      failed.push({ sku: spec.sku, error: setResult.error ?? "variant image_id PUT failed" });
       continue;
     }
-    const newImg = (await postResp.json()).image as ShopifyRecord;
-    if (newImg?.id != null) {
-      images.push(newImg);
-      attached.push({ sku: spec.sku, image_id: Number(newImg.id), src });
-    }
+    attached.push({ sku: spec.sku, image_id: imageId, src: String(target.src ?? src) });
   }
 
   return { attached, failed };
