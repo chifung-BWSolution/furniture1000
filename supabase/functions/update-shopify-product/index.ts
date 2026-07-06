@@ -297,7 +297,13 @@ async function pushProductToShopify(
 
   if (Array.isArray(images)) {
     const valid = images.filter((u) => typeof u === "string" && /^https?:\/\//.test(u));
-    productUpdate.images = valid.map((src, i) => ({ src, position: i + 1 }));
+    // Multi-variant products with per-variant image_id: merge already attached images on Shopify.
+    // Pushing a flat src list would drop variant_ids links — skip image PUT in that case.
+    const hasVariantImages = existingVariants.length > 1
+      && existingVariants.some((v) => v.image_id != null);
+    if (!hasVariantImages) {
+      productUpdate.images = valid.map((src, i) => ({ src, position: i + 1 }));
+    }
   }
 
   const putResp = await fetch(`${apiBase}/products/${shopifyId}.json`, {
@@ -387,8 +393,12 @@ async function pushProductToShopify(
     if (compareAtPrice != null && !isNaN(Number(compareAtPrice))) spUpdate.compare_at_price = Number(compareAtPrice);
     if (Array.isArray(images)) {
       const valid = images.filter((u) => typeof u === "string" && /^https?:\/\//.test(u));
-      spUpdate.image_url = valid[0] || null;
-      spUpdate.images = valid.map((src, i) => ({ src, position: i + 1 }));
+      const hasVariantImages = updatedVariants.length > 1
+        && updatedVariants.some((v) => v.image_id != null);
+      if (!hasVariantImages) {
+        spUpdate.image_url = valid[0] || null;
+        spUpdate.images = valid.map((src, i) => ({ src, position: i + 1 }));
+      }
       if (mfs.length > 0) spUpdate.metafields = mfs;
     } else if (mfs.length > 0) {
       spUpdate.metafields = mfs;

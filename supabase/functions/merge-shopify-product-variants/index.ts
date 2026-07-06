@@ -23,6 +23,10 @@ type MergeBody = {
   parent_shopify_product_id: string;
   parent_sku: string;
   variants: VariantSpec[];
+  /** First gallery thumbnail — stored as shopify_products.image_url */
+  primary_image_src?: string;
+  /** Full gallery order from merge UI (used to order mirror images[]) */
+  gallery_urls?: string[];
 };
 
 type ShopifyRecord = Record<string, unknown>;
@@ -188,6 +192,48 @@ function mapProductImages(images: ShopifyRecord[]) {
     : null;
 }
 
+/** Order mirror images: gallery UI order first, then any remaining Shopify images. */
+function orderMirrorImages(
+  finalImages: ShopifyRecord[],
+  galleryUrls: string[] | undefined,
+  primarySrc: string | null,
+): ShopifyRecord[] {
+  if (!galleryUrls?.length) return finalImages;
+  const bySrc = new Map<string, ShopifyRecord>();
+  for (const im of finalImages) {
+    if (isHttpUrl(im.src)) bySrc.set(im.src as string, im);
+  }
+  const ordered: ShopifyRecord[] = [];
+  const seen = new Set<string>();
+  const pushSrc = (src: string | null | undefined) => {
+    if (!isHttpUrl(src) || seen.has(src)) return;
+    seen.add(src);
+    const im = bySrc.get(src);
+    if (im) ordered.push(im);
+  };
+  if (primarySrc) pushSrc(primarySrc);
+  for (const src of galleryUrls) pushSrc(src);
+  for (const im of finalImages) {
+    const src = im.src as string;
+    if (isHttpUrl(src) && !seen.has(src)) {
+      seen.add(src);
+      ordered.push(im);
+    }
+  }
+  return ordered.map((im, i) => ({ ...im, position: i + 1 }));
+}
+
+function mapProductOptions(options: ShopifyRecord[] | undefined) {
+  if (!options?.length) return [{ name: "尺寸(mm)" }];
+  return options.map((o) => ({
+    id: o.id,
+    name: o.name,
+    position: o.position,
+    product_id: o.product_id,
+    values: o.values,
+  }));
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -299,20 +345,27 @@ Deno.serve(async (req: Request) => {
     if (!finalProduct) return json({ error: "Shopify GET parent after merge failed" }, 502);
 
     const mergedVariants = (finalProduct.variants as ShopifyRecord[]) || [];
-    const finalImages = (finalProduct.images as ShopifyRecord[]) || [];
+    let finalImages = [...((finalProduct.images as ShopifyRecord[]) || [])];
+    const galleryUrls = Array.isArray(body.gallery_urls)
+      ? body.gallery_urls.filter(isHttpUrl)
+      : [];
+    const primaryFromUi = isHttpUrl(body.primary_image_src) ? body.primary_image_src : null;
+    finalImages = orderMirrorImages(finalImages, galleryUrls, primaryFromUi);
     const prices = mergedVariants.map((v) => parseFloat(String(v.price ?? "0")) || 0);
     const minPrice = prices.length ? Math.min(...prices) : null;
-    const primaryImageSrc = isHttpUrl(finalImages[0]?.src)
-      ? (finalImages[0].src as string)
-      : (isHttpUrl((finalProduct.image as ShopifyRecord | undefined)?.src)
-        ? ((finalProduct.image as ShopifyRecord).src as string)
-        : null);
+    const primaryImageSrc = primaryFromUi && finalImages.some((im) => im.src === primaryFromUi)
+      ? primaryFromUi
+      : (isHttpUrl(finalImages[0]?.src)
+        ? (finalImages[0].src as string)
+        : (isHttpUrl((finalProduct.image as ShopifyRecord | undefined)?.src)
+          ? ((finalProduct.image as ShopifyRecord).src as string)
+          : null));
 
     await supabase
       .from("shopify_products")
       .update({
         variants: mergedVariants,
-        options: [{ name: "尺寸(mm)" }],
+        options: mapProductOptions(finalProduct.options as ShopifyRecord[] | undefined),
         sku: parentSku,
         price: minPrice,
         configurable: null,

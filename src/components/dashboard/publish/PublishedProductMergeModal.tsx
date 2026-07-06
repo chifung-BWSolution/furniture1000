@@ -566,6 +566,8 @@ export function PublishedProductMergeModal({
       const payload = {
         parent_shopify_product_id: parentShopifyId,
         parent_sku: parentSku,
+        primary_image_src: galleryUrls[0] || undefined,
+        gallery_urls: galleryUrls.length > 0 ? galleryUrls : undefined,
         variants: rows.map((r) => ({
           size: r.option1 || r.size,
           price: r.price,
