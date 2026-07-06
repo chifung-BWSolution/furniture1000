@@ -386,7 +386,7 @@ export function PublishedProductsView() {
         return;
       }
       setPreviewProducts(data.products ?? []);
-      setSelectedImportIds(new Set((data.products ?? []).map((p: ShopifyPreviewProduct) => p.shopify_product_id)));
+      setSelectedImportIds(new Set());
       setImportSearch('');
       setShowImportDialog(true);
       toast.dismiss(toastId);
