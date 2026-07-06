@@ -626,88 +626,120 @@ export function PublishedProductsView() {
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">
       {/* Toolbar */}
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/30 px-6 py-3">
-        <div className="flex items-center gap-2">
-          <CheckCheck className="h-4 w-4 text-primary" />
-          <h2 className="font-display text-sm font-bold">已上載產品</h2>
-          <span className="font-mono-data text-[11px] text-muted-foreground">
-            已發佈 {counts.published} · 未發佈 {counts.unpublished} · 已下架 {counts.delisted}
-          </span>
-        </div>
-        <div className="flex items-center gap-2">
-          {/* Shopify catalog → shopify_products mirror reconcile */}
-          <button
-            onClick={() => reconcileMirrorFromShopify()}
-            disabled={isReconcilingMirror}
-            title="從 Shopify 讀取最新產品目錄，更新本頁列表，並移除 Shopify 已刪除的產品（含合併後的子產品）"
-            className="flex items-center gap-1.5 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 text-xs font-semibold text-sky-700 dark:text-sky-400 hover:bg-sky-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isReconcilingMirror ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Store className="h-3.5 w-3.5" />}
-            {isReconcilingMirror ? '同步中...' : '更新 Shopify 目錄'}
-          </button>
-          {/* 單向推送：Supabase shopify_products → 更新 Shopify 現有產品 */}
-          <button
-            onClick={() => pushToShopify()}
-            disabled={isSyncing}
-            title="將已勾選產品的 Supabase 資料推送至 Shopify，更新現有產品（標題、描述、SEO、價格、Metafields 等）"
-            className="flex items-center gap-1.5 rounded-lg border border-indigo-500/40 bg-indigo-500/10 px-3 py-2 text-xs font-semibold text-indigo-700 dark:text-indigo-400 hover:bg-indigo-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isSyncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-            {isSyncing ? '推送中...' : selected.size > 0 ? `與 Shopify 同步 (${selected.size})` : '與 Shopify 同步'}
-          </button>
-          {/* 單向導入：Shopify → Supabase shopify_products */}
-          <button
-            onClick={handleOpenImportDialog}
-            disabled={isFetchingPreview}
-            title="從 Shopify 導入產品資料至 Supabase，更新本頁列表（標題、描述、價格、Metafields 等）。不會推送至 Shopify。"
-            className="flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2 text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isFetchingPreview ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CloudDownload className="h-3.5 w-3.5" />}
-            {isFetchingPreview ? '讀取中...' : '從 Shopify 導入'}
-          </button>
-          {selected.size > 0 && (
-            <button onClick={bulkDelist} className="flex items-center gap-1.5 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs font-medium text-rose-600 hover:bg-rose-500/20">
-              <ArrowDownToLine className="h-3.5 w-3.5" /> 批量下架（{selected.size}）
+      <div className="flex shrink-0 flex-col gap-2 border-b border-border bg-muted/30 px-6 py-3">
+        {/* Row 1: title + action buttons */}
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 min-w-0">
+            <CheckCheck className="h-4 w-4 shrink-0 text-primary" />
+            <h2 className="font-display text-sm font-bold shrink-0">已上載產品</h2>
+            <span className="font-mono-data text-[11px] text-muted-foreground truncate">
+              已發佈 {counts.published} · 未發佈 {counts.unpublished} · 已下架 {counts.delisted}
+            </span>
+          </div>
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => reconcileMirrorFromShopify()}
+              disabled={isReconcilingMirror}
+              title="從 Shopify 讀取最新產品目錄，更新本頁列表，並移除 Shopify 已刪除的產品（含合併後的子產品）"
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 text-xs font-semibold text-sky-700 dark:text-sky-400 hover:bg-sky-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isReconcilingMirror ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Store className="h-3.5 w-3.5" />}
+              {isReconcilingMirror ? '同步中...' : '更新 Shopify 目錄'}
             </button>
-          )}
+            <button
+              type="button"
+              onClick={() => pushToShopify()}
+              disabled={isSyncing}
+              title="將已勾選產品的 Supabase 資料推送至 Shopify，更新現有產品（標題、描述、SEO、價格、Metafields 等）"
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-indigo-500/40 bg-indigo-500/10 px-3 text-xs font-semibold text-indigo-700 dark:text-indigo-400 hover:bg-indigo-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isSyncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+              {isSyncing ? '推送中...' : selected.size > 0 ? `與 Shopify 同步 (${selected.size})` : '與 Shopify 同步'}
+            </button>
+            <button
+              type="button"
+              onClick={handleOpenImportDialog}
+              disabled={isFetchingPreview}
+              title="從 Shopify 導入產品資料至 Supabase，更新本頁列表（標題、描述、價格、Metafields 等）。不會推送至 Shopify。"
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 text-xs font-semibold text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isFetchingPreview ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CloudDownload className="h-3.5 w-3.5" />}
+              {isFetchingPreview ? '讀取中...' : '從 Shopify 導入'}
+            </button>
+            <button
+              type="button"
+              onClick={bulkDelist}
+              disabled={selected.size === 0}
+              title={selected.size > 0 ? `批量下架 ${selected.size} 件產品` : '請先勾選要下架的產品'}
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 text-xs font-semibold text-rose-600 hover:bg-rose-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <ArrowDownToLine className="h-3.5 w-3.5" />
+              {selected.size > 0 ? `批量下架（${selected.size}）` : '批量下架'}
+            </button>
+            <button
+              type="button"
+              onClick={openMergeModal}
+              disabled={selected.size !== 1}
+              className={cn(
+                'inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed',
+                selected.size === 1
+                  ? 'border-primary/40 bg-primary/10 text-primary hover:bg-primary/15'
+                  : 'border-border text-muted-foreground hover:bg-muted/50',
+              )}
+              title={selected.size === 1 ? '合併所選產品為多規格' : '請先勾選 1 件產品'}
+            >
+              <GitMerge className="h-3.5 w-3.5" />
+              合併產品
+            </button>
+          </div>
+        </div>
+
+        {/* Row 2: search + filters */}
+        <div className="flex flex-wrap items-center gap-2">
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-            <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="搜尋產品名稱或編碼 (SKU)..." className="h-8 w-56 rounded-lg border border-border bg-card pl-8 pr-3 text-xs focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="搜尋產品名稱或編碼 (SKU)..."
+              className="h-8 w-56 rounded-lg border border-border bg-card pl-8 pr-3 text-xs focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
+            />
           </div>
-          {/* 每頁顯示 */}
-          <select value={pageSize} onChange={(e) => setPageSize(Number(e.target.value))} className="h-8 rounded-lg border border-border bg-card px-2 text-xs focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer">
+          <select
+            value={pageSize}
+            onChange={(e) => setPageSize(Number(e.target.value))}
+            className="h-8 rounded-lg border border-border bg-card px-2 text-xs focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer"
+          >
             {[20, 25, 50, 100].map(n => <option key={n} value={n}>每頁 {n} 項</option>)}
           </select>
-          {/* 一級分類 */}
-          <select value={level1Filter} onChange={(e) => { setLevel1Filter(e.target.value); setLevel2Filter(''); }} className="h-8 rounded-lg border border-border bg-card px-2 text-xs focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer">
+          <select
+            value={level1Filter}
+            onChange={(e) => { setLevel1Filter(e.target.value); setLevel2Filter(''); }}
+            className="h-8 rounded-lg border border-border bg-card px-2 text-xs focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer"
+          >
             <option value="">全部一級分類</option>
             {l1Options.map(l1 => <option key={l1} value={l1}>{l1}</option>)}
           </select>
-          {/* 二級分類 */}
-          <select value={level2Filter} onChange={(e) => setLevel2Filter(e.target.value)} disabled={!level1Filter} className="h-8 rounded-lg border border-border bg-card px-2 text-xs focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer disabled:opacity-50">
+          <select
+            value={level2Filter}
+            onChange={(e) => setLevel2Filter(e.target.value)}
+            disabled={!level1Filter}
+            className="h-8 rounded-lg border border-border bg-card px-2 text-xs focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer disabled:opacity-50"
+          >
             <option value="">全部二級分類</option>
             {l2Options.map(l2 => <option key={l2} value={l2}>{l2}</option>)}
           </select>
           <div className="relative">
-            <select value={factoryFilter} onChange={(e) => setFactoryFilter(e.target.value)} className="h-8 appearance-none rounded-lg border border-border bg-card pl-3 pr-8 text-xs focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20">
+            <select
+              value={factoryFilter}
+              onChange={(e) => setFactoryFilter(e.target.value)}
+              className="h-8 appearance-none rounded-lg border border-border bg-card pl-3 pr-8 text-xs focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
+            >
               {factories.map((f) => <option key={f} value={f}>{f === '全部' ? '篩選廠家：全部' : f}</option>)}
             </select>
             <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           </div>
-          <button
-            type="button"
-            onClick={openMergeModal}
-            className={cn(
-              'flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium transition-colors',
-              selected.size === 1
-                ? 'border-primary/40 bg-primary/10 text-primary hover:bg-primary/15'
-                : 'border-border text-muted-foreground hover:bg-muted/50',
-            )}
-            title={selected.size === 1 ? '合併所選產品為多規格' : '請先勾選 1 件產品'}
-          >
-            <GitMerge className="h-3.5 w-3.5" />
-            合併產品
-          </button>
         </div>
       </div>
 
