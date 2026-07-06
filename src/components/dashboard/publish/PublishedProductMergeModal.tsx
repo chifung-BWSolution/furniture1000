@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type DragEvent } from 'react';
 import {
-  Check, ChevronLeft, ChevronRight, Loader2, Package, Plus, Search, X,
+  Check, ChevronLeft, ChevronRight, GripVertical, Loader2, Package, Plus, Search, X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
@@ -60,6 +60,20 @@ export interface MergeVariantRow {
 }
 
 const PICKER_PAGE_SIZE = 25;
+const ROW_DRAG_MIME = 'application/x-merge-row-key';
+
+function collectProductImageUrls(product: ShopifyProductRow): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const add = (url: string | null | undefined) => {
+    if (!isHttpUrl(url) || seen.has(url)) return;
+    seen.add(url);
+    out.push(url);
+  };
+  add(product.image_url);
+  for (const im of product.images ?? []) add(im.src);
+  return out;
+}
 
 function isHttpUrl(src: unknown): src is string {
   return typeof src === 'string' && /^https?:\/\//.test(src);
@@ -172,30 +186,64 @@ function MergeVariantRowView({
   row,
   isHost,
   dragOver,
+  rowDropTarget,
+  rowDragging,
+  onRowDragStart,
+  onRowDragEnd,
+  onRowDragOver,
+  onRowDragLeave,
+  onRowDrop,
   onDragOver,
   onDragLeave,
-  onDrop,
+  onImageDrop,
   onUpdate,
   onDelete,
 }: {
   row: MergeVariantRow;
   isHost?: boolean;
   dragOver?: boolean;
+  rowDropTarget?: boolean;
+  rowDragging?: boolean;
+  onRowDragStart: (e: DragEvent) => void;
+  onRowDragEnd: () => void;
+  onRowDragOver: (e: DragEvent) => void;
+  onRowDragLeave: () => void;
+  onRowDrop: (e: DragEvent) => void;
   onDragOver: (e: DragEvent) => void;
   onDragLeave: () => void;
-  onDrop: (e: DragEvent) => void;
+  onImageDrop: (e: DragEvent) => void;
   onUpdate: (updates: Partial<MergeVariantRow>) => void;
   onDelete: () => void;
 }) {
   return (
-    <div className={cn('rounded-lg border p-3', isHost ? 'border-primary/40 bg-primary/5' : 'border-border bg-muted/30')}>
+    <div
+      onDragOver={onRowDragOver}
+      onDragLeave={onRowDragLeave}
+      onDrop={onRowDrop}
+      className={cn(
+        'rounded-lg border p-3 transition-colors',
+        isHost ? 'border-primary/40 bg-primary/5' : 'border-border bg-muted/30',
+        rowDropTarget && 'ring-2 ring-primary/40',
+        rowDragging && 'opacity-50',
+      )}
+    >
       {isHost && (
         <div className="mb-2 flex items-center gap-1.5">
           <span className="rounded-full bg-primary/15 px-2 py-0.5 font-body text-[10px] font-semibold text-primary">主產品</span>
-          <span className="font-body text-[10px] text-muted-foreground">此為合併後保留的 Shopify 主體產品</span>
+          <span className="font-body text-[10px] text-muted-foreground">此為合併後保留的 Shopify 主體產品（第一行）</span>
         </div>
       )}
       <div className="flex gap-2">
+        <button
+          type="button"
+          draggable
+          onDragStart={onRowDragStart}
+          onDragEnd={onRowDragEnd}
+          className="mt-5 flex h-16 w-6 shrink-0 cursor-grab items-center justify-center rounded-md border border-border bg-muted/40 text-muted-foreground hover:bg-muted active:cursor-grabbing"
+          title="拖曳調整順序（第一行為主產品）"
+        >
+          <GripVertical className="h-4 w-4" />
+        </button>
         <div className="shrink-0 space-y-1">
           <label className="font-mono-data text-[9px] uppercase tracking-widest text-muted-foreground">
             產品主圖
@@ -203,7 +251,7 @@ function MergeVariantRowView({
           <div
             onDragOver={onDragOver}
             onDragLeave={onDragLeave}
-            onDrop={onDrop}
+            onDrop={onImageDrop}
             className={cn(
               'flex h-16 w-16 items-center justify-center overflow-hidden rounded-md border-2 border-dashed bg-background transition-colors',
               dragOver ? 'border-primary bg-primary/10' : 'border-border',
@@ -309,10 +357,13 @@ export function PublishedProductMergeModal({
   const [pickerLoading, setPickerLoading] = useState(false);
   const [pickerFactories, setPickerFactories] = useState<string[]>([]);
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
+  const [draggingRowKey, setDraggingRowKey] = useState<string | null>(null);
+  const [rowDropTargetKey, setRowDropTargetKey] = useState<string | null>(null);
   const [isMerging, setIsMerging] = useState(false);
 
-  const host = products[0] ?? null;
-  const hostShopifyId = host?.shopify_product_id ?? '';
+  const hostRow = rows[0] ?? null;
+  const hostShopifyId = hostRow?.shopify_product_id ?? products[0]?.shopify_product_id ?? '';
+  const hostTitle = productCache.get(hostShopifyId)?.title ?? products[0]?.title ?? '';
 
   useEffect(() => {
     if (!open || products.length === 0) return;
@@ -409,10 +460,66 @@ export function PublishedProductMergeModal({
 
   const handleRowDrop = (key: string, e: DragEvent) => {
     e.preventDefault();
+    e.stopPropagation();
     setDragOverKey(null);
     const url = e.dataTransfer.getData('text/uri-list') || e.dataTransfer.getData('text/plain');
     if (!isHttpUrl(url)) return;
     setRows((prev) => prev.map((r) => (r.key === key ? { ...r, imageSrc: url } : r)));
+  };
+
+  const handleRowReorderStart = (key: string, e: DragEvent) => {
+    e.dataTransfer.setData(ROW_DRAG_MIME, key);
+    e.dataTransfer.effectAllowed = 'move';
+    setDraggingRowKey(key);
+  };
+
+  const handleRowReorderOver = (key: string, e: DragEvent) => {
+    if (!e.dataTransfer.types.includes(ROW_DRAG_MIME)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setRowDropTargetKey(key);
+  };
+
+  const handleRowReorderDrop = (targetKey: string, e: DragEvent) => {
+    if (!e.dataTransfer.types.includes(ROW_DRAG_MIME)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const sourceKey = e.dataTransfer.getData(ROW_DRAG_MIME);
+    setDraggingRowKey(null);
+    setRowDropTargetKey(null);
+    if (!sourceKey || sourceKey === targetKey) return;
+    setRows((prev) => {
+      const fromIdx = prev.findIndex((r) => r.key === sourceKey);
+      const toIdx = prev.findIndex((r) => r.key === targetKey);
+      if (fromIdx < 0 || toIdx < 0) return prev;
+      const next = [...prev];
+      const [moved] = next.splice(fromIdx, 1);
+      next.splice(toIdx, 0, moved);
+      return next;
+    });
+  };
+
+  const removeVariantRow = (key: string) => {
+    setRows((prev) => {
+      const row = prev.find((r) => r.key === key);
+      if (!row) return prev;
+      const next = prev.filter((r) => r.key !== key);
+      const stillHasProduct = next.some((r) => r.shopify_product_id === row.shopify_product_id);
+      if (!stillHasProduct) {
+        setProductCache((cache) => {
+          const product = cache.get(row.shopify_product_id);
+          if (product) {
+            const urlsToRemove = new Set(collectProductImageUrls(product));
+            setGalleryUrls((g) => g.filter((u) => !urlsToRemove.has(u)));
+            const nextCache = new Map(cache);
+            nextCache.delete(row.shopify_product_id);
+            return nextCache;
+          }
+          return cache;
+        });
+      }
+      return next;
+    });
   };
 
   const removeGalleryImage = (url: string) => {
@@ -436,11 +543,12 @@ export function PublishedProductMergeModal({
   };
 
   const handleComplete = async () => {
-    if (!host || rows.length < 2) {
+    if (!hostRow || rows.length < 2) {
       toast.error('至少需要 2 個規格才能合併');
       return;
     }
-    const parentSku = rows[0].sku.trim();
+    const parentShopifyId = hostRow.shopify_product_id;
+    const parentSku = hostRow.sku.trim();
     if (!parentSku) {
       toast.error('主產品 SKU 不可為空');
       return;
@@ -456,14 +564,14 @@ export function PublishedProductMergeModal({
     const toastId = toast.loading('正在合併 Shopify 產品…');
     try {
       const payload = {
-        parent_shopify_product_id: hostShopifyId,
+        parent_shopify_product_id: parentShopifyId,
         parent_sku: parentSku,
         variants: rows.map((r) => ({
           size: r.option1 || r.size,
           price: r.price,
           sku: r.sku.trim(),
           shopify_product_id: r.shopify_product_id,
-          variant_id: r.shopify_product_id === hostShopifyId ? r.variant_id : undefined,
+          variant_id: r.shopify_product_id === parentShopifyId ? r.variant_id : undefined,
           image_src: r.imageSrc || undefined,
         })),
       };
@@ -496,7 +604,7 @@ export function PublishedProductMergeModal({
     }
   };
 
-  if (!host || products.length === 0) return null;
+  if (products.length === 0) return null;
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!isMerging) onOpenChange(v); }}>
@@ -505,10 +613,10 @@ export function PublishedProductMergeModal({
           <div className="flex items-start justify-between pr-6">
             <div>
               <DialogTitle className="font-display">
-                合併產品 — {host.title}
+                合併產品 — {hostTitle}
               </DialogTitle>
               <DialogDescription className="font-body text-xs">
-                管理每個變體的產品主圖、SKU、售價、尺寸、Option1 和庫存。合併後共用標題與描述。
+                拖曳左側握把調整順序（第一行為主產品）。管理每個變體的產品主圖、SKU、售價、尺寸、Option1 和庫存。
               </DialogDescription>
             </div>
             <Button
@@ -574,19 +682,30 @@ export function PublishedProductMergeModal({
               row={row}
               isHost={idx === 0}
               dragOver={dragOverKey === row.key}
+              rowDropTarget={rowDropTargetKey === row.key}
+              rowDragging={draggingRowKey === row.key}
+              onRowDragStart={(e) => handleRowReorderStart(row.key, e)}
+              onRowDragEnd={() => {
+                setDraggingRowKey(null);
+                setRowDropTargetKey(null);
+              }}
+              onRowDragOver={(e) => handleRowReorderOver(row.key, e)}
+              onRowDragLeave={() => {
+                if (rowDropTargetKey === row.key) setRowDropTargetKey(null);
+              }}
+              onRowDrop={(e) => handleRowReorderDrop(row.key, e)}
               onDragOver={(e) => {
+                if (e.dataTransfer.types.includes(ROW_DRAG_MIME)) return;
                 e.preventDefault();
                 e.dataTransfer.dropEffect = 'copy';
                 setDragOverKey(row.key);
               }}
               onDragLeave={() => setDragOverKey(null)}
-              onDrop={(e) => handleRowDrop(row.key, e)}
+              onImageDrop={(e) => handleRowDrop(row.key, e)}
               onUpdate={(updates) => {
                 setRows((prev) => prev.map((r) => (r.key === row.key ? { ...r, ...updates } : r)));
               }}
-              onDelete={() => {
-                setRows((prev) => prev.filter((r) => r.key !== row.key));
-              }}
+              onDelete={() => removeVariantRow(row.key)}
             />
           ))}
 
