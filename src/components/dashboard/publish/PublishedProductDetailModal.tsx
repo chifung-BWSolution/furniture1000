@@ -24,6 +24,7 @@ interface ShopifyVariant {
   sku?: string;
   price?: string | number;
   inventory_quantity?: number;
+  image_id?: string | number | null;
 }
 
 interface ShopifyImage {
@@ -31,6 +32,7 @@ interface ShopifyImage {
   src?: string;
   alt?: string;
   position?: number;
+  variant_ids?: (string | number)[];
 }
 
 export interface PublishedProductRow {
@@ -91,6 +93,30 @@ function variantLabel(v: ShopifyVariant): string {
 
 function variantEditKey(v: ShopifyVariant, index: number): string {
   return v.id != null ? String(v.id) : `index-${index}`;
+}
+
+/** Resolve variant thumbnail from mirror data (variants.image_id ↔ images[].id / variant_ids). */
+function resolveVariantImageUrl(
+  variant: ShopifyVariant,
+  images: ShopifyImage[],
+  fallback?: string | null,
+): string | null {
+  const variantId = variant.id != null ? String(variant.id) : '';
+  const imageId = variant.image_id != null ? String(variant.image_id) : '';
+
+  if (imageId) {
+    const byId = images.find((im) => im.id != null && String(im.id) === imageId);
+    if (byId?.src) return byId.src;
+  }
+
+  if (variantId) {
+    const byVariantIds = images.find(
+      (im) => Array.isArray(im.variant_ids) && im.variant_ids.some((id) => String(id) === variantId),
+    );
+    if (byVariantIds?.src) return byVariantIds.src;
+  }
+
+  return fallback ?? images[0]?.src ?? null;
 }
 
 function ReadOnlyField({ label, value, mono }: { label: string; value: string | null | undefined; mono?: boolean }) {
@@ -607,9 +633,25 @@ export function PublishedProductDetailModal({
                     <tbody className="divide-y divide-border/60">
                       {variants.map((v, i) => {
                         const key = variantEditKey(v, i);
+                        const thumbUrl = resolveVariantImageUrl(v, sortedImgs, r.image_url);
                         return (
                         <tr key={v.id ?? i} className="hover:bg-muted/30">
-                          <td className="px-3 py-2 font-medium text-foreground">{variantLabel(v)}</td>
+                          <td className="px-3 py-2">
+                            <div className="flex items-center gap-2.5 min-w-0">
+                              {thumbUrl ? (
+                                <img
+                                  src={thumbUrl}
+                                  alt=""
+                                  className="h-10 w-10 shrink-0 rounded-md border border-border object-cover bg-muted"
+                                />
+                              ) : (
+                                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-muted/50">
+                                  <ImageIcon className="h-4 w-4 text-muted-foreground" />
+                                </div>
+                              )}
+                              <span className="font-medium text-foreground">{variantLabel(v)}</span>
+                            </div>
+                          </td>
                           <td className="px-3 py-2">
                             <input
                               className="w-full min-w-[180px] rounded-md border border-border bg-background px-2 py-1.5 font-mono-data text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
