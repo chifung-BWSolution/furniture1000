@@ -32,6 +32,8 @@ interface ShopifyImage {
   src?: string;
   alt?: string;
   position?: number;
+  width?: number;
+  height?: number;
   variant_ids?: (string | number)[];
 }
 
@@ -93,6 +95,34 @@ function variantLabel(v: ShopifyVariant): string {
 
 function variantEditKey(v: ShopifyVariant, index: number): string {
   return v.id != null ? String(v.id) : `index-${index}`;
+}
+
+/** Resolve variant thumbnail from mirror data (variants.image_id ↔ images[].id / variant_ids). */
+function normalizeImageUrl(src: string): string {
+  try {
+    const u = new URL(src);
+    return `${u.origin}${u.pathname}`;
+  } catch {
+    return src.split('?')[0] ?? src;
+  }
+}
+
+function resolveImageIdForSrc(
+  src: string,
+  images: ShopifyImage[],
+  fallbackImageUrl?: string | null,
+): string | number | null {
+  const norm = normalizeImageUrl(src);
+  for (const im of images) {
+    if (im.src && normalizeImageUrl(im.src) === norm && im.id != null) {
+      return im.id;
+    }
+  }
+  if (fallbackImageUrl && normalizeImageUrl(fallbackImageUrl) === norm) {
+    const first = images.find((im) => im.id != null);
+    if (first?.id != null) return first.id;
+  }
+  return null;
 }
 
 /** Resolve variant thumbnail from mirror data (variants.image_id ↔ images[].id / variant_ids). */
@@ -160,6 +190,8 @@ export function PublishedProductDetailModal({
   const [editSeoDesc, setEditSeoDesc] = useState('');
   const [editHandle, setEditHandle] = useState('');
   const [editVariantSkus, setEditVariantSkus] = useState<Record<string, string>>({});
+  const [editVariantImageSrc, setEditVariantImageSrc] = useState<Record<string, string>>({});
+  const [variantImagePickerKey, setVariantImagePickerKey] = useState<string | null>(null);
   const [editFallbackSku, setEditFallbackSku] = useState('');
   const [manufacturerOpen, setManufacturerOpen] = useState(false);
   const [manufacturerSearch, setManufacturerSearch] = useState('');
@@ -219,6 +251,15 @@ export function PublishedProductDetailModal({
         return acc;
       }, {})
     );
+    const imgs = Array.isArray(r.images) ? r.images : [];
+    setEditVariantImageSrc(
+      (Array.isArray(r.variants) ? r.variants : []).reduce<Record<string, string>>((acc, v, i) => {
+        const key = variantEditKey(v, i);
+        const src = resolveVariantImageUrl(v, imgs, r.image_url);
+        if (src) acc[key] = src;
+        return acc;
+      }, {})
+    );
     setEditFallbackSku(r.sku || '');
     setSelectedImg(r.image_url || null);
   }, [r]);
@@ -254,8 +295,9 @@ export function PublishedProductDetailModal({
       for (const im of sortedImgs) {
         if (im.src && !urls.includes(im.src)) urls.push(im.src);
       }
-    } else if (r.image_url) {
-      urls.push(r.image_url);
+    }
+    if (r.image_url && !urls.includes(r.image_url)) {
+      urls.unshift(r.image_url);
     }
     return urls;
   }, [sortedImgs, r.image_url]);
@@ -277,13 +319,33 @@ export function PublishedProductDetailModal({
       const compareNum = editCompareAtPrice !== '' ? parseFloat(editCompareAtPrice) : null;
       const productType = [editL1, editL2].filter(Boolean).join(' / ') || null;
       const handleNorm = editHandle.trim() || null;
-      const updatedVariants = (Array.isArray(r.variants) ? r.variants : []).map((v, i) => ({
-        ...v,
-        sku: editVariantSkus[variantEditKey(v, i)] ?? v.sku ?? '',
-      }));
+      const updatedVariants = (Array.isArray(r.variants) ? r.variants : []).map((v, i) => {
+        const key = variantEditKey(v, i);
+        const selectedSrc = editVariantImageSrc[key];
+        const imageId = selectedSrc
+          ? resolveImageIdForSrc(selectedSrc, sortedImgs, r.image_url)
+          : v.image_id;
+        return {
+          ...v,
+          sku: editVariantSkus[key] ?? v.sku ?? '',
+          ...(imageId != null ? { image_id: imageId } : {}),
+        };
+      });
       const primarySku = updatedVariants.length === 0
         ? (editFallbackSku.trim() || null)
         : (updatedVariants.map(v => (v.sku || '').trim()).find(Boolean) || null);
+
+      const preservedImages = sortedImgs.length > 0
+        ? sortedImgs.map((im, i) => ({
+          id: im.id,
+          src: im.src,
+          alt: im.alt ?? '',
+          width: im.width,
+          height: im.height,
+          position: i + 1,
+          variant_ids: im.variant_ids,
+        }))
+        : (allImages.length > 0 ? allImages.map((src, i) => ({ src, position: i + 1 })) : null);
 
       const updatePayload: Record<string, unknown> = {
         title: editTitle || null,
@@ -294,7 +356,7 @@ export function PublishedProductDetailModal({
         price: priceNum,
         compare_at_price: compareNum,
         image_url: allImages[0] || null,
-        images: allImages.length > 0 ? allImages.map((src, i) => ({ src, position: i + 1 })) : null,
+        images: preservedImages,
         variants: updatedVariants.length > 0 ? updatedVariants : r.variants,
         sku: primarySku,
         shopify_page_title: editSeoTitle.trim() || null,
@@ -638,29 +700,33 @@ export function PublishedProductDetailModal({
                     <tbody className="divide-y divide-border/60">
                       {variants.map((v, i) => {
                         const key = variantEditKey(v, i);
-                        const thumbUrl = resolveVariantImageUrl(v, sortedImgs, r.image_url);
+                        const thumbUrl = editVariantImageSrc[key]
+                          ?? resolveVariantImageUrl(v, sortedImgs, r.image_url);
                         return (
                         <tr key={v.id ?? i} className="hover:bg-muted/30">
                           {showVariantMainImageCol && (
                             <td className="px-2 py-2 align-middle">
-                              {thumbUrl ? (
-                                <button
-                                  type="button"
-                                  onClick={() => setVariantLightboxSrc(thumbUrl)}
-                                  className="block h-10 w-10 shrink-0 overflow-hidden rounded-md border border-border bg-muted focus:outline-none focus:ring-2 focus:ring-primary/40"
-                                  title="查看原圖"
-                                >
+                              <button
+                                type="button"
+                                onClick={() => setVariantImagePickerKey(key)}
+                                className={cn(
+                                  'block h-10 w-10 shrink-0 overflow-hidden rounded-md border-2 border-dashed bg-muted transition-colors',
+                                  'hover:border-primary hover:ring-2 hover:ring-primary/30 focus:outline-none focus:ring-2 focus:ring-primary/40',
+                                )}
+                                title="點擊從媒體選擇規格主圖"
+                              >
+                                {thumbUrl ? (
                                   <img
                                     src={thumbUrl}
                                     alt=""
                                     className="h-full w-full object-cover"
                                   />
-                                </button>
-                              ) : (
-                                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-muted/50">
-                                  <ImageIcon className="h-4 w-4 text-muted-foreground" />
-                                </div>
-                              )}
+                                ) : (
+                                  <div className="flex h-full w-full items-center justify-center">
+                                    <ImageIcon className="h-4 w-4 text-muted-foreground" />
+                                  </div>
+                                )}
+                              </button>
                             </td>
                           )}
                           <td className="px-3 py-2 font-medium text-foreground align-middle">{variantLabel(v)}</td>
@@ -731,6 +797,78 @@ export function PublishedProductDetailModal({
           </div>
         </div>
       </div>
+
+      {variantImagePickerKey && (
+        <div
+          className="fixed inset-0 z-[220] flex items-center justify-center bg-black/70 backdrop-blur-sm"
+          onClick={() => setVariantImagePickerKey(null)}
+        >
+          <div
+            className="relative max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-border bg-background p-5 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-4 flex items-center justify-between gap-2">
+              <div>
+                <h3 className="font-display text-sm font-semibold text-foreground">選擇規格主圖</h3>
+                <p className="mt-0.5 font-body text-[11px] text-muted-foreground">
+                  從此產品的媒體中選一張作為該尺寸的主圖
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setVariantImagePickerKey(null)}
+                className="flex h-8 w-8 items-center justify-center rounded-full hover:bg-muted"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            {allImages.length === 0 ? (
+              <p className="py-8 text-center text-xs text-muted-foreground">此產品沒有可選媒體圖片</p>
+            ) : (
+              <div className="grid grid-cols-4 gap-2">
+                {allImages.map((src) => {
+                  const isSelected = variantImagePickerKey
+                    && editVariantImageSrc[variantImagePickerKey] === src;
+                  return (
+                    <button
+                      key={src}
+                      type="button"
+                      onClick={() => {
+                        if (!variantImagePickerKey) return;
+                        setEditVariantImageSrc((prev) => ({
+                          ...prev,
+                          [variantImagePickerKey]: src,
+                        }));
+                        setVariantImagePickerKey(null);
+                      }}
+                      className={cn(
+                        'relative aspect-square overflow-hidden rounded-lg border-2 transition-all',
+                        isSelected ? 'border-primary ring-2 ring-primary/30' : 'border-border hover:border-primary/50',
+                      )}
+                    >
+                      <img src={src} alt="" className="h-full w-full object-cover" />
+                      {isSelected && (
+                        <span className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground">
+                          <Check className="h-3 w-3" />
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            {variantImagePickerKey && editVariantImageSrc[variantImagePickerKey] && (
+              <button
+                type="button"
+                onClick={() => setVariantLightboxSrc(editVariantImageSrc[variantImagePickerKey])}
+                className="mt-3 text-[11px] text-primary hover:underline"
+              >
+                查看目前選中圖片原尺寸
+              </button>
+            )}
+          </div>
+        </div>
+      )}
 
       {variantLightboxSrc && (
         <div
