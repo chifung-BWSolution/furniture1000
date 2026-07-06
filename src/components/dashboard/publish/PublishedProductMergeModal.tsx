@@ -427,9 +427,6 @@ export function PublishedProductMergeModal({
       next.set(product.shopify_product_id, product);
       return next;
     });
-    setProductOrder((prev) => (
-      prev.includes(product.shopify_product_id) ? prev : [...prev, product.shopify_product_id]
-    ));
     setGalleryUrls((prev) => appendProductImages(prev, product));
     setRows((prev) => [...prev, ...newRows]);
     setShowPicker(false);
