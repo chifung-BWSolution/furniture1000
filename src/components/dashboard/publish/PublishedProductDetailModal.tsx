@@ -142,6 +142,7 @@ export function PublishedProductDetailModal({
   const r = product.raw;
   const [isSaving, setIsSaving] = useState(false);
   const [selectedImg, setSelectedImg] = useState<string | null>(null);
+  const [variantLightboxSrc, setVariantLightboxSrc] = useState<string | null>(null);
   const [categoryPairs, setCategoryPairs] = useState<{ level1: string; level2: string }[]>([]);
   const [bwfCats, setBwfCats] = useState<BwfCat[]>([]);
 
@@ -261,6 +262,7 @@ export function PublishedProductDetailModal({
 
   const displayImg = (selectedImg && allImages.includes(selectedImg)) ? selectedImg : (allImages[0] || '');
   const variants: ShopifyVariant[] = Array.isArray(r.variants) ? r.variants : [];
+  const showVariantMainImageCol = variants.length >= 2;
 
   const inputCls = 'w-full rounded-lg border border-border bg-background px-3 py-2 text-sm font-body text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 transition-colors';
   const textareaCls = `${inputCls} resize-y`;
@@ -624,6 +626,9 @@ export function PublishedProductDetailModal({
                   <table className="w-full text-xs">
                     <thead className="bg-muted/40 text-[10.5px] uppercase tracking-wider text-muted-foreground">
                       <tr>
+                        {showVariantMainImageCol && (
+                          <th className="w-14 px-2 py-2 text-center font-medium">主圖</th>
+                        )}
                         <th className="px-3 py-2 text-left font-medium">規格</th>
                         <th className="px-3 py-2 text-left font-medium">SKU</th>
                         <th className="px-3 py-2 text-right font-medium">價錢</th>
@@ -636,22 +641,29 @@ export function PublishedProductDetailModal({
                         const thumbUrl = resolveVariantImageUrl(v, sortedImgs, r.image_url);
                         return (
                         <tr key={v.id ?? i} className="hover:bg-muted/30">
-                          <td className="px-3 py-2">
-                            <div className="flex items-center gap-2.5 min-w-0">
+                          {showVariantMainImageCol && (
+                            <td className="px-2 py-2 align-middle">
                               {thumbUrl ? (
-                                <img
-                                  src={thumbUrl}
-                                  alt=""
-                                  className="h-10 w-10 shrink-0 rounded-md border border-border object-cover bg-muted"
-                                />
+                                <button
+                                  type="button"
+                                  onClick={() => setVariantLightboxSrc(thumbUrl)}
+                                  className="block h-10 w-10 shrink-0 overflow-hidden rounded-md border border-border bg-muted focus:outline-none focus:ring-2 focus:ring-primary/40"
+                                  title="查看原圖"
+                                >
+                                  <img
+                                    src={thumbUrl}
+                                    alt=""
+                                    className="h-full w-full object-cover"
+                                  />
+                                </button>
                               ) : (
                                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-muted/50">
                                   <ImageIcon className="h-4 w-4 text-muted-foreground" />
                                 </div>
                               )}
-                              <span className="font-medium text-foreground">{variantLabel(v)}</span>
-                            </div>
-                          </td>
+                            </td>
+                          )}
+                          <td className="px-3 py-2 font-medium text-foreground align-middle">{variantLabel(v)}</td>
                           <td className="px-3 py-2">
                             <input
                               className="w-full min-w-[180px] rounded-md border border-border bg-background px-2 py-1.5 font-mono-data text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
@@ -719,6 +731,28 @@ export function PublishedProductDetailModal({
           </div>
         </div>
       </div>
+
+      {variantLightboxSrc && (
+        <div
+          className="fixed inset-0 z-[210] flex items-center justify-center bg-black/80 backdrop-blur-sm"
+          onClick={() => setVariantLightboxSrc(null)}
+        >
+          <button
+            type="button"
+            onClick={() => setVariantLightboxSrc(null)}
+            className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20"
+            aria-label="關閉"
+          >
+            <X className="h-4 w-4" />
+          </button>
+          <img
+            src={variantLightboxSrc}
+            alt="規格原圖"
+            className="max-h-[90vh] max-w-[90vw] rounded-xl object-contain shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
+        </div>
+      )}
     </div>
   );
 }

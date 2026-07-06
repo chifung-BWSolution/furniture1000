@@ -15,6 +15,8 @@ type VariantSpec = {
   shopify_product_id: string;
   /** Existing Shopify variant id when updating the parent row */
   variant_id?: number | string;
+  /** Optional image URL assigned in UI (overrides auto-collected source image) */
+  image_src?: string;
 };
 
 type MergeBody = {
@@ -228,6 +230,11 @@ Deno.serve(async (req: Request) => {
     const imageSrcBySku = await collectSpecImageSources(
       apiBase, headers, parentId, existing, specs, existingVariants,
     );
+    for (const spec of specs) {
+      if (isHttpUrl(spec.image_src)) {
+        imageSrcBySku.set(spec.sku, spec.image_src);
+      }
+    }
 
     const shopifyVariants = specs.map((spec, index) => {
       const price = Number(spec.price);

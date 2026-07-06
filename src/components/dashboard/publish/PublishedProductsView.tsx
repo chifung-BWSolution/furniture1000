@@ -2,12 +2,13 @@ import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import {
   CheckCheck, Search, ArrowDownToLine, ArrowUpToLine, RotateCcw, ChevronDown,
-  CloudDownload, Loader2, X, Store, RefreshCw, ArrowUp, ArrowDown,
+  CloudDownload, Loader2, X, Store, RefreshCw, ArrowUp, ArrowDown, GitMerge,
 } from 'lucide-react';
 import { PUBLISH_STATE_META, type PublishState } from '@/constants/analytics-mock';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { PublishedProductDetailModal, type PublishedDisplayProduct } from './PublishedProductDetailModal';
+import { PublishedProductMergeModal } from './PublishedProductMergeModal';
 
 async function parseInvokeError(
   error: unknown,
@@ -216,6 +217,8 @@ export function PublishedProductsView() {
 
   const [isSyncing, setIsSyncing] = useState(false);
   const [isReconcilingMirror, setIsReconcilingMirror] = useState(false);
+  const [mergeHost, setMergeHost] = useState<DisplayProduct | null>(null);
+  const [showMergeModal, setShowMergeModal] = useState(false);
 
   const loadProducts = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setIsLoading(true);
@@ -367,6 +370,17 @@ export function PublishedProductsView() {
   const openDetail = useCallback((p: DisplayProduct) => {
     setDetailProduct(p);
   }, []);
+
+  const openMergeModal = useCallback(() => {
+    if (selected.size !== 1) {
+      toast.message('請先勾選 1 件產品作為合併主體');
+      return;
+    }
+    const host = items.find((p) => selected.has(p.id));
+    if (!host) return;
+    setMergeHost(host);
+    setShowMergeModal(true);
+  }, [selected, items]);
 
   const filteredPreview = useMemo(() =>
     importSearch.trim()
@@ -680,6 +694,20 @@ export function PublishedProductsView() {
             </select>
             <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           </div>
+          <button
+            type="button"
+            onClick={openMergeModal}
+            className={cn(
+              'flex items-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-medium transition-colors',
+              selected.size === 1
+                ? 'border-primary/40 bg-primary/10 text-primary hover:bg-primary/15'
+                : 'border-border text-muted-foreground hover:bg-muted/50',
+            )}
+            title={selected.size === 1 ? '合併所選產品為多規格' : '請先勾選 1 件產品'}
+          >
+            <GitMerge className="h-3.5 w-3.5" />
+            合併產品
+          </button>
         </div>
       </div>
 
@@ -1025,6 +1053,19 @@ export function PublishedProductsView() {
           onSaved={loadProducts}
         />
       )}
+
+      <PublishedProductMergeModal
+        host={mergeHost}
+        open={showMergeModal}
+        onOpenChange={(open) => {
+          setShowMergeModal(open);
+          if (!open) setMergeHost(null);
+        }}
+        onMerged={() => {
+          setSelected(new Set());
+          void loadProducts({ silent: true });
+        }}
+      />
     </div>
   );
 }
