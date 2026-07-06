@@ -206,7 +206,7 @@ export function PublishedProductsView() {
   const [currentPage, setCurrentPage] = useState(1);
   /** Default ↑ = SKU ascending (a→z, 1→9). Click toggles to ↓ descending. */
   const [skuSortDir, setSkuSortDir] = useState<'asc' | 'desc'>('asc');
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [isFetchingPreview, setIsFetchingPreview] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [showImportDialog, setShowImportDialog] = useState(false);
@@ -217,7 +217,7 @@ export function PublishedProductsView() {
 
   const [isSyncing, setIsSyncing] = useState(false);
   const [isReconcilingMirror, setIsReconcilingMirror] = useState(false);
-  const [mergeHost, setMergeHost] = useState<DisplayProduct | null>(null);
+  const [mergeProducts, setMergeProducts] = useState<DisplayProduct[]>([]);
   const [showMergeModal, setShowMergeModal] = useState(false);
 
   const loadProducts = useCallback(async (opts?: { silent?: boolean }) => {
@@ -259,7 +259,7 @@ export function PublishedProductsView() {
   // One-way push: update selected Shopify products from shopify_products mirror.
   // One product per edge-function call avoids relay/timeout when syncing many rows.
   const pushToShopify = useCallback(async () => {
-    const selectedRows = items.filter((p) => selected.has(p.id));
+    const selectedRows = items.filter((p) => selectedIds.includes(p.id));
     if (selectedRows.length === 0) {
       toast.message('請先勾選要同步至 Shopify 的產品');
       return;
@@ -327,7 +327,7 @@ export function PublishedProductsView() {
     } finally {
       setIsSyncing(false);
     }
-  }, [items, selected, loadProducts]);
+  }, [items, selectedIds, loadProducts]);
 
   /** Pull live Shopify catalog → shopify_products mirror (reconcile + remove deleted). */
   const reconcileMirrorFromShopify = useCallback(async () => {
@@ -372,15 +372,17 @@ export function PublishedProductsView() {
   }, []);
 
   const openMergeModal = useCallback(() => {
-    if (selected.size !== 1) {
-      toast.message('請先勾選 1 件產品作為合併主體');
+    if (selectedIds.length < 2) {
+      toast.message('請至少勾選 2 件產品進行合併（最先勾選的為主產品）');
       return;
     }
-    const host = items.find((p) => selected.has(p.id));
-    if (!host) return;
-    setMergeHost(host);
+    const ordered = selectedIds
+      .map((id) => items.find((p) => p.id === id))
+      .filter((p): p is DisplayProduct => Boolean(p));
+    if (ordered.length < 2) return;
+    setMergeProducts(ordered);
     setShowMergeModal(true);
-  }, [selected, items]);
+  }, [selectedIds, items]);
 
   const filteredPreview = useMemo(() =>
     importSearch.trim()
@@ -525,21 +527,21 @@ export function PublishedProductsView() {
 
   // Drop selections that fall outside the current filter set.
   useEffect(() => {
-    setSelected((prev) => {
-      if (prev.size === 0) return prev;
+    setSelectedIds((prev) => {
+      if (prev.length === 0) return prev;
       const validIds = new Set(sorted.map((p) => p.id));
-      const next = new Set(Array.from(prev).filter((id) => validIds.has(id)));
-      return next.size === prev.size ? prev : next;
+      const next = prev.filter((id) => validIds.has(id));
+      return next.length === prev.length ? prev : next;
     });
   }, [sorted]);
 
-  const pageAllSelected = paged.length > 0 && paged.every((p) => selected.has(p.id));
-  const pageSomeSelected = paged.some((p) => selected.has(p.id)) && !pageAllSelected;
+  const pageAllSelected = paged.length > 0 && paged.every((p) => selectedIds.includes(p.id));
+  const pageSomeSelected = paged.some((p) => selectedIds.includes(p.id)) && !pageAllSelected;
   const selectionSpansPages = useMemo(() => {
-    if (selected.size === 0) return false;
+    if (selectedIds.length === 0) return false;
     const pageIdSet = new Set(paged.map((p) => p.id));
-    return Array.from(selected).some((id) => !pageIdSet.has(id));
-  }, [selected, paged]);
+    return selectedIds.some((id) => !pageIdSet.has(id));
+  }, [selectedIds, paged]);
 
   const pageSelectAllRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
@@ -549,11 +551,16 @@ export function PublishedProductsView() {
   }, [pageSomeSelected]);
 
   const togglePageSelectAll = (checked: boolean) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (checked) paged.forEach((p) => next.add(p.id));
-      else paged.forEach((p) => next.delete(p.id));
-      return next;
+    setSelectedIds((prev) => {
+      if (checked) {
+        const next = [...prev];
+        for (const p of paged) {
+          if (!next.includes(p.id)) next.push(p.id);
+        }
+        return next;
+      }
+      const pageIdSet = new Set(paged.map((p) => p.id));
+      return prev.filter((id) => !pageIdSet.has(id));
     });
   };
 
@@ -596,10 +603,12 @@ export function PublishedProductsView() {
     toast.success(msg);
   };
 
-  const toggle = (id: string) => setSelected((prev) => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+  const toggle = (id: string) => setSelectedIds((prev) => (
+    prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+  ));
 
   const bulkDelist = async () => {
-    const ids = Array.from(selected);
+    const ids = [...selectedIds];
     if (!ids.length) { toast.message('請先勾選產品'); return; }
     // Collect Shopify product IDs for the selected rows
     const shopifyIds = items
@@ -613,7 +622,7 @@ export function PublishedProductsView() {
       return;
     }
     setItems((prev) => prev.map((p) => ids.includes(p.id) ? { ...p, state: 'delisted' } : p));
-    setSelected(new Set());
+    setSelectedIds([]);
     toast.success(`已從 Shopify 下架 ${shopifyIds.length} 件產品`, { id: toastId });
   };
 
@@ -655,7 +664,7 @@ export function PublishedProductsView() {
               className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-indigo-500/40 bg-indigo-500/10 px-3 text-xs font-semibold text-indigo-700 dark:text-indigo-400 hover:bg-indigo-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isSyncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
-              {isSyncing ? '推送中...' : selected.size > 0 ? `與 Shopify 同步 (${selected.size})` : '與 Shopify 同步'}
+              {isSyncing ? '推送中...' : selectedIds.length > 0 ? `與 Shopify 同步 (${selectedIds.length})` : '與 Shopify 同步'}
             </button>
             <button
               type="button"
@@ -670,24 +679,24 @@ export function PublishedProductsView() {
             <button
               type="button"
               onClick={bulkDelist}
-              disabled={selected.size === 0}
-              title={selected.size > 0 ? `批量下架 ${selected.size} 件產品` : '請先勾選要下架的產品'}
+              disabled={selectedIds.length === 0}
+              title={selectedIds.length > 0 ? `批量下架 ${selectedIds.length} 件產品` : '請先勾選要下架的產品'}
               className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 text-xs font-semibold text-rose-600 hover:bg-rose-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <ArrowDownToLine className="h-3.5 w-3.5" />
-              {selected.size > 0 ? `批量下架（${selected.size}）` : '批量下架'}
+              {selectedIds.length > 0 ? `批量下架（${selectedIds.length}）` : '批量下架'}
             </button>
             <button
               type="button"
               onClick={openMergeModal}
-              disabled={selected.size !== 1}
+              disabled={selectedIds.length < 2}
               className={cn(
                 'inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed',
-                selected.size === 1
+                selectedIds.length >= 2
                   ? 'border-primary/40 bg-primary/10 text-primary hover:bg-primary/15'
                   : 'border-border text-muted-foreground hover:bg-muted/50',
               )}
-              title={selected.size === 1 ? '合併所選產品為多規格' : '請先勾選 1 件產品'}
+              title={selectedIds.length >= 2 ? '合併所選產品為多規格（最先勾選的為主產品）' : '請至少勾選 2 件產品'}
             >
               <GitMerge className="h-3.5 w-3.5" />
               合併產品
@@ -752,9 +761,9 @@ export function PublishedProductsView() {
             </button>
           ))}
         </div>
-        {selected.size > 0 && (
+        {selectedIds.length > 0 && (
           <span className="shrink-0 font-mono-data text-[11px] text-muted-foreground">
-            已選 <span className="font-semibold text-foreground">{selected.size}</span> / 共 {sorted.length} 件
+            已選 <span className="font-semibold text-foreground">{selectedIds.length}</span> / 共 {sorted.length} 件
             {selectionSpansPages && <span className="text-primary">（含跨頁）</span>}
           </span>
         )}
@@ -815,7 +824,7 @@ export function PublishedProductsView() {
                 return (
                   <tr key={p.id} className="hover:bg-muted/30 cursor-pointer" onClick={() => openDetail(p)}>
                     <td className="px-4 py-2.5 sticky left-0 bg-card z-10" onClick={e => e.stopPropagation()}>
-                      <input type="checkbox" className="rounded border-border" checked={selected.has(p.id)} onChange={() => toggle(p.id)} />
+                      <input type="checkbox" className="rounded border-border" checked={selectedIds.includes(p.id)} onChange={() => toggle(p.id)} />
                     </td>
                     {/* 產品 */}
                     <td className="px-3 py-2.5 sticky left-10 bg-card z-10">
@@ -1087,14 +1096,14 @@ export function PublishedProductsView() {
       )}
 
       <PublishedProductMergeModal
-        host={mergeHost}
+        products={mergeProducts}
         open={showMergeModal}
         onOpenChange={(open) => {
           setShowMergeModal(open);
-          if (!open) setMergeHost(null);
+          if (!open) setMergeProducts([]);
         }}
         onMerged={() => {
-          setSelected(new Set());
+          setSelectedIds([]);
           void loadProducts({ silent: true });
         }}
       />

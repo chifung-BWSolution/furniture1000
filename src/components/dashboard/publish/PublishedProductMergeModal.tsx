@@ -132,8 +132,8 @@ function rowsFromProduct(row: ShopifyProductRow): MergeVariantRow[] {
   });
 }
 
-function collectGalleryUrls(
-  rows: MergeVariantRow[],
+function buildGalleryFromProducts(
+  productOrder: string[],
   productByShopifyId: Map<string, ShopifyProductRow>,
 ): string[] {
   const seen = new Set<string>();
@@ -143,14 +143,29 @@ function collectGalleryUrls(
     seen.add(url);
     out.push(url);
   };
-
-  for (const row of rows) {
-    const product = productByShopifyId.get(row.shopify_product_id);
+  for (const shopifyId of productOrder) {
+    const product = productByShopifyId.get(shopifyId);
     if (!product) continue;
     add(product.image_url);
     for (const im of product.images ?? []) add(im.src);
   }
   return out;
+}
+
+function appendProductImages(
+  prev: string[],
+  product: ShopifyProductRow,
+): string[] {
+  const seen = new Set(prev);
+  const next = [...prev];
+  const add = (url: string | null | undefined) => {
+    if (!isHttpUrl(url) || seen.has(url)) return;
+    seen.add(url);
+    next.push(url);
+  };
+  add(product.image_url);
+  for (const im of product.images ?? []) add(im.src);
+  return next;
 }
 
 function MergeVariantRowView({
@@ -272,18 +287,19 @@ function MergeVariantRowView({
 }
 
 export function PublishedProductMergeModal({
-  host,
+  products,
   open,
   onOpenChange,
   onMerged,
 }: {
-  host: MergeHostProduct | null;
+  products: MergeHostProduct[];
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onMerged?: () => void;
 }) {
   const [rows, setRows] = useState<MergeVariantRow[]>([]);
   const [productCache, setProductCache] = useState<Map<string, ShopifyProductRow>>(new Map());
+  const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
   const [showPicker, setShowPicker] = useState(false);
   const [pickerSearch, setPickerSearch] = useState('');
   const [pickerFactory, setPickerFactory] = useState('');
@@ -295,26 +311,29 @@ export function PublishedProductMergeModal({
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
   const [isMerging, setIsMerging] = useState(false);
 
+  const host = products[0] ?? null;
   const hostShopifyId = host?.shopify_product_id ?? '';
 
   useEffect(() => {
-    if (!open || !host) return;
-    const raw = host.raw;
-    const initial = rowsFromProduct(raw);
+    if (!open || products.length === 0) return;
     const cache = new Map<string, ShopifyProductRow>();
-    cache.set(raw.shopify_product_id, raw);
-    setRows(initial);
+    const allRows: MergeVariantRow[] = [];
+    const order: string[] = [];
+    for (const p of products) {
+      cache.set(p.raw.shopify_product_id, p.raw);
+      if (!order.includes(p.raw.shopify_product_id)) {
+        order.push(p.raw.shopify_product_id);
+      }
+      allRows.push(...rowsFromProduct(p.raw));
+    }
+    setRows(allRows);
     setProductCache(cache);
+    setGalleryUrls(buildGalleryFromProducts(order, cache));
     setShowPicker(false);
     setPickerSearch('');
     setPickerFactory('');
     setPickerPage(0);
-  }, [open, host]);
-
-  const galleryUrls = useMemo(
-    () => collectGalleryUrls(rows, productCache),
-    [rows, productCache],
-  );
+  }, [open, products]);
 
   const addedShopifyIds = useMemo(
     () => new Set(rows.map((r) => r.shopify_product_id)),
@@ -396,6 +415,11 @@ export function PublishedProductMergeModal({
     setRows((prev) => prev.map((r) => (r.key === key ? { ...r, imageSrc: url } : r)));
   };
 
+  const removeGalleryImage = (url: string) => {
+    setGalleryUrls((prev) => prev.filter((u) => u !== url));
+    setRows((prev) => prev.map((r) => (r.imageSrc === url ? { ...r, imageSrc: null } : r)));
+  };
+
   const addProduct = (product: ShopifyProductRow) => {
     const newRows = rowsFromProduct(product);
     setProductCache((prev) => {
@@ -403,6 +427,10 @@ export function PublishedProductMergeModal({
       next.set(product.shopify_product_id, product);
       return next;
     });
+    setProductOrder((prev) => (
+      prev.includes(product.shopify_product_id) ? prev : [...prev, product.shopify_product_id]
+    ));
+    setGalleryUrls((prev) => appendProductImages(prev, product));
     setRows((prev) => [...prev, ...newRows]);
     setShowPicker(false);
     setPickerSearch('');
@@ -471,7 +499,7 @@ export function PublishedProductMergeModal({
     }
   };
 
-  if (!host) return null;
+  if (!host || products.length === 0) return null;
 
   return (
     <Dialog open={open} onOpenChange={(v) => { if (!isMerging) onOpenChange(v); }}>
@@ -504,18 +532,39 @@ export function PublishedProductMergeModal({
               拖曳縮圖至下方各規格的「產品主圖」；點擊縮圖可在新視窗查看原圖
             </p>
             <div className="grid grid-cols-6 gap-2">
-              {galleryUrls.map((url) => (
-                <button
-                  key={url}
-                  type="button"
-                  draggable
-                  onDragStart={(e) => handleGalleryDragStart(e, url)}
-                  onClick={() => window.open(url, '_blank', 'noopener,noreferrer')}
-                  className="aspect-square overflow-hidden rounded-md border border-border bg-muted/30 hover:ring-2 hover:ring-primary/40 transition-shadow cursor-grab active:cursor-grabbing"
-                  title="拖曳至規格主圖，或點擊放大"
-                >
-                  <img src={url} alt="" className="h-full w-full object-cover" draggable={false} />
-                </button>
+              {galleryUrls.map((url, idx) => (
+                <div key={url} className="flex flex-col items-center gap-0.5">
+                  {idx === 0 ? (
+                    <span className="font-body text-[9px] font-semibold text-primary leading-none">
+                      Shopify主圖
+                    </span>
+                  ) : (
+                    <span className="h-[13px]" aria-hidden />
+                  )}
+                  <div className="relative aspect-square w-full">
+                    <button
+                      type="button"
+                      draggable
+                      onDragStart={(e) => handleGalleryDragStart(e, url)}
+                      onClick={() => window.open(url, '_blank', 'noopener,noreferrer')}
+                      className="h-full w-full overflow-hidden rounded-md border border-border bg-muted/30 hover:ring-2 hover:ring-primary/40 transition-shadow cursor-grab active:cursor-grabbing"
+                      title="拖曳至規格主圖，或點擊放大"
+                    >
+                      <img src={url} alt="" className="h-full w-full object-cover" draggable={false} />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        removeGalleryImage(url);
+                      }}
+                      className="absolute top-0.5 right-0.5 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-black/65 text-white hover:bg-destructive transition-colors"
+                      title="移除此圖片"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </div>
+                </div>
               ))}
             </div>
           </div>
