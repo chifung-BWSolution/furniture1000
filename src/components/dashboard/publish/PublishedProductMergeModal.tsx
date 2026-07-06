@@ -591,7 +591,7 @@ export function PublishedProductMergeModal({
 
       toast.success('產品已合併', {
         id: toastId,
-        description: `共 ${data.variant_count ?? rows.length} 個規格 · 已刪除 ${(data.deleted_on_shopify ?? []).length} 件子產品`,
+        description: `共 ${data.variant_count ?? rows.length} 個規格 · 已下架 ${(data.archived_on_shopify ?? data.deleted_on_shopify ?? []).length} 件子產品`,
         duration: 8000,
       });
       onOpenChange(false);

@@ -306,21 +306,6 @@ Deno.serve(async (req: Request) => {
         .filter((id) => id !== parentId && /^\d+$/.test(id)),
     )];
 
-    const deletedOnShopify: string[] = [];
-    const deleteErrors: { shopify_product_id: string; error: string }[] = [];
-    for (const childId of childProductIds) {
-      const delResp = await fetch(`${apiBase}/products/${childId}.json`, { method: "DELETE", headers });
-      if (delResp.ok) {
-        deletedOnShopify.push(childId);
-      } else {
-        const t = await delResp.text();
-        deleteErrors.push({ shopify_product_id: childId, error: t.slice(0, 200) });
-      }
-    }
-    if (deleteErrors.length > 0) {
-      return json({ error: "Failed to delete child products before merge", delete_errors: deleteErrors }, 502);
-    }
-
     const putResp = await fetch(`${apiBase}/products/${parentId}.json`, {
       method: "PUT",
       headers,
@@ -340,6 +325,23 @@ Deno.serve(async (req: Request) => {
     const { attached: imagesAttached, failed: imagesFailed } = await attachVariantImages(
       apiBase, headers, parentId, specs, imageSrcBySku,
     );
+
+    // Archive child listings on Shopify (manual DELETE later if needed).
+    const archivedOnShopify: string[] = [];
+    const archiveErrors: { shopify_product_id: string; error: string }[] = [];
+    for (const childId of childProductIds) {
+      const archResp = await fetch(`${apiBase}/products/${childId}.json`, {
+        method: "PUT",
+        headers,
+        body: JSON.stringify({ product: { id: Number(childId), status: "archived" } }),
+      });
+      if (archResp.ok) {
+        archivedOnShopify.push(childId);
+      } else {
+        const t = await archResp.text();
+        archiveErrors.push({ shopify_product_id: childId, error: t.slice(0, 200) });
+      }
+    }
 
     const finalProduct = await fetchShopifyProduct(apiBase, headers, parentId);
     if (!finalProduct) return json({ error: "Shopify GET parent after merge failed" }, 502);
@@ -392,8 +394,10 @@ Deno.serve(async (req: Request) => {
       parent_shopify_product_id: parentId,
       parent_sku: parentSku,
       variant_count: mergedVariants.length,
-      deleted_on_shopify: deletedOnShopify,
-      delete_errors: deleteErrors,
+      archived_on_shopify: archivedOnShopify,
+      archive_errors: archiveErrors,
+      /** @deprecated use archived_on_shopify */
+      deleted_on_shopify: archivedOnShopify,
       images_attached: imagesAttached,
       images_failed: imagesFailed,
       variants: mergedVariants.map((v) => ({
