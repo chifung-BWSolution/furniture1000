@@ -2061,7 +2061,6 @@ export function QuotationDraftEditor({
                         onDragStart={setDraggingItemId}
                         onDragEnd={clearQuoteRowDrag}
                         updateItem={updateItem}
-                        updateExchangeRate={updateExchangeRate}
                         removeItem={removeItem}
                       />
                     ) : (
