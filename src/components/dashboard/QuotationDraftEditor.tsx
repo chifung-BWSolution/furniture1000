@@ -655,14 +655,14 @@ function QuoteProductItemCard({
           />
         </QuoteFieldBlock>
 
-        {/* Row 2 — col 5: CNY成本 · 匯率 · HKD成本 (stacked, HKD bottom aligns with 參考圖) */}
+        {/* Row 2 — col 5: CNY成本 · 匯率 · HKD成本 (匯率垂直置中於上下兩欄之間) */}
         <div
           className={cn(
-            "col-start-5 row-start-2 flex min-h-0 flex-col gap-0.5 self-stretch",
+            "col-start-5 row-start-2 flex min-h-0 flex-col self-stretch",
             QUOTE_QTY_COST_FIELD_CLASS,
           )}
         >
-          <QuoteFieldBlock label="CNY¥成本價">
+          <QuoteFieldBlock label="CNY¥成本價" className="shrink-0">
             <input
               type="number"
               value={item.costPrice ?? ""}
@@ -678,24 +678,26 @@ function QuoteProductItemCard({
               className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
             />
           </QuoteFieldBlock>
-          <QuoteFieldBlock label="匯率">
-            <input
-              type="text"
-              inputMode="decimal"
-              value={item.exchangeRate != null ? String(item.exchangeRate) : ""}
-              placeholder="—"
-              onChange={(e) => {
-                const sanitized = sanitizeExchangeRateInput(e.target.value);
-                updateItem(
-                  item.id,
-                  "exchangeRate",
-                  parseExchangeRateValue(sanitized),
-                );
-              }}
-              className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
-            />
-          </QuoteFieldBlock>
-          <QuoteFieldBlock label="HKD$成本價" className="mt-auto">
+          <div className="flex min-h-0 flex-1 items-center py-0.5">
+            <QuoteFieldBlock label="匯率" className="w-full">
+              <input
+                type="text"
+                inputMode="decimal"
+                value={item.exchangeRate != null ? String(item.exchangeRate) : ""}
+                placeholder="—"
+                onChange={(e) => {
+                  const sanitized = sanitizeExchangeRateInput(e.target.value);
+                  updateItem(
+                    item.id,
+                    "exchangeRate",
+                    parseExchangeRateValue(sanitized),
+                  );
+                }}
+                className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
+              />
+            </QuoteFieldBlock>
+          </div>
+          <QuoteFieldBlock label="HKD$成本價" className="shrink-0">
             <div className="flex h-[34px] items-center rounded-md border border-border/60 bg-muted/20 px-2">
               <span className="truncate font-mono-data text-xs font-medium text-foreground">
                 {formatHkdCostDisplayCeil(item.hkdCostPrice)}
