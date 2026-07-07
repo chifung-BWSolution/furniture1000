@@ -1,3 +1,13 @@
+/** Value shown in the 匯率 input — keeps trailing "." while typing (e.g. "1."). */
+export function exchangeRateInputDisplay(
+  input: string | undefined,
+  rate: number | null | undefined,
+): string {
+  if (input !== undefined) return input;
+  if (rate == null) return "";
+  return String(rate);
+}
+
 /** Sanitize exchange-rate text input: digits and one decimal point, max 3 decimal places. */
 export function sanitizeExchangeRateInput(raw: string): string {
   let s = raw.replace(/[^\d.]/g, "");

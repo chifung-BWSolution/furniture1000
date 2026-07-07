@@ -42,6 +42,7 @@ import {
   parseExchangeRateValue,
   computeHkdCostPrice,
   formatHkdCostDisplayCeil,
+  exchangeRateInputDisplay,
 } from "@/lib/quoteCostExchange";
 
 interface QuoteFormData {
@@ -70,6 +71,8 @@ interface QuotationItem {
   name: string;
   costPrice?: number | null;
   exchangeRate?: number | null;
+  /** Transient UI string for 匯率 input (preserves trailing decimal while typing). */
+  exchangeRateInput?: string;
   hkdCostPrice?: number | null;
   unitPrice: number;
   quantity: number;
@@ -477,6 +480,7 @@ function QuoteProductItemCard({
   onDragStart,
   onDragEnd,
   updateItem,
+  updateExchangeRate,
   removeItem,
 }: {
   item: QuotationItem;
@@ -488,6 +492,7 @@ function QuoteProductItemCard({
   onDragStart: (id: string) => void;
   onDragEnd: () => void;
   updateItem: (id: string, field: keyof QuotationItem, value: string | number | null) => void;
+  updateExchangeRate: (id: string, raw: string) => void;
   removeItem: (id: string) => void;
 }) {
   return (
@@ -683,16 +688,9 @@ function QuoteProductItemCard({
               <input
                 type="text"
                 inputMode="decimal"
-                value={item.exchangeRate != null ? String(item.exchangeRate) : ""}
+                value={exchangeRateInputDisplay(item.exchangeRateInput, item.exchangeRate)}
                 placeholder="—"
-                onChange={(e) => {
-                  const sanitized = sanitizeExchangeRateInput(e.target.value);
-                  updateItem(
-                    item.id,
-                    "exchangeRate",
-                    parseExchangeRateValue(sanitized),
-                  );
-                }}
+                onChange={(e) => updateExchangeRate(item.id, e.target.value)}
                 className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
               />
             </QuoteFieldBlock>
@@ -1263,6 +1261,22 @@ export function QuotationDraftEditor({
     );
   };
 
+  const updateExchangeRate = (id: string, raw: string) => {
+    const sanitized = sanitizeExchangeRateInput(raw);
+    const rate = parseExchangeRateValue(sanitized);
+    setItems((prev) =>
+      prev.map((item) => {
+        if (item.id !== id) return item;
+        return {
+          ...item,
+          exchangeRateInput: sanitized,
+          exchangeRate: rate,
+          hkdCostPrice: computeHkdCostPrice(item.costPrice, rate),
+        };
+      }),
+    );
+  };
+
   const [draggingItemId, setDraggingItemId] = useState<string | null>(null);
   const [dropInsertIndex, setDropInsertIndex] = useState<number | null>(null);
 
@@ -1546,7 +1560,8 @@ export function QuotationDraftEditor({
       deliveryDetails,
       termsContent: termsContent as unknown as Record<string, unknown>,
       items: items.map(
-        ({ id, ...rest }) => rest as unknown as Record<string, unknown>,
+        ({ id, exchangeRateInput: _exchangeRateInput, ...rest }) =>
+          rest as unknown as Record<string, unknown>,
       ),
       subtotal,
       discountNote,
@@ -1636,7 +1651,7 @@ export function QuotationDraftEditor({
     quoteMeta,
     deliveryDetails,
     termsContent,
-    items: items.map(({ id, ...rest }) => rest),
+    items: items.map(({ id, exchangeRateInput: _exchangeRateInput, ...rest }) => rest),
     subtotal,
     discountNote,
     discountValue,
@@ -2046,6 +2061,7 @@ export function QuotationDraftEditor({
                         onDragStart={setDraggingItemId}
                         onDragEnd={clearQuoteRowDrag}
                         updateItem={updateItem}
+                        updateExchangeRate={updateExchangeRate}
                         removeItem={removeItem}
                       />
                     ) : (
@@ -2060,6 +2076,7 @@ export function QuotationDraftEditor({
                         onDragStart={setDraggingItemId}
                         onDragEnd={clearQuoteRowDrag}
                         updateItem={updateItem}
+                        updateExchangeRate={updateExchangeRate}
                         removeItem={removeItem}
                       />
                     ),
