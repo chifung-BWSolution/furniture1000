@@ -877,7 +877,8 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `BWF_\u5831\u50F9\u55AE_${data?.clientInfo?.name || 'Draft'}_${new Date().toISOString().slice(0, 10)}.pdf`;
+      const quoteNumber = (data?.quoteMeta?.quoteNumber || 'Draft').trim();
+      link.download = `BWF_報價單_${quoteNumber}.pdf`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
