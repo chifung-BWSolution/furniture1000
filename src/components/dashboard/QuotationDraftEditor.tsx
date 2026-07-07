@@ -418,7 +418,7 @@ function QuoteFieldBlock({
 const QUOTE_INPUT_CLASS =
   "w-full rounded-md border border-border bg-background px-2 py-1.5 font-body text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30";
 
-/** ~15 Chinese characters — 類別、顏色 */
+/** ~15 Chinese characters — 顏色 */
 const QUOTE_SHORT_TEXT_INPUT_CLASS = `${QUOTE_INPUT_CLASS} max-w-[15em]`;
 
 const QUOTE_NUMBER_INPUT_CLASS =
@@ -508,13 +508,12 @@ function QuoteProductItemCard({
         {/* Row 1 — col 2: 類別 · 尺寸 · 顏色 */}
         <div className="col-start-2 row-start-1 min-w-0 w-full space-y-2">
           <QuoteFieldBlock label="類別">
-            <input
-              type="text"
+            <textarea
               value={item.category || ""}
               placeholder="—"
-              maxLength={15}
+              rows={2}
               onChange={(e) => updateItem(item.id, "category", e.target.value)}
-              className={QUOTE_INPUT_CLASS}
+              className={`${QUOTE_INPUT_CLASS} min-h-[34px] resize-y leading-relaxed`}
             />
           </QuoteFieldBlock>
           <QuoteFieldBlock label="尺寸(mm), 長 x 闊 x 高">

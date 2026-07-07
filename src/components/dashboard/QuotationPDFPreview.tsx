@@ -443,10 +443,11 @@ function renderDescriptionPdfContent(
 ) {
   const dimText = formatDimensions(item);
   const rows: Array<
+    | { kind: 'category'; label: string; value: string }
     | { kind: 'simple'; label: string; value: string }
     | { kind: 'dimensions'; label: string; dimText: string }
   > = [
-    { kind: 'simple', label: '\u985E\u5225', value: item?.category || '' },
+    { kind: 'category', label: '\u985E\u5225', value: item?.category || '' },
     { kind: 'dimensions', label: '\u898F\u683C(mm)', dimText },
     { kind: 'simple', label: '\u984F\u8272', value: multiColorToChineseDisplay(item?.color || '') },
   ];
@@ -457,9 +458,12 @@ function renderDescriptionPdfContent(
         <View
           key={row.label}
           style={{
-            flex: row.kind === 'dimensions' ? 1.3 : 1,
+            flex: row.kind === 'dimensions' ? 1.3 : row.kind === 'simple' ? 1 : undefined,
+            flexGrow: row.kind === 'category' ? 0 : undefined,
+            flexShrink: row.kind === 'category' ? 0 : undefined,
             flexDirection: 'row',
-            minHeight: row.kind === 'dimensions' ? 26 : 18,
+            alignItems: row.kind === 'category' ? 'stretch' : 'center',
+            minHeight: row.kind === 'dimensions' ? 26 : row.kind === 'simple' ? 18 : undefined,
             borderBottomWidth: i < rows.length - 1 ? 0.5 : 0,
             borderColor: '#ddd',
           }}
@@ -467,9 +471,11 @@ function renderDescriptionPdfContent(
           <View
             style={{
               width: '50%',
-              justifyContent: 'center',
+              justifyContent: row.kind === 'category' ? 'flex-start' : 'center',
               alignItems: 'center',
               paddingHorizontal: 2,
+              paddingTop: row.kind === 'category' ? 4 : 0,
+              paddingBottom: row.kind === 'category' ? 4 : 0,
               borderRightWidth: 0.5,
               borderColor: '#ddd',
             }}
@@ -486,6 +492,10 @@ function renderDescriptionPdfContent(
                     </Text>
                   ))
                 : null}
+            </View>
+          ) : row.kind === 'category' ? (
+            <View style={{ width: '50%', justifyContent: 'flex-start', paddingHorizontal: 2, paddingVertical: 2 }}>
+              <Text style={styles.descMultilineValueText}>{pdfDisplayText(row.value)}</Text>
             </View>
           ) : (
             <View style={{ width: '50%', justifyContent: 'center', paddingHorizontal: 2 }}>
@@ -527,6 +537,7 @@ const styles: Record<string, any> = {
   tableCellText: { fontSize: 7, textAlign: 'center', lineHeight: 1.3 },
   tableCellTextLeft: { fontSize: 7, textAlign: 'left', lineHeight: 1.45, paddingLeft: 4 },
   descValueText: { fontSize: 6.5, textAlign: 'left', lineHeight: 1.3, paddingLeft: 2 },
+  descMultilineValueText: { fontSize: 6.5, textAlign: 'left', lineHeight: 1.35, paddingLeft: 2, width: '100%' },
   descDimLabelText: { fontSize: 6, textAlign: 'left', lineHeight: 1.2, paddingLeft: 2, color: '#555' },
   descDimValueText: { fontSize: 6, textAlign: 'left', lineHeight: 1.2, paddingLeft: 2, width: '100%' },
   cellStackSlot: { flex: 1, width: '100%', justifyContent: 'center', alignItems: 'center', paddingVertical: 2, paddingHorizontal: 2 },
