@@ -287,6 +287,47 @@ const TABLE_BORDER = '#333';
 const PDF_TABLE_WIDTH_PT = 555;
 const REMARKS_COL_WIDTH_PT = PDF_TABLE_WIDTH_PT * 0.09;
 const ILLUSTRATION_COL_WIDTH_PT = PDF_TABLE_WIDTH_PT * 0.114;
+/** Usable text width inside 材質及明細 column (29.2% − cell padding) */
+const PDF_MATERIAL_COL_WIDTH_PT = Math.round(PDF_TABLE_WIDTH_PT * 0.292 - 12);
+
+/**
+ * Prepare 材質及明細 for PDF — keep user Enter breaks; drop paste/Word soft breaks
+ * that split mid-sentence (next line starts with continuation punctuation).
+ */
+function normalizeMaterialForPdf(text: string): string {
+  let s = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  s = s.replace(/\n(?=[:：,，)）\-])/g, '');
+  return s;
+}
+
+function renderMaterialPdfContent(
+  material: string | undefined,
+  View: ReactPdfModule['View'],
+  Text: ReactPdfModule['Text'],
+) {
+  const body = normalizeMaterialForPdf(material || '');
+  if (!body.trim()) return null;
+
+  const lines = body.split('\n');
+
+  return (
+    <View style={{ width: PDF_MATERIAL_COL_WIDTH_PT, flex: 1 }}>
+      {lines.map((line, i) =>
+        line.trim() === '' ? (
+          <View key={`mat-sp-${i}`} style={{ height: 4 }} />
+        ) : (
+          <Text
+            key={`mat-${i}`}
+            style={styles.materialCellText}
+            hyphenationCallback={(word) => Array.from(word)}
+          >
+            {pdfDisplayText(line)}
+          </Text>
+        ),
+      )}
+    </View>
+  );
+}
 
 /** Shared border for each table band — bottom line closes the row at page breaks. */
 const tableBandBorder = {
@@ -337,7 +378,7 @@ function renderQuotationTableRow(
         {renderDescriptionPdfContent(item, formatDimensions, View, Text)}
       </View>
       <View style={styles.colMaterial}>
-        <Text style={styles.tableCellTextLeft}>{pdfDisplayText(item?.material || '')}</Text>
+        {renderMaterialPdfContent(item?.material, View, Text)}
       </View>
       <View style={styles.colRemarks}>
         <View style={{ width: '100%', flex: 1 }}>
@@ -536,6 +577,7 @@ const styles: Record<string, any> = {
   tableHeaderText: { fontSize: 6.5, fontWeight: 700, textAlign: 'center', lineHeight: 1.4 },
   tableCellText: { fontSize: 7, textAlign: 'center', lineHeight: 1.3 },
   tableCellTextLeft: { fontSize: 7, textAlign: 'left', lineHeight: 1.45, paddingLeft: 4 },
+  materialCellText: { fontSize: 7, textAlign: 'left', lineHeight: 1.45, width: PDF_MATERIAL_COL_WIDTH_PT },
   descValueText: { fontSize: 6.5, textAlign: 'left', lineHeight: 1.3, paddingLeft: 2 },
   descMultilineValueText: { fontSize: 6.5, textAlign: 'left', lineHeight: 1.35, paddingLeft: 2, width: '100%' },
   descDimLabelText: { fontSize: 6, textAlign: 'left', lineHeight: 1.2, paddingLeft: 2, color: '#555' },
