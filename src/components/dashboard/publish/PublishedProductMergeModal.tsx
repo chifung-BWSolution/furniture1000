@@ -125,6 +125,39 @@ function resolvePrice(row: ShopifyProductRow, variant?: ShopifyVariant): number 
   return 0;
 }
 
+/**
+ * When multiple merge rows share the same SKU, keep the lowest-price row on the base SKU;
+ * others become `{base}-1`, `{base}-2`, … (ties broken by size label).
+ * Rows with unique SKUs are unchanged.
+ */
+function assignDuplicateMergeSkus(rows: MergeVariantRow[]): MergeVariantRow[] {
+  if (rows.length === 0) return rows;
+  const next = rows.map((r) => ({ ...r }));
+  const groups = new Map<string, number[]>();
+  next.forEach((row, idx) => {
+    const sku = row.sku.trim();
+    if (!sku) return;
+    const list = groups.get(sku) ?? [];
+    list.push(idx);
+    groups.set(sku, list);
+  });
+  for (const [baseSku, indices] of groups) {
+    if (indices.length <= 1) continue;
+    const sorted = [...indices].sort((a, b) => {
+      const priceDiff = next[a].price - next[b].price;
+      if (priceDiff !== 0) return priceDiff;
+      return next[a].size.localeCompare(next[b].size, 'zh-Hant');
+    });
+    sorted.forEach((idx, rank) => {
+      next[idx] = {
+        ...next[idx],
+        sku: rank === 0 ? baseSku : `${baseSku}-${rank}`,
+      };
+    });
+  }
+  return next;
+}
+
 function rowsFromProduct(row: ShopifyProductRow): MergeVariantRow[] {
   const variants = Array.isArray(row.variants) && row.variants.length > 0
     ? row.variants
@@ -377,7 +410,7 @@ export function PublishedProductMergeModal({
       }
       allRows.push(...rowsFromProduct(p.raw));
     }
-    setRows(allRows);
+    setRows(assignDuplicateMergeSkus(allRows));
     setProductCache(cache);
     setGalleryUrls(buildGalleryFromProducts(order, cache));
     setShowPicker(false);
@@ -535,7 +568,7 @@ export function PublishedProductMergeModal({
       return next;
     });
     setGalleryUrls((prev) => appendProductImages(prev, product));
-    setRows((prev) => [...prev, ...newRows]);
+    setRows((prev) => assignDuplicateMergeSkus([...prev, ...newRows]));
     setShowPicker(false);
     setPickerSearch('');
     setPickerFactory('');
@@ -618,7 +651,7 @@ export function PublishedProductMergeModal({
                 合併產品 — {hostTitle}
               </DialogTitle>
               <DialogDescription className="font-body text-xs">
-                拖曳左側握把調整順序（第一行為主產品）。管理每個變體的產品主圖、SKU、售價、尺寸、Option1 和庫存。
+                拖曳左側握把調整順序（第一行為主產品）。相同 SKU 會按售價由低至高自動編號（最低保留原 SKU，其餘為 -1、-2…）；不同 SKU 則維持不變。
               </DialogDescription>
             </div>
             <Button
