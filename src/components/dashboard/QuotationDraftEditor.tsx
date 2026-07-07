@@ -37,6 +37,12 @@ import {
   resolveDeliveryAddress,
   type SavedTermsContent,
 } from "@/lib/quotationDefaultTerms";
+import {
+  sanitizeExchangeRateInput,
+  parseExchangeRateValue,
+  computeHkdCostPrice,
+  formatHkdCostDisplayCeil,
+} from "@/lib/quoteCostExchange";
 
 interface QuoteFormData {
   company: string;
@@ -63,6 +69,8 @@ interface QuotationItem {
   referenceImage?: string;
   name: string;
   costPrice?: number | null;
+  exchangeRate?: number | null;
+  hkdCostPrice?: number | null;
   unitPrice: number;
   quantity: number;
   unit?: string;
@@ -647,26 +655,54 @@ function QuoteProductItemCard({
           />
         </QuoteFieldBlock>
 
-        {/* Row 2 — cols 5–6: 成本價 · 單價 */}
-        <QuoteFieldBlock
-          label="CNY¥成本價"
-          className={cn("col-start-5 row-start-2", QUOTE_QTY_COST_FIELD_CLASS)}
+        {/* Row 2 — col 5: CNY成本 · 匯率 · HKD成本 (stacked, HKD bottom aligns with 參考圖) */}
+        <div
+          className={cn(
+            "col-start-5 row-start-2 flex min-h-0 flex-col gap-0.5 self-stretch",
+            QUOTE_QTY_COST_FIELD_CLASS,
+          )}
         >
-          <input
-            type="number"
-            value={item.costPrice ?? ""}
-            placeholder="—"
-            min={0}
-            onChange={(e) =>
-              updateItem(
-                item.id,
-                "costPrice",
-                e.target.value ? parseFloat(e.target.value) : null,
-              )
-            }
-            className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
-          />
-        </QuoteFieldBlock>
+          <QuoteFieldBlock label="CNY¥成本價">
+            <input
+              type="number"
+              value={item.costPrice ?? ""}
+              placeholder="—"
+              min={0}
+              onChange={(e) =>
+                updateItem(
+                  item.id,
+                  "costPrice",
+                  e.target.value ? parseFloat(e.target.value) : null,
+                )
+              }
+              className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
+            />
+          </QuoteFieldBlock>
+          <QuoteFieldBlock label="匯率">
+            <input
+              type="text"
+              inputMode="decimal"
+              value={item.exchangeRate != null ? String(item.exchangeRate) : ""}
+              placeholder="—"
+              onChange={(e) => {
+                const sanitized = sanitizeExchangeRateInput(e.target.value);
+                updateItem(
+                  item.id,
+                  "exchangeRate",
+                  parseExchangeRateValue(sanitized),
+                );
+              }}
+              className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
+            />
+          </QuoteFieldBlock>
+          <QuoteFieldBlock label="HKD$成本價" className="mt-auto">
+            <div className="flex h-[34px] items-center rounded-md border border-border/60 bg-muted/20 px-2">
+              <span className="truncate font-mono-data text-xs font-medium text-foreground">
+                {formatHkdCostDisplayCeil(item.hkdCostPrice)}
+              </span>
+            </div>
+          </QuoteFieldBlock>
+        </div>
         <QuoteFieldBlock
           label="HKD$單價"
           className={cn("col-start-6 row-start-2", QUOTE_PRICING_FIELD_CLASS)}
@@ -868,6 +904,8 @@ function createBlankProductItem(): QuotationItem {
     referenceImage: "",
     name: "",
     costPrice: null,
+    exchangeRate: null,
+    hkdCostPrice: null,
     unitPrice: 0,
     quantity: 1,
     unit: "",
@@ -910,6 +948,8 @@ const DEFAULT_ITEMS: QuotationItem[] = [
     image: "",
     name: "",
     costPrice: null,
+    exchangeRate: null,
+    hkdCostPrice: null,
     unitPrice: 0,
     quantity: 1,
   },
@@ -918,6 +958,8 @@ const DEFAULT_ITEMS: QuotationItem[] = [
     image: "",
     name: "",
     costPrice: null,
+    exchangeRate: null,
+    hkdCostPrice: null,
     unitPrice: 0,
     quantity: 1,
   },
@@ -926,6 +968,8 @@ const DEFAULT_ITEMS: QuotationItem[] = [
     image: "",
     name: "",
     costPrice: null,
+    exchangeRate: null,
+    hkdCostPrice: null,
     unitPrice: 0,
     quantity: 1,
   },
@@ -934,6 +978,8 @@ const DEFAULT_ITEMS: QuotationItem[] = [
     image: "",
     name: "",
     costPrice: null,
+    exchangeRate: null,
+    hkdCostPrice: null,
     unitPrice: 0,
     quantity: 1,
   },
@@ -976,6 +1022,8 @@ export function QuotationDraftEditor({
         image: string;
         name: string;
         costPrice?: number | null;
+        exchangeRate?: number | null;
+        hkdCostPrice?: number | null;
         unitPrice: number;
         quantity: number;
         category?: string;
@@ -1134,26 +1182,34 @@ export function QuotationDraftEditor({
   // Product items table
   const [items, setItems] = useState<QuotationItem[]>(() => {
     if (savedItems && savedItems.length > 0) {
-      return savedItems.map((item) => ({
-        id: generateId(),
-        image: item.image || "",
-        name: item.name || "",
-        costPrice: item.costPrice ?? null,
-        unitPrice: item.unitPrice || 0,
-        quantity: item.quantity || 1,
-        unit: (item as { unit?: string }).unit || "",
-        category: item.category,
-        material: item.material,
-        color: item.color,
-        remarks: item.remarks,
-        remarksImage: item.remarksImage,
-        referenceImage: item.referenceImage,
-        dimensionLMm: item.dimensionLMm ?? null,
-        dimensionWMm: item.dimensionWMm ?? null,
-        dimensionHMm: item.dimensionHMm ?? null,
-        deliveryTermName: item.deliveryTermName,
-        isCustomTerm: (item as { isCustomTerm?: boolean }).isCustomTerm,
-      }));
+      return savedItems.map((item) => {
+        const costPrice = item.costPrice ?? null;
+        const exchangeRate = item.exchangeRate ?? null;
+        return {
+          id: generateId(),
+          image: item.image || "",
+          name: item.name || "",
+          costPrice,
+          exchangeRate,
+          hkdCostPrice:
+            item.hkdCostPrice ??
+            computeHkdCostPrice(costPrice, exchangeRate),
+          unitPrice: item.unitPrice || 0,
+          quantity: item.quantity || 1,
+          unit: (item as { unit?: string }).unit || "",
+          category: item.category,
+          material: item.material,
+          color: item.color,
+          remarks: item.remarks,
+          remarksImage: item.remarksImage,
+          referenceImage: item.referenceImage,
+          dimensionLMm: item.dimensionLMm ?? null,
+          dimensionWMm: item.dimensionWMm ?? null,
+          dimensionHMm: item.dimensionHMm ?? null,
+          deliveryTermName: item.deliveryTermName,
+          isCustomTerm: (item as { isCustomTerm?: boolean }).isCustomTerm,
+        };
+      });
     }
     return DEFAULT_ITEMS;
   });
@@ -1170,6 +1226,8 @@ export function QuotationDraftEditor({
         image: "",
         name: "",
         costPrice: null,
+        exchangeRate: null,
+        hkdCostPrice: null,
         unitPrice: 0,
         quantity: 1,
         isCustomTerm: true,
@@ -1187,7 +1245,19 @@ export function QuotationDraftEditor({
     value: string | number | null,
   ) => {
     setItems((prev) =>
-      prev.map((item) => (item.id === id ? { ...item, [field]: value } : item)),
+      prev.map((item) => {
+        if (item.id !== id) return item;
+        const next = { ...item, [field]: value };
+        if (field === "costPrice" || field === "exchangeRate") {
+          next.hkdCostPrice = computeHkdCostPrice(
+            field === "costPrice" ? (value as number | null) : next.costPrice,
+            field === "exchangeRate"
+              ? (value as number | null)
+              : next.exchangeRate,
+          );
+        }
+        return next;
+      }),
     );
   };
 
@@ -1414,24 +1484,33 @@ export function QuotationDraftEditor({
         }
         if (cached.items && cached.items.length > 0) {
           setItems(
-            cached.items.map((item: Record<string, unknown>) => ({
-              id: generateId(),
-              image: (item.image as string) || "",
-              name: (item.name as string) || "",
-              costPrice: (item.costPrice as number | null) ?? null,
-              unitPrice: (item.unitPrice as number) || 0,
-              quantity: (item.quantity as number) || 1,
-              category: item.category as string | undefined,
-              material: item.material as string | undefined,
-              color: item.color as string | undefined,
-              remarks: item.remarks as string | undefined,
-              remarksImage: item.remarksImage as string | undefined,
-              referenceImage: item.referenceImage as string | undefined,
-              dimensionLMm: (item.dimensionLMm as number | null) ?? null,
-              dimensionWMm: (item.dimensionWMm as number | null) ?? null,
-              dimensionHMm: (item.dimensionHMm as number | null) ?? null,
-              deliveryTermName: item.deliveryTermName as string | undefined,
-            })),
+            cached.items.map((item: Record<string, unknown>) => {
+              const costPrice = (item.costPrice as number | null) ?? null;
+              const exchangeRate = (item.exchangeRate as number | null) ?? null;
+              return {
+                id: generateId(),
+                image: (item.image as string) || "",
+                name: (item.name as string) || "",
+                costPrice,
+                exchangeRate,
+                hkdCostPrice:
+                  (item.hkdCostPrice as number | null) ??
+                  computeHkdCostPrice(costPrice, exchangeRate),
+                unitPrice: (item.unitPrice as number) || 0,
+                quantity: (item.quantity as number) || 1,
+                category: item.category as string | undefined,
+                material: item.material as string | undefined,
+                color: item.color as string | undefined,
+                remarks: item.remarks as string | undefined,
+                remarksImage: item.remarksImage as string | undefined,
+                referenceImage: item.referenceImage as string | undefined,
+                dimensionLMm: (item.dimensionLMm as number | null) ?? null,
+                dimensionWMm: (item.dimensionWMm as number | null) ?? null,
+                dimensionHMm: (item.dimensionHMm as number | null) ?? null,
+                deliveryTermName: item.deliveryTermName as string | undefined,
+                isCustomTerm: item.isCustomTerm as boolean | undefined,
+              };
+            }),
           );
         }
         if (
@@ -1519,22 +1598,28 @@ export function QuotationDraftEditor({
     }
 
     // Always append selected products as new rows (no deduplication)
-    const newRows = products.map((p) => ({
-      id: generateId(),
-      image: p.image,
-      name: p.name,
-      costPrice: p.costPrice ?? null,
-      unitPrice: p.unitPrice || p.costPrice || 0,
-      quantity: 1,
-      category: p.category?.trim() || "",
-      material: p.material,
-      color: p.color?.trim() || "",
-      remarks: p.remarks,
-      dimensionLMm: p.dimensionLMm,
-      dimensionWMm: p.dimensionWMm,
-      dimensionHMm: p.dimensionHMm,
-      deliveryTermName: p.deliveryTermName,
-    }));
+    const newRows = products.map((p) => {
+      const costPrice = p.costPrice ?? null;
+      const exchangeRate = null;
+      return {
+        id: generateId(),
+        image: p.image,
+        name: p.name,
+        costPrice,
+        exchangeRate,
+        hkdCostPrice: computeHkdCostPrice(costPrice, exchangeRate),
+        unitPrice: p.unitPrice || p.costPrice || 0,
+        quantity: 1,
+        category: p.category?.trim() || "",
+        material: p.material,
+        color: p.color?.trim() || "",
+        remarks: p.remarks,
+        dimensionLMm: p.dimensionLMm,
+        dimensionWMm: p.dimensionWMm,
+        dimensionHMm: p.dimensionHMm,
+        deliveryTermName: p.deliveryTermName,
+      };
+    });
 
     // Remove empty placeholder rows and append new ones
     const nonEmptyItems = items.filter(hasQuoteItemContent);
