@@ -283,35 +283,49 @@ function wrapDimensionsAtStars(dimText: string, maxChars = 11): string[] {
 type QuotationItem = QuotationPDFData['items'][0];
 
 const TABLE_BORDER = '#333';
+const MATERIAL_FONT_SIZE = 7;
+const MATERIAL_LINE_HEIGHT = 1.35;
+const MATERIAL_BLANK_LINE_HEIGHT = MATERIAL_FONT_SIZE * MATERIAL_LINE_HEIGHT;
 // A4 content width ≈ 555pt (595 − 20×2 horizontal padding)
 const PDF_TABLE_WIDTH_PT = 555;
 const REMARKS_COL_WIDTH_PT = PDF_TABLE_WIDTH_PT * 0.09;
 const ILLUSTRATION_COL_WIDTH_PT = PDF_TABLE_WIDTH_PT * 0.114;
 
-/**
- * Prepare 材質及明細 for PDF — keep user Enter breaks; drop paste/Word soft breaks
- * that split mid-sentence (next line starts with continuation punctuation).
- */
+/** Preserve user line breaks from the draft editor (single Enter = one line). */
 function normalizeMaterialForPdf(text: string): string {
-  let s = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
-  s = s.replace(/\n(?=[:：,，)）\-])/g, '');
-  return s;
+  return text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 }
 
 function renderMaterialPdfContent(
   material: string | undefined,
+  View: ReactPdfModule['View'],
   Text: ReactPdfModule['Text'],
 ) {
   const body = normalizeMaterialForPdf(material || '');
   if (!body.trim()) return null;
 
+  const lines = body.split('\n');
   return (
-    <Text
-      style={styles.materialCellText}
-      hyphenationCallback={(word) => Array.from(word)}
-    >
-      {pdfDisplayText(body)}
-    </Text>
+    <View style={{ width: '100%' }}>
+      {lines.map((line, i) => {
+        if (line === '') {
+          return (
+            <View
+              key={`material-blank-${i}`}
+              style={{ width: '100%', height: MATERIAL_BLANK_LINE_HEIGHT }}
+            />
+          );
+        }
+        const display = pdfDisplayText(line);
+        return (
+          <View key={`material-line-${i}`} style={styles.materialLineRow}>
+            {Array.from(display).map((ch, j) => (
+              <Text key={j} style={styles.materialCellChar}>{ch}</Text>
+            ))}
+          </View>
+        );
+      })}
+    </View>
   );
 }
 
@@ -364,7 +378,7 @@ function renderQuotationTableRow(
         {renderDescriptionPdfContent(item, formatDimensions, View, Text)}
       </View>
       <View style={styles.colMaterial}>
-        {renderMaterialPdfContent(item?.material, Text)}
+        {renderMaterialPdfContent(item?.material, View, Text)}
       </View>
       <View style={styles.colRemarks}>
         <View style={{ width: '100%', flex: 1 }}>
@@ -568,6 +582,8 @@ const styles: Record<string, any> = {
   tableCellText: { fontSize: 7, textAlign: 'center', lineHeight: 1.3 },
   tableCellTextLeft: { fontSize: 7, textAlign: 'left', lineHeight: 1.45, paddingLeft: 4 },
   materialCellText: { fontSize: 7, textAlign: 'left', lineHeight: 1.45, width: '100%' },
+  materialLineRow: { flexDirection: 'row', flexWrap: 'wrap', width: '100%' },
+  materialCellChar: { fontSize: MATERIAL_FONT_SIZE, lineHeight: MATERIAL_LINE_HEIGHT, textAlign: 'left' },
   descValueText: { fontSize: 6.5, textAlign: 'left', lineHeight: 1.3, paddingLeft: 2 },
   descMultilineValueText: { fontSize: 6.5, textAlign: 'left', lineHeight: 1.35, paddingLeft: 2, width: '100%' },
   /** 類別 — fixed column width, height grows with wrapped CJK text. */
