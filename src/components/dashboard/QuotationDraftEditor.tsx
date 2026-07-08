@@ -1353,10 +1353,10 @@ export function QuotationDraftEditor({
   const isFreeInstallation = subtotal >= 12000;
   const installationAmount = isFreeInstallation ? 0 : (installationFee.amount ?? 0);
   const grandTotal = Math.max(0, subtotal - discountValue + installationAmount);
-  const totalProductCost = items.reduce(
-    (sum, item) => sum + (item.costPrice ?? 0) * item.quantity,
-    0,
-  );
+  const totalProductCost = items.reduce((sum, item) => {
+    const hkdCost = item.hkdCostPrice != null ? Math.ceil(item.hkdCostPrice) : 0;
+    return sum + hkdCost * item.quantity;
+  }, 0);
   const gpValue = grandTotal - totalProductCost - gpSummary.ship - gpSummary.installation;
   const gpPercent = grandTotal > 0 ? (gpValue / grandTotal) * 100 : 0;
   const totalCostPrice = totalProductCost;

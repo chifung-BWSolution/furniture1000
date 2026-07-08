@@ -480,16 +480,15 @@ function renderDescriptionPdfContent(
   ];
 
   return (
-    <View style={{ width: '100%', flex: 1, flexDirection: 'column' }}>
+    <View style={{ width: '100%', flexDirection: 'column' }}>
       {rows.map((row, i) => (
         <View
           key={row.label}
           style={{
-            flex: row.kind === 'dimensions' ? 1.3 : row.kind === 'simple' ? 1 : undefined,
-            flexGrow: row.kind === 'category' ? 0 : undefined,
-            flexShrink: row.kind === 'category' ? 0 : undefined,
             flexDirection: 'row',
-            alignItems: row.kind === 'category' ? 'stretch' : 'center',
+            alignItems: row.kind === 'category' ? 'flex-start' : 'center',
+            flexGrow: 0,
+            flexShrink: 0,
             minHeight: row.kind === 'dimensions' ? 26 : row.kind === 'simple' ? 18 : undefined,
             borderBottomWidth: i < rows.length - 1 ? 0.5 : 0,
             borderColor: '#ddd',
@@ -522,7 +521,12 @@ function renderDescriptionPdfContent(
             </View>
           ) : row.kind === 'category' ? (
             <View style={{ width: '50%', justifyContent: 'flex-start', paddingHorizontal: 2, paddingVertical: 2 }}>
-              <Text style={styles.descMultilineValueText}>{pdfDisplayText(row.value)}</Text>
+              <Text
+                style={styles.descCategoryValueText}
+                hyphenationCallback={(word) => Array.from(word)}
+              >
+                {pdfDisplayText(row.value)}
+              </Text>
             </View>
           ) : (
             <View style={{ width: '50%', justifyContent: 'center', paddingHorizontal: 2 }}>
@@ -566,6 +570,8 @@ const styles: Record<string, any> = {
   materialCellText: { fontSize: 7, textAlign: 'left', lineHeight: 1.45, width: '100%' },
   descValueText: { fontSize: 6.5, textAlign: 'left', lineHeight: 1.3, paddingLeft: 2 },
   descMultilineValueText: { fontSize: 6.5, textAlign: 'left', lineHeight: 1.35, paddingLeft: 2, width: '100%' },
+  /** 類別 — fixed column width, height grows with wrapped CJK text. */
+  descCategoryValueText: { fontSize: 6.5, textAlign: 'left', lineHeight: 1.35, paddingLeft: 2, width: '100%' },
   descDimLabelText: { fontSize: 6, textAlign: 'left', lineHeight: 1.2, paddingLeft: 2, color: '#555' },
   descDimValueText: { fontSize: 6, textAlign: 'left', lineHeight: 1.2, paddingLeft: 2, width: '100%' },
   cellStackSlot: { flex: 1, width: '100%', justifyContent: 'center', alignItems: 'center', paddingVertical: 2, paddingHorizontal: 2 },
