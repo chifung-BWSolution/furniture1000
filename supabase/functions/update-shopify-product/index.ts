@@ -133,6 +133,129 @@ function buildMetafields(mf: Record<string, string> | undefined) {
   return out;
 }
 
+const MORE_IMAGE_LINK_COLS = [1, 2, 3, 4].map((i) => `custom.more_image_link_${i}`);
+const MORE_IMAGE_ALT_COLS = [1, 2, 3, 4].map((i) => `custom.more_image_alt_${i}`);
+
+/** more_image_link_1..4 ← first four mirror media URLs (position 1 = Shopify 主圖). */
+function applyMoreImageLinkMetafields(
+  metafields: Record<string, string>,
+  orderedUrls: string[],
+  title?: string | null,
+): void {
+  for (let i = 1; i <= 4; i++) {
+    const linkKey = `custom.more_image_link_${i}`;
+    const altKey = `custom.more_image_alt_${i}`;
+    const url = orderedUrls[i - 1];
+    if (url && /^https?:\/\//.test(url)) {
+      metafields[linkKey] = url;
+      const alt = title?.trim();
+      if (alt) metafields[altKey] = alt;
+      else delete metafields[altKey];
+    } else {
+      delete metafields[linkKey];
+      delete metafields[altKey];
+    }
+  }
+}
+
+function moreImageLinkColumnsFromUrls(
+  orderedUrls: string[],
+  title?: string | null,
+): Record<string, string | null> {
+  const cols: Record<string, string | null> = {};
+  for (let i = 1; i <= 4; i++) {
+    const url = orderedUrls[i - 1];
+    const linkKey = `custom.more_image_link_${i}`;
+    const altKey = `custom.more_image_alt_${i}`;
+    if (url && /^https?:\/\//.test(url)) {
+      cols[linkKey] = url;
+      cols[altKey] = title?.trim() ? title.trim() : null;
+    } else {
+      cols[linkKey] = null;
+      cols[altKey] = null;
+    }
+  }
+  return cols;
+}
+
+async function upsertProductMetafield(
+  apiBase: string,
+  headers: Record<string, string>,
+  shopifyId: string,
+  col: string,
+  value: string,
+): Promise<boolean> {
+  const dot = col.indexOf(".");
+  if (dot < 0) return false;
+  const namespace = col.slice(0, dot);
+  const key = col.slice(dot + 1);
+  const type = METAFIELD_DEFS[col] || "single_line_text_field";
+  const trimmed = value.trim();
+
+  const existingResp = await fetch(
+    `${apiBase}/products/${shopifyId}/metafields.json?namespace=${namespace}&key=${key}`,
+    { headers },
+  );
+  const existing = existingResp.ok
+    ? ((await existingResp.json()).metafields?.[0] as { id?: number } | undefined)
+    : undefined;
+
+  if (!trimmed) {
+    if (existing?.id) {
+      const del = await fetch(`${apiBase}/metafields/${existing.id}.json`, { method: "DELETE", headers });
+      return del.ok;
+    }
+    return true;
+  }
+
+  if (existing?.id) {
+    const pr = await fetch(`${apiBase}/metafields/${existing.id}.json`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({ metafield: { id: existing.id, type, value: trimmed } }),
+    });
+    return pr.ok;
+  }
+
+  const r = await fetch(`${apiBase}/products/${shopifyId}/metafields.json`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ metafield: { namespace, key, type, value: trimmed } }),
+  });
+  return r.ok;
+}
+
+async function syncProductMetafieldsToShopify(
+  apiBase: string,
+  headers: Record<string, string>,
+  shopifyId: string,
+  metafields: Record<string, string> | undefined,
+): Promise<{ ok: number; fail: number }> {
+  let ok = 0;
+  let fail = 0;
+  const mf = metafields || {};
+  const cols = new Set([
+    ...Object.keys(mf),
+    ...MORE_IMAGE_LINK_COLS,
+    ...MORE_IMAGE_ALT_COLS,
+  ]);
+  for (const col of cols) {
+    if (!METAFIELD_DEFS[col]) continue;
+    const isMoreImage = MORE_IMAGE_LINK_COLS.includes(col) || MORE_IMAGE_ALT_COLS.includes(col);
+    if (!isMoreImage && !(col in mf)) continue;
+    try {
+      const success = await upsertProductMetafield(
+        apiBase, headers, shopifyId, col, mf[col] ?? "",
+      );
+      if (success) ok++;
+      else fail++;
+    } catch {
+      fail++;
+    }
+  }
+  return { ok, fail };
+}
+
 function firstSkuFromVariants(variants: Record<string, unknown>[]): string | null {
   for (const variant of variants) {
     const sku = typeof variant.sku === "string" ? variant.sku.trim() : "";
@@ -408,11 +531,19 @@ async function refreshMirrorAfterShopifyPush(
   const resolvedPrimary = keptImages.length > 0 && typeof keptImages[0].src === "string"
     ? String(keptImages[0].src)
     : primarySrc;
+  const mediaUrlsForMetafields = keptImages
+    .map((im) => im.src)
+    .filter((src): src is string => typeof src === "string" && /^https?:\/\//.test(src))
+    .slice(0, 4);
   const spUpdate: Record<string, unknown> = {
     shopify_updated_at: String(liveProduct.updated_at || new Date().toISOString()),
     variants: liveProduct.variants ?? null,
     images: keptImages.length > 0 ? mapLiveImagesForMirror(keptImages) : null,
     image_url: resolvedPrimary,
+    ...moreImageLinkColumnsFromUrls(
+      mediaUrlsForMetafields,
+      typeof payload.title === "string" ? payload.title : null,
+    ),
   };
   if (typeof payload.title === "string" && payload.title.trim()) spUpdate.title = payload.title;
   if (typeof payload.body_html === "string") spUpdate.body_html = payload.body_html;
@@ -470,6 +601,18 @@ function mirrorRowToPayload(row: Record<string, unknown>): PushPayload {
       image_id: v.image_id != null ? v.image_id as string | number : null,
     }))
     : undefined;
+  const orderedForMetafields = dedupeMirrorImages(
+    productImages.map((im, i) => ({ ...im, position: i + 1 })),
+    row.image_url && /^https?:\/\//.test(String(row.image_url)) ? String(row.image_url) : null,
+  )
+    .map((im) => im.src)
+    .filter((src): src is string => typeof src === "string" && /^https?:\/\//.test(src))
+    .slice(0, 4);
+  applyMoreImageLinkMetafields(
+    metafields,
+    orderedForMetafields,
+    typeof row.title === "string" ? row.title : null,
+  );
   return {
     source_product_id: (row.source_product_id as string | null) ?? null,
     title: typeof row.title === "string" ? row.title : undefined,
@@ -716,6 +859,16 @@ async function pushProductToShopify(
       ? String(imgsForSync[0].src)
       : null);
   const dedupedMirror = dedupeMirrorImages(imgsForSync, primarySrc);
+  const mediaUrlsForMetafields = dedupedMirror
+    .map((im) => im.src)
+    .filter((src): src is string => typeof src === "string" && /^https?:\/\//.test(src))
+    .slice(0, 4);
+  const mergedMetafields = { ...(metafields || {}) };
+  applyMoreImageLinkMetafields(
+    mergedMetafields,
+    mediaUrlsForMetafields,
+    typeof title === "string" ? title : null,
+  );
 
   let variantImagesSynced = 0;
   let galleryImagesDeleted = 0;
@@ -780,35 +933,20 @@ async function pushProductToShopify(
     );
   }
 
-  const mfs = buildMetafields(metafields);
-  let mfOk = 0, mfFail = 0;
-  for (const mf of mfs) {
-    try {
-      const r = await fetch(`${apiBase}/products/${shopifyId}/metafields.json`, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({ metafield: { namespace: mf.namespace, key: mf.key, type: mf.type, value: mf.value } }),
-      });
-      if (r.ok) mfOk++;
-      else {
-        const existingMf = await fetch(
-          `${apiBase}/products/${shopifyId}/metafields.json?namespace=${mf.namespace}&key=${mf.key}`,
-          { headers },
-        ).then((x) => x.ok ? x.json() : { metafields: [] }).catch(() => ({ metafields: [] }));
-        const mid = existingMf?.metafields?.[0]?.id;
-        if (mid) {
-          const pr = await fetch(`${apiBase}/metafields/${mid}.json`, {
-            method: "PUT", headers,
-            body: JSON.stringify({ metafield: { id: mid, type: mf.type, value: mf.value } }),
-          });
-          if (pr.ok) mfOk++; else mfFail++;
-        } else mfFail++;
-      }
-    } catch { mfFail++; }
-  }
+  const mfs = buildMetafields(mergedMetafields);
+  const mfStats = await syncProductMetafieldsToShopify(
+    apiBase, headers, shopifyId, mergedMetafields,
+  );
+  const mfOk = mfStats.ok;
+  const mfFail = mfStats.fail;
 
   if (!opts?.skipMirrorWrite) {
-    const mfColumns: Record<string, string> = {};
+    const mfColumns: Record<string, string | null> = {
+      ...moreImageLinkColumnsFromUrls(
+        mediaUrlsForMetafields,
+        typeof title === "string" ? title : null,
+      ),
+    };
     for (const mf of mfs) mfColumns[`${mf.namespace}.${mf.key}`] = mf.value;
     const spUpdate: Record<string, unknown> = {
       shopify_updated_at: String(updated.updated_at || new Date().toISOString()),

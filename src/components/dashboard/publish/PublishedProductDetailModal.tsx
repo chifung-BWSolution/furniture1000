@@ -400,6 +400,16 @@ export function PublishedProductDetailModal({
         handle: handleNorm,
         'my_fields.normal_size': editNormalSize.trim() || null,
         'my_fields.materials': editMaterials.trim() || null,
+        ...Object.fromEntries(
+          [1, 2, 3, 4].flatMap((i) => {
+            const url = allImages[i - 1] ?? null;
+            const alt = url && editTitle.trim() ? editTitle.trim() : null;
+            return [
+              [`custom.more_image_link_${i}`, url],
+              [`custom.more_image_alt_${i}`, alt],
+            ];
+          }),
+        ),
       };
 
       const { error } = await supabase

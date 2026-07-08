@@ -394,6 +394,97 @@ function mapProductOptions(options: ShopifyRecord[] | undefined) {
   }));
 }
 
+const MORE_IMAGE_MF_TYPES: Record<string, string> = {
+  "custom.more_image_link_1": "url",
+  "custom.more_image_alt_1": "multi_line_text_field",
+  "custom.more_image_link_2": "url",
+  "custom.more_image_alt_2": "multi_line_text_field",
+  "custom.more_image_link_3": "url",
+  "custom.more_image_alt_3": "multi_line_text_field",
+  "custom.more_image_link_4": "url",
+  "custom.more_image_alt_4": "multi_line_text_field",
+};
+
+function moreImageLinkColumnsFromUrls(
+  orderedUrls: string[],
+  title?: string | null,
+): Record<string, string | null> {
+  const cols: Record<string, string | null> = {};
+  for (let i = 1; i <= 4; i++) {
+    const url = orderedUrls[i - 1];
+    const linkKey = `custom.more_image_link_${i}`;
+    const altKey = `custom.more_image_alt_${i}`;
+    if (url && /^https?:\/\//.test(url)) {
+      cols[linkKey] = url;
+      cols[altKey] = title?.trim() ? title.trim() : null;
+    } else {
+      cols[linkKey] = null;
+      cols[altKey] = null;
+    }
+  }
+  return cols;
+}
+
+async function upsertProductMetafield(
+  apiBase: string,
+  headers: Record<string, string>,
+  shopifyId: string,
+  col: string,
+  value: string,
+): Promise<boolean> {
+  const dot = col.indexOf(".");
+  if (dot < 0) return false;
+  const namespace = col.slice(0, dot);
+  const key = col.slice(dot + 1);
+  const type = MORE_IMAGE_MF_TYPES[col] || "single_line_text_field";
+  const trimmed = value.trim();
+
+  const existingResp = await fetch(
+    `${apiBase}/products/${shopifyId}/metafields.json?namespace=${namespace}&key=${key}`,
+    { headers },
+  );
+  const existing = existingResp.ok
+    ? ((await existingResp.json()).metafields?.[0] as { id?: number } | undefined)
+    : undefined;
+
+  if (!trimmed) {
+    if (existing?.id) {
+      const del = await fetch(`${apiBase}/metafields/${existing.id}.json`, { method: "DELETE", headers });
+      return del.ok;
+    }
+    return true;
+  }
+
+  if (existing?.id) {
+    const pr = await fetch(`${apiBase}/metafields/${existing.id}.json`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({ metafield: { id: existing.id, type, value: trimmed } }),
+    });
+    return pr.ok;
+  }
+
+  const r = await fetch(`${apiBase}/products/${shopifyId}/metafields.json`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ metafield: { namespace, key, type, value: trimmed } }),
+  });
+  return r.ok;
+}
+
+async function syncMoreImageMetafieldsToShopify(
+  apiBase: string,
+  headers: Record<string, string>,
+  shopifyId: string,
+  orderedUrls: string[],
+  title?: string | null,
+): Promise<void> {
+  const cols = moreImageLinkColumnsFromUrls(orderedUrls, title);
+  for (const col of Object.keys(MORE_IMAGE_MF_TYPES)) {
+    await upsertProductMetafield(apiBase, headers, shopifyId, col, cols[col] ?? "");
+  }
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -525,6 +616,12 @@ Deno.serve(async (req: Request) => {
     const primaryImageSrc = resolvePrimaryImageSrc(orderedImages, primaryFromUi);
     const prices = mergedVariants.map((v) => parseFloat(String(v.price ?? "0")) || 0);
     const minPrice = prices.length ? Math.min(...prices) : null;
+    const productTitle = typeof finalProduct.title === "string" ? finalProduct.title : "";
+    const moreImageCols = moreImageLinkColumnsFromUrls(galleryUrls.slice(0, 4), productTitle);
+
+    await syncMoreImageMetafieldsToShopify(
+      apiBase, headers, parentId, galleryUrls.slice(0, 4), productTitle,
+    );
 
     await supabase
       .from("shopify_products")
@@ -537,6 +634,7 @@ Deno.serve(async (req: Request) => {
         image_url: primaryImageSrc,
         images: mapProductImages(orderedImages),
         shopify_updated_at: String(finalProduct.updated_at || new Date().toISOString()),
+        ...moreImageCols,
       })
       .eq("shopify_product_id", parentId);
 
