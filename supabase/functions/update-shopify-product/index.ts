@@ -200,6 +200,145 @@ function resolveAttachImageSrc(src: string, primarySrc: string | null): string {
   return src;
 }
 
+type MirrorImageRef = {
+  id?: string | number;
+  src?: string;
+  position?: number;
+  alt?: string;
+  width?: number;
+  height?: number;
+  variant_ids?: (string | number)[];
+};
+
+/** Keep one image per dedupe key, primary first. */
+function dedupeMirrorImages(
+  productImages: MirrorImageRef[],
+  primarySrc: string | null,
+): MirrorImageRef[] {
+  const sorted = [...productImages].sort((a, b) => (a.position ?? 99) - (b.position ?? 99));
+  const seen = new Set<string>();
+  const out: MirrorImageRef[] = [];
+  const add = (im: MirrorImageRef) => {
+    if (!im.src || !/^https?:\/\//.test(im.src)) return;
+    const key = imageDedupeKey(im.src);
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ ...im });
+  };
+  if (primarySrc && /^https?:\/\//.test(primarySrc)) {
+    const match = sorted.find(
+      (im) => im.src && imageDedupeKey(im.src) === imageDedupeKey(primarySrc),
+    );
+    add(match ?? { src: primarySrc });
+  }
+  for (const im of sorted) add(im);
+  return out.map((im, i) => ({ ...im, position: i + 1 }));
+}
+
+function mapLiveImagesForMirror(images: Record<string, unknown>[]) {
+  return images.map((im, i) => ({
+    id: im.id,
+    src: im.src,
+    alt: im.alt ?? "",
+    width: im.width,
+    height: im.height,
+    position: i + 1,
+    variant_ids: im.variant_ids,
+  }));
+}
+
+/** Remove duplicate Shopify product images; keep mirror gallery order (deduped). */
+async function syncProductGalleryCleanup(
+  apiBase: string,
+  headers: Record<string, string>,
+  shopifyId: string,
+  dedupedMirror: MirrorImageRef[],
+  primarySrc: string | null,
+): Promise<{ kept: Record<string, unknown>[]; deleted: number }> {
+  const keepKeys = new Set(dedupedMirror.map((im) => imageDedupeKey(String(im.src))));
+
+  let product = (await fetch(`${apiBase}/products/${shopifyId}.json`, { headers })
+    .then((r) => r.json())).product as Record<string, unknown>;
+  let liveImages = [...((product.images as Record<string, unknown>[]) || [])];
+  const canonicalByKey = indexLiveImagesByDedupe(liveImages);
+
+  for (const im of dedupedMirror) {
+    const src = resolveAttachImageSrc(String(im.src), primarySrc);
+    const key = imageDedupeKey(src);
+    if (canonicalByKey.has(key)) continue;
+    const postResp = await fetch(`${apiBase}/products/${shopifyId}/images.json`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ image: { src } }),
+    });
+    if (!postResp.ok) continue;
+    const newImg = (await postResp.json()).image as Record<string, unknown>;
+    const newKey = typeof newImg.src === "string" ? imageDedupeKey(newImg.src) : key;
+    const prev = canonicalByKey.get(newKey);
+    if (!prev || String(newImg.src).length < String(prev.src).length) {
+      canonicalByKey.set(newKey, newImg);
+    }
+  }
+
+  product = (await fetch(`${apiBase}/products/${shopifyId}.json`, { headers })
+    .then((r) => r.json())).product as Record<string, unknown>;
+  liveImages = [...((product.images as Record<string, unknown>[]) || [])];
+
+  let deleted = 0;
+  for (const im of liveImages) {
+    const id = im.id;
+    const src = im.src;
+    if (id == null || typeof src !== "string") continue;
+    const key = imageDedupeKey(src);
+    const canonical = canonicalByKey.get(key);
+    if (!keepKeys.has(key) || (canonical?.id != null && Number(id) !== Number(canonical.id))) {
+      const delResp = await fetch(
+        `${apiBase}/products/${shopifyId}/images/${id}.json`,
+        { method: "DELETE", headers },
+      );
+      if (delResp.ok) deleted++;
+    }
+  }
+
+  const kept: Record<string, unknown>[] = [];
+  for (const im of dedupedMirror) {
+    const canonical = canonicalByKey.get(imageDedupeKey(String(im.src)));
+    if (canonical) kept.push({ ...canonical, position: kept.length + 1 });
+  }
+  return { kept, deleted };
+}
+
+async function refreshMirrorAfterShopifyPush(
+  supabase: ReturnType<typeof createClient>,
+  shopifyId: string,
+  payload: PushPayload,
+  liveProduct: Record<string, unknown>,
+  keptImages: Record<string, unknown>[],
+  primarySrc: string | null,
+): Promise<void> {
+  const spUpdate: Record<string, unknown> = {
+    shopify_updated_at: String(liveProduct.updated_at || new Date().toISOString()),
+    variants: liveProduct.variants ?? null,
+    images: keptImages.length > 0 ? mapLiveImagesForMirror(keptImages) : null,
+    image_url: primarySrc,
+  };
+  if (typeof payload.title === "string" && payload.title.trim()) spUpdate.title = payload.title;
+  if (typeof payload.body_html === "string") spUpdate.body_html = payload.body_html;
+  if (typeof payload.vendor === "string") spUpdate.vendor = payload.vendor;
+  if (typeof payload.product_type === "string") spUpdate.product_type = payload.product_type;
+  if (payload.tags !== undefined) {
+    spUpdate.tags = Array.isArray(payload.tags)
+      ? payload.tags.filter(Boolean)
+      : String(payload.tags || "").split(",").map((t) => t.trim()).filter(Boolean);
+  }
+  if (payload.price != null && !isNaN(Number(payload.price))) spUpdate.price = Number(payload.price);
+  if (payload.compare_at_price != null && !isNaN(Number(payload.compare_at_price))) {
+    spUpdate.compare_at_price = Number(payload.compare_at_price);
+  }
+  if (typeof payload.sku === "string") spUpdate.sku = payload.sku;
+  await supabase.from("shopify_products").update(spUpdate).eq("shopify_product_id", shopifyId);
+}
+
 function mirrorRowToPayload(row: Record<string, unknown>): PushPayload {
   const metafields: Record<string, string> = {};
   for (const col of Object.keys(METAFIELD_DEFS)) {
@@ -473,8 +612,43 @@ async function pushProductToShopify(
     const t = await putResp.text();
     return { success: false, error: `Shopify PUT failed (${putResp.status}): ${t.slice(0, 200)}` };
   }
-  const updated = (await putResp.json()).product as Record<string, unknown>;
+  let updated = (await putResp.json()).product as Record<string, unknown>;
   const existingHandle = typeof existing.handle === "string" ? existing.handle.trim() : "";
+
+  const imgsForSync: MirrorImageRef[] = (productImages?.length
+    ? productImages.map((im, i) => ({ ...im, position: i + 1 }))
+    : (images || []).map((src, i) => ({ src, position: i + 1 })));
+  const primarySrc = typeof mirrorImageUrl === "string" && /^https?:\/\//.test(mirrorImageUrl)
+    ? mirrorImageUrl
+    : (imgsForSync[0]?.src && /^https?:\/\//.test(String(imgsForSync[0].src))
+      ? String(imgsForSync[0].src)
+      : null);
+  const dedupedMirror = dedupeMirrorImages(imgsForSync, primarySrc);
+
+  let variantImagesSynced = 0;
+  let galleryImagesDeleted = 0;
+  let keptGalleryImages: Record<string, unknown>[] = [];
+
+  if (Array.isArray(variants) && dedupedMirror.length > 0) {
+    variantImagesSynced = await syncVariantImagesFromMirror(
+      apiBase, headers, shopifyId, variants, dedupedMirror, updated, primarySrc,
+    );
+    const galleryResult = await syncProductGalleryCleanup(
+      apiBase, headers, shopifyId, dedupedMirror, primarySrc,
+    );
+    keptGalleryImages = galleryResult.kept;
+    galleryImagesDeleted = galleryResult.deleted;
+    const refreshResp = await fetch(`${apiBase}/products/${shopifyId}.json`, { headers });
+    if (refreshResp.ok) {
+      updated = (await refreshResp.json()).product as Record<string, unknown>;
+    }
+  } else if (Array.isArray(images) && dedupedMirror.length > 0) {
+    const galleryResult = await syncProductGalleryCleanup(
+      apiBase, headers, shopifyId, dedupedMirror, primarySrc,
+    );
+    keptGalleryImages = galleryResult.kept;
+    galleryImagesDeleted = galleryResult.deleted;
+  }
 
   const normalizedHandle = normalizeShopifyHandle(handle) || undefined;
   let handleForSeo: string | undefined = normalizedHandle;
@@ -499,14 +673,11 @@ async function pushProductToShopify(
     return { success: false, error: seoResult.error || "SEO/handle update failed" };
   }
 
-  let variantImagesSynced = 0;
-  if (Array.isArray(variants) && variants.some((v) => v.image_id != null)) {
-    const imgsForSync = (productImages?.length ? productImages : (images || []).map((src) => ({ src })));
-    const primarySrc = typeof mirrorImageUrl === "string" && /^https?:\/\//.test(mirrorImageUrl)
-      ? mirrorImageUrl
-      : (imgsForSync[0]?.src && /^https?:\/\//.test(String(imgsForSync[0].src)) ? String(imgsForSync[0].src) : null);
-    variantImagesSynced = await syncVariantImagesFromMirror(
-      apiBase, headers, shopifyId, variants, imgsForSync, updated, primarySrc,
+  if (opts?.skipMirrorWrite && dedupedMirror.length > 0) {
+    await refreshMirrorAfterShopifyPush(
+      supabase, shopifyId, payload, updated,
+      keptGalleryImages.length > 0 ? keptGalleryImages : dedupedMirror as Record<string, unknown>[],
+      primarySrc,
     );
   }
 
@@ -594,6 +765,7 @@ async function pushProductToShopify(
     metafields_updated: mfOk,
     metafields_failed: mfFail,
     variant_images_synced: variantImagesSynced,
+    gallery_images_deleted: galleryImagesDeleted,
     ...(sourceProductId ? {} : {}),
   };
 }

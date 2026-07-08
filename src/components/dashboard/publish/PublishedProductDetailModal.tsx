@@ -345,11 +345,31 @@ export function PublishedProductDetailModal({
       const compareNum = editCompareAtPrice !== '' ? parseFloat(editCompareAtPrice) : null;
       const productType = [editL1, editL2].filter(Boolean).join(' / ') || null;
       const handleNorm = editHandle.trim() || null;
+      const preservedImages = allImages.length > 0
+        ? allImages.map((src, i) => {
+          const existing = sortedImgs.find(
+            (im) => im.src && imageDedupeKey(im.src) === imageDedupeKey(src),
+          );
+          if (existing) {
+            return {
+              id: existing.id,
+              src,
+              alt: existing.alt ?? '',
+              width: existing.width,
+              height: existing.height,
+              position: i + 1,
+              variant_ids: existing.variant_ids,
+            };
+          }
+          return { src, position: i + 1 };
+        })
+        : null;
+
       const updatedVariants = (Array.isArray(r.variants) ? r.variants : []).map((v, i) => {
         const key = variantEditKey(v, i);
         const selectedSrc = editVariantImageSrc[key];
         const imageId = selectedSrc
-          ? resolveImageIdForSrc(selectedSrc, sortedImgs, r.image_url)
+          ? resolveImageIdForSrc(selectedSrc, sortedImgs, allImages[0] ?? r.image_url)
           : v.image_id;
         return {
           ...v,
@@ -357,21 +377,10 @@ export function PublishedProductDetailModal({
           ...(imageId != null ? { image_id: imageId } : {}),
         };
       });
+
       const primarySku = updatedVariants.length === 0
         ? (editFallbackSku.trim() || null)
         : (updatedVariants.map(v => (v.sku || '').trim()).find(Boolean) || null);
-
-      const preservedImages = sortedImgs.length > 0
-        ? sortedImgs.map((im, i) => ({
-          id: im.id,
-          src: im.src,
-          alt: im.alt ?? '',
-          width: im.width,
-          height: im.height,
-          position: i + 1,
-          variant_ids: im.variant_ids,
-        }))
-        : (allImages.length > 0 ? allImages.map((src, i) => ({ src, position: i + 1 })) : null);
 
       const updatePayload: Record<string, unknown> = {
         title: editTitle || null,
