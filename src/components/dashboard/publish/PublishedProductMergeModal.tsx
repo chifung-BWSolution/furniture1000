@@ -617,14 +617,21 @@ export function PublishedProductMergeModal({
         parent_sku: parentSku,
         primary_image_src: dedupedGallery[0] || undefined,
         gallery_urls: dedupedGallery.length > 0 ? dedupedGallery : undefined,
-        variants: rows.map((r) => ({
-          size: r.option1 || r.size,
-          price: r.price,
-          sku: r.sku.trim(),
-          shopify_product_id: r.shopify_product_id,
-          variant_id: r.shopify_product_id === parentShopifyId ? r.variant_id : undefined,
-          image_src: r.imageSrc || undefined,
-        })),
+        variants: rows.map((r) => {
+          const primary = dedupedGallery[0];
+          let imageSrc = r.imageSrc || undefined;
+          if (imageSrc && primary && imageDedupeKey(imageSrc) === imageDedupeKey(primary)) {
+            imageSrc = primary;
+          }
+          return {
+            size: r.option1 || r.size,
+            price: r.price,
+            sku: r.sku.trim(),
+            shopify_product_id: r.shopify_product_id,
+            variant_id: r.shopify_product_id === parentShopifyId ? r.variant_id : undefined,
+            image_src: imageSrc,
+          };
+        }),
       };
 
       const { data, error } = await supabase.functions.invoke(

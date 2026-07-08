@@ -44,6 +44,7 @@ type PushPayload = {
   product_type?: string;
   tags?: string[] | string;
   images?: string[];
+  image_url?: string | null;
   /** Full mirror images (id + src) for resolving variant thumbnails on sync. */
   product_images?: { id?: string | number; src?: string }[];
   variants?: {
@@ -171,6 +172,34 @@ function normalizeImageUrl(src: string): string {
   }
 }
 
+function imageDedupeKey(src: string): string {
+  return normalizeImageUrl(src).replace(
+    /_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?=\.[a-z0-9]+$)/i,
+    "",
+  );
+}
+
+function indexLiveImagesByDedupe(
+  images: Record<string, unknown>[],
+): Map<string, Record<string, unknown>> {
+  const byDedupe = new Map<string, Record<string, unknown>>();
+  for (const im of images) {
+    const src = im.src;
+    if (typeof src !== "string" || !/^https?:\/\//.test(src)) continue;
+    const key = imageDedupeKey(src);
+    const prev = byDedupe.get(key);
+    if (!prev || src.length < String(prev.src).length) byDedupe.set(key, im);
+  }
+  return byDedupe;
+}
+
+function resolveAttachImageSrc(src: string, primarySrc: string | null): string {
+  if (primarySrc && imageDedupeKey(src) === imageDedupeKey(primarySrc)) {
+    return primarySrc;
+  }
+  return src;
+}
+
 function mirrorRowToPayload(row: Record<string, unknown>): PushPayload {
   const metafields: Record<string, string> = {};
   for (const col of Object.keys(METAFIELD_DEFS)) {
@@ -221,6 +250,9 @@ function mirrorRowToPayload(row: Record<string, unknown>): PushPayload {
     tags: Array.isArray(row.tags) ? (row.tags as string[]) : undefined,
     images: images.length > 0 ? images : undefined,
     product_images: productImages.length > 0 ? productImages : undefined,
+    image_url: row.image_url && /^https?:\/\//.test(String(row.image_url))
+      ? String(row.image_url)
+      : undefined,
     variants,
     sku: typeof row.sku === "string" ? row.sku : undefined,
     metafields: Object.keys(metafields).length > 0 ? metafields : undefined,
@@ -250,27 +282,35 @@ async function syncVariantImagesFromMirror(
   mirrorVariants: NonNullable<PushPayload["variants"]>,
   productImages: { id?: string | number; src?: string }[],
   liveProduct: Record<string, unknown>,
+  primarySrc: string | null,
 ): Promise<number> {
   let images = [...((liveProduct.images as Record<string, unknown>[]) || [])];
+  const legacy = liveProduct.image as Record<string, unknown> | undefined;
+  if (legacy?.src && typeof legacy.src === "string" && /^https?:\/\//.test(legacy.src)) {
+    const legacyKey = imageDedupeKey(legacy.src);
+    if (!images.some(
+      (im) => typeof im.src === "string" && imageDedupeKey(im.src) === legacyKey,
+    )) {
+      images.unshift(legacy);
+    }
+  }
   const liveVariants = (liveProduct.variants as Record<string, unknown>[]) || [];
   let synced = 0;
 
   for (const mv of mirrorVariants) {
     if (mv.id == null || mv.image_id == null) continue;
 
-    const src = mirrorImageSrcById(mv.image_id, productImages);
-    if (!src) {
+    const rawSrc = mirrorImageSrcById(mv.image_id, productImages);
+    if (!rawSrc) {
       console.warn(
         `[update-shopify-product] no src for mirror image_id ${mv.image_id} (variant ${mv.id})`,
       );
       continue;
     }
+    const src = resolveAttachImageSrc(rawSrc, primarySrc);
 
     const variantId = Number(mv.id);
-    const normSrc = normalizeImageUrl(src);
-    let target = images.find(
-      (im) => typeof im.src === "string" && normalizeImageUrl(im.src) === normSrc,
-    );
+    let target = indexLiveImagesByDedupe(images).get(imageDedupeKey(src));
 
     if (!target?.id) {
       const postResp = await fetch(`${apiBase}/products/${shopifyId}/images.json`, {
@@ -327,7 +367,7 @@ async function pushProductToShopify(
     title, body_html: bodyHtml,
     price, compare_at_price: compareAtPrice,
     vendor, product_type: productType, tags,
-    images, product_images: productImages, variants, sku, metafields,
+    images, product_images: productImages, image_url: mirrorImageUrl, variants, sku, metafields,
     handle, seo_title: seoTitle, seo_description: seoDescription,
   } = payload;
 
@@ -462,8 +502,11 @@ async function pushProductToShopify(
   let variantImagesSynced = 0;
   if (Array.isArray(variants) && variants.some((v) => v.image_id != null)) {
     const imgsForSync = (productImages?.length ? productImages : (images || []).map((src) => ({ src })));
+    const primarySrc = typeof mirrorImageUrl === "string" && /^https?:\/\//.test(mirrorImageUrl)
+      ? mirrorImageUrl
+      : (imgsForSync[0]?.src && /^https?:\/\//.test(String(imgsForSync[0].src)) ? String(imgsForSync[0].src) : null);
     variantImagesSynced = await syncVariantImagesFromMirror(
-      apiBase, headers, shopifyId, variants, imgsForSync, updated,
+      apiBase, headers, shopifyId, variants, imgsForSync, updated, primarySrc,
     );
   }
 

@@ -147,6 +147,34 @@ function indexShopifyImagesByDedupe(images: ShopifyRecord[]): Map<string, Shopif
   return byDedupe;
 }
 
+function collectProductImages(product: ShopifyRecord): ShopifyRecord[] {
+  const images = [...((product.images as ShopifyRecord[]) || [])];
+  const legacy = product.image as ShopifyRecord | undefined;
+  if (legacy?.src && isHttpUrl(legacy.src)) {
+    const legacyKey = imageDedupeKey(legacy.src as string);
+    const hasLegacy = images.some(
+      (im) => isHttpUrl(im.src) && imageDedupeKey(im.src as string) === legacyKey,
+    );
+    if (!hasLegacy) images.unshift(legacy);
+  }
+  return images;
+}
+
+function findExistingProductImage(
+  images: ShopifyRecord[],
+  src: string,
+): ShopifyRecord | undefined {
+  return indexShopifyImagesByDedupe(images).get(imageDedupeKey(src));
+}
+
+/** When variant reuses Shopify primary, always resolve to the primary URL for lookup. */
+function resolveAttachImageSrc(src: string, primarySrc: string | null): string {
+  if (primarySrc && imageDedupeKey(src) === imageDedupeKey(primarySrc)) {
+    return primarySrc;
+  }
+  return src;
+}
+
 async function setVariantImageId(
   apiBase: string,
   headers: Record<string, string>,
@@ -170,6 +198,7 @@ async function attachVariantImages(
   parentId: string,
   specs: VariantSpec[],
   imageSrcBySku: Map<string, string>,
+  primarySrc: string | null,
 ): Promise<{ attached: { sku: string; image_id: number; src: string }[]; failed: { sku: string; error: string }[] }> {
   const attached: { sku: string; image_id: number; src: string }[] = [];
   const failed: { sku: string; error: string }[] = [];
@@ -177,21 +206,19 @@ async function attachVariantImages(
   const product = await fetchShopifyProduct(apiBase, headers, parentId);
   if (!product) return { attached, failed };
 
-  let images = [...((product.images as ShopifyRecord[]) || [])];
+  let images = collectProductImages(product);
   const variants = (product.variants as ShopifyRecord[]) || [];
 
   for (const spec of specs) {
-    const src = imageSrcBySku.get(spec.sku);
-    if (!isHttpUrl(src)) continue;
+    const rawSrc = imageSrcBySku.get(spec.sku);
+    if (!isHttpUrl(rawSrc)) continue;
+    const src = resolveAttachImageSrc(rawSrc, primarySrc);
 
     const variant = variants.find((v) => String(v.sku) === spec.sku);
     if (variant?.id == null) continue;
     const variantId = Number(variant.id);
 
-    const normSrc = imageDedupeKey(src);
-    let target = images.find(
-      (im) => isHttpUrl(im.src) && imageDedupeKey(im.src as string) === normSrc,
-    );
+    let target = findExistingProductImage(images, src);
 
     if (!target?.id) {
       const postResp = await fetch(`${apiBase}/products/${parentId}/images.json`, {
@@ -259,7 +286,7 @@ async function ensureGalleryImagesOnShopify(
   const product = await fetchShopifyProduct(apiBase, headers, parentId);
   if (!product) return [];
 
-  let images = [...((product.images as ShopifyRecord[]) || [])];
+  let images = collectProductImages(product);
   const byDedupe = indexShopifyImagesByDedupe(images);
 
   const uniqueGallery = dedupeGalleryUrls(galleryUrls, primarySrc);
@@ -315,6 +342,30 @@ function buildMirrorImagesFromGallery(
   }
 
   return ordered.map((im, i) => ({ ...im, position: i + 1 }));
+}
+
+/** Point variant image_id at canonical gallery image (same dedupe key → one Shopify image). */
+function normalizeVariantImageIds(
+  variants: ShopifyRecord[],
+  orderedImages: ShopifyRecord[],
+): ShopifyRecord[] {
+  const byDedupe = indexShopifyImagesByDedupe(orderedImages);
+  const idToDedupe = new Map<string, string>();
+  for (const im of orderedImages) {
+    if (im.id != null && isHttpUrl(im.src)) {
+      idToDedupe.set(String(im.id), imageDedupeKey(im.src as string));
+    }
+  }
+  return variants.map((v) => {
+    if (v.image_id == null) return v;
+    const dedupe = idToDedupe.get(String(v.image_id));
+    if (!dedupe) return v;
+    const canonical = byDedupe.get(dedupe);
+    if (canonical?.id != null && Number(canonical.id) !== Number(v.image_id)) {
+      return { ...v, image_id: canonical.id };
+    }
+    return v;
+  });
 }
 
 function resolvePrimaryImageSrc(
@@ -442,7 +493,7 @@ Deno.serve(async (req: Request) => {
     );
 
     const { attached: imagesAttached, failed: imagesFailed } = await attachVariantImages(
-      apiBase, headers, parentId, specs, imageSrcBySku,
+      apiBase, headers, parentId, specs, imageSrcBySku, primaryFromUi,
     );
 
     // Archive child listings on Shopify (manual DELETE later if needed).
@@ -465,10 +516,12 @@ Deno.serve(async (req: Request) => {
     const finalProduct = await fetchShopifyProduct(apiBase, headers, parentId);
     if (!finalProduct) return json({ error: "Shopify GET parent after merge failed" }, 502);
 
-    const mergedVariants = (finalProduct.variants as ShopifyRecord[]) || [];
-    const shopifyImages = [...((finalProduct.images as ShopifyRecord[]) || [])];
-
+    const shopifyImages = collectProductImages(finalProduct);
     const orderedImages = buildMirrorImagesFromGallery(shopifyImages, galleryUrls, primaryFromUi);
+    const mergedVariants = normalizeVariantImageIds(
+      (finalProduct.variants as ShopifyRecord[]) || [],
+      orderedImages,
+    );
     const primaryImageSrc = resolvePrimaryImageSrc(orderedImages, primaryFromUi);
     const prices = mergedVariants.map((v) => parseFloat(String(v.price ?? "0")) || 0);
     const minPrice = prices.length ? Math.min(...prices) : null;
