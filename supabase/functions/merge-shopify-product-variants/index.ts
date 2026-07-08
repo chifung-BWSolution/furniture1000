@@ -208,35 +208,114 @@ function mapProductImages(images: ShopifyRecord[]) {
     : null;
 }
 
+function imageNormKey(src: string): string {
+  return normalizeImageUrl(src);
+}
+
+/** POST gallery URLs that are not yet attached to the merged parent product. */
+async function ensureGalleryImagesOnShopify(
+  apiBase: string,
+  headers: Record<string, string>,
+  parentId: string,
+  galleryUrls: string[],
+  primarySrc: string | null,
+): Promise<ShopifyRecord[]> {
+  const product = await fetchShopifyProduct(apiBase, headers, parentId);
+  if (!product) return [];
+
+  let images = [...((product.images as ShopifyRecord[]) || [])];
+  const byNorm = new Map<string, ShopifyRecord>();
+  for (const im of images) {
+    if (isHttpUrl(im.src)) byNorm.set(imageNormKey(im.src as string), im);
+  }
+
+  const toUpload: string[] = [];
+  const seenNorm = new Set<string>();
+  const queue = (src: string | null | undefined) => {
+    if (!isHttpUrl(src)) return;
+    const norm = imageNormKey(src);
+    if (seenNorm.has(norm)) return;
+    seenNorm.add(norm);
+    if (!byNorm.has(norm)) toUpload.push(src);
+  };
+  queue(primarySrc);
+  for (const url of galleryUrls) queue(url);
+
+  for (const src of toUpload) {
+    const postResp = await fetch(`${apiBase}/products/${parentId}/images.json`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ image: { src } }),
+    });
+    if (!postResp.ok) {
+      console.warn(
+        "[merge-shopify-product-variants] gallery POST failed:",
+        (await postResp.text()).slice(0, 120),
+      );
+      continue;
+    }
+    const newImg = (await postResp.json()).image as ShopifyRecord;
+    if (newImg?.id != null) {
+      images.push(newImg);
+      const key = isHttpUrl(newImg.src) ? imageNormKey(newImg.src as string) : imageNormKey(src);
+      byNorm.set(key, newImg);
+    }
+  }
+
+  return images;
+}
+
 /** Order mirror images: gallery UI order first, then any remaining Shopify images. */
 function orderMirrorImages(
   finalImages: ShopifyRecord[],
   galleryUrls: string[] | undefined,
   primarySrc: string | null,
 ): ShopifyRecord[] {
-  if (!galleryUrls?.length) return finalImages;
-  const bySrc = new Map<string, ShopifyRecord>();
+  if (!galleryUrls?.length && !primarySrc) return finalImages;
+
+  const byNorm = new Map<string, ShopifyRecord>();
   for (const im of finalImages) {
-    if (isHttpUrl(im.src)) bySrc.set(im.src as string, im);
+    if (isHttpUrl(im.src)) byNorm.set(imageNormKey(im.src as string), im);
   }
+
   const ordered: ShopifyRecord[] = [];
-  const seen = new Set<string>();
+  const seenNorm = new Set<string>();
   const pushSrc = (src: string | null | undefined) => {
-    if (!isHttpUrl(src) || seen.has(src)) return;
-    seen.add(src);
-    const im = bySrc.get(src);
-    if (im) ordered.push(im);
+    if (!isHttpUrl(src)) return;
+    const norm = imageNormKey(src);
+    if (seenNorm.has(norm)) return;
+    seenNorm.add(norm);
+    const existing = byNorm.get(norm);
+    ordered.push(existing ?? { src, alt: "", position: ordered.length + 1 });
   };
+
   if (primarySrc) pushSrc(primarySrc);
-  for (const src of galleryUrls) pushSrc(src);
+  for (const src of galleryUrls ?? []) pushSrc(src);
+
   for (const im of finalImages) {
-    const src = im.src as string;
-    if (isHttpUrl(src) && !seen.has(src)) {
-      seen.add(src);
-      ordered.push(im);
-    }
+    if (!isHttpUrl(im.src)) continue;
+    const norm = imageNormKey(im.src as string);
+    if (seenNorm.has(norm)) continue;
+    seenNorm.add(norm);
+    ordered.push(im);
   }
+
   return ordered.map((im, i) => ({ ...im, position: i + 1 }));
+}
+
+function resolvePrimaryImageSrc(
+  orderedImages: ShopifyRecord[],
+  primaryFromUi: string | null,
+): string | null {
+  if (primaryFromUi) {
+    const norm = imageNormKey(primaryFromUi);
+    const match = orderedImages.find(
+      (im) => isHttpUrl(im.src) && imageNormKey(im.src as string) === norm,
+    );
+    if (match && isHttpUrl(match.src)) return match.src as string;
+    return primaryFromUi;
+  }
+  return isHttpUrl(orderedImages[0]?.src) ? (orderedImages[0].src as string) : null;
 }
 
 function mapProductOptions(options: ShopifyRecord[] | undefined) {
@@ -363,21 +442,22 @@ Deno.serve(async (req: Request) => {
     if (!finalProduct) return json({ error: "Shopify GET parent after merge failed" }, 502);
 
     const mergedVariants = (finalProduct.variants as ShopifyRecord[]) || [];
-    let finalImages = [...((finalProduct.images as ShopifyRecord[]) || [])];
     const galleryUrls = Array.isArray(body.gallery_urls)
       ? body.gallery_urls.filter(isHttpUrl)
       : [];
     const primaryFromUi = isHttpUrl(body.primary_image_src) ? body.primary_image_src : null;
-    finalImages = orderMirrorImages(finalImages, galleryUrls, primaryFromUi);
+
+    let shopifyImages = await ensureGalleryImagesOnShopify(
+      apiBase, headers, parentId, galleryUrls, primaryFromUi,
+    );
+    if (shopifyImages.length === 0) {
+      shopifyImages = [...((finalProduct.images as ShopifyRecord[]) || [])];
+    }
+
+    const orderedImages = orderMirrorImages(shopifyImages, galleryUrls, primaryFromUi);
+    const primaryImageSrc = resolvePrimaryImageSrc(orderedImages, primaryFromUi);
     const prices = mergedVariants.map((v) => parseFloat(String(v.price ?? "0")) || 0);
     const minPrice = prices.length ? Math.min(...prices) : null;
-    const primaryImageSrc = primaryFromUi && finalImages.some((im) => im.src === primaryFromUi)
-      ? primaryFromUi
-      : (isHttpUrl(finalImages[0]?.src)
-        ? (finalImages[0].src as string)
-        : (isHttpUrl((finalProduct.image as ShopifyRecord | undefined)?.src)
-          ? ((finalProduct.image as ShopifyRecord).src as string)
-          : null));
 
     await supabase
       .from("shopify_products")
@@ -388,7 +468,7 @@ Deno.serve(async (req: Request) => {
         price: minPrice,
         configurable: null,
         image_url: primaryImageSrc,
-        images: mapProductImages(finalImages),
+        images: mapProductImages(orderedImages),
         shopify_updated_at: String(finalProduct.updated_at || new Date().toISOString()),
       })
       .eq("shopify_product_id", parentId);

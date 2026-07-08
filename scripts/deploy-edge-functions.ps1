@@ -41,6 +41,11 @@ function Deploy-Function {
 $root = Split-Path -Parent $PSScriptRoot
 
 Deploy-Function `
+  -Slug 'supabase-functions-merge-shopify-product-variants' `
+  -FilePath (Join-Path $root 'supabase\functions\merge-shopify-product-variants\index.ts') `
+  -Name 'merge-shopify-product-variants'
+
+Deploy-Function `
   -Slug 'supabase-functions-publish-to-shopify' `
   -FilePath (Join-Path $root 'supabase\functions\publish-to-shopify\index.ts') `
   -Name 'publish-to-shopify'
