@@ -172,15 +172,46 @@ function normalizeImageUrl(src: string): string {
   }
 }
 
+const SHOPIFY_IMAGE_UUID_SUFFIX =
+  /_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?=\.[a-z0-9]+$)/i;
+
 function imageDedupeKey(src: string): string {
-  return normalizeImageUrl(src).replace(
-    /_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?=\.[a-z0-9]+$)/i,
-    "",
-  );
+  return normalizeImageUrl(src).replace(SHOPIFY_IMAGE_UUID_SUFFIX, "");
+}
+
+function hasShopifyImageUuidSuffix(src: string): boolean {
+  return SHOPIFY_IMAGE_UUID_SUFFIX.test(normalizeImageUrl(src));
+}
+
+function pickPreferredImage(
+  a: Record<string, unknown>,
+  b: Record<string, unknown>,
+  primarySrc: string | null,
+): Record<string, unknown> {
+  const srcA = String(a.src ?? "");
+  const srcB = String(b.src ?? "");
+  if (primarySrc) {
+    const pk = imageDedupeKey(primarySrc);
+    const keyA = imageDedupeKey(srcA);
+    const keyB = imageDedupeKey(srcB);
+    if (keyA === pk && keyB === pk) {
+      const normPrimary = normalizeImageUrl(primarySrc);
+      const aExact = srcA === primarySrc || normalizeImageUrl(srcA) === normPrimary;
+      const bExact = srcB === primarySrc || normalizeImageUrl(srcB) === normPrimary;
+      if (aExact && !bExact) return a;
+      if (bExact && !aExact) return b;
+      const aNoUuid = !hasShopifyImageUuidSuffix(srcA);
+      const bNoUuid = !hasShopifyImageUuidSuffix(srcB);
+      if (aNoUuid && !bNoUuid) return a;
+      if (bNoUuid && !aNoUuid) return b;
+    }
+  }
+  return srcA.length <= srcB.length ? a : b;
 }
 
 function indexLiveImagesByDedupe(
   images: Record<string, unknown>[],
+  primarySrc: string | null = null,
 ): Map<string, Record<string, unknown>> {
   const byDedupe = new Map<string, Record<string, unknown>>();
   for (const im of images) {
@@ -188,9 +219,25 @@ function indexLiveImagesByDedupe(
     if (typeof src !== "string" || !/^https?:\/\//.test(src)) continue;
     const key = imageDedupeKey(src);
     const prev = byDedupe.get(key);
-    if (!prev || src.length < String(prev.src).length) byDedupe.set(key, im);
+    byDedupe.set(key, prev ? pickPreferredImage(prev, im, primarySrc) : im);
   }
   return byDedupe;
+}
+
+function pickCanonicalForKey(
+  liveImages: Record<string, unknown>[],
+  key: string,
+  primarySrc: string | null,
+  byDedupe: Map<string, Record<string, unknown>>,
+): Record<string, unknown> | undefined {
+  const candidates = liveImages.filter(
+    (im) => typeof im.src === "string" && imageDedupeKey(im.src) === key,
+  );
+  if (candidates.length === 0) return byDedupe.get(key);
+  if (candidates.length === 1) return candidates[0];
+  return candidates.reduce(
+    (best, cur) => pickPreferredImage(best, cur, primarySrc),
+  );
 }
 
 function resolveAttachImageSrc(src: string, primarySrc: string | null): string {
@@ -247,6 +294,33 @@ function mapLiveImagesForMirror(images: Record<string, unknown>[]) {
   }));
 }
 
+/** PUT explicit positions so Shopify featured image matches mirror gallery order. */
+async function reorderShopifyProductImages(
+  apiBase: string,
+  headers: Record<string, string>,
+  shopifyId: string,
+  kept: Record<string, unknown>[],
+): Promise<boolean> {
+  const images = kept
+    .filter((im) => im.id != null)
+    .map((im, i) => ({ id: Number(im.id), position: i + 1 }));
+  if (images.length === 0) return false;
+
+  const resp = await fetch(`${apiBase}/products/${shopifyId}.json`, {
+    method: "PUT",
+    headers,
+    body: JSON.stringify({ product: { id: Number(shopifyId), images } }),
+  });
+  if (!resp.ok) {
+    console.warn(
+      `[update-shopify-product] gallery reorder failed (${resp.status}):`,
+      (await resp.text()).slice(0, 200),
+    );
+    return false;
+  }
+  return true;
+}
+
 /** Remove duplicate Shopify product images; keep mirror gallery order (deduped). */
 async function syncProductGalleryCleanup(
   apiBase: string,
@@ -255,12 +329,14 @@ async function syncProductGalleryCleanup(
   dedupedMirror: MirrorImageRef[],
   primarySrc: string | null,
 ): Promise<{ kept: Record<string, unknown>[]; deleted: number }> {
-  const keepKeys = new Set(dedupedMirror.map((im) => imageDedupeKey(String(im.src))));
+  const keepKeys = new Set(
+    dedupedMirror.map((im) => imageDedupeKey(resolveAttachImageSrc(String(im.src), primarySrc))),
+  );
 
   let product = (await fetch(`${apiBase}/products/${shopifyId}.json`, { headers })
     .then((r) => r.json())).product as Record<string, unknown>;
   let liveImages = [...((product.images as Record<string, unknown>[]) || [])];
-  const canonicalByKey = indexLiveImagesByDedupe(liveImages);
+  let canonicalByKey = indexLiveImagesByDedupe(liveImages, primarySrc);
 
   for (const im of dedupedMirror) {
     const src = resolveAttachImageSrc(String(im.src), primarySrc);
@@ -275,14 +351,16 @@ async function syncProductGalleryCleanup(
     const newImg = (await postResp.json()).image as Record<string, unknown>;
     const newKey = typeof newImg.src === "string" ? imageDedupeKey(newImg.src) : key;
     const prev = canonicalByKey.get(newKey);
-    if (!prev || String(newImg.src).length < String(prev.src).length) {
-      canonicalByKey.set(newKey, newImg);
-    }
+    canonicalByKey.set(
+      newKey,
+      prev ? pickPreferredImage(prev, newImg, primarySrc) : newImg,
+    );
   }
 
   product = (await fetch(`${apiBase}/products/${shopifyId}.json`, { headers })
     .then((r) => r.json())).product as Record<string, unknown>;
   liveImages = [...((product.images as Record<string, unknown>[]) || [])];
+  canonicalByKey = indexLiveImagesByDedupe(liveImages, primarySrc);
 
   let deleted = 0;
   for (const im of liveImages) {
@@ -290,7 +368,7 @@ async function syncProductGalleryCleanup(
     const src = im.src;
     if (id == null || typeof src !== "string") continue;
     const key = imageDedupeKey(src);
-    const canonical = canonicalByKey.get(key);
+    const canonical = pickCanonicalForKey(liveImages, key, primarySrc, canonicalByKey);
     if (!keepKeys.has(key) || (canonical?.id != null && Number(id) !== Number(canonical.id))) {
       const delResp = await fetch(
         `${apiBase}/products/${shopifyId}/images/${id}.json`,
@@ -300,11 +378,22 @@ async function syncProductGalleryCleanup(
     }
   }
 
+  product = (await fetch(`${apiBase}/products/${shopifyId}.json`, { headers })
+    .then((r) => r.json())).product as Record<string, unknown>;
+  liveImages = [...((product.images as Record<string, unknown>[]) || [])];
+  canonicalByKey = indexLiveImagesByDedupe(liveImages, primarySrc);
+
   const kept: Record<string, unknown>[] = [];
   for (const im of dedupedMirror) {
-    const canonical = canonicalByKey.get(imageDedupeKey(String(im.src)));
+    const key = imageDedupeKey(resolveAttachImageSrc(String(im.src), primarySrc));
+    const canonical = pickCanonicalForKey(liveImages, key, primarySrc, canonicalByKey);
     if (canonical) kept.push({ ...canonical, position: kept.length + 1 });
   }
+
+  if (kept.length > 0) {
+    await reorderShopifyProductImages(apiBase, headers, shopifyId, kept);
+  }
+
   return { kept, deleted };
 }
 
@@ -316,11 +405,14 @@ async function refreshMirrorAfterShopifyPush(
   keptImages: Record<string, unknown>[],
   primarySrc: string | null,
 ): Promise<void> {
+  const resolvedPrimary = keptImages.length > 0 && typeof keptImages[0].src === "string"
+    ? String(keptImages[0].src)
+    : primarySrc;
   const spUpdate: Record<string, unknown> = {
     shopify_updated_at: String(liveProduct.updated_at || new Date().toISOString()),
     variants: liveProduct.variants ?? null,
     images: keptImages.length > 0 ? mapLiveImagesForMirror(keptImages) : null,
-    image_url: primarySrc,
+    image_url: resolvedPrimary,
   };
   if (typeof payload.title === "string" && payload.title.trim()) spUpdate.title = payload.title;
   if (typeof payload.body_html === "string") spUpdate.body_html = payload.body_html;
@@ -449,7 +541,7 @@ async function syncVariantImagesFromMirror(
     const src = resolveAttachImageSrc(rawSrc, primarySrc);
 
     const variantId = Number(mv.id);
-    let target = indexLiveImagesByDedupe(images).get(imageDedupeKey(src));
+    let target = indexLiveImagesByDedupe(images, primarySrc).get(imageDedupeKey(src));
 
     if (!target?.id) {
       const postResp = await fetch(`${apiBase}/products/${shopifyId}/images.json`, {
@@ -630,15 +722,22 @@ async function pushProductToShopify(
   let keptGalleryImages: Record<string, unknown>[] = [];
 
   if (Array.isArray(variants) && dedupedMirror.length > 0) {
-    variantImagesSynced = await syncVariantImagesFromMirror(
-      apiBase, headers, shopifyId, variants, dedupedMirror, updated, primarySrc,
-    );
     const galleryResult = await syncProductGalleryCleanup(
       apiBase, headers, shopifyId, dedupedMirror, primarySrc,
     );
     keptGalleryImages = galleryResult.kept;
     galleryImagesDeleted = galleryResult.deleted;
-    const refreshResp = await fetch(`${apiBase}/products/${shopifyId}.json`, { headers });
+    let refreshResp = await fetch(`${apiBase}/products/${shopifyId}.json`, { headers });
+    if (refreshResp.ok) {
+      updated = (await refreshResp.json()).product as Record<string, unknown>;
+    }
+    variantImagesSynced = await syncVariantImagesFromMirror(
+      apiBase, headers, shopifyId, variants, dedupedMirror, updated, primarySrc,
+    );
+    if (keptGalleryImages.length > 0) {
+      await reorderShopifyProductImages(apiBase, headers, shopifyId, keptGalleryImages);
+    }
+    refreshResp = await fetch(`${apiBase}/products/${shopifyId}.json`, { headers });
     if (refreshResp.ok) {
       updated = (await refreshResp.json()).product as Record<string, unknown>;
     }
