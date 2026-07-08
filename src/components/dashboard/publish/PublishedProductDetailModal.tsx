@@ -97,7 +97,6 @@ function variantEditKey(v: ShopifyVariant, index: number): string {
   return v.id != null ? String(v.id) : `index-${index}`;
 }
 
-/** Resolve variant thumbnail from mirror data (variants.image_id ↔ images[].id / variant_ids). */
 function normalizeImageUrl(src: string): string {
   try {
     const u = new URL(src);
@@ -107,18 +106,25 @@ function normalizeImageUrl(src: string): string {
   }
 }
 
+function imageDedupeKey(src: string): string {
+  return normalizeImageUrl(src).replace(
+    /_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?=\.[a-z0-9]+$)/i,
+    '',
+  );
+}
+
 function resolveImageIdForSrc(
   src: string,
   images: ShopifyImage[],
   fallbackImageUrl?: string | null,
 ): string | number | null {
-  const norm = normalizeImageUrl(src);
+  const norm = imageDedupeKey(src);
   for (const im of images) {
-    if (im.src && normalizeImageUrl(im.src) === norm && im.id != null) {
+    if (im.src && imageDedupeKey(im.src) === norm && im.id != null) {
       return im.id;
     }
   }
-  if (fallbackImageUrl && normalizeImageUrl(fallbackImageUrl) === norm) {
+  if (fallbackImageUrl && imageDedupeKey(fallbackImageUrl) === norm) {
     const first = images.find((im) => im.id != null);
     if (first?.id != null) return first.id;
   }
@@ -290,16 +296,36 @@ export function PublishedProductDetailModal({
   const rawImgs: ShopifyImage[] = Array.isArray(r.images) ? r.images : [];
   const sortedImgs = [...rawImgs].sort((a, b) => (a.position ?? 99) - (b.position ?? 99));
   const allImages: string[] = useMemo(() => {
-    const urls: string[] = [];
-    if (sortedImgs.length > 0) {
-      for (const im of sortedImgs) {
-        if (im.src && !urls.includes(im.src)) urls.push(im.src);
+    const byKey = new Map<string, string>();
+    const add = (src: string | null | undefined) => {
+      if (!src || !/^https?:\/\//.test(src)) return;
+      const key = imageDedupeKey(src);
+      const prev = byKey.get(key);
+      if (!prev || src.length < prev.length) byKey.set(key, src);
+    };
+    add(r.image_url);
+    for (const im of sortedImgs) add(im.src);
+    const ordered: string[] = [];
+    const seen = new Set<string>();
+    if (r.image_url) {
+      const key = imageDedupeKey(r.image_url);
+      const src = byKey.get(key);
+      if (src) {
+        ordered.push(src);
+        seen.add(key);
       }
     }
-    if (r.image_url && !urls.includes(r.image_url)) {
-      urls.unshift(r.image_url);
+    for (const im of sortedImgs) {
+      if (!im.src) continue;
+      const key = imageDedupeKey(im.src);
+      if (seen.has(key)) continue;
+      const src = byKey.get(key);
+      if (src) {
+        ordered.push(src);
+        seen.add(key);
+      }
     }
-    return urls;
+    return ordered;
   }, [sortedImgs, r.image_url]);
 
   const displayImg = (selectedImg && allImages.includes(selectedImg)) ? selectedImg : (allImages[0] || '');

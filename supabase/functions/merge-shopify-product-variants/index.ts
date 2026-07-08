@@ -111,6 +111,42 @@ function normalizeImageUrl(src: string): string {
   }
 }
 
+/** Collapse Shopify re-upload copies (_uuid suffix) and query strings to one logical image. */
+function imageDedupeKey(src: string): string {
+  return normalizeImageUrl(src).replace(
+    /_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?=\.[a-z0-9]+$)/i,
+    "",
+  );
+}
+
+function dedupeGalleryUrls(urls: string[], primarySrc: string | null): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const add = (src: string | null | undefined) => {
+    if (!isHttpUrl(src)) return;
+    const key = imageDedupeKey(src);
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(src);
+  };
+  if (primarySrc) add(primarySrc);
+  for (const url of urls) add(url);
+  return out;
+}
+
+function indexShopifyImagesByDedupe(images: ShopifyRecord[]): Map<string, ShopifyRecord> {
+  const byDedupe = new Map<string, ShopifyRecord>();
+  for (const im of images) {
+    if (!isHttpUrl(im.src)) continue;
+    const key = imageDedupeKey(im.src as string);
+    const prev = byDedupe.get(key);
+    if (!prev || String(im.src).length < String(prev.src).length) {
+      byDedupe.set(key, im);
+    }
+  }
+  return byDedupe;
+}
+
 async function setVariantImageId(
   apiBase: string,
   headers: Record<string, string>,
@@ -152,9 +188,9 @@ async function attachVariantImages(
     if (variant?.id == null) continue;
     const variantId = Number(variant.id);
 
-    const normSrc = normalizeImageUrl(src);
+    const normSrc = imageDedupeKey(src);
     let target = images.find(
-      (im) => isHttpUrl(im.src) && normalizeImageUrl(im.src as string) === normSrc,
+      (im) => isHttpUrl(im.src) && imageDedupeKey(im.src as string) === normSrc,
     );
 
     if (!target?.id) {
@@ -209,7 +245,7 @@ function mapProductImages(images: ShopifyRecord[]) {
 }
 
 function imageNormKey(src: string): string {
-  return normalizeImageUrl(src);
+  return imageDedupeKey(src);
 }
 
 /** POST gallery URLs that are not yet attached to the merged parent product. */
@@ -224,22 +260,13 @@ async function ensureGalleryImagesOnShopify(
   if (!product) return [];
 
   let images = [...((product.images as ShopifyRecord[]) || [])];
-  const byNorm = new Map<string, ShopifyRecord>();
-  for (const im of images) {
-    if (isHttpUrl(im.src)) byNorm.set(imageNormKey(im.src as string), im);
-  }
+  const byDedupe = indexShopifyImagesByDedupe(images);
 
+  const uniqueGallery = dedupeGalleryUrls(galleryUrls, primarySrc);
   const toUpload: string[] = [];
-  const seenNorm = new Set<string>();
-  const queue = (src: string | null | undefined) => {
-    if (!isHttpUrl(src)) return;
-    const norm = imageNormKey(src);
-    if (seenNorm.has(norm)) return;
-    seenNorm.add(norm);
-    if (!byNorm.has(norm)) toUpload.push(src);
-  };
-  queue(primarySrc);
-  for (const url of galleryUrls) queue(url);
+  for (const src of uniqueGallery) {
+    if (!byDedupe.has(imageDedupeKey(src))) toUpload.push(src);
+  }
 
   for (const src of toUpload) {
     const postResp = await fetch(`${apiBase}/products/${parentId}/images.json`, {
@@ -257,47 +284,34 @@ async function ensureGalleryImagesOnShopify(
     const newImg = (await postResp.json()).image as ShopifyRecord;
     if (newImg?.id != null) {
       images.push(newImg);
-      const key = isHttpUrl(newImg.src) ? imageNormKey(newImg.src as string) : imageNormKey(src);
-      byNorm.set(key, newImg);
+      const key = isHttpUrl(newImg.src) ? imageDedupeKey(newImg.src as string) : imageDedupeKey(src);
+      const prev = byDedupe.get(key);
+      if (!prev || String(newImg.src).length < String(prev.src).length) {
+        byDedupe.set(key, newImg);
+      }
     }
   }
 
   return images;
 }
 
-/** Order mirror images: gallery UI order first, then any remaining Shopify images. */
-function orderMirrorImages(
-  finalImages: ShopifyRecord[],
-  galleryUrls: string[] | undefined,
+/** Mirror images[] = unique gallery order only (no extra Shopify duplicates). */
+function buildMirrorImagesFromGallery(
+  shopifyImages: ShopifyRecord[],
+  galleryUrls: string[],
   primarySrc: string | null,
 ): ShopifyRecord[] {
-  if (!galleryUrls?.length && !primarySrc) return finalImages;
-
-  const byNorm = new Map<string, ShopifyRecord>();
-  for (const im of finalImages) {
-    if (isHttpUrl(im.src)) byNorm.set(imageNormKey(im.src as string), im);
-  }
-
+  const byDedupe = indexShopifyImagesByDedupe(shopifyImages);
+  const uniqueGallery = dedupeGalleryUrls(galleryUrls, primarySrc);
   const ordered: ShopifyRecord[] = [];
-  const seenNorm = new Set<string>();
-  const pushSrc = (src: string | null | undefined) => {
-    if (!isHttpUrl(src)) return;
-    const norm = imageNormKey(src);
-    if (seenNorm.has(norm)) return;
-    seenNorm.add(norm);
-    const existing = byNorm.get(norm);
-    ordered.push(existing ?? { src, alt: "", position: ordered.length + 1 });
-  };
 
-  if (primarySrc) pushSrc(primarySrc);
-  for (const src of galleryUrls ?? []) pushSrc(src);
-
-  for (const im of finalImages) {
-    if (!isHttpUrl(im.src)) continue;
-    const norm = imageNormKey(im.src as string);
-    if (seenNorm.has(norm)) continue;
-    seenNorm.add(norm);
-    ordered.push(im);
+  for (const src of uniqueGallery) {
+    const im = byDedupe.get(imageDedupeKey(src));
+    ordered.push(
+      im
+        ? { ...im, src: (im.src as string) || src }
+        : { src, alt: "", position: ordered.length + 1 },
+    );
   }
 
   return ordered.map((im, i) => ({ ...im, position: i + 1 }));
@@ -308,9 +322,9 @@ function resolvePrimaryImageSrc(
   primaryFromUi: string | null,
 ): string | null {
   if (primaryFromUi) {
-    const norm = imageNormKey(primaryFromUi);
+    const norm = imageDedupeKey(primaryFromUi);
     const match = orderedImages.find(
-      (im) => isHttpUrl(im.src) && imageNormKey(im.src as string) === norm,
+      (im) => isHttpUrl(im.src) && imageDedupeKey(im.src as string) === norm,
     );
     if (match && isHttpUrl(match.src)) return match.src as string;
     return primaryFromUi;
@@ -417,6 +431,16 @@ Deno.serve(async (req: Request) => {
       return json({ error: `Shopify PUT parent failed (${putResp.status}): ${t.slice(0, 300)}` }, 502);
     }
 
+    const galleryUrlsRaw = Array.isArray(body.gallery_urls)
+      ? body.gallery_urls.filter(isHttpUrl)
+      : [];
+    const primaryFromUi = isHttpUrl(body.primary_image_src) ? body.primary_image_src : null;
+    const galleryUrls = dedupeGalleryUrls(galleryUrlsRaw, primaryFromUi);
+
+    await ensureGalleryImagesOnShopify(
+      apiBase, headers, parentId, galleryUrls, primaryFromUi,
+    );
+
     const { attached: imagesAttached, failed: imagesFailed } = await attachVariantImages(
       apiBase, headers, parentId, specs, imageSrcBySku,
     );
@@ -442,19 +466,9 @@ Deno.serve(async (req: Request) => {
     if (!finalProduct) return json({ error: "Shopify GET parent after merge failed" }, 502);
 
     const mergedVariants = (finalProduct.variants as ShopifyRecord[]) || [];
-    const galleryUrls = Array.isArray(body.gallery_urls)
-      ? body.gallery_urls.filter(isHttpUrl)
-      : [];
-    const primaryFromUi = isHttpUrl(body.primary_image_src) ? body.primary_image_src : null;
+    const shopifyImages = [...((finalProduct.images as ShopifyRecord[]) || [])];
 
-    let shopifyImages = await ensureGalleryImagesOnShopify(
-      apiBase, headers, parentId, galleryUrls, primaryFromUi,
-    );
-    if (shopifyImages.length === 0) {
-      shopifyImages = [...((finalProduct.images as ShopifyRecord[]) || [])];
-    }
-
-    const orderedImages = orderMirrorImages(shopifyImages, galleryUrls, primaryFromUi);
+    const orderedImages = buildMirrorImagesFromGallery(shopifyImages, galleryUrls, primaryFromUi);
     const primaryImageSrc = resolvePrimaryImageSrc(orderedImages, primaryFromUi);
     const prices = mergedVariants.map((v) => parseFloat(String(v.price ?? "0")) || 0);
     const minPrice = prices.length ? Math.min(...prices) : null;
