@@ -525,15 +525,26 @@ export function PublishedProductsView() {
   );
   useEffect(() => { setCurrentPage(1); }, [search, stateFilter, factoryFilter, level1Filter, level2Filter, pageSize, skuSortDir]);
 
-  // Drop selections that fall outside the current filter set.
+  // Only drop selections when the product row no longer exists (e.g. deleted), not when filtered out by search.
   useEffect(() => {
     setSelectedIds((prev) => {
       if (prev.length === 0) return prev;
-      const validIds = new Set(sorted.map((p) => p.id));
-      const next = prev.filter((id) => validIds.has(id));
+      const allIds = new Set(items.map((p) => p.id));
+      const next = prev.filter((id) => allIds.has(id));
       return next.length === prev.length ? prev : next;
     });
-  }, [sorted]);
+  }, [items]);
+
+  const selectedSkuChips = useMemo(
+    () => selectedIds.map((id) => {
+      const product = items.find((p) => p.id === id);
+      return {
+        id,
+        sku: product ? resolveProductSku(product.raw) : id.slice(0, 8),
+      };
+    }),
+    [selectedIds, items],
+  );
 
   const pageAllSelected = paged.length > 0 && paged.every((p) => selectedIds.includes(p.id));
   const pageSomeSelected = paged.some((p) => selectedIds.includes(p.id)) && !pageAllSelected;
@@ -763,11 +774,37 @@ export function PublishedProductsView() {
         </div>
         {selectedIds.length > 0 && (
           <span className="shrink-0 font-mono-data text-[11px] text-muted-foreground">
-            已選 <span className="font-semibold text-foreground">{selectedIds.length}</span> / 共 {sorted.length} 件
+            已選 <span className="font-semibold text-foreground">{selectedIds.length}</span> 件
             {selectionSpansPages && <span className="text-primary">（含跨頁）</span>}
           </span>
         )}
       </div>
+
+      {selectedIds.length > 0 && (
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border bg-muted/20 px-6 py-2.5">
+          <span className="shrink-0 font-body text-[10px] font-medium text-muted-foreground">
+            已選 SKU
+          </span>
+          {selectedSkuChips.map(({ id, sku }) => (
+            <span
+              key={id}
+              className="relative inline-flex max-w-[160px] items-center rounded-md border border-primary/30 bg-primary/5 pl-2 pr-6 py-1"
+            >
+              <span className="truncate font-mono-data text-[11px] text-foreground" title={sku}>
+                {sku}
+              </span>
+              <button
+                type="button"
+                onClick={() => toggle(id)}
+                className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow-sm hover:bg-destructive hover:text-destructive-foreground hover:border-destructive transition-colors"
+                title="取消選取"
+              >
+                <X className="h-2.5 w-2.5" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
 
       {/* table */}
       <div className="flex-1 overflow-auto p-6">
