@@ -17,6 +17,11 @@ const PDF_VARIANT_TO_HK: ReadonlyArray<readonly [string, string]> = [
   ["\u6CE8", "\u8A3B"], // 注 → 註
   ["\u7FA3", "\u7FA4"], // 羣 → 群
   ["\u9EAA", "\u9EB5"], // 麪 → 麵
+  // JP / variant Han often pasted into HK copy — TC PDF may omit or misdraw these.
+  ["\u9854", "\u984F"], // 顔 → 顏 (e.g. 板材顔色)
+  ["\u9AEA", "\u9AEE"], // 髪 → 髮
+  ["\u6BCE", "\u6BCF"], // 毎 → 每
+  ["\u9ED2", "\u9ED1"], // 黒 → 黑
 ];
 
 /** Apply variant → HK-standard replacements (longest-first not needed — all single chars). */

@@ -26,11 +26,11 @@ let fontRegistered = false;
 // 枱 and the complete Traditional Chinese repertoire (verified by cmap inspection).
 const NOTO_SANS_TC_REGULAR = 'https://fonts.gstatic.com/s/notosanstc/v39/-nFuOG829Oofr2wohFbTp9ifNAn722rq0MXz76Cy_Co.ttf';
 const NOTO_SANS_TC_BOLD = 'https://fonts.gstatic.com/s/notosanstc/v39/-nFuOG829Oofr2wohFbTp9ifNAn722rq0MXz70e1_Co.ttf';
-// Full Noto Sans SC (not a language subset) — fallback when TC lacks a glyph entirely.
-const NOTO_SANS_SC_REGULAR =
-  'https://fonts.gstatic.com/ea/notosanssc/v1/NotoSansSC-Regular.otf';
-const NOTO_SANS_SC_BOLD =
-  'https://fonts.gstatic.com/ea/notosanssc/v1/NotoSansSC-Bold.otf';
+// Noto Sans JP — fallback for JP-variant Han (e.g. 顔 U+9854) missing from TC in react-pdf.
+const NOTO_SANS_JP_REGULAR =
+  'https://fonts.gstatic.com/s/notosansjp/v56/-F6jfjtqLzI2JPCgQBnw7HFyzSD-AsregP8VFBEj75s.ttf';
+const NOTO_SANS_JP_BOLD =
+  'https://fonts.gstatic.com/s/notosansjp/v56/-F6jfjtqLzI2JPCgQBnw7HFyzSD-AsregP8VFPYk75s.ttf';
 
 async function loadReactPdfModule(): Promise<ReactPdfModule> {
   if (cachedModule) return cachedModule;
@@ -50,17 +50,17 @@ async function loadReactPdfModule(): Promise<ReactPdfModule> {
             { src: NOTO_SANS_TC_BOLD, fontWeight: 700 },
           ],
         });
-        // Fallback: full Noto Sans SC for glyphs absent from TC. Wrong-glyph cases
-        // (e.g. 爲 → "2") are handled by normalizeQuotationPdfGlyphs() before render.
-        // (cast: react-pdf's types omit the runtime-supported `fallback` flag.)
+        // Primary fallback: Noto Sans JP for JP-variant Han (e.g. 顔 U+9854) omitted by TC in react-pdf.
         mod.Font.register({
-          family: 'NotoSansSC',
+          family: 'NotoSansJP',
           fallback: true,
           fonts: [
-            { src: NOTO_SANS_SC_REGULAR, fontWeight: 400 },
-            { src: NOTO_SANS_SC_BOLD, fontWeight: 700 },
+            { src: NOTO_SANS_JP_REGULAR, fontWeight: 400 },
+            { src: NOTO_SANS_JP_BOLD, fontWeight: 700 },
           ],
         } as Parameters<typeof mod.Font.register>[0]);
+        // Wrong-glyph / legacy forms (e.g. 爲 → "2") are handled by normalizeQuotationPdfGlyphs().
+        // Simplified Chinese is converted to Traditional before render; SC font not needed here.
         mod.Font.registerHyphenationCallback((word: string) => {
           // Allow CJK line breaks in narrow cells without inserting "-" at wrap points.
           // Each char followed by '' gives break opportunities; empty segments are not rendered.
