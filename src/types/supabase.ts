@@ -54,8 +54,11 @@ export type Database = {
       }
       bwf_quote: {
         Row: {
+          bwf_pitching_id: string | null
           cost_price: number | null
           created_at: string | null
+          exchange_rate: number | null
+          hkd_cost_price: number | null
           id: string
           project_data: Json
           quote_id: string
@@ -66,8 +69,11 @@ export type Database = {
           version: string
         }
         Insert: {
+          bwf_pitching_id?: string | null
           cost_price?: number | null
           created_at?: string | null
+          exchange_rate?: number | null
+          hkd_cost_price?: number | null
           id?: string
           project_data?: Json
           quote_id: string
@@ -78,8 +84,11 @@ export type Database = {
           version?: string
         }
         Update: {
+          bwf_pitching_id?: string | null
           cost_price?: number | null
           created_at?: string | null
+          exchange_rate?: number | null
+          hkd_cost_price?: number | null
           id?: string
           project_data?: Json
           quote_id?: string

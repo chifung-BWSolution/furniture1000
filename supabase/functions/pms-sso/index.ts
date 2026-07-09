@@ -70,7 +70,42 @@ async function handleMint(
   }
 
   const baseUrl = furnitureAppUrl.replace(/\/+$/, "");
-  const redirectTo = body.redirect_to?.trim() || `${baseUrl}/auth/pms/callback`;
+  const callbackPath = `${baseUrl}/auth/pms/callback`;
+  const rawRedirect = body.redirect_to?.trim() || "";
+
+  // Accept either:
+  // 1) Full callback URL (optionally already carrying nested redirect_to)
+  // 2) Final in-app path+query (e.g. /quote/quick?pmsPitchingId=...) — wrap into callback
+  let redirectTo = callbackPath;
+  if (rawRedirect) {
+    if (
+      rawRedirect.startsWith(callbackPath) ||
+      rawRedirect.includes("/auth/pms/callback")
+    ) {
+      redirectTo = rawRedirect;
+    } else if (rawRedirect.startsWith("/")) {
+      redirectTo = `${callbackPath}?redirect_to=${encodeURIComponent(rawRedirect)}`;
+    } else {
+      // Absolute Furniture URL → extract path+search if same app, else keep as callback nest
+      try {
+        const u = new URL(rawRedirect);
+        const furnitureHost = new URL(baseUrl).host;
+        if (u.host === furnitureHost) {
+          if (u.pathname.includes("/auth/pms/callback")) {
+            redirectTo = rawRedirect;
+          } else {
+            const finalPath = `${u.pathname}${u.search}`;
+            redirectTo = `${callbackPath}?redirect_to=${encodeURIComponent(finalPath)}`;
+          }
+        } else {
+          redirectTo = `${callbackPath}?redirect_to=${encodeURIComponent(rawRedirect)}`;
+        }
+      } catch {
+        redirectTo = callbackPath;
+      }
+    }
+  }
+
   const exchangeUrl = `${redirectTo}${redirectTo.includes("?") ? "&" : "?"}code=${encodeURIComponent(code)}`;
 
   return jsonResponse({

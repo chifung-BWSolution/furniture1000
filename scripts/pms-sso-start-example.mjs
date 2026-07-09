@@ -18,7 +18,7 @@
  *   import { cookies } from 'next/headers';
  *   import { NextResponse } from 'next/server';
  *
- *   export async function GET() {
+ *   export async function GET(req: Request) {
  *     const cookieStore = await cookies();
  *     const supabase = createServerClient(
  *       process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -26,11 +26,20 @@
  *       { cookies: { getAll: () => cookieStore.getAll(), setAll: () => {} } },
  *     );
  *     const { data: { user } } = await supabase.auth.getUser();
+ *     const incoming = new URL(req.url);
+ *     // Optional: ?redirect_to=<encoded Furniture path+query>
+ *     // e.g. /quote/quick?pmsPitchingId=...&projectName=BWF-SH26-049
+ *     const finalPath = incoming.searchParams.get('redirect_to') || '';
  *     if (!user?.email) {
  *       const login = new URL('/login', process.env.NEXT_PUBLIC_APP_URL);
- *       login.searchParams.set('return_to', '/api/bwf/sso/start');
+ *       login.searchParams.set('return_to', '/api/bwf/sso/start' + (finalPath ? `?redirect_to=${encodeURIComponent(finalPath)}` : ''));
  *       return NextResponse.redirect(login);
  *     }
+ *
+ *     // Furniture pms-sso mint accepts either the callback URL or the final /quote/... path.
+ *     const redirectTo = finalPath.startsWith('/')
+ *       ? finalPath
+ *       : `${process.env.FURNITURE_APP_URL}/auth/pms/callback`;
  *
  *     const res = await fetch(
  *       `${process.env.BWF_SUPABASE_URL}/functions/v1/supabase-functions-pms-sso`,
@@ -44,7 +53,7 @@
  *           action: 'mint',
  *           user_id: user.id,
  *           email: user.email,
- *           redirect_to: `${process.env.FURNITURE_APP_URL}/auth/pms/callback`,
+ *           redirect_to: redirectTo,
  *         }),
  *       },
  *     );

@@ -96,3 +96,25 @@ Invoke-RestMethod -Method Post -Uri "https://api.supabase.com/v1/projects/riaubh
 
 **坑**：SQL 裡的中文字經 PowerShell 命令列會變成 `%??%`，改用 ASCII 子字串比對
 （例如廠家「華座 HUAZUO」用 `ILIKE '%HUAZUO%'`）。console 顯示中文也是亂碼，但 DB 內資料正常。
+
+## 6. PMS Quote tab ↔ 快速報價 handoff
+
+PMS（bwteam-project.com）BWF pitching 詳情的 Quote tab 會列出本專案 `bwf_quote`
+（依 `bwf_pitching_id`），並經 SSO 開新報價。
+
+**Schema**：`bwf_quote.bwf_pitching_id uuid`（PMS pitching UUID，無跨庫 FK）+
+`idx_bwf_quote_bwf_pitching_id`。存檔時同時寫欄位與
+`project_data.formData.pmsPitchingId`；`formData.projectName` = PMS `pitching_code`。
+
+**SSO**：PMS `GET /api/bwf/sso/start?redirect_to=<encoded Furniture path+query>`。
+Furniture `/auth/pms/callback` 交換 session 後必須導向 `redirect_to`（保留 query）。
+`pms-sso` mint 若收到最終 path（如 `/quote/quick?...`）會包進 callback 的
+`?redirect_to=`。
+
+**快速報價 deep link**：`/quote/quick?...` 預填 Step 1（見 `src/lib/pmsQuotePrefill.ts`）。
+Query：`pmsPitchingId`, `projectName`, `projectManager`, `clientName`, `clientPhone`,
+`clientEmail`, `clientIndustry`, `quotationType`, `company`（可選）。
+報價編號仍由 Furniture 自動產生，PMS 不必傳。
+
+**開啟既有報價**：`/quote/<quote_id>`（例 `/quote/Q2026-0708-263`）。
+PMS v1 可只做列表；需要時用此 URL 連回編輯。

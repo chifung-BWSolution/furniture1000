@@ -5,7 +5,7 @@ const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
 };
 
 const BWF_URL_DEFAULT = "https://riaubhtruisbwdlwjzur.supabase.co";
@@ -42,7 +42,7 @@ Deno.serve(async (req: Request) => {
     return new Response("ok", { headers: corsHeaders, status: 200 });
   }
 
-  if (req.method !== "POST") {
+  if (req.method !== "POST" && req.method !== "GET") {
     return jsonResponse({ error: "Method not allowed" }, 405);
   }
 
@@ -75,8 +75,24 @@ Deno.serve(async (req: Request) => {
 
   await syncOneUserToBwf(user.id, pmsUrl, sharedSecret);
 
-  const redirectTo =
+  let body: { redirect_to?: string } = {};
+  try {
+    body = await req.json();
+  } catch {
+    // GET-style callers may omit a body; fall back to query string below.
+  }
+
+  const url = new URL(req.url);
+  const finalRedirect =
+    (body.redirect_to || url.searchParams.get("redirect_to") || "").trim();
+
+  // Mint lands on Furniture SSO callback. Nested redirect_to (path+query) is
+  // preserved so /auth/pms/callback can navigate to e.g. /quote/quick?... after session.
+  const callbackBase =
     `${furnitureAppUrl.replace(/\/+$/, "")}/auth/pms/callback`;
+  const redirectTo = finalRedirect
+    ? `${callbackBase}?redirect_to=${encodeURIComponent(finalRedirect)}`
+    : callbackBase;
 
   const mintRes = await fetch(`${bwfUrl}/functions/v1/supabase-functions-pms-sso`, {
     method: "POST",

@@ -18,6 +18,7 @@ import {
   migrateTermsContentToCurrent,
   type SavedTermsContent,
 } from '@/lib/quotationDefaultTerms';
+import { parsePmsQuotePrefill } from '@/lib/pmsQuotePrefill';
 
 const LazyQuotationPDFPreviewModal = lazy(() =>
   import('@/components/dashboard/QuotationPDFPreview').then((mod) => ({
@@ -37,6 +38,8 @@ interface QuoteFormData {
   company: string;
   projectManager: string;
   projectName: string;
+  /** PMS pitching UUID — persisted to bwf_quote.bwf_pitching_id on save */
+  pmsPitchingId?: string;
   clientName: string;
   clientPhone: string;
   clientEmail: string;
@@ -88,6 +91,7 @@ const DEFAULT_FORM_DATA = (): QuoteFormData => ({
   company: 'Branding Works Design Ltd',
   projectManager: '',
   projectName: '',
+  pmsPitchingId: undefined,
   clientName: '',
   clientPhone: '',
   clientEmail: '',
@@ -107,6 +111,7 @@ const DEFAULT_FORM_DATA = (): QuoteFormData => ({
 export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessionKey = 0 }: QuickQuoteViewProps) {
   const { user, loading: authLoading } = useAuth();
   const userEmail = user?.email ?? null;
+  const pmsPrefillAppliedRef = useRef(false);
 
   const [currentStep, setCurrentStep] = useState(1);
   const [isQuotationReady, setIsQuotationReady] = useState(false);
@@ -124,16 +129,49 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
     totalAmount: number;
     submitter: string;
     projectData: Record<string, unknown>;
+    bwfPitchingId?: string | null;
   } | null>(null);
   const [formData, setFormData] = useState<QuoteFormData>(() => DEFAULT_FORM_DATA());
   const [pdfPreviewData, setPdfPreviewData] = useState<QuotationPDFData | null>(null);
+  const [errors, setErrors] = useState<Partial<Record<keyof QuoteFormData, string>>>({});
   const sessionRestoredRef = useRef(false);
   const loadedQuoteIdRef = useRef<string | null>(null);
+
+  // PMS SSO / deep-link prefill: /quote/quick?pmsPitchingId=...&projectName=...
+  const applyPmsPrefillFromUrl = useCallback(() => {
+    if (typeof window === 'undefined') return false;
+    const prefill = parsePmsQuotePrefill(new URLSearchParams(window.location.search));
+    if (!prefill) return false;
+    setCurrentStep(1);
+    setIsQuotationReady(false);
+    setFormData({
+      ...DEFAULT_FORM_DATA(),
+      company: prefill.company || 'Branding Works Design Ltd',
+      projectManager: prefill.projectManager || '',
+      projectName: prefill.projectName || '',
+      pmsPitchingId: prefill.pmsPitchingId,
+      clientName: prefill.clientName || '',
+      clientPhone: prefill.clientPhone || '',
+      clientEmail: prefill.clientEmail || '',
+      clientIndustry: prefill.clientIndustry || [],
+      quotationType: prefill.quotationType || [],
+    });
+    pmsPrefillAppliedRef.current = true;
+    sessionRestoredRef.current = true;
+    return true;
+  }, []);
+
+  useEffect(() => {
+    if (editingQuoteId) return;
+    if (pmsPrefillAppliedRef.current) return;
+    applyPmsPrefillFromUrl();
+  }, [editingQuoteId, freshSessionKey, applyPmsPrefillFromUrl]);
 
   useEffect(() => {
     if (authLoading || editingQuoteId || freshSessionKey > 0) return;
     if (!userEmail) return;
     if (sessionRestoredRef.current) return;
+    if (pmsPrefillAppliedRef.current) return;
 
     sessionRestoredRef.current = true;
     const step = readQuickQuoteStep(userEmail);
@@ -146,12 +184,6 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
       // ignore
     }
   }, [authLoading, userEmail, editingQuoteId, freshSessionKey]);
-
-  useEffect(() => {
-    if (freshSessionKey > 0) {
-      sessionRestoredRef.current = false;
-    }
-  }, [freshSessionKey]);
 
   const resetToNewQuote = useCallback(() => {
     setCurrentStep(1);
@@ -166,7 +198,10 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
   useEffect(() => {
     if (freshSessionKey === 0) return;
     resetToNewQuote();
-  }, [freshSessionKey, resetToNewQuote]);
+    // Re-apply PMS query params after wiping local session (deep-link / SSO landing)
+    pmsPrefillAppliedRef.current = false;
+    applyPmsPrefillFromUrl();
+  }, [freshSessionKey, resetToNewQuote, applyPmsPrefillFromUrl]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -176,7 +211,6 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
       // ignore
     }
   }, [formData, userEmail]);
-  const [errors, setErrors] = useState<Partial<Record<keyof QuoteFormData, string>>>({});
 
   // Load existing quote when editingQuoteId is provided
   useEffect(() => {
@@ -254,6 +288,9 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
             company: savedFormData.company || 'Branding Works Design Ltd',
             projectManager: savedFormData.projectManager || '',
             projectName: savedFormData.projectName || '',
+            pmsPitchingId:
+              savedFormData.pmsPitchingId ||
+              (typeof data.bwf_pitching_id === 'string' ? data.bwf_pitching_id : undefined),
             clientName: savedFormData.clientName || '',
             clientPhone: savedFormData.clientPhone || '',
             clientEmail: savedFormData.clientEmail || '',
@@ -278,6 +315,7 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
           totalAmount: data.total_amount,
           submitter: data.submitter,
           projectData: projectDataToUse,
+          bwfPitchingId: (data.bwf_pitching_id as string | null) ?? null,
         });
         loadedQuoteIdRef.current = editingQuoteId;
 

@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { X, AlertTriangle } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
+import { extractPmsPitchingIdFromProjectData } from '@/lib/pmsQuotePrefill';
 
 interface SubmitReviewModalProps {
   open: boolean;
@@ -11,6 +12,8 @@ interface SubmitReviewModalProps {
   totalCostPrice?: number | null;
   version: string;
   projectData: Record<string, unknown>;
+  /** Explicit PMS pitching uuid (preferred over digging into projectData). */
+  bwfPitchingId?: string | null;
 }
 
 function generateQuoteId(): string {
@@ -30,6 +33,7 @@ export function SubmitReviewModal({
   totalCostPrice,
   version,
   projectData,
+  bwfPitchingId,
 }: SubmitReviewModalProps) {
   const [submitter, setSubmitter] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -46,6 +50,20 @@ export function SubmitReviewModal({
     setIsSubmitting(true);
 
     const quoteId = generateQuoteId();
+    const pitchingId =
+      bwfPitchingId ||
+      extractPmsPitchingIdFromProjectData(projectData) ||
+      null;
+
+    // Ensure formData keeps pmsPitchingId + projectName (pitching_code) for PMS list joins.
+    const formData = {
+      ...((projectData.formData as Record<string, unknown> | undefined) || {}),
+      ...(pitchingId ? { pmsPitchingId: pitchingId } : {}),
+    };
+    const payloadProjectData = {
+      ...projectData,
+      formData,
+    };
 
     try {
       const { error: dbError } = await supabase.from('bwf_quote').insert({
@@ -55,7 +73,8 @@ export function SubmitReviewModal({
         total_amount: totalAmount,
         cost_price: totalCostPrice ?? null,
         submitter: submitter.trim(),
-        project_data: projectData,
+        project_data: payloadProjectData,
+        ...(pitchingId ? { bwf_pitching_id: pitchingId } : {}),
       });
 
       if (dbError) {

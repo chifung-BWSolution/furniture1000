@@ -49,6 +49,7 @@ interface QuoteFormData {
   company: string;
   projectManager: string;
   projectName: string;
+  pmsPitchingId?: string;
   clientName: string;
   clientPhone: string;
   clientEmail: string;
@@ -101,6 +102,7 @@ interface QuotationDraftEditorProps {
     totalAmount: number;
     submitter: string;
     projectData: Record<string, unknown>;
+    bwfPitchingId?: string | null;
   };
 }
 
@@ -1164,9 +1166,16 @@ export function QuotationDraftEditor({
     setTermsSaving(true);
     try {
       const currentProjectData = buildProjectData();
+      const pitchingId =
+        formData.pmsPitchingId ||
+        existingQuote.bwfPitchingId ||
+        null;
       const { error } = await supabase
         .from("bwf_quote")
-        .update({ project_data: currentProjectData })
+        .update({
+          project_data: currentProjectData,
+          ...(pitchingId ? { bwf_pitching_id: pitchingId } : {}),
+        })
         .eq("quote_id", existingQuote.quoteId);
       if (error) throw error;
       toast.success("條款已保存");
@@ -1644,21 +1653,31 @@ export function QuotationDraftEditor({
     setActiveItemId(null);
   };
 
-  const buildProjectData = () => ({
-    formData,
-    companyInfo,
-    clientInfo,
-    quoteMeta,
-    deliveryDetails,
-    termsContent,
-    items: items.map(({ id, exchangeRateInput: _exchangeRateInput, ...rest }) => rest),
-    subtotal,
-    discountNote,
-    discountValue,
-    grandTotal,
-    installationFee,
-    gpSummary,
-  });
+  const buildProjectData = () => {
+    const pitchingId =
+      formData.pmsPitchingId ||
+      existingQuote?.bwfPitchingId ||
+      null;
+    const nextFormData = {
+      ...formData,
+      ...(pitchingId ? { pmsPitchingId: pitchingId } : {}),
+    };
+    return {
+      formData: nextFormData,
+      companyInfo,
+      clientInfo,
+      quoteMeta,
+      deliveryDetails,
+      termsContent,
+      items: items.map(({ id, exchangeRateInput: _exchangeRateInput, ...rest }) => rest),
+      subtotal,
+      discountNote,
+      discountValue,
+      grandTotal,
+      installationFee,
+      gpSummary,
+    };
+  };
 
   const buildPDFData = (): QuotationPDFData => {
     const deliveryAddress = resolveDeliveryAddress(
@@ -2451,6 +2470,7 @@ export function QuotationDraftEditor({
         totalCostPrice={totalCostPrice}
         version={currentVersion}
         projectData={buildProjectData()}
+        bwfPitchingId={formData.pmsPitchingId || existingQuote?.bwfPitchingId || null}
       />
 
       {/* Product Selector Modal */}

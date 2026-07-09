@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect, useRef, lazy, Suspense } from "react";
+import { useLocation } from "react-router-dom";
 import { useAppStore } from "@/hooks/use-app-store";
 import { unsavedGuard } from "@/lib/unsavedGuard";
 import { resetQuickQuoteSessionStorage, readQuickQuoteEditingId, writeQuickQuoteEditingId } from "@/lib/quickQuoteSession";
@@ -23,6 +24,7 @@ import { supabase as sb } from "@/lib/supabase";
 import { syncRtsWorkflowToProduct } from "@/lib/rtsProductSync";
 import { resolveSelectedPublishProducts } from "@/lib/readyToPublishRow";
 import type { Product } from "@/types/product";
+import { hasPmsQuotePrefillParams } from "@/lib/pmsQuotePrefill";
 
 // Lazy-loaded heavy views (contain large dependencies like pdfjs-dist, @react-pdf/renderer, etc.)
 const AIProcessorView = lazy(() =>
@@ -166,11 +168,13 @@ function PlaceholderView({
 export function AppShell() {
   const store = useAppStore();
   const { user } = useAuth();
+  const location = useLocation();
   const [showPublishModal, setShowPublishModal] = useState(false);
   const [publishModalProducts, setPublishModalProducts] = useState<Product[]>([]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [editingQuoteId, setEditingQuoteIdRaw] = useState<string | null>(null);
   const [quickQuoteFreshKey, setQuickQuoteFreshKey] = useState(0);
+  const deepLinkHandledRef = useRef<string | null>(null);
 
   const setEditingQuoteId = useCallback(
     (id: string | null) => {
@@ -180,11 +184,41 @@ export function AppShell() {
     [user?.email],
   );
 
+  // Deep links: /quote/quick?... (PMS new quote) and /quote/:quoteId (open existing)
+  useEffect(() => {
+    const path = location.pathname;
+    const key = `${path}${location.search}`;
+    if (deepLinkHandledRef.current === key) return;
+
+    const quoteMatch = path.match(/^\/quote\/([^/]+)\/?$/);
+    if (!quoteMatch) return;
+
+    deepLinkHandledRef.current = key;
+    const segment = decodeURIComponent(quoteMatch[1]);
+
+    if (segment === "quick") {
+      resetQuickQuoteSessionStorage(user?.email);
+      void deleteDraft(makeDraftKey(user?.email, "NEW"));
+      setEditingQuoteId(null);
+      if (hasPmsQuotePrefillParams(new URLSearchParams(location.search))) {
+        setQuickQuoteFreshKey((k) => k + 1);
+      }
+      store.setCurrentView("quick-quote");
+      return;
+    }
+
+    // Stable open-existing URL: /quote/Q2026-0708-263
+    setEditingQuoteId(segment);
+    store.setCurrentView("quick-quote");
+  }, [location.pathname, location.search, store, user?.email, setEditingQuoteId]);
+
   useEffect(() => {
     if (store.currentView !== "quick-quote") return;
+    // Prefer deep-link quote id over stale session editing id
+    if (location.pathname.startsWith("/quote/")) return;
     const saved = readQuickQuoteEditingId(user?.email);
     if (saved) setEditingQuoteIdRaw(saved);
-  }, [user?.email, store.currentView]);
+  }, [user?.email, store.currentView, location.pathname]);
   // 方案 D: Supabase health monitoring
   const [dbUnhealthy, setDbUnhealthy] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);

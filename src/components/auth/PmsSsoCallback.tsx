@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Loader2, CheckCircle2, XCircle } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { resolveSsoPostLoginPath } from '@/lib/ssoRedirect';
 
 type CallbackState = 'processing' | 'success' | 'error';
 
@@ -21,6 +22,9 @@ export function PmsSsoCallback() {
         setErrorDetail('請從 PMS 重新登入，或返回登入頁再試一次。');
         return;
       }
+
+      // Capture before exchange — keep full path + query for post-login navigation.
+      const postLoginPath = resolveSsoPostLoginPath(searchParams) || '/';
 
       try {
         const { data, error } = await supabase.functions.invoke(
@@ -51,7 +55,7 @@ export function PmsSsoCallback() {
 
         setState('success');
         setMessage('登入成功，正在進入系統…');
-        setTimeout(() => navigate('/', { replace: true }), 800);
+        setTimeout(() => navigate(postLoginPath, { replace: true }), 800);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.error('[PmsSsoCallback]', msg);
