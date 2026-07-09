@@ -85,6 +85,19 @@ products 的 `copy_done`/`info_done`/`ready_to_publish` 設 false、**保留 `in
 `SUPABASE_ACCESS_TOKEN`（用 PowerShell `[Environment]::SetEnvironmentVariable(...,'User')`
 設定，**不在任何檔案或 git**）。`.mcp.json` 不含 token，靠該環境變數。
 
+### Cursor（本機）Supabase MCP
+
+專案已含 `.cursor/mcp.json`（OAuth，不含 token）。本機啟用步驟：
+
+1. 用 Cursor 開啟此 repo（會讀取 `.cursor/mcp.json`）
+2. **Settings → Cursor Settings → Tools & MCP**
+3. 找到 **supabase**，點 **Connect** 完成瀏覽器 OAuth 登入
+4. 狀態變 **Connected** 後，重開 Chat 即可用 `execute_sql` 等工具
+
+若 OAuth 失敗，可改用 PAT（需先設好 `SUPABASE_ACCESS_TOKEN`）——參考
+`.cursor/mcp.json.example` 的 `supabase-pat-http` 或 `supabase-pat-stdio`，
+覆寫 `.cursor/mcp.json` 後**完全重啟 Cursor**。
+
 Supabase MCP server 在 Claude Code 啟動時讀 token，所以剛設好環境變數後、未重啟前，
 MCP 工具可能仍 Unauthorized。立即可用的後備——用 PowerShell 經 Management API 跑 SQL：
 

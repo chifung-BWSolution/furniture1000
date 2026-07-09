@@ -1,0 +1,26 @@
+{
+  "mcpServers": {
+    "supabase-oauth": {
+      "url": "https://mcp.supabase.com/mcp?project_ref=riaubhtruisbwdlwjzur"
+    },
+    "supabase-pat-http": {
+      "url": "https://mcp.supabase.com/mcp?project_ref=riaubhtruisbwdlwjzur",
+      "headers": {
+        "Authorization": "Bearer ${env:SUPABASE_ACCESS_TOKEN}"
+      }
+    },
+    "supabase-pat-stdio": {
+      "type": "stdio",
+      "command": "npx",
+      "args": [
+        "-y",
+        "@supabase/mcp-server-supabase@latest",
+        "--project-ref",
+        "riaubhtruisbwdlwjzur"
+      ],
+      "env": {
+        "SUPABASE_ACCESS_TOKEN": "${env:SUPABASE_ACCESS_TOKEN}"
+      }
+    }
+  }
+}
