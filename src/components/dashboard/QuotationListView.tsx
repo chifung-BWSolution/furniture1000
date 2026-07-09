@@ -1,7 +1,17 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Search, SlidersHorizontal, FileText, Clock, RefreshCw } from 'lucide-react';
+import { Search, SlidersHorizontal, FileText, Clock, RefreshCw, Trash2 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 interface QuoteRecord {
   id: string;
@@ -54,6 +64,8 @@ export function QuotationListView({ onOpenQuote }: QuotationListViewProps) {
   const [quotes, setQuotes] = useState<QuoteRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [deleteTarget, setDeleteTarget] = useState<QuoteRecord | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const fetchQuotes = useCallback(async () => {
     setIsLoading(true);
@@ -77,6 +89,30 @@ export function QuotationListView({ onOpenQuote }: QuotationListViewProps) {
     fetchQuotes();
   }, [fetchQuotes]);
 
+  const handleConfirmDelete = async () => {
+    if (!deleteTarget || isDeleting) return;
+    setIsDeleting(true);
+    try {
+      const { error } = await supabase
+        .from('bwf_quote')
+        .delete()
+        .eq('id', deleteTarget.id);
+
+      if (error) throw error;
+
+      setQuotes((prev) => prev.filter((q) => q.id !== deleteTarget.id));
+      toast.success('已刪除報價單', {
+        description: deleteTarget.quote_id,
+      });
+      setDeleteTarget(null);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : '無法刪除報價單';
+      toast.error('刪除失敗', { description: message });
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   const filteredQuotes = quotes.filter((q) => {
     if (!searchQuery.trim()) return true;
     const query = searchQuery.toLowerCase();
@@ -89,6 +125,9 @@ export function QuotationListView({ onOpenQuote }: QuotationListViewProps) {
       q.submitter.toLowerCase().includes(query)
     );
   });
+
+  const deleteProjectName =
+    deleteTarget?.project_data?.formData?.projectName || '未命名專案';
 
   return (
     <div className="h-full overflow-y-auto bg-background p-6 md:p-8">
@@ -214,19 +253,33 @@ export function QuotationListView({ onOpenQuote }: QuotationListViewProps) {
                     </div>
 
                     {/* Right */}
-                    <div className="flex flex-col items-end flex-shrink-0">
-                      <span className="font-display text-lg font-bold text-foreground">
-                        ${quote.total_amount.toLocaleString()}
-                      </span>
-                      {quote.cost_price != null && (
-                        <span className="mt-0.5 font-mono-data text-[11px] text-muted-foreground">
-                          成本: ${quote.cost_price.toLocaleString()}
+                    <div className="flex items-start gap-3 flex-shrink-0">
+                      <div className="flex flex-col items-end">
+                        <span className="font-display text-lg font-bold text-foreground">
+                          ${quote.total_amount.toLocaleString()}
                         </span>
-                      )}
-                      <span className="mt-1 flex items-center gap-1 font-mono-data text-[11px] text-muted-foreground">
-                        <Clock className="h-3 w-3" />
-                        {formatDateTime(quote.created_at)}
-                      </span>
+                        {quote.cost_price != null && (
+                          <span className="mt-0.5 font-mono-data text-[11px] text-muted-foreground">
+                            成本: ${quote.cost_price.toLocaleString()}
+                          </span>
+                        )}
+                        <span className="mt-1 flex items-center gap-1 font-mono-data text-[11px] text-muted-foreground">
+                          <Clock className="h-3 w-3" />
+                          {formatDateTime(quote.created_at)}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        title="刪除報價單"
+                        aria-label={`刪除報價單 ${quote.quote_id}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDeleteTarget(quote);
+                        }}
+                        className="mt-0.5 flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-muted-foreground/70 transition-colors hover:border-destructive/30 hover:bg-destructive/10 hover:text-destructive"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
                     </div>
                   </div>
                 </div>
@@ -235,6 +288,52 @@ export function QuotationListView({ onOpenQuote }: QuotationListViewProps) {
           </div>
         )}
       </div>
+
+      <AlertDialog
+        open={!!deleteTarget}
+        onOpenChange={(open) => {
+          if (!open && !isDeleting) setDeleteTarget(null);
+        }}
+      >
+        <AlertDialogContent className="max-w-md border-destructive/20">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="font-display flex items-center gap-2">
+              <Trash2 className="h-5 w-5 text-destructive" />
+              確認刪除
+            </AlertDialogTitle>
+            <AlertDialogDescription className="font-body text-sm">
+              確定要刪除報價單{' '}
+              <span className="font-mono-data font-bold text-foreground">
+                {deleteTarget?.quote_id}
+              </span>
+              嗎？
+              <br />
+              <span className="mt-2 block text-xs text-muted-foreground">
+                「{deleteProjectName}」將永久移除，此操作無法撤銷。
+              </span>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              disabled={isDeleting}
+              className="font-display text-xs font-bold"
+            >
+              否
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={isDeleting}
+              onClick={(e) => {
+                e.preventDefault();
+                void handleConfirmDelete();
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90 font-display text-xs font-bold gap-1.5"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              {isDeleting ? '刪除中...' : '是，刪除'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
