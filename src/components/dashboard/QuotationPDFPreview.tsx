@@ -309,9 +309,7 @@ function wrapDimensionsAtStars(dimText: string, maxChars = 11): string[] {
 type QuotationItem = QuotationPDFData['items'][0];
 
 const TABLE_BORDER = '#333';
-const MATERIAL_FONT_SIZE = 7;
-const MATERIAL_LINE_HEIGHT = 1.35;
-const MATERIAL_BLANK_LINE_HEIGHT = MATERIAL_FONT_SIZE * MATERIAL_LINE_HEIGHT;
+const MATERIAL_BLANK_LINE_HEIGHT = 7 * 1.45;
 // A4 content width ≈ 555pt (595 − 20×2 horizontal padding)
 const PDF_TABLE_WIDTH_PT = 555;
 const REMARKS_COL_WIDTH_PT = PDF_TABLE_WIDTH_PT * 0.09;
@@ -342,13 +340,14 @@ function renderMaterialPdfContent(
             />
           );
         }
-        const display = pdfDisplayText(line);
         return (
-          <View key={`material-line-${i}`} style={styles.materialLineRow}>
-            {Array.from(display).map((ch, j) => (
-              <Text key={j} style={styles.materialCellChar}>{ch}</Text>
-            ))}
-          </View>
+          <Text
+            key={`material-line-${i}`}
+            style={styles.materialCellText}
+            hyphenationCallback={(word) => Array.from(word)}
+          >
+            {pdfDisplayText(line)}
+          </Text>
         );
       })}
     </View>
@@ -608,8 +607,6 @@ const styles: Record<string, any> = {
   tableCellText: { fontSize: 7, textAlign: 'center', lineHeight: 1.3 },
   tableCellTextLeft: { fontSize: 7, textAlign: 'left', lineHeight: 1.45, paddingLeft: 4 },
   materialCellText: { fontSize: 7, textAlign: 'left', lineHeight: 1.45, width: '100%' },
-  materialLineRow: { flexDirection: 'row', flexWrap: 'wrap', width: '100%' },
-  materialCellChar: { fontSize: MATERIAL_FONT_SIZE, lineHeight: MATERIAL_LINE_HEIGHT, textAlign: 'left' },
   descValueText: { fontSize: 6.5, textAlign: 'left', lineHeight: 1.3, paddingLeft: 2 },
   descMultilineValueText: { fontSize: 6.5, textAlign: 'left', lineHeight: 1.35, paddingLeft: 2, width: '100%' },
   /** 類別 — fixed column width, height grows with wrapped CJK text. */
