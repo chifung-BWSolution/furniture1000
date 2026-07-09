@@ -719,14 +719,14 @@ function QuoteProductItemCard({
           />
         </QuoteFieldBlock>
 
-        {/* Row 1 — col 5: 數量 · 廠家 · 成本 (span both rows) */}
+        {/* Col 5 row 1 — 數量 + 廠家（垂直置中於數量與 CNY 之間） */}
         <div
           className={cn(
-            "col-start-5 row-span-2 row-start-1 flex min-h-0 flex-col gap-2 self-stretch",
+            "col-start-5 row-start-1 flex min-h-0 flex-col self-stretch",
             QUOTE_QTY_COST_FIELD_CLASS,
           )}
         >
-          <QuoteFieldBlock label="數量">
+          <QuoteFieldBlock label="數量" className="shrink-0">
             <input
               type="number"
               value={item.quantity || ""}
@@ -738,52 +738,61 @@ function QuoteProductItemCard({
               className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
             />
           </QuoteFieldBlock>
-          <QuoteFieldBlock label="廠家">
-            <QuoteFactoryField
-              value={item.factoryName || ""}
-              locked={Boolean(item.factoryFromCatalog)}
-              factories={factories}
-              loading={factoriesLoading}
-              onChange={(name) => updateItem(item.id, "factoryName", name)}
+          <div className="flex min-h-0 flex-1 items-center">
+            <QuoteFieldBlock label="廠家" className="w-full">
+              <QuoteFactoryField
+                value={item.factoryName || ""}
+                locked={Boolean(item.factoryFromCatalog)}
+                factories={factories}
+                loading={factoriesLoading}
+                onChange={(name) => updateItem(item.id, "factoryName", name)}
+              />
+            </QuoteFieldBlock>
+          </div>
+        </div>
+
+        {/* Col 5 row 2 — CNY成本 · 匯率 · HKD成本（與 HKD$單價同高） */}
+        <div
+          className={cn(
+            "col-start-5 row-start-2 flex min-h-0 flex-col self-stretch",
+            QUOTE_QTY_COST_FIELD_CLASS,
+          )}
+        >
+          <QuoteFieldBlock label="CNY¥成本價" className="shrink-0">
+            <input
+              type="number"
+              value={item.costPrice ?? ""}
+              placeholder="—"
+              min={0}
+              onChange={(e) =>
+                updateItem(
+                  item.id,
+                  "costPrice",
+                  e.target.value ? parseFloat(e.target.value) : null,
+                )
+              }
+              className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
             />
           </QuoteFieldBlock>
-          <div className="flex min-h-0 flex-1 flex-col">
-            <QuoteFieldBlock label="CNY¥成本價" className="shrink-0">
+          <div className="flex min-h-0 flex-1 items-center py-0.5">
+            <QuoteFieldBlock label="匯率" className="w-full">
               <input
-                type="number"
-                value={item.costPrice ?? ""}
+                type="text"
+                inputMode="decimal"
+                value={exchangeRateInputDisplay(item.exchangeRateInput, item.exchangeRate)}
                 placeholder="—"
-                min={0}
-                onChange={(e) =>
-                  updateItem(
-                    item.id,
-                    "costPrice",
-                    e.target.value ? parseFloat(e.target.value) : null,
-                  )
-                }
+                onChange={(e) => updateExchangeRate(item.id, e.target.value)}
                 className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
               />
             </QuoteFieldBlock>
-            <div className="flex min-h-0 flex-1 items-center py-0.5">
-              <QuoteFieldBlock label="匯率" className="w-full">
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={exchangeRateInputDisplay(item.exchangeRateInput, item.exchangeRate)}
-                  placeholder="—"
-                  onChange={(e) => updateExchangeRate(item.id, e.target.value)}
-                  className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
-                />
-              </QuoteFieldBlock>
-            </div>
-            <QuoteFieldBlock label="HKD$成本價" className="shrink-0">
-              <div className="flex h-[34px] items-center rounded-md border border-border/60 bg-muted/20 px-2">
-                <span className="truncate font-mono-data text-xs font-medium text-foreground">
-                  {formatHkdCostDisplayCeil(item.hkdCostPrice)}
-                </span>
-              </div>
-            </QuoteFieldBlock>
           </div>
+          <QuoteFieldBlock label="HKD$成本價" className="shrink-0">
+            <div className="flex h-[34px] items-center rounded-md border border-border/60 bg-muted/20 px-2">
+              <span className="truncate font-mono-data text-xs font-medium text-foreground">
+                {formatHkdCostDisplayCeil(item.hkdCostPrice)}
+              </span>
+            </div>
+          </QuoteFieldBlock>
         </div>
 
         {/* Row 1 — col 6: 單位 (aligned with 單價 below) */}
