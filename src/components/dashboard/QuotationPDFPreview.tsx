@@ -36,18 +36,16 @@ const NOTO_SANS_HK_REGULAR =
   'https://fonts.gstatic.com/s/notosanshk/v35/nKKF-GM_FYFRJvXzVXaAPe97P1KHynJFP716qHB--oU.ttf';
 const NOTO_SANS_HK_BOLD =
   'https://fonts.gstatic.com/s/notosanshk/v35/nKKF-GM_FYFRJvXzVXaAPe97P1KHynJFP716qJd5-oU.ttf';
-// Full Noto Sans SC (not a language subset) — fourth fallback for simplified / mainland glyphs.
+// Noto Sans SC (gstatic TTF) — fourth fallback; old /ea/… .otf URLs return 404.
 const NOTO_SANS_SC_REGULAR =
-  'https://fonts.gstatic.com/ea/notosanssc/v1/NotoSansSC-Regular.otf';
+  'https://fonts.gstatic.com/s/notosanssc/v40/k3kCo84MPvpLmixcA63oeAL7Iqp5IZJF9bmaG9_FnYw.ttf';
 const NOTO_SANS_SC_BOLD =
-  'https://fonts.gstatic.com/ea/notosanssc/v1/NotoSansSC-Bold.otf';
+  'https://fonts.gstatic.com/s/notosanssc/v40/k3kCo84MPvpLmixcA63oeAL7Iqp5IZJF9bmaGzjCnYw.ttf';
 
 /**
- * Per-glyph fallback chain (react-pdf 4+): try TC → JP → HK → SC for each character.
- * Cannot use 微軟正黑體/新細明體 here — browser PDF cannot load local Windows fonts
- * and Microsoft fonts are not licensed for web redistribution.
+ * Per-glyph fallback chain (react-pdf 4+): array form — comma strings are treated as one family name.
  */
-const PDF_FONT_FAMILY = 'NotoSansTC, NotoSansJP, NotoSansHK, NotoSansSC';
+const PDF_FONT_FAMILY = ['NotoSansTC', 'NotoSansJP', 'NotoSansHK', 'NotoSansSC'] as const;
 
 async function loadReactPdfModule(): Promise<ReactPdfModule> {
   if (cachedModule) return cachedModule;
