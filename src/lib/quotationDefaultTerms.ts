@@ -5,7 +5,7 @@ import { normalizeQuotationPdfGlyphs } from "@/lib/quotationPdfGlyphs";
 export { normalizeQuotationPdfGlyphs } from "@/lib/quotationPdfGlyphs";
 
 /** Bump when the canonical template changes — saved quotes below this version are rebuilt. */
-export const QUOTATION_TERMS_TEMPLATE_VERSION = 5;
+export const QUOTATION_TERMS_TEMPLATE_VERSION = 6;
 
 function normalizeTermsRecord(
   saved: SavedTermsContent | null | undefined,
@@ -142,7 +142,7 @@ function hasBoldBankLabels(html: string): boolean {
   );
 }
 
-/** v5 template: bold bank field labels in section 2. */
+/** v6 template: no blank lines between sections 1 and 2; bold bank field labels in section 2. */
 export function isCurrentTermsFormat(terms?: SavedTermsContent | null): boolean {
   const html = terms?.fullHtml?.trim();
   if (!html || !html.includes("送貨地址")) return false;
@@ -158,8 +158,6 @@ export function buildDefaultTermsFullHtml(
 ): string {
   return [
     `<p><strong>1&nbsp;&nbsp;送貨地址&nbsp;:</strong>&nbsp;<u>${DELIVERY_ADDRESS_BLANK}</u></p>`,
-    `<p></p>`,
-    `<p></p>`,
     sectionHeading("2&nbsp;&nbsp;付款資料"),
     paymentTextToParagraphs(terms.payment),
     `<p></p>`,
