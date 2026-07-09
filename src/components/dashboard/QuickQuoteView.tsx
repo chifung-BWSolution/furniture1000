@@ -19,6 +19,10 @@ import {
   type SavedTermsContent,
 } from '@/lib/quotationDefaultTerms';
 import { parsePmsQuotePrefill } from '@/lib/pmsQuotePrefill';
+import {
+  fetchPmsPitchingQuoteDefaults,
+  type PmsIndustryOption,
+} from '@/lib/pmsPitchingQuoteDefaults';
 
 const LazyQuotationPDFPreviewModal = lazy(() =>
   import('@/components/dashboard/QuotationPDFPreview').then((mod) => ({
@@ -58,7 +62,8 @@ interface QuoteFormData {
   remarks: string;
 }
 
-const INDUSTRIES = ['餐飲', '辦公', '零售', '醫療', '教育', '酒店', '住宅', '其他'];
+/** Fallback when not opened from a PMS pitching (no industry catalog loaded). */
+const FALLBACK_INDUSTRIES = ['餐飲', '辦公', '零售', '醫療', '教育', '酒店', '住宅', '其他'];
 const QUOTATION_TYPES = [
   '商業設計工程',
   '小型工程',
@@ -134,8 +139,11 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
   const [formData, setFormData] = useState<QuoteFormData>(() => DEFAULT_FORM_DATA());
   const [pdfPreviewData, setPdfPreviewData] = useState<QuotationPDFData | null>(null);
   const [errors, setErrors] = useState<Partial<Record<keyof QuoteFormData, string>>>({});
+  const [industryOptions, setIndustryOptions] = useState<string[]>(FALLBACK_INDUSTRIES);
+  const [pmsIndustryCatalog, setPmsIndustryCatalog] = useState<PmsIndustryOption[]>([]);
   const sessionRestoredRef = useRef(false);
   const loadedQuoteIdRef = useRef<string | null>(null);
+  const pmsDefaultsLoadedForRef = useRef<string | null>(null);
 
   // PMS SSO / deep-link prefill: /quote/quick?pmsPitchingId=...&projectName=...
   const applyPmsPrefillFromUrl = useCallback(() => {
@@ -200,8 +208,52 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
     resetToNewQuote();
     // Re-apply PMS query params after wiping local session (deep-link / SSO landing)
     pmsPrefillAppliedRef.current = false;
+    pmsDefaultsLoadedForRef.current = null;
     applyPmsPrefillFromUrl();
   }, [freshSessionKey, resetToNewQuote, applyPmsPrefillFromUrl]);
+
+  // Load PMS industry catalog always; enrich client/budget when pitching id is present
+  useEffect(() => {
+    if (editingQuoteId) return;
+    const pitchingId = formData.pmsPitchingId?.trim() || '';
+    const cacheKey = pitchingId || '__catalog__';
+    if (pmsDefaultsLoadedForRef.current === cacheKey) return;
+    // If we already loaded full pitching defaults, don't re-fetch catalog-only
+    if (!pitchingId && pmsDefaultsLoadedForRef.current && pmsDefaultsLoadedForRef.current !== '__catalog__') {
+      return;
+    }
+
+    let cancelled = false;
+    pmsDefaultsLoadedForRef.current = cacheKey;
+
+    (async () => {
+      const defaults = await fetchPmsPitchingQuoteDefaults(pitchingId || null);
+      if (cancelled || !defaults) return;
+
+      if (defaults.industry_options.length > 0) {
+        setPmsIndustryCatalog(defaults.industry_options);
+        setIndustryOptions(defaults.industry_options.map((o) => o.display));
+      }
+
+      if (!pitchingId) return;
+
+      setFormData((prev) => ({
+        ...prev,
+        // PMS DB is source of truth for these defaults when opened from a pitching
+        clientName: defaults.client_name || prev.clientName,
+        clientIndustry:
+          defaults.selected_industries.length > 0
+            ? defaults.selected_industries
+            : prev.clientIndustry,
+        budgetMin: defaults.budget_min ?? prev.budgetMin,
+        budgetMax: defaults.budget_max ?? prev.budgetMax,
+      }));
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [editingQuoteId, formData.pmsPitchingId]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -696,19 +748,19 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
                 </div>
               </div>
 
-              {/* Client Industry Tags */}
+              {/* Client Industry Tags — PMS nos_customer_tags (collection industry) when available */}
               <div>
                 <label className="mb-2 block font-body text-sm font-medium text-foreground">
                   客戶產業 <span className="text-red-500">*</span>
                 </label>
                 <div className="flex flex-wrap items-center gap-2">
-                  {INDUSTRIES.map((industry) => (
+                  {industryOptions.map((industry) => (
                     <button
                       key={industry}
                       type="button"
                       onClick={() => toggleTag('clientIndustry', industry)}
                       className={cn(
-                        'rounded-full border px-4 py-1.5 font-body text-sm font-medium transition-all',
+                        'rounded-md border px-3 py-1.5 font-body text-sm font-medium transition-all',
                         formData.clientIndustry.includes(industry)
                           ? 'border-primary bg-primary/10 text-primary shadow-sm'
                           : 'border-border bg-card text-muted-foreground hover:border-primary/50 hover:text-foreground'
@@ -717,7 +769,8 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
                       {industry}
                     </button>
                   ))}
-                  {formData.clientIndustry.includes('其他') && (
+                  {pmsIndustryCatalog.length === 0 &&
+                    formData.clientIndustry.includes('其他') && (
                     <input
                       type="text"
                       value={formData.clientIndustryOther}
@@ -890,31 +943,30 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
                 </div>
               </div>
 
-              {/* Work Period Dropdown */}
+              {/* Work Period — rectangle pill single-select */}
               <div>
-                <label className="mb-1.5 block font-body text-sm font-medium text-foreground">
+                <label className="mb-2 block font-body text-sm font-medium text-foreground">
                   工期需求 <span className="text-red-500">*</span>
                 </label>
-                <select
-                  value={formData.workPeriod}
-                  onChange={(e) => updateField('workPeriod', e.target.value)}
-                  className={cn(
-                    'w-full rounded-lg border bg-background px-4 py-2.5 font-body text-sm text-foreground transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 appearance-none',
-                    !formData.workPeriod && 'text-muted-foreground/60',
-                    errors.workPeriod ? 'border-red-500' : 'border-border'
-                  )}
-                >
-                  <option value="" disabled>
-                    請選擇工期
-                  </option>
+                <div className="flex flex-wrap gap-2">
                   {WORK_PERIODS.map((period) => (
-                    <option key={period.value} value={period.value}>
+                    <button
+                      key={period.value}
+                      type="button"
+                      onClick={() => updateField('workPeriod', period.value)}
+                      className={cn(
+                        'rounded-md border px-4 py-2.5 font-body text-sm font-medium transition-all',
+                        formData.workPeriod === period.value
+                          ? 'border-primary bg-primary/10 text-primary shadow-sm'
+                          : 'border-border bg-card text-muted-foreground hover:border-primary/50 hover:text-foreground'
+                      )}
+                    >
                       {period.label}
-                    </option>
+                    </button>
                   ))}
-                </select>
+                </div>
                 {errors.workPeriod && (
-                  <p className="mt-1 text-xs text-red-500">{errors.workPeriod}</p>
+                  <p className="mt-1.5 text-xs text-red-500">{errors.workPeriod}</p>
                 )}
               </div>
 
