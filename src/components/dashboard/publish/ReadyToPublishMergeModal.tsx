@@ -88,6 +88,29 @@ function resolvePrice(row: RtsProductRow, variant?: RtsVariant): number {
   return 0;
 }
 
+/** Identity for picker dedupe — only same SKU *and* same size are hidden. */
+function mergeVariantIdentityKey(sku: string, size: string): string {
+  return `${sku.trim().toLowerCase()}|${size.trim().toLowerCase()}`;
+}
+
+function pickableRowsFromRtsProduct(
+  row: RtsProductRow,
+  addedVariantKeys: Set<string>,
+): RtsMergeVariantRow[] {
+  return rowsFromRtsProduct(row).filter(
+    (variantRow) => !addedVariantKeys.has(mergeVariantIdentityKey(variantRow.sku, variantRow.size)),
+  );
+}
+
+function isPickableRtsProduct(
+  row: RtsProductRow,
+  hostRtsId: string,
+  addedVariantKeys: Set<string>,
+): boolean {
+  if (row.id === hostRtsId) return false;
+  return pickableRowsFromRtsProduct(row, addedVariantKeys).length > 0;
+}
+
 function collectRtsImageUrls(row: RtsProductRow): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
@@ -408,9 +431,14 @@ export function ReadyToPublishMergeModal({
     void loadMergeState();
   }, [open, product, loadMergeState]);
 
-  const addedRtsIds = useMemo(
-    () => new Set(rows.map((r) => r.rts_id)),
+  const addedVariantKeys = useMemo(
+    () => new Set(rows.map((r) => mergeVariantIdentityKey(r.sku, r.size))),
     [rows],
+  );
+
+  const visiblePickerRows = useMemo(
+    () => pickerRows.filter((p) => isPickableRtsProduct(p, hostRtsId, addedVariantKeys)),
+    [pickerRows, hostRtsId, addedVariantKeys],
   );
 
   const loadPicker = useCallback(async () => {
@@ -419,7 +447,6 @@ export function ReadyToPublishMergeModal({
     try {
       const from = pickerPage * PICKER_PAGE_SIZE;
       const to = from + PICKER_PAGE_SIZE - 1;
-      const excludeIds = [...addedRtsIds];
 
       let q = supabase
         .from('ready_to_shopify')
@@ -430,10 +457,6 @@ export function ReadyToPublishMergeModal({
         .order('title', { ascending: true })
         .range(from, to);
 
-      if (excludeIds.length > 0) {
-        const quoted = excludeIds.map((id) => `"${id}"`).join(',');
-        q = q.not('id', 'in', `(${quoted})`);
-      }
       const term = pickerSearch.trim();
       if (term) {
         q = q.or(`title.ilike.%${term}%,sku.ilike.%${term}%`);
@@ -465,7 +488,7 @@ export function ReadyToPublishMergeModal({
     } finally {
       setPickerLoading(false);
     }
-  }, [showPicker, hostRtsId, pickerPage, pickerSearch, pickerFactory, addedRtsIds, pickerFactories.length]);
+  }, [showPicker, hostRtsId, pickerPage, pickerSearch, pickerFactory, pickerFactories.length]);
 
   useEffect(() => {
     void loadPicker();
@@ -549,7 +572,11 @@ export function ReadyToPublishMergeModal({
   };
 
   const addProduct = (rtsProduct: RtsProductRow) => {
-    const newRows = rowsFromRtsProduct(rtsProduct);
+    const newRows = pickableRowsFromRtsProduct(rtsProduct, addedVariantKeys);
+    if (newRows.length === 0) {
+      toast.error('此規格已在變體列表中');
+      return;
+    }
     setProductCache((prev) => {
       const next = new Map(prev);
       next.set(rtsProduct.id, rtsProduct);
@@ -844,9 +871,9 @@ export function ReadyToPublishMergeModal({
                   </div>
                 ) : (
                   <div className="space-y-1 max-h-48 overflow-y-auto">
-                    {pickerRows.length === 0 ? (
+                    {visiblePickerRows.length === 0 ? (
                       <div className="py-6 text-center text-xs text-muted-foreground font-body">找不到產品</div>
-                    ) : pickerRows.map((p) => (
+                    ) : visiblePickerRows.map((p) => (
                       <button
                         key={p.id}
                         type="button"
@@ -866,6 +893,7 @@ export function ReadyToPublishMergeModal({
                           <div className="font-body text-xs font-medium truncate">{p.title || '(未命名)'}</div>
                           <div className="font-mono-data text-[10px] text-muted-foreground">
                             {p.vendor || '—'} · {(p.sku || '').trim() || '—'}
+                            {resolveSize(p) !== 'Default Title' ? ` · ${resolveSize(p)}` : ''}
                           </div>
                         </div>
                         <div className="font-mono-data text-xs text-foreground shrink-0">
