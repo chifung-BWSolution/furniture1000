@@ -31,6 +31,7 @@ import {
 } from '@/components/ui/tooltip';
 import { ProductDetailModal } from './ProductDetailModal';
 import { FGProductDetailModal } from './publish/FurnitureGroupCheckView';
+import { ReadyToPublishMergeModal } from './publish/ReadyToPublishMergeModal';
 import type { ReadyToPublishServerList } from './publish/useReadyToPublishList';
 import {
   X,
@@ -591,6 +592,10 @@ export const ProductTableView = memo(function ProductTableView({
   }, [onSelectAll, onSelectRange, pageIds]);
 
   const handleOpenVariantModal = useCallback((product: Product) => {
+    if (readyToPublishMode) {
+      setVariantModal({ product });
+      return;
+    }
     const dims = [product.dimensionLMm, product.dimensionWMm, product.dimensionHMm].filter(Boolean).join('x') || '';
     const selfVariant: ProductVariant = {
       id: product.id,
@@ -602,14 +607,12 @@ export const ProductTableView = memo(function ProductTableView({
       inventory: 100,
       option1: dims,
     };
-    // Always put the host product as the first row.
-    // Keep any previously-added non-host variants after it.
     const otherVariants = product.variants.filter(v => v.id !== product.id);
     const variants = [selfVariant, ...otherVariants];
     const productWithSelf = { ...product, variants };
     onUpdateProduct(product.id, { variants });
     setVariantModal({ product: productWithSelf });
-  }, [onUpdateProduct]);
+  }, [onUpdateProduct, readyToPublishMode]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -982,7 +985,20 @@ export const ProductTableView = memo(function ProductTableView({
           )}
         </div>
 
-        {/* Variant Modal */}
+        {/* Variant Modal — 準備上載 uses full merge UI (gallery + variant images) */}
+        {readyToPublishMode ? (
+          <ReadyToPublishMergeModal
+            product={variantModal?.product ?? null}
+            open={!!variantModal}
+            onOpenChange={(open) => {
+              if (!open) setVariantModal(null);
+            }}
+            onSaved={() => {
+              setVariantModal(null);
+              onVariantsSaved?.();
+            }}
+          />
+        ) : (
         <Dialog open={!!variantModal} onOpenChange={() => { setVariantModal(null); setShowProductPicker(false); setPickerSearch(''); setPickerFactoryFilter(''); setPickerPage(0); }}>
           <DialogContent className="max-w-2xl">
             <DialogHeader>
@@ -1227,6 +1243,7 @@ export const ProductTableView = memo(function ProductTableView({
             })()}
           </DialogContent>
         </Dialog>
+        )}
 
         {/* Revert Reason Dialog */}
         <Dialog open={showRevertDialog} onOpenChange={setShowRevertDialog}>

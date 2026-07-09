@@ -20,6 +20,9 @@ interface ProductPayload {
   compare_at_price?: number | null;
   image_url: string;
   images?: { src?: string; url?: string }[];
+  /** Ordered gallery from merge UI — primary first */
+  gallery_urls?: string[];
+  primary_image_src?: string;
   shopify_product_id?: string | null;
   variants: {
     id: string;
@@ -30,6 +33,7 @@ interface ProductPayload {
     inventory: number;
     option1?: string;
     title?: string;
+    image_src?: string;
   }[];
   vendor?: string;
   product_type?: string;
@@ -253,6 +257,262 @@ function imageIdentityKey(url: string): string {
   const noQuery = url.split("?")[0];
   const base = noQuery.substring(noQuery.lastIndexOf("/") + 1);
   return base.replace(/\.[a-zA-Z0-9]+$/, "").trim().toLowerCase();
+}
+
+function isHttpUrl(src: unknown): src is string {
+  return typeof src === "string" && /^https?:\/\//.test(src);
+}
+
+function imageDedupeKey(src: string): string {
+  try {
+    const u = new URL(src);
+    const path = `${u.origin}${u.pathname}`;
+    return path.replace(
+      /_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?=\.[a-z0-9]+$)/i,
+      "",
+    );
+  } catch {
+    return imageIdentityKey(src);
+  }
+}
+
+type ShopifyRecord = Record<string, unknown>;
+
+async function fetchShopifyProduct(
+  apiBase: string,
+  headers: Record<string, string>,
+  productId: string,
+): Promise<ShopifyRecord | null> {
+  const r = await fetch(`${apiBase}/products/${productId}.json`, { headers });
+  if (!r.ok) return null;
+  return (await r.json()).product as ShopifyRecord;
+}
+
+function indexShopifyImagesByDedupe(images: ShopifyRecord[]): Map<string, ShopifyRecord> {
+  const byDedupe = new Map<string, ShopifyRecord>();
+  for (const im of images) {
+    if (!isHttpUrl(im.src)) continue;
+    const key = imageDedupeKey(im.src as string);
+    const prev = byDedupe.get(key);
+    if (!prev || String(im.src).length < String(prev.src).length) {
+      byDedupe.set(key, im);
+    }
+  }
+  return byDedupe;
+}
+
+function findExistingProductImage(images: ShopifyRecord[], src: string): ShopifyRecord | undefined {
+  return indexShopifyImagesByDedupe(images).get(imageDedupeKey(src));
+}
+
+async function ensureGalleryImagesOnShopify(
+  apiBase: string,
+  headers: Record<string, string>,
+  parentId: string,
+  galleryUrls: string[],
+  primarySrc: string | null,
+): Promise<ShopifyRecord[]> {
+  const product = await fetchShopifyProduct(apiBase, headers, parentId);
+  if (!product) return [];
+  const images = [...((product.images as ShopifyRecord[]) || [])];
+  const byDedupe = indexShopifyImagesByDedupe(images);
+  const seen = new Set<string>();
+  const uniqueGallery: string[] = [];
+  if (primarySrc && isHttpUrl(primarySrc)) {
+    const key = imageDedupeKey(primarySrc);
+    if (!seen.has(key)) {
+      seen.add(key);
+      uniqueGallery.push(primarySrc);
+    }
+  }
+  for (const url of galleryUrls) {
+    if (!isHttpUrl(url)) continue;
+    const key = imageDedupeKey(url);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    uniqueGallery.push(url);
+  }
+  for (const src of uniqueGallery) {
+    if (byDedupe.has(imageDedupeKey(src))) continue;
+    const postResp = await fetch(`${apiBase}/products/${parentId}/images.json`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ image: { src } }),
+    });
+    if (!postResp.ok) continue;
+    const newImg = (await postResp.json()).image as ShopifyRecord;
+    if (newImg?.id != null) {
+      images.push(newImg);
+      if (isHttpUrl(newImg.src)) byDedupe.set(imageDedupeKey(newImg.src as string), newImg);
+    }
+  }
+  return images;
+}
+
+async function setVariantImageId(
+  apiBase: string,
+  headers: Record<string, string>,
+  parentId: string,
+  variantId: number,
+  imageId: number,
+): Promise<boolean> {
+  const resp = await fetch(`${apiBase}/products/${parentId}/variants/${variantId}.json`, {
+    method: "PUT",
+    headers,
+    body: JSON.stringify({ variant: { id: variantId, image_id: imageId } }),
+  });
+  return resp.ok;
+}
+
+async function attachVariantImagesBySku(
+  apiBase: string,
+  headers: Record<string, string>,
+  parentId: string,
+  specs: { sku: string; image_src?: string }[],
+  primarySrc: string | null,
+): Promise<void> {
+  const product = await fetchShopifyProduct(apiBase, headers, parentId);
+  if (!product) return;
+  let images = [...((product.images as ShopifyRecord[]) || [])];
+  const variants = (product.variants as ShopifyRecord[]) || [];
+
+  for (const spec of specs) {
+    const rawSrc = spec.image_src;
+    if (!isHttpUrl(rawSrc)) continue;
+    const src = primarySrc && imageDedupeKey(rawSrc) === imageDedupeKey(primarySrc) ? primarySrc : rawSrc;
+    const variant = variants.find((v) => String(v.sku) === spec.sku);
+    if (variant?.id == null) continue;
+    const variantId = Number(variant.id);
+
+    let target = findExistingProductImage(images, src);
+    if (!target?.id) {
+      const postResp = await fetch(`${apiBase}/products/${parentId}/images.json`, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ image: { src } }),
+      });
+      if (!postResp.ok) continue;
+      const newImg = (await postResp.json()).image as ShopifyRecord;
+      if (newImg?.id == null) continue;
+      target = newImg;
+      images.push(newImg);
+    }
+    const imageId = Number(target.id);
+    const currentImageId = variant.image_id != null ? Number(variant.image_id) : null;
+    if (currentImageId !== imageId) {
+      await setVariantImageId(apiBase, headers, parentId, variantId, imageId);
+    }
+  }
+}
+
+function moreImageLinkColumnsFromUrls(
+  orderedUrls: string[],
+  title?: string | null,
+): Record<string, string | null> {
+  const cols: Record<string, string | null> = {};
+  for (let i = 1; i <= 4; i++) {
+    const url = orderedUrls[i - 1];
+    const linkKey = `custom.more_image_link_${i}`;
+    const altKey = `custom.more_image_alt_${i}`;
+    if (url && isHttpUrl(url)) {
+      cols[linkKey] = url;
+      cols[altKey] = title?.trim() ? title.trim() : null;
+    } else {
+      cols[linkKey] = null;
+      cols[altKey] = null;
+    }
+  }
+  return cols;
+}
+
+async function upsertProductMetafield(
+  apiBase: string,
+  headers: Record<string, string>,
+  shopifyId: string,
+  col: string,
+  value: string,
+): Promise<boolean> {
+  const dot = col.indexOf(".");
+  if (dot < 0) return false;
+  const namespace = col.slice(0, dot);
+  const key = col.slice(dot + 1);
+  const type = METAFIELD_DEFS[col] || "single_line_text_field";
+  const trimmed = value.trim();
+
+  const existingResp = await fetch(
+    `${apiBase}/products/${shopifyId}/metafields.json?namespace=${namespace}&key=${key}`,
+    { headers },
+  );
+  const existing = existingResp.ok
+    ? ((await existingResp.json()).metafields?.[0] as { id?: number } | undefined)
+    : undefined;
+
+  if (!trimmed) {
+    if (existing?.id) {
+      const del = await fetch(`${apiBase}/metafields/${existing.id}.json`, { method: "DELETE", headers });
+      return del.ok;
+    }
+    return true;
+  }
+
+  if (existing?.id) {
+    const pr = await fetch(`${apiBase}/metafields/${existing.id}.json`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({ metafield: { id: existing.id, type, value: trimmed } }),
+    });
+    return pr.ok;
+  }
+
+  const r = await fetch(`${apiBase}/products/${shopifyId}/metafields.json`, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ metafield: { namespace, key, type, value: trimmed } }),
+  });
+  return r.ok;
+}
+
+async function syncMoreImageMetafieldsToShopify(
+  apiBase: string,
+  headers: Record<string, string>,
+  shopifyId: string,
+  orderedUrls: string[],
+  title?: string | null,
+): Promise<void> {
+  const cols = moreImageLinkColumnsFromUrls(orderedUrls, title);
+  const moreImageCols = [
+    "custom.more_image_link_1", "custom.more_image_alt_1",
+    "custom.more_image_link_2", "custom.more_image_alt_2",
+    "custom.more_image_link_3", "custom.more_image_alt_3",
+    "custom.more_image_link_4", "custom.more_image_alt_4",
+  ];
+  for (const col of moreImageCols) {
+    await upsertProductMetafield(apiBase, headers, shopifyId, col, cols[col] ?? "");
+  }
+}
+
+function buildOrderedGalleryUrls(
+  product: ProductPayload,
+  resolvedPrimary: string | null,
+): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const add = (src: string | null | undefined) => {
+    if (!isHttpUrl(src)) return;
+    const key = imageDedupeKey(src);
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(src);
+  };
+  if (Array.isArray(product.gallery_urls) && product.gallery_urls.length > 0) {
+    for (const url of product.gallery_urls) add(url);
+  } else {
+    add(resolvedPrimary || product.primary_image_src || product.image_url);
+    if (Array.isArray(product.images)) {
+      for (const im of product.images) add(im?.src || im?.url);
+    }
+  }
+  return out;
 }
 
 function isValidHttpImageUrl(url: string): boolean {
@@ -585,18 +845,34 @@ Deno.serve(async (req: Request) => {
         }
 
         // ── Build images array — resolve ALL images (HTTP + base64) ─────────
-        // De-dup by filename stem (see imageIdentityKey): the primary image
-        // often re-appears inside product.images as a Shopify CDN URL after a
-        // previous publish, so a plain URL-equality check would send it twice.
         const allImages: { src: string }[] = [];
         const seenImageKeys = new Set<string>();
-        if (resolvedImageUrl) {
+        const gallerySources = Array.isArray(product.gallery_urls) && product.gallery_urls.length > 0
+          ? product.gallery_urls
+          : null;
+
+        if (gallerySources) {
+          console.log(`[publish-to-shopify] 🖼️ Resolving ${gallerySources.length} gallery image(s) in merge order for "${product.title}"`);
+          for (let imgIdx = 0; imgIdx < gallerySources.length; imgIdx++) {
+            const rawSrc = gallerySources[imgIdx];
+            if (!rawSrc) continue;
+            const imgResult = await resolveImageUrl(supabase, supabaseUrl, `${product.id}_gal${imgIdx}`, rawSrc);
+            if (imgResult.url) {
+              const key = imageIdentityKey(imgResult.url);
+              if (!seenImageKeys.has(key)) {
+                allImages.push({ src: imgResult.url });
+                seenImageKeys.add(key);
+                if (imgIdx === 0) resolvedImageUrl = imgResult.url;
+              }
+            }
+          }
+        } else if (resolvedImageUrl) {
           allImages.push({ src: resolvedImageUrl });
           seenImageKeys.add(imageIdentityKey(resolvedImageUrl));
           if (product.image_url) seenImageKeys.add(imageIdentityKey(product.image_url));
           console.log(`[publish-to-shopify] ✅ Primary image: ${resolvedImageUrl.substring(0, 80)}...`);
         }
-        if (Array.isArray(product.images) && product.images.length > 0) {
+        if (!gallerySources && Array.isArray(product.images) && product.images.length > 0) {
           console.log(`[publish-to-shopify] 🖼️ Resolving ${product.images.length} additional image(s) for "${product.title}"`);
           for (let imgIdx = 0; imgIdx < product.images.length; imgIdx++) {
             const img = product.images[imgIdx];
@@ -789,7 +1065,57 @@ Deno.serve(async (req: Request) => {
 
         const createdProduct = (shopifyData as Record<string, Record<string, unknown>>).product;
         const shopifyProductId = String(createdProduct.id);
-        const shopifyVariants = (createdProduct.variants as Record<string, unknown>[]) || [];
+        const shopifyHeaders = {
+          "Content-Type": "application/json",
+          "X-Shopify-Access-Token": shopifyAccessToken,
+        };
+
+        // ── Post-create: attach per-variant images + sync more_image metafields ──
+        const orderedGallery = buildOrderedGalleryUrls(product, resolvedImageUrl);
+        const variantImageSpecs = productVariants
+          .filter((v) => isHttpUrl((v as { image_src?: string }).image_src))
+          .map((v) => ({
+            sku: String((v.sku && String(v.sku).trim()) || product.sku || ""),
+            image_src: (v as { image_src?: string }).image_src,
+          }));
+
+        let finalProduct = createdProduct;
+        if (orderedGallery.length > 0 || variantImageSpecs.length > 0) {
+          try {
+            await ensureGalleryImagesOnShopify(
+              shopifyApiBase,
+              shopifyHeaders,
+              shopifyProductId,
+              orderedGallery,
+              resolvedImageUrl || product.primary_image_src || product.image_url || null,
+            );
+            if (variantImageSpecs.length > 0) {
+              await attachVariantImagesBySku(
+                shopifyApiBase,
+                shopifyHeaders,
+                shopifyProductId,
+                variantImageSpecs,
+                resolvedImageUrl || orderedGallery[0] || null,
+              );
+            }
+            await syncMoreImageMetafieldsToShopify(
+              shopifyApiBase,
+              shopifyHeaders,
+              shopifyProductId,
+              orderedGallery.slice(0, 4),
+              product.title || "",
+            );
+            const refreshed = await fetchShopifyProduct(shopifyApiBase, shopifyHeaders, shopifyProductId);
+            if (refreshed) finalProduct = refreshed;
+          } catch (postImgErr) {
+            console.warn(
+              `[publish-to-shopify] ⚠️ Post-create gallery/variant image step failed for "${product.title}":`,
+              postImgErr instanceof Error ? postImgErr.message : String(postImgErr),
+            );
+          }
+        }
+
+        const shopifyVariants = (finalProduct.variants as Record<string, unknown>[]) || [];
         const shopifyFirstVariant = shopifyVariants[0] || {};
         const shopifyReturnedPrice = shopifyFirstVariant.price ? Number(shopifyFirstVariant.price) : product.price;
         const shopifyReturnedCompareAt = shopifyFirstVariant.compare_at_price ? Number(shopifyFirstVariant.compare_at_price) : (product.compare_at_price || null);
@@ -802,7 +1128,7 @@ Deno.serve(async (req: Request) => {
 
         // ── Write to shopify_products mirror table ────────────────────────
         try {
-          const spImages = (createdProduct.images as Record<string, unknown>[]) || [];
+          const spImages = (finalProduct.images as Record<string, unknown>[]) || [];
           const spVariants = (createdProduct.variants as Record<string, unknown>[]) || [];
           const spPrice = spVariants[0]?.price != null ? Number(spVariants[0].price) : (product.price ?? 0);
           const spCompareAt = spVariants[0]?.compare_at_price != null ? Number(spVariants[0].compare_at_price) : null;
@@ -822,14 +1148,14 @@ Deno.serve(async (req: Request) => {
             handle: publishedHandle,
             status: "active",
             published_at: new Date().toISOString(),
-            image_url: resolvedImageUrl || product.image_url || null,
+            image_url: (orderedGallery[0] || resolvedImageUrl || product.image_url) || null,
             images: spImages.length > 0 ? spImages : null,
             variants: spVariants.length > 0 ? spVariants : null,
             tags: Array.isArray(product.tags) ? product.tags : [],
             price: spPrice,
             compare_at_price: spCompareAt,
-            shopify_created_at: String(createdProduct.created_at || new Date().toISOString()),
-            shopify_updated_at: String(createdProduct.updated_at || new Date().toISOString()),
+            shopify_created_at: String(finalProduct.created_at || new Date().toISOString()),
+            shopify_updated_at: String(finalProduct.updated_at || new Date().toISOString()),
             imported_at: new Date().toISOString(),
             shop_domain: storeHost,
             metafields: shopifyMetafields.length > 0 ? shopifyMetafields : null,

@@ -58,6 +58,8 @@ export function mapReadyToPublishRow(row: Record<string, unknown>): Product {
         size: v.option1 ?? v.title ?? '',
         color: v.option2 ?? '',
         inventory: v.inventory_quantity ?? 0,
+        option1: v.option1 ?? v.title ?? '',
+        imageSrc: v.image_src ?? null,
       }))
     : [];
 

@@ -23,6 +23,8 @@ export interface ProductVariant {
   price: number;
   inventory: number;
   option1?: string;
+  /** Per-variant image assigned in merge UI — used on Shopify upload */
+  imageSrc?: string | null;
 }
 
 export interface Product {

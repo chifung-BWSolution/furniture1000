@@ -996,7 +996,7 @@ export function useAppStore() {
     // finalised title, body_html, price, image_url, images, variants.
     const { data: rtsRows, error: rtsErr } = await supabase
       .from('ready_to_shopify')
-      .select('id,product_id,title,body_html,vendor,price,image_url,images,variants,product_type,tags,shopify_url,shopify_page_title,shopify_page_description,dimension_l_mm,dimension_w_mm,dimension_h_mm,material,"my_fields.materials",customize,sku')
+      .select('id,product_id,title,body_html,vendor,price,image_url,image_url_2,image_url_3,images,variants,product_type,tags,shopify_url,shopify_page_title,shopify_page_description,dimension_l_mm,dimension_w_mm,dimension_h_mm,material,"my_fields.materials",customize,sku')
       .in('product_id', productIdsToPublish);
     if (rtsErr) {
       console.warn('[publishToShopify] ready_to_shopify fetch error:', rtsErr.message);
@@ -1015,20 +1015,28 @@ export function useAppStore() {
       const rtsTags: string[] = Array.isArray(rts?.tags) ? rts.tags : (typeof rts?.tags === 'string' && rts.tags ? rts.tags.split(',').map((t: string) => t.trim()).filter(Boolean) : []);
       const productTags: string[] = Array.isArray(p.tags) ? p.tags : [];
       const mergedTags = Array.from(new Set([...productTags, ...rtsTags]));
-      // Build additional images list from RTS (exclude primary to avoid duplicate)
-      const primaryUrl: string = rts?.image_url || p.imageUrl || '';
-      const additionalImages: { src: string }[] = [];
-      if (Array.isArray(rts?.images)) {
+
+      // Ordered gallery from merge UI (ready_to_shopify.images preserves order)
+      const galleryUrls: string[] = [];
+      const seenGallery = new Set<string>();
+      const addGalleryUrl = (src: string) => {
+        if (!src || !/^https?:\/\//.test(src)) return;
+        const key = src.split('?')[0];
+        if (seenGallery.has(key)) return;
+        seenGallery.add(key);
+        galleryUrls.push(src);
+      };
+      if (Array.isArray(rts?.images) && rts.images.length > 0) {
         for (const im of rts.images) {
-          const src: string = im?.src || im?.url || (typeof im === 'string' ? im : '');
-          if (src && src !== primaryUrl) additionalImages.push({ src });
+          addGalleryUrl(im?.src || im?.url || (typeof im === 'string' ? im : ''));
         }
-      } else if (Array.isArray((p as any).images)) {
-        for (const im of (p as any).images) {
-          const src: string = im?.src || im?.url || (typeof im === 'string' ? im : '');
-          if (src && src !== primaryUrl) additionalImages.push({ src });
-        }
+      } else if (rts) {
+        addGalleryUrl(rts.image_url || '');
+        addGalleryUrl(rts.image_url_2 || '');
+        addGalleryUrl(rts.image_url_3 || '');
       }
+      const primaryUrl: string = galleryUrls[0] || rts?.image_url || p.imageUrl || '';
+      const additionalImages: { src: string }[] = galleryUrls.slice(1).map((src) => ({ src }));
 
       // ── Build metafields from ready_to_shopify fields (variant-less mapping) ──
       // 準備上載 always force-creates a brand-new Shopify product, so always
@@ -1050,9 +1058,7 @@ export function useAppStore() {
         // more_image_link_1..4 ← all RTS image URLs in order (primary first, then extras),
         // capped at 4; any beyond the 4th are dropped per spec.
         // more_image_alt_1..4 ← product title (one alt per populated link).
-        const allImageUrls: string[] = [];
-        if (primaryUrl) allImageUrls.push(primaryUrl);
-        for (const im of additionalImages) allImageUrls.push(im.src);
+        const allImageUrls = galleryUrls.length > 0 ? galleryUrls : (primaryUrl ? [primaryUrl, ...additionalImages.map((im) => im.src)] : []);
         for (let i = 0; i < Math.min(allImageUrls.length, 4); i++) {
           mf[`custom.more_image_link_${i + 1}`] = allImageUrls[i];
           if (productTitle) mf[`custom.more_image_alt_${i + 1}`] = productTitle;
@@ -1068,7 +1074,11 @@ export function useAppStore() {
       const rawVariants = (rts?.variants && rts.variants.length > 0)
         ? rts.variants
         : ((p.variants && p.variants.length > 0) ? p.variants : []);
-      const variants = rawVariants.map((v: any) => ({ ...v, sku: (v?.sku && String(v.sku).trim()) || productSku }));
+      const variants = rawVariants.map((v: any) => ({
+        ...v,
+        sku: (v?.sku && String(v.sku).trim()) || productSku,
+        image_src: v?.image_src || v?.imageSrc || undefined,
+      }));
 
       return {
         id: productId,
@@ -1083,6 +1093,8 @@ export function useAppStore() {
         compare_at_price: p.compareAtPrice ?? null,
         image_url: primaryUrl,
         images: additionalImages,
+        gallery_urls: galleryUrls.length > 0 ? galleryUrls : undefined,
+        primary_image_src: primaryUrl || undefined,
         shopify_product_id: p.shopifyProductId || null,
         // Top-level sku so the edge function can stamp it onto the default
         // variant when no explicit variants exist.
