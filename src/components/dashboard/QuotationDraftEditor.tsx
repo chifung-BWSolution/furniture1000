@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, type ReactNode } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo, type ReactNode } from "react";
 import {
   ChevronDown,
   Plus,
@@ -20,6 +20,16 @@ import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import { SubmitReviewModal } from "@/components/dashboard/SubmitReviewModal";
 import { ProductSelectorModal } from "@/components/dashboard/ProductSelectorModal";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { fetchFactories } from "@/lib/factorySupabase";
 import type { QuotationPDFData } from "@/types/quotation-pdf";
 import {
   saveDraft,
@@ -87,6 +97,9 @@ interface QuotationItem {
   dimensionWMm?: number | null;
   dimensionHMm?: number | null;
   deliveryTermName?: string;
+  factoryName?: string;
+  /** True when 廠家 was set from 產品目錄 — shown read-only. */
+  factoryFromCatalog?: boolean;
   isCustomTerm?: boolean;
 }
 
@@ -472,6 +485,115 @@ const QUOTE_DIMENSION_INPUT_CLASS = cn(
   "min-w-0 flex-1 rounded-md border border-border bg-background px-1 py-1.5 font-mono-data text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none",
 );
 
+/** ~10 visible factory rows; scroll for the rest */
+const FACTORY_DROPDOWN_VISIBLE_COUNT = 10;
+const FACTORY_DROPDOWN_ITEM_HEIGHT_PX = 28;
+const FACTORY_DROPDOWN_MAX_HEIGHT =
+  FACTORY_DROPDOWN_VISIBLE_COUNT * FACTORY_DROPDOWN_ITEM_HEIGHT_PX;
+
+function QuoteFactoryField({
+  value,
+  locked,
+  factories,
+  loading,
+  onChange,
+}: {
+  value: string;
+  locked: boolean;
+  factories: string[];
+  loading: boolean;
+  onChange: (value: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
+
+  const filteredFactories = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return factories;
+    return factories.filter((name) => name.toLowerCase().includes(query));
+  }, [factories, search]);
+
+  if (locked) {
+    return (
+      <div className="flex h-[34px] items-center rounded-md border border-border/60 bg-muted/20 px-2">
+        <span
+          className="truncate font-body text-xs text-foreground"
+          title={value || undefined}
+        >
+          {value || "—"}
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setSearch("");
+      }}
+    >
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            QUOTE_INPUT_CLASS,
+            "flex h-[34px] items-center justify-between gap-1 text-left",
+            !value && "text-muted-foreground/40",
+          )}
+        >
+          <span className="truncate">{value || "選擇廠家"}</span>
+          <ChevronDown className="h-3 w-3 shrink-0 opacity-50" />
+        </button>
+      </PopoverTrigger>
+      <PopoverContent className="w-[220px] p-0" side="bottom" align="start">
+        <Command shouldFilter={false}>
+          <CommandInput
+            placeholder="搜尋廠家..."
+            value={search}
+            onValueChange={setSearch}
+            className="h-8 font-body text-xs"
+          />
+          <CommandList style={{ maxHeight: FACTORY_DROPDOWN_MAX_HEIGHT }}>
+            {loading ? (
+              <div className="flex items-center justify-center gap-2 py-4">
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                <span className="font-body text-xs text-muted-foreground">載入中...</span>
+              </div>
+            ) : (
+              <>
+                <CommandEmpty>
+                  <p className="py-3 font-body text-xs text-muted-foreground">沒有找到廠家</p>
+                </CommandEmpty>
+                <CommandGroup>
+                  {filteredFactories.map((factory) => (
+                    <CommandItem
+                      key={factory}
+                      value={factory}
+                      onSelect={() => {
+                        onChange(factory);
+                        setOpen(false);
+                        setSearch("");
+                      }}
+                      className="cursor-pointer py-1.5 font-body text-xs"
+                    >
+                      <span className="truncate">{factory}</span>
+                      {value === factory && (
+                        <Check className="ml-auto h-3 w-3 shrink-0 text-primary" />
+                      )}
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              </>
+            )}
+          </CommandList>
+        </Command>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 function QuoteProductItemCard({
   item,
   index,
@@ -484,6 +606,8 @@ function QuoteProductItemCard({
   updateItem,
   updateExchangeRate,
   removeItem,
+  factories,
+  factoriesLoading,
 }: {
   item: QuotationItem;
   index: number;
@@ -493,9 +617,11 @@ function QuoteProductItemCard({
   onDrop: (e: React.DragEvent<HTMLDivElement>) => void;
   onDragStart: (id: string) => void;
   onDragEnd: () => void;
-  updateItem: (id: string, field: keyof QuotationItem, value: string | number | null) => void;
+  updateItem: (id: string, field: keyof QuotationItem, value: string | number | null | boolean) => void;
   updateExchangeRate: (id: string, raw: string) => void;
   removeItem: (id: string) => void;
+  factories: string[];
+  factoriesLoading: boolean;
 }) {
   return (
     <div
@@ -593,22 +719,72 @@ function QuoteProductItemCard({
           />
         </QuoteFieldBlock>
 
-        {/* Row 1 — col 5: 數量 */}
-        <QuoteFieldBlock
-          label="數量"
-          className={cn("col-start-5 row-start-1", QUOTE_QTY_COST_FIELD_CLASS)}
+        {/* Row 1 — col 5: 數量 · 廠家 · 成本 (span both rows) */}
+        <div
+          className={cn(
+            "col-start-5 row-span-2 row-start-1 flex min-h-0 flex-col gap-2 self-stretch",
+            QUOTE_QTY_COST_FIELD_CLASS,
+          )}
         >
-          <input
-            type="number"
-            value={item.quantity || ""}
-            placeholder="1"
-            min={1}
-            onChange={(e) =>
-              updateItem(item.id, "quantity", parseInt(e.target.value) || 1)
-            }
-            className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
-          />
-        </QuoteFieldBlock>
+          <QuoteFieldBlock label="數量">
+            <input
+              type="number"
+              value={item.quantity || ""}
+              placeholder="1"
+              min={1}
+              onChange={(e) =>
+                updateItem(item.id, "quantity", parseInt(e.target.value) || 1)
+              }
+              className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
+            />
+          </QuoteFieldBlock>
+          <QuoteFieldBlock label="廠家">
+            <QuoteFactoryField
+              value={item.factoryName || ""}
+              locked={Boolean(item.factoryFromCatalog)}
+              factories={factories}
+              loading={factoriesLoading}
+              onChange={(name) => updateItem(item.id, "factoryName", name)}
+            />
+          </QuoteFieldBlock>
+          <div className="flex min-h-0 flex-1 flex-col">
+            <QuoteFieldBlock label="CNY¥成本價" className="shrink-0">
+              <input
+                type="number"
+                value={item.costPrice ?? ""}
+                placeholder="—"
+                min={0}
+                onChange={(e) =>
+                  updateItem(
+                    item.id,
+                    "costPrice",
+                    e.target.value ? parseFloat(e.target.value) : null,
+                  )
+                }
+                className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
+              />
+            </QuoteFieldBlock>
+            <div className="flex min-h-0 flex-1 items-center py-0.5">
+              <QuoteFieldBlock label="匯率" className="w-full">
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={exchangeRateInputDisplay(item.exchangeRateInput, item.exchangeRate)}
+                  placeholder="—"
+                  onChange={(e) => updateExchangeRate(item.id, e.target.value)}
+                  className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
+                />
+              </QuoteFieldBlock>
+            </div>
+            <QuoteFieldBlock label="HKD$成本價" className="shrink-0">
+              <div className="flex h-[34px] items-center rounded-md border border-border/60 bg-muted/20 px-2">
+                <span className="truncate font-mono-data text-xs font-medium text-foreground">
+                  {formatHkdCostDisplayCeil(item.hkdCostPrice)}
+                </span>
+              </div>
+            </QuoteFieldBlock>
+          </div>
+        </div>
 
         {/* Row 1 — col 6: 單位 (aligned with 單價 below) */}
         <QuoteFieldBlock
@@ -662,49 +838,6 @@ function QuoteProductItemCard({
           />
         </QuoteFieldBlock>
 
-        {/* Row 2 — col 5: CNY成本 · 匯率 · HKD成本 (匯率垂直置中於上下兩欄之間) */}
-        <div
-          className={cn(
-            "col-start-5 row-start-2 flex min-h-0 flex-col self-stretch",
-            QUOTE_QTY_COST_FIELD_CLASS,
-          )}
-        >
-          <QuoteFieldBlock label="CNY¥成本價" className="shrink-0">
-            <input
-              type="number"
-              value={item.costPrice ?? ""}
-              placeholder="—"
-              min={0}
-              onChange={(e) =>
-                updateItem(
-                  item.id,
-                  "costPrice",
-                  e.target.value ? parseFloat(e.target.value) : null,
-                )
-              }
-              className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
-            />
-          </QuoteFieldBlock>
-          <div className="flex min-h-0 flex-1 items-center py-0.5">
-            <QuoteFieldBlock label="匯率" className="w-full">
-              <input
-                type="text"
-                inputMode="decimal"
-                value={exchangeRateInputDisplay(item.exchangeRateInput, item.exchangeRate)}
-                placeholder="—"
-                onChange={(e) => updateExchangeRate(item.id, e.target.value)}
-                className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
-              />
-            </QuoteFieldBlock>
-          </div>
-          <QuoteFieldBlock label="HKD$成本價" className="shrink-0">
-            <div className="flex h-[34px] items-center rounded-md border border-border/60 bg-muted/20 px-2">
-              <span className="truncate font-mono-data text-xs font-medium text-foreground">
-                {formatHkdCostDisplayCeil(item.hkdCostPrice)}
-              </span>
-            </div>
-          </QuoteFieldBlock>
-        </div>
         <QuoteFieldBlock
           label="HKD$單價"
           className={cn("col-start-6 row-start-2", QUOTE_PRICING_FIELD_CLASS)}
@@ -919,6 +1052,8 @@ function createBlankProductItem(): QuotationItem {
     dimensionWMm: null,
     dimensionHMm: null,
     deliveryTermName: "",
+    factoryName: "",
+    factoryFromCatalog: false,
   };
 }
 
@@ -940,7 +1075,8 @@ function hasQuoteItemContent(item: QuotationItem): boolean {
       item.costPrice != null ||
       item.dimensionLMm != null ||
       item.dimensionWMm != null ||
-      item.dimensionHMm != null,
+      item.dimensionHMm != null ||
+      (item.factoryName || "").trim(),
   );
 }
 
@@ -1189,6 +1325,8 @@ export function QuotationDraftEditor({
   };
 
   // Product items table
+  const [factories, setFactories] = useState<string[]>([]);
+  const [factoriesLoading, setFactoriesLoading] = useState(false);
   const [items, setItems] = useState<QuotationItem[]>(() => {
     if (savedItems && savedItems.length > 0) {
       return savedItems.map((item) => {
@@ -1216,12 +1354,30 @@ export function QuotationDraftEditor({
           dimensionWMm: item.dimensionWMm ?? null,
           dimensionHMm: item.dimensionHMm ?? null,
           deliveryTermName: item.deliveryTermName,
+          factoryName: (item as { factoryName?: string }).factoryName || "",
+          factoryFromCatalog:
+            (item as { factoryFromCatalog?: boolean }).factoryFromCatalog ?? false,
           isCustomTerm: (item as { isCustomTerm?: boolean }).isCustomTerm,
         };
       });
     }
     return DEFAULT_ITEMS;
   });
+
+  useEffect(() => {
+    let cancelled = false;
+    setFactoriesLoading(true);
+    fetchFactories()
+      .then((names) => {
+        if (!cancelled) setFactories(names);
+      })
+      .finally(() => {
+        if (!cancelled) setFactoriesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const addItem = () => {
     setItems((prev) => [...prev, createBlankProductItem()]);
@@ -1251,7 +1407,7 @@ export function QuotationDraftEditor({
   const updateItem = (
     id: string,
     field: keyof QuotationItem,
-    value: string | number | null,
+    value: string | number | null | boolean,
   ) => {
     setItems((prev) =>
       prev.map((item) => {
@@ -1533,6 +1689,8 @@ export function QuotationDraftEditor({
                 dimensionWMm: (item.dimensionWMm as number | null) ?? null,
                 dimensionHMm: (item.dimensionHMm as number | null) ?? null,
                 deliveryTermName: item.deliveryTermName as string | undefined,
+                factoryName: (item.factoryName as string) || "",
+                factoryFromCatalog: Boolean(item.factoryFromCatalog),
                 isCustomTerm: item.isCustomTerm as boolean | undefined,
               };
             }),
@@ -1616,6 +1774,7 @@ export function QuotationDraftEditor({
       dimensionWMm?: number | null;
       dimensionHMm?: number | null;
       deliveryTermName?: string;
+      factoryName?: string;
     }[],
   ) => {
     if (products.length === 0) {
@@ -1644,6 +1803,8 @@ export function QuotationDraftEditor({
         dimensionWMm: p.dimensionWMm,
         dimensionHMm: p.dimensionHMm,
         deliveryTermName: p.deliveryTermName,
+        factoryName: p.factoryName?.trim() || "",
+        factoryFromCatalog: Boolean(p.factoryName?.trim()),
       };
     });
 
@@ -2096,6 +2257,8 @@ export function QuotationDraftEditor({
                         updateItem={updateItem}
                         updateExchangeRate={updateExchangeRate}
                         removeItem={removeItem}
+                        factories={factories}
+                        factoriesLoading={factoriesLoading}
                       />
                     ),
                   )}

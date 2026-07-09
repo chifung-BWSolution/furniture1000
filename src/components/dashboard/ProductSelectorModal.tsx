@@ -41,6 +41,7 @@ interface ProductSelectorModalProps {
     dimensionWMm?: number | null;
     dimensionHMm?: number | null;
     deliveryTermName?: string;
+    factoryName?: string;
   }[]) => void;
   /** Names of products already in the list, used to pre-select checkboxes */
   existingProductNames?: string[];
@@ -364,6 +365,7 @@ export function ProductSelectorModal({ open, onClose, onSelect, existingProductN
       dimensionWMm: p.dimension_w_mm,
       dimensionHMm: p.dimension_h_mm,
       deliveryTermName: p.delivery_term_name || undefined,
+      factoryName: p.factory_name?.trim() || undefined,
     }));
     onSelect(mapped);
     onClose();
