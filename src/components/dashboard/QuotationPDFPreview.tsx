@@ -31,6 +31,18 @@ const NOTO_SANS_JP_REGULAR =
   'https://fonts.gstatic.com/s/notosansjp/v56/-F6jfjtqLzI2JPCgQBnw7HFyzSD-AsregP8VFBEj75s.ttf';
 const NOTO_SANS_JP_BOLD =
   'https://fonts.gstatic.com/s/notosansjp/v56/-F6jfjtqLzI2JPCgQBnw7HFyzSD-AsregP8VFPYk75s.ttf';
+// Noto Sans HK — third fallback; HK Traditional coverage similar to local 微軟正黑體 (OFL, embeddable).
+const NOTO_SANS_HK_REGULAR =
+  'https://fonts.gstatic.com/s/notosanshk/v35/nKKF-GM_FYFRJvXzVXaAPe97P1KHynJFP716qHB--oU.ttf';
+const NOTO_SANS_HK_BOLD =
+  'https://fonts.gstatic.com/s/notosanshk/v35/nKKF-GM_FYFRJvXzVXaAPe97P1KHynJFP716qJd5-oU.ttf';
+
+/**
+ * Per-glyph fallback chain (react-pdf 4+): try TC → JP → HK for each character.
+ * Cannot use 微軟正黑體/新細明體 here — browser PDF cannot load local Windows fonts
+ * and Microsoft fonts are not licensed for web redistribution.
+ */
+const PDF_FONT_FAMILY = 'NotoSansTC, NotoSansJP, NotoSansHK';
 
 async function loadReactPdfModule(): Promise<ReactPdfModule> {
   if (cachedModule) return cachedModule;
@@ -50,17 +62,21 @@ async function loadReactPdfModule(): Promise<ReactPdfModule> {
             { src: NOTO_SANS_TC_BOLD, fontWeight: 700 },
           ],
         });
-        // Primary fallback: Noto Sans JP for JP-variant Han (e.g. 顔 U+9854) omitted by TC in react-pdf.
         mod.Font.register({
           family: 'NotoSansJP',
-          fallback: true,
           fonts: [
             { src: NOTO_SANS_JP_REGULAR, fontWeight: 400 },
             { src: NOTO_SANS_JP_BOLD, fontWeight: 700 },
           ],
-        } as Parameters<typeof mod.Font.register>[0]);
+        });
+        mod.Font.register({
+          family: 'NotoSansHK',
+          fonts: [
+            { src: NOTO_SANS_HK_REGULAR, fontWeight: 400 },
+            { src: NOTO_SANS_HK_BOLD, fontWeight: 700 },
+          ],
+        });
         // Wrong-glyph / legacy forms (e.g. 爲 → "2") are handled by normalizeQuotationPdfGlyphs().
-        // Simplified Chinese is converted to Traditional before render; SC font not needed here.
         mod.Font.registerHyphenationCallback((word: string) => {
           // Allow CJK line breaks in narrow cells without inserting "-" at wrap points.
           // Each char followed by '' gives break opportunities; empty segments are not rendered.
@@ -556,7 +572,7 @@ function renderDescriptionPdfContent(
 // ─── Styles (plain object — StyleSheet.create is a pass-through) ─────────────
 
 const styles: Record<string, any> = {
-  page: { fontFamily: 'NotoSansTC', fontSize: 8, lineHeight: 1.4, paddingTop: 22, paddingBottom: 50, paddingHorizontal: 20, color: '#1a1a1a' },
+  page: { fontFamily: PDF_FONT_FAMILY, fontSize: 8, lineHeight: 1.4, paddingTop: 22, paddingBottom: 50, paddingHorizontal: 20, color: '#1a1a1a' },
   headerBlock: { marginBottom: 8 },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   logo: { width: 130, height: 32, objectFit: 'contain', marginBottom: 4 },
