@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { X, AlertTriangle } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { extractPmsPitchingIdFromProjectData } from '@/lib/pmsQuotePrefill';
+import { useAuth } from '@/contexts/AuthProvider';
+import { usePmsStaffName } from '@/hooks/use-pms-staff-name';
 
 interface SubmitReviewModalProps {
   open: boolean;
@@ -35,9 +37,18 @@ export function SubmitReviewModal({
   projectData,
   bwfPitchingId,
 }: SubmitReviewModalProps) {
+  const { user } = useAuth();
+  const staffName = usePmsStaffName(user?.id);
   const [submitter, setSubmitter] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
+
+  // Default 提交者姓名 from auth user → public.users → staff.name (same as top-nav).
+  // Fill when the modal opens or when staffName arrives later; never overwrite typed input.
+  useEffect(() => {
+    if (!open || !staffName) return;
+    setSubmitter((prev) => (prev.trim() ? prev : staffName));
+  }, [open, staffName]);
 
   if (!open) return null;
 
