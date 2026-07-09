@@ -36,13 +36,18 @@ const NOTO_SANS_HK_REGULAR =
   'https://fonts.gstatic.com/s/notosanshk/v35/nKKF-GM_FYFRJvXzVXaAPe97P1KHynJFP716qHB--oU.ttf';
 const NOTO_SANS_HK_BOLD =
   'https://fonts.gstatic.com/s/notosanshk/v35/nKKF-GM_FYFRJvXzVXaAPe97P1KHynJFP716qJd5-oU.ttf';
+// Full Noto Sans SC (not a language subset) — fourth fallback for simplified / mainland glyphs.
+const NOTO_SANS_SC_REGULAR =
+  'https://fonts.gstatic.com/ea/notosanssc/v1/NotoSansSC-Regular.otf';
+const NOTO_SANS_SC_BOLD =
+  'https://fonts.gstatic.com/ea/notosanssc/v1/NotoSansSC-Bold.otf';
 
 /**
- * Per-glyph fallback chain (react-pdf 4+): try TC → JP → HK for each character.
+ * Per-glyph fallback chain (react-pdf 4+): try TC → JP → HK → SC for each character.
  * Cannot use 微軟正黑體/新細明體 here — browser PDF cannot load local Windows fonts
  * and Microsoft fonts are not licensed for web redistribution.
  */
-const PDF_FONT_FAMILY = 'NotoSansTC, NotoSansJP, NotoSansHK';
+const PDF_FONT_FAMILY = 'NotoSansTC, NotoSansJP, NotoSansHK, NotoSansSC';
 
 async function loadReactPdfModule(): Promise<ReactPdfModule> {
   if (cachedModule) return cachedModule;
@@ -74,6 +79,13 @@ async function loadReactPdfModule(): Promise<ReactPdfModule> {
           fonts: [
             { src: NOTO_SANS_HK_REGULAR, fontWeight: 400 },
             { src: NOTO_SANS_HK_BOLD, fontWeight: 700 },
+          ],
+        });
+        mod.Font.register({
+          family: 'NotoSansSC',
+          fonts: [
+            { src: NOTO_SANS_SC_REGULAR, fontWeight: 400 },
+            { src: NOTO_SANS_SC_BOLD, fontWeight: 700 },
           ],
         });
         // Wrong-glyph / legacy forms (e.g. 爲 → "2") are handled by normalizeQuotationPdfGlyphs().
