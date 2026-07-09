@@ -425,6 +425,7 @@ export function ReadyToPublishMergeModal({
         .from('ready_to_shopify')
         .select(RTS_SELECT, { count: 'exact' })
         .eq('furniture_group_checked', true)
+        .is('configurable', null)
         .neq('id', hostRtsId)
         .order('title', { ascending: true })
         .range(from, to);
@@ -456,6 +457,7 @@ export function ReadyToPublishMergeModal({
           .from('ready_to_shopify')
           .select('vendor')
           .eq('furniture_group_checked', true)
+          .is('configurable', null)
           .not('vendor', 'is', null);
         const vendors = [...new Set((vendorRows ?? []).map((r) => String(r.vendor).trim()).filter(Boolean))].sort();
         setPickerFactories(vendors);
@@ -634,6 +636,7 @@ export function ReadyToPublishMergeModal({
           images: dedupedGallery.length > 0
             ? dedupedGallery.map((src, i) => ({ src, position: i + 1 }))
             : null,
+          configurable: null,
         })
         .eq('product_id', hostProductId);
 
@@ -645,7 +648,7 @@ export function ReadyToPublishMergeModal({
       if (currentMergedRtsIds.length > 0) {
         await supabase
           .from('ready_to_shopify')
-          .update({ furniture_group_checked: null })
+          .update({ furniture_group_checked: null, configurable: parentSku })
           .in('id', currentMergedRtsIds);
       }
 
@@ -653,7 +656,7 @@ export function ReadyToPublishMergeModal({
       if (restoredRtsIds.length > 0) {
         await supabase
           .from('ready_to_shopify')
-          .update({ furniture_group_checked: true, variants: [] })
+          .update({ furniture_group_checked: true, variants: [], configurable: null })
           .in('id', restoredRtsIds);
       }
 

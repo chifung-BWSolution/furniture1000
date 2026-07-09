@@ -149,6 +149,66 @@ async function exitPublishPipeline(
   }).eq("id", productId);
 }
 
+/** Mirror merged child RTS rows into shopify_products (configurable = parent SKU). */
+async function mirrorMergedRtsChildren(
+  supabase: ReturnType<typeof createClient>,
+  parentShopifyId: string,
+  parentSku: string,
+  storeHost: string,
+  childRtsIds: string[],
+): Promise<void> {
+  const sku = parentSku.trim();
+  if (!sku || childRtsIds.length === 0) return;
+
+  const { data: children, error } = await supabase
+    .from("ready_to_shopify")
+    .select("id, product_id, title, sku, vendor, image_url, price, product_type, tags, body_html")
+    .in("id", childRtsIds)
+    .eq("configurable", sku);
+
+  if (error || !children?.length) return;
+
+  const now = new Date().toISOString();
+  for (const child of children) {
+    const childRtsId = String(child.id);
+    const childProductId = String(child.product_id);
+    const syntheticShopifyId = `${parentShopifyId}-merged-${childRtsId}`;
+
+    await supabase.from("shopify_products").upsert({
+      id: childRtsId,
+      shopify_product_id: syntheticShopifyId,
+      source_product_id: childProductId,
+      title: child.title || null,
+      body_html: child.body_html || null,
+      vendor: child.vendor || null,
+      product_type: child.product_type || null,
+      image_url: child.image_url || null,
+      sku: child.sku || null,
+      price: child.price != null ? Number(child.price) : null,
+      tags: Array.isArray(child.tags) ? child.tags : [],
+      status: "archived",
+      configurable: sku,
+      shop_domain: storeHost,
+      imported_at: now,
+      shopify_created_at: now,
+      shopify_updated_at: now,
+    }, { onConflict: "shopify_product_id" });
+
+    await supabase.from("ready_to_shopify").delete().eq("id", childRtsId);
+    await supabase.from("products").update({
+      shopify_product_id: parentShopifyId,
+      status: "success",
+      in_shopify_queue: false,
+      ready_to_publish: false,
+      error_message: null,
+    }).eq("id", childProductId);
+  }
+
+  console.log(
+    `[publish-to-shopify] ✅ Mirrored ${children.length} merged child RTS row(s) to shopify_products (configurable=${sku})`,
+  );
+}
+
 /** RTS shopify_url may be stored as "products/slug" — Shopify handle API wants "slug". */
 function normalizeShopifyHandle(raw: string | undefined | null): string | null {
   if (!raw || typeof raw !== "string") return null;
@@ -1129,7 +1189,7 @@ Deno.serve(async (req: Request) => {
         // ── Write to shopify_products mirror table ────────────────────────
         try {
           const spImages = (finalProduct.images as Record<string, unknown>[]) || [];
-          const spVariants = (createdProduct.variants as Record<string, unknown>[]) || [];
+          const spVariants = (finalProduct.variants as Record<string, unknown>[]) || [];
           const spPrice = spVariants[0]?.price != null ? Number(spVariants[0].price) : (product.price ?? 0);
           const spCompareAt = spVariants[0]?.compare_at_price != null ? Number(spVariants[0].compare_at_price) : null;
           // Persist metafields: raw array + dedicated namespace.key columns
@@ -1137,6 +1197,7 @@ Deno.serve(async (req: Request) => {
           for (const m of shopifyMetafields) {
             mfColumns[`${m.namespace}.${m.key}`] = m.value;
           }
+          const parentSku = (product.sku && String(product.sku).trim()) || "";
           const spRow: Record<string, unknown> = {
             shopify_product_id: shopifyProductId,
             // 連結回 products 表（products.id），讓產品目錄可判斷是否已上傳 Shopify
@@ -1154,6 +1215,8 @@ Deno.serve(async (req: Request) => {
             tags: Array.isArray(product.tags) ? product.tags : [],
             price: spPrice,
             compare_at_price: spCompareAt,
+            configurable: null,
+            sku: parentSku || null,
             shopify_created_at: String(finalProduct.created_at || new Date().toISOString()),
             shopify_updated_at: String(finalProduct.updated_at || new Date().toISOString()),
             imported_at: new Date().toISOString(),
@@ -1166,6 +1229,13 @@ Deno.serve(async (req: Request) => {
           if (product.rts_id) spRow.id = product.rts_id;
           await supabase.from("shopify_products").upsert(spRow, { onConflict: "shopify_product_id" });
           console.log(`[publish-to-shopify] ✅ shopify_products mirror written for Shopify ID: ${shopifyProductId}`);
+
+          if (parentSku) {
+            const childRtsIds = productVariants
+              .map((v) => String((v as { id?: string }).id ?? ""))
+              .filter((id) => id && id !== product.rts_id);
+            await mirrorMergedRtsChildren(supabase, shopifyProductId, parentSku, storeHost, childRtsIds);
+          }
         } catch (spErr) {
           console.warn(`[publish-to-shopify] ⚠️ shopify_products mirror write failed (non-blocking):`, spErr instanceof Error ? spErr.message : String(spErr));
         }
