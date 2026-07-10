@@ -11,6 +11,7 @@ import { supabase } from '@/lib/supabase';
 import { uploadFileToStorage, uploadImageSourceToStorage, isHttpImageUrl } from '@/lib/imageStorage';
 import { excludeAlreadyPublishedRts } from '@/lib/publishPipeline';
 import { syncRtsContentToProduct, syncRtsWorkflowToProduct } from '@/lib/rtsProductSync';
+import { writeUploadLog } from '@/lib/uploadLog';
 import { usePublishRtsList } from './usePublishRtsList';
 
 interface RevertReason {
@@ -437,6 +438,18 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
         copy_done: true,
         copy_done_at: copyDoneAt,
         revert_reason: null,
+      });
+
+      const { data: rtsRow } = await supabase
+        .from('ready_to_shopify')
+        .select('id')
+        .eq('product_id', activeId)
+        .maybeSingle();
+      await writeUploadLog({
+        productId: activeId,
+        rtsId: rtsRow?.id ?? null,
+        stage: 'copywriting',
+        action: 'submit',
       });
 
       toast.success('已提交到下一步', {

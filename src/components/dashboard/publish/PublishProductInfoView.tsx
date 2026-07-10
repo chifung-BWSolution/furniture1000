@@ -16,6 +16,7 @@ import { toast } from 'sonner';
 import { excludeAlreadyPublishedRts } from '@/lib/publishPipeline';
 import { syncRtsContentToProduct, syncRtsWorkflowToProduct } from '@/lib/rtsProductSync';
 import { usePublishRtsList } from './usePublishRtsList';
+import { writeUploadLog, writeUploadLogBatch, type UploadLogEntry } from '@/lib/uploadLog';
 import { CategoryTagPicker, type BwfCat } from './CategoryTagPicker';
 import { parseRtsImageUrls } from '@/lib/rtsImages';
 
@@ -56,6 +57,7 @@ function parseCostRefInput(raw: string): number | null {
 
 interface InfoItem {
   id: string;
+  rtsId: string | null;
   title: string;
   imageUrl: string;
   factory: string;
@@ -179,6 +181,7 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
       }
       return {
         id: r.id,
+        rtsId: r.rts_id ?? null,
         title: r.title || '',
         imageUrl: r.image_url || '',
         factory: r.factories_display_name || '',
@@ -349,6 +352,12 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
     setSavingId(id);
     try {
       await writeProductInfo(it, false);
+      await writeUploadLog({
+        productId: it.id,
+        rtsId: it.rtsId,
+        stage: 'product_info',
+        action: 'save',
+      });
       toast.success('已儲存', { description: '產品資料已同步至資料庫' });
     } catch (e) {
       toast.error('儲存失敗', { description: e instanceof Error ? e.message : '請稍後再試' });
@@ -362,11 +371,19 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
     const ids = Array.from(selected);
     setIsSaving(true);
     try {
+      const completed: UploadLogEntry[] = [];
       for (const id of ids) {
         const it = items.find((x) => x.id === id);
         if (!it) continue;
         await writeProductInfo(it, true);
+        completed.push({
+          productId: it.id,
+          rtsId: it.rtsId,
+          stage: 'product_info',
+          action: 'complete',
+        });
       }
+      await writeUploadLogBatch(completed);
       setSelected(new Set());
       setReloadKey((k) => k + 1);
       toast.success('已送往傢俬組檢查', { description: `${ids.length} 件產品的資訊已儲存，請到「傢俬組檢查」頁面確認後加入準備上載` });

@@ -3,6 +3,7 @@ import { Product, ProductVariant, ProductStatus, ProductSource, AppSettings, Vie
 import { supabase } from '@/lib/supabase';
 import { removeProductFromPublishPipeline } from '@/lib/publishPipeline';
 import { resolveSelectedPublishProducts } from '@/lib/readyToPublishRow';
+import { writeUploadLog } from '@/lib/uploadLog';
 import { resolveRowsImagesToStorage, productImageFieldsPendingStorage, stripBase64ForDb } from '@/lib/imageStorage';
 import { toast } from 'sonner';
 import { withInsertAuditFields, withUpdateAuditFields, withUpsertAuditFields } from '@/lib/pmsAudit';
@@ -1229,6 +1230,13 @@ export function useAppStore() {
               );
             }
 
+            await writeUploadLog({
+              productId: item.id,
+              rtsId: typeof rtsUuid === 'string' ? rtsUuid : item.rts_id ?? null,
+              stage: 'ready_to_publish',
+              action: 'upload',
+            });
+
             setReadyToPublishList(prev => prev.filter(p => {
               const pid = (p as any).productId || p.id;
               return pid !== item.id && p.id !== rtsUuid;
@@ -1330,7 +1338,7 @@ export function useAppStore() {
     // Fetch the ready_to_shopify row for this product to get finalised content
     const { data: rtsRetryRows } = await supabase
       .from('ready_to_shopify')
-      .select('product_id,title,body_html,price,image_url,images,variants,product_type,tags,shopify_url,shopify_page_title,shopify_page_description,sku,vendor')
+      .select('id,product_id,title,body_html,price,image_url,images,variants,product_type,tags,shopify_url,shopify_page_title,shopify_page_description,sku,vendor')
       .eq('product_id', id)
       .maybeSingle();
     const rts = rtsRetryRows as any;
@@ -1426,6 +1434,12 @@ export function useAppStore() {
           setProducts(prev => prev.map(p =>
             p.id === id ? { ...p, syncedAt: syncTimestamp } : p
           ));
+          await writeUploadLog({
+            productId: id,
+            rtsId: rts?.id ?? null,
+            stage: 'ready_to_publish',
+            action: 'upload',
+          });
           // Mirror into shopify_products so the product shows up in 已上載產品 page
           await supabase
             .from('shopify_products')

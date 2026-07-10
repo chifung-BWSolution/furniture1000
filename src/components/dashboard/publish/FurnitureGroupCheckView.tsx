@@ -10,6 +10,8 @@ import { uploadImageSourceToStorage, stripBase64ForDb, isHttpImageUrl } from '@/
 import { parseRtsGalleryUrls } from '@/lib/rtsImages';
 import { syncRtsWorkflowToProduct } from '@/lib/rtsProductSync';
 import { dedupeFactoryNames, normalizeFactoryDisplayName } from '@/lib/factoryNames';
+import { getPublishTimestampHk } from '@/lib/publishTimestamps';
+import { writeUploadLog, writeUploadLogBatch } from '@/lib/uploadLog';
 import { toast } from 'sonner';
 
 const ACCEPTED_IMAGE_TYPES = 'image/jpeg,image/jpg,image/webp,image/avif,image/png';
@@ -436,6 +438,7 @@ export function FGProductDetailModal({
       const customizeVal = editProductionType === 'custom' && editLeadTime ? editLeadTime : null;
       const inStockVal = isStock ? true : (editProductionType === 'custom' ? false : null);
 
+      const checkedAt = getPublishTimestampHk();
       const rtsUpdate: Record<string, unknown> = {
         title: editTitle || null,
         body_html: editBodyHtml || null,
@@ -455,6 +458,7 @@ export function FGProductDetailModal({
         dimension_h_mm: dimH,
         in_stock: inStockVal,
         customize: customizeVal,
+        checked_edited_at: checkedAt,
       };
       if (imagesChanged) {
         rtsUpdate.image_url = primaryImageUrl;
@@ -465,7 +469,25 @@ export function FGProductDetailModal({
         .from('ready_to_shopify')
         .update(rtsUpdate)
         .eq('id', data.id);
-      if (error) throw new Error(error.message);
+      if (error?.message?.includes('checked_edited_at')) {
+        delete rtsUpdate.checked_edited_at;
+        const retry = await supabase
+          .from('ready_to_shopify')
+          .update(rtsUpdate)
+          .eq('id', data.id);
+        if (retry.error) throw new Error(retry.error.message);
+      } else if (error) {
+        throw new Error(error.message);
+      }
+
+      if (data.product_id) {
+        await writeUploadLog({
+          productId: data.product_id,
+          rtsId: data.id,
+          stage: 'furniture_group_check',
+          action: 'save',
+        });
+      }
 
       if (data.product_id) {
         const prodUpdate: Record<string, unknown> = {
@@ -1124,19 +1146,27 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
     setIsSubmitting(true);
     try {
       // Set furniture_group_checked=true → rows appear in 準備上載 query
-      const now = new Date().toISOString();
+      const now = getPublishTimestampHk();
       let { error: rtsError } = await supabase
         .from('ready_to_shopify')
         .update({
           furniture_group_checked: true,
           ready_to_publish_at: now,
+          checked_edited_at: now,
         })
         .in('id', ids);
-      // Fallback if ready_to_publish_at column not yet migrated
-      if (rtsError?.message?.includes('ready_to_publish_at')) {
+      // Fallback if ready_to_publish_at / checked_edited_at columns not yet migrated
+      if (rtsError?.message?.includes('ready_to_publish_at') || rtsError?.message?.includes('checked_edited_at')) {
+        const fallback: Record<string, unknown> = { furniture_group_checked: true };
+        if (!rtsError?.message?.includes('ready_to_publish_at')) {
+          fallback.ready_to_publish_at = now;
+        }
+        if (!rtsError?.message?.includes('checked_edited_at')) {
+          fallback.checked_edited_at = now;
+        }
         ({ error: rtsError } = await supabase
           .from('ready_to_shopify')
-          .update({ furniture_group_checked: true })
+          .update(fallback)
           .in('id', ids));
       }
       if (rtsError) throw new Error(rtsError.message);
@@ -1153,6 +1183,15 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
           .update({ ready_to_publish: true })
           .in('id', productIds);
       }
+
+      await writeUploadLogBatch(
+        (rtsRows ?? []).map((r: { id: string; product_id: string }) => ({
+          productId: r.product_id,
+          rtsId: r.id,
+          stage: 'furniture_group_check' as const,
+          action: 'add_to_ready' as const,
+        })).filter((e) => Boolean(e.productId)),
+      );
 
       setSelected(new Set());
       setReloadKey((k) => k + 1);
