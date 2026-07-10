@@ -19,8 +19,18 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
+function normalizeRecipients(to: string | string[] | undefined): string[] {
+  const raw = Array.isArray(to) ? to : [to ?? DEFAULT_TO];
+  const unique = new Set<string>();
+  for (const entry of raw) {
+    const trimmed = entry?.trim();
+    if (trimmed) unique.add(trimmed);
+  }
+  return unique.size > 0 ? [...unique] : [DEFAULT_TO];
+}
+
 async function sendEmailViaGmailSmtp(args: {
-  to: string;
+  to: string[];
   subject: string;
   text: string;
   html: string;
@@ -57,12 +67,18 @@ async function sendEmailViaGmailSmtp(args: {
   }
 
   await sendLine(`MAIL FROM:<${user}>`);
-  await sendLine(`RCPT TO:<${args.to}>`);
+  for (const recipient of args.to) {
+    const rcptResp = await sendLine(`RCPT TO:<${recipient}>`);
+    if (!rcptResp.startsWith("250")) {
+      conn.close();
+      throw new Error(`SMTP RCPT failed for ${recipient}: ${rcptResp.trim()}`);
+    }
+  }
   await sendLine("DATA");
   const boundary = `----=_Part_${Date.now()}`;
   const body = [
     `From: FDS Furniture <${user}>`,
-    `To: ${args.to}`,
+    `To: ${args.to.join(", ")}`,
     `Subject: =?UTF-8?B?${toBase64(args.subject)}?=`,
     "MIME-Version: 1.0",
     `Content-Type: multipart/alternative; boundary="${boundary}"`,
@@ -92,15 +108,22 @@ async function sendEmailViaGmailSmtp(args: {
 }
 
 async function sendReportEmail(args: {
-  to: string;
+  to: string[];
   subject: string;
   text: string;
   html: string;
 }): Promise<{ id?: string; provider: string }> {
   const resendKey = Deno.env.get("RESEND_API_KEY") ?? "";
   if (resendKey) {
-    const result = await sendEmailViaResend(args);
-    return { id: result.id, provider: "resend" };
+    try {
+      const result = await sendEmailViaResend(args);
+      return { id: result.id, provider: "resend" };
+    } catch (resendErr) {
+      const gmailUser = Deno.env.get("GMAIL_SMTP_USER") ?? Deno.env.get("SMTP_USER") ?? "";
+      const gmailPass = Deno.env.get("GMAIL_SMTP_APP_PASSWORD") ?? Deno.env.get("SMTP_PASS") ?? "";
+      if (!gmailUser || !gmailPass) throw resendErr;
+      console.warn("[send-upload-log-report-email] Resend failed, falling back to Gmail SMTP");
+    }
   }
 
   try {
@@ -116,7 +139,7 @@ async function sendReportEmail(args: {
 }
 
 async function sendEmailViaResend(args: {
-  to: string;
+  to: string[];
   subject: string;
   text: string;
   html: string;
@@ -137,7 +160,7 @@ async function sendEmailViaResend(args: {
     },
     body: JSON.stringify({
       from,
-      to: [args.to],
+      to: args.to,
       subject: args.subject,
       text: args.text,
       html: args.html,
@@ -168,7 +191,7 @@ Deno.serve(async (req: Request) => {
 
   let body: {
     test?: boolean;
-    to?: string;
+    to?: string | string[];
     include_all_dates?: boolean;
     preview_only?: boolean;
     day_count?: number;
@@ -180,7 +203,7 @@ Deno.serve(async (req: Request) => {
     body = {};
   }
 
-  const to = (body.to?.trim() || DEFAULT_TO);
+  const to = normalizeRecipients(body.to);
   const dayCount = Math.min(Math.max(Number(body.day_count) || 30, 1), 30);
   const includeAllDates = body.include_all_dates === true;
 
