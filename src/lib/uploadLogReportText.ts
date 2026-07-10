@@ -115,7 +115,7 @@ export function formatUploadLogReportAsText(
 
   lines.push(
     '—',
-    '「產品目前停留」僅顯示今天；「今日已處理」按 upload_log / ready_to_shopify / products 時間戳整合。',
+    '「產品目前停留」僅顯示今天；「今日已處理」：產品文案僅 upload_log；產品信息 upload_log（完成）+ ready_to_shopify。',
   );
 
   return lines.join('\n');

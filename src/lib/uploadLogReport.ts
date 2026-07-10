@@ -23,10 +23,17 @@ export const UNKNOWN_USER_LABEL = '（無用戶紀錄）';
 /** Actions that count as “modified / completed” per stage. */
 const STAGE_ACTIONS: Record<UploadLogStage, Set<string>> = {
   copywriting: new Set(['submit']),
-  product_info: new Set(['save', 'complete']),
+  // Only 「完成」 moves to 傢俬組檢查; per-product 「儲存」 is not counted as processed.
+  product_info: new Set(['complete']),
   furniture_group_check: new Set(['save', 'add_to_ready']),
   ready_to_publish: new Set(['upload']),
 };
+
+/** Never attribute copywriting / product_info via products.editor_staff_id (editor ≠ actor). */
+const STAGES_NO_EDITOR_STAFF_LOOKUP = new Set<UploadLogStage>([
+  'copywriting',
+  'product_info',
+]);
 
 export interface UserActivity {
   userName: string;
@@ -135,12 +142,44 @@ function dedupeKey(hkDate: string, stage: UploadLogStage, productId: string): st
   return `${hkDate}|${stage}|${productId}`;
 }
 
+/** Batch 「完成」 rows share one logged_at; do not attribute to a named staff member. */
+function anonymizeBulkProductInfoCompletes(logs: RawLogRow[]): RawLogRow[] {
+  const groups = new Map<string, RawLogRow[]>();
+
+  for (const log of logs) {
+    if (log.stage !== 'product_info' || log.action !== 'complete' || !log.product_id) continue;
+    const key = `${log.logged_at}|${log.user_id ?? ''}`;
+    const bucket = groups.get(key) ?? [];
+    bucket.push(log);
+    groups.set(key, bucket);
+  }
+
+  const bulkKeys = new Set<string>();
+  for (const [key, rows] of groups) {
+    if (rows.length > 1) bulkKeys.add(key);
+  }
+
+  if (bulkKeys.size === 0) return logs;
+
+  return logs.map((log) => {
+    if (log.stage !== 'product_info' || log.action !== 'complete') return log;
+    const key = `${log.logged_at}|${log.user_id ?? ''}`;
+    if (!bulkKeys.has(key)) return log;
+    return {
+      ...log,
+      user_name: UNKNOWN_USER_LABEL,
+      user_email: null,
+    };
+  });
+}
+
 function buildDailyRows(logs: RawLogRow[], dayCount: number): DailyReportRow[] {
   const sortedDates = buildDateRange(dayCount);
+  const normalizedLogs = anonymizeBulkProductInfoCompletes(logs);
 
   const byDateStage = new Map<string, Map<UploadLogStage, Map<string, Set<string>>>>();
 
-  for (const log of logs) {
+  for (const log of normalizedLogs) {
     if (!log.product_id) continue;
     const stage = log.stage;
     if (!STAGE_ACTIONS[stage]?.has(log.action)) continue;
@@ -269,7 +308,8 @@ async function enrichLogsWithStaff(
   const authUserMap = await resolvePmsStaffByAuthUserIds([...authUserIds]);
 
   return logs.map((log) => {
-    const sid = resolveLogStaffId(log, productStaffMap);
+    const useEditorStaff = !STAGES_NO_EDITOR_STAFF_LOOKUP.has(log.stage);
+    const sid = useEditorStaff ? resolveLogStaffId(log, productStaffMap) : null;
     if (sid) {
       const staff = staffMap.get(sid);
       const name = staffDisplayName(
@@ -317,25 +357,12 @@ async function fetchHistoricalLogRows(
   const historical: RawLogRow[] = [];
 
   const [
-    copyProducts,
     infoRts,
     checkedRts,
     readyRts,
     rtsFgReady,
     syncedProducts,
   ] = await Promise.all([
-    fetchAllPages<{ id: string; copy_done_at: string; editor_staff_id: string | null; creator_staff_id: string | null }>(
-      'products.copy_done_at',
-      async (from, to) =>
-        supabase
-          .from('products')
-          .select('id, copy_done_at, editor_staff_id, creator_staff_id')
-          .eq('copy_done', true)
-          .not('copy_done_at', 'is', null)
-          .gte('copy_done_at', startIso)
-          .order('copy_done_at', { ascending: false })
-          .range(from, to),
-    ),
     fetchAllPages<{ product_id: string; info_completed_at: string | null; imported_at: string | null }>(
       'rts.info_completed_at',
       async (from, to) =>
@@ -403,18 +430,6 @@ async function fetchHistoricalLogRows(
     return sid;
   };
 
-  for (const row of copyProducts) {
-    pushHistorical(
-      historical,
-      covered,
-      row.id,
-      'copywriting',
-      'submit',
-      row.copy_done_at,
-      rememberStaff(row.id, row.editor_staff_id, row.creator_staff_id),
-    );
-  }
-
   for (const row of infoRts) {
     const loggedAt = row.info_completed_at ?? row.imported_at;
     if (!loggedAt || loggedAt < startIso) continue;
@@ -425,7 +440,7 @@ async function fetchHistoricalLogRows(
       'product_info',
       'complete',
       loggedAt,
-      productStaffMap.get(row.product_id) ?? null,
+      null,
     );
   }
 
