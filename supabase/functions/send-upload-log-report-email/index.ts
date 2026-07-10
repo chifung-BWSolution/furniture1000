@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { fetchUploadLogReportServer } from "./uploadLogReportServer.ts";
+import { formatTodayUploadLogReportAsHtml, formatUploadLogReportAsHtml } from "./uploadLogReportHtml.ts";
 import { formatTodayUploadLogReportAsText, formatUploadLogReportAsText } from "./uploadLogReportText.ts";
 
 const corsHeaders = {
@@ -22,6 +23,7 @@ async function sendEmailViaGmailSmtp(args: {
   to: string;
   subject: string;
   text: string;
+  html: string;
 }): Promise<{ id: string }> {
   const user = Deno.env.get("GMAIL_SMTP_USER") ?? Deno.env.get("SMTP_USER") ?? "";
   const pass = Deno.env.get("GMAIL_SMTP_APP_PASSWORD") ?? Deno.env.get("SMTP_PASS") ?? "";
@@ -57,16 +59,27 @@ async function sendEmailViaGmailSmtp(args: {
   await sendLine(`MAIL FROM:<${user}>`);
   await sendLine(`RCPT TO:<${args.to}>`);
   await sendLine("DATA");
+  const boundary = `----=_Part_${Date.now()}`;
   const body = [
     `From: FDS Furniture <${user}>`,
     `To: ${args.to}`,
     `Subject: =?UTF-8?B?${toBase64(args.subject)}?=`,
     "MIME-Version: 1.0",
+    `Content-Type: multipart/alternative; boundary="${boundary}"`,
+    "",
+    `--${boundary}`,
     "Content-Type: text/plain; charset=UTF-8",
     "Content-Transfer-Encoding: base64",
     "",
     toBase64(args.text),
     "",
+    `--${boundary}`,
+    "Content-Type: text/html; charset=UTF-8",
+    "Content-Transfer-Encoding: base64",
+    "",
+    toBase64(args.html),
+    "",
+    `--${boundary}--`,
     ".",
   ].join("\r\n");
   const dataResp = await sendLine(body);
@@ -82,6 +95,7 @@ async function sendReportEmail(args: {
   to: string;
   subject: string;
   text: string;
+  html: string;
 }): Promise<{ id?: string; provider: string }> {
   const resendKey = Deno.env.get("RESEND_API_KEY") ?? "";
   if (resendKey) {
@@ -105,6 +119,7 @@ async function sendEmailViaResend(args: {
   to: string;
   subject: string;
   text: string;
+  html: string;
 }): Promise<{ id?: string }> {
   const apiKey = Deno.env.get("RESEND_API_KEY") ?? "";
   const from = Deno.env.get("UPLOAD_LOG_REPORT_FROM_EMAIL") ??
@@ -125,6 +140,7 @@ async function sendEmailViaResend(args: {
       to: [args.to],
       subject: args.subject,
       text: args.text,
+      html: args.html,
     }),
   });
 
@@ -173,6 +189,9 @@ Deno.serve(async (req: Request) => {
     const text = includeAllDates
       ? formatUploadLogReportAsText(report)
       : formatTodayUploadLogReportAsText(report);
+    const html = includeAllDates
+      ? formatUploadLogReportAsHtml(report)
+      : formatTodayUploadLogReportAsHtml(report);
 
     const [y, m, d] = report.todayHk.split("-");
     const dateLabel = `${y}/${m}/${d}`;
@@ -186,11 +205,12 @@ Deno.serve(async (req: Request) => {
         to,
         subject,
         text,
+        html,
         preview_lines: text.split("\n").slice(0, 30),
       });
     }
 
-    const result = await sendReportEmail({ to, subject, text });
+    const result = await sendReportEmail({ to, subject, text, html });
 
     return jsonResponse({
       ok: true,
