@@ -85,4 +85,9 @@ Deploy-Function `
   -FilePath (Join-Path $root 'supabase\functions\resolve-pms-staff-by-ids\index.ts') `
   -Name 'resolve-pms-staff-by-ids'
 
+Deploy-Function `
+  -Slug 'supabase-functions-send-upload-log-report-email' `
+  -FilePath (Join-Path $root 'supabase\functions\send-upload-log-report-email\index.ts') `
+  -Name 'send-upload-log-report-email'
+
 Write-Host 'All functions deployed successfully.'

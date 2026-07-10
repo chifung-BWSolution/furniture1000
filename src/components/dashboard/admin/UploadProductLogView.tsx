@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
+import { supabase } from '@/lib/supabase';
 import {
-  ClipboardList, RefreshCw, Loader2, Clock, ChevronLeft, ChevronRight,
+  ClipboardList, RefreshCw, Loader2, Clock, ChevronLeft, ChevronRight, Mail,
 } from 'lucide-react';
 import type { UploadLogStage } from '@/lib/uploadLog';
 import {
@@ -14,6 +15,8 @@ import {
   type UploadLogReport,
   type UserActivity,
 } from '@/lib/uploadLogReport';
+
+const REFRESH_INTERVAL_MS = 60 * 60 * 1000;
 
 const STAGE_ROW_COLORS: Record<UploadLogStage, string> = {
   copywriting: 'bg-violet-500/[0.06]',
@@ -140,6 +143,8 @@ export function UploadProductLogView() {
   const [clock, setClock] = useState(formatHkDateTime());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'single' | 'all'>('single');
+  const [isSendingTestEmail, setIsSendingTestEmail] = useState(false);
+  const [emailStatus, setEmailStatus] = useState<string | null>(null);
 
   const load = useCallback(async (silent = false) => {
     if (!silent) setIsLoading(true);
@@ -160,9 +165,26 @@ export function UploadProductLogView() {
     }
   }, []);
 
+  const sendTestEmail = useCallback(async () => {
+    setIsSendingTestEmail(true);
+    setEmailStatus(null);
+    try {
+      const { data, error } = await supabase.functions.invoke('send-upload-log-report-email', {
+        body: { test: true, to: 'brandingworks.ebiz@gmail.com' },
+      });
+      if (error) throw new Error(error.message);
+      if (data?.error) throw new Error(String(data.error));
+      setEmailStatus(`測試電郵已發送至 brandingworks.ebiz@gmail.com`);
+    } catch (e) {
+      setEmailStatus(e instanceof Error ? e.message : '發送失敗');
+    } finally {
+      setIsSendingTestEmail(false);
+    }
+  }, []);
+
   useEffect(() => {
     void load();
-    const refreshTimer = setInterval(() => void load(true), 60_000);
+    const refreshTimer = setInterval(() => void load(true), REFRESH_INTERVAL_MS);
     const clockTimer = setInterval(() => setClock(formatHkDateTime()), 1000);
     return () => {
       clearInterval(refreshTimer);
@@ -275,6 +297,15 @@ export function UploadProductLogView() {
           )}
           <button
             type="button"
+            onClick={() => void sendTestEmail()}
+            disabled={isSendingTestEmail}
+            className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3.5 py-2 text-xs font-semibold text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+          >
+            {isSendingTestEmail ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Mail className="h-3.5 w-3.5" />}
+            發送測試電郵
+          </button>
+          <button
+            type="button"
             onClick={() => void load(true)}
             disabled={isRefreshing}
             className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3.5 py-2 text-xs font-semibold text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
@@ -300,10 +331,19 @@ export function UploadProductLogView() {
             </div>
           ) : report ? (
             <>
+              {emailStatus && (
+                <p className={cn(
+                  'text-xs',
+                  emailStatus.includes('已發送') ? 'text-emerald-600' : 'text-rose-600',
+                )}>
+                  {emailStatus}
+                </p>
+              )}
+
               {report.generatedAt && (
                 <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
                   <Clock className="h-3.5 w-3.5" />
-                  資料更新於 {formatHkDateTime(new Date(report.generatedAt))}（香港時間）· 每 60 秒自動更新
+                  資料更新於 {formatHkDateTime(new Date(report.generatedAt))}（香港時間）· 每小時自動更新 · 每日 18:00 電郵摘要
                 </p>
               )}
 
