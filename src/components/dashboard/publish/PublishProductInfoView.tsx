@@ -23,6 +23,37 @@ type ProductionType = 'stock' | 'custom' | null;
 
 const LEAD_TIME_OPTIONS = ['3-7天', '8-15天', '16-25天', '26-40天', '41天以上'] as const;
 
+const COST_REF_INPUT_CLASS =
+  'w-full bg-transparent px-2 py-2 font-mono-data text-[13px] text-amber-600 dark:text-amber-400 focus:outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none';
+
+/** Normalize DB/import floats (e.g. 1511.97) → clean display string. */
+function normalizeCostRefInput(value: unknown): string {
+  if (value == null || value === '') return '';
+  const n = typeof value === 'number' ? value : parseFloat(String(value).replace(/,/g, ''));
+  if (!Number.isFinite(n) || n < 0) return '';
+  const nearest = Math.round(n);
+  if (Math.abs(n - nearest) < 0.05) return String(nearest);
+  const twoDp = Math.round(n * 100) / 100;
+  return Number.isInteger(twoDp) ? String(twoDp) : twoDp.toFixed(2).replace(/\.?0+$/, '');
+}
+
+function sanitizeCostRefInput(raw: string): string {
+  const cleaned = raw.replace(/[^\d.]/g, '');
+  const dot = cleaned.indexOf('.');
+  if (dot < 0) return cleaned;
+  return `${cleaned.slice(0, dot)}.${cleaned.slice(dot + 1).replace(/\./g, '').slice(0, 2)}`;
+}
+
+function parseCostRefInput(raw: string): number | null {
+  const trimmed = raw.trim().replace(/,/g, '');
+  if (!trimmed) return null;
+  const n = parseFloat(trimmed);
+  if (!Number.isFinite(n) || n < 0) return null;
+  const nearest = Math.round(n);
+  if (Math.abs(n - nearest) < 0.05) return nearest;
+  return Math.round(n * 100) / 100;
+}
+
 interface InfoItem {
   id: string;
   title: string;
@@ -30,8 +61,8 @@ interface InfoItem {
   factory: string;
   price: number;
   costPrice: number | null;
-  // cost from ready_to_shopify.cost — editable on save
-  costRef: number | null;
+  // cost from ready_to_shopify.cost — editable string (avoids number-input float artifacts)
+  costRef: string;
   dimL: number | null;
   dimW: number | null;
   dimH: number | null;
@@ -153,7 +184,9 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
         factory: r.factories_display_name || '',
         price: Number(r.sale_price ?? r.price ?? 0),
         costPrice: r.cost_price != null ? Number(r.cost_price) : null,
-        costRef: r.cost != null ? Number(r.cost) : (r.cost_price != null ? Number(r.cost_price) : null),
+        costRef: normalizeCostRefInput(
+          r.cost != null ? r.cost : (r.cost_price != null ? r.cost_price : null),
+        ),
         dimL: r.dimension_l_mm ?? null,
         dimW: r.dimension_w_mm ?? null,
         dimH: r.dimension_h_mm ?? null,
@@ -250,10 +283,12 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
     const isStock = it.productionType === 'stock';
     const customizeVal = it.productionType === 'custom' && it.leadTime ? it.leadTime : null;
 
+    const costNum = parseCostRefInput(it.costRef);
+
     const rtsUpdate: Record<string, any> = {
       sku: it.sku || null,
       price: it.price,
-      cost: it.costRef,
+      cost: costNum,
       tags: it.tags.length > 0 ? it.tags : null,
       product_type: [it.level1, it.level2].filter(Boolean).join(' / ') || null,
       dimension_l_mm: it.dimL,
@@ -286,7 +321,7 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
     await syncRtsContentToProduct(supabase, it.id, {
       sku: it.sku || null,
       sale_price: it.price,
-      cost_price: it.costRef,
+      cost_price: costNum,
       tags: it.tags,
       level1_category: it.level1 || null,
       level2_category: it.level2 || null,
@@ -445,13 +480,12 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
                       <div className="flex items-center rounded-lg border border-border bg-background focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/20">
                         <span className="pl-3 font-mono-data text-[12px] text-muted-foreground/60">¥</span>
                         <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={it.costRef ?? ''}
-                          onChange={(e) => patch(it.id, { costRef: e.target.value === '' ? null : Number(e.target.value) })}
+                          type="text"
+                          inputMode="decimal"
+                          value={it.costRef}
+                          onChange={(e) => patch(it.id, { costRef: sanitizeCostRefInput(e.target.value) })}
                           placeholder="—"
-                          className="w-full bg-transparent px-2 py-2 font-mono-data text-[13px] text-amber-600 dark:text-amber-400 focus:outline-none"
+                          className={COST_REF_INPUT_CLASS}
                         />
                       </div>
                     </Field>
