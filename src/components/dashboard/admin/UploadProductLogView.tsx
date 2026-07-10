@@ -24,12 +24,12 @@ const STAGE_ROW_COLORS: Record<UploadLogStage, string> = {
 
 function PendingCell({ count, isToday }: { count: number; isToday: boolean }) {
   if (!isToday) {
-    return <span className="font-mono-data text-[13px] text-muted-foreground/40">—</span>;
+    return <span className="font-mono-data text-xs text-muted-foreground/50">—</span>;
   }
   return (
-    <span className="font-mono-data text-[14px] font-semibold text-foreground">
+    <span className="font-mono-data text-sm font-semibold text-foreground">
       {count}
-      <span className="ml-0.5 text-[12px] font-normal text-muted-foreground">件</span>
+      <span className="ml-0.5 text-xs font-normal text-muted-foreground">件</span>
     </span>
   );
 }
@@ -45,19 +45,19 @@ function ProcessedCell({
 
   return (
     <div>
-      <p className="text-[12px] text-foreground">
+      <p className="text-xs leading-relaxed text-foreground">
         {label}
-        <span className="ml-1 font-mono-data font-semibold text-primary">
+        <span className="ml-1 font-mono-data text-sm font-semibold text-primary">
           {stats.completedCount}
         </span>
         件
       </p>
       {stats.users.length > 0 && (
-        <ul className="mt-2 space-y-1">
+        <ul className="mt-2.5 space-y-1.5 border-t border-border/40 pt-2.5">
           {stats.users.map((u) => (
             <li
               key={u.userName}
-              className="flex items-center justify-between gap-4 text-[11.5px] text-muted-foreground"
+              className="flex items-center justify-between gap-4 text-xs text-muted-foreground"
             >
               <span className="truncate">{u.userName}</span>
               <span className="shrink-0 font-mono-data">{u.count} 件</span>
@@ -83,38 +83,44 @@ function StageDayTable({
   const isToday = row.hkDate === todayHk;
 
   return (
-    <div className={cn(showDateHeader && 'space-y-2')}>
+    <div className={cn(showDateHeader && 'space-y-3')}>
       {showDateHeader && (
         <h3
           className={cn(
-            'font-mono-data text-[12px] font-medium',
-            isToday ? 'text-primary' : 'text-muted-foreground',
+            'font-display text-base font-bold',
+            isToday ? 'text-primary' : 'text-foreground',
           )}
         >
           {formatHkDateLabel(row.hkDate, todayHk)}
         </h3>
       )}
-      <div className="overflow-hidden rounded-xl border border-border bg-card">
-        <table className="w-full text-sm">
-          <thead className="bg-muted/50 text-[11px] uppercase tracking-wider text-muted-foreground">
+      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+        <table className="w-full">
+          <thead className="border-b border-border bg-muted/60">
             <tr>
-              <th className="w-[140px] px-5 py-2.5 text-left font-medium">階段</th>
-              <th className="w-[140px] px-5 py-2.5 text-left font-medium">產品目前停留</th>
-              <th className="px-5 py-2.5 text-left font-medium">今日已處理</th>
+              <th className="w-[148px] px-5 py-3.5 text-left text-sm font-bold text-foreground">
+                階段
+              </th>
+              <th className="w-[160px] px-5 py-3.5 text-left text-sm font-bold text-foreground">
+                產品目前停留
+              </th>
+              <th className="px-5 py-3.5 text-left text-sm font-bold text-foreground">
+                今日已處理
+              </th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border/60">
             {UPLOAD_LOG_STAGES.map((stage) => (
               <tr key={stage} className={cn('align-top hover:bg-muted/20', STAGE_ROW_COLORS[stage])}>
-                <td className="px-5 py-3.5">
-                  <span className="font-display text-[13px] font-semibold text-foreground">
+                <td className="px-5 py-4">
+                  <span className="font-display text-sm font-bold text-foreground">
                     {STAGE_LABELS[stage]}
                   </span>
                 </td>
-                <td className="px-5 py-3.5">
+                <td className="px-5 py-4">
                   <PendingCell count={pendingCounts[stage]} isToday={isToday} />
                 </td>
-                <td className="px-5 py-3.5">
+                <td className="px-5 py-4">
                   <ProcessedCell stats={row.stages[stage]} isToday={isToday} />
                 </td>
               </tr>
@@ -195,9 +201,9 @@ export function UploadProductLogView() {
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/30 px-6 py-3">
         <div className="flex items-center gap-2">
           <ClipboardList className="h-4 w-4 text-primary" />
-          <h2 className="font-display text-sm font-bold">上載產品紀錄</h2>
+          <h2 className="font-display text-base font-bold">上載產品紀錄</h2>
           {report && (
-            <span className="font-mono-data text-[11px] text-muted-foreground">
+            <span className="font-mono-data text-xs text-muted-foreground">
               最近 30 日 · 香港時間 {clock}
             </span>
           )}
@@ -221,7 +227,7 @@ export function UploadProductLogView() {
                     setSelectedDate(e.target.value);
                     setViewMode('single');
                   }}
-                  className="h-8 min-w-[148px] border-x border-border bg-transparent px-2 font-mono-data text-[12px] focus:outline-none"
+                  className="h-9 min-w-[160px] border-x border-border bg-transparent px-2 font-mono-data text-xs focus:outline-none"
                 >
                   {report.dailyRows.map((row) => (
                     <option key={row.hkDate} value={row.hkDate}>
@@ -244,7 +250,7 @@ export function UploadProductLogView() {
                   type="button"
                   onClick={() => setViewMode('single')}
                   className={cn(
-                    'rounded-md px-2.5 py-1.5 text-[11px] font-medium transition-colors',
+                    'rounded-md px-3 py-1.5 text-xs font-semibold transition-colors',
                     viewMode === 'single'
                       ? 'bg-primary text-primary-foreground'
                       : 'text-muted-foreground hover:text-foreground',
@@ -256,7 +262,7 @@ export function UploadProductLogView() {
                   type="button"
                   onClick={() => setViewMode('all')}
                   className={cn(
-                    'rounded-md px-2.5 py-1.5 text-[11px] font-medium transition-colors',
+                    'rounded-md px-3 py-1.5 text-xs font-semibold transition-colors',
                     viewMode === 'all'
                       ? 'bg-primary text-primary-foreground'
                       : 'text-muted-foreground hover:text-foreground',
@@ -271,7 +277,7 @@ export function UploadProductLogView() {
             type="button"
             onClick={() => void load(true)}
             disabled={isRefreshing}
-            className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
+            className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3.5 py-2 text-xs font-semibold text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50"
           >
             {isRefreshing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
             重新整理
@@ -280,7 +286,7 @@ export function UploadProductLogView() {
       </div>
 
       <div className="flex-1 overflow-auto p-6">
-        <div className="mx-auto max-w-3xl space-y-4">
+        <div className="mx-auto max-w-4xl space-y-5">
           {error && (
             <div className="rounded-xl border border-rose-500/30 bg-rose-500/5 px-4 py-3 text-sm text-rose-600">
               {error}
@@ -295,19 +301,19 @@ export function UploadProductLogView() {
           ) : report ? (
             <>
               {report.generatedAt && (
-                <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground/70">
-                  <Clock className="h-3 w-3" />
+                <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <Clock className="h-3.5 w-3.5" />
                   資料更新於 {formatHkDateTime(new Date(report.generatedAt))}（香港時間）· 每 60 秒自動更新
                 </p>
               )}
 
               {viewMode === 'single' && selectedRow && (
-                <p className="font-mono-data text-[13px] font-semibold text-primary">
+                <h3 className="font-display text-base font-bold text-primary">
                   {formatHkDateLabel(selectedRow.hkDate, report.todayHk)}
-                </p>
+                </h3>
               )}
 
-              <div className={cn(viewMode === 'all' && 'space-y-6')}>
+              <div className={cn(viewMode === 'all' && 'space-y-8')}>
                 {displayRows.map((row) => (
                   <StageDayTable
                     key={row.hkDate}
@@ -318,13 +324,13 @@ export function UploadProductLogView() {
                   />
                 ))}
                 {displayRows.length === 0 && (
-                  <div className="rounded-xl border border-border bg-card px-6 py-10 text-center text-[12px] text-muted-foreground/60">
+                  <div className="rounded-xl border border-border bg-card px-6 py-12 text-center text-xs text-muted-foreground">
                     尚無上載產品紀錄
                   </div>
                 )}
               </div>
 
-              <p className="text-[10.5px] leading-relaxed text-muted-foreground/60">
+              <p className="text-xs leading-relaxed text-muted-foreground">
                 「產品目前停留」僅顯示今天（即時查詢）；「今日已處理」下方列出各同事處理件數，加總等於當日總數。
               </p>
             </>
