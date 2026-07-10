@@ -128,34 +128,11 @@ function dedupeKey(hkDate: string, stage: UploadLogStage, productId: string): st
   return `${hkDate}|${stage}|${productId}`;
 }
 
-function anonymizeBulkProductInfoCompletes(logs: RawLogRow[]): RawLogRow[] {
-  const groups = new Map<string, RawLogRow[]>();
-  for (const log of logs) {
-    if (log.stage !== "product_info" || log.action !== "complete" || !log.product_id) continue;
-    const key = `${log.logged_at}|${log.user_id ?? ""}`;
-    const bucket = groups.get(key) ?? [];
-    bucket.push(log);
-    groups.set(key, bucket);
-  }
-  const bulkKeys = new Set<string>();
-  for (const [key, rows] of groups) {
-    if (rows.length > 1) bulkKeys.add(key);
-  }
-  if (bulkKeys.size === 0) return logs;
-  return logs.map((log) => {
-    if (log.stage !== "product_info" || log.action !== "complete") return log;
-    const key = `${log.logged_at}|${log.user_id ?? ""}`;
-    if (!bulkKeys.has(key)) return log;
-    return { ...log, user_name: UNKNOWN_USER_LABEL, user_email: null };
-  });
-}
-
 function buildDailyRows(logs: RawLogRow[], dayCount: number): DailyReportRow[] {
   const sortedDates = buildDateRange(dayCount);
-  const normalizedLogs = anonymizeBulkProductInfoCompletes(logs);
   const byDateStage = new Map<string, Map<UploadLogStage, Map<string, Set<string>>>>();
 
-  for (const log of normalizedLogs) {
+  for (const log of logs) {
     if (!log.product_id) continue;
     const stage = log.stage;
     if (!STAGE_ACTIONS[stage]?.has(log.action)) continue;
@@ -226,6 +203,35 @@ async function resolvePmsStaffByIds(
     const id = String(row.id ?? "").trim();
     const name = String(row.name ?? "").trim();
     if (id && name && !looksLikeEmail(name)) map.set(id, name);
+  }
+  return map;
+}
+
+async function resolvePmsStaffByAuthUserIds(
+  pmsSb: SupabaseClient,
+  authUserIds: string[],
+): Promise<Map<string, { name: string | null; email: string | null }>> {
+  const unique = Array.from(new Set(authUserIds.map((id) => id.trim()).filter(Boolean))).slice(0, 200);
+  const map = new Map<string, { name: string | null; email: string | null }>();
+  if (unique.length === 0) return map;
+
+  const { data, error } = await pmsSb
+    .from("users")
+    .select("auth_user_id, email, staff!fk_users_member_id(id, name)")
+    .in("auth_user_id", unique);
+
+  if (error) {
+    console.warn("[uploadLogReportServer] auth user lookup failed:", error.message);
+    return map;
+  }
+
+  for (const row of data ?? []) {
+    const authUserId = String(row.auth_user_id ?? "").trim();
+    if (!authUserId) continue;
+    const staff = Array.isArray(row.staff) ? row.staff[0] : row.staff;
+    const name = String(staff?.name ?? "").trim() || null;
+    const email = String(row.email ?? "").trim() || null;
+    map.set(authUserId, { name, email });
   }
   return map;
 }
@@ -388,7 +394,29 @@ export async function fetchUploadLogReportServer(dayCount = 30): Promise<UploadL
   }
   const staffMap = pmsSb ? await resolvePmsStaffByIds(pmsSb, [...staffIds]) : new Map();
 
+  const authUserIds = new Set<string>();
+  for (const log of merged) {
+    if (log.user_id) authUserIds.add(log.user_id);
+  }
+  const authUserMap = pmsSb
+    ? await resolvePmsStaffByAuthUserIds(pmsSb, [...authUserIds])
+    : new Map<string, { name: string | null; email: string | null }>();
+
   const logs = merged.map((log) => {
+    if (log.user_id) {
+      const fromAuth = authUserMap.get(log.user_id);
+      const name = fromAuth?.name?.trim();
+      if (name && !looksLikeEmail(name)) {
+        return {
+          ...log,
+          user_name: name,
+          user_email: fromAuth?.email ?? log.user_email,
+        };
+      }
+    }
+
+    if (!needsStaffResolve(log)) return log;
+
     const useEditorStaff = !STAGES_NO_EDITOR_STAFF_LOOKUP.has(log.stage);
     const sid = useEditorStaff
       ? (log.editor_staff_id ?? (log.product_id ? productStaffMap.get(log.product_id) : null))
@@ -397,8 +425,8 @@ export async function fetchUploadLogReportServer(dayCount = 30): Promise<UploadL
       const name = staffMap.get(sid);
       if (name) return { ...log, user_name: name };
     }
-    if (needsStaffResolve(log)) return { ...log, user_name: UNKNOWN_USER_LABEL };
-    return log;
+
+    return { ...log, user_name: UNKNOWN_USER_LABEL };
   });
 
   const [copyRes, infoRes, fgRes, readyRes] = await Promise.all([

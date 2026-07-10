@@ -29,6 +29,7 @@ async function resolveCurrentUser(): Promise<{
 }> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) {
+    console.warn('[uploadLog] skipped: no authenticated user');
     return { userId: null, email: null, name: null };
   }
   let name: string | null = null;
@@ -40,8 +41,7 @@ async function resolveCurrentUser(): Promise<{
   return {
     userId: user.id,
     email: user.email ?? null,
-    // Never store login email as display name — report resolves PMS staff.name instead.
-    name: name ?? null,
+    name: name?.trim() || null,
   };
 }
 
@@ -50,6 +50,9 @@ function buildLogRow(
   user: { userId: string | null; email: string | null; name: string | null },
   loggedAt: string,
 ) {
+  if (!user.userId) {
+    throw new Error('upload_log requires an authenticated user');
+  }
   return {
     product_id: entry.productId,
     rts_id: entry.rtsId ?? null,
@@ -89,6 +92,6 @@ export async function writeUploadLogBatch(entries: UploadLogEntry[]): Promise<vo
       console.warn('[uploadLog] batch insert failed:', error.message);
     }
   } catch (err) {
-    console.warn('[uploadLog] batch unexpected error:', err);
+    console.warn('[uploadLog] unexpected error:', err);
   }
 }

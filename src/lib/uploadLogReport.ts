@@ -142,44 +142,12 @@ function dedupeKey(hkDate: string, stage: UploadLogStage, productId: string): st
   return `${hkDate}|${stage}|${productId}`;
 }
 
-/** Batch 「完成」 rows share one logged_at; do not attribute to a named staff member. */
-function anonymizeBulkProductInfoCompletes(logs: RawLogRow[]): RawLogRow[] {
-  const groups = new Map<string, RawLogRow[]>();
-
-  for (const log of logs) {
-    if (log.stage !== 'product_info' || log.action !== 'complete' || !log.product_id) continue;
-    const key = `${log.logged_at}|${log.user_id ?? ''}`;
-    const bucket = groups.get(key) ?? [];
-    bucket.push(log);
-    groups.set(key, bucket);
-  }
-
-  const bulkKeys = new Set<string>();
-  for (const [key, rows] of groups) {
-    if (rows.length > 1) bulkKeys.add(key);
-  }
-
-  if (bulkKeys.size === 0) return logs;
-
-  return logs.map((log) => {
-    if (log.stage !== 'product_info' || log.action !== 'complete') return log;
-    const key = `${log.logged_at}|${log.user_id ?? ''}`;
-    if (!bulkKeys.has(key)) return log;
-    return {
-      ...log,
-      user_name: UNKNOWN_USER_LABEL,
-      user_email: null,
-    };
-  });
-}
-
 function buildDailyRows(logs: RawLogRow[], dayCount: number): DailyReportRow[] {
   const sortedDates = buildDateRange(dayCount);
-  const normalizedLogs = anonymizeBulkProductInfoCompletes(logs);
 
   const byDateStage = new Map<string, Map<UploadLogStage, Map<string, Set<string>>>>();
 
-  for (const log of normalizedLogs) {
+  for (const log of logs) {
     if (!log.product_id) continue;
     const stage = log.stage;
     if (!STAGE_ACTIONS[stage]?.has(log.action)) continue;
@@ -308,6 +276,21 @@ async function enrichLogsWithStaff(
   const authUserMap = await resolvePmsStaffByAuthUserIds([...authUserIds]);
 
   return logs.map((log) => {
+    if (needsStaffResolve(log) && log.user_id) {
+      const fromAuth = authUserMap.get(log.user_id);
+      const name = staffDisplayName(
+        fromAuth?.display_name ?? fromAuth?.name,
+        fromAuth?.email,
+      );
+      if (name) {
+        return {
+          ...log,
+          user_name: name,
+          user_email: fromAuth?.email ?? log.user_email,
+        };
+      }
+    }
+
     const useEditorStaff = !STAGES_NO_EDITOR_STAFF_LOOKUP.has(log.stage);
     const sid = useEditorStaff ? resolveLogStaffId(log, productStaffMap) : null;
     if (sid) {
@@ -321,21 +304,6 @@ async function enrichLogsWithStaff(
           ...log,
           user_name: name,
           user_email: staff?.email ?? log.user_email,
-        };
-      }
-    }
-
-    if (needsStaffResolve(log) && log.user_id) {
-      const fromAuth = authUserMap.get(log.user_id);
-      const name = staffDisplayName(
-        fromAuth?.display_name ?? fromAuth?.name,
-        fromAuth?.email,
-      );
-      if (name) {
-        return {
-          ...log,
-          user_name: name,
-          user_email: fromAuth?.email ?? log.user_email,
         };
       }
     }
