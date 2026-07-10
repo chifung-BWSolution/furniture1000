@@ -9,13 +9,96 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const DEFAULT_TO = "brandingworks.ebiz@gmail.com";
+const DEFAULT_TO = Deno.env.get("UPLOAD_LOG_REPORT_TO_EMAIL") ?? "brandingworks.ebiz@gmail.com";
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
+}
+
+async function sendEmailViaGmailSmtp(args: {
+  to: string;
+  subject: string;
+  text: string;
+}): Promise<{ id: string }> {
+  const user = Deno.env.get("GMAIL_SMTP_USER") ?? Deno.env.get("SMTP_USER") ?? "";
+  const pass = Deno.env.get("GMAIL_SMTP_APP_PASSWORD") ?? Deno.env.get("SMTP_PASS") ?? "";
+  if (!user || !pass) {
+    throw new Error("Gmail SMTP not configured");
+  }
+
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
+  const conn = await Deno.connectTls({ hostname: "smtp.gmail.com", port: 465 });
+
+  const readResponse = async (): Promise<string> => {
+    const buf = new Uint8Array(4096);
+    const n = await conn.read(buf);
+    return n === null ? "" : decoder.decode(buf.subarray(0, n));
+  };
+  const sendLine = async (line: string): Promise<string> => {
+    await conn.write(encoder.encode(`${line}\r\n`));
+    return readResponse();
+  };
+  const toBase64 = (value: string) => btoa(unescape(encodeURIComponent(value)));
+
+  await readResponse();
+  await sendLine("EHLO furniture-platform");
+  await sendLine("AUTH LOGIN");
+  await sendLine(toBase64(user));
+  const authResp = await sendLine(toBase64(pass));
+  if (!authResp.startsWith("235")) {
+    conn.close();
+    throw new Error(`SMTP auth failed: ${authResp.trim()}`);
+  }
+
+  await sendLine(`MAIL FROM:<${user}>`);
+  await sendLine(`RCPT TO:<${args.to}>`);
+  await sendLine("DATA");
+  const body = [
+    `From: FDS Furniture <${user}>`,
+    `To: ${args.to}`,
+    `Subject: =?UTF-8?B?${toBase64(args.subject)}?=`,
+    "MIME-Version: 1.0",
+    "Content-Type: text/plain; charset=UTF-8",
+    "Content-Transfer-Encoding: base64",
+    "",
+    toBase64(args.text),
+    "",
+    ".",
+  ].join("\r\n");
+  const dataResp = await sendLine(body);
+  await sendLine("QUIT");
+  conn.close();
+  if (!dataResp.startsWith("250")) {
+    throw new Error(`SMTP DATA failed: ${dataResp.trim()}`);
+  }
+  return { id: `smtp-${Date.now()}` };
+}
+
+async function sendReportEmail(args: {
+  to: string;
+  subject: string;
+  text: string;
+}): Promise<{ id?: string; provider: string }> {
+  const resendKey = Deno.env.get("RESEND_API_KEY") ?? "";
+  if (resendKey) {
+    const result = await sendEmailViaResend(args);
+    return { id: result.id, provider: "resend" };
+  }
+
+  try {
+    const result = await sendEmailViaGmailSmtp(args);
+    return { id: result.id, provider: "gmail_smtp" };
+  } catch (gmailErr) {
+    throw new Error(
+      `Email not configured. Set RESEND_API_KEY or GMAIL_SMTP_USER + GMAIL_SMTP_APP_PASSWORD in Edge Function secrets. (${
+        gmailErr instanceof Error ? gmailErr.message : "smtp failed"
+      })`,
+    );
+  }
 }
 
 async function sendEmailViaResend(args: {
@@ -107,14 +190,15 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const result = await sendEmailViaResend({ to, subject, text });
+    const result = await sendReportEmail({ to, subject, text });
 
     return jsonResponse({
       ok: true,
       test: body.test === true,
       to,
       subject,
-      resend_id: result.id ?? null,
+      provider: result.provider,
+      message_id: result.id ?? null,
       preview_lines: text.split("\n").slice(0, 20),
     });
   } catch (err) {

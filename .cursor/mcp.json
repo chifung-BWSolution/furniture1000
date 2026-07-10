@@ -1,7 +1,10 @@
 {
   "mcpServers": {
     "supabase": {
-      "url": "https://mcp.supabase.com/mcp?project_ref=riaubhtruisbwdlwjzur"
+      "url": "https://mcp.supabase.com/mcp?project_ref=riaubhtruisbwdlwjzur",
+      "headers": {
+        "Authorization": "Bearer ${env:SUPABASE_ACCESS_TOKEN}"
+      }
     }
   }
 }
