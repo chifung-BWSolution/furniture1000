@@ -43,7 +43,6 @@ import { QUOTE_UNSAVED_LEAVE_MESSAGE, resetQuickQuoteSessionStorage, shouldShowD
 import {
   extractDeliveryAddressFromTermsHtml,
   injectDeliveryAddressIntoTermsHtml,
-  isDeliveryAddressFilled,
   migrateTermsContentToCurrent,
   resolveDeliveryAddress,
   type SavedTermsContent,
@@ -1542,12 +1541,6 @@ export function QuotationDraftEditor({
   const [showSubmitModal, setShowSubmitModal] = useState(false);
 
   const handleOpenSubmitReview = () => {
-    if (
-      !isDeliveryAddressFilled(termsContent.fullHtml, quoteMeta.deliveryAddress)
-    ) {
-      toast.error("送貨地址未填上");
-      return;
-    }
     setShowSubmitModal(true);
   };
   const [currentVersion] = useState(() => {
