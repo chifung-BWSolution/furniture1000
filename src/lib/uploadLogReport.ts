@@ -76,15 +76,19 @@ function emptyStageStats(): Record<UploadLogStage, StageDailyStats> {
   };
 }
 
-function buildDailyRows(logs: RawLogRow[], dayCount: number): DailyReportRow[] {
-  const todayHk = getPublishDateHk();
-  const dateSet = new Set<string>([todayHk]);
-
-  for (const log of logs) {
-    dateSet.add(toHkDate(log.logged_at));
+function buildDateRange(dayCount: number): string[] {
+  const dates: string[] = [];
+  const anchor = new Date();
+  for (let i = 0; i < dayCount; i++) {
+    const d = new Date(anchor);
+    d.setDate(d.getDate() - i);
+    dates.push(new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Hong_Kong' }).format(d));
   }
+  return dates;
+}
 
-  const sortedDates = Array.from(dateSet).sort((a, b) => b.localeCompare(a)).slice(0, dayCount);
+function buildDailyRows(logs: RawLogRow[], dayCount: number): DailyReportRow[] {
+  const sortedDates = buildDateRange(dayCount);
 
   const byDateStage = new Map<string, Map<UploadLogStage, Map<string, Set<string>>>>();
 
@@ -113,14 +117,13 @@ function buildDailyRows(logs: RawLogRow[], dayCount: number): DailyReportRow[] {
       for (const stage of UPLOAD_LOG_STAGES) {
         const userMap = stageMap.get(stage);
         if (!userMap) continue;
-        const allProducts = new Set<string>();
         const users: UserActivity[] = [];
         for (const [userName, productIds] of userMap) {
           users.push({ userName, count: productIds.size });
-          productIds.forEach((id) => allProducts.add(id));
         }
         users.sort((a, b) => b.count - a.count);
-        stages[stage] = { completedCount: allProducts.size, users };
+        const completedCount = users.reduce((sum, u) => sum + u.count, 0);
+        stages[stage] = { completedCount, users };
       }
     }
     return { hkDate, stages };
