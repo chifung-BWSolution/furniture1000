@@ -75,4 +75,9 @@ Deploy-Function `
   -FilePath (Join-Path $root 'supabase\functions\fetch-pms-pitching-quote-defaults\index.ts') `
   -Name 'fetch-pms-pitching-quote-defaults'
 
+Deploy-Function `
+  -Slug 'supabase-functions-fetch-pms-pitchings' `
+  -FilePath (Join-Path $root 'supabase\functions\fetch-pms-pitchings\index.ts') `
+  -Name 'fetch-pms-pitchings'
+
 Write-Host 'All functions deployed successfully.'

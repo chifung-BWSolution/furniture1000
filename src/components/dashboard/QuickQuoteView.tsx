@@ -23,6 +23,11 @@ import {
   fetchPmsPitchingQuoteDefaults,
   type PmsIndustryOption,
 } from '@/lib/pmsPitchingQuoteDefaults';
+import {
+  formatPmsPitchingLabel,
+  type PmsPitchingListItem,
+} from '@/lib/pmsPitchings';
+import { PmsPitchingSelector } from '@/components/dashboard/PmsPitchingSelector';
 
 const LazyQuotationPDFPreviewModal = lazy(() =>
   import('@/components/dashboard/QuotationPDFPreview').then((mod) => ({
@@ -141,6 +146,7 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
   const [errors, setErrors] = useState<Partial<Record<keyof QuoteFormData, string>>>({});
   const [industryOptions, setIndustryOptions] = useState<string[]>(FALLBACK_INDUSTRIES);
   const [pmsIndustryCatalog, setPmsIndustryCatalog] = useState<PmsIndustryOption[]>([]);
+  const [selectedPitchingLabel, setSelectedPitchingLabel] = useState<string | null>(null);
   const sessionRestoredRef = useRef(false);
   const loadedQuoteIdRef = useRef<string | null>(null);
   const pmsDefaultsLoadedForRef = useRef<string | null>(null);
@@ -164,6 +170,14 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
       clientIndustry: prefill.clientIndustry || [],
       quotationType: prefill.quotationType || [],
     });
+    if (prefill.pmsPitchingId) {
+      const labelParts = [prefill.projectName, prefill.clientName].filter(Boolean);
+      setSelectedPitchingLabel(
+        labelParts.length > 0 ? labelParts.join(' · ') : prefill.pmsPitchingId,
+      );
+    } else {
+      setSelectedPitchingLabel(null);
+    }
     pmsPrefillAppliedRef.current = true;
     sessionRestoredRef.current = true;
     return true;
@@ -187,7 +201,14 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
     setIsQuotationReady(step === 4);
     try {
       const raw = sessionStorage.getItem(quickQuoteFormKey(userEmail));
-      if (raw) setFormData({ ...DEFAULT_FORM_DATA(), ...JSON.parse(raw) });
+      if (raw) {
+        const parsed = { ...DEFAULT_FORM_DATA(), ...JSON.parse(raw) } as QuoteFormData;
+        setFormData(parsed);
+        if (parsed.pmsPitchingId) {
+          const label = [parsed.projectName, parsed.clientName].filter(Boolean).join(' · ');
+          setSelectedPitchingLabel(label || parsed.pmsPitchingId);
+        }
+      }
     } catch {
       // ignore
     }
@@ -198,10 +219,39 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
     setIsQuotationReady(false);
     setLoadedQuoteData(null);
     setFormData(DEFAULT_FORM_DATA());
+    setSelectedPitchingLabel(null);
     setErrors({});
+    pmsDefaultsLoadedForRef.current = null;
     resetQuickQuoteSessionStorage(userEmail);
     deleteDraft(makeDraftKey(userEmail, 'NEW')).catch(() => {});
   }, [userEmail]);
+
+  const handleSelectPitching = useCallback((item: PmsPitchingListItem) => {
+    setSelectedPitchingLabel(formatPmsPitchingLabel(item));
+    pmsDefaultsLoadedForRef.current = null;
+    setFormData((prev) => ({
+      ...prev,
+      pmsPitchingId: item.id,
+      // projectName stores PMS pitching_code for PMS list joins
+      projectName: item.pitching_code?.trim() || prev.projectName,
+      projectManager: item.main_pm_name?.trim() || prev.projectManager,
+      clientName: item.customer_name?.trim() || prev.clientName,
+    }));
+    setErrors((prev) => ({
+      ...prev,
+      pmsPitchingId: undefined,
+      projectName: undefined,
+    }));
+  }, []);
+
+  const handleClearPitching = useCallback(() => {
+    setSelectedPitchingLabel(null);
+    pmsDefaultsLoadedForRef.current = null;
+    setFormData((prev) => ({
+      ...prev,
+      pmsPitchingId: undefined,
+    }));
+  }, []);
 
   useEffect(() => {
     if (freshSessionKey === 0) return;
@@ -240,6 +290,7 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
       setFormData((prev) => ({
         ...prev,
         // PMS DB is source of truth for these defaults when opened from a pitching
+        projectName: defaults.pitching_code || prev.projectName,
         clientName: defaults.client_name || prev.clientName,
         clientIndustry:
           defaults.selected_industries.length > 0
@@ -248,6 +299,12 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
         budgetMin: defaults.budget_min ?? prev.budgetMin,
         budgetMax: defaults.budget_max ?? prev.budgetMax,
       }));
+
+      if (defaults.pitching_code || defaults.client_name) {
+        setSelectedPitchingLabel(
+          [defaults.pitching_code, defaults.client_name].filter(Boolean).join(' · ') || null,
+        );
+      }
     })();
 
     return () => {
@@ -336,13 +393,14 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
 
         // Hydrate form data from saved state
         if (savedFormData) {
+          const pitchingId =
+            savedFormData.pmsPitchingId ||
+            (typeof data.bwf_pitching_id === 'string' ? data.bwf_pitching_id : undefined);
           setFormData({
             company: savedFormData.company || 'Branding Works Design Ltd',
             projectManager: savedFormData.projectManager || '',
             projectName: savedFormData.projectName || '',
-            pmsPitchingId:
-              savedFormData.pmsPitchingId ||
-              (typeof data.bwf_pitching_id === 'string' ? data.bwf_pitching_id : undefined),
+            pmsPitchingId: pitchingId,
             clientName: savedFormData.clientName || '',
             clientPhone: savedFormData.clientPhone || '',
             clientEmail: savedFormData.clientEmail || '',
@@ -358,6 +416,14 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
             validityDays: savedFormData.validityDays || '30',
             remarks: savedFormData.remarks || '',
           });
+          if (pitchingId) {
+            const label = [savedFormData.projectName, savedFormData.clientName]
+              .filter(Boolean)
+              .join(' · ');
+            setSelectedPitchingLabel(label || pitchingId);
+          } else {
+            setSelectedPitchingLabel(null);
+          }
         }
 
         setLoadedQuoteData({
@@ -420,6 +486,9 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
   const validateStep1 = (): boolean => {
     const newErrors: Partial<Record<keyof QuoteFormData, string>> = {};
 
+    if (!formData.pmsPitchingId?.trim()) {
+      newErrors.pmsPitchingId = '請選擇 PMS Pitching';
+    }
     if (!formData.projectManager.trim()) {
       newErrors.projectManager = '請填寫項目經理姓名';
     }
@@ -639,6 +708,15 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
                   Branding Works Design Ltd
                 </div>
               </div>
+
+              {/* PMS Pitching (required) — same autofill path as PMS SSO deep-link */}
+              <PmsPitchingSelector
+                value={formData.pmsPitchingId}
+                selectedLabel={selectedPitchingLabel}
+                error={errors.pmsPitchingId}
+                onSelect={handleSelectPitching}
+                onClear={handleClearPitching}
+              />
 
               {/* Two column grid */}
               <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
