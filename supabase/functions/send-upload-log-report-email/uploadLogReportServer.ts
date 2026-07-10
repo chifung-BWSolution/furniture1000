@@ -301,7 +301,14 @@ export async function fetchUploadLogReportServer(dayCount = 30): Promise<UploadL
   }
 
   const historical: RawLogRow[] = [];
-  const [infoRts, checkedRts, readyRts, rtsFgReady, syncedProducts] = await Promise.all([
+  const [copyProducts, infoRts, checkedRts, readyRts, rtsFgReady, syncedProducts] = await Promise.all([
+    fetchAllPages<{ id: string; copy_done_at: string }>(
+      "products.copy_done_at",
+      async (from, to) =>
+        furnitureSb.from("products").select("id, copy_done_at")
+          .eq("copy_done", true).not("copy_done_at", "is", null).gte("copy_done_at", startIso)
+          .order("copy_done_at", { ascending: false }).range(from, to),
+    ),
     fetchAllPages<{ product_id: string; info_completed_at: string | null; imported_at: string | null }>(
       "rts.info_completed_at",
       async (from, to) =>
@@ -352,6 +359,9 @@ export async function fetchUploadLogReportServer(dayCount = 30): Promise<UploadL
     return sid;
   };
 
+  for (const row of copyProducts) {
+    pushHistorical(historical, covered, row.id, "copywriting", "submit", row.copy_done_at, null);
+  }
   for (const row of infoRts) {
     const loggedAt = row.info_completed_at ?? row.imported_at;
     if (!loggedAt || loggedAt < startIso) continue;

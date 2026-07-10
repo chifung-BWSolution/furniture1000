@@ -371,7 +371,7 @@ export function UploadProductLogView() {
               </div>
 
               <p className="text-xs leading-relaxed text-muted-foreground">
-                「產品目前停留」僅顯示今天（即時查詢）；「今日已處理」：產品文案僅取 upload_log；產品信息取 upload_log（完成）+ ready_to_shopify.info_completed_at；員工名稱以登入帳號對應 PMS 員工（如 chifung.login@gmail.com → Branding Works）。
+                「產品目前停留」僅顯示今天（即時查詢）；「今日已處理」：產品文案取 upload_log + products.copy_done_at（員工以 upload_log 登入帳號為準）；產品信息取 upload_log（完成）+ ready_to_shopify.info_completed_at。
               </p>
             </>
           ) : null}

@@ -103,7 +103,7 @@ export function formatUploadLogReportAsHtml(
     <p style="margin:0 0 16px;font-size:13px;color:#6b7280;">資料更新於 ${escapeHtml(generatedLabel)}（香港時間）</p>
     ${daySections}
     <hr style="margin:24px 0;border:none;border-top:1px solid #e5e7eb;">
-    <p style="margin:0;font-size:12px;color:#9ca3af;">「產品目前停留」僅顯示今天；「今日已處理」：產品文案僅 upload_log；產品信息 upload_log（完成）+ ready_to_shopify。</p>
+    <p style="margin:0;font-size:12px;color:#9ca3af;">「產品目前停留」僅顯示今天；「今日已處理」：產品文案 upload_log + copy_done_at；產品信息 upload_log（完成）+ ready_to_shopify。</p>
   </div>
 </body>
 </html>`;
