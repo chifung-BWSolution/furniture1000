@@ -16,6 +16,8 @@ export const STAGE_LABELS: Record<UploadLogStage, string> = {
   ready_to_publish: '準備上載',
 };
 
+export const HISTORICAL_USER_LABEL = '歷史紀錄';
+
 /** Actions that count as “modified / completed” per stage. */
 const STAGE_ACTIONS: Record<UploadLogStage, Set<string>> = {
   copywriting: new Set(['submit']),
@@ -87,6 +89,10 @@ function buildDateRange(dayCount: number): string[] {
   return dates;
 }
 
+function dedupeKey(hkDate: string, stage: UploadLogStage, productId: string): string {
+  return `${hkDate}|${stage}|${productId}`;
+}
+
 function buildDailyRows(logs: RawLogRow[], dayCount: number): DailyReportRow[] {
   const sortedDates = buildDateRange(dayCount);
 
@@ -130,6 +136,133 @@ function buildDailyRows(logs: RawLogRow[], dayCount: number): DailyReportRow[] {
   });
 }
 
+/** Paginate PostgREST reads (default cap is 1000 rows). */
+async function fetchAllPages<T>(
+  label: string,
+  fetchPage: (from: number, to: number) => Promise<{ data: T[] | null; error: { message: string } | null }>,
+): Promise<T[]> {
+  const pageSize = 1000;
+  let from = 0;
+  const all: T[] = [];
+  while (true) {
+    const { data, error } = await fetchPage(from, from + pageSize - 1);
+    if (error) {
+      console.warn(`[uploadLogReport] ${label} fetch failed:`, error.message);
+      break;
+    }
+    const batch = data ?? [];
+    all.push(...batch);
+    if (batch.length < pageSize) break;
+    from += pageSize;
+  }
+  return all;
+}
+
+function pushHistorical(
+  rows: RawLogRow[],
+  covered: Set<string>,
+  productId: string | null,
+  stage: UploadLogStage,
+  action: string,
+  loggedAt: string | null,
+  userName = HISTORICAL_USER_LABEL,
+): void {
+  if (!productId || !loggedAt) return;
+  const hkDate = toHkDate(loggedAt);
+  const key = dedupeKey(hkDate, stage, productId);
+  if (covered.has(key)) return;
+  covered.add(key);
+  rows.push({
+    product_id: productId,
+    stage,
+    action,
+    user_name: userName,
+    user_email: null,
+    logged_at: loggedAt,
+  });
+}
+
+/** Supplement upload_log with workflow timestamps written before logging existed. */
+async function fetchHistoricalLogRows(startIso: string, covered: Set<string>): Promise<RawLogRow[]> {
+  const historical: RawLogRow[] = [];
+
+  const [copyProducts, infoRts, checkedRts, readyRts, syncedProducts] = await Promise.all([
+    fetchAllPages<{ id: string; copy_done_at: string }>('products.copy_done_at', async (from, to) =>
+      supabase
+        .from('products')
+        .select('id, copy_done_at')
+        .eq('copy_done', true)
+        .not('copy_done_at', 'is', null)
+        .gte('copy_done_at', startIso)
+        .order('copy_done_at', { ascending: false })
+        .range(from, to),
+    ),
+    fetchAllPages<{ product_id: string; info_completed_at: string }>('rts.info_completed_at', async (from, to) =>
+      supabase
+        .from('ready_to_shopify')
+        .select('product_id, info_completed_at')
+        .eq('info_done', true)
+        .not('info_completed_at', 'is', null)
+        .gte('info_completed_at', startIso)
+        .order('info_completed_at', { ascending: false })
+        .range(from, to),
+    ),
+    fetchAllPages<{ product_id: string; checked_edited_at: string }>('rts.checked_edited_at', async (from, to) =>
+      supabase
+        .from('ready_to_shopify')
+        .select('product_id, checked_edited_at')
+        .not('checked_edited_at', 'is', null)
+        .gte('checked_edited_at', startIso)
+        .order('checked_edited_at', { ascending: false })
+        .range(from, to),
+    ),
+    fetchAllPages<{ product_id: string; ready_to_publish_at: string }>('rts.ready_to_publish_at', async (from, to) =>
+      supabase
+        .from('ready_to_shopify')
+        .select('product_id, ready_to_publish_at')
+        .not('ready_to_publish_at', 'is', null)
+        .gte('ready_to_publish_at', startIso)
+        .order('ready_to_publish_at', { ascending: false })
+        .range(from, to),
+    ),
+    fetchAllPages<{ id: string; synced_at: string }>('products.synced_at', async (from, to) =>
+      supabase
+        .from('products')
+        .select('id, synced_at')
+        .not('synced_at', 'is', null)
+        .not('shopify_product_id', 'is', null)
+        .gte('synced_at', startIso)
+        .order('synced_at', { ascending: false })
+        .range(from, to),
+    ),
+  ]);
+
+  for (const row of copyProducts) {
+    pushHistorical(historical, covered, row.id, 'copywriting', 'submit', row.copy_done_at);
+  }
+  for (const row of infoRts) {
+    pushHistorical(historical, covered, row.product_id, 'product_info', 'complete', row.info_completed_at);
+  }
+  for (const row of checkedRts) {
+    pushHistorical(historical, covered, row.product_id, 'furniture_group_check', 'save', row.checked_edited_at);
+  }
+  for (const row of readyRts) {
+    pushHistorical(
+      historical,
+      covered,
+      row.product_id,
+      'furniture_group_check',
+      'add_to_ready',
+      row.ready_to_publish_at,
+    );
+  }
+  for (const row of syncedProducts) {
+    pushHistorical(historical, covered, row.id, 'ready_to_publish', 'upload', row.synced_at);
+  }
+
+  return historical;
+}
+
 async function fetchPendingCounts(): Promise<Record<UploadLogStage, number>> {
   const [copyRes, infoRes, fgRes, readyRes] = await Promise.all([
     supabase.rpc('get_publish_rts_count', { p_stage: 'copywriting' }),
@@ -162,20 +295,25 @@ export async function fetchUploadLogReport(dayCount = 30): Promise<UploadLogRepo
   start.setDate(start.getDate() - dayCount);
   const startIso = start.toISOString();
 
-  const [pendingCounts, logsRes] = await Promise.all([
-    fetchPendingCounts(),
+  const uploadLogs = await fetchAllPages<RawLogRow>('upload_log', async (from, to) =>
     supabase
       .from('upload_log')
       .select('product_id, stage, action, user_name, user_email, logged_at')
       .gte('logged_at', startIso)
-      .order('logged_at', { ascending: false }),
-  ]);
+      .order('logged_at', { ascending: false })
+      .range(from, to),
+  );
 
-  if (logsRes.error) {
-    throw new Error(logsRes.error.message);
+  const covered = new Set<string>();
+  for (const log of uploadLogs) {
+    if (!log.product_id || !STAGE_ACTIONS[log.stage]?.has(log.action)) continue;
+    covered.add(dedupeKey(toHkDate(log.logged_at), log.stage, log.product_id));
   }
 
-  const logs = (logsRes.data ?? []) as RawLogRow[];
+  const historical = await fetchHistoricalLogRows(startIso, covered);
+  const logs = [...uploadLogs, ...historical];
+
+  const pendingCounts = await fetchPendingCounts();
 
   return {
     generatedAt: new Date().toISOString(),

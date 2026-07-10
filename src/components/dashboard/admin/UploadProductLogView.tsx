@@ -331,7 +331,7 @@ export function UploadProductLogView() {
               </div>
 
               <p className="text-xs leading-relaxed text-muted-foreground">
-                「產品目前停留」僅顯示今天（即時查詢）；「今日已處理」下方列出各同事處理件數，加總等於當日總數。
+                「產品目前停留」僅顯示今天（即時查詢）；「今日已處理」整合 upload_log 及歷史時間戳（copy_done_at、synced_at 等），無用戶紀錄的顯示為「歷史紀錄」。
               </p>
             </>
           ) : null}
