@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
 import { reconcileProductsFromCategoryRegistry, syncCategoryRenames, type CategoryRename } from '@/lib/categorySync';
 import { toast } from 'sonner';
+import { withInsertAuditFields, withUpdateAuditFields } from '@/lib/pmsAudit';
 import {
   FolderTree, Upload, Save, Plus, Trash2, Loader2, Search, X, Check,
 } from 'lucide-react';
@@ -181,12 +182,12 @@ export function ProductCategoryView() {
       for (const r of existing) {
         const { error: updErr } = await supabase
           .from('product_category')
-          .update({
+          .update(await withUpdateAuditFields({
             level1: r.level1.trim(),
             level2: r.level2.trim(),
             sort_order: orderOf.get(r.id) ?? 0,
             updated_at: new Date().toISOString(),
-          })
+          }))
           .eq('id', r.id);
         if (updErr) throw updErr;
       }
@@ -194,11 +195,15 @@ export function ProductCategoryView() {
       // 3) insert new rows (let DB assign the uuid)
       const fresh = valid.filter((r) => r.isNew);
       if (fresh.length > 0) {
-        const payload = fresh.map((r) => ({
-          level1: r.level1.trim(),
-          level2: r.level2.trim(),
-          sort_order: orderOf.get(r.id) ?? 0,
-        }));
+        const payload = await Promise.all(
+          fresh.map((r) =>
+            withInsertAuditFields({
+              level1: r.level1.trim(),
+              level2: r.level2.trim(),
+              sort_order: orderOf.get(r.id) ?? 0,
+            }),
+          ),
+        );
         const { error: insErr } = await supabase.from('product_category').insert(payload);
         if (insErr) throw insErr;
       }

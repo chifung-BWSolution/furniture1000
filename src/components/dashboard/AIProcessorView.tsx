@@ -48,6 +48,7 @@ import { CascadingCategorySelector } from './CascadingCategorySelector';
 import { supabase } from '@/lib/supabase';
 import { resolveRowsImagesToStorage, resolveRowsImagesToStorageWithRetry, productImageFieldsPendingStorage } from '@/lib/imageStorage';
 import { fetchFactories, fetchFactoriesWithIds, FactoryItem } from '@/lib/factorySupabase';
+import { withInsertAuditFields, withUpdateAuditFields } from '@/lib/pmsAudit';
 import { parseExcelFile, extractImagesFromWorkbook, extractRawExcelTable, ExcelProduct, ExcelImage, getFactoryRule, RawTableExtraction, cleanPrice, parseSmartDimensions, parseDeliveryTerm, resolveMappedRowImages } from '@/lib/excelParser';
 import { ExcelPreviewTable, ExcelPreviewData, ColumnMappingState, StandardHeaderValue, MultiSheetColumnMapping, MultiSheetDimUnits, DimUnit, PreviewAction } from '@/components/dashboard/ExcelPreviewTable';
 import { simplifiedToTraditional, convertRowToTraditional } from '@/lib/chineseConverter';
@@ -3321,8 +3322,11 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
 
           if (rowsToPersist.length > 0) {
             const LOCAL_CHUNK = 10;
-            for (let ci = 0; ci < rowsToPersist.length; ci += LOCAL_CHUNK) {
-              const batch = rowsToPersist.slice(ci, ci + LOCAL_CHUNK);
+            const auditedRows = await Promise.all(
+              rowsToPersist.map((row) => withInsertAuditFields(row)),
+            );
+            for (let ci = 0; ci < auditedRows.length; ci += LOCAL_CHUNK) {
+              const batch = auditedRows.slice(ci, ci + LOCAL_CHUNK);
               const { error: upsertErr } = await supabase
                 .from('products')
                 .upsert(batch, { onConflict: 'id' });
@@ -3336,7 +3340,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
             if (selectedManufacturer && mergedHighlights.length > 0) {
               const { error: hlErr } = await supabase
                 .from('products')
-                .update({ factory_highlights: mergedHighlights })
+                .update(await withUpdateAuditFields({ factory_highlights: mergedHighlights }))
                 .eq('factories_display_name', selectedManufacturer);
               if (hlErr) console.warn('[catalog-only] factory_highlights back-fill failed:', hlErr.message);
             }
@@ -4467,7 +4471,10 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
     } else {
       // Mark products in_shopify_queue so they move out of 所有產品 pending list
       const ids = productEntries.map(e => e.id);
-      await supabase.from('products').update({ in_shopify_queue: true, in_catalog: true }).in('id', ids);
+      await supabase
+        .from('products')
+        .update(await withUpdateAuditFields({ in_shopify_queue: true, in_catalog: true }))
+        .in('id', ids);
       console.log(`[handleBatchAddToQueue] ✅ ${rtsRows.length} products written to ready_to_shopify`);
     }
   }, [catalogProducts, onAddProduct, selectedManufacturer, selectedFactoryId, selectedFactoryHighlights, selectedProductCategory]);

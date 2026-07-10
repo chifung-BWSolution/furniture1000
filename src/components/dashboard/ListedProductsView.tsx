@@ -67,6 +67,7 @@ import { supabase } from '@/lib/supabase';
 import { resolveImagesToStorage } from '@/lib/imageStorage';
 import { removeFromCatalog, addToCatalog, addToShopifyQueue, dismissProducts } from '@/lib/catalogStore';
 import { toast } from 'sonner';
+import { withUpdateAuditFields } from '@/lib/pmsAudit';
 import { getChineseColorLabel, getColorHex, multiColorToChineseDisplay } from '@/constants/color-map';
 import { ProductDetailModal } from './ProductDetailModal';
 
@@ -1306,7 +1307,12 @@ export function ListedProductsView({
         newSalePrice: Math.ceil(p.costPrice! * multiplier),
       }));
       const results = await Promise.all(
-        updates.map(u => supabase.from('products').update({ sale_price: u.newSalePrice }).eq('id', u.id))
+        updates.map(async (u) =>
+          supabase
+            .from('products')
+            .update(await withUpdateAuditFields({ sale_price: u.newSalePrice }))
+            .eq('id', u.id),
+        ),
       );
       const firstErr = results.find(r => r.error)?.error ?? null;
       if (firstErr) {

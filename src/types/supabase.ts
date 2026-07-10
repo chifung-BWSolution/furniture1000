@@ -57,9 +57,13 @@ export type Database = {
           bwf_pitching_id: string | null
           cost_price: number | null
           created_at: string | null
+          created_date: string | null
+          creator_staff_id: string | null
+          editor_staff_id: string | null
           exchange_rate: number | null
           hkd_cost_price: number | null
           id: string
+          modified_date: string | null
           project_data: Json
           quote_id: string
           status: string
@@ -72,9 +76,13 @@ export type Database = {
           bwf_pitching_id?: string | null
           cost_price?: number | null
           created_at?: string | null
+          created_date?: string | null
+          creator_staff_id?: string | null
+          editor_staff_id?: string | null
           exchange_rate?: number | null
           hkd_cost_price?: number | null
           id?: string
+          modified_date?: string | null
           project_data?: Json
           quote_id: string
           status?: string
@@ -87,9 +95,13 @@ export type Database = {
           bwf_pitching_id?: string | null
           cost_price?: number | null
           created_at?: string | null
+          created_date?: string | null
+          creator_staff_id?: string | null
+          editor_staff_id?: string | null
           exchange_rate?: number | null
           hkd_cost_price?: number | null
           id?: string
+          modified_date?: string | null
           project_data?: Json
           quote_id?: string
           status?: string
@@ -103,9 +115,13 @@ export type Database = {
       delivery_terms: {
         Row: {
           created_at: string | null
+          created_date: string | null
+          creator_staff_id: string | null
+          editor_staff_id: string | null
           id: string
           max_days: number
           min_days: number
+          modified_date: string | null
           name: string
           parent_id: string | null
           sort_order: number
@@ -114,9 +130,13 @@ export type Database = {
         }
         Insert: {
           created_at?: string | null
+          created_date?: string | null
+          creator_staff_id?: string | null
+          editor_staff_id?: string | null
           id?: string
           max_days?: number
           min_days?: number
+          modified_date?: string | null
           name: string
           parent_id?: string | null
           sort_order?: number
@@ -125,9 +145,13 @@ export type Database = {
         }
         Update: {
           created_at?: string | null
+          created_date?: string | null
+          creator_staff_id?: string | null
+          editor_staff_id?: string | null
           id?: string
           max_days?: number
           min_days?: number
+          modified_date?: string | null
           name?: string
           parent_id?: string | null
           sort_order?: number
@@ -150,11 +174,15 @@ export type Database = {
           corrected_value: string
           correction_context: Json | null
           created_at: string | null
+          created_date: string | null
+          creator_staff_id: string | null
+          editor_staff_id: string | null
           factory_id: string
           factory_name: string
           field_name: string
           id: string
           model_number: string | null
+          modified_date: string | null
           occurrence_count: number | null
           original_value: string | null
           updated_at: string | null
@@ -164,11 +192,15 @@ export type Database = {
           corrected_value: string
           correction_context?: Json | null
           created_at?: string | null
+          created_date?: string | null
+          creator_staff_id?: string | null
+          editor_staff_id?: string | null
           factory_id: string
           factory_name: string
           field_name: string
           id?: string
           model_number?: string | null
+          modified_date?: string | null
           occurrence_count?: number | null
           original_value?: string | null
           updated_at?: string | null
@@ -178,11 +210,15 @@ export type Database = {
           corrected_value?: string
           correction_context?: Json | null
           created_at?: string | null
+          created_date?: string | null
+          creator_staff_id?: string | null
+          editor_staff_id?: string | null
           factory_id?: string
           factory_name?: string
           field_name?: string
           id?: string
           model_number?: string | null
+          modified_date?: string | null
           occurrence_count?: number | null
           original_value?: string | null
           updated_at?: string | null
@@ -192,8 +228,12 @@ export type Database = {
       product_variants: {
         Row: {
           color: string
+          created_date: string | null
+          creator_staff_id: string | null
+          editor_staff_id: string | null
           id: string
           inventory: number
+          modified_date: string | null
           price: number
           product_id: string
           size: string
@@ -201,8 +241,12 @@ export type Database = {
         }
         Insert: {
           color?: string
+          created_date?: string | null
+          creator_staff_id?: string | null
+          editor_staff_id?: string | null
           id: string
           inventory?: number
+          modified_date?: string | null
           price?: number
           product_id: string
           size?: string
@@ -210,8 +254,12 @@ export type Database = {
         }
         Update: {
           color?: string
+          created_date?: string | null
+          creator_staff_id?: string | null
+          editor_staff_id?: string | null
           id?: string
           inventory?: number
+          modified_date?: string | null
           price?: number
           product_id?: string
           size?: string
@@ -236,6 +284,8 @@ export type Database = {
           compare_at_price: number | null
           cost_price: number | null
           created_at: string
+          created_date: string | null
+          creator_staff_id: string | null
           delivery_term_id: string | null
           delivery_term_name: string | null
           description: string
@@ -243,6 +293,7 @@ export type Database = {
           dimension_h_mm: number | null
           dimension_l_mm: number | null
           dimension_w_mm: number | null
+          editor_staff_id: string | null
           error_message: string | null
           factories_display_name: string | null
           factory_id: string | null
@@ -251,6 +302,7 @@ export type Database = {
           images: Json | null
           lifestyle_image_url: string | null
           material: string | null
+          modified_date: string | null
           price: number
           production_date: string | null
           remarks: string | null
@@ -276,6 +328,8 @@ export type Database = {
           compare_at_price?: number | null
           cost_price?: number | null
           created_at?: string
+          created_date?: string | null
+          creator_staff_id?: string | null
           delivery_term_id?: string | null
           delivery_term_name?: string | null
           description?: string
@@ -283,6 +337,7 @@ export type Database = {
           dimension_h_mm?: number | null
           dimension_l_mm?: number | null
           dimension_w_mm?: number | null
+          editor_staff_id?: string | null
           error_message?: string | null
           factories_display_name?: string | null
           factory_id?: string | null
@@ -291,6 +346,7 @@ export type Database = {
           images?: Json | null
           lifestyle_image_url?: string | null
           material?: string | null
+          modified_date?: string | null
           price?: number
           production_date?: string | null
           remarks?: string | null
@@ -316,6 +372,8 @@ export type Database = {
           compare_at_price?: number | null
           cost_price?: number | null
           created_at?: string
+          created_date?: string | null
+          creator_staff_id?: string | null
           delivery_term_id?: string | null
           delivery_term_name?: string | null
           description?: string
@@ -323,6 +381,7 @@ export type Database = {
           dimension_h_mm?: number | null
           dimension_l_mm?: number | null
           dimension_w_mm?: number | null
+          editor_staff_id?: string | null
           error_message?: string | null
           factories_display_name?: string | null
           factory_id?: string | null
@@ -331,6 +390,7 @@ export type Database = {
           images?: Json | null
           lifestyle_image_url?: string | null
           material?: string | null
+          modified_date?: string | null
           price?: number
           production_date?: string | null
           remarks?: string | null

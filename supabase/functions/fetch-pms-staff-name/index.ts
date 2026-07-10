@@ -17,22 +17,38 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
-function extractStaffName(row: {
-  staff?: { name?: string | null } | { name?: string | null }[] | null;
-} | null): string | null {
+type StaffRef = { id?: string | null; name?: string | null };
+type UsersStaffRow = {
+  member_id?: string | null;
+  staff?: StaffRef | StaffRef[] | null;
+} | null;
+
+export type PmsStaffLookup = {
+  staff_id: string | null;
+  name: string | null;
+};
+
+function extractStaff(row: UsersStaffRow): PmsStaffLookup {
   const staff = row?.staff;
-  const name = (Array.isArray(staff) ? staff[0]?.name : staff?.name)?.trim();
-  return name || null;
+  const staffRow = Array.isArray(staff) ? staff[0] : staff;
+  const fromStaffId = staffRow?.id?.trim() || null;
+  const fromMemberId = row?.member_id?.trim() || null;
+  // Prefer staff.id; member_id is the same UUID when linked (users.member_id = staff.id).
+  const staff_id = fromStaffId || fromMemberId || null;
+  const name = staffRow?.name?.trim() || null;
+  return { staff_id, name };
 }
 
-async function lookupStaffName(
+async function lookupStaff(
   pmsAdmin: ReturnType<typeof createClient>,
   authUserId: string,
   email?: string | null,
-): Promise<string | null> {
+): Promise<PmsStaffLookup> {
+  const selectCols = "member_id, staff!fk_users_member_id(id, name)";
+
   const { data, error } = await pmsAdmin
     .from("users")
-    .select("staff!fk_users_member_id(name)")
+    .select(selectCols)
     .eq("auth_user_id", authUserId)
     .maybeSingle();
 
@@ -40,15 +56,15 @@ async function lookupStaffName(
     throw new Error(`PMS users lookup failed: ${error.message}`);
   }
 
-  const byAuthUserId = extractStaffName(data);
-  if (byAuthUserId) return byAuthUserId;
+  const byAuthUserId = extractStaff(data as UsersStaffRow);
+  if (byAuthUserId.staff_id || byAuthUserId.name) return byAuthUserId;
 
   const normalizedEmail = email?.trim().toLowerCase();
-  if (!normalizedEmail) return null;
+  if (!normalizedEmail) return { staff_id: null, name: null };
 
   const { data: byEmail, error: emailError } = await pmsAdmin
     .from("users")
-    .select("staff!fk_users_member_id(name)")
+    .select(selectCols)
     .ilike("email", normalizedEmail)
     .maybeSingle();
 
@@ -56,7 +72,7 @@ async function lookupStaffName(
     throw new Error(`PMS users email lookup failed: ${emailError.message}`);
   }
 
-  return extractStaffName(byEmail);
+  return extractStaff(byEmail as UsersStaffRow);
 }
 
 Deno.serve(async (req: Request) => {
@@ -107,8 +123,8 @@ Deno.serve(async (req: Request) => {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
-    const name = await lookupStaffName(pmsAdmin, user.id, user.email);
-    return jsonResponse({ name });
+    const { staff_id, name } = await lookupStaff(pmsAdmin, user.id, user.email);
+    return jsonResponse({ staff_id, name });
   } catch (err) {
     console.error("[fetch-pms-staff-name]", err);
     return jsonResponse(

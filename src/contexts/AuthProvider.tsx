@@ -9,6 +9,7 @@ import {
 } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
+import { clearPmsStaffCache, fetchPmsStaffInfo } from '@/lib/pmsStaff';
 
 type AuthContextValue = {
   session: Session | null;
@@ -30,13 +31,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!mounted) return;
       setSession(current);
       setLoading(false);
+      if (current?.user?.id) {
+        void fetchPmsStaffInfo(current.user.id);
+      }
     });
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+    } = supabase.auth.onAuthStateChange((event, nextSession) => {
       setSession(nextSession);
       setLoading(false);
+
+      // Refresh / clear PMS staff cache on login, SSO, logout (not every token refresh).
+      if (event === 'SIGNED_OUT') {
+        clearPmsStaffCache();
+      } else if (nextSession?.user?.id && (event === 'SIGNED_IN' || event === 'USER_UPDATED')) {
+        clearPmsStaffCache();
+        void fetchPmsStaffInfo(nextSession.user.id);
+      }
     });
 
     return () => {
@@ -47,6 +59,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(async () => {
     await supabase.auth.signOut();
+    clearPmsStaffCache();
     setSession(null);
   }, []);
 

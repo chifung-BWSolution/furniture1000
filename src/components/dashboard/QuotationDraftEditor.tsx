@@ -54,6 +54,7 @@ import {
   formatHkdCostDisplayCeil,
   exchangeRateInputDisplay,
 } from "@/lib/quoteCostExchange";
+import { withUpdateAuditFields } from "@/lib/pmsAudit";
 
 interface QuoteFormData {
   company: string;
@@ -1315,12 +1316,13 @@ export function QuotationDraftEditor({
         formData.pmsPitchingId ||
         existingQuote.bwfPitchingId ||
         null;
+      const updatePayload = await withUpdateAuditFields({
+        project_data: currentProjectData,
+        ...(pitchingId ? { bwf_pitching_id: pitchingId } : {}),
+      });
       const { error } = await supabase
         .from("bwf_quote")
-        .update({
-          project_data: currentProjectData,
-          ...(pitchingId ? { bwf_pitching_id: pitchingId } : {}),
-        })
+        .update(updatePayload)
         .eq("quote_id", existingQuote.quoteId);
       if (error) throw error;
       toast.success("條款已保存");

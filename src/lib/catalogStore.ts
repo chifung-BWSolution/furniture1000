@@ -5,6 +5,7 @@
 // products WHERE in_catalog = true. No separate table needed.
 // ============================================================================
 import { supabase } from './supabase';
+import { withUpdateAuditFields } from '@/lib/pmsAudit';
 
 /** Add product IDs to the catalog (set in_catalog = true). Returns ok + count. */
 export async function addToCatalog(ids: string[]): Promise<{ ok: boolean; count: number; error?: string }> {
@@ -12,7 +13,7 @@ export async function addToCatalog(ids: string[]): Promise<{ ok: boolean; count:
   try {
     const { error } = await supabase
       .from('products')
-      .update({ in_catalog: true })
+      .update(await withUpdateAuditFields({ in_catalog: true }))
       .in('id', ids);
     if (error) return { ok: false, count: 0, error: error.message };
     return { ok: true, count: ids.length };
@@ -27,7 +28,7 @@ export async function removeFromCatalog(ids: string[]): Promise<{ ok: boolean; e
   try {
     const { error } = await supabase
       .from('products')
-      .update({ in_catalog: false })
+      .update(await withUpdateAuditFields({ in_catalog: false }))
       .in('id', ids);
     if (error) return { ok: false, error: error.message };
     return { ok: true };
@@ -46,7 +47,11 @@ export async function addToShopifyQueue(ids: string[]): Promise<{ ok: boolean; c
   try {
     const { error } = await supabase
       .from('products')
-      .update({ in_shopify_queue: true, in_catalog: true, copy_queued_at: new Date().toISOString() })
+      .update(await withUpdateAuditFields({
+        in_shopify_queue: true,
+        in_catalog: true,
+        copy_queued_at: new Date().toISOString(),
+      }))
       .in('id', ids);
     if (error) return { ok: false, count: 0, error: error.message };
     return { ok: true, count: ids.length };
@@ -61,7 +66,7 @@ export async function dismissProducts(ids: string[]): Promise<{ ok: boolean; cou
   try {
     const { error } = await supabase
       .from('products')
-      .update({ dismissed: true })
+      .update(await withUpdateAuditFields({ dismissed: true }))
       .in('id', ids);
     if (error) return { ok: false, count: 0, error: error.message };
     return { ok: true, count: ids.length };

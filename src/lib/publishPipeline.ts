@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { withUpdateAuditFields } from '@/lib/pmsAudit';
 
 /**
  * After a product is live on Shopify, remove it from the 網上發佈 pipeline
@@ -20,7 +21,7 @@ export async function removeProductFromPublishPipeline(
 
   const { error: productsError } = await supabase
     .from('products')
-    .update({ in_shopify_queue: false, ready_to_publish: false })
+    .update(await withUpdateAuditFields({ in_shopify_queue: false, ready_to_publish: false }))
     .eq('id', productId);
 
   return {

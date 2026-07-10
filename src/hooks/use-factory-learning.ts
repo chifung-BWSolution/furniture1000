@@ -15,6 +15,7 @@
 
 import { useCallback, useEffect, useRef } from 'react';
 import { supabase } from '@/lib/supabase';
+import { withInsertAuditFields, withUpdateAuditFields } from '@/lib/pmsAudit';
 
 // ─── Types ────────────────────────────────────────────────────────
 
@@ -255,23 +256,25 @@ async function upsertCorrectionFallback(pattern: CorrectionPattern) {
   if (existing?.id) {
     await supabase
       .from('factory_correction_patterns')
-      .update({
+      .update(await withUpdateAuditFields({
         corrected_value:  pattern.correctedValue,
         occurrence_count: (existing.occurrence_count ?? 1) + 1,
         correction_context: pattern.correctionContext ?? {},
         updated_at:       new Date().toISOString(),
-      })
+      }))
       .eq('id', existing.id);
   } else {
-    await supabase.from('factory_correction_patterns').insert({
-      factory_id:         pattern.factoryId,
-      factory_name:       pattern.factoryName,
-      field_name:         pattern.fieldName,
-      original_value:     pattern.originalValue,
-      corrected_value:    pattern.correctedValue,
-      model_number:       pattern.modelNumber ?? null,
-      correction_context: pattern.correctionContext ?? {},
-      occurrence_count:   1,
-    });
+    await supabase.from('factory_correction_patterns').insert(
+      await withInsertAuditFields({
+        factory_id:         pattern.factoryId,
+        factory_name:       pattern.factoryName,
+        field_name:         pattern.fieldName,
+        original_value:     pattern.originalValue,
+        corrected_value:    pattern.correctedValue,
+        model_number:       pattern.modelNumber ?? null,
+        correction_context: pattern.correctionContext ?? {},
+        occurrence_count:   1,
+      }),
+    );
   }
 }

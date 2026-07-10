@@ -9,6 +9,7 @@ import type {
   DesignProject, ProjectZone, ZoneProduct, ProjectInvitation,
   ClientCompany, ProductDiscussion, SearchProduct,
 } from '@/types/solutions';
+import { withInsertAuditFields, withUpdateAuditFields } from '@/lib/pmsAudit';
 
 // ---------------------------------------------------------------------------
 // Row → domain mappers
@@ -249,19 +250,20 @@ export async function createProject(input: {
   floorPlanType?: string | null;
 }): Promise<WriteResult<DesignProject>> {
   try {
+    const insertPayload = await withInsertAuditFields({
+      name: input.name,
+      client_name: input.clientName ?? null,
+      client_company: input.clientCompany ?? null,
+      floor_plan_url: input.floorPlanUrl ?? null,
+      floor_plan_type: input.floorPlanType ?? null,
+      status: 'draft',
+      active_scheme: 'A',
+      progress: 0,
+      created_by: 'CF',
+    });
     const { data, error } = await supabase
       .from('design_projects')
-      .insert({
-        name: input.name,
-        client_name: input.clientName ?? null,
-        client_company: input.clientCompany ?? null,
-        floor_plan_url: input.floorPlanUrl ?? null,
-        floor_plan_type: input.floorPlanType ?? null,
-        status: 'draft',
-        active_scheme: 'A',
-        progress: 0,
-        created_by: 'CF',
-      })
+      .insert(insertPayload)
       .select()
       .single();
     if (error) return { ok: false, error: error.message };
@@ -282,7 +284,8 @@ export async function saveProject(
     if (patch.progress !== undefined) row.progress = patch.progress;
     if (patch.status !== undefined) row.status = patch.status;
     if (patch.name !== undefined) row.name = patch.name;
-    const { error } = await supabase.from('design_projects').update(row).eq('id', projectId);
+    const updatePayload = await withUpdateAuditFields(row);
+    const { error } = await supabase.from('design_projects').update(updatePayload).eq('id', projectId);
     if (error) return { ok: false, error: error.message };
     return { ok: true };
   } catch (e) {
@@ -296,7 +299,8 @@ export async function updateZoneProductStatus(
   status: string,
 ): Promise<WriteResult> {
   try {
-    const { error } = await supabase.from('zone_products').update({ status }).eq('id', zoneProductId);
+    const updatePayload = await withUpdateAuditFields({ status });
+    const { error } = await supabase.from('zone_products').update(updatePayload).eq('id', zoneProductId);
     if (error) return { ok: false, error: error.message };
     return { ok: true };
   } catch (e) {
@@ -310,7 +314,8 @@ export async function bulkUpdateZoneProductStatus(
   status: string,
 ): Promise<WriteResult> {
   try {
-    const { error } = await supabase.from('zone_products').update({ status }).in('id', ids);
+    const updatePayload = await withUpdateAuditFields({ status });
+    const { error } = await supabase.from('zone_products').update(updatePayload).in('id', ids);
     if (error) return { ok: false, error: error.message };
     return { ok: true };
   } catch (e) {
@@ -335,15 +340,16 @@ export async function createInvitation(input: {
   email?: string | null;
 }): Promise<WriteResult<ProjectInvitation>> {
   try {
+    const insertPayload = await withInsertAuditFields({
+      project_id: input.projectId,
+      channel: input.channel,
+      email: input.email ?? null,
+      share_token: makeShareToken(),
+      status: 'sent',
+    });
     const { data, error } = await supabase
       .from('project_invitations')
-      .insert({
-        project_id: input.projectId,
-        channel: input.channel,
-        email: input.email ?? null,
-        share_token: makeShareToken(),
-        status: 'sent',
-      })
+      .insert(insertPayload)
       .select()
       .single();
     if (error) return { ok: false, error: error.message };
@@ -359,7 +365,8 @@ export async function updateInvitationStatus(
   status: 'sent' | 'viewed' | 'revoked',
 ): Promise<WriteResult> {
   try {
-    const { error } = await supabase.from('project_invitations').update({ status }).eq('id', invitationId);
+    const updatePayload = await withUpdateAuditFields({ status });
+    const { error } = await supabase.from('project_invitations').update(updatePayload).eq('id', invitationId);
     if (error) return { ok: false, error: error.message };
     return { ok: true };
   } catch (e) {
@@ -377,16 +384,17 @@ export async function addDiscussion(input: {
   mentions?: string[];
 }): Promise<WriteResult<ProductDiscussion>> {
   try {
+    const insertPayload = await withInsertAuditFields({
+      project_id: input.projectId,
+      zone_product_id: input.zoneProductId,
+      author: input.author,
+      author_role: input.authorRole,
+      body: input.body,
+      mentions: input.mentions ?? [],
+    });
     const { data, error } = await supabase
       .from('product_discussions')
-      .insert({
-        project_id: input.projectId,
-        zone_product_id: input.zoneProductId,
-        author: input.author,
-        author_role: input.authorRole,
-        body: input.body,
-        mentions: input.mentions ?? [],
-      })
+      .insert(insertPayload)
       .select()
       .single();
     if (error) return { ok: false, error: error.message };
@@ -402,9 +410,10 @@ export async function submitCompanyChanges(
   changes: Record<string, string>,
 ): Promise<WriteResult> {
   try {
+    const updatePayload = await withUpdateAuditFields({ pending_changes: changes });
     const { error } = await supabase
       .from('client_companies')
-      .update({ pending_changes: changes })
+      .update(updatePayload)
       .eq('id', companyId);
     if (error) return { ok: false, error: error.message };
     return { ok: true };
@@ -422,9 +431,10 @@ export async function assignZoneProductToZone(
   try {
     const patch: Record<string, unknown> = { zone_id: zoneId };
     if (scheme) patch.scheme = scheme;
+    const updatePayload = await withUpdateAuditFields(patch);
     const { error } = await supabase
       .from('zone_products')
-      .update(patch)
+      .update(updatePayload)
       .eq('id', zoneProductId);
     if (error) return { ok: false, error: error.message };
     return { ok: true };
@@ -436,9 +446,10 @@ export async function assignZoneProductToZone(
 /** Move a zone_product back to the design basket (zone_id → null). */
 export async function unassignZoneProduct(zoneProductId: string): Promise<WriteResult> {
   try {
+    const updatePayload = await withUpdateAuditFields({ zone_id: null });
     const { error } = await supabase
       .from('zone_products')
-      .update({ zone_id: null })
+      .update(updatePayload)
       .eq('id', zoneProductId);
     if (error) return { ok: false, error: error.message };
     return { ok: true };
@@ -454,9 +465,14 @@ export async function updateProjectFloorPlan(
   floorPlanType: string,
 ): Promise<WriteResult> {
   try {
+    const updatePayload = await withUpdateAuditFields({
+      floor_plan_url: floorPlanUrl,
+      floor_plan_type: floorPlanType,
+      updated_at: new Date().toISOString(),
+    });
     const { error } = await supabase
       .from('design_projects')
-      .update({ floor_plan_url: floorPlanUrl, floor_plan_type: floorPlanType, updated_at: new Date().toISOString() })
+      .update(updatePayload)
       .eq('id', projectId);
     if (error) return { ok: false, error: error.message };
     return { ok: true };
@@ -475,16 +491,17 @@ export async function createZone(input: {
   sortOrder?: number;
 }): Promise<WriteResult<ProjectZone>> {
   try {
+    const insertPayload = await withInsertAuditFields({
+      project_id: input.projectId,
+      name: input.name,
+      code: input.code ?? null,
+      bounds: input.bounds,
+      ai_suggested: input.aiSuggested ?? false,
+      sort_order: input.sortOrder ?? 0,
+    });
     const { data, error } = await supabase
       .from('project_zones')
-      .insert({
-        project_id: input.projectId,
-        name: input.name,
-        code: input.code ?? null,
-        bounds: input.bounds,
-        ai_suggested: input.aiSuggested ?? false,
-        sort_order: input.sortOrder ?? 0,
-      })
+      .insert(insertPayload)
       .select()
       .single();
     if (error) return { ok: false, error: error.message };
@@ -504,7 +521,8 @@ export async function updateZone(
     if (patch.name !== undefined) row.name = patch.name;
     if (patch.code !== undefined) row.code = patch.code;
     if (patch.bounds !== undefined) row.bounds = patch.bounds;
-    const { error } = await supabase.from('project_zones').update(row).eq('id', zoneId);
+    const updatePayload = await withUpdateAuditFields(row);
+    const { error } = await supabase.from('project_zones').update(updatePayload).eq('id', zoneId);
     if (error) return { ok: false, error: error.message };
     return { ok: true };
   } catch (e) {
@@ -516,7 +534,8 @@ export async function updateZone(
 export async function deleteZone(zoneId: string): Promise<WriteResult> {
   try {
     // un-assign any products in this zone first so they aren't orphaned
-    await supabase.from('zone_products').update({ zone_id: null }).eq('zone_id', zoneId);
+    const unassignPayload = await withUpdateAuditFields({ zone_id: null });
+    await supabase.from('zone_products').update(unassignPayload).eq('zone_id', zoneId);
     const { error } = await supabase.from('project_zones').delete().eq('id', zoneId);
     if (error) return { ok: false, error: error.message };
     return { ok: true };

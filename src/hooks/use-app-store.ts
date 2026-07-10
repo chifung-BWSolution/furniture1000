@@ -5,6 +5,7 @@ import { removeProductFromPublishPipeline } from '@/lib/publishPipeline';
 import { resolveSelectedPublishProducts } from '@/lib/readyToPublishRow';
 import { resolveRowsImagesToStorage, productImageFieldsPendingStorage, stripBase64ForDb } from '@/lib/imageStorage';
 import { toast } from 'sonner';
+import { withInsertAuditFields, withUpdateAuditFields, withUpsertAuditFields } from '@/lib/pmsAudit';
 
 const generateId = () => Math.random().toString(36).substring(2, 15);
 
@@ -226,10 +227,21 @@ async function saveProductsToDb(productsToSave: Product[]) {
   if (resolvedRows.some((r) => productImageFieldsPendingStorage(r))) {
     throw new Error('部分產品圖片未能上傳至 Storage，已取消儲存');
   }
+
+  const ids = resolvedRows.map((r) => r.id);
+  const existingIds = new Set<string>();
+  if (ids.length > 0) {
+    const { data: existing } = await supabase.from('products').select('id').in('id', ids);
+    for (const row of existing || []) {
+      if (row?.id) existingIds.add(row.id);
+    }
+  }
+  const auditedRows = await withUpsertAuditFields(resolvedRows, existingIds);
+
   const UPSERT_CHUNK = 8;
 
-  for (let ci = 0; ci < resolvedRows.length; ci += UPSERT_CHUNK) {
-    const batch = resolvedRows.slice(ci, ci + UPSERT_CHUNK);
+  for (let ci = 0; ci < auditedRows.length; ci += UPSERT_CHUNK) {
+    const batch = auditedRows.slice(ci, ci + UPSERT_CHUNK);
     const { error: prodErr } = await supabase
       .from('products')
       .upsert(batch, { onConflict: 'id' });
@@ -270,9 +282,10 @@ async function saveProductsToDb(productsToSave: Product[]) {
   for (let vi = 0; vi < allVariants.length; vi += VARIANT_CHUNK) {
     const batch = allVariants.slice(vi, vi + VARIANT_CHUNK);
     if (batch.length === 0) continue;
+    const auditedBatch = await Promise.all(batch.map((row) => withInsertAuditFields(row)));
     const { error: varErr } = await supabase
       .from('product_variants')
-      .insert(batch);
+      .insert(auditedBatch);
 
     if (varErr) {
       console.error('[Supabase] Error inserting variants:', varErr);
@@ -595,10 +608,12 @@ export function useAppStore() {
             const syncTimestamp = new Date().toISOString();
             for (const [localId, result] of resultsMap.entries()) {
               if (result.success && result.master_id) {
-                await supabase.from('products').update({
-                  bwf_master_id: result.master_id,
-                  synced_at: syncTimestamp,
-                }).eq('id', localId);
+                await supabase.from('products').update(
+                  await withUpdateAuditFields({
+                    bwf_master_id: result.master_id,
+                    synced_at: syncTimestamp,
+                  }),
+                ).eq('id', localId);
               }
             }
 
@@ -681,7 +696,8 @@ export function useAppStore() {
         console.error('[addProduct] Image upload to Storage failed — product saved in memory only');
         return;
       }
-      const { error } = await supabase.from('products').upsert({
+      const { error } = await supabase.from('products').upsert(
+        await withInsertAuditFields({
         id: newProduct.id,
         title: newProduct.title,
         description: newProduct.description,
@@ -719,7 +735,9 @@ export function useAppStore() {
         category: newProduct.category || null,
         delivery_term_id: newProduct.deliveryTermId || null,
         delivery_term_name: newProduct.deliveryTermName || null,
-      }, { onConflict: 'id' });
+      }),
+      { onConflict: 'id' },
+      );
       if (error) {
         console.error('[addProduct] Failed to persist to DB:', error.message);
       } else {
@@ -764,7 +782,7 @@ export function useAppStore() {
 
       // Persist each new product to DB in background
       for (const np of toAdd) {
-        supabase.from('products').upsert({
+        void withInsertAuditFields({
           id: np.id,
           title: np.title,
           description: np.description,
@@ -799,7 +817,9 @@ export function useAppStore() {
           category: np.category || null,
           delivery_term_id: np.deliveryTermId || null,
           delivery_term_name: np.deliveryTermName || null,
-        }, { onConflict: 'id' }).then(({ error }) => {
+        }).then((payload) =>
+          supabase.from('products').upsert(payload, { onConflict: 'id' }),
+        ).then(({ error }) => {
           if (error) {
             console.error('[addProducts] Failed to persist to DB:', error.message);
           }
@@ -942,36 +962,39 @@ export function useAppStore() {
       // Try individual upserts as fallback
       for (const p of productsToSave) {
         try {
-          await supabase.from('products').upsert({
-            id: p.id,
-            title: p.title,
-            description: p.description,
-            description_html: p.descriptionHtml || p.description,
-            tags: p.tags,
-            price: p.price,
-            compare_at_price: p.compareAtPrice || null,
-            collection: p.collection,
-            status: p.status,
-            image_url: p.imageUrl,
-            error_message: p.errorMessage || null,
-            shopify_product_id: p.shopifyProductId || null,
-            sku: p.sku || '',
-            created_at: p.createdAt,
-            source: p.source || 'local',
-            synced_at: p.syncedAt || null,
-            factories_display_name: p.factoriesDisplayName || '',
-            factory_id: p.factoryId || '',
-            bwf_master_id: p.bwfMasterId || null,
-            cost_price: p.costPrice ?? null,
-            sale_price: p.salePrice ?? 0,
-            production_date: p.productionLeadTime ?? null,
-            shipping_days: p.shippingDays ?? null,
-            shipping_fee: p.shippingFee ?? null,
-            remarks: p.remarks || '',
-            color: p.color || '',
-            delivery_term_id: p.deliveryTermId || null,
-            delivery_term_name: p.deliveryTermName || null,
-          }, { onConflict: 'id' });
+          await supabase.from('products').upsert(
+            await withInsertAuditFields({
+              id: p.id,
+              title: p.title,
+              description: p.description,
+              description_html: p.descriptionHtml || p.description,
+              tags: p.tags,
+              price: p.price,
+              compare_at_price: p.compareAtPrice || null,
+              collection: p.collection,
+              status: p.status,
+              image_url: p.imageUrl,
+              error_message: p.errorMessage || null,
+              shopify_product_id: p.shopifyProductId || null,
+              sku: p.sku || '',
+              created_at: p.createdAt,
+              source: p.source || 'local',
+              synced_at: p.syncedAt || null,
+              factories_display_name: p.factoriesDisplayName || '',
+              factory_id: p.factoryId || '',
+              bwf_master_id: p.bwfMasterId || null,
+              cost_price: p.costPrice ?? null,
+              sale_price: p.salePrice ?? 0,
+              production_date: p.productionLeadTime ?? null,
+              shipping_days: p.shippingDays ?? null,
+              shipping_fee: p.shippingFee ?? null,
+              remarks: p.remarks || '',
+              color: p.color || '',
+              delivery_term_id: p.deliveryTermId || null,
+              delivery_term_name: p.deliveryTermName || null,
+            }),
+            { onConflict: 'id' },
+          );
         } catch (individualErr) {
           console.error(`[uploadToMasterDb] Individual save failed for "${p.title}":`, individualErr);
         }
@@ -985,7 +1008,7 @@ export function useAppStore() {
 
     const { error: statusErr } = await supabase
       .from('products')
-      .update({ status: 'publishing' })
+      .update(await withUpdateAuditFields({ status: 'publishing' }))
       .in('id', productIdsToPublish);
 
     if (statusErr) {
@@ -1637,12 +1660,14 @@ export function useAppStore() {
               }));
               // Persist to local DB
               if (result.master_id) {
-                await supabase.from('products').update({
-                  bwf_master_id: result.master_id,
-                  synced_at: syncTimestamp,
-                  status: 'success',
-                  error_message: null,
-                }).eq('id', result.local_id);
+                await supabase.from('products').update(
+                  await withUpdateAuditFields({
+                    bwf_master_id: result.master_id,
+                    synced_at: syncTimestamp,
+                    status: 'success',
+                    error_message: null,
+                  }),
+                ).eq('id', result.local_id);
               }
             } else {
               totalErrors++;
@@ -1652,10 +1677,12 @@ export function useAppStore() {
                 }
                 return p;
               }));
-              await supabase.from('products').update({
-                status: 'error',
-                error_message: result.error || 'Upload to master failed',
-              }).eq('id', result.local_id);
+              await supabase.from('products').update(
+                await withUpdateAuditFields({
+                  status: 'error',
+                  error_message: result.error || 'Upload to master failed',
+                }),
+              ).eq('id', result.local_id);
             }
           }
         }

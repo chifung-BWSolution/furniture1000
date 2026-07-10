@@ -52,6 +52,7 @@ import { supabase } from '@/lib/supabase';
 import { isHttpImageUrl } from '@/lib/imageStorage';
 import { uploadBase64Image } from '@/lib/imageStorage';
 import { toast } from 'sonner';
+import { withUpdateAuditFields } from '@/lib/pmsAudit';
 // Color map utilities available if needed
 // import { getChineseColorLabel, getColorHex } from '@/constants/color-map';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -765,7 +766,7 @@ export function ProductDetailModal({
 
       const { error: localError } = await supabase
         .from('products')
-        .update(localUpdate)
+        .update(await withUpdateAuditFields(localUpdate))
         .eq('id', product.id);
 
       if (localError) {

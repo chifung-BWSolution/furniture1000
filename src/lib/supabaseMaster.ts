@@ -51,27 +51,44 @@ export const MASTER_PROJECT_CONFIG = {
   projectId: 'kqwktnplkqucsbasyfjl',
 } as const;
 
+export type PmsStaffInfoFromMaster = {
+  staff_id: string | null;
+  name: string | null;
+};
+
 /**
- * Resolve PMS v3 staff.name for the logged-in auth user via public.users.member_id.
+ * Resolve PMS v3 staff.id + name for the logged-in auth user via public.users.member_id.
  * Used as a fallback when the edge function is unavailable.
  */
-export async function fetchPmsStaffNameFromMaster(authUserId: string): Promise<string | null> {
+export async function fetchPmsStaffFromMaster(authUserId: string): Promise<PmsStaffInfoFromMaster> {
   const client = getMasterSupabaseClient();
-  if (!client) return null;
+  if (!client) return { staff_id: null, name: null };
 
   const { data, error } = await client
     .from('users')
-    .select('staff!fk_users_member_id(name)')
+    .select('member_id, staff!fk_users_member_id(id, name)')
     .eq('auth_user_id', authUserId)
     .maybeSingle();
 
   if (error) {
-    console.warn('[fetchPmsStaffName]', error.message);
-    return null;
+    console.warn('[fetchPmsStaffFromMaster]', error.message);
+    return { staff_id: null, name: null };
   }
 
-  const row = data as { staff?: { name?: string | null } | { name?: string | null }[] | null } | null;
+  const row = data as {
+    member_id?: string | null;
+    staff?: { id?: string | null; name?: string | null } | { id?: string | null; name?: string | null }[] | null;
+  } | null;
   const staff = row?.staff;
-  const name = (Array.isArray(staff) ? staff[0]?.name : staff?.name)?.trim();
-  return name || null;
+  const staffRow = Array.isArray(staff) ? staff[0] : staff;
+  const staff_id =
+    staffRow?.id?.trim() || row?.member_id?.trim() || null;
+  const name = staffRow?.name?.trim() || null;
+  return { staff_id, name };
+}
+
+/** @deprecated Prefer fetchPmsStaffFromMaster — kept for call-site compatibility. */
+export async function fetchPmsStaffNameFromMaster(authUserId: string): Promise<string | null> {
+  const info = await fetchPmsStaffFromMaster(authUserId);
+  return info.name;
 }

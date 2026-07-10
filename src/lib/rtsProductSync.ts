@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { isHttpImageUrl } from '@/lib/imageStorage';
 import { stripBase64ForDb } from '@/lib/imageStorage';
+import { withUpdateAuditFields } from '@/lib/pmsAudit';
 
 /** Mirror publish-workflow flags to products (待處理 / 目錄 filters still use products). */
 export async function syncRtsWorkflowToProduct(
@@ -16,7 +17,10 @@ export async function syncRtsWorkflowToProduct(
     revert_reason?: { labels: string[]; other: string | null } | null;
   },
 ): Promise<void> {
-  const { error } = await supabase.from('products').update(flags).eq('id', productId);
+  const { error } = await supabase
+    .from('products')
+    .update(await withUpdateAuditFields({ ...flags }))
+    .eq('id', productId);
   if (error) console.warn('[rtsProductSync] workflow sync failed:', error.message);
 }
 
@@ -79,7 +83,10 @@ export async function syncRtsContentToProduct(
   if (patch.cost_price !== undefined) productsPatch.cost_price = patch.cost_price;
 
   if (Object.keys(productsPatch).length === 0) return;
-  const { error } = await supabase.from('products').update(productsPatch).eq('id', productId);
+  const { error } = await supabase
+    .from('products')
+    .update(await withUpdateAuditFields(productsPatch))
+    .eq('id', productId);
   if (error) console.warn('[rtsProductSync] content sync failed:', error.message);
 }
 

@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { extractPmsPitchingIdFromProjectData } from '@/lib/pmsQuotePrefill';
 import { useAuth } from '@/contexts/AuthProvider';
 import { usePmsStaffName } from '@/hooks/use-pms-staff-name';
+import { withInsertAuditFields } from '@/lib/pmsAudit';
 
 interface SubmitReviewModalProps {
   open: boolean;
@@ -77,7 +78,7 @@ export function SubmitReviewModal({
     };
 
     try {
-      const { error: dbError } = await supabase.from('bwf_quote').insert({
+      const insertPayload = await withInsertAuditFields({
         quote_id: quoteId,
         version,
         status: '待審核',
@@ -87,6 +88,8 @@ export function SubmitReviewModal({
         project_data: payloadProjectData,
         ...(pitchingId ? { bwf_pitching_id: pitchingId } : {}),
       });
+
+      const { error: dbError } = await supabase.from('bwf_quote').insert(insertPayload);
 
       if (dbError) {
         throw dbError;
