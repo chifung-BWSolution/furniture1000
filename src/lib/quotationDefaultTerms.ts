@@ -238,6 +238,26 @@ function normalizeUnderlineText(raw: string): string {
     .trim();
 }
 
+function extractAddressTextAfterLabel(text: string): string {
+  const normalized = text.replace(/&nbsp;/gi, " ").replace(/\u00a0/g, " ");
+  const match = normalized.match(/送貨地址\s*[:：]?\s*(.+)/s);
+  if (!match) return "";
+  return match[1].replace(/_+/g, "").trim();
+}
+
+function extractDecoratedAddressFromParagraph(p: Element): string {
+  const underline = p.querySelector("u");
+  if (underline) {
+    const fromUnderline = normalizeUnderlineText(underline.innerHTML);
+    if (fromUnderline) return fromUnderline;
+  }
+  for (const el of p.querySelectorAll('[style*="underline"]')) {
+    const fromSpan = normalizeUnderlineText(el.innerHTML);
+    if (fromSpan) return fromSpan;
+  }
+  return extractAddressTextAfterLabel(p.textContent || "");
+}
+
 /** Read user input from the underline blank on section 1 送貨地址. */
 export function extractDeliveryAddressFromTermsHtml(html: string): string {
   if (!html) return "";
@@ -245,11 +265,21 @@ export function extractDeliveryAddressFromTermsHtml(html: string): string {
     const doc = new DOMParser().parseFromString(html, "text/html");
     for (const p of doc.querySelectorAll("p")) {
       if (!p.textContent?.includes("送貨地址")) continue;
-      const underline = p.querySelector("u");
-      if (underline) return normalizeUnderlineText(underline.innerHTML);
+      const fromParagraph = extractDecoratedAddressFromParagraph(p);
+      if (fromParagraph) return fromParagraph;
     }
     const underline = doc.querySelector("u");
-    if (underline) return normalizeUnderlineText(underline.innerHTML);
+    if (underline) {
+      const fromUnderline = normalizeUnderlineText(underline.innerHTML);
+      if (fromUnderline) return fromUnderline;
+    }
+  }
+  const labeledMatch = html.match(
+    /送貨地址[\s\S]*?<\/(?:strong|b)>\s*(?:&nbsp;|\s)*([^<]+)/i,
+  );
+  if (labeledMatch) {
+    const fromLabeled = normalizeUnderlineText(labeledMatch[1]);
+    if (fromLabeled) return fromLabeled;
   }
   const match = html.match(/<u[^>]*>([\s\S]*?)<\/u>/i);
   return match ? normalizeUnderlineText(match[1]) : "";
