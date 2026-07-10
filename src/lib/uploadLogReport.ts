@@ -318,7 +318,6 @@ async function fetchHistoricalLogRows(
 
   const [
     copyProducts,
-    infoProducts,
     infoRts,
     checkedRts,
     readyRts,
@@ -335,19 +334,6 @@ async function fetchHistoricalLogRows(
           .not('copy_done_at', 'is', null)
           .gte('copy_done_at', startIso)
           .order('copy_done_at', { ascending: false })
-          .range(from, to),
-    ),
-    fetchAllPages<{ id: string; modified_date: string; editor_staff_id: string | null; creator_staff_id: string | null }>(
-      'products.info_done',
-      async (from, to) =>
-        supabase
-          .from('products')
-          .select('id, modified_date, editor_staff_id, creator_staff_id')
-          .eq('info_done', true)
-          .eq('copy_done', true)
-          .not('modified_date', 'is', null)
-          .gte('modified_date', startIso)
-          .order('modified_date', { ascending: false })
           .range(from, to),
     ),
     fetchAllPages<{ product_id: string; info_completed_at: string | null; imported_at: string | null }>(
@@ -440,18 +426,6 @@ async function fetchHistoricalLogRows(
       'complete',
       loggedAt,
       productStaffMap.get(row.product_id) ?? null,
-    );
-  }
-
-  for (const row of infoProducts) {
-    pushHistorical(
-      historical,
-      covered,
-      row.id,
-      'product_info',
-      'complete',
-      row.modified_date,
-      rememberStaff(row.id, row.editor_staff_id, row.creator_staff_id),
     );
   }
 
@@ -571,11 +545,19 @@ export async function fetchUploadLogReport(dayCount = 30): Promise<UploadLogRepo
     .filter((log) => log.product_id)
     .map((log) => log.product_id as string);
 
-  const staffMapFromDb = await fetchProductStaffMap(uploadProductIds);
-  staffMapFromDb.forEach((sid, pid) => productStaffMap.set(pid, sid));
-
   const historical = await fetchHistoricalLogRows(startIso, covered, productStaffMap);
   const merged = [...uploadLogs, ...historical];
+
+  // Staff name lookup only (not used as product_info completion source).
+  const allProductIds = merged
+    .filter((log) => log.product_id)
+    .map((log) => log.product_id as string);
+  const staffMapFromDb = await fetchProductStaffMap([
+    ...uploadProductIds,
+    ...allProductIds,
+  ]);
+  staffMapFromDb.forEach((sid, pid) => productStaffMap.set(pid, sid));
+
   const logs = await enrichLogsWithStaff(merged, productStaffMap);
 
   const pendingCounts = await fetchPendingCounts();
