@@ -130,11 +130,12 @@ Query：`pmsPitchingId` **或** `pmsProjectId`（PMS Quote tab 實際傳的是
 `clientName`, `clientPhone`, `clientEmail`, `clientIndustry`, `quotationType`,
 `company`（可選）。報價編號仍由 Furniture 自動產生，PMS 不必傳。
 
-**站內選擇 Pitching**（無 PMS SSO 時）：快速報價 Step 1 必選
-`PmsPitchingSelector` → edge `supabase-functions-fetch-pms-pitchings` 搜尋
-`bwf_pitchings`；選定後寫入 `formData.pmsPitchingId`，並用既有
+**站內選擇 Pitching**（無 PMS SSO 時）：快速報價先顯示極簡搜尋頁
+`PmsPitchingGate`（唯一建立入口）→ edge `supabase-functions-fetch-pms-pitchings`
+搜尋 `bwf_pitchings`；選定後才進入表單 wizard，並用既有
 `fetch-pms-pitching-quote-defaults` 帶入客戶／產業／預算（`projectName` =
-`pitching_code`）。
+`pitching_code`）。PMS deep link（`pmsProjectId` / `pmsPitchingId`）會跳過
+搜尋頁，直接進入預填表單。
 
 **開啟既有報價**：`/quote/<quote_id>`（例 `/quote/Q2026-0708-263`）。
 PMS v1 可只做列表；需要時用此 URL 連回編輯。

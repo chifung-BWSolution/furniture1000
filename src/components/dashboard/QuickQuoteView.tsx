@@ -27,7 +27,7 @@ import {
   formatPmsPitchingLabel,
   type PmsPitchingListItem,
 } from '@/lib/pmsPitchings';
-import { PmsPitchingSelector } from '@/components/dashboard/PmsPitchingSelector';
+import { PmsPitchingGate } from '@/components/dashboard/PmsPitchingGate';
 
 const LazyQuotationPDFPreviewModal = lazy(() =>
   import('@/components/dashboard/QuotationPDFPreview').then((mod) => ({
@@ -118,10 +118,43 @@ const DEFAULT_FORM_DATA = (): QuoteFormData => ({
   remarks: '',
 });
 
+/** Sync read of PMS deep-link prefill (avoids gate flash on /quote/quick?pmsProjectId=...). */
+function readUrlPrefill(): {
+  form: QuoteFormData;
+  label: string | null;
+  applied: boolean;
+} {
+  if (typeof window === 'undefined') {
+    return { form: DEFAULT_FORM_DATA(), label: null, applied: false };
+  }
+  const prefill = parsePmsQuotePrefill(new URLSearchParams(window.location.search));
+  if (!prefill?.pmsPitchingId) {
+    return { form: DEFAULT_FORM_DATA(), label: null, applied: false };
+  }
+  const labelParts = [prefill.projectName, prefill.clientName].filter(Boolean);
+  return {
+    form: {
+      ...DEFAULT_FORM_DATA(),
+      company: prefill.company || 'Branding Works Design Ltd',
+      projectManager: prefill.projectManager || '',
+      projectName: prefill.projectName || '',
+      pmsPitchingId: prefill.pmsPitchingId,
+      clientName: prefill.clientName || '',
+      clientPhone: prefill.clientPhone || '',
+      clientEmail: prefill.clientEmail || '',
+      clientIndustry: prefill.clientIndustry || [],
+      quotationType: prefill.quotationType || [],
+    },
+    label: labelParts.length > 0 ? labelParts.join(' · ') : prefill.pmsPitchingId,
+    applied: true,
+  };
+}
+
 export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessionKey = 0 }: QuickQuoteViewProps) {
   const { user, loading: authLoading } = useAuth();
   const userEmail = user?.email ?? null;
-  const pmsPrefillAppliedRef = useRef(false);
+  const initialUrlPrefillRef = useRef(readUrlPrefill());
+  const pmsPrefillAppliedRef = useRef(initialUrlPrefillRef.current.applied);
 
   const [currentStep, setCurrentStep] = useState(1);
   const [isQuotationReady, setIsQuotationReady] = useState(false);
@@ -141,21 +174,26 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
     projectData: Record<string, unknown>;
     bwfPitchingId?: string | null;
   } | null>(null);
-  const [formData, setFormData] = useState<QuoteFormData>(() => DEFAULT_FORM_DATA());
+  const [formData, setFormData] = useState<QuoteFormData>(
+    () => initialUrlPrefillRef.current.form,
+  );
   const [pdfPreviewData, setPdfPreviewData] = useState<QuotationPDFData | null>(null);
   const [errors, setErrors] = useState<Partial<Record<keyof QuoteFormData, string>>>({});
   const [industryOptions, setIndustryOptions] = useState<string[]>(FALLBACK_INDUSTRIES);
   const [pmsIndustryCatalog, setPmsIndustryCatalog] = useState<PmsIndustryOption[]>([]);
-  const [selectedPitchingLabel, setSelectedPitchingLabel] = useState<string | null>(null);
-  const sessionRestoredRef = useRef(false);
+  const [selectedPitchingLabel, setSelectedPitchingLabel] = useState<string | null>(
+    () => initialUrlPrefillRef.current.label,
+  );
+  const sessionRestoredRef = useRef(initialUrlPrefillRef.current.applied);
   const loadedQuoteIdRef = useRef<string | null>(null);
   const pmsDefaultsLoadedForRef = useRef<string | null>(null);
 
-  // PMS SSO / deep-link prefill: /quote/quick?pmsPitchingId=...&projectName=...
+  // PMS SSO / deep-link prefill: /quote/quick?pmsPitchingId|pmsProjectId=...
   const applyPmsPrefillFromUrl = useCallback(() => {
     if (typeof window === 'undefined') return false;
     const prefill = parsePmsQuotePrefill(new URLSearchParams(window.location.search));
-    if (!prefill) return false;
+    // Require pitching id to skip the gate (PMS handoff always sends it).
+    if (!prefill?.pmsPitchingId) return false;
     setCurrentStep(1);
     setIsQuotationReady(false);
     setFormData({
@@ -170,14 +208,10 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
       clientIndustry: prefill.clientIndustry || [],
       quotationType: prefill.quotationType || [],
     });
-    if (prefill.pmsPitchingId) {
-      const labelParts = [prefill.projectName, prefill.clientName].filter(Boolean);
-      setSelectedPitchingLabel(
-        labelParts.length > 0 ? labelParts.join(' · ') : prefill.pmsPitchingId,
-      );
-    } else {
-      setSelectedPitchingLabel(null);
-    }
+    const labelParts = [prefill.projectName, prefill.clientName].filter(Boolean);
+    setSelectedPitchingLabel(
+      labelParts.length > 0 ? labelParts.join(' · ') : prefill.pmsPitchingId,
+    );
     pmsPrefillAppliedRef.current = true;
     sessionRestoredRef.current = true;
     return true;
@@ -229,6 +263,8 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
   const handleSelectPitching = useCallback((item: PmsPitchingListItem) => {
     setSelectedPitchingLabel(formatPmsPitchingLabel(item));
     pmsDefaultsLoadedForRef.current = null;
+    setCurrentStep(1);
+    setIsQuotationReady(false);
     setFormData((prev) => ({
       ...prev,
       pmsPitchingId: item.id,
@@ -237,19 +273,20 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
       projectManager: item.main_pm_name?.trim() || prev.projectManager,
       clientName: item.customer_name?.trim() || prev.clientName,
     }));
-    setErrors((prev) => ({
-      ...prev,
-      pmsPitchingId: undefined,
-      projectName: undefined,
-    }));
+    setErrors({});
   }, []);
 
-  const handleClearPitching = useCallback(() => {
+  /** Return to the minimal pitching search gate (change / clear selection). */
+  const handleChangePitching = useCallback(() => {
     setSelectedPitchingLabel(null);
     pmsDefaultsLoadedForRef.current = null;
+    setCurrentStep(1);
+    setIsQuotationReady(false);
+    setErrors({});
     setFormData((prev) => ({
-      ...prev,
-      pmsPitchingId: undefined,
+      ...DEFAULT_FORM_DATA(),
+      // keep company default; wipe pitching-linked fields
+      company: prev.company || 'Branding Works Design Ltd',
     }));
   }, []);
 
@@ -486,9 +523,6 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
   const validateStep1 = (): boolean => {
     const newErrors: Partial<Record<keyof QuoteFormData, string>> = {};
 
-    if (!formData.pmsPitchingId?.trim()) {
-      newErrors.pmsPitchingId = '請選擇 PMS Pitching';
-    }
     if (!formData.projectManager.trim()) {
       newErrors.projectManager = '請填寫項目經理姓名';
     }
@@ -581,6 +615,17 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
     );
   }
 
+  // Gate: pitching selection is the only first step for in-app creation.
+  // PMS deep links / editing existing quotes skip this and go to the form.
+  const showPitchingGate =
+    !editingQuoteId &&
+    !loadedQuoteData &&
+    !formData.pmsPitchingId?.trim();
+
+  if (showPitchingGate) {
+    return <PmsPitchingGate onSelect={handleSelectPitching} />;
+  }
+
   return (
     <>
     <div className={cn('h-full overflow-y-auto bg-background', currentStep === 4 ? 'px-3 py-5' : 'p-5')}>
@@ -629,7 +674,7 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
                 建立新報價單
               </h1>
               <p className="mt-1 font-body text-sm text-muted-foreground">
-                填寫專案資料，AI 將為您生成專業報價
+                確認並補齊專案資料後生成報價
               </p>
             </>
           )}
@@ -699,6 +744,30 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
         <div className="rounded-2xl border border-border bg-card p-6 shadow-sm md:p-8">
           {currentStep === 1 && (
             <div className="space-y-6">
+              {/* Selected PMS Pitching (chosen on gate / deep-link) */}
+              <div className="flex items-start justify-between gap-3 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3">
+                <div className="min-w-0">
+                  <div className="font-body text-[11px] font-medium uppercase tracking-wide text-primary/80">
+                    PMS Pitching
+                  </div>
+                  <div className="mt-0.5 truncate font-mono-data text-sm font-semibold text-foreground">
+                    {selectedPitchingLabel ||
+                      formData.projectName ||
+                      formData.pmsPitchingId ||
+                      '—'}
+                  </div>
+                </div>
+                {!editingQuoteId && !loadedQuoteData ? (
+                  <button
+                    type="button"
+                    onClick={handleChangePitching}
+                    className="shrink-0 font-body text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                  >
+                    更換
+                  </button>
+                ) : null}
+              </div>
+
               {/* Company (fixed) */}
               <div>
                 <label className="mb-1.5 block font-body text-sm font-medium text-foreground">
@@ -708,15 +777,6 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
                   Branding Works Design Ltd
                 </div>
               </div>
-
-              {/* PMS Pitching (required) — same autofill path as PMS SSO deep-link */}
-              <PmsPitchingSelector
-                value={formData.pmsPitchingId}
-                selectedLabel={selectedPitchingLabel}
-                error={errors.pmsPitchingId}
-                onSelect={handleSelectPitching}
-                onClear={handleClearPitching}
-              />
 
               {/* Two column grid */}
               <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
