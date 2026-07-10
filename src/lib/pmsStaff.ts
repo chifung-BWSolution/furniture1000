@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { fetchStaffByIdsFromMaster } from '@/lib/supabaseMaster';
 import { fetchPmsStaffFromMaster } from '@/lib/supabaseMaster';
 
 export type PmsStaffInfo = {
@@ -107,4 +108,46 @@ export async function fetchPmsStaffName(authUserId: string): Promise<string | nu
 export async function getCurrentPmsStaffId(): Promise<string | null> {
   const info = await fetchPmsStaffInfo();
   return info.staff_id;
+}
+
+export type ResolvedPmsStaff = {
+  id: string;
+  name: string | null;
+  email: string | null;
+  display_name: string | null;
+};
+
+/** Batch-resolve PMS staff.id → name + email (for upload_log historical enrichment). */
+export async function resolvePmsStaffByIds(staffIds: string[]): Promise<Map<string, ResolvedPmsStaff>> {
+  const unique = Array.from(new Set(staffIds.map((id) => id.trim()).filter(Boolean))).slice(0, 200);
+  const map = new Map<string, ResolvedPmsStaff>();
+  if (unique.length === 0) return map;
+
+  try {
+    const { data, error } = await supabase.functions.invoke(
+      'supabase-functions-resolve-pms-staff-by-ids',
+      { body: { staff_ids: unique } },
+    );
+    if (error) {
+      console.warn('[resolvePmsStaffByIds] edge function failed:', error.message);
+    } else {
+      const staff = (data as { staff?: ResolvedPmsStaff[] } | null)?.staff ?? [];
+      for (const row of staff) {
+        if (!row?.id) continue;
+        map.set(row.id, row);
+      }
+      if (map.size >= unique.length) return map;
+    }
+  } catch (err) {
+    console.warn('[resolvePmsStaffByIds] unexpected error:', err);
+  }
+
+  const missing = unique.filter((id) => !map.has(id));
+  if (missing.length > 0) {
+    const fallback = await fetchStaffByIdsFromMaster(missing);
+    for (const row of fallback) {
+      if (row.id) map.set(row.id, row);
+    }
+  }
+  return map;
 }

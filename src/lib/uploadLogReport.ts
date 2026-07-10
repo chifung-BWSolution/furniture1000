@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { resolvePmsStaffByIds } from '@/lib/pmsStaff';
 import { getPublishDateHk } from '@/lib/publishTimestamps';
 import type { UploadLogStage } from '@/lib/uploadLog';
 
@@ -55,6 +56,7 @@ interface RawLogRow {
   user_name: string | null;
   user_email: string | null;
   logged_at: string;
+  editor_staff_id?: string | null;
 }
 
 function toHkDate(iso: string): string {
@@ -63,10 +65,15 @@ function toHkDate(iso: string): string {
 
 function displayUser(name: string | null, email: string | null): string {
   const n = name?.trim();
-  if (n) return n;
+  if (n && n !== HISTORICAL_USER_LABEL) return n;
   const e = email?.trim();
   if (e) return e;
   return '未知用戶';
+}
+
+function needsStaffResolve(log: RawLogRow): boolean {
+  const name = log.user_name?.trim();
+  return !name || name === HISTORICAL_USER_LABEL || name === '未知用戶';
 }
 
 function emptyStageStats(): Record<UploadLogStage, StageDailyStats> {
@@ -165,7 +172,7 @@ function pushHistorical(
   stage: UploadLogStage,
   action: string,
   loggedAt: string | null,
-  userName = HISTORICAL_USER_LABEL,
+  editorStaffId?: string | null,
 ): void {
   if (!productId || !loggedAt) return;
   const hkDate = toHkDate(loggedAt);
@@ -176,26 +183,83 @@ function pushHistorical(
     product_id: productId,
     stage,
     action,
-    user_name: userName,
+    user_name: HISTORICAL_USER_LABEL,
     user_email: null,
     logged_at: loggedAt,
+    editor_staff_id: editorStaffId ?? null,
+  });
+}
+
+async function fetchProductStaffMap(productIds: string[]): Promise<Map<string, string | null>> {
+  const map = new Map<string, string | null>();
+  const unique = Array.from(new Set(productIds.filter(Boolean)));
+  if (unique.length === 0) return map;
+
+  for (let i = 0; i < unique.length; i += 500) {
+    const chunk = unique.slice(i, i + 500);
+    const { data, error } = await supabase
+      .from('products')
+      .select('id, editor_staff_id')
+      .in('id', chunk);
+    if (error) {
+      console.warn('[uploadLogReport] product staff map failed:', error.message);
+      break;
+    }
+    for (const row of data ?? []) {
+      if (row.id) map.set(row.id, row.editor_staff_id ?? null);
+    }
+  }
+  return map;
+}
+
+async function enrichLogsWithStaff(
+  logs: RawLogRow[],
+  productStaffMap: Map<string, string | null>,
+): Promise<RawLogRow[]> {
+  const staffIds: string[] = [];
+  for (const log of logs) {
+    if (!needsStaffResolve(log)) continue;
+    const sid = log.editor_staff_id ?? (log.product_id ? productStaffMap.get(log.product_id) : null);
+    if (sid) staffIds.push(sid);
+  }
+
+  const staffMap = await resolvePmsStaffByIds(staffIds);
+
+  return logs.map((log) => {
+    if (!needsStaffResolve(log)) return log;
+    const sid = log.editor_staff_id ?? (log.product_id ? productStaffMap.get(log.product_id) : null);
+    if (!sid) return log;
+    const staff = staffMap.get(sid);
+    if (!staff) return log;
+    const name = staff.display_name ?? staff.name ?? staff.email ?? log.user_name;
+    return {
+      ...log,
+      user_name: name,
+      user_email: staff.email ?? log.user_email,
+    };
   });
 }
 
 /** Supplement upload_log with workflow timestamps written before logging existed. */
-async function fetchHistoricalLogRows(startIso: string, covered: Set<string>): Promise<RawLogRow[]> {
+async function fetchHistoricalLogRows(
+  startIso: string,
+  covered: Set<string>,
+  productStaffMap: Map<string, string | null>,
+): Promise<RawLogRow[]> {
   const historical: RawLogRow[] = [];
 
   const [copyProducts, infoRts, checkedRts, readyRts, syncedProducts] = await Promise.all([
-    fetchAllPages<{ id: string; copy_done_at: string }>('products.copy_done_at', async (from, to) =>
-      supabase
-        .from('products')
-        .select('id, copy_done_at')
-        .eq('copy_done', true)
-        .not('copy_done_at', 'is', null)
-        .gte('copy_done_at', startIso)
-        .order('copy_done_at', { ascending: false })
-        .range(from, to),
+    fetchAllPages<{ id: string; copy_done_at: string; editor_staff_id: string | null }>(
+      'products.copy_done_at',
+      async (from, to) =>
+        supabase
+          .from('products')
+          .select('id, copy_done_at, editor_staff_id')
+          .eq('copy_done', true)
+          .not('copy_done_at', 'is', null)
+          .gte('copy_done_at', startIso)
+          .order('copy_done_at', { ascending: false })
+          .range(from, to),
     ),
     fetchAllPages<{ product_id: string; info_completed_at: string }>('rts.info_completed_at', async (from, to) =>
       supabase
@@ -225,26 +289,53 @@ async function fetchHistoricalLogRows(startIso: string, covered: Set<string>): P
         .order('ready_to_publish_at', { ascending: false })
         .range(from, to),
     ),
-    fetchAllPages<{ id: string; synced_at: string }>('products.synced_at', async (from, to) =>
-      supabase
-        .from('products')
-        .select('id, synced_at')
-        .not('synced_at', 'is', null)
-        .not('shopify_product_id', 'is', null)
-        .gte('synced_at', startIso)
-        .order('synced_at', { ascending: false })
-        .range(from, to),
+    fetchAllPages<{ id: string; synced_at: string; editor_staff_id: string | null }>(
+      'products.synced_at',
+      async (from, to) =>
+        supabase
+          .from('products')
+          .select('id, synced_at, editor_staff_id')
+          .not('synced_at', 'is', null)
+          .not('shopify_product_id', 'is', null)
+          .gte('synced_at', startIso)
+          .order('synced_at', { ascending: false })
+          .range(from, to),
     ),
   ]);
 
   for (const row of copyProducts) {
-    pushHistorical(historical, covered, row.id, 'copywriting', 'submit', row.copy_done_at);
+    if (row.editor_staff_id) productStaffMap.set(row.id, row.editor_staff_id);
+    pushHistorical(
+      historical,
+      covered,
+      row.id,
+      'copywriting',
+      'submit',
+      row.copy_done_at,
+      row.editor_staff_id,
+    );
   }
   for (const row of infoRts) {
-    pushHistorical(historical, covered, row.product_id, 'product_info', 'complete', row.info_completed_at);
+    pushHistorical(
+      historical,
+      covered,
+      row.product_id,
+      'product_info',
+      'complete',
+      row.info_completed_at,
+      productStaffMap.get(row.product_id) ?? null,
+    );
   }
   for (const row of checkedRts) {
-    pushHistorical(historical, covered, row.product_id, 'furniture_group_check', 'save', row.checked_edited_at);
+    pushHistorical(
+      historical,
+      covered,
+      row.product_id,
+      'furniture_group_check',
+      'save',
+      row.checked_edited_at,
+      productStaffMap.get(row.product_id) ?? null,
+    );
   }
   for (const row of readyRts) {
     pushHistorical(
@@ -254,10 +345,20 @@ async function fetchHistoricalLogRows(startIso: string, covered: Set<string>): P
       'furniture_group_check',
       'add_to_ready',
       row.ready_to_publish_at,
+      productStaffMap.get(row.product_id) ?? null,
     );
   }
   for (const row of syncedProducts) {
-    pushHistorical(historical, covered, row.id, 'ready_to_publish', 'upload', row.synced_at);
+    if (row.editor_staff_id) productStaffMap.set(row.id, row.editor_staff_id);
+    pushHistorical(
+      historical,
+      covered,
+      row.id,
+      'ready_to_publish',
+      'upload',
+      row.synced_at,
+      row.editor_staff_id,
+    );
   }
 
   return historical;
@@ -305,13 +406,23 @@ export async function fetchUploadLogReport(dayCount = 30): Promise<UploadLogRepo
   );
 
   const covered = new Set<string>();
+  const productStaffMap = new Map<string, string | null>();
+
   for (const log of uploadLogs) {
     if (!log.product_id || !STAGE_ACTIONS[log.stage]?.has(log.action)) continue;
     covered.add(dedupeKey(toHkDate(log.logged_at), log.stage, log.product_id));
   }
 
-  const historical = await fetchHistoricalLogRows(startIso, covered);
-  const logs = [...uploadLogs, ...historical];
+  const unresolvedProductIds = uploadLogs
+    .filter((log) => needsStaffResolve(log) && log.product_id)
+    .map((log) => log.product_id as string);
+
+  const staffMapFromDb = await fetchProductStaffMap(unresolvedProductIds);
+  staffMapFromDb.forEach((sid, pid) => productStaffMap.set(pid, sid));
+
+  const historical = await fetchHistoricalLogRows(startIso, covered, productStaffMap);
+  const merged = [...uploadLogs, ...historical];
+  const logs = await enrichLogsWithStaff(merged, productStaffMap);
 
   const pendingCounts = await fetchPendingCounts();
 

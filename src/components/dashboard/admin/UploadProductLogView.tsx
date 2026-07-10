@@ -331,7 +331,7 @@ export function UploadProductLogView() {
               </div>
 
               <p className="text-xs leading-relaxed text-muted-foreground">
-                「產品目前停留」僅顯示今天（即時查詢）；「今日已處理」整合 upload_log 及歷史時間戳（copy_done_at、synced_at 等），無用戶紀錄的顯示為「歷史紀錄」。
+                「產品目前停留」僅顯示今天（即時查詢）；「今日已處理」整合 upload_log 及歷史時間戳，並透過 products.editor_staff_id 還原同事名稱及電郵。
               </p>
             </>
           ) : null}

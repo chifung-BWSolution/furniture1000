@@ -92,3 +92,53 @@ export async function fetchPmsStaffNameFromMaster(authUserId: string): Promise<s
   const info = await fetchPmsStaffFromMaster(authUserId);
   return info.name;
 }
+
+export type PmsStaffByIdRow = {
+  id: string;
+  name: string | null;
+  email: string | null;
+  display_name: string | null;
+};
+
+/** Batch lookup staff.id → name + email on PMS master (browser fallback). */
+export async function fetchStaffByIdsFromMaster(staffIds: string[]): Promise<PmsStaffByIdRow[]> {
+  const client = getMasterSupabaseClient();
+  const unique = Array.from(new Set(staffIds.map((id) => id.trim()).filter(Boolean))).slice(0, 200);
+  if (!client || unique.length === 0) return [];
+
+  const { data: staffRows, error: staffError } = await client
+    .from('staff')
+    .select('id, name')
+    .in('id', unique);
+  if (staffError) {
+    console.warn('[fetchStaffByIdsFromMaster] staff:', staffError.message);
+    return [];
+  }
+
+  const { data: userRows, error: usersError } = await client
+    .from('users')
+    .select('member_id, email')
+    .in('member_id', unique);
+  if (usersError) {
+    console.warn('[fetchStaffByIdsFromMaster] users:', usersError.message);
+  }
+
+  const emailByStaffId = new Map<string, string>();
+  for (const row of userRows ?? []) {
+    const memberId = String(row.member_id ?? '').trim();
+    const email = String(row.email ?? '').trim();
+    if (memberId && email) emailByStaffId.set(memberId, email);
+  }
+
+  return (staffRows ?? []).map((row) => {
+    const id = String(row.id ?? '').trim();
+    const name = String(row.name ?? '').trim() || null;
+    const email = emailByStaffId.get(id) ?? null;
+    return {
+      id,
+      name,
+      email,
+      display_name: name ?? email,
+    };
+  });
+}
