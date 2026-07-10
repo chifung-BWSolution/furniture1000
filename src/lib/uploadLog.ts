@@ -40,7 +40,8 @@ async function resolveCurrentUser(): Promise<{
   return {
     userId: user.id,
     email: user.email ?? null,
-    name: name ?? user.email ?? null,
+    // Never store login email as display name — report resolves PMS staff.name instead.
+    name: name ?? null,
   };
 }
 

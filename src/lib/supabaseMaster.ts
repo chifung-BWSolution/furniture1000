@@ -138,7 +138,7 @@ export async function fetchStaffByIdsFromMaster(staffIds: string[]): Promise<Pms
       id,
       name,
       email,
-      display_name: name ?? email,
+      display_name: name,
     };
   });
 }

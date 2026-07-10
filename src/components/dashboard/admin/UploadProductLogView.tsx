@@ -331,7 +331,7 @@ export function UploadProductLogView() {
               </div>
 
               <p className="text-xs leading-relaxed text-muted-foreground">
-                「產品目前停留」僅顯示今天（即時查詢）；「今日已處理」整合 upload_log、products（info_done / synced_at）及 ready_to_shopify 時間戳；無用戶紀錄的顯示為「（無用戶紀錄）」。
+                「產品目前停留」僅顯示今天（即時查詢）；「今日已處理」整合 upload_log、products（info_done / synced_at）及 ready_to_shopify 時間戳；用戶名稱來自 PMS 員工紀錄（products.editor_staff_id），無法解析時顯示「（無用戶紀錄）」。
               </p>
             </>
           ) : null}

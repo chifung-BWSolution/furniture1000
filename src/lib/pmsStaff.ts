@@ -117,36 +117,112 @@ export type ResolvedPmsStaff = {
   display_name: string | null;
 };
 
-/** Batch-resolve PMS staff.id → name + email (for upload_log historical enrichment). */
-export async function resolvePmsStaffByIds(staffIds: string[]): Promise<Map<string, ResolvedPmsStaff>> {
-  const unique = Array.from(new Set(staffIds.map((id) => id.trim()).filter(Boolean))).slice(0, 200);
-  const map = new Map<string, ResolvedPmsStaff>();
-  if (unique.length === 0) return map;
+const STAFF_BATCH_SIZE = 200;
 
+function mergeStaffRows(
+  map: Map<string, ResolvedPmsStaff>,
+  rows: ResolvedPmsStaff[] | undefined,
+): void {
+  for (const row of rows ?? []) {
+    if (!row?.id) continue;
+    map.set(row.id, row);
+  }
+}
+
+async function invokeStaffResolver(body: {
+  staff_ids?: string[];
+  auth_user_ids?: string[];
+}): Promise<{
+  staff: ResolvedPmsStaff[];
+  auth_users: ResolvedAuthUserStaff[];
+} | null> {
   try {
     const { data, error } = await supabase.functions.invoke(
       'supabase-functions-resolve-pms-staff-by-ids',
-      { body: { staff_ids: unique } },
+      { body },
     );
     if (error) {
-      console.warn('[resolvePmsStaffByIds] edge function failed:', error.message);
-    } else {
-      const staff = (data as { staff?: ResolvedPmsStaff[] } | null)?.staff ?? [];
-      for (const row of staff) {
-        if (!row?.id) continue;
-        map.set(row.id, row);
-      }
-      if (map.size >= unique.length) return map;
+      console.warn('[resolvePmsStaff] edge function failed:', error.message);
+      return null;
     }
+    const payload = data as {
+      error?: string;
+      staff?: ResolvedPmsStaff[];
+      auth_users?: ResolvedAuthUserStaff[];
+    } | null;
+    if (payload?.error) {
+      console.warn('[resolvePmsStaff] edge function error:', payload.error);
+      return null;
+    }
+    return {
+      staff: payload?.staff ?? [],
+      auth_users: payload?.auth_users ?? [],
+    };
   } catch (err) {
-    console.warn('[resolvePmsStaffByIds] unexpected error:', err);
+    console.warn('[resolvePmsStaff] unexpected error:', err);
+    return null;
+  }
+}
+
+export type ResolvedAuthUserStaff = {
+  auth_user_id: string;
+  staff_id: string | null;
+  name: string | null;
+  email: string | null;
+  display_name: string | null;
+};
+
+/** Batch-resolve PMS staff.id → name + email (for upload_log historical enrichment). */
+export async function resolvePmsStaffByIds(staffIds: string[]): Promise<Map<string, ResolvedPmsStaff>> {
+  const unique = Array.from(new Set(staffIds.map((id) => id.trim()).filter(Boolean)));
+  const map = new Map<string, ResolvedPmsStaff>();
+  if (unique.length === 0) return map;
+
+  for (let i = 0; i < unique.length; i += STAFF_BATCH_SIZE) {
+    const chunk = unique.slice(i, i + STAFF_BATCH_SIZE);
+    const resolved = await invokeStaffResolver({ staff_ids: chunk });
+    mergeStaffRows(map, resolved?.staff);
   }
 
   const missing = unique.filter((id) => !map.has(id));
   if (missing.length > 0) {
-    const fallback = await fetchStaffByIdsFromMaster(missing);
-    for (const row of fallback) {
-      if (row.id) map.set(row.id, row);
+    for (let i = 0; i < missing.length; i += STAFF_BATCH_SIZE) {
+      const chunk = missing.slice(i, i + STAFF_BATCH_SIZE);
+      const fallback = await fetchStaffByIdsFromMaster(chunk);
+      mergeStaffRows(map, fallback);
+    }
+  }
+  return map;
+}
+
+/** Batch-resolve Furniture auth.users.id → PMS staff name (for upload_log rows). */
+export async function resolvePmsStaffByAuthUserIds(
+  authUserIds: string[],
+): Promise<Map<string, ResolvedAuthUserStaff>> {
+  const unique = Array.from(new Set(authUserIds.map((id) => id.trim()).filter(Boolean)));
+  const map = new Map<string, ResolvedAuthUserStaff>();
+  if (unique.length === 0) return map;
+
+  for (let i = 0; i < unique.length; i += STAFF_BATCH_SIZE) {
+    const chunk = unique.slice(i, i + STAFF_BATCH_SIZE);
+    const resolved = await invokeStaffResolver({ auth_user_ids: chunk });
+    for (const row of resolved?.auth_users ?? []) {
+      if (!row?.auth_user_id) continue;
+      map.set(row.auth_user_id, row);
+    }
+  }
+
+  const missing = unique.filter((id) => !map.has(id));
+  for (const authUserId of missing) {
+    const fallback = await fetchPmsStaffFromMaster(authUserId);
+    if (fallback.staff_id || fallback.name) {
+      map.set(authUserId, {
+        auth_user_id: authUserId,
+        staff_id: fallback.staff_id,
+        name: fallback.name,
+        email: null,
+        display_name: fallback.name,
+      });
     }
   }
   return map;

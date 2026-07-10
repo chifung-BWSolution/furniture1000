@@ -1,5 +1,5 @@
 import { supabase } from '@/lib/supabase';
-import { resolvePmsStaffByIds } from '@/lib/pmsStaff';
+import { resolvePmsStaffByAuthUserIds, resolvePmsStaffByIds } from '@/lib/pmsStaff';
 import { getPublishDateHk } from '@/lib/publishTimestamps';
 import type { UploadLogStage } from '@/lib/uploadLog';
 
@@ -56,25 +56,52 @@ interface RawLogRow {
   action: string;
   user_name: string | null;
   user_email: string | null;
+  user_id?: string | null;
   logged_at: string;
   editor_staff_id?: string | null;
+}
+
+function looksLikeEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim());
+}
+
+function staffDisplayName(
+  name: string | null | undefined,
+  email: string | null | undefined,
+): string | null {
+  const n = name?.trim();
+  if (n && !looksLikeEmail(n)) return n;
+  return null;
 }
 
 function toHkDate(iso: string): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Hong_Kong' }).format(new Date(iso));
 }
 
-function displayUser(name: string | null, email: string | null): string {
+function displayUser(name: string | null, _email: string | null): string {
   const n = name?.trim();
-  if (n && n !== HISTORICAL_USER_LABEL && n !== UNKNOWN_USER_LABEL) return n;
-  const e = email?.trim();
-  if (e) return e;
+  if (n && n !== HISTORICAL_USER_LABEL && n !== UNKNOWN_USER_LABEL && !looksLikeEmail(n)) {
+    return n;
+  }
   return UNKNOWN_USER_LABEL;
 }
 
 function needsStaffResolve(log: RawLogRow): boolean {
   const name = log.user_name?.trim();
-  return !name || name === HISTORICAL_USER_LABEL || name === UNKNOWN_USER_LABEL || name === '未知用戶';
+  if (!name) return true;
+  if (name === HISTORICAL_USER_LABEL || name === UNKNOWN_USER_LABEL || name === '未知用戶') {
+    return true;
+  }
+  if (looksLikeEmail(name)) return true;
+  if (log.user_email && name === log.user_email.trim()) return true;
+  return false;
+}
+
+function resolveLogStaffId(
+  log: RawLogRow,
+  productStaffMap: Map<string, string | null>,
+): string | null {
+  return log.editor_staff_id ?? (log.product_id ? productStaffMap.get(log.product_id) ?? null : null);
 }
 
 function resolveStaffId(
@@ -226,31 +253,58 @@ async function enrichLogsWithStaff(
   logs: RawLogRow[],
   productStaffMap: Map<string, string | null>,
 ): Promise<RawLogRow[]> {
-  const staffIds: string[] = [];
+  const staffIds = new Set<string>();
   for (const log of logs) {
-    if (!needsStaffResolve(log)) continue;
-    const sid = log.editor_staff_id ?? (log.product_id ? productStaffMap.get(log.product_id) : null);
-    if (sid) staffIds.push(sid);
+    const sid = resolveLogStaffId(log, productStaffMap);
+    if (sid) staffIds.add(sid);
   }
 
-  const staffMap = await resolvePmsStaffByIds(staffIds);
+  const staffMap = await resolvePmsStaffByIds([...staffIds]);
+
+  const authUserIds = new Set<string>();
+  for (const log of logs) {
+    if (!needsStaffResolve(log) || !log.user_id) continue;
+    authUserIds.add(log.user_id);
+  }
+  const authUserMap = await resolvePmsStaffByAuthUserIds([...authUserIds]);
 
   return logs.map((log) => {
-    if (!needsStaffResolve(log)) return log;
-    const sid = log.editor_staff_id ?? (log.product_id ? productStaffMap.get(log.product_id) : null);
-    if (!sid) {
+    const sid = resolveLogStaffId(log, productStaffMap);
+    if (sid) {
+      const staff = staffMap.get(sid);
+      const name = staffDisplayName(
+        staff?.display_name ?? staff?.name,
+        staff?.email,
+      );
+      if (name) {
+        return {
+          ...log,
+          user_name: name,
+          user_email: staff?.email ?? log.user_email,
+        };
+      }
+    }
+
+    if (needsStaffResolve(log) && log.user_id) {
+      const fromAuth = authUserMap.get(log.user_id);
+      const name = staffDisplayName(
+        fromAuth?.display_name ?? fromAuth?.name,
+        fromAuth?.email,
+      );
+      if (name) {
+        return {
+          ...log,
+          user_name: name,
+          user_email: fromAuth?.email ?? log.user_email,
+        };
+      }
+    }
+
+    if (needsStaffResolve(log)) {
       return { ...log, user_name: UNKNOWN_USER_LABEL };
     }
-    const staff = staffMap.get(sid);
-    if (!staff) {
-      return { ...log, user_name: UNKNOWN_USER_LABEL };
-    }
-    const name = staff.display_name ?? staff.name ?? staff.email ?? UNKNOWN_USER_LABEL;
-    return {
-      ...log,
-      user_name: name,
-      user_email: staff.email ?? log.user_email,
-    };
+
+    return log;
   });
 }
 
@@ -499,7 +553,7 @@ export async function fetchUploadLogReport(dayCount = 30): Promise<UploadLogRepo
   const uploadLogs = await fetchAllPages<RawLogRow>('upload_log', async (from, to) =>
     supabase
       .from('upload_log')
-      .select('product_id, stage, action, user_name, user_email, logged_at')
+      .select('product_id, stage, action, user_name, user_email, user_id, logged_at')
       .gte('logged_at', startIso)
       .order('logged_at', { ascending: false })
       .range(from, to),
@@ -513,11 +567,11 @@ export async function fetchUploadLogReport(dayCount = 30): Promise<UploadLogRepo
     covered.add(dedupeKey(toHkDate(log.logged_at), log.stage, log.product_id));
   }
 
-  const unresolvedProductIds = uploadLogs
-    .filter((log) => needsStaffResolve(log) && log.product_id)
+  const uploadProductIds = uploadLogs
+    .filter((log) => log.product_id)
     .map((log) => log.product_id as string);
 
-  const staffMapFromDb = await fetchProductStaffMap(unresolvedProductIds);
+  const staffMapFromDb = await fetchProductStaffMap(uploadProductIds);
   staffMapFromDb.forEach((sid, pid) => productStaffMap.set(pid, sid));
 
   const historical = await fetchHistoricalLogRows(startIso, covered, productStaffMap);
