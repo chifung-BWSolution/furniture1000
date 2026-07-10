@@ -3245,6 +3245,12 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
             const imageUrl = item.cropped_image_url || '';
             const lifestyleUrl = item.lifestyleImageUrl || '';
             const newId = Math.random().toString(36).substring(2, 15);
+            const productionLeadDays = (item as any).productionLeadTime ?? null;
+            const shippingDays = (item as any).shippingDays ?? null;
+            const totalLeadTime =
+              productionLeadDays != null || shippingDays != null
+                ? (productionLeadDays ?? 0) + (shippingDays ?? 0)
+                : null;
             return {
               id: newId,
               title: item.title,
@@ -3271,8 +3277,9 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
               bwf_master_id: dbResult?.master_id || null,
               cost_price: item.costPrice ?? null,
               sale_price: 0,
-              production_date: (item as any).productionLeadTime ?? null,
+              // production_date is DATE in live DB — never write day-count integers to it
               production_time: (item as any).productionTime ?? null,
+              total_lead_time: totalLeadTime,
               specifications: (item as any).specifications ?? null,
               image_url_2: (item as any).imageUrl2 ?? null,
               image_url_3: (item as any).imageUrl3 ?? null,
