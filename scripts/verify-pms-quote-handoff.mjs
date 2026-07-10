@@ -60,6 +60,13 @@ assert(prefill.clientIndustry?.[0] === '教育', 'industry chip');
 assert(prefill.quotationType?.[0] === '傢俬採購', 'quotation type');
 assert(prefill.company === 'Branding Works Design Ltd', 'default company');
 
+// PMS Quote tab uses pmsProjectId (same UUID as bwf_pitchings.id)
+const prefillAlias = parsePrefill(
+  `pmsProjectId=${id}&projectName=BWF-FD26-001&projectManager=Leo+Tse&clientName=Test+Pitching`,
+);
+assert(prefillAlias.pmsPitchingId === id, 'pmsProjectId alias → pmsPitchingId');
+assert(prefillAlias.projectName === 'BWF-FD26-001', 'alias project name');
+
 const path =
   '/quote/quick?pmsPitchingId=' +
   id +
