@@ -135,6 +135,7 @@ export type ViewType =
   | 'report-sales'
   // 設定
   | 'settings'
+  | 'upload-product-log'
   | 'user-management'
   | 'login-history'
   | 'category-registry';

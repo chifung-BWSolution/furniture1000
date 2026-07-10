@@ -81,6 +81,9 @@ const UserManagementView = lazy(() =>
 const LoginHistoryView = lazy(() =>
   import("./admin/LoginHistoryView").then((mod) => ({ default: mod.LoginHistoryView }))
 );
+const UploadProductLogView = lazy(() =>
+  import("./admin/UploadProductLogView").then((mod) => ({ default: mod.UploadProductLogView }))
+);
 // 傢俬方案 (Furniture Scheme)
 const DesignProjectsView = lazy(() =>
   import("./solutions/DesignProjectsView").then((mod) => ({ default: mod.DesignProjectsView }))
@@ -136,6 +139,7 @@ const SELF_LOADING_VIEWS = new Set<ViewType>([
   "report-sales",
   "user-management",
   "login-history",
+  "upload-product-log",
 ]);
 
 function PlaceholderView({
@@ -544,6 +548,8 @@ export function AppShell() {
         return <UserManagementView />;
       case "login-history":
         return <LoginHistoryView />;
+      case "upload-product-log":
+        return <UploadProductLogView />;
       case "quick-quote":
         return (
           <QuickQuoteView

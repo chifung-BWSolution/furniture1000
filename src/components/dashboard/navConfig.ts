@@ -102,6 +102,7 @@ export const NAV_CONFIG: PrimaryItem[] = [
       { view: 'category-management', label: 'Shopify 分類', icon: FolderTree },
       { view: 'category-registry', label: '產品分類', icon: FolderTree },
       { view: 'settings', label: '系統設定', icon: SettingsIcon },
+      { view: 'upload-product-log', label: '上載產品紀錄', icon: ClipboardList },
     ],
   },
 ];
