@@ -41,6 +41,7 @@ import {
 import { unsavedGuard } from "@/lib/unsavedGuard";
 import { QUOTE_UNSAVED_LEAVE_MESSAGE, resetQuickQuoteSessionStorage, shouldShowDraftRestoreNotice } from "@/lib/quickQuoteSession";
 import {
+  extractDeliveryAddressFromTermsHtml,
   injectDeliveryAddressIntoTermsHtml,
   isDeliveryAddressFilled,
   migrateTermsContentToCurrent,
@@ -2159,12 +2160,20 @@ export function QuotationDraftEditor({
                   </label>
                   <textarea
                     value={quoteMeta.deliveryAddress}
-                    onChange={(e) =>
+                    onChange={(e) => {
+                      const deliveryAddress = e.target.value;
                       setQuoteMeta((p) => ({
                         ...p,
-                        deliveryAddress: e.target.value,
-                      }))
-                    }
+                        deliveryAddress,
+                      }));
+                      setTermsContent((prev) => ({
+                        ...prev,
+                        fullHtml: injectDeliveryAddressIntoTermsHtml(
+                          prev.fullHtml,
+                          deliveryAddress,
+                        ),
+                      }));
+                    }}
                     placeholder="請輸入送貨地址"
                     rows={3}
                     className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
@@ -2495,9 +2504,15 @@ export function QuotationDraftEditor({
 
                 <TermsRichEditor
                   value={termsContent.fullHtml}
-                  onChange={(html) =>
-                    setTermsContent((prev) => ({ ...prev, fullHtml: html }))
-                  }
+                  onChange={(html) => {
+                    setTermsContent((prev) => ({ ...prev, fullHtml: html }));
+                    const deliveryAddress = extractDeliveryAddressFromTermsHtml(html);
+                    setQuoteMeta((prev) =>
+                      prev.deliveryAddress === deliveryAddress
+                        ? prev
+                        : { ...prev, deliveryAddress },
+                    );
+                  }}
                   editable={termsEditMode}
                 />
                 <div className="hidden space-y-4 font-body text-xs leading-relaxed text-foreground/80">
