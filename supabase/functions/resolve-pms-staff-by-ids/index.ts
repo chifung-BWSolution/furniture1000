@@ -39,6 +39,57 @@ function extractStaff(row: UsersStaffRow): {
   return { staff_id, name, email };
 }
 
+async function lookupStaffByIds(
+  pmsAdmin: ReturnType<typeof createClient>,
+  staffIds: string[],
+): Promise<
+  {
+    id: string;
+    name: string | null;
+    email: string | null;
+    display_name: string | null;
+  }[]
+> {
+  if (staffIds.length === 0) return [];
+
+  const { data: staffRows, error: staffError } = await pmsAdmin
+    .from("staff")
+    .select("id, name")
+    .in("id", staffIds);
+
+  if (staffError) {
+    throw new Error(`PMS staff lookup failed: ${staffError.message}`);
+  }
+
+  const { data: userRows, error: usersError } = await pmsAdmin
+    .from("users")
+    .select("member_id, email")
+    .in("member_id", staffIds);
+
+  if (usersError) {
+    throw new Error(`PMS users lookup failed: ${usersError.message}`);
+  }
+
+  const emailByStaffId = new Map<string, string>();
+  for (const row of userRows ?? []) {
+    const memberId = String(row.member_id ?? "").trim();
+    const email = String(row.email ?? "").trim();
+    if (memberId && email) emailByStaffId.set(memberId, email);
+  }
+
+  return (staffRows ?? []).map((row) => {
+    const id = String(row.id ?? "").trim();
+    const name = String(row.name ?? "").trim() || null;
+    const email = emailByStaffId.get(id) ?? null;
+    return {
+      id,
+      name,
+      email,
+      display_name: name,
+    };
+  });
+}
+
 async function lookupStaffByAuthUserIds(
   pmsAdmin: ReturnType<typeof createClient>,
   authUserIds: string[],
@@ -75,13 +126,12 @@ async function lookupStaffByAuthUserIds(
       name: null,
       email: null,
     };
-    const display_name = resolved.name ?? resolved.email ?? null;
     return {
       auth_user_id: authUserId,
       staff_id: resolved.staff_id,
       name: resolved.name,
       email: resolved.email,
-      display_name,
+      display_name: resolved.name,
     };
   });
 }
@@ -101,26 +151,8 @@ Deno.serve(async (req: Request) => {
     Deno.env.get("MASTER_SERVICE_ROLE_KEY") ??
     "";
 
-  const furnitureUrl = Deno.env.get("SUPABASE_URL") ?? "";
-  const furnitureAnonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
-
   if (!pmsServiceKey) {
     return jsonResponse({ error: "PMS service role key not configured" }, 500);
-  }
-
-  const authHeader = req.headers.get("Authorization");
-  if (!authHeader) {
-    return jsonResponse({ error: "Unauthorized" }, 401);
-  }
-
-  const furnitureClient = createClient(furnitureUrl, furnitureAnonKey, {
-    global: { headers: { Authorization: authHeader } },
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
-
-  const { data: userData, error: userError } = await furnitureClient.auth.getUser();
-  if (userError || !userData.user?.id) {
-    return jsonResponse({ error: "Unauthorized" }, 401);
   }
 
   let body: { staff_ids?: string[]; auth_user_ids?: string[] } = {};
@@ -155,53 +187,10 @@ Deno.serve(async (req: Request) => {
       auth: { persistSession: false, autoRefreshToken: false },
     });
 
-    const staff: {
-      id: string;
-      name: string | null;
-      email: string | null;
-      display_name: string | null;
-    }[] = [];
-
-    if (staffIds.length > 0) {
-      const { data: staffRows, error: staffError } = await pmsAdmin
-        .from("staff")
-        .select("id, name")
-        .in("id", staffIds);
-
-      if (staffError) {
-        throw new Error(`PMS staff lookup failed: ${staffError.message}`);
-      }
-
-      const { data: userRows, error: usersError } = await pmsAdmin
-        .from("users")
-        .select("member_id, email")
-        .in("member_id", staffIds);
-
-      if (usersError) {
-        throw new Error(`PMS users lookup failed: ${usersError.message}`);
-      }
-
-      const emailByStaffId = new Map<string, string>();
-      for (const row of userRows ?? []) {
-        const memberId = String(row.member_id ?? "").trim();
-        const email = String(row.email ?? "").trim();
-        if (memberId && email) emailByStaffId.set(memberId, email);
-      }
-
-      for (const row of staffRows ?? []) {
-        const id = String(row.id ?? "").trim();
-        const name = String(row.name ?? "").trim() || null;
-        const email = emailByStaffId.get(id) ?? null;
-        staff.push({
-          id,
-          name,
-          email,
-          display_name: name,
-        });
-      }
-    }
-
-    const auth_users = await lookupStaffByAuthUserIds(pmsAdmin, authUserIds);
+    const [staff, auth_users] = await Promise.all([
+      lookupStaffByIds(pmsAdmin, staffIds),
+      lookupStaffByAuthUserIds(pmsAdmin, authUserIds),
+    ]);
 
     return jsonResponse({ staff, auth_users });
   } catch (err) {

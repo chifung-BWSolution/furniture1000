@@ -136,32 +136,36 @@ async function invokeStaffResolver(body: {
   staff: ResolvedPmsStaff[];
   auth_users: ResolvedAuthUserStaff[];
 } | null> {
-  try {
-    const { data, error } = await supabase.functions.invoke(
-      'supabase-functions-resolve-pms-staff-by-ids',
-      { body },
-    );
-    if (error) {
-      console.warn('[resolvePmsStaff] edge function failed:', error.message);
-      return null;
+  const slugs = [
+    'supabase-functions-resolve-pms-staff-by-ids',
+    'resolve-pms-staff-by-ids',
+  ];
+
+  for (const slug of slugs) {
+    try {
+      const { data, error } = await supabase.functions.invoke(slug, { body });
+      if (error) {
+        console.warn(`[resolvePmsStaff] ${slug} failed:`, error.message);
+        continue;
+      }
+      const payload = data as {
+        error?: string;
+        staff?: ResolvedPmsStaff[];
+        auth_users?: ResolvedAuthUserStaff[];
+      } | null;
+      if (payload?.error) {
+        console.warn(`[resolvePmsStaff] ${slug} error:`, payload.error);
+        continue;
+      }
+      return {
+        staff: payload?.staff ?? [],
+        auth_users: payload?.auth_users ?? [],
+      };
+    } catch (err) {
+      console.warn(`[resolvePmsStaff] ${slug} unexpected error:`, err);
     }
-    const payload = data as {
-      error?: string;
-      staff?: ResolvedPmsStaff[];
-      auth_users?: ResolvedAuthUserStaff[];
-    } | null;
-    if (payload?.error) {
-      console.warn('[resolvePmsStaff] edge function error:', payload.error);
-      return null;
-    }
-    return {
-      staff: payload?.staff ?? [],
-      auth_users: payload?.auth_users ?? [],
-    };
-  } catch (err) {
-    console.warn('[resolvePmsStaff] unexpected error:', err);
-    return null;
   }
+  return null;
 }
 
 export type ResolvedAuthUserStaff = {

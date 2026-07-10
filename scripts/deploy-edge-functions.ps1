@@ -80,4 +80,9 @@ Deploy-Function `
   -FilePath (Join-Path $root 'supabase\functions\fetch-pms-pitchings\index.ts') `
   -Name 'fetch-pms-pitchings'
 
+Deploy-Function `
+  -Slug 'supabase-functions-resolve-pms-staff-by-ids' `
+  -FilePath (Join-Path $root 'supabase\functions\resolve-pms-staff-by-ids\index.ts') `
+  -Name 'resolve-pms-staff-by-ids'
+
 Write-Host 'All functions deployed successfully.'
