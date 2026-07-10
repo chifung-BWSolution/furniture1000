@@ -125,9 +125,10 @@ Furniture `/auth/pms/callback` 交換 session 後必須導向 `redirect_to`（�
 `?redirect_to=`。
 
 **快速報價 deep link**：`/quote/quick?...` 預填 Step 1（見 `src/lib/pmsQuotePrefill.ts`）。
-Query：`pmsPitchingId`, `projectName`, `projectManager`, `clientName`, `clientPhone`,
-`clientEmail`, `clientIndustry`, `quotationType`, `company`（可選）。
-報價編號仍由 Furniture 自動產生，PMS 不必傳。
+Query：`pmsPitchingId` **或** `pmsProjectId`（PMS Quote tab 實際傳的是
+`pmsProjectId`，兩者皆為 `bwf_pitchings.id`）、`projectName`, `projectManager`,
+`clientName`, `clientPhone`, `clientEmail`, `clientIndustry`, `quotationType`,
+`company`（可選）。報價編號仍由 Furniture 自動產生，PMS 不必傳。
 
 **站內選擇 Pitching**（無 PMS SSO 時）：快速報價 Step 1 必選
 `PmsPitchingSelector` → edge `supabase-functions-fetch-pms-pitchings` 搜尋

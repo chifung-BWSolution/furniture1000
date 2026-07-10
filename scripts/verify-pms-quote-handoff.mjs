@@ -26,7 +26,9 @@ function sanitizePostLoginRedirect(raw) {
 
 function parsePrefill(qs) {
   const params = new URLSearchParams(qs);
-  const pitchingId = (params.get('pmsPitchingId') || '').trim();
+  const pitchingId =
+    (params.get('pmsPitchingId') || '').trim() ||
+    (params.get('pmsProjectId') || '').trim();
   const out = {};
   if (pitchingId && UUID_RE.test(pitchingId)) out.pmsPitchingId = pitchingId;
   for (const k of ['projectName', 'projectManager', 'clientName', 'clientPhone', 'clientEmail', 'company']) {

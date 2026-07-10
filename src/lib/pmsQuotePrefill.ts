@@ -39,10 +39,23 @@ function splitList(raw: string): string[] {
     .filter(Boolean);
 }
 
+/**
+ * PMS may send either `pmsPitchingId` (Furniture convention) or
+ * `pmsProjectId` (bwteam-project.com Quote-tab handoff). Both are the
+ * PMS `bwf_pitchings.id` UUID.
+ */
+function resolvePitchingIdFromParams(params: URLSearchParams): string {
+  return (
+    firstParam(params, 'pmsPitchingId') ||
+    firstParam(params, 'pmsProjectId') ||
+    ''
+  );
+}
+
 /** True when the URL carries at least one PMS prefill signal. */
 export function hasPmsQuotePrefillParams(params: URLSearchParams): boolean {
   return Boolean(
-    firstParam(params, 'pmsPitchingId') ||
+    resolvePitchingIdFromParams(params) ||
       firstParam(params, 'projectName') ||
       firstParam(params, 'projectManager') ||
       firstParam(params, 'clientName'),
@@ -54,7 +67,7 @@ export function parsePmsQuotePrefill(params: URLSearchParams): PmsQuotePrefill |
 
   const prefill: PmsQuotePrefill = {};
 
-  const pitchingId = firstParam(params, 'pmsPitchingId');
+  const pitchingId = resolvePitchingIdFromParams(params);
   if (pitchingId && UUID_RE.test(pitchingId)) {
     prefill.pmsPitchingId = pitchingId;
   }
