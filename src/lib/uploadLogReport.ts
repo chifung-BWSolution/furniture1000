@@ -18,6 +18,7 @@ export const STAGE_LABELS: Record<UploadLogStage, string> = {
 };
 
 export const HISTORICAL_USER_LABEL = '歷史紀錄';
+export const UNKNOWN_USER_LABEL = '（無用戶紀錄）';
 
 /** Actions that count as “modified / completed” per stage. */
 const STAGE_ACTIONS: Record<UploadLogStage, Set<string>> = {
@@ -65,15 +66,22 @@ function toHkDate(iso: string): string {
 
 function displayUser(name: string | null, email: string | null): string {
   const n = name?.trim();
-  if (n && n !== HISTORICAL_USER_LABEL) return n;
+  if (n && n !== HISTORICAL_USER_LABEL && n !== UNKNOWN_USER_LABEL) return n;
   const e = email?.trim();
   if (e) return e;
-  return '未知用戶';
+  return UNKNOWN_USER_LABEL;
 }
 
 function needsStaffResolve(log: RawLogRow): boolean {
   const name = log.user_name?.trim();
-  return !name || name === HISTORICAL_USER_LABEL || name === '未知用戶';
+  return !name || name === HISTORICAL_USER_LABEL || name === UNKNOWN_USER_LABEL || name === '未知用戶';
+}
+
+function resolveStaffId(
+  editorStaffId?: string | null,
+  creatorStaffId?: string | null,
+): string | null {
+  return editorStaffId?.trim() || creatorStaffId?.trim() || null;
 }
 
 function emptyStageStats(): Record<UploadLogStage, StageDailyStats> {
@@ -199,14 +207,16 @@ async function fetchProductStaffMap(productIds: string[]): Promise<Map<string, s
     const chunk = unique.slice(i, i + 500);
     const { data, error } = await supabase
       .from('products')
-      .select('id, editor_staff_id')
+      .select('id, editor_staff_id, creator_staff_id')
       .in('id', chunk);
     if (error) {
       console.warn('[uploadLogReport] product staff map failed:', error.message);
       break;
     }
     for (const row of data ?? []) {
-      if (row.id) map.set(row.id, row.editor_staff_id ?? null);
+      if (row.id) {
+        map.set(row.id, resolveStaffId(row.editor_staff_id, row.creator_staff_id));
+      }
     }
   }
   return map;
@@ -228,10 +238,14 @@ async function enrichLogsWithStaff(
   return logs.map((log) => {
     if (!needsStaffResolve(log)) return log;
     const sid = log.editor_staff_id ?? (log.product_id ? productStaffMap.get(log.product_id) : null);
-    if (!sid) return log;
+    if (!sid) {
+      return { ...log, user_name: UNKNOWN_USER_LABEL };
+    }
     const staff = staffMap.get(sid);
-    if (!staff) return log;
-    const name = staff.display_name ?? staff.name ?? staff.email ?? log.user_name;
+    if (!staff) {
+      return { ...log, user_name: UNKNOWN_USER_LABEL };
+    }
+    const name = staff.display_name ?? staff.name ?? staff.email ?? UNKNOWN_USER_LABEL;
     return {
       ...log,
       user_name: name,
@@ -248,28 +262,50 @@ async function fetchHistoricalLogRows(
 ): Promise<RawLogRow[]> {
   const historical: RawLogRow[] = [];
 
-  const [copyProducts, infoRts, checkedRts, readyRts, syncedProducts] = await Promise.all([
-    fetchAllPages<{ id: string; copy_done_at: string; editor_staff_id: string | null }>(
+  const [
+    copyProducts,
+    infoProducts,
+    infoRts,
+    checkedRts,
+    readyRts,
+    rtsFgReady,
+    syncedProducts,
+  ] = await Promise.all([
+    fetchAllPages<{ id: string; copy_done_at: string; editor_staff_id: string | null; creator_staff_id: string | null }>(
       'products.copy_done_at',
       async (from, to) =>
         supabase
           .from('products')
-          .select('id, copy_done_at, editor_staff_id')
+          .select('id, copy_done_at, editor_staff_id, creator_staff_id')
           .eq('copy_done', true)
           .not('copy_done_at', 'is', null)
           .gte('copy_done_at', startIso)
           .order('copy_done_at', { ascending: false })
           .range(from, to),
     ),
-    fetchAllPages<{ product_id: string; info_completed_at: string }>('rts.info_completed_at', async (from, to) =>
-      supabase
-        .from('ready_to_shopify')
-        .select('product_id, info_completed_at')
-        .eq('info_done', true)
-        .not('info_completed_at', 'is', null)
-        .gte('info_completed_at', startIso)
-        .order('info_completed_at', { ascending: false })
-        .range(from, to),
+    fetchAllPages<{ id: string; modified_date: string; editor_staff_id: string | null; creator_staff_id: string | null }>(
+      'products.info_done',
+      async (from, to) =>
+        supabase
+          .from('products')
+          .select('id, modified_date, editor_staff_id, creator_staff_id')
+          .eq('info_done', true)
+          .eq('copy_done', true)
+          .not('modified_date', 'is', null)
+          .gte('modified_date', startIso)
+          .order('modified_date', { ascending: false })
+          .range(from, to),
+    ),
+    fetchAllPages<{ product_id: string; info_completed_at: string | null; imported_at: string | null }>(
+      'rts.info_completed_at',
+      async (from, to) =>
+        supabase
+          .from('ready_to_shopify')
+          .select('product_id, info_completed_at, imported_at')
+          .eq('info_done', true)
+          .or(`info_completed_at.gte."${startIso}",imported_at.gte."${startIso}"`)
+          .order('info_completed_at', { ascending: false, nullsFirst: false })
+          .range(from, to),
     ),
     fetchAllPages<{ product_id: string; checked_edited_at: string }>('rts.checked_edited_at', async (from, to) =>
       supabase
@@ -289,12 +325,26 @@ async function fetchHistoricalLogRows(
         .order('ready_to_publish_at', { ascending: false })
         .range(from, to),
     ),
-    fetchAllPages<{ id: string; synced_at: string; editor_staff_id: string | null }>(
+    fetchAllPages<{
+      product_id: string;
+      ready_to_publish_at: string | null;
+      imported_at: string | null;
+      furniture_group_checked: boolean | null;
+    }>('rts.furniture_group_checked', async (from, to) =>
+      supabase
+        .from('ready_to_shopify')
+        .select('product_id, ready_to_publish_at, imported_at, furniture_group_checked')
+        .eq('furniture_group_checked', true)
+        .or(`ready_to_publish_at.gte."${startIso}",imported_at.gte."${startIso}"`)
+        .order('ready_to_publish_at', { ascending: false, nullsFirst: false })
+        .range(from, to),
+    ),
+    fetchAllPages<{ id: string; synced_at: string; editor_staff_id: string | null; creator_staff_id: string | null }>(
       'products.synced_at',
       async (from, to) =>
         supabase
           .from('products')
-          .select('id, synced_at, editor_staff_id')
+          .select('id, synced_at, editor_staff_id, creator_staff_id')
           .not('synced_at', 'is', null)
           .not('shopify_product_id', 'is', null)
           .gte('synced_at', startIso)
@@ -303,8 +353,17 @@ async function fetchHistoricalLogRows(
     ),
   ]);
 
+  const rememberStaff = (
+    productId: string,
+    editorStaffId?: string | null,
+    creatorStaffId?: string | null,
+  ) => {
+    const sid = resolveStaffId(editorStaffId, creatorStaffId);
+    if (sid) productStaffMap.set(productId, sid);
+    return sid;
+  };
+
   for (const row of copyProducts) {
-    if (row.editor_staff_id) productStaffMap.set(row.id, row.editor_staff_id);
     pushHistorical(
       historical,
       covered,
@@ -312,20 +371,36 @@ async function fetchHistoricalLogRows(
       'copywriting',
       'submit',
       row.copy_done_at,
-      row.editor_staff_id,
+      rememberStaff(row.id, row.editor_staff_id, row.creator_staff_id),
     );
   }
+
   for (const row of infoRts) {
+    const loggedAt = row.info_completed_at ?? row.imported_at;
+    if (!loggedAt || loggedAt < startIso) continue;
     pushHistorical(
       historical,
       covered,
       row.product_id,
       'product_info',
       'complete',
-      row.info_completed_at,
+      loggedAt,
       productStaffMap.get(row.product_id) ?? null,
     );
   }
+
+  for (const row of infoProducts) {
+    pushHistorical(
+      historical,
+      covered,
+      row.id,
+      'product_info',
+      'complete',
+      row.modified_date,
+      rememberStaff(row.id, row.editor_staff_id, row.creator_staff_id),
+    );
+  }
+
   for (const row of checkedRts) {
     pushHistorical(
       historical,
@@ -337,6 +412,7 @@ async function fetchHistoricalLogRows(
       productStaffMap.get(row.product_id) ?? null,
     );
   }
+
   for (const row of readyRts) {
     pushHistorical(
       historical,
@@ -348,8 +424,32 @@ async function fetchHistoricalLogRows(
       productStaffMap.get(row.product_id) ?? null,
     );
   }
+
+  for (const row of rtsFgReady) {
+    const loggedAt = row.ready_to_publish_at ?? row.imported_at;
+    if (!loggedAt || loggedAt < startIso) continue;
+    pushHistorical(
+      historical,
+      covered,
+      row.product_id,
+      'furniture_group_check',
+      'add_to_ready',
+      loggedAt,
+      productStaffMap.get(row.product_id) ?? null,
+    );
+  }
+
   for (const row of syncedProducts) {
-    if (row.editor_staff_id) productStaffMap.set(row.id, row.editor_staff_id);
+    const staffId = rememberStaff(row.id, row.editor_staff_id, row.creator_staff_id);
+    pushHistorical(
+      historical,
+      covered,
+      row.id,
+      'furniture_group_check',
+      'add_to_ready',
+      row.synced_at,
+      staffId,
+    );
     pushHistorical(
       historical,
       covered,
@@ -357,7 +457,7 @@ async function fetchHistoricalLogRows(
       'ready_to_publish',
       'upload',
       row.synced_at,
-      row.editor_staff_id,
+      staffId,
     );
   }
 
