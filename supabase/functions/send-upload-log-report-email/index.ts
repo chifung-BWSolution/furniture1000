@@ -29,6 +29,15 @@ function normalizeRecipients(to: string | string[] | undefined): string[] {
   return unique.size > 0 ? [...unique] : [DEFAULT_TO];
 }
 
+function buildForwardNotice(forwardTo: string): { text: string; html: string; subjectSuffix: string } {
+  const trimmed = forwardTo.trim();
+  return {
+    subjectSuffix: `（請轉寄 ${trimmed}）`,
+    text: `【請轉寄】此郵件請轉寄至：${trimmed}\n\n`,
+    html: `<p style="margin:0 0 16px;padding:12px 14px;background:#fff7ed;border:1px solid #fdba74;border-radius:8px;font-size:13px;color:#9a3412;line-height:1.5;"><strong>請轉寄：</strong>此郵件請轉寄至 <a href="mailto:${trimmed}" style="color:#c2410c;">${trimmed}</a></p>`,
+  };
+}
+
 async function sendEmailViaGmailSmtp(args: {
   to: string[];
   subject: string;
@@ -192,6 +201,7 @@ Deno.serve(async (req: Request) => {
   let body: {
     test?: boolean;
     to?: string | string[];
+    forward_to?: string;
     include_all_dates?: boolean;
     preview_only?: boolean;
     day_count?: number;
@@ -204,22 +214,29 @@ Deno.serve(async (req: Request) => {
   }
 
   const to = normalizeRecipients(body.to);
+  const forwardTo = body.forward_to?.trim() || "";
   const dayCount = Math.min(Math.max(Number(body.day_count) || 30, 1), 30);
   const includeAllDates = body.include_all_dates === true;
 
   try {
     const report = await fetchUploadLogReportServer(dayCount);
-    const text = includeAllDates
+    let text = includeAllDates
       ? formatUploadLogReportAsText(report)
       : formatTodayUploadLogReportAsText(report);
-    const html = includeAllDates
+    let html = includeAllDates
       ? formatUploadLogReportAsHtml(report)
       : formatTodayUploadLogReportAsHtml(report);
 
     const [y, m, d] = report.todayHk.split("-");
     const dateLabel = `${y}/${m}/${d}`;
     const subjectPrefix = body.test ? "[測試] " : "";
-    const subject = `${subjectPrefix}上載產品紀錄 ${dateLabel}（香港時間）`;
+    const forwardNotice = forwardTo ? buildForwardNotice(forwardTo) : null;
+    const subject = `${subjectPrefix}上載產品紀錄 ${dateLabel}（香港時間）${forwardNotice?.subjectSuffix ?? ""}`;
+
+    if (forwardNotice) {
+      text = `${forwardNotice.text}${text}`;
+      html = `${forwardNotice.html}${html}`;
+    }
 
     if (body.preview_only) {
       return jsonResponse({
@@ -239,6 +256,7 @@ Deno.serve(async (req: Request) => {
       ok: true,
       test: body.test === true,
       to,
+      forward_to: forwardTo || null,
       subject,
       provider: result.provider,
       message_id: result.id ?? null,
