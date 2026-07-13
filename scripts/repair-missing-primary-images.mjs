@@ -1,7 +1,13 @@
 #!/usr/bin/env node
 /**
- * Repair shopify_products + Shopify live gallery for products whose primary
- * image_url was dropped during publish (extras-only images[] bug).
+ * Repair shopify_products mirror gallery using ready_to_shopify as primary source.
+ *
+ * Gallery rules (same as src/lib/rtsImages.ts parseRtsGalleryUrls):
+ *   - ready_to_shopify.image_url = primary
+ *   - ready_to_shopify.images[] = extras only (no primary duplicate)
+ *   - Fallback to products.* when RTS row was deleted after publish
+ *
+ * Mirror only — does NOT push to Shopify.
  */
 import { writeFileSync } from 'node:fs';
 
@@ -10,51 +16,90 @@ const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const TOKEN = process.env.SUPABASE_ACCESS_TOKEN;
 const PROJECT_REF = 'riaubhtruisbwdlwjzur';
 
-function imageIdentityKey(url) {
-  if (!url) return '';
-  const noQuery = url.split('?')[0];
-  const base = noQuery.substring(noQuery.lastIndexOf('/') + 1);
-  return base.replace(/\.[a-zA-Z0-9]+$/, '').trim().toLowerCase();
+function normalizeImagesField(images) {
+  if (Array.isArray(images)) return images;
+  if (typeof images === 'string' && images.trim()) {
+    try {
+      const parsed = JSON.parse(images);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+/** ready_to_shopify gallery: image_url primary, then images[] extras. */
+function buildGalleryFromRow(row) {
+  const urls = [];
+  const seen = new Set();
+  const add = (src) => {
+    const s = (src || '').trim();
+    if (!s || !s.startsWith('http') || seen.has(s)) return;
+    seen.add(s);
+    urls.push(s);
+  };
+
+  add(row.image_url);
+  for (const img of normalizeImagesField(row.images)) {
+    if (typeof img === 'string') add(img);
+    else if (img && typeof img === 'object') {
+      add(typeof img.src === 'string' ? img.src : typeof img.url === 'string' ? img.url : null);
+    }
+  }
+  return urls;
 }
 
 function normalizeStem(url) {
-  let stem = imageIdentityKey(url);
+  if (!url) return '';
+  const noQuery = url.split('?')[0];
+  const base = noQuery.substring(noQuery.lastIndexOf('/') + 1);
+  let stem = base.replace(/\.[a-zA-Z0-9]+$/, '').trim().toLowerCase();
   stem = stem.replace(/_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, '');
   return stem;
 }
 
-function stemsMatch(a, b) {
-  const sa = normalizeStem(a);
-  const sb = normalizeStem(b);
-  return !!sa && !!sb && sa === sb;
+function galleriesMatch(a, b) {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (normalizeStem(a[i]) !== normalizeStem(b[i])) return false;
+  }
+  return true;
 }
 
-function buildCorrectGallery(row) {
-  const ordered = [];
-  const seen = new Set();
-  const add = (url) => {
-    if (!url || !String(url).startsWith('http')) return;
-    const key = normalizeStem(url);
-    if (seen.has(key)) return;
-    seen.add(key);
-    ordered.push(url);
+function pickImageSource(row) {
+  if (row.rts_primary || (row.rts_images && row.rts_images.length > 0)) {
+    return {
+      source: 'ready_to_shopify',
+      image_url: row.rts_primary,
+      images: row.rts_images,
+    };
+  }
+  return {
+    source: 'products',
+    image_url: row.prod_primary,
+    images: row.prod_images,
   };
-  add(row.prod_primary);
-  for (const im of row.prod_images || []) add(im?.src || im);
-  add(row.image_url_2);
-  add(row.image_url_3);
-  return ordered;
 }
 
 function needsRepair(row) {
-  const correct = buildCorrectGallery(row);
+  const src = pickImageSource(row);
+  const correct = buildGalleryFromRow(src);
   if (correct.length === 0) return null;
-  const primary = correct[0];
-  const spUrls = [row.sp_image_url, ...(row.sp_images || []).map((im) => im?.src)].filter(Boolean);
-  const primaryInGallery = spUrls.some((u) => stemsMatch(primary, u));
-  const correctPrimaryAtPos1 = spUrls[0] && stemsMatch(primary, spUrls[0]);
-  if (primaryInGallery && correctPrimaryAtPos1) return null;
-  return { correct, title: row.title, shopify_product_id: row.shopify_product_id };
+
+  const current = buildGalleryFromRow({
+    image_url: row.sp_primary,
+    images: row.sp_images,
+  });
+
+  if (galleriesMatch(correct, current)) return null;
+
+  return {
+    shopify_product_id: row.shopify_product_id,
+    title: row.title,
+    correct,
+    source: src.source,
+  };
 }
 
 async function runQuery(query) {
@@ -95,55 +140,45 @@ async function patchMirror(shopifyProductId, gallery, title) {
   }
 }
 
-async function pushBatch(ids) {
-  const res = await fetch(`${FURNITURE}/functions/v1/update-shopify-product`, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ shopify_product_ids: ids }),
-  });
-  const payload = await res.json().catch(() => ({}));
-  if (!res.ok || payload.success === false) {
-    throw new Error(payload.error || `push failed ${res.status}`);
-  }
-  return payload;
-}
-
-function sleep(ms) {
-  return new Promise((r) => setTimeout(r, ms));
-}
-
 async function main() {
-  console.log('Fetching candidate products...');
+  console.log('Fetching candidate products (RTS-first gallery logic)...');
   const rows = await runQuery(`
     SELECT
       sp.shopify_product_id,
       sp.title,
-      sp.image_url AS sp_image_url,
+      sp.image_url AS sp_primary,
       sp.images AS sp_images,
+      rts.image_url AS rts_primary,
+      rts.images AS rts_images,
       p.image_url AS prod_primary,
-      p.images AS prod_images,
-      p.image_url_2,
-      p.image_url_3
+      p.images AS prod_images
     FROM shopify_products sp
     JOIN products p ON p.id = sp.source_product_id
+    LEFT JOIN ready_to_shopify rts ON rts.product_id = sp.source_product_id
     WHERE sp.source_product_id IS NOT NULL
-      AND p.image_url IS NOT NULL
-      AND p.image_url LIKE 'http%'
       AND COALESCE(sp.imported_at, sp.published_at) >= '2026-07-06'
     ORDER BY COALESCE(sp.imported_at, sp.published_at) DESC
   `);
 
   const targets = [];
+  const sourceStats = { ready_to_shopify: 0, products: 0 };
   for (const row of rows || []) {
     const repair = needsRepair(row);
-    if (repair) targets.push(repair);
+    if (!repair) continue;
+    targets.push(repair);
+    sourceStats[repair.source]++;
   }
 
   console.log(`Need repair: ${targets.length}`);
-  const report = { startedAt: new Date().toISOString(), total: targets.length, mirrorOk: 0, mirrorFail: [], pushBatches: [], pushFail: [] };
+  console.log('Source breakdown:', sourceStats);
+
+  const report = {
+    startedAt: new Date().toISOString(),
+    total: targets.length,
+    sourceStats,
+    mirrorOk: 0,
+    mirrorFail: [],
+  };
 
   for (let i = 0; i < targets.length; i++) {
     const t = targets[i];
@@ -152,7 +187,10 @@ async function main() {
       report.mirrorOk++;
       if ((i + 1) % 25 === 0) console.log(`Mirror updated ${i + 1}/${targets.length}`);
     } catch (err) {
-      report.mirrorFail.push({ shopify_product_id: t.shopify_product_id, error: String(err.message || err) });
+      report.mirrorFail.push({
+        shopify_product_id: t.shopify_product_id,
+        error: String(err.message || err),
+      });
     }
   }
 
@@ -162,6 +200,7 @@ async function main() {
     total: report.total,
     mirrorOk: report.mirrorOk,
     mirrorFail: report.mirrorFail.length,
+    sourceStats: report.sourceStats,
   }));
 }
 
