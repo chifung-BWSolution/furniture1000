@@ -4,7 +4,7 @@ import { supabase } from '@/lib/supabase';
 const RTS_LIST_SELECT = `
   id, product_id, title, image_url, vendor, product_type, variants, tags, price, compare_at_price, shopify_product_id, sku,
   products (
-    id, sku, model, factory_id, cost_price, sale_price,
+    id, sku, model, factory_id, cost_price, sale_price, image_url,
     dimension_l_mm, dimension_w_mm, dimension_h_mm,
     category, material, factories_display_name,
     level1_category, level2_category, in_stock, customize,
@@ -70,7 +70,11 @@ export function mapReadyToPublishRow(row: Record<string, unknown>): Product {
       ? rawTags.split(',').map((t: string) => t.trim()).filter(Boolean)
       : [];
 
-  const imageUrl = typeof row.image_url === 'string' ? row.image_url : '';
+  // RTS image_url is canonical; fall back to products.image_url when copywriting
+  // only populated images[] (extras) but primary lives on the catalog row.
+  const rtsImg = typeof row.image_url === 'string' ? row.image_url.trim() : '';
+  const prodImg = typeof p.image_url === 'string' ? p.image_url.trim() : '';
+  const imageUrl = rtsImg || prodImg;
 
   return {
     id: String(row.id),

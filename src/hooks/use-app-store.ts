@@ -1021,7 +1021,7 @@ export function useAppStore() {
     // finalised title, body_html, price, image_url, images, variants.
     const { data: rtsRows, error: rtsErr } = await supabase
       .from('ready_to_shopify')
-      .select('id,product_id,title,body_html,vendor,price,image_url,image_url_2,image_url_3,images,variants,product_type,tags,shopify_url,shopify_page_title,shopify_page_description,dimension_l_mm,dimension_w_mm,dimension_h_mm,material,"my_fields.materials",customize,sku')
+      .select('id,product_id,title,body_html,vendor,price,image_url,image_url_2,image_url_3,images,variants,product_type,tags,shopify_url,shopify_page_title,shopify_page_description,dimension_l_mm,dimension_w_mm,dimension_h_mm,material,"my_fields.materials",customize,sku,products(image_url)')
       .in('product_id', productIdsToPublish);
     if (rtsErr) {
       console.warn('[publishToShopify] ready_to_shopify fetch error:', rtsErr.message);
@@ -1041,9 +1041,13 @@ export function useAppStore() {
       const productTags: string[] = Array.isArray(p.tags) ? p.tags : [];
       const mergedTags = Array.from(new Set([...productTags, ...rtsTags]));
 
-      // Ordered gallery: image_url is always the primary; images[] holds extras only.
-      const galleryUrls: string[] = buildPublishGalleryUrls(rts, p.imageUrl);
-      const primaryUrl: string = galleryUrls[0] || rts?.image_url || p.imageUrl || '';
+      // Ordered gallery: RTS image_url primary, else products.image_url; images[] = extras.
+      const catalogPrimary =
+        (typeof rts?.products?.image_url === 'string' ? rts.products.image_url : '') ||
+        p.imageUrl ||
+        '';
+      const galleryUrls: string[] = buildPublishGalleryUrls(rts, catalogPrimary);
+      const primaryUrl: string = galleryUrls[0] || rts?.image_url || catalogPrimary || '';
       const additionalImages: { src: string }[] = galleryUrls.slice(1).map((src) => ({ src }));
 
       // ── Build metafields from ready_to_shopify fields (variant-less mapping) ──

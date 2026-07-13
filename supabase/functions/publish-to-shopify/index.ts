@@ -892,6 +892,39 @@ Deno.serve(async (req: Request) => {
         let resolvedImageUrl: string | null = null;
         let imageWarning: string | undefined;
 
+        // When RTS only had images[] extras, client may still send empty image_url.
+        // Fall back to products.image_url from catalog before building the gallery.
+        let catalogPrimaryUrl = "";
+        if (!product.image_url?.trim() || !product.primary_image_src?.trim()) {
+          const { data: prodRow } = await supabase
+            .from("products")
+            .select("image_url")
+            .eq("id", product.id)
+            .maybeSingle();
+          catalogPrimaryUrl = (prodRow?.image_url || "").trim();
+          if (catalogPrimaryUrl.startsWith("http")) {
+            if (!product.image_url?.trim()) product.image_url = catalogPrimaryUrl;
+            if (!product.primary_image_src?.trim()) product.primary_image_src = catalogPrimaryUrl;
+            if (!Array.isArray(product.gallery_urls) || product.gallery_urls.length === 0) {
+              const extras = (product.images || [])
+                .map((im) => im?.src || im?.url || "")
+                .filter((s) => typeof s === "string" && s.startsWith("http"));
+              product.gallery_urls = [catalogPrimaryUrl, ...extras];
+            } else if (
+              product.gallery_urls.length > 0 &&
+              imageIdentityKey(product.gallery_urls[0]) !== imageIdentityKey(catalogPrimaryUrl)
+            ) {
+              const rest = product.gallery_urls.filter(
+                (u) => imageIdentityKey(u) !== imageIdentityKey(catalogPrimaryUrl),
+              );
+              product.gallery_urls = [catalogPrimaryUrl, ...rest];
+            }
+            console.log(
+              `[publish-to-shopify] 📎 Catalog primary fallback for "${product.title}": ${catalogPrimaryUrl.substring(0, 80)}...`,
+            );
+          }
+        }
+
         if (product.image_url) {
           console.log(`[publish-to-shopify] 🖼️ Validating primary image for "${product.title}"`);
           const imageResult = await resolveImageUrl(supabase, supabaseUrl, product.id, product.image_url);

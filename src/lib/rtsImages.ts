@@ -69,21 +69,30 @@ export function parseRtsGalleryUrls(row: {
   return urls;
 }
 
+function httpImageKey(url: string): string {
+  return url.split('?')[0];
+}
+
 /**
- * Build publish gallery: RTS image_url first, then images[].
- * Prepends products.image_url only when it is missing from the RTS gallery.
+ * Build publish gallery: primary first (RTS image_url, else products.image_url), then images[].
+ * When RTS only has images[] extras, prepends catalog primary so Shopify gets the main shot.
  */
 export function buildPublishGalleryUrls(
   rts: { image_url?: string | null; images?: unknown } | null | undefined,
   productPrimary?: string | null,
 ): string[] {
-  const urls = rts ? parseRtsGalleryUrls(rts) : [];
-  const prodPrimary = (productPrimary || '').trim();
-  if (!prodPrimary.startsWith('http')) return urls;
+  const rtsPrimary = (rts?.image_url || '').trim();
+  const catalogPrimary = (productPrimary || '').trim();
+  const effectivePrimary = rtsPrimary.startsWith('http')
+    ? rtsPrimary
+    : catalogPrimary.startsWith('http')
+      ? catalogPrimary
+      : '';
 
-  const key = (u: string) => u.split('?')[0];
-  const prodKey = key(prodPrimary);
-  if (urls.some((u) => key(u) === prodKey)) return urls;
-  if (urls.length === 0) return [prodPrimary];
-  return [prodPrimary, ...urls];
+  let urls = rts ? parseRtsGalleryUrls(rts) : [];
+  if (!effectivePrimary.startsWith('http')) return urls;
+
+  const pk = httpImageKey(effectivePrimary);
+  const withoutPrimary = urls.filter((u) => httpImageKey(u) !== pk);
+  return [effectivePrimary, ...withoutPrimary];
 }
