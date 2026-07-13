@@ -33,14 +33,14 @@ export async function fetchPmsPitchingQuoteDefaults(options?: {
   projectId?: string | null;
 } | string | null): Promise<PmsPitchingQuoteDefaults | null> {
   // Back-compat: older call sites passed a pitching id string.
-  const pitchingId =
-    typeof options === 'string' || options == null
-      ? (options || '').trim()
-      : (options.pitchingId || '').trim();
-  const projectId =
-    typeof options === 'string' || options == null
-      ? ''
-      : (options.projectId || '').trim();
+  let pitchingId = '';
+  let projectId = '';
+  if (typeof options === 'string') {
+    pitchingId = options.trim();
+  } else if (options && typeof options === 'object') {
+    pitchingId = (options.pitchingId || '').trim();
+    projectId = (options.projectId || '').trim();
+  }
 
   try {
     const body: Record<string, string> = {};
