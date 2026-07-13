@@ -283,27 +283,34 @@ function renderPlainTermLines(
   );
 }
 
-function wrapDimensionsAtStars(dimText: string, maxChars = 11): string[] {
-  if (!dimText) return [];
-  if (dimText.length <= maxChars) return [dimText];
+/** Split L*W*H into one segment per line (e.g. 1800*750*750 → 1800* / 750* / 750). */
+function splitDimensionsLines(dimText: string): string[] {
+  if (!dimText.trim()) return [];
+  if (!dimText.includes('*')) return [dimText];
+  const parts = dimText.split('*').filter((part) => part.length > 0);
+  return parts.map((part, index) => (index < parts.length - 1 ? `${part}*` : part));
+}
 
-  const parts = dimText.split('*').filter(Boolean);
-  if (parts.length <= 1) return [dimText];
-
-  const lines: string[] = [];
-  let current = '';
-  for (let i = 0; i < parts.length; i++) {
-    const withStar = i < parts.length - 1 ? `${parts[i]}*` : parts[i];
-    const combined = current ? `${current}${withStar}` : withStar;
-    if (combined.length > maxChars && current) {
-      lines.push(current);
-      current = withStar;
-    } else {
-      current = combined;
-    }
-  }
-  if (current) lines.push(current);
-  return lines;
+function renderDescDimensionsValue(
+  dimText: string,
+  View: ReactPdfModule['View'],
+  Text: ReactPdfModule['Text'],
+) {
+  const lines = splitDimensionsLines(dimText);
+  return (
+    <View style={{ width: '50%', minWidth: 0, paddingHorizontal: 2, paddingVertical: 2 }}>
+      <Text style={styles.descDimLabelText}>W*D*H</Text>
+      {lines.map((line, li) => (
+        <View key={`dim-line-${li}`} style={styles.descDimLineRow}>
+          {Array.from(pdfDisplayText(line)).map((ch, j) => (
+            <Text key={`dim-ch-${li}-${j}`} style={styles.descDimChar}>
+              {ch}
+            </Text>
+          ))}
+        </View>
+      ))}
+    </View>
+  );
 }
 
 type QuotationItem = QuotationPDFData['items'][0];
@@ -525,10 +532,11 @@ function renderDescriptionPdfContent(
           key={row.label}
           style={{
             flexDirection: 'row',
-            alignItems: row.kind === 'category' ? 'flex-start' : 'center',
+            alignItems:
+              row.kind === 'category' || row.kind === 'dimensions' ? 'flex-start' : 'center',
             flexGrow: 0,
             flexShrink: 0,
-            minHeight: row.kind === 'dimensions' ? 26 : row.kind === 'simple' ? 18 : undefined,
+            minHeight: row.kind === 'simple' ? 18 : undefined,
             borderBottomWidth: i < rows.length - 1 ? 0.5 : 0,
             borderColor: '#ddd',
           }}
@@ -536,10 +544,11 @@ function renderDescriptionPdfContent(
           <View
             style={{
               width: '50%',
-              justifyContent: row.kind === 'category' ? 'flex-start' : 'center',
+              justifyContent:
+                row.kind === 'category' || row.kind === 'dimensions' ? 'flex-start' : 'center',
               alignItems: 'center',
               paddingHorizontal: 2,
-              paddingTop: row.kind === 'category' ? 4 : 0,
+              paddingTop: row.kind === 'category' || row.kind === 'dimensions' ? 4 : 0,
               paddingBottom: row.kind === 'category' ? 4 : 0,
               borderRightWidth: 0.5,
               borderColor: '#ddd',
@@ -548,16 +557,7 @@ function renderDescriptionPdfContent(
             <Text style={styles.tableCellText}>{row.label}</Text>
           </View>
           {row.kind === 'dimensions' ? (
-            <View style={{ width: '50%', justifyContent: 'center', paddingHorizontal: 2, paddingVertical: 1 }}>
-              <Text style={styles.descDimLabelText}>W*D*H</Text>
-              {row.dimText
-                ? wrapDimensionsAtStars(row.dimText).map((line, li) => (
-                    <Text key={`dim-line-${li}`} style={styles.descDimValueText}>
-                      {pdfDisplayText(line)}
-                    </Text>
-                  ))
-                : null}
-            </View>
+            renderDescDimensionsValue(row.dimText, View, Text)
           ) : row.kind === 'category' ? (
             <View style={{ width: '50%', justifyContent: 'flex-start', paddingHorizontal: 2, paddingVertical: 2 }}>
               <Text
@@ -612,7 +612,8 @@ const styles: Record<string, any> = {
   /** 類別 — fixed column width, height grows with wrapped CJK text. */
   descCategoryValueText: { fontSize: 6.5, textAlign: 'left', lineHeight: 1.35, paddingLeft: 2, width: '100%' },
   descDimLabelText: { fontSize: 6, textAlign: 'left', lineHeight: 1.2, paddingLeft: 2, color: '#555' },
-  descDimValueText: { fontSize: 6, textAlign: 'left', lineHeight: 1.2, paddingLeft: 2, width: '100%' },
+  descDimLineRow: { flexDirection: 'row', flexWrap: 'wrap', width: '100%' },
+  descDimChar: { fontSize: 6, lineHeight: 1.25, textAlign: 'left' },
   cellStackSlot: { flex: 1, width: '100%', justifyContent: 'center', alignItems: 'center', paddingVertical: 2, paddingHorizontal: 2 },
   cellImageSlot: { width: '100%', justifyContent: 'center', alignItems: 'center', paddingVertical: 2, paddingHorizontal: 2 },
   cellStackImage: { width: '100%', maxHeight: '100%', objectFit: 'contain' },
