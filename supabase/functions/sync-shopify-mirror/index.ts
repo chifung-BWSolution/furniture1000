@@ -150,6 +150,85 @@ async function applySeoBackfill(
   return updated;
 }
 
+function stripEditorArtifactHtml(html: string | null): string | null {
+  if (!html) return html;
+  let out = html;
+  out = out.replace(/\s+style="[^"]*--tw-[^"]*"/gi, "");
+  out = out.replace(/\s+style='[^']*--tw-[^']*'/gi, "");
+  out = out.replace(/<br\s*\/?>/gi, "<br>");
+  return out;
+}
+
+/** Fetch specific products by Shopify numeric IDs. */
+async function fetchProductsByIds(
+  apiBase: string,
+  headers: Record<string, string>,
+  ids: string[],
+): Promise<Record<string, unknown>[]> {
+  const products: Record<string, unknown>[] = [];
+  const CHUNK = 100;
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const chunk = ids.slice(i, i + CHUNK);
+    const url =
+      `${apiBase}/products.json?limit=250&ids=${chunk.join(",")}&fields=id,title,body_html,vendor,product_type,handle,status,published_at,images,variants,tags,created_at,updated_at`;
+    const r = await fetch(url, { headers });
+    if (!r.ok) continue;
+    const j = await r.json();
+    if (Array.isArray(j.products)) products.push(...j.products);
+  }
+  return products;
+}
+
+function buildMirrorRow(
+  sp: Record<string, unknown>,
+  shopDomain: string,
+  nowIso: string,
+  prev?: {
+    id: string;
+    source_product_id: string | null;
+    shopify_page_title: string | null;
+    shopify_page_description: string | null;
+    shopify_url: string | null;
+  },
+): Record<string, unknown> {
+  const shopifyId = String(sp.id);
+  const variants = (sp.variants as Record<string, unknown>[]) ?? [];
+  const prices = variants.map((v) => parseFloat(String(v.price ?? "0")) || 0);
+  const minPrice = prices.length ? Math.min(...prices) : 0;
+  const compareAt = variants.length && variants[0].compare_at_price
+    ? parseFloat(String(variants[0].compare_at_price)) || null : null;
+  const images = (sp.images as Record<string, unknown>[]) ?? [];
+  const tags = ((sp.tags as string) || "").split(",").map((t) => t.trim()).filter(Boolean);
+  const localUrl = prev?.shopify_url?.trim() || null;
+
+  const row: Record<string, unknown> = {
+    shopify_product_id: shopifyId,
+    title: sp.title ?? "(未命名)",
+    body_html: stripEditorArtifactHtml((sp.body_html as string) ?? null),
+    vendor: sp.vendor ?? null,
+    product_type: sp.product_type ?? null,
+    handle: localUrl || (sp.handle ?? null),
+    shopify_url: localUrl || (sp.handle ?? null),
+    status: sp.status ?? "active",
+    published_at: sp.published_at ?? null,
+    image_url: (images[0]?.src as string) ?? null,
+    images: images.length > 0 ? images.map((im) => ({
+      id: im.id, src: im.src, alt: im.alt || "", width: im.width, height: im.height, position: im.position,
+    })) : null,
+    variants: variants.length > 0 ? variants : null,
+    tags,
+    price: minPrice,
+    compare_at_price: compareAt,
+    shopify_created_at: sp.created_at ?? null,
+    shopify_updated_at: sp.updated_at ?? null,
+    imported_at: nowIso,
+    shop_domain: shopDomain,
+    id: prev?.id ?? null,
+    source_product_id: prev?.source_product_id ?? null,
+  };
+  return row;
+}
+
 /**
  * sync-shopify-mirror
  *
@@ -162,7 +241,9 @@ async function applySeoBackfill(
  *     Shopify (product was deleted in the Shopify admin).
  *
  * POST { backfill_seo?: boolean }  → SEO-only backfill (no mirror reconcile)
- * POST {}                          → full mirror + SEO backfill
+ * POST { product_ids?: string[] }  → partial reconcile for specific Shopify IDs
+ * POST { skip_seo?: boolean }      → skip SEO backfill on full/partial reconcile
+ * POST {}                          → full mirror reconcile (SEO fill-only-null)
  *
  * Title/price/status always reflect Shopify (source of truth for the mirror).
  * Metafield columns are NOT touched here — they are owned by the import /
@@ -190,7 +271,7 @@ Deno.serve(async (req: Request) => {
       .replace(/^https?:\/\//, "").replace(/\/+$/, "");
     if (!shopifyToken || !shopDomain) return json({ error: "Shopify credentials not configured." }, 400);
 
-    let body: { backfill_seo?: boolean } = {};
+    let body: { backfill_seo?: boolean; product_ids?: string[]; skip_seo?: boolean } = {};
     try { body = await req.json(); } catch { /* empty body */ }
 
     // ── SEO-only mode: pull Page title / Meta description / URL handle for all products ──
@@ -208,25 +289,31 @@ Deno.serve(async (req: Request) => {
     const apiBase = `https://${shopDomain}/admin/api/2024-10`;
     const headers = { "X-Shopify-Access-Token": shopifyToken, "Content-Type": "application/json" };
 
-    // ── 1. Fetch ALL live Shopify products (paginate via Link header) ──
-    // NOTE: do NOT pass status=any together with a fields= whitelist — that combo
-    // returns 0 products on this API version. Omit status to get every product.
-    const live: Record<string, unknown>[] = [];
-    let url: string | null =
-      `${apiBase}/products.json?limit=250&fields=id,title,body_html,vendor,product_type,handle,status,published_at,images,variants,tags,created_at,updated_at`;
+    const partialIds = (body.product_ids ?? [])
+      .map((id) => String(id).trim())
+      .filter((id) => /^\d+$/.test(id));
+
+    // ── 1. Fetch live Shopify products ──
+    let live: Record<string, unknown>[] = [];
     let fetchedPages = 0;
-    while (url) {
-      const r = await fetch(url, { headers });
-      if (!r.ok) {
-        const t = await r.text();
-        return json({ error: `Shopify API error (${r.status})`, detail: t.slice(0, 300) }, 502);
+    if (partialIds.length > 0) {
+      live = await fetchProductsByIds(apiBase, headers, partialIds);
+    } else {
+      let url: string | null =
+        `${apiBase}/products.json?limit=250&fields=id,title,body_html,vendor,product_type,handle,status,published_at,images,variants,tags,created_at,updated_at`;
+      while (url) {
+        const r = await fetch(url, { headers });
+        if (!r.ok) {
+          const t = await r.text();
+          return json({ error: `Shopify API error (${r.status})`, detail: t.slice(0, 300) }, 502);
+        }
+        const j = await r.json();
+        if (Array.isArray(j.products)) live.push(...j.products);
+        fetchedPages++;
+        const link = r.headers.get("link") || "";
+        const m = link.match(/<([^>]+)>;\s*rel="next"/);
+        url = m ? m[1] : null;
       }
-      const j = await r.json();
-      if (Array.isArray(j.products)) live.push(...j.products);
-      fetchedPages++;
-      const link = r.headers.get("link") || "";
-      const m = link.match(/<([^>]+)>;\s*rel="next"/);
-      url = m ? m[1] : null;
     }
 
     // SAFETY GUARD: if Shopify returned zero products, do NOT delete anything —
@@ -265,72 +352,42 @@ Deno.serve(async (req: Request) => {
       existingByShopifyId.set(String(r.shopify_product_id), r);
     });
 
-    // ── 3. UPSERT each live product into the mirror ──
+    // ── 3. UPSERT each live product into the mirror (batched) ──
     let upserted = 0;
     const nowIso = new Date().toISOString();
+    const rows: Record<string, unknown>[] = [];
     for (const p of live) {
       const sp = p as Record<string, unknown>;
       const shopifyId = String(sp.id);
-      const variants = (sp.variants as Record<string, unknown>[]) ?? [];
-      const prices = variants.map((v) => parseFloat(String(v.price ?? "0")) || 0);
-      const minPrice = prices.length ? Math.min(...prices) : 0;
-      const compareAt = variants.length && variants[0].compare_at_price
-        ? parseFloat(String(variants[0].compare_at_price)) || null : null;
-      const images = (sp.images as Record<string, unknown>[]) ?? [];
-      const tags = ((sp.tags as string) || "").split(",").map((t) => t.trim()).filter(Boolean);
       const prev = existingByShopifyId.get(shopifyId);
-      const localUrl = prev?.shopify_url?.trim() || null;
-
-      const row: Record<string, unknown> = {
-        shopify_product_id: shopifyId,
-        title: sp.title ?? "(未命名)",
-        body_html: sp.body_html ?? null,
-        vendor: sp.vendor ?? null,
-        product_type: sp.product_type ?? null,
-        handle: localUrl || (sp.handle ?? null),
-        shopify_url: localUrl || (sp.handle ?? null),
-        status: sp.status ?? "active",
-        published_at: sp.published_at ?? null,
-        image_url: (images[0]?.src as string) ?? null,
-        images: images.length > 0 ? images.map((im) => ({
-          id: im.id, src: im.src, alt: im.alt || "", width: im.width, height: im.height, position: im.position,
-        })) : null,
-        variants: variants.length > 0 ? variants : null,
-        tags,
-        price: minPrice,
-        compare_at_price: compareAt,
-        shopify_created_at: sp.created_at ?? null,
-        shopify_updated_at: sp.updated_at ?? null,
-        imported_at: nowIso,
-        shop_domain: shopDomain,
-      };
-      // Preserve the stable PK + the products linkage if we already had this row.
-      if (prev) {
-        row.id = prev.id;
-        if (prev.source_product_id) row.source_product_id = prev.source_product_id;
-      }
-
+      rows.push(buildMirrorRow(sp, shopDomain, nowIso, prev));
+    }
+    const UPSERT_CHUNK = 50;
+    for (let i = 0; i < rows.length; i += UPSERT_CHUNK) {
+      const chunk = rows.slice(i, i + UPSERT_CHUNK);
       const { error } = await supabase
         .from("shopify_products")
-        .upsert(row, { onConflict: "shopify_product_id" });
-      if (!error) upserted++;
-      else console.error(`[sync-shopify-mirror] upsert error ${shopifyId}:`, error.message);
+        .upsert(chunk, { onConflict: "shopify_product_id" });
+      if (!error) upserted += chunk.length;
+      else console.error(`[sync-shopify-mirror] batch upsert error:`, error.message);
     }
 
-    // ── 4. DELETE orphan mirror rows (deleted on Shopify) ──
+    // ── 4. DELETE orphan mirror rows (full reconcile only) ──
     // Includes merged child rows (configurable set) — those products were removed on Shopify
     // during variant merge and must not linger as stale "已下架" entries in the mirror.
     let deleted = 0;
-    const orphanIds = (existingRows || [])
-      .map((r: { shopify_product_id: string }) => String(r.shopify_product_id))
-      .filter((id) => /^\d+$/.test(id) && !liveIds.has(id)); // only numeric Shopify ids, not local placeholders
-    if (orphanIds.length > 0) {
-      const { error: delErr, count } = await supabase
-        .from("shopify_products")
-        .delete({ count: "exact" })
-        .in("shopify_product_id", orphanIds);
-      if (delErr) console.error("[sync-shopify-mirror] delete orphans error:", delErr.message);
-      else deleted = count ?? orphanIds.length;
+    if (partialIds.length === 0) {
+      const orphanIds = (existingRows || [])
+        .map((r: { shopify_product_id: string }) => String(r.shopify_product_id))
+        .filter((id) => /^\d+$/.test(id) && !liveIds.has(id));
+      if (orphanIds.length > 0) {
+        const { error: delErr, count } = await supabase
+          .from("shopify_products")
+          .delete({ count: "exact" })
+          .in("shopify_product_id", orphanIds);
+        if (delErr) console.error("[sync-shopify-mirror] delete orphans error:", delErr.message);
+        else deleted = count ?? orphanIds.length;
+      }
     }
 
     // ── 5. Backfill source_product_id from products.shopify_product_id ──
@@ -359,16 +416,26 @@ Deno.serve(async (req: Request) => {
       console.warn("[sync-shopify-mirror] source_product_id backfill skipped:", e instanceof Error ? e.message : String(e));
     }
 
-    // ── 6. Backfill SEO for ALL live Shopify products (Page title, Meta description, URL handle) ──
+    // ── 6. Backfill SEO (optional — skipped by default on reconcile for speed) ──
     let seoBackfilled = 0;
-    try {
-      const seoMap = await fetchAllProductsSeoGraphQL(shopDomain, shopifyToken);
-      seoBackfilled = await applySeoBackfill(supabase, seoMap, { fillOnlyNull: true });
-    } catch (e) {
-      console.warn("[sync-shopify-mirror] SEO backfill skipped:", e instanceof Error ? e.message : String(e));
+    if (!body.skip_seo) {
+      try {
+        const seoMap = await fetchAllProductsSeoGraphQL(shopDomain, shopifyToken);
+        seoBackfilled = await applySeoBackfill(supabase, seoMap, { fillOnlyNull: true });
+      } catch (e) {
+        console.warn("[sync-shopify-mirror] SEO backfill skipped:", e instanceof Error ? e.message : String(e));
+      }
     }
 
-    return json({ success: true, live: live.length, upserted, deleted, seo_backfilled: seoBackfilled });
+    return json({
+      success: true,
+      mode: partialIds.length > 0 ? "partial" : "full",
+      live: live.length,
+      upserted,
+      deleted,
+      seo_backfilled: seoBackfilled,
+      fetched_pages: fetchedPages,
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     console.error("[sync-shopify-mirror] Error:", msg);

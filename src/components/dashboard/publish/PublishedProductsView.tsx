@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { PUBLISH_STATE_META, type PublishState } from '@/constants/analytics-mock';
 import { supabase } from '@/lib/supabase';
+import { invokeEdgeFunctionDirect } from '@/lib/invokeEdgeFunction';
 import { toast } from 'sonner';
 import { PublishedProductDetailModal, type PublishedDisplayProduct } from './PublishedProductDetailModal';
 import { PublishedProductMergeModal } from './PublishedProductMergeModal';
@@ -332,16 +333,17 @@ export function PublishedProductsView() {
   /** Pull live Shopify catalog → shopify_products mirror (reconcile + remove deleted). */
   const reconcileMirrorFromShopify = useCallback(async () => {
     setIsReconcilingMirror(true);
-    const toastId = toast.loading('正在從 Shopify 同步產品目錄…');
+    const toastId = toast.loading('正在從 Shopify 同步產品目錄…（約 1–3 分鐘）');
     try {
-      const { data, error } = await supabase.functions.invoke(
+      const { data, error } = await invokeEdgeFunctionDirect(
         'supabase-functions-sync-shopify-mirror',
-        { body: {} },
+        { skip_seo: true },
+        { timeoutMs: 5 * 60 * 1000 },
       );
       if (error || data?.error || data?.success === false) {
         toast.error('同步失敗', {
           id: toastId,
-          description: await parseInvokeError(error, data),
+          description: error?.message || (data?.error as string) || '未知錯誤',
           duration: 8000,
         });
         return;
@@ -349,7 +351,7 @@ export function PublishedProductsView() {
       await loadProducts({ silent: true });
       toast.success('已更新 Shopify 目錄', {
         id: toastId,
-        description: `Shopify ${data.live ?? '?'} 件 · 更新 ${data.upserted ?? 0} 件 · 移除 ${data.deleted ?? 0} 件`,
+        description: `Shopify ${data?.live ?? '?'} 件 · 更新 ${data?.upserted ?? 0} 件 · 移除 ${data?.deleted ?? 0} 件`,
         duration: 8000,
       });
     } catch (e) {
