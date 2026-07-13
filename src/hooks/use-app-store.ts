@@ -1040,7 +1040,7 @@ export function useAppStore() {
       const productTags: string[] = Array.isArray(p.tags) ? p.tags : [];
       const mergedTags = Array.from(new Set([...productTags, ...rtsTags]));
 
-      // Ordered gallery from merge UI (ready_to_shopify.images preserves order)
+      // Ordered gallery: image_url is always the primary; images[] holds extras only.
       const galleryUrls: string[] = [];
       const seenGallery = new Set<string>();
       const addGalleryUrl = (src: string) => {
@@ -1050,12 +1050,14 @@ export function useAppStore() {
         seenGallery.add(key);
         galleryUrls.push(src);
       };
+      if (rts) {
+        addGalleryUrl(rts.image_url || '');
+      }
       if (Array.isArray(rts?.images) && rts.images.length > 0) {
         for (const im of rts.images) {
           addGalleryUrl(im?.src || im?.url || (typeof im === 'string' ? im : ''));
         }
       } else if (rts) {
-        addGalleryUrl(rts.image_url || '');
         addGalleryUrl(rts.image_url_2 || '');
         addGalleryUrl(rts.image_url_3 || '');
       }

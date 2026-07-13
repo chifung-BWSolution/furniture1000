@@ -564,13 +564,13 @@ function buildOrderedGalleryUrls(
     seen.add(key);
     out.push(src);
   };
+  const primaryCandidate = resolvedPrimary || product.primary_image_src || product.image_url || null;
+  // image_url is the primary; product.images / gallery_urls are extras — always lead with primary.
+  add(primaryCandidate);
   if (Array.isArray(product.gallery_urls) && product.gallery_urls.length > 0) {
     for (const url of product.gallery_urls) add(url);
-  } else {
-    add(resolvedPrimary || product.primary_image_src || product.image_url);
-    if (Array.isArray(product.images)) {
-      for (const im of product.images) add(im?.src || im?.url);
-    }
+  } else if (Array.isArray(product.images)) {
+    for (const im of product.images) add(im?.src || im?.url);
   }
   return out;
 }
@@ -904,18 +904,32 @@ Deno.serve(async (req: Request) => {
           console.log(`[publish-to-shopify] 🏷️ Attaching ${shopifyMetafields.length} metafield(s) for "${product.title}": ${shopifyMetafields.map(m => `${m.namespace}.${m.key}`).join(", ")}`);
         }
 
-        // ── Build images array — resolve ALL images (HTTP + base64) ─────────
+        // ── Build images array — primary (image_url) first, then extras ─────
         const allImages: { src: string }[] = [];
         const seenImageKeys = new Set<string>();
-        const gallerySources = Array.isArray(product.gallery_urls) && product.gallery_urls.length > 0
-          ? product.gallery_urls
-          : null;
+        const rawGallerySources: string[] = [];
+        const seenRawKeys = new Set<string>();
+        const addRawSource = (src: string | null | undefined) => {
+          if (!src || typeof src !== "string" || !src.trim()) return;
+          const trimmed = src.trim();
+          const key = imageIdentityKey(trimmed);
+          if (seenRawKeys.has(key)) return;
+          seenRawKeys.add(key);
+          rawGallerySources.push(trimmed);
+        };
+        addRawSource(product.primary_image_src || product.image_url);
+        if (Array.isArray(product.gallery_urls) && product.gallery_urls.length > 0) {
+          for (const url of product.gallery_urls) addRawSource(url);
+        } else if (Array.isArray(product.images) && product.images.length > 0) {
+          for (const img of product.images) {
+            addRawSource(img?.src || img?.url || (typeof img === "string" ? img : ""));
+          }
+        }
 
-        if (gallerySources) {
-          console.log(`[publish-to-shopify] 🖼️ Resolving ${gallerySources.length} gallery image(s) in merge order for "${product.title}"`);
-          for (let imgIdx = 0; imgIdx < gallerySources.length; imgIdx++) {
-            const rawSrc = gallerySources[imgIdx];
-            if (!rawSrc) continue;
+        if (rawGallerySources.length > 0) {
+          console.log(`[publish-to-shopify] 🖼️ Resolving ${rawGallerySources.length} gallery image(s) for "${product.title}"`);
+          for (let imgIdx = 0; imgIdx < rawGallerySources.length; imgIdx++) {
+            const rawSrc = rawGallerySources[imgIdx];
             const imgResult = await resolveImageUrl(supabase, supabaseUrl, `${product.id}_gal${imgIdx}`, rawSrc);
             if (imgResult.url) {
               const key = imageIdentityKey(imgResult.url);
@@ -923,40 +937,16 @@ Deno.serve(async (req: Request) => {
                 allImages.push({ src: imgResult.url });
                 seenImageKeys.add(key);
                 if (imgIdx === 0) resolvedImageUrl = imgResult.url;
+                console.log(`[publish-to-shopify] ✅ Gallery image [${imgIdx}]: ${imgResult.url.substring(0, 80)}...`);
               }
+            } else if (imgResult.warning) {
+              console.warn(`[publish-to-shopify] ⚠️ Gallery image [${imgIdx}] skipped: ${imgResult.warning}`);
             }
           }
         } else if (resolvedImageUrl) {
           allImages.push({ src: resolvedImageUrl });
           seenImageKeys.add(imageIdentityKey(resolvedImageUrl));
-          if (product.image_url) seenImageKeys.add(imageIdentityKey(product.image_url));
           console.log(`[publish-to-shopify] ✅ Primary image: ${resolvedImageUrl.substring(0, 80)}...`);
-        }
-        if (!gallerySources && Array.isArray(product.images) && product.images.length > 0) {
-          console.log(`[publish-to-shopify] 🖼️ Resolving ${product.images.length} additional image(s) for "${product.title}"`);
-          for (let imgIdx = 0; imgIdx < product.images.length; imgIdx++) {
-            const img = product.images[imgIdx];
-            const rawSrc: string = img?.src || img?.url || (typeof img === "string" ? img : "");
-            if (!rawSrc) continue;
-            // Skip if it resolves to the same image as the primary (by stem)
-            if (seenImageKeys.has(imageIdentityKey(rawSrc))) {
-              console.log(`[publish-to-shopify] ⏭️ Skipping duplicate image [${imgIdx}] (matches primary/earlier): ${rawSrc.substring(0, 80)}`);
-              continue;
-            }
-            const imgResult = await resolveImageUrl(supabase, supabaseUrl, `${product.id}_img${imgIdx}`, rawSrc);
-            if (imgResult.url) {
-              const key = imageIdentityKey(imgResult.url);
-              if (!seenImageKeys.has(key)) {
-                allImages.push({ src: imgResult.url });
-                seenImageKeys.add(key);
-                console.log(`[publish-to-shopify] ✅ Additional image [${imgIdx}]: ${imgResult.url.substring(0, 80)}...`);
-              } else {
-                console.log(`[publish-to-shopify] ⏭️ Skipping duplicate resolved image [${imgIdx}]`);
-              }
-            } else if (imgResult.warning) {
-              console.warn(`[publish-to-shopify] ⚠️ Additional image [${imgIdx}] skipped: ${imgResult.warning}`);
-            }
-          }
         }
         if (allImages.length > 0) {
           shopifyProduct.images = allImages;
