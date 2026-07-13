@@ -283,12 +283,65 @@ function renderPlainTermLines(
   );
 }
 
-/** Split L*W*H into one segment per line (e.g. 1800*750*750 → 1800* / 750* / 750). */
-function splitDimensionsLines(dimText: string): string[] {
-  if (!dimText.trim()) return [];
-  if (!dimText.includes('*')) return [dimText];
-  const parts = dimText.split('*').filter((part) => part.length > 0);
-  return parts.map((part, index) => (index < parts.length - 1 ? `${part}*` : part));
+/**
+ * Wrap L×W×H only when the string exceeds the column. Each dimension number stays intact;
+ * breaks occur at * boundaries (e.g. 1800*750* / 750, or 1800*750 / *750).
+ */
+function wrapDimensionsForPdf(dimText: string, maxChars = DESC_DIM_MAX_CHARS): string[] {
+  const trimmed = dimText.trim();
+  if (!trimmed) return [];
+  if (trimmed.length <= maxChars) return [trimmed];
+
+  const parts = trimmed.split('*').filter((part) => part.length > 0);
+  if (parts.length <= 1) return [trimmed];
+
+  const lines: string[] = [];
+  let line = '';
+  let idx = 0;
+
+  while (idx < parts.length) {
+    const num = parts[idx];
+    const isLast = idx === parts.length - 1;
+    const withStar = isLast ? num : `${num}*`;
+
+    const appendIfFits = (suffix: string): string | null => {
+      const next = line + suffix;
+      return next.length <= maxChars ? next : null;
+    };
+
+    const withFull = appendIfFits(withStar);
+    if (withFull !== null) {
+      line = withFull;
+      idx += 1;
+      continue;
+    }
+
+    if (!isLast) {
+      const withoutStar = appendIfFits(num);
+      if (withoutStar !== null) {
+        lines.push(withoutStar);
+        const tailParts = parts.slice(idx + 1);
+        const tailLines = wrapDimensionsForPdf(tailParts.join('*'), maxChars);
+        if (tailLines.length > 0) {
+          tailLines[0] = `*${tailLines[0]}`;
+        }
+        lines.push(...tailLines);
+        return lines;
+      }
+    }
+
+    if (line) {
+      lines.push(line);
+      line = '';
+      continue;
+    }
+
+    lines.push(withStar);
+    idx += 1;
+  }
+
+  if (line) lines.push(line);
+  return lines.length > 0 ? lines : [trimmed];
 }
 
 function renderDescDimensionsValue(
@@ -296,7 +349,7 @@ function renderDescDimensionsValue(
   View: ReactPdfModule['View'],
   Text: ReactPdfModule['Text'],
 ) {
-  const lines = splitDimensionsLines(dimText);
+  const lines = wrapDimensionsForPdf(dimText);
   return (
     <View style={{ width: '50%', minWidth: 0, paddingHorizontal: 2, paddingVertical: 2 }}>
       <Text style={styles.descDimLabelText}>W*D*H</Text>
@@ -321,6 +374,11 @@ const MATERIAL_BLANK_LINE_HEIGHT = 7 * 1.45;
 const PDF_TABLE_WIDTH_PT = 555;
 const REMARKS_COL_WIDTH_PT = PDF_TABLE_WIDTH_PT * 0.09;
 const ILLUSTRATION_COL_WIDTH_PT = PDF_TABLE_WIDTH_PT * 0.114;
+/** 說明欄規格值半寬（12.4% 欄 × 50%）— 用字元上限估算是否需要換行 */
+const DESC_DIM_MAX_CHARS = Math.max(
+  6,
+  Math.floor((PDF_TABLE_WIDTH_PT * 0.124 * 0.5) / 3.4),
+);
 
 /** Preserve user line breaks from the draft editor (single Enter = one line). */
 function normalizeMaterialForPdf(text: string): string {
