@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 /**
- * Repair shopify_products mirror gallery using ready_to_shopify as primary source.
+ * Repair shopify_products mirror gallery using ready_to_shopify as the ONLY source.
  *
  * Gallery rules (same as src/lib/rtsImages.ts parseRtsGalleryUrls):
  *   - ready_to_shopify.image_url = primary
  *   - ready_to_shopify.images[] = extras only (no primary duplicate)
- *   - Fallback to products.image_url + image_url_2/3 + images[] when RTS row was deleted
  *
+ * Skips products whose RTS row was deleted after publish (use sync-shopify-mirror instead).
  * Mirror only — does NOT push to Shopify.
  */
 import { writeFileSync } from 'node:fs';
@@ -50,29 +50,6 @@ function buildGalleryFromRtsRow(row) {
   return urls;
 }
 
-/** products legacy gallery: image_url + image_url_2/3 + images[]. */
-function buildGalleryFromProductsRow(row) {
-  const urls = [];
-  const seen = new Set();
-  const add = (src) => {
-    const s = (src || '').trim();
-    if (!s || !s.startsWith('http') || seen.has(s)) return;
-    seen.add(s);
-    urls.push(s);
-  };
-
-  add(row.image_url);
-  add(row.image_url_2);
-  add(row.image_url_3);
-  for (const img of normalizeImagesField(row.images)) {
-    if (typeof img === 'string') add(img);
-    else if (img && typeof img === 'object') {
-      add(typeof img.src === 'string' ? img.src : typeof img.url === 'string' ? img.url : null);
-    }
-  }
-  return urls;
-}
-
 function normalizeStem(url) {
   if (!url) return '';
   const noQuery = url.split('?')[0];
@@ -90,27 +67,15 @@ function galleriesMatch(a, b) {
   return true;
 }
 
-function pickImageSource(row) {
-  if (row.rts_primary || (row.rts_images && row.rts_images.length > 0)) {
-    return {
-      source: 'ready_to_shopify',
-      gallery: buildGalleryFromRtsRow({ image_url: row.rts_primary, images: row.rts_images }),
-    };
-  }
-  return {
-    source: 'products',
-    gallery: buildGalleryFromProductsRow({
-      image_url: row.prod_primary,
-      image_url_2: row.prod_image_url_2,
-      image_url_3: row.prod_image_url_3,
-      images: row.prod_images,
-    }),
-  };
-}
-
 function needsRepair(row) {
-  const src = pickImageSource(row);
-  const correct = src.gallery;
+  if (!row.rts_primary && (!row.rts_images || row.rts_images.length === 0)) {
+    return null;
+  }
+
+  const correct = buildGalleryFromRtsRow({
+    image_url: row.rts_primary,
+    images: row.rts_images,
+  });
   if (correct.length === 0) return null;
 
   const current = buildGalleryFromRtsRow({
@@ -124,7 +89,7 @@ function needsRepair(row) {
     shopify_product_id: row.shopify_product_id,
     title: row.title,
     correct,
-    source: src.source,
+    source: 'ready_to_shopify',
   };
 }
 
@@ -167,7 +132,7 @@ async function patchMirror(shopifyProductId, gallery, title) {
 }
 
 async function main() {
-  console.log('Fetching candidate products (RTS-first gallery logic)...');
+  console.log('Fetching candidate products (ready_to_shopify gallery only)...');
   const rows = await runQuery(`
     SELECT
       sp.shopify_product_id,
@@ -175,35 +140,27 @@ async function main() {
       sp.image_url AS sp_primary,
       sp.images AS sp_images,
       rts.image_url AS rts_primary,
-      rts.images AS rts_images,
-      p.image_url AS prod_primary,
-      p.image_url_2 AS prod_image_url_2,
-      p.image_url_3 AS prod_image_url_3,
-      p.images AS prod_images
+      rts.images AS rts_images
     FROM shopify_products sp
     JOIN products p ON p.id = sp.source_product_id
-    LEFT JOIN ready_to_shopify rts ON rts.product_id = sp.source_product_id
+    INNER JOIN ready_to_shopify rts ON rts.product_id = sp.source_product_id
     WHERE sp.source_product_id IS NOT NULL
       AND COALESCE(sp.imported_at, sp.published_at) >= '2026-07-06'
     ORDER BY COALESCE(sp.imported_at, sp.published_at) DESC
   `);
 
   const targets = [];
-  const sourceStats = { ready_to_shopify: 0, products: 0 };
   for (const row of rows || []) {
     const repair = needsRepair(row);
     if (!repair) continue;
     targets.push(repair);
-    sourceStats[repair.source]++;
   }
 
   console.log(`Need repair: ${targets.length}`);
-  console.log('Source breakdown:', sourceStats);
 
   const report = {
     startedAt: new Date().toISOString(),
     total: targets.length,
-    sourceStats,
     mirrorOk: 0,
     mirrorFail: [],
   };
@@ -228,7 +185,6 @@ async function main() {
     total: report.total,
     mirrorOk: report.mirrorOk,
     mirrorFail: report.mirrorFail.length,
-    sourceStats: report.sourceStats,
   }));
 }
 

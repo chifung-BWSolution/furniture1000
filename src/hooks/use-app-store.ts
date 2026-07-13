@@ -3,6 +3,7 @@ import { Product, ProductVariant, ProductStatus, ProductSource, AppSettings, Vie
 import { supabase } from '@/lib/supabase';
 import { removeProductFromPublishPipeline } from '@/lib/publishPipeline';
 import { resolveSelectedPublishProducts } from '@/lib/readyToPublishRow';
+import { parseRtsGalleryUrls } from '@/lib/rtsImages';
 import { writeUploadLog } from '@/lib/uploadLog';
 import { resolveRowsImagesToStorage, productImageFieldsPendingStorage, stripBase64ForDb } from '@/lib/imageStorage';
 import { toast } from 'sonner';
@@ -1041,26 +1042,7 @@ export function useAppStore() {
       const mergedTags = Array.from(new Set([...productTags, ...rtsTags]));
 
       // Ordered gallery: image_url is always the primary; images[] holds extras only.
-      const galleryUrls: string[] = [];
-      const seenGallery = new Set<string>();
-      const addGalleryUrl = (src: string) => {
-        if (!src || !/^https?:\/\//.test(src)) return;
-        const key = src.split('?')[0];
-        if (seenGallery.has(key)) return;
-        seenGallery.add(key);
-        galleryUrls.push(src);
-      };
-      if (rts) {
-        addGalleryUrl(rts.image_url || '');
-      }
-      if (Array.isArray(rts?.images) && rts.images.length > 0) {
-        for (const im of rts.images) {
-          addGalleryUrl(im?.src || im?.url || (typeof im === 'string' ? im : ''));
-        }
-      } else if (rts) {
-        addGalleryUrl(rts.image_url_2 || '');
-        addGalleryUrl(rts.image_url_3 || '');
-      }
+      const galleryUrls: string[] = rts ? parseRtsGalleryUrls(rts) : [];
       const primaryUrl: string = galleryUrls[0] || rts?.image_url || p.imageUrl || '';
       const additionalImages: { src: string }[] = galleryUrls.slice(1).map((src) => ({ src }));
 
@@ -1348,8 +1330,13 @@ export function useAppStore() {
     const productTags: string[] = Array.isArray(product.tags) ? product.tags : [];
     const mergedTags = Array.from(new Set([...productTags, ...rtsTags]));
 
+    const galleryUrls = rts ? parseRtsGalleryUrls(rts) : [];
+    const primaryUrl = galleryUrls[0] || rts?.image_url || product.imageUrl || '';
+    const additionalImages = galleryUrls.slice(1).map((src) => ({ src }));
+
     const payload = [{
       id: product.id,
+      rts_id: rts?.id || undefined,
       handle: rts?.shopify_url?.trim() || undefined,
       shopify_page_title: rts?.shopify_page_title?.trim() || undefined,
       shopify_page_description: rts?.shopify_page_description?.trim() || undefined,
@@ -1358,8 +1345,10 @@ export function useAppStore() {
       tags: mergedTags,
       price: rts?.price ?? product.salePrice ?? product.price ?? 0,
       compare_at_price: product.compareAtPrice ?? null,
-      image_url: rts?.image_url || product.imageUrl || '',
-      images: (rts?.images && rts.images.length > 0) ? rts.images : ((product as any).images || []),
+      image_url: primaryUrl,
+      images: additionalImages,
+      gallery_urls: galleryUrls.length > 0 ? galleryUrls : undefined,
+      primary_image_src: primaryUrl || undefined,
       shopify_product_id: product.shopifyProductId || null,
       variants: (rts?.variants && rts.variants.length > 0) ? rts.variants : [],
       vendor: product.factoriesDisplayName || product.factoryName || '',
@@ -1442,32 +1431,6 @@ export function useAppStore() {
             stage: 'ready_to_publish',
             action: 'upload',
           });
-          // Mirror into shopify_products so the product shows up in 已上載產品 page
-          await supabase
-            .from('shopify_products')
-            .upsert({
-              shopify_product_id: result.shopify_product_id || product.shopifyProductId || `pending-${product.id}`,
-              source_product_id: id,
-              title: product.title,
-              body_html: product.descriptionHtml || product.description || null,
-              vendor: product.factoryName || product.factoriesDisplayName || null,
-              product_type: product.collection || null,
-              status: 'active',
-              published_at: syncTimestamp,
-              image_url: product.imageUrl || null,
-              images: Array.isArray((product as any).images) ? (product as any).images : [],
-              variants: [],
-              tags: product.tags ?? [],
-              price: product.price ?? null,
-              compare_at_price: product.compareAtPrice ?? null,
-              shopify_created_at: syncTimestamp,
-              shopify_updated_at: syncTimestamp,
-              imported_at: syncTimestamp,
-              shopify_page_title: rts?.shopify_page_title?.trim() || null,
-              shopify_page_description: rts?.shopify_page_description?.trim() || null,
-              shopify_url: rts?.shopify_url?.trim() || null,
-              handle: rts?.shopify_url?.trim() || null,
-            }, { onConflict: 'shopify_product_id' });
           toast.success('產品已成功發佈至 Shopify', {
             action: {
               label: '前往產品目錄',

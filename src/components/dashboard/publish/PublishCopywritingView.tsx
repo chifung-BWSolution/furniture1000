@@ -12,6 +12,7 @@ import { uploadFileToStorage, uploadImageSourceToStorage, isHttpImageUrl } from 
 import { excludeAlreadyPublishedRts } from '@/lib/publishPipeline';
 import { syncRtsContentToProduct, syncRtsWorkflowToProduct } from '@/lib/rtsProductSync';
 import { writeUploadLog } from '@/lib/uploadLog';
+import { normalizeBodyHtmlForShopify } from '@/lib/bodyHtml';
 import { usePublishRtsList } from './usePublishRtsList';
 
 interface RevertReason {
@@ -42,33 +43,6 @@ interface CopyItem {
 
 function slugify(s: string) {
   return (s || '').trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9一-鿿-]/g, '').slice(0, 60);
-}
-
-/**
- * The copywriting RichEditor renders with `white-space: pre-wrap`, so newline
- * characters (\n) in its innerHTML show as line breaks IN THE EDITOR. But
- * Shopify renders body_html as normal HTML where bare \n collapses to a single
- * space — so the description that looks nicely spaced in our editor turns into
- * one run-on block on Shopify.
- *
- * Fix: before saving, convert the editor's bare newlines into real <br> tags so
- * Shopify shows exactly what the user sees here. We must NOT touch newlines that
- * are merely formatting between block tags (e.g. "</li>\n<li>"), or we'd inject
- * stray <br>s inside lists. So a \n is converted only when it is NOT immediately
- * adjacent to a block-level tag boundary.
- */
-const BLOCK_TAG = '(?:p|div|ul|ol|li|h[1-6]|table|tr|td|th|thead|tbody|blockquote|br|hr|section|article)';
-function normalizeBodyHtmlForShopify(html: string): string {
-  if (!html) return html;
-  // Normalise CRLF → LF first.
-  let out = html.replace(/\r\n/g, '\n');
-  // Drop newlines that sit right after a block open/close tag or right before
-  // one — those are pure source formatting and already produce a line break.
-  out = out.replace(new RegExp(`(</?${BLOCK_TAG}[^>]*>)\\n+`, 'gi'), '$1');
-  out = out.replace(new RegExp(`\\n+(</?${BLOCK_TAG}[^>]*>)`, 'gi'), '$1');
-  // Any remaining newline is a genuine in-text line break the user typed → <br>.
-  out = out.replace(/\n/g, '<br>');
-  return out;
 }
 
 interface Props {

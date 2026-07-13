@@ -575,6 +575,30 @@ function buildOrderedGalleryUrls(
   return out;
 }
 
+/** Mirror gallery: prefer live Shopify images; fall back to RTS-ordered URLs. */
+function buildMirrorGalleryFields(
+  shopifyImages: ShopifyRecord[],
+  orderedGallery: string[],
+): { image_url: string | null; images: ShopifyRecord[] | null } {
+  if (shopifyImages.length > 0) {
+    const normalized = shopifyImages.map((im, i) => ({
+      id: im.id,
+      src: im.src,
+      alt: im.alt || "",
+      width: im.width,
+      height: im.height,
+      position: im.position ?? i + 1,
+    }));
+    const primary = (normalized[0]?.src as string) || null;
+    return { image_url: primary, images: normalized };
+  }
+  if (orderedGallery.length > 0) {
+    const fallback = orderedGallery.map((src, i) => ({ src, position: i + 1 }));
+    return { image_url: orderedGallery[0], images: fallback };
+  }
+  return { image_url: null, images: null };
+}
+
 function isValidHttpImageUrl(url: string): boolean {
   if (!url || typeof url !== "string") return false;
   const trimmed = url.trim();
@@ -1034,10 +1058,43 @@ Deno.serve(async (req: Request) => {
                 const seoMirror = await applyProductSeoMirror(storeHost, shopifyAccessToken, shopifyProductId, product);
                 const publishedHandle = (seoMirror.shopify_url as string | null) || normalizeShopifyHandle(product.handle) || String(fallbackCreated.handle || "");
 
+                const shopifyHeaders = {
+                  "Content-Type": "application/json",
+                  "X-Shopify-Access-Token": shopifyAccessToken,
+                };
+                const orderedGallery = buildOrderedGalleryUrls(product, resolvedImageUrl);
+                let finalFallbackProduct = fallbackCreated;
+                if (orderedGallery.length > 0) {
+                  try {
+                    await ensureGalleryImagesOnShopify(
+                      shopifyApiBase,
+                      shopifyHeaders,
+                      shopifyProductId,
+                      orderedGallery,
+                      resolvedImageUrl || product.primary_image_src || product.image_url || null,
+                    );
+                    await syncMoreImageMetafieldsToShopify(
+                      shopifyApiBase,
+                      shopifyHeaders,
+                      shopifyProductId,
+                      orderedGallery.slice(0, 4),
+                      product.title || "",
+                    );
+                    const refreshed = await fetchShopifyProduct(shopifyApiBase, shopifyHeaders, shopifyProductId);
+                    if (refreshed) finalFallbackProduct = refreshed;
+                  } catch (fbGalErr) {
+                    console.warn(
+                      `[publish-to-shopify] ⚠️ Fallback gallery attach failed for "${product.title}":`,
+                      fbGalErr instanceof Error ? fbGalErr.message : String(fbGalErr),
+                    );
+                  }
+                }
+
                 // 寫入 shopify_products mirror（fallback：無圖上傳成功）
                 try {
-                  const fbCreatedImages = (fallbackCreated.images as Record<string, unknown>[]) || [];
-                  const fbCreatedVariants = (fallbackCreated.variants as Record<string, unknown>[]) || [];
+                  const fbSpImages = (finalFallbackProduct.images as ShopifyRecord[]) || [];
+                  const fbMirrorGallery = buildMirrorGalleryFields(fbSpImages, orderedGallery);
+                  const fbCreatedVariants = (finalFallbackProduct.variants as Record<string, unknown>[]) || [];
                   const fbSpPrice = fbCreatedVariants[0]?.price != null ? Number(fbCreatedVariants[0].price) : (product.price ?? 0);
                   const fbSpCompareAt = fbCreatedVariants[0]?.compare_at_price != null ? Number(fbCreatedVariants[0].compare_at_price) : null;
                   const fbMfColumns: Record<string, string> = {};
@@ -1047,15 +1104,15 @@ Deno.serve(async (req: Request) => {
                   const fbSpRow: Record<string, unknown> = {
                     shopify_product_id: shopifyProductId,
                     source_product_id: product.id,
-                    title: product.title || null,
-                    body_html: product.description_html || null,
-                    vendor: product.vendor || product.factory_name || null,
-                    product_type: product.product_type || null,
+                    title: (finalFallbackProduct.title as string) || product.title || null,
+                    body_html: (finalFallbackProduct.body_html as string) || product.description_html || null,
+                    vendor: (finalFallbackProduct.vendor as string) || product.vendor || product.factory_name || null,
+                    product_type: (finalFallbackProduct.product_type as string) || product.product_type || null,
                     handle: publishedHandle,
                     status: "active",
                     published_at: new Date().toISOString(),
-                    image_url: product.image_url || null,
-                    images: fbCreatedImages.length > 0 ? fbCreatedImages : null,
+                    image_url: fbMirrorGallery.image_url,
+                    images: fbMirrorGallery.images,
                     variants: fbCreatedVariants.length > 0 ? fbCreatedVariants : null,
                     tags: Array.isArray(product.tags) ? product.tags : [],
                     price: fbSpPrice,
@@ -1178,7 +1235,8 @@ Deno.serve(async (req: Request) => {
 
         // ── Write to shopify_products mirror table ────────────────────────
         try {
-          const spImages = (finalProduct.images as Record<string, unknown>[]) || [];
+          const spImages = (finalProduct.images as ShopifyRecord[]) || [];
+          const mirrorGallery = buildMirrorGalleryFields(spImages, orderedGallery);
           const spVariants = (finalProduct.variants as Record<string, unknown>[]) || [];
           const spPrice = spVariants[0]?.price != null ? Number(spVariants[0].price) : (product.price ?? 0);
           const spCompareAt = spVariants[0]?.compare_at_price != null ? Number(spVariants[0].compare_at_price) : null;
@@ -1192,15 +1250,15 @@ Deno.serve(async (req: Request) => {
             shopify_product_id: shopifyProductId,
             // 連結回 products 表（products.id），讓產品目錄可判斷是否已上傳 Shopify
             source_product_id: product.id,
-            title: product.title || null,
-            body_html: product.description_html || null,
-            vendor: product.vendor || product.factory_name || null,
-            product_type: product.product_type || null,
+            title: (finalProduct.title as string) || product.title || null,
+            body_html: (finalProduct.body_html as string) || product.description_html || null,
+            vendor: (finalProduct.vendor as string) || product.vendor || product.factory_name || null,
+            product_type: (finalProduct.product_type as string) || product.product_type || null,
             handle: publishedHandle,
             status: "active",
             published_at: new Date().toISOString(),
-            image_url: (orderedGallery[0] || resolvedImageUrl || product.image_url) || null,
-            images: spImages.length > 0 ? spImages : null,
+            image_url: mirrorGallery.image_url,
+            images: mirrorGallery.images,
             variants: spVariants.length > 0 ? spVariants : null,
             tags: Array.isArray(product.tags) ? product.tags : [],
             price: spPrice,

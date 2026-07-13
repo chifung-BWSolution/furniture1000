@@ -5,6 +5,7 @@ import {
   Factory, ChevronsUpDown, Check,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { normalizeBodyHtmlForShopify } from '@/lib/bodyHtml';
 import { toast } from 'sonner';
 import { PUBLISH_STATE_META, type PublishState } from '@/constants/analytics-mock';
 import { Textarea } from '@/components/ui/textarea';
@@ -239,7 +240,7 @@ export function PublishedProductDetailModal({
   useEffect(() => {
     const ptParts = (r.product_type || '').split(' / ');
     setEditTitle(r.title || '');
-    setEditBodyHtml(r.body_html || '');
+    setEditBodyHtml(normalizeBodyHtmlForShopify(r.body_html || ''));
     setEditVendor(r.vendor || '');
     setEditL1(ptParts[0] || '');
     setEditL2(ptParts[1] || '');
@@ -384,7 +385,7 @@ export function PublishedProductDetailModal({
 
       const updatePayload: Record<string, unknown> = {
         title: editTitle || null,
-        body_html: editBodyHtml || null,
+        body_html: normalizeBodyHtmlForShopify(editBodyHtml) || null,
         vendor: editVendor || null,
         product_type: productType,
         tags: editTags,
