@@ -68,3 +68,44 @@ export function parseRtsGalleryUrls(row: {
   }
   return urls;
 }
+
+function urlStem(url: string): string {
+  return url.split('?')[0].split('/').pop()?.toLowerCase() || '';
+}
+
+function isWhiteBgSlot(url: string): boolean {
+  const s = urlStem(url);
+  return s.includes('dialog_file') || s.includes('_extra');
+}
+
+function isLifestyleSlot(url: string): boolean {
+  const s = urlStem(url);
+  return s.includes('_primary_') || s.includes('whatsapp');
+}
+
+/**
+ * Build publish gallery: RTS image_url + images[], with products.image_url fallback
+ * when RTS lost the lifestyle primary but only has dialog_file / _extra extras.
+ */
+export function buildPublishGalleryUrls(
+  rts: { image_url?: string | null; images?: unknown } | null | undefined,
+  productPrimary?: string | null,
+): string[] {
+  let urls = rts ? parseRtsGalleryUrls(rts) : [];
+  const prodPrimary = (productPrimary || '').trim();
+  if (!prodPrimary.startsWith('http')) return urls;
+
+  const key = (u: string) => u.split('?')[0];
+  const prodKey = key(prodPrimary);
+  if (urls.some((u) => key(u) === prodKey)) return urls;
+
+  const hasLifestyle = urls.some(isLifestyleSlot);
+  const firstIsWhite = urls.length > 0 && isWhiteBgSlot(urls[0]);
+  const prodIsLifestyle = isLifestyleSlot(prodPrimary);
+
+  if (prodIsLifestyle && (!hasLifestyle || firstIsWhite)) {
+    return [prodPrimary, ...urls];
+  }
+  if (urls.length === 0) return [prodPrimary];
+  return urls;
+}
