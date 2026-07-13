@@ -49,6 +49,8 @@ interface QuoteFormData {
   projectName: string;
   /** PMS pitching UUID — persisted to bwf_quote.bwf_pitching_id on save */
   pmsPitchingId?: string;
+  /** PMS project UUID — persisted to bwf_quote.bwf_project_id on save */
+  pmsProjectId?: string;
   clientName: string;
   clientPhone: string;
   clientEmail: string;
@@ -102,6 +104,7 @@ const DEFAULT_FORM_DATA = (): QuoteFormData => ({
   projectManager: '',
   projectName: '',
   pmsPitchingId: undefined,
+  pmsProjectId: undefined,
   clientName: '',
   clientPhone: '',
   clientEmail: '',
@@ -128,7 +131,7 @@ function readUrlPrefill(): {
     return { form: DEFAULT_FORM_DATA(), label: null, applied: false };
   }
   const prefill = parsePmsQuotePrefill(new URLSearchParams(window.location.search));
-  if (!prefill?.pmsPitchingId) {
+  if (!prefill?.pmsPitchingId && !prefill?.pmsProjectId) {
     return { form: DEFAULT_FORM_DATA(), label: null, applied: false };
   }
   const labelParts = [prefill.projectName, prefill.clientName].filter(Boolean);
@@ -139,13 +142,17 @@ function readUrlPrefill(): {
       projectManager: prefill.projectManager || '',
       projectName: prefill.projectName || '',
       pmsPitchingId: prefill.pmsPitchingId,
+      pmsProjectId: prefill.pmsProjectId,
       clientName: prefill.clientName || '',
       clientPhone: prefill.clientPhone || '',
       clientEmail: prefill.clientEmail || '',
       clientIndustry: prefill.clientIndustry || [],
       quotationType: prefill.quotationType || [],
     },
-    label: labelParts.length > 0 ? labelParts.join(' · ') : prefill.pmsPitchingId,
+    label:
+      labelParts.length > 0
+        ? labelParts.join(' · ')
+        : prefill.projectName || prefill.pmsPitchingId || prefill.pmsProjectId || null,
     applied: true,
   };
 }
@@ -173,6 +180,7 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
     submitter: string;
     projectData: Record<string, unknown>;
     bwfPitchingId?: string | null;
+    bwfProjectId?: string | null;
   } | null>(null);
   const [formData, setFormData] = useState<QuoteFormData>(
     () => initialUrlPrefillRef.current.form,
@@ -188,12 +196,12 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
   const loadedQuoteIdRef = useRef<string | null>(null);
   const pmsDefaultsLoadedForRef = useRef<string | null>(null);
 
-  // PMS SSO / deep-link prefill: /quote/quick?pmsPitchingId|pmsProjectId=...
+  // PMS SSO / deep-link prefill: /quote/quick?pmsPitchingId=... and/or pmsProjectId=...
   const applyPmsPrefillFromUrl = useCallback(() => {
     if (typeof window === 'undefined') return false;
     const prefill = parsePmsQuotePrefill(new URLSearchParams(window.location.search));
-    // Require pitching id to skip the gate (PMS handoff always sends it).
-    if (!prefill?.pmsPitchingId) return false;
+    // Skip gate when either PMS id is present (project always resolves to a pitching).
+    if (!prefill?.pmsPitchingId && !prefill?.pmsProjectId) return false;
     setCurrentStep(1);
     setIsQuotationReady(false);
     setFormData({
@@ -202,6 +210,7 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
       projectManager: prefill.projectManager || '',
       projectName: prefill.projectName || '',
       pmsPitchingId: prefill.pmsPitchingId,
+      pmsProjectId: prefill.pmsProjectId,
       clientName: prefill.clientName || '',
       clientPhone: prefill.clientPhone || '',
       clientEmail: prefill.clientEmail || '',
@@ -210,7 +219,9 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
     });
     const labelParts = [prefill.projectName, prefill.clientName].filter(Boolean);
     setSelectedPitchingLabel(
-      labelParts.length > 0 ? labelParts.join(' · ') : prefill.pmsPitchingId,
+      labelParts.length > 0
+        ? labelParts.join(' · ')
+        : prefill.projectName || prefill.pmsPitchingId || prefill.pmsProjectId || null,
     );
     pmsPrefillAppliedRef.current = true;
     sessionRestoredRef.current = true;
@@ -268,6 +279,8 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
     setFormData((prev) => ({
       ...prev,
       pmsPitchingId: item.id,
+      // Related project_id is resolved by defaults fetch (may stay empty).
+      pmsProjectId: undefined,
       // projectName stores PMS pitching_code for PMS list joins
       projectName: item.pitching_code?.trim() || prev.projectName,
       projectManager: item.main_pm_name?.trim() || prev.projectManager,
@@ -299,14 +312,20 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
     applyPmsPrefillFromUrl();
   }, [freshSessionKey, resetToNewQuote, applyPmsPrefillFromUrl]);
 
-  // Load PMS industry catalog always; enrich client/budget when pitching id is present
+  // Load PMS industry catalog always; resolve project↔pitching + enrich defaults
   useEffect(() => {
     if (editingQuoteId) return;
     const pitchingId = formData.pmsPitchingId?.trim() || '';
-    const cacheKey = pitchingId || '__catalog__';
+    const projectId = formData.pmsProjectId?.trim() || '';
+    const cacheKey = pitchingId || projectId ? `${pitchingId}|${projectId}` : '__catalog__';
     if (pmsDefaultsLoadedForRef.current === cacheKey) return;
     // If we already loaded full pitching defaults, don't re-fetch catalog-only
-    if (!pitchingId && pmsDefaultsLoadedForRef.current && pmsDefaultsLoadedForRef.current !== '__catalog__') {
+    if (
+      !pitchingId &&
+      !projectId &&
+      pmsDefaultsLoadedForRef.current &&
+      pmsDefaultsLoadedForRef.current !== '__catalog__'
+    ) {
       return;
     }
 
@@ -314,7 +333,11 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
     pmsDefaultsLoadedForRef.current = cacheKey;
 
     (async () => {
-      const defaults = await fetchPmsPitchingQuoteDefaults(pitchingId || null);
+      const defaults = await fetchPmsPitchingQuoteDefaults(
+        pitchingId || projectId
+          ? { pitchingId: pitchingId || null, projectId: projectId || null }
+          : null,
+      );
       if (cancelled || !defaults) return;
 
       if (defaults.industry_options.length > 0) {
@@ -322,12 +345,18 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
         setIndustryOptions(defaults.industry_options.map((o) => o.display));
       }
 
-      if (!pitchingId) return;
+      if (!pitchingId && !projectId) return;
 
       setFormData((prev) => ({
         ...prev,
-        // PMS DB is source of truth for these defaults when opened from a pitching
-        projectName: defaults.pitching_code || prev.projectName,
+        // Persist resolved cross-link ids (project → pitching always; pitching → project if any)
+        pmsPitchingId: defaults.pitching_id || prev.pmsPitchingId,
+        pmsProjectId: defaults.project_id || prev.pmsProjectId || undefined,
+        // Prefer pitching_code; fall back to project_code for display/joins
+        projectName:
+          defaults.pitching_code ||
+          defaults.project_code ||
+          prev.projectName,
         clientName: defaults.client_name || prev.clientName,
         clientIndustry:
           defaults.selected_industries.length > 0
@@ -337,9 +366,14 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
         budgetMax: defaults.budget_max ?? prev.budgetMax,
       }));
 
-      if (defaults.pitching_code || defaults.client_name) {
+      if (defaults.pitching_code || defaults.project_code || defaults.client_name) {
         setSelectedPitchingLabel(
-          [defaults.pitching_code, defaults.client_name].filter(Boolean).join(' · ') || null,
+          [
+            defaults.pitching_code || defaults.project_code,
+            defaults.client_name,
+          ]
+            .filter(Boolean)
+            .join(' · ') || null,
         );
       }
     })();
@@ -347,7 +381,7 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
     return () => {
       cancelled = true;
     };
-  }, [editingQuoteId, formData.pmsPitchingId]);
+  }, [editingQuoteId, formData.pmsPitchingId, formData.pmsProjectId]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -433,11 +467,15 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
           const pitchingId =
             savedFormData.pmsPitchingId ||
             (typeof data.bwf_pitching_id === 'string' ? data.bwf_pitching_id : undefined);
+          const projectId =
+            savedFormData.pmsProjectId ||
+            (typeof data.bwf_project_id === 'string' ? data.bwf_project_id : undefined);
           setFormData({
             company: savedFormData.company || 'Branding Works Design Ltd',
             projectManager: savedFormData.projectManager || '',
             projectName: savedFormData.projectName || '',
             pmsPitchingId: pitchingId,
+            pmsProjectId: projectId,
             clientName: savedFormData.clientName || '',
             clientPhone: savedFormData.clientPhone || '',
             clientEmail: savedFormData.clientEmail || '',
@@ -453,11 +491,11 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
             validityDays: savedFormData.validityDays || '30',
             remarks: savedFormData.remarks || '',
           });
-          if (pitchingId) {
+          if (pitchingId || projectId) {
             const label = [savedFormData.projectName, savedFormData.clientName]
               .filter(Boolean)
               .join(' · ');
-            setSelectedPitchingLabel(label || pitchingId);
+            setSelectedPitchingLabel(label || pitchingId || projectId || null);
           } else {
             setSelectedPitchingLabel(null);
           }
@@ -471,6 +509,7 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
           submitter: data.submitter,
           projectData: projectDataToUse,
           bwfPitchingId: (data.bwf_pitching_id as string | null) ?? null,
+          bwfProjectId: (data.bwf_project_id as string | null) ?? null,
         });
         loadedQuoteIdRef.current = editingQuoteId;
 
@@ -620,7 +659,8 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
   const showPitchingGate =
     !editingQuoteId &&
     !loadedQuoteData &&
-    !formData.pmsPitchingId?.trim();
+    !formData.pmsPitchingId?.trim() &&
+    !formData.pmsProjectId?.trim();
 
   if (showPitchingGate) {
     return <PmsPitchingGate onSelect={handleSelectPitching} />;

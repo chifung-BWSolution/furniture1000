@@ -55,6 +55,7 @@ export type Database = {
       bwf_quote: {
         Row: {
           bwf_pitching_id: string | null
+          bwf_project_id: string | null
           cost_price: number | null
           created_at: string | null
           created_date: string | null
@@ -74,6 +75,7 @@ export type Database = {
         }
         Insert: {
           bwf_pitching_id?: string | null
+          bwf_project_id?: string | null
           cost_price?: number | null
           created_at?: string | null
           created_date?: string | null
@@ -93,6 +95,7 @@ export type Database = {
         }
         Update: {
           bwf_pitching_id?: string | null
+          bwf_project_id?: string | null
           cost_price?: number | null
           created_at?: string | null
           created_date?: string | null

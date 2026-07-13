@@ -61,6 +61,7 @@ interface QuoteFormData {
   projectManager: string;
   projectName: string;
   pmsPitchingId?: string;
+  pmsProjectId?: string;
   clientName: string;
   clientPhone: string;
   clientEmail: string;
@@ -117,6 +118,7 @@ interface QuotationDraftEditorProps {
     submitter: string;
     projectData: Record<string, unknown>;
     bwfPitchingId?: string | null;
+    bwfProjectId?: string | null;
   };
 }
 
@@ -1316,9 +1318,14 @@ export function QuotationDraftEditor({
         formData.pmsPitchingId ||
         existingQuote.bwfPitchingId ||
         null;
+      const projectId =
+        formData.pmsProjectId ||
+        existingQuote.bwfProjectId ||
+        null;
       const updatePayload = await withUpdateAuditFields({
         project_data: currentProjectData,
         ...(pitchingId ? { bwf_pitching_id: pitchingId } : {}),
+        ...(projectId ? { bwf_project_id: projectId } : {}),
       });
       const { error } = await supabase
         .from("bwf_quote")
@@ -1824,9 +1831,14 @@ export function QuotationDraftEditor({
       formData.pmsPitchingId ||
       existingQuote?.bwfPitchingId ||
       null;
+    const projectId =
+      formData.pmsProjectId ||
+      existingQuote?.bwfProjectId ||
+      null;
     const nextFormData = {
       ...formData,
       ...(pitchingId ? { pmsPitchingId: pitchingId } : {}),
+      ...(projectId ? { pmsProjectId: projectId } : {}),
     };
     return {
       formData: nextFormData,
@@ -2653,6 +2665,7 @@ export function QuotationDraftEditor({
         version={currentVersion}
         projectData={buildProjectData()}
         bwfPitchingId={formData.pmsPitchingId || existingQuote?.bwfPitchingId || null}
+        bwfProjectId={formData.pmsProjectId || existingQuote?.bwfProjectId || null}
       />
 
       {/* Product Selector Modal */}

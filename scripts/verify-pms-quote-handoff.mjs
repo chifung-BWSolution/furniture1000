@@ -1,7 +1,6 @@
 /**
  * Lightweight checks for PMS quote prefill + SSO redirect helpers.
- * Run: node --experimental-strip-types scripts/verify-pms-quote-handoff.mjs
- * (or import via vite/tsx). Pure JS reimplementation to avoid TS build deps.
+ * Run: node scripts/verify-pms-quote-handoff.mjs
  */
 
 const INDUSTRIES = ['餐飲', '辦公', '零售', '醫療', '教育', '酒店', '住宅', '其他'];
@@ -24,13 +23,18 @@ function sanitizePostLoginRedirect(raw) {
   return value;
 }
 
+function asUuid(raw) {
+  const v = (raw || '').trim();
+  return v && UUID_RE.test(v) ? v : undefined;
+}
+
 function parsePrefill(qs) {
   const params = new URLSearchParams(qs);
-  const pitchingId =
-    (params.get('pmsPitchingId') || '').trim() ||
-    (params.get('pmsProjectId') || '').trim();
   const out = {};
-  if (pitchingId && UUID_RE.test(pitchingId)) out.pmsPitchingId = pitchingId;
+  const pitchingId = asUuid(params.get('pmsPitchingId'));
+  if (pitchingId) out.pmsPitchingId = pitchingId;
+  const projectId = asUuid(params.get('pmsProjectId'));
+  if (projectId) out.pmsProjectId = projectId;
   for (const k of ['projectName', 'projectManager', 'clientName', 'clientPhone', 'clientEmail', 'company']) {
     const v = (params.get(k) || '').trim();
     if (v) out[k] = v;
@@ -50,26 +54,34 @@ function assert(cond, msg) {
   if (!cond) throw new Error(msg);
 }
 
-const id = '7682ee11-e1cb-4c78-a2b0-1833352d8a65';
+const pitchingId = '7682ee11-e1cb-4c78-a2b0-1833352d8a65';
+const projectId = '689920a2-bc67-48b5-8f06-84eb25e2dc81';
+
 const prefill = parsePrefill(
-  `pmsPitchingId=${id}&projectName=BWF-SH26-049&projectManager=Winnie&clientName=Simon&clientIndustry=教育&quotationType=${encodeURIComponent('傢俬採購')}`,
+  `pmsPitchingId=${pitchingId}&projectName=BWF-SH26-049&projectManager=Winnie&clientName=Simon&clientIndustry=教育&quotationType=${encodeURIComponent('傢俬採購')}`,
 );
-assert(prefill.pmsPitchingId === id, 'pitching id');
+assert(prefill.pmsPitchingId === pitchingId, 'pitching id');
+assert(!prefill.pmsProjectId, 'no project id when only pitching passed');
 assert(prefill.projectName === 'BWF-SH26-049', 'project name');
 assert(prefill.clientIndustry?.[0] === '教育', 'industry chip');
 assert(prefill.quotationType?.[0] === '傢俬採購', 'quotation type');
 assert(prefill.company === 'Branding Works Design Ltd', 'default company');
 
-// PMS Quote tab uses pmsProjectId (same UUID as bwf_pitchings.id)
-const prefillAlias = parsePrefill(
-  `pmsProjectId=${id}&projectName=BWF-FD26-001&projectManager=Leo+Tse&clientName=Test+Pitching`,
+// PMS Quote tab uses pmsProjectId (= bwf_projects.id), not a pitching alias
+const prefillProject = parsePrefill(
+  `pmsProjectId=${projectId}&projectName=BWF-FD26-001&projectManager=Leo+Tse&clientName=Test+Pitching`,
 );
-assert(prefillAlias.pmsPitchingId === id, 'pmsProjectId alias → pmsPitchingId');
-assert(prefillAlias.projectName === 'BWF-FD26-001', 'alias project name');
+assert(prefillProject.pmsProjectId === projectId, 'pmsProjectId kept as project id');
+assert(!prefillProject.pmsPitchingId, 'pmsProjectId must NOT be aliased to pitching');
+assert(prefillProject.projectName === 'BWF-FD26-001', 'project name from project handoff');
+
+// Both can be present
+const both = parsePrefill(`pmsPitchingId=${pitchingId}&pmsProjectId=${projectId}`);
+assert(both.pmsPitchingId === pitchingId && both.pmsProjectId === projectId, 'both ids');
 
 const path =
   '/quote/quick?pmsPitchingId=' +
-  id +
+  pitchingId +
   '&projectName=BWF-SH26-049&quotationType=' +
   encodeURIComponent('傢俬採購');
 assert(
@@ -80,7 +92,6 @@ assert(sanitizePostLoginRedirect(path) === path, 'plain path ok');
 assert(sanitizePostLoginRedirect('https://evil.com/x') === null, 'reject absolute');
 assert(sanitizePostLoginRedirect('//evil.com') === null, 'reject protocol-relative');
 
-// Mint-style nesting: callback?redirect_to=<path>&code=...
 const nested = new URLSearchParams(
   `redirect_to=${encodeURIComponent(path)}&code=abc`,
 );

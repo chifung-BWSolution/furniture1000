@@ -30,6 +30,67 @@ function formatBudget(value: number | string | null | undefined): string | null 
   return String(Math.round(n));
 }
 
+type ResolveIds = {
+  pitchingId: string | null;
+  projectId: string | null;
+  projectCode: string | null;
+};
+
+/**
+ * Resolve PMS project ↔ pitching linkage.
+ * - project_id provided: project must exist; pitching comes from project.bwf_pitching_id
+ * - pitching_id provided: find related bwf_projects row if any
+ */
+async function resolveProjectPitchingIds(
+  pmsAdmin: ReturnType<typeof createClient>,
+  input: { pitchingId?: string; projectId?: string },
+): Promise<ResolveIds> {
+  let pitchingId = input.pitchingId || null;
+  let projectId = input.projectId || null;
+  let projectCode: string | null = null;
+
+  if (projectId) {
+    const { data: project, error: projectError } = await pmsAdmin
+      .from("bwf_projects")
+      .select("id, bwf_pitching_id, project_code")
+      .eq("id", projectId)
+      .maybeSingle();
+
+    if (projectError) {
+      throw new Error(`Project lookup failed: ${projectError.message}`);
+    }
+    if (!project) {
+      throw new Error(`bwf_projects not found for id ${projectId}`);
+    }
+
+    projectCode = (project.project_code as string | null) || null;
+    const linkedPitching = (project.bwf_pitching_id as string | null) || null;
+    if (!linkedPitching) {
+      throw new Error(`bwf_projects ${projectId} has no related bwf_pitching_id`);
+    }
+    // Project wins for pitching when both provided and mismatch — project is source of truth.
+    pitchingId = linkedPitching;
+  } else if (pitchingId) {
+    const { data: relatedProject, error: relatedError } = await pmsAdmin
+      .from("bwf_projects")
+      .select("id, project_code")
+      .eq("bwf_pitching_id", pitchingId)
+      .order("enquiry_date", { ascending: false, nullsFirst: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (relatedError) {
+      throw new Error(`Related project lookup failed: ${relatedError.message}`);
+    }
+    if (relatedProject?.id) {
+      projectId = relatedProject.id as string;
+      projectCode = (relatedProject.project_code as string | null) || null;
+    }
+  }
+
+  return { pitchingId, projectId, projectCode };
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders, status: 200 });
@@ -70,16 +131,21 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: "Unauthorized" }, 401);
   }
 
-  let body: { pitching_id?: string } = {};
+  let body: { pitching_id?: string; project_id?: string } = {};
   try {
     body = await req.json();
   } catch {
     body = {};
   }
 
-  const pitchingId = body.pitching_id?.trim() || "";
-  if (pitchingId && !UUID_RE.test(pitchingId)) {
+  const rawPitchingId = body.pitching_id?.trim() || "";
+  const rawProjectId = body.project_id?.trim() || "";
+
+  if (rawPitchingId && !UUID_RE.test(rawPitchingId)) {
     return jsonResponse({ error: "pitching_id must be a uuid" }, 400);
+  }
+  if (rawProjectId && !UUID_RE.test(rawProjectId)) {
+    return jsonResponse({ error: "project_id must be a uuid" }, 400);
   }
 
   try {
@@ -104,10 +170,34 @@ Deno.serve(async (req: Request) => {
       }))
       .filter((row) => row.id && row.display);
 
+    if (!rawPitchingId && !rawProjectId) {
+      return jsonResponse({
+        pitching_id: null,
+        project_id: null,
+        pitching_code: null,
+        project_code: null,
+        customer_id: null,
+        client_name: null,
+        estimated_income: null,
+        budget_min: null,
+        budget_max: null,
+        industry_options: industryOptions,
+        selected_industries: [],
+      });
+    }
+
+    const resolved = await resolveProjectPitchingIds(pmsAdmin, {
+      pitchingId: rawPitchingId || undefined,
+      projectId: rawProjectId || undefined,
+    });
+
+    const pitchingId = resolved.pitchingId;
     if (!pitchingId) {
       return jsonResponse({
         pitching_id: null,
+        project_id: resolved.projectId,
         pitching_code: null,
+        project_code: resolved.projectCode,
         customer_id: null,
         client_name: null,
         estimated_income: null,
@@ -130,7 +220,9 @@ Deno.serve(async (req: Request) => {
     if (!pitching) {
       return jsonResponse({
         pitching_id: pitchingId,
+        project_id: resolved.projectId,
         pitching_code: null,
+        project_code: resolved.projectCode,
         customer_id: null,
         client_name: null,
         estimated_income: null,
@@ -189,7 +281,9 @@ Deno.serve(async (req: Request) => {
 
     return jsonResponse({
       pitching_id: pitching.id,
+      project_id: resolved.projectId,
       pitching_code: pitching.pitching_code ?? null,
+      project_code: resolved.projectCode,
       customer_id: customerId,
       client_name: clientName,
       estimated_income: pitching.estimated_income ?? null,

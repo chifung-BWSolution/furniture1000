@@ -14,7 +14,10 @@ export const PMS_QUOTE_INDUSTRIES = [
 export const DEFAULT_QUOTE_COMPANY = 'Branding Works Design Ltd';
 
 export interface PmsQuotePrefill {
+  /** PMS bwf_pitchings.id */
   pmsPitchingId?: string;
+  /** PMS bwf_projects.id — distinct from pitching */
+  pmsProjectId?: string;
   projectName?: string;
   projectManager?: string;
   clientName?: string;
@@ -39,38 +42,36 @@ function splitList(raw: string): string[] {
     .filter(Boolean);
 }
 
-/**
- * PMS may send either `pmsPitchingId` (Furniture convention) or
- * `pmsProjectId` (bwteam-project.com Quote-tab handoff). Both are the
- * PMS `bwf_pitchings.id` UUID.
- */
-function resolvePitchingIdFromParams(params: URLSearchParams): string {
-  return (
-    firstParam(params, 'pmsPitchingId') ||
-    firstParam(params, 'pmsProjectId') ||
-    ''
-  );
+function asUuid(raw: string): string | undefined {
+  return raw && UUID_RE.test(raw) ? raw : undefined;
 }
 
 /** True when the URL carries at least one PMS prefill signal. */
 export function hasPmsQuotePrefillParams(params: URLSearchParams): boolean {
   return Boolean(
-    resolvePitchingIdFromParams(params) ||
+    firstParam(params, 'pmsPitchingId') ||
+      firstParam(params, 'pmsProjectId') ||
       firstParam(params, 'projectName') ||
       firstParam(params, 'projectManager') ||
       firstParam(params, 'clientName'),
   );
 }
 
+/**
+ * Parse PMS deep-link query params.
+ * `pmsProjectId` = bwf_projects.id; `pmsPitchingId` = bwf_pitchings.id.
+ * They are NOT interchangeable — cross-link is resolved server-side.
+ */
 export function parsePmsQuotePrefill(params: URLSearchParams): PmsQuotePrefill | null {
   if (!hasPmsQuotePrefillParams(params)) return null;
 
   const prefill: PmsQuotePrefill = {};
 
-  const pitchingId = resolvePitchingIdFromParams(params);
-  if (pitchingId && UUID_RE.test(pitchingId)) {
-    prefill.pmsPitchingId = pitchingId;
-  }
+  const pitchingId = asUuid(firstParam(params, 'pmsPitchingId'));
+  if (pitchingId) prefill.pmsPitchingId = pitchingId;
+
+  const projectId = asUuid(firstParam(params, 'pmsProjectId'));
+  if (projectId) prefill.pmsProjectId = projectId;
 
   const projectName = firstParam(params, 'projectName');
   if (projectName) prefill.projectName = projectName;
@@ -136,5 +137,13 @@ export function extractPmsPitchingIdFromProjectData(
 ): string | null {
   const formData = projectData?.formData as { pmsPitchingId?: unknown } | undefined;
   const raw = typeof formData?.pmsPitchingId === 'string' ? formData.pmsPitchingId.trim() : '';
+  return raw && UUID_RE.test(raw) ? raw : null;
+}
+
+export function extractPmsProjectIdFromProjectData(
+  projectData: Record<string, unknown> | null | undefined,
+): string | null {
+  const formData = projectData?.formData as { pmsProjectId?: unknown } | undefined;
+  const raw = typeof formData?.pmsProjectId === 'string' ? formData.pmsProjectId.trim() : '';
   return raw && UUID_RE.test(raw) ? raw : null;
 }

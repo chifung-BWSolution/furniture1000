@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { X, AlertTriangle } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
-import { extractPmsPitchingIdFromProjectData } from '@/lib/pmsQuotePrefill';
+import { extractPmsPitchingIdFromProjectData, extractPmsProjectIdFromProjectData } from '@/lib/pmsQuotePrefill';
 import { useAuth } from '@/contexts/AuthProvider';
 import { usePmsStaffName } from '@/hooks/use-pms-staff-name';
 import { withInsertAuditFields } from '@/lib/pmsAudit';
@@ -17,6 +17,8 @@ interface SubmitReviewModalProps {
   projectData: Record<string, unknown>;
   /** Explicit PMS pitching uuid (preferred over digging into projectData). */
   bwfPitchingId?: string | null;
+  /** Explicit PMS project uuid (preferred over digging into projectData). */
+  bwfProjectId?: string | null;
 }
 
 function generateQuoteId(): string {
@@ -37,6 +39,7 @@ export function SubmitReviewModal({
   version,
   projectData,
   bwfPitchingId,
+  bwfProjectId,
 }: SubmitReviewModalProps) {
   const { user } = useAuth();
   const staffName = usePmsStaffName(user?.id);
@@ -66,11 +69,16 @@ export function SubmitReviewModal({
       bwfPitchingId ||
       extractPmsPitchingIdFromProjectData(projectData) ||
       null;
+    const projectId =
+      bwfProjectId ||
+      extractPmsProjectIdFromProjectData(projectData) ||
+      null;
 
-    // Ensure formData keeps pmsPitchingId + projectName (pitching_code) for PMS list joins.
+    // Keep formData ids in sync for PMS list joins / reopen.
     const formData = {
       ...((projectData.formData as Record<string, unknown> | undefined) || {}),
       ...(pitchingId ? { pmsPitchingId: pitchingId } : {}),
+      ...(projectId ? { pmsProjectId: projectId } : {}),
     };
     const payloadProjectData = {
       ...projectData,
@@ -87,6 +95,7 @@ export function SubmitReviewModal({
         submitter: submitter.trim(),
         project_data: payloadProjectData,
         ...(pitchingId ? { bwf_pitching_id: pitchingId } : {}),
+        ...(projectId ? { bwf_project_id: projectId } : {}),
       });
 
       const { error: dbError } = await supabase.from('bwf_quote').insert(insertPayload);

@@ -115,9 +115,9 @@ Invoke-RestMethod -Method Post -Uri "https://api.supabase.com/v1/projects/riaubh
 PMS（bwteam-project.com）BWF pitching 詳情的 Quote tab 會列出本專案 `bwf_quote`
 （依 `bwf_pitching_id`），並經 SSO 開新報價。
 
-**Schema**：`bwf_quote.bwf_pitching_id uuid`（PMS pitching UUID，無跨庫 FK）+
-`idx_bwf_quote_bwf_pitching_id`。存檔時同時寫欄位與
-`project_data.formData.pmsPitchingId`；`formData.projectName` = PMS `pitching_code`。
+**Schema**：`bwf_quote.bwf_pitching_id` + `bwf_quote.bwf_project_id`（PMS UUIDs，無跨庫 FK）。
+存檔時同時寫欄位與 `project_data.formData.pmsPitchingId` /
+`pmsProjectId`；`formData.projectName` = PMS `pitching_code`（或 `project_code`）。
 
 **SSO**：PMS `GET /api/bwf/sso/start?redirect_to=<encoded Furniture path+query>`。
 Furniture `/auth/pms/callback` 交換 session 後必須導向 `redirect_to`（保留 query）。
@@ -125,17 +125,20 @@ Furniture `/auth/pms/callback` 交換 session 後必須導向 `redirect_to`（�
 `?redirect_to=`。
 
 **快速報價 deep link**：`/quote/quick?...` 預填 Step 1（見 `src/lib/pmsQuotePrefill.ts`）。
-Query：`pmsPitchingId` **或** `pmsProjectId`（PMS Quote tab 實際傳的是
-`pmsProjectId`，兩者皆為 `bwf_pitchings.id`）、`projectName`, `projectManager`,
+Query：`pmsPitchingId`（=`bwf_pitchings.id`）與／或 `pmsProjectId`
+（=`bwf_projects.id`，**不是** pitching alias）、`projectName`, `projectManager`,
 `clientName`, `clientPhone`, `clientEmail`, `clientIndustry`, `quotationType`,
 `company`（可選）。報價編號仍由 Furniture 自動產生，PMS 不必傳。
+
+**ID 解析**（edge `fetch-pms-pitching-quote-defaults`）：
+- 傳 `project_id` → 必有關聯 pitching → 回傳兩者，存 `bwf_project_id` + `bwf_pitching_id`
+- 傳 `pitching_id` → 若有關聯 `bwf_projects` 也回傳 `project_id`；否則只存 pitching
 
 **站內選擇 Pitching**（無 PMS SSO 時）：快速報價先顯示極簡搜尋頁
 `PmsPitchingGate`（唯一建立入口）→ edge `supabase-functions-fetch-pms-pitchings`
 搜尋 `bwf_pitchings`；選定後才進入表單 wizard，並用既有
-`fetch-pms-pitching-quote-defaults` 帶入客戶／產業／預算（`projectName` =
-`pitching_code`）。PMS deep link（`pmsProjectId` / `pmsPitchingId`）會跳過
-搜尋頁，直接進入預填表單。
+`fetch-pms-pitching-quote-defaults` 帶入客戶／產業／預算（並嘗試補 `project_id`）。
+PMS deep link（`pmsProjectId` / `pmsPitchingId`）會跳過搜尋頁，直接進入預填表單。
 
 **開啟既有報價**：`/quote/<quote_id>`（例 `/quote/Q2026-0708-263`）。
 PMS v1 可只做列表；需要時用此 URL 連回編輯。
