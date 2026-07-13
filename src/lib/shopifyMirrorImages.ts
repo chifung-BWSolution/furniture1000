@@ -24,10 +24,6 @@ function normalizeImagesField(images: unknown): ShopifyMirrorImage[] {
   return [];
 }
 
-function imageStem(url: string): string {
-  return url.split('?')[0].split('/').pop()?.toLowerCase() || '';
-}
-
 function imageSrc(im: ShopifyMirrorImage): string {
   return (im.src || im.url || '').trim();
 }
@@ -40,50 +36,25 @@ export function sortShopifyImages(images: unknown): ShopifyMirrorImage[] {
 }
 
 /**
- * Pick lifestyle scene as thumbnail when pos 1 is a white-bg _primary_ catalog shot
- * but WhatsApp / dialog_file office render / _img_ scene exists later.
- */
-export function pickLifestylePrimaryImage(sorted: ShopifyMirrorImage[]): ShopifyMirrorImage | null {
-  if (sorted.length === 0) return null;
-
-  const whatsapp = sorted.find((im) => /whatsapp/i.test(imageSrc(im)));
-  if (whatsapp) return whatsapp;
-
-  const first = sorted[0];
-  const firstStem = imageStem(imageSrc(first));
-  if (!firstStem.includes('_primary_')) return first;
-
-  const dialog = sorted.find((im) => imageStem(imageSrc(im)).includes('dialog_file'));
-  if (dialog) return dialog;
-
-  const imgScene = sorted.find((im) => /_img_/i.test(imageStem(imageSrc(im))));
-  if (imgScene) return imgScene;
-
-  return first;
-}
-
-/**
- * Primary thumbnail for 已上載產品 — lifestyle scene first when detectable.
+ * Primary thumbnail for 已上載產品 — always the lowest-position Shopify image.
+ * Falls back to image_url when images[] is empty.
  */
 export function resolveMirrorPrimaryImageUrl(row: {
   image_url?: string | null;
   images?: unknown;
 }): string {
   const sorted = sortShopifyImages(row.images);
-  const preferred = pickLifestylePrimaryImage(sorted);
-  const fromPreferred = imageSrc(preferred || {});
-  if (fromPreferred.startsWith('http')) return fromPreferred;
+  const fromGallery = imageSrc(sorted[0] || {});
+  if (fromGallery.startsWith('http')) return fromGallery;
   const direct = (row.image_url || '').trim();
   return direct.startsWith('http') ? direct : '';
 }
 
-/** Ordered gallery URLs [lifestyle primary, ...rest] for display. */
+/** Ordered unique gallery URLs [primary, ...extras] for display and metafields. */
 export function resolveMirrorGalleryUrls(row: {
   image_url?: string | null;
   images?: unknown;
 }): string[] {
-  const sorted = sortShopifyImages(row.images);
-  const preferred = pickLifestylePrimaryImage(sorted);
   const urls: string[] = [];
   const seen = new Set<string>();
   const add = (src?: string | null) => {
@@ -95,8 +66,9 @@ export function resolveMirrorGalleryUrls(row: {
     urls.push(s);
   };
 
-  if (preferred) add(imageSrc(preferred));
-  for (const im of sorted) add(imageSrc(im));
+  for (const im of sortShopifyImages(row.images)) {
+    add(imageSrc(im));
+  }
   if (urls.length === 0) add(row.image_url);
   return urls;
 }

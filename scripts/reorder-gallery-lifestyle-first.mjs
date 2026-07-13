@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 /**
- * Reorder Shopify + shopify_products gallery: lifestyle scene first, white-bg catalog second.
+ * @deprecated Use restore-canonical-primary-from-products.mjs instead.
  *
- * Detects when position 1 is a white-bg _primary_ catalog shot but a lifestyle image
- * (WhatsApp / dialog_file office render / _img_ scene) exists later in the gallery.
+ * This script incorrectly assumed _primary_ = white-bg and dialog_file = lifestyle.
+ * In most products, products.image_url (_primary_) IS the correct lifestyle primary;
+ * dialog_file entries are extras from「新增其他圖片」.
  */
 const FURNITURE = process.env.VITE_SUPABASE_URL || 'https://riaubhtruisbwdlwjzur.supabase.co';
 const KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
