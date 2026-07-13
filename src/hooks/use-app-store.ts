@@ -1042,7 +1042,7 @@ export function useAppStore() {
       const mergedTags = Array.from(new Set([...productTags, ...rtsTags]));
 
       // Ordered gallery: image_url is always the primary; images[] holds extras only.
-      const galleryUrls: string[] = rts ? parseRtsGalleryUrls(rts) : [];
+      const galleryUrls: string[] = buildPublishGalleryUrls(rts, p.imageUrl);
       const primaryUrl: string = galleryUrls[0] || rts?.image_url || p.imageUrl || '';
       const additionalImages: { src: string }[] = galleryUrls.slice(1).map((src) => ({ src }));
 
