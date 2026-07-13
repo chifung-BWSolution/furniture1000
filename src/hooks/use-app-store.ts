@@ -3,7 +3,7 @@ import { Product, ProductVariant, ProductStatus, ProductSource, AppSettings, Vie
 import { supabase } from '@/lib/supabase';
 import { removeProductFromPublishPipeline } from '@/lib/publishPipeline';
 import { resolveSelectedPublishProducts } from '@/lib/readyToPublishRow';
-import { parseRtsGalleryUrls } from '@/lib/rtsImages';
+import { parseRtsGalleryUrls, buildPublishGalleryUrls } from '@/lib/rtsImages';
 import { writeUploadLog } from '@/lib/uploadLog';
 import { resolveRowsImagesToStorage, productImageFieldsPendingStorage, stripBase64ForDb } from '@/lib/imageStorage';
 import { toast } from 'sonner';
@@ -1330,7 +1330,7 @@ export function useAppStore() {
     const productTags: string[] = Array.isArray(product.tags) ? product.tags : [];
     const mergedTags = Array.from(new Set([...productTags, ...rtsTags]));
 
-    const galleryUrls = rts ? parseRtsGalleryUrls(rts) : [];
+    const galleryUrls = buildPublishGalleryUrls(rts, product.imageUrl);
     const primaryUrl = galleryUrls[0] || rts?.image_url || product.imageUrl || '';
     const additionalImages = galleryUrls.slice(1).map((src) => ({ src }));
 

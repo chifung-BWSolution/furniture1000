@@ -2,9 +2,9 @@
 /**
  * Recover lost lifestyle primary images on Shopify + shopify_products mirror.
  *
- * Pattern: products.image_url has _primary_ (lifestyle scene) but Shopify/mirror
- * only has dialog_file / _extra_ white-background shots because publish skipped
- * the RTS image_url when images[] was populated.
+ * Pattern: products.image_url has lifestyle scene (WhatsApp / dialog_file / _img_)
+ * but Shopify/mirror only has white-bg _primary_ / _extra shots because publish
+ * skipped the RTS image_url when images[] was populated.
  *
  * Source: products.image_url (canonical primary from copywriting sync).
  * Does NOT use image_url_2 / image_url_3.
@@ -31,12 +31,12 @@ function stem(url) {
 
 function isLifestylePrimary(url) {
   const s = stem(url);
-  return s.includes('_primary_') || s.includes('whatsapp') || (s.includes('dialog_file') && !s.includes('_extra'));
+  return /whatsapp/i.test(s) || s.includes('dialog_file') || /_img_/i.test(s);
 }
 
 function isWhiteBgPrimary(url) {
   const s = stem(url);
-  return s.includes('dialog_file') || s.includes('_extra');
+  return s.includes('_primary_') || s.includes('_extra');
 }
 
 async function rest(path, opts = {}) {

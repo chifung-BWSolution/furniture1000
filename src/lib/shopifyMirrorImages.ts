@@ -24,40 +24,66 @@ function normalizeImagesField(images: unknown): ShopifyMirrorImage[] {
   return [];
 }
 
-/** Sort mirror/Shopify images by position ascending (1 = primary). */
-export function sortShopifyImages(images: unknown): ShopifyMirrorImage[] {
-  return normalizeImagesField(images)
-    .filter((im) => {
-      const src = (im.src || im.url || '').trim();
-      return src.startsWith('http');
-    })
-    .sort((a, b) => (a.position ?? 99) - (b.position ?? 99));
-}
-
 function imageStem(url: string): string {
   return url.split('?')[0].split('/').pop()?.toLowerCase() || '';
 }
 
+function imageSrc(im: ShopifyMirrorImage): string {
+  return (im.src || im.url || '').trim();
+}
+
+/** Sort mirror/Shopify images by position ascending (1 = primary). */
+export function sortShopifyImages(images: unknown): ShopifyMirrorImage[] {
+  return normalizeImagesField(images)
+    .filter((im) => imageSrc(im).startsWith('http'))
+    .sort((a, b) => (a.position ?? 99) - (b.position ?? 99));
+}
+
 /**
- * Primary thumbnail for 已上載產品: always the lowest-position Shopify image.
- * Falls back to image_url when images[] is empty.
+ * Pick lifestyle scene as thumbnail when pos 1 is a white-bg _primary_ catalog shot
+ * but WhatsApp / dialog_file office render / _img_ scene exists later.
+ */
+export function pickLifestylePrimaryImage(sorted: ShopifyMirrorImage[]): ShopifyMirrorImage | null {
+  if (sorted.length === 0) return null;
+
+  const whatsapp = sorted.find((im) => /whatsapp/i.test(imageSrc(im)));
+  if (whatsapp) return whatsapp;
+
+  const first = sorted[0];
+  const firstStem = imageStem(imageSrc(first));
+  if (!firstStem.includes('_primary_')) return first;
+
+  const dialog = sorted.find((im) => imageStem(imageSrc(im)).includes('dialog_file'));
+  if (dialog) return dialog;
+
+  const imgScene = sorted.find((im) => /_img_/i.test(imageStem(imageSrc(im))));
+  if (imgScene) return imgScene;
+
+  return first;
+}
+
+/**
+ * Primary thumbnail for 已上載產品 — lifestyle scene first when detectable.
  */
 export function resolveMirrorPrimaryImageUrl(row: {
   image_url?: string | null;
   images?: unknown;
 }): string {
   const sorted = sortShopifyImages(row.images);
-  const fromGallery = (sorted[0]?.src || sorted[0]?.url || '').trim();
-  if (fromGallery.startsWith('http')) return fromGallery;
+  const preferred = pickLifestylePrimaryImage(sorted);
+  const fromPreferred = imageSrc(preferred || {});
+  if (fromPreferred.startsWith('http')) return fromPreferred;
   const direct = (row.image_url || '').trim();
   return direct.startsWith('http') ? direct : '';
 }
 
-/** Ordered unique gallery URLs [primary, ...extras] for display and metafields. */
+/** Ordered gallery URLs [lifestyle primary, ...rest] for display. */
 export function resolveMirrorGalleryUrls(row: {
   image_url?: string | null;
   images?: unknown;
 }): string[] {
+  const sorted = sortShopifyImages(row.images);
+  const preferred = pickLifestylePrimaryImage(sorted);
   const urls: string[] = [];
   const seen = new Set<string>();
   const add = (src?: string | null) => {
@@ -69,9 +95,8 @@ export function resolveMirrorGalleryUrls(row: {
     urls.push(s);
   };
 
-  for (const im of sortShopifyImages(row.images)) {
-    add(im.src || im.url);
-  }
+  if (preferred) add(imageSrc(preferred));
+  for (const im of sorted) add(imageSrc(im));
   if (urls.length === 0) add(row.image_url);
   return urls;
 }
@@ -91,34 +116,10 @@ export function normalizeMirrorImagesJson(images: unknown): ShopifyMirrorImage[]
   }));
 }
 
-/**
- * When Shopify position 1 is an _extra_ shot but a _primary_ / lifestyle image exists
- * later in the gallery, prefer the lifestyle/primary file for mirror thumbnail only.
- * (Shopify API order can lag behind admin drag-reorder for some products.)
- */
+/** @deprecated Use resolveMirrorPrimaryImageUrl — kept for compatibility. */
 export function resolveMirrorPrimaryImageUrlSmart(row: {
   image_url?: string | null;
   images?: unknown;
 }): string {
-  const sorted = sortShopifyImages(row.images);
-  if (sorted.length === 0) return resolveMirrorPrimaryImageUrl(row);
-
-  const pos1Src = (sorted[0]?.src || sorted[0]?.url || '').trim();
-  const pos1Stem = imageStem(pos1Src);
-  const isExtraFirst = pos1Stem.includes('_extra');
-
-  if (isExtraFirst) {
-    const preferred = sorted.find((im) => {
-      const stem = imageStem(im.src || im.url || '');
-      return stem.includes('_primary_')
-        || stem.includes('whatsapp')
-        || stem.includes('dialog_file');
-    });
-    if (preferred) {
-      const src = (preferred.src || preferred.url || '').trim();
-      if (src.startsWith('http')) return src;
-    }
-  }
-
   return resolveMirrorPrimaryImageUrl(row);
 }

@@ -75,17 +75,50 @@ function urlStem(url: string): string {
 
 function isWhiteBgSlot(url: string): boolean {
   const s = urlStem(url);
-  return s.includes('dialog_file') || s.includes('_extra');
+  return s.includes('_primary_') || s.includes('_extra');
 }
 
 function isLifestyleSlot(url: string): boolean {
   const s = urlStem(url);
-  return s.includes('_primary_') || s.includes('whatsapp');
+  return /whatsapp/i.test(s) || s.includes('dialog_file') || /_img_/i.test(s);
+}
+
+/** Pick lifestyle scene when pos 1 is a white-bg _primary_ catalog shot. */
+function pickLifestyleFromUrls(urls: string[]): string | null {
+  if (urls.length === 0) return null;
+
+  const whatsapp = urls.find((u) => /whatsapp/i.test(u));
+  if (whatsapp) return whatsapp;
+
+  const first = urls[0];
+  if (!urlStem(first).includes('_primary_')) return first;
+
+  const dialog = urls.find((u) => urlStem(u).includes('dialog_file'));
+  if (dialog) return dialog;
+
+  const imgScene = urls.find((u) => /_img_/i.test(urlStem(u)));
+  if (imgScene) return imgScene;
+
+  return first;
+}
+
+function dedupeUrls(urls: string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const url of urls) {
+    const s = (url || '').trim();
+    if (!s.startsWith('http')) continue;
+    const key = s.split('?')[0];
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(s);
+  }
+  return out;
 }
 
 /**
  * Build publish gallery: RTS image_url + images[], with products.image_url fallback
- * when RTS lost the lifestyle primary but only has dialog_file / _extra extras.
+ * when RTS lost the lifestyle primary but only has white-bg _primary_ / _extra shots.
  */
 export function buildPublishGalleryUrls(
   rts: { image_url?: string | null; images?: unknown } | null | undefined,
@@ -93,19 +126,30 @@ export function buildPublishGalleryUrls(
 ): string[] {
   let urls = rts ? parseRtsGalleryUrls(rts) : [];
   const prodPrimary = (productPrimary || '').trim();
-  if (!prodPrimary.startsWith('http')) return urls;
 
-  const key = (u: string) => u.split('?')[0];
-  const prodKey = key(prodPrimary);
-  if (urls.some((u) => key(u) === prodKey)) return urls;
+  if (prodPrimary.startsWith('http')) {
+    const key = (u: string) => u.split('?')[0];
+    const prodKey = key(prodPrimary);
+    const hasProd = urls.some((u) => key(u) === prodKey);
+    const hasLifestyle = urls.some(isLifestyleSlot);
+    const firstIsWhite = urls.length > 0 && isWhiteBgSlot(urls[0]);
+    const prodIsLifestyle = isLifestyleSlot(prodPrimary);
 
-  const hasLifestyle = urls.some(isLifestyleSlot);
-  const firstIsWhite = urls.length > 0 && isWhiteBgSlot(urls[0]);
-  const prodIsLifestyle = isLifestyleSlot(prodPrimary);
-
-  if (prodIsLifestyle && (!hasLifestyle || firstIsWhite)) {
-    return [prodPrimary, ...urls];
+    if (!hasProd) {
+      if (urls.length === 0) {
+        urls = [prodPrimary];
+      } else if (prodIsLifestyle && (!hasLifestyle || firstIsWhite)) {
+        urls = [prodPrimary, ...urls];
+      }
+    }
   }
-  if (urls.length === 0) return [prodPrimary];
-  return urls;
+
+  const preferred = pickLifestyleFromUrls(urls);
+  if (preferred && urls[0] !== preferred) {
+    const key = (u: string) => u.split('?')[0];
+    const preferredKey = key(preferred);
+    urls = [preferred, ...urls.filter((u) => key(u) !== preferredKey)];
+  }
+
+  return dedupeUrls(urls);
 }
