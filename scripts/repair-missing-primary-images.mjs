@@ -5,7 +5,7 @@
  * Gallery rules (same as src/lib/rtsImages.ts parseRtsGalleryUrls):
  *   - ready_to_shopify.image_url = primary
  *   - ready_to_shopify.images[] = extras only (no primary duplicate)
- *   - Fallback to products.* when RTS row was deleted after publish
+ *   - Fallback to products.image_url + image_url_2/3 + images[] when RTS row was deleted
  *
  * Mirror only — does NOT push to Shopify.
  */
@@ -30,7 +30,7 @@ function normalizeImagesField(images) {
 }
 
 /** ready_to_shopify gallery: image_url primary, then images[] extras. */
-function buildGalleryFromRow(row) {
+function buildGalleryFromRtsRow(row) {
   const urls = [];
   const seen = new Set();
   const add = (src) => {
@@ -41,6 +41,29 @@ function buildGalleryFromRow(row) {
   };
 
   add(row.image_url);
+  for (const img of normalizeImagesField(row.images)) {
+    if (typeof img === 'string') add(img);
+    else if (img && typeof img === 'object') {
+      add(typeof img.src === 'string' ? img.src : typeof img.url === 'string' ? img.url : null);
+    }
+  }
+  return urls;
+}
+
+/** products legacy gallery: image_url + image_url_2/3 + images[]. */
+function buildGalleryFromProductsRow(row) {
+  const urls = [];
+  const seen = new Set();
+  const add = (src) => {
+    const s = (src || '').trim();
+    if (!s || !s.startsWith('http') || seen.has(s)) return;
+    seen.add(s);
+    urls.push(s);
+  };
+
+  add(row.image_url);
+  add(row.image_url_2);
+  add(row.image_url_3);
   for (const img of normalizeImagesField(row.images)) {
     if (typeof img === 'string') add(img);
     else if (img && typeof img === 'object') {
@@ -71,23 +94,26 @@ function pickImageSource(row) {
   if (row.rts_primary || (row.rts_images && row.rts_images.length > 0)) {
     return {
       source: 'ready_to_shopify',
-      image_url: row.rts_primary,
-      images: row.rts_images,
+      gallery: buildGalleryFromRtsRow({ image_url: row.rts_primary, images: row.rts_images }),
     };
   }
   return {
     source: 'products',
-    image_url: row.prod_primary,
-    images: row.prod_images,
+    gallery: buildGalleryFromProductsRow({
+      image_url: row.prod_primary,
+      image_url_2: row.prod_image_url_2,
+      image_url_3: row.prod_image_url_3,
+      images: row.prod_images,
+    }),
   };
 }
 
 function needsRepair(row) {
   const src = pickImageSource(row);
-  const correct = buildGalleryFromRow(src);
+  const correct = src.gallery;
   if (correct.length === 0) return null;
 
-  const current = buildGalleryFromRow({
+  const current = buildGalleryFromRtsRow({
     image_url: row.sp_primary,
     images: row.sp_images,
   });
@@ -151,6 +177,8 @@ async function main() {
       rts.image_url AS rts_primary,
       rts.images AS rts_images,
       p.image_url AS prod_primary,
+      p.image_url_2 AS prod_image_url_2,
+      p.image_url_3 AS prod_image_url_3,
       p.images AS prod_images
     FROM shopify_products sp
     JOIN products p ON p.id = sp.source_product_id
