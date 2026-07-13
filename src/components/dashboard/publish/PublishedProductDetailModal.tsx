@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { normalizeBodyHtmlForShopify } from '@/lib/bodyHtml';
+import { resolveMirrorGalleryUrls, resolveMirrorPrimaryImageUrl, sortShopifyImages } from '@/lib/shopifyMirrorImages';
 import { toast } from 'sonner';
 import { PUBLISH_STATE_META, type PublishState } from '@/constants/analytics-mock';
 import { Textarea } from '@/components/ui/textarea';
@@ -268,7 +269,7 @@ export function PublishedProductDetailModal({
       }, {})
     );
     setEditFallbackSku(r.sku || '');
-    setSelectedImg(r.image_url || null);
+    setSelectedImg(resolveMirrorPrimaryImageUrl(r) || null);
   }, [r]);
 
   useEffect(() => {
@@ -294,40 +295,8 @@ export function PublishedProductDetailModal({
     });
   }, [manufacturerSearch, manufacturerList, factoryItemsList]);
 
-  const rawImgs: ShopifyImage[] = Array.isArray(r.images) ? r.images : [];
-  const sortedImgs = [...rawImgs].sort((a, b) => (a.position ?? 99) - (b.position ?? 99));
-  const allImages: string[] = useMemo(() => {
-    const byKey = new Map<string, string>();
-    const add = (src: string | null | undefined) => {
-      if (!src || !/^https?:\/\//.test(src)) return;
-      const key = imageDedupeKey(src);
-      const prev = byKey.get(key);
-      if (!prev || src.length < prev.length) byKey.set(key, src);
-    };
-    add(r.image_url);
-    for (const im of sortedImgs) add(im.src);
-    const ordered: string[] = [];
-    const seen = new Set<string>();
-    if (r.image_url) {
-      const key = imageDedupeKey(r.image_url);
-      const src = byKey.get(key);
-      if (src) {
-        ordered.push(src);
-        seen.add(key);
-      }
-    }
-    for (const im of sortedImgs) {
-      if (!im.src) continue;
-      const key = imageDedupeKey(im.src);
-      if (seen.has(key)) continue;
-      const src = byKey.get(key);
-      if (src) {
-        ordered.push(src);
-        seen.add(key);
-      }
-    }
-    return ordered;
-  }, [sortedImgs, r.image_url]);
+  const allImages: string[] = useMemo(() => resolveMirrorGalleryUrls(r), [r.image_url, r.images]);
+  const sortedImgs = useMemo(() => sortShopifyImages(r.images) as ShopifyImage[], [r.images]);
 
   const displayImg = (selectedImg && allImages.includes(selectedImg)) ? selectedImg : (allImages[0] || '');
   const variants: ShopifyVariant[] = Array.isArray(r.variants) ? r.variants : [];
@@ -391,7 +360,7 @@ export function PublishedProductDetailModal({
         tags: editTags,
         price: priceNum,
         compare_at_price: compareNum,
-        image_url: allImages[0] || null,
+        image_url: allImages[0] || resolveMirrorPrimaryImageUrl(r) || null,
         images: preservedImages,
         variants: updatedVariants.length > 0 ? updatedVariants : r.variants,
         sku: primarySku,

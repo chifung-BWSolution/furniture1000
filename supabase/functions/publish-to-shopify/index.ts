@@ -575,19 +575,23 @@ function buildOrderedGalleryUrls(
   return out;
 }
 
-/** Mirror gallery: prefer live Shopify images; fall back to RTS-ordered URLs. */
+/** Mirror gallery: prefer live Shopify images sorted by position; fall back to RTS URLs. */
 function buildMirrorGalleryFields(
   shopifyImages: ShopifyRecord[],
   orderedGallery: string[],
 ): { image_url: string | null; images: ShopifyRecord[] | null } {
-  if (shopifyImages.length > 0) {
-    const normalized = shopifyImages.map((im, i) => ({
+  const sorted = [...shopifyImages]
+    .filter((im) => isHttpUrl(im.src as string))
+    .sort((a, b) => (Number(a.position) || 99) - (Number(b.position) || 99));
+
+  if (sorted.length > 0) {
+    const normalized = sorted.map((im, i) => ({
       id: im.id,
       src: im.src,
       alt: im.alt || "",
       width: im.width,
       height: im.height,
-      position: im.position ?? i + 1,
+      position: i + 1,
     }));
     const primary = (normalized[0]?.src as string) || null;
     return { image_url: primary, images: normalized };

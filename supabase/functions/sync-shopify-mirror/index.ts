@@ -179,6 +179,12 @@ async function fetchProductsByIds(
   return products;
 }
 
+function sortLiveImages(images: Record<string, unknown>[]): Record<string, unknown>[] {
+  return [...images]
+    .filter((im) => typeof im.src === "string" && (im.src as string).startsWith("http"))
+    .sort((a, b) => (Number(a.position) || 99) - (Number(b.position) || 99));
+}
+
 function buildMirrorRow(
   sp: Record<string, unknown>,
   shopDomain: string,
@@ -197,7 +203,7 @@ function buildMirrorRow(
   const minPrice = prices.length ? Math.min(...prices) : 0;
   const compareAt = variants.length && variants[0].compare_at_price
     ? parseFloat(String(variants[0].compare_at_price)) || null : null;
-  const images = (sp.images as Record<string, unknown>[]) ?? [];
+  const images = sortLiveImages((sp.images as Record<string, unknown>[]) ?? []);
   const tags = ((sp.tags as string) || "").split(",").map((t) => t.trim()).filter(Boolean);
   const localUrl = prev?.shopify_url?.trim() || null;
 
@@ -212,8 +218,8 @@ function buildMirrorRow(
     status: sp.status ?? "active",
     published_at: sp.published_at ?? null,
     image_url: (images[0]?.src as string) ?? null,
-    images: images.length > 0 ? images.map((im) => ({
-      id: im.id, src: im.src, alt: im.alt || "", width: im.width, height: im.height, position: im.position,
+    images: images.length > 0 ? images.map((im, i) => ({
+      id: im.id, src: im.src, alt: im.alt || "", width: im.width, height: im.height, position: i + 1,
     })) : null,
     variants: variants.length > 0 ? variants : null,
     tags,

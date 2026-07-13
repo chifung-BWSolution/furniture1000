@@ -7,6 +7,7 @@ import {
 import { PUBLISH_STATE_META, type PublishState } from '@/constants/analytics-mock';
 import { supabase } from '@/lib/supabase';
 import { invokeEdgeFunctionDirect } from '@/lib/invokeEdgeFunction';
+import { resolveMirrorPrimaryImageUrl } from '@/lib/shopifyMirrorImages';
 import { toast } from 'sonner';
 import { PublishedProductDetailModal, type PublishedDisplayProduct } from './PublishedProductDetailModal';
 import { PublishedProductMergeModal } from './PublishedProductMergeModal';
@@ -140,7 +141,7 @@ function rowToDisplay(r: ShopifyProductRow, costFallback: number | null = null):
     id: r.id,
     shopify_product_id: r.shopify_product_id,
     title: r.title || '(未命名)',
-    imageUrl: r.image_url || '',
+    imageUrl: resolveMirrorPrimaryImageUrl(r),
     factory: r.vendor || '—',
     state: shopifyStatusToState(r.status),
     publishedAt: r.published_at || r.imported_at,
@@ -869,7 +870,7 @@ export function PublishedProductsView() {
                     <td className="px-3 py-2.5 sticky left-10 bg-card z-10">
                       <div className="flex items-center gap-2.5">
                         {p.imageUrl ? (
-                          <img src={p.imageUrl} alt={p.title} loading="lazy" className="h-10 w-10 rounded-md object-cover bg-muted flex-shrink-0" />
+                          <img key={p.imageUrl} src={p.imageUrl} alt={p.title} loading="lazy" className="h-10 w-10 rounded-md object-contain bg-muted flex-shrink-0" />
                         ) : (
                           <div className="h-10 w-10 rounded-md bg-muted flex items-center justify-center flex-shrink-0"><Store className="h-4 w-4 text-muted-foreground/40" /></div>
                         )}

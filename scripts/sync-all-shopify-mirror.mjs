@@ -33,6 +33,12 @@ async function rest(path, opts = {}) {
   return text ? JSON.parse(text) : null;
 }
 
+function sortLiveImages(images) {
+  return [...images]
+    .filter((im) => typeof im.src === 'string' && im.src.startsWith('http'))
+    .sort((a, b) => (Number(a.position) || 99) - (Number(b.position) || 99));
+}
+
 async function main() {
   const conn = await rest('shopify_connections?is_active=eq.true&order=connected_at.desc&limit=1&select=shop_domain,access_token');
   const shopDomain = (conn[0]?.shop_domain || '').replace(/^https?:\/\//, '').replace(/\/+$/, '');
@@ -66,7 +72,7 @@ async function main() {
     const compareAt = variants.length && variants[0].compare_at_price
       ? parseFloat(variants[0].compare_at_price) || null
       : null;
-    const images = p.images || [];
+    const images = sortLiveImages(p.images || []);
     const tags = (p.tags || '').split(',').map((t) => t.trim()).filter(Boolean);
     const prev = existingById.get(String(p.id));
     const row = {
@@ -81,8 +87,8 @@ async function main() {
       published_at: p.published_at ?? null,
       image_url: images[0]?.src ?? null,
       images: images.length > 0
-        ? images.map((im) => ({
-          id: im.id, src: im.src, alt: im.alt || '', width: im.width, height: im.height, position: im.position,
+        ? images.map((im, i) => ({
+          id: im.id, src: im.src, alt: im.alt || '', width: im.width, height: im.height, position: i + 1,
         }))
         : null,
       variants: variants.length > 0 ? variants : null,
