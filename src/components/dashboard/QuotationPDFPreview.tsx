@@ -354,13 +354,9 @@ function renderDescDimensionsValue(
     <View style={{ width: '50%', minWidth: 0, paddingHorizontal: 2, paddingVertical: 2 }}>
       <Text style={styles.descDimLabelText}>W*D*H</Text>
       {lines.map((line, li) => (
-        <View key={`dim-line-${li}`} style={styles.descDimLineRow}>
-          {Array.from(pdfDisplayText(line)).map((ch, j) => (
-            <Text key={`dim-ch-${li}-${j}`} style={styles.descDimChar}>
-              {ch}
-            </Text>
-          ))}
-        </View>
+        <Text key={`dim-line-${li}`} wrap={false} style={styles.descDimValueText}>
+          {pdfDisplayText(line)}
+        </Text>
       ))}
     </View>
   );
@@ -374,10 +370,11 @@ const MATERIAL_BLANK_LINE_HEIGHT = 7 * 1.45;
 const PDF_TABLE_WIDTH_PT = 555;
 const REMARKS_COL_WIDTH_PT = PDF_TABLE_WIDTH_PT * 0.09;
 const ILLUSTRATION_COL_WIDTH_PT = PDF_TABLE_WIDTH_PT * 0.114;
-/** 說明欄規格值半寬（12.4% 欄 × 50%）— 用字元上限估算是否需要換行 */
+/** 說明欄規格值半寬（12.4% 欄 × 50%）— 保守估算每行字元上限，避免 PDF 再二次折行 */
+const DESC_DIM_VALUE_WIDTH_PT = PDF_TABLE_WIDTH_PT * 0.124 * 0.5;
 const DESC_DIM_MAX_CHARS = Math.max(
   6,
-  Math.floor((PDF_TABLE_WIDTH_PT * 0.124 * 0.5) / 3.4),
+  Math.floor(DESC_DIM_VALUE_WIDTH_PT / 3.8),
 );
 
 /** Preserve user line breaks from the draft editor (single Enter = one line). */
@@ -670,8 +667,7 @@ const styles: Record<string, any> = {
   /** 類別 — fixed column width, height grows with wrapped CJK text. */
   descCategoryValueText: { fontSize: 6.5, textAlign: 'left', lineHeight: 1.35, paddingLeft: 2, width: '100%' },
   descDimLabelText: { fontSize: 6, textAlign: 'left', lineHeight: 1.2, paddingLeft: 2, color: '#555' },
-  descDimLineRow: { flexDirection: 'row', flexWrap: 'wrap', width: '100%' },
-  descDimChar: { fontSize: 6, lineHeight: 1.25, textAlign: 'left' },
+  descDimValueText: { fontSize: 6, lineHeight: 1.25, textAlign: 'left', paddingLeft: 2 },
   cellStackSlot: { flex: 1, width: '100%', justifyContent: 'center', alignItems: 'center', paddingVertical: 2, paddingHorizontal: 2 },
   cellImageSlot: { width: '100%', justifyContent: 'center', alignItems: 'center', paddingVertical: 2, paddingHorizontal: 2 },
   cellStackImage: { width: '100%', maxHeight: '100%', objectFit: 'contain' },
