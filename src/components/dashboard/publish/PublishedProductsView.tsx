@@ -818,7 +818,7 @@ export function PublishedProductsView() {
           ))}
         </div>
         {selectedIds.length > 0 && (
-          <span className="shrink-0 font-mono-data text-[11px] text-muted-foreground">
+          <span className="shrink-0 font-mono-data text-xs text-muted-foreground">
             已選 <span className="font-semibold text-foreground">{selectedIds.length}</span> 件
             {selectionSpansPages && <span className="text-primary">（含跨頁）</span>}
           </span>
@@ -828,7 +828,7 @@ export function PublishedProductsView() {
       {selectedIds.length > 0 && (
         <div className="shrink-0 border-b border-border bg-muted/20 px-6 py-2">
           <div className="mb-1.5 flex items-center justify-between gap-2">
-            <span className="shrink-0 font-body text-[10px] font-medium text-muted-foreground">
+            <span className="shrink-0 font-body text-xs font-medium text-muted-foreground">
               已選 SKU
               <span className="ml-1 font-mono-data text-foreground">({selectedIds.length})</span>
               {selectionSpansPages && (
@@ -840,16 +840,16 @@ export function PublishedProductsView() {
                 <button
                   type="button"
                   onClick={() => setSkuChipsExpanded((v) => !v)}
-                  className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                  className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
                 >
-                  <ChevronDown className={cn('h-3 w-3 transition-transform', showSkuChipList && 'rotate-180')} />
+                  <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', showSkuChipList && 'rotate-180')} />
                   {showSkuChipList ? '收起 SKU' : '展開 SKU'}
                 </button>
               )}
               <button
                 type="button"
                 onClick={clearAllSelection}
-                className="rounded-md border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+                className="rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
               >
                 清除全部
               </button>
@@ -863,7 +863,7 @@ export function PublishedProductsView() {
                     key={id}
                     className="relative inline-flex max-w-[160px] items-center rounded-md border border-primary/30 bg-primary/5 pl-2 pr-6 py-1"
                   >
-                    <span className="truncate font-mono-data text-[11px] text-foreground" title={sku}>
+                    <span className="truncate font-mono-data text-xs text-foreground" title={sku}>
                       {sku}
                     </span>
                     <button
@@ -879,7 +879,7 @@ export function PublishedProductsView() {
               </div>
             </div>
           ) : (
-            <p className="font-body text-[11px] text-muted-foreground">
+            <p className="font-body text-xs text-muted-foreground">
               已選 {selectedIds.length} 件產品，點擊「展開 SKU」可查看或移除個別項目
             </p>
           )}
