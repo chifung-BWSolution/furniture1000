@@ -11,6 +11,7 @@ import {
   buildMergeGalleryFromProducts,
   collectMergeProductImageUrls,
   dedupeImageUrls,
+  dedupeImageUrlsPreserveOrder,
   imageDedupeKey,
   isHttpUrl,
 } from '@/lib/productMergeImages';
@@ -564,7 +565,7 @@ export function PublishedProductMergeModal({
     setIsMerging(true);
     const toastId = toast.loading('正在合併 Shopify 產品…');
     try {
-      const dedupedGallery = dedupeImageUrls(galleryUrls);
+      const dedupedGallery = dedupeImageUrlsPreserveOrder(galleryUrls);
       const payload = {
         parent_shopify_product_id: parentShopifyId,
         parent_sku: parentSku,

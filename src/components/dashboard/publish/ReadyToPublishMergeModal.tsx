@@ -14,6 +14,7 @@ import type { Product } from '@/types/product';
 import {
   assignDuplicateMergeSkus,
   dedupeImageUrls,
+  dedupeImageUrlsPreserveOrder,
   imageDedupeKey,
   isHttpUrl,
 } from '@/lib/productMergeImages';
@@ -613,7 +614,7 @@ export function ReadyToPublishMergeModal({
     setIsSaving(true);
     const toastId = toast.loading('正在儲存變體合併…');
     try {
-      const dedupedGallery = dedupeImageUrls(galleryUrls);
+      const dedupedGallery = dedupeImageUrlsPreserveOrder(galleryUrls);
       const primary = dedupedGallery[0] || null;
 
       const shopifyVariants = rows.map((r) => {

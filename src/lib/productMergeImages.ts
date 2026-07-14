@@ -51,6 +51,21 @@ export function imageDedupeKey(src: string): string {
   );
 }
 
+/** Dedupe by filename stem; keep first occurrence order (merge submit / UI slot order). */
+export function dedupeImageUrlsPreserveOrder(urls: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const url of urls) {
+    if (!isHttpUrl(url)) continue;
+    const key = imageDedupeKey(url);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(url);
+  }
+  return out;
+}
+
+/** Dedupe then sort primary-role filenames first — for initial gallery build only. */
 export function dedupeImageUrls(urls: string[]): string[] {
   const byKey = new Map<string, string>();
   for (const url of urls) {
