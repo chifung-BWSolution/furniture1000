@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
-import { LogIn, ShoppingBag } from 'lucide-react';
+import { LogIn } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { FdsLogo } from '@/components/brand/FdsLogo';
 
 const PMS_SSO_START_URL = import.meta.env.VITE_PMS_SSO_START_URL?.trim() || '';
 
@@ -44,8 +45,8 @@ export function LoginView() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="w-full max-w-md space-y-8 rounded-2xl border border-border bg-card p-10 text-center shadow-sm">
-        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10">
-          <ShoppingBag className="h-7 w-7 text-primary" />
+        <div className="mx-auto">
+          <FdsLogo size="lg" className="rounded-2xl" />
         </div>
 
         <div className="space-y-2">
