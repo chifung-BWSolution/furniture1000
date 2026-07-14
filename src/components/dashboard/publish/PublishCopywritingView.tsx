@@ -24,6 +24,7 @@ interface RevertReason {
 
 interface CopyItem {
   id: string;
+  rtsId: string;
   title: string;
   description: string;
   imageUrl: string;
@@ -60,6 +61,7 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isRejecting, setIsRejecting] = useState(false);
   const cardRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const rowsRef = useRef<any[]>([]);
 
   const rejectedOnly = viewMode === 'rejected';
 
@@ -73,22 +75,28 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
   }, []);
 
   const handleRejectSelected = useCallback(async () => {
-    const ids = Array.from(selectedIds);
-    if (ids.length === 0) return;
+    const rtsIds = rowsRef.current
+      .filter((r: any) => selectedIds.has(r.id))
+      .map((r: any) => String(r.rts_id ?? ''))
+      .filter(Boolean);
+    if (rtsIds.length === 0) return;
     setIsRejecting(true);
     try {
       const { error } = await supabase
         .from('ready_to_shopify')
         .update({ rejected: true })
-        .in('id', ids);
+        .in('id', rtsIds);
       if (error) throw error;
-      toast.success(`已將 ${ids.length} 件產品標記為「暫不考慮」`, {
+      toast.success(`已將 ${rtsIds.length} 件產品標記為「暫不考慮」`, {
         description: '產品已移至「不考慮產品」列表',
       });
       setSelectedIds(new Set());
       setReloadKey((k) => k + 1);
     } catch (err) {
-      toast.error('標記失敗', { description: err instanceof Error ? err.message : '請稍後再試' });
+      const message = err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string'
+        ? (err as { message: string }).message
+        : '請稍後再試';
+      toast.error('標記失敗', { description: message });
     } finally {
       setIsRejecting(false);
     }
@@ -129,6 +137,7 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
     rejectedOnly,
     toolbarEnd: rejectToolbarButton,
   });
+  rowsRef.current = rows;
 
   const items: CopyItem[] = useMemo(() => rows.map((r: any) => {
     const factoryId = r.factory_id || '';
@@ -136,6 +145,7 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
     const derivedSku = factoryId && model ? `${factoryId}-${model}` : (r.sku || r.model || '');
     return {
       id: r.id,
+      rtsId: String(r.rts_id ?? ''),
       title: r.title || '',
       description: r.description || '',
       imageUrl: r.image_url || '',
