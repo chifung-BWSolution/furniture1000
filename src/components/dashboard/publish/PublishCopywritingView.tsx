@@ -4,7 +4,7 @@ import {
   UploadCloud, Search, X, Bold, Italic, Underline as UnderlineIcon,
   List, ListOrdered, Image as ImageIcon, Palette,
   AlignLeft, AlignCenter, AlignRight, Wand2, Plus, Check, Save, Hash,
-  Ban, Archive,
+  Ban, Archive, RotateCcw,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -60,6 +60,7 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
   const [viewMode, setViewMode] = useState<'active' | 'rejected'>('active');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isRejecting, setIsRejecting] = useState(false);
+  const [isRestoring, setIsRestoring] = useState(false);
   const cardRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const rowsRef = useRef<any[]>([]);
 
@@ -99,6 +100,34 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
       toast.error('標記失敗', { description: message });
     } finally {
       setIsRejecting(false);
+    }
+  }, [selectedIds]);
+
+  const handleRestoreSelected = useCallback(async () => {
+    const rtsIds = rowsRef.current
+      .filter((r: any) => selectedIds.has(r.id))
+      .map((r: any) => String(r.rts_id ?? ''))
+      .filter(Boolean);
+    if (rtsIds.length === 0) return;
+    setIsRestoring(true);
+    try {
+      const { error } = await supabase
+        .from('ready_to_shopify')
+        .update({ rejected: false })
+        .in('id', rtsIds);
+      if (error) throw error;
+      toast.success(`已還原 ${rtsIds.length} 件產品`, {
+        description: '產品已放回「產品文案」列表',
+      });
+      setSelectedIds(new Set());
+      setReloadKey((k) => k + 1);
+    } catch (err) {
+      const message = err && typeof err === 'object' && 'message' in err && typeof (err as { message: unknown }).message === 'string'
+        ? (err as { message: string }).message
+        : '請稍後再試';
+      toast.error('還原失敗', { description: message });
+    } finally {
+      setIsRestoring(false);
     }
   }, [selectedIds]);
 
@@ -746,6 +775,27 @@ ${rawDesc}
               不考慮產品
             </button>
           )}
+          {rejectedOnly && (
+            <button
+              type="button"
+              onClick={handleRestoreSelected}
+              disabled={selectedIds.size === 0 || isRestoring}
+              className={cn(
+                'ml-auto flex items-center gap-1.5 rounded-lg border px-2.5 py-0.5 text-sm font-semibold transition-colors',
+                selectedIds.size > 0
+                  ? 'border-primary/40 bg-primary/5 text-primary hover:bg-primary/10'
+                  : 'border-border text-muted-foreground opacity-50',
+              )}
+            >
+              {isRestoring ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+              {isRestoring ? '還原中...' : '還原'}
+              {selectedIds.size > 0 && !isRestoring && (
+                <span className="rounded-full bg-primary/15 px-1.5 py-0.5 font-mono-data text-[10px]">
+                  {selectedIds.size}
+                </span>
+              )}
+            </button>
+          )}
         </div>
         {Toolbar}
         <div className="flex-1 overflow-auto p-8">
@@ -772,21 +822,24 @@ ${rawDesc}
                   key={p.id}
                   className={cn(
                     'group relative flex flex-col gap-3 rounded-2xl border border-border bg-card p-4 text-left transition-all hover:border-primary/40 hover:shadow-md',
-                    isSelected && 'border-rose-500/40 bg-rose-500/5 ring-1 ring-rose-500/20',
+                    isSelected && (rejectedOnly
+                      ? 'border-primary/40 bg-primary/5 ring-1 ring-primary/20'
+                      : 'border-rose-500/40 bg-rose-500/5 ring-1 ring-rose-500/20'),
                   )}
                 >
-                  {!rejectedOnly && (
-                    <div className="absolute left-3 top-3 z-10">
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={() => toggleSelected(p.id)}
-                        onClick={(e) => e.stopPropagation()}
-                        className="h-4 w-4 rounded border-border accent-rose-600"
-                        aria-label={`選取 ${p.title}`}
-                      />
-                    </div>
-                  )}
+                  <div className="absolute left-3 top-3 z-10">
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => toggleSelected(p.id)}
+                      onClick={(e) => e.stopPropagation()}
+                      className={cn(
+                        'h-4 w-4 rounded border-border',
+                        rejectedOnly ? 'accent-primary' : 'accent-rose-600',
+                      )}
+                      aria-label={`選取 ${p.title}`}
+                    />
+                  </div>
                   <button
                     ref={(el) => { cardRefs.current[p.id] = el; }}
                     onClick={() => openProduct(p)}
@@ -808,7 +861,7 @@ ${rawDesc}
                       )}
                     </div>
                   )}
-                  <div className={cn('flex items-center gap-4', !rejectedOnly && 'pl-6')}>
+                  <div className="flex items-center gap-4 pl-6">
                     <img src={p.imageUrl} alt={p.title} loading="lazy" className="h-20 w-20 shrink-0 rounded-xl object-cover bg-muted" />
                     <div className="min-w-0 flex-1">
                       <h3 className="font-display text-[14px] font-bold text-foreground line-clamp-1">{p.title}</h3>
