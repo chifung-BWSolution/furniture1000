@@ -14,6 +14,8 @@ import { PublishedProductMergeModal } from './PublishedProductMergeModal';
 
 /** Products per edge-function batch (avoids relay timeout + cuts HTTP overhead). */
 const SHOPIFY_PUSH_BATCH_SIZE = 25;
+/** Above this count, SKU chip list starts collapsed to avoid pushing the table off-screen. */
+const SELECTED_SKU_COLLAPSE_THRESHOLD = 12;
 
 async function parseInvokeError(
   error: unknown,
@@ -224,6 +226,7 @@ export function PublishedProductsView() {
   const [isReconcilingMirror, setIsReconcilingMirror] = useState(false);
   const [mergeProducts, setMergeProducts] = useState<DisplayProduct[]>([]);
   const [showMergeModal, setShowMergeModal] = useState(false);
+  const [skuChipsExpanded, setSkuChipsExpanded] = useState(false);
 
   const loadProducts = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setIsLoading(true);
@@ -583,6 +586,19 @@ export function PublishedProductsView() {
     return selectedIds.some((id) => !pageIdSet.has(id));
   }, [selectedIds, paged]);
 
+  const showSkuChipList = selectedIds.length > 0
+    && (skuChipsExpanded || selectedIds.length <= SELECTED_SKU_COLLAPSE_THRESHOLD);
+
+  useEffect(() => {
+    if (selectedIds.length === 0) {
+      setSkuChipsExpanded(false);
+    } else if (selectedIds.length <= SELECTED_SKU_COLLAPSE_THRESHOLD) {
+      setSkuChipsExpanded(true);
+    }
+  }, [selectedIds.length]);
+
+  const clearAllSelection = () => setSelectedIds([]);
+
   const pageSelectAllRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (pageSelectAllRef.current) {
@@ -810,33 +826,69 @@ export function PublishedProductsView() {
       </div>
 
       {selectedIds.length > 0 && (
-        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border bg-muted/20 px-6 py-2.5">
-          <span className="shrink-0 font-body text-[10px] font-medium text-muted-foreground">
-            已選 SKU
-          </span>
-          {selectedSkuChips.map(({ id, sku }) => (
-            <span
-              key={id}
-              className="relative inline-flex max-w-[160px] items-center rounded-md border border-primary/30 bg-primary/5 pl-2 pr-6 py-1"
-            >
-              <span className="truncate font-mono-data text-[11px] text-foreground" title={sku}>
-                {sku}
-              </span>
+        <div className="shrink-0 border-b border-border bg-muted/20 px-6 py-2">
+          <div className="mb-1.5 flex items-center justify-between gap-2">
+            <span className="shrink-0 font-body text-[10px] font-medium text-muted-foreground">
+              已選 SKU
+              <span className="ml-1 font-mono-data text-foreground">({selectedIds.length})</span>
+              {selectionSpansPages && (
+                <span className="ml-1 text-primary">· 含跨頁</span>
+              )}
+            </span>
+            <div className="flex shrink-0 items-center gap-2">
+              {selectedIds.length > SELECTED_SKU_COLLAPSE_THRESHOLD && (
+                <button
+                  type="button"
+                  onClick={() => setSkuChipsExpanded((v) => !v)}
+                  className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                >
+                  <ChevronDown className={cn('h-3 w-3 transition-transform', showSkuChipList && 'rotate-180')} />
+                  {showSkuChipList ? '收起 SKU' : '展開 SKU'}
+                </button>
+              )}
               <button
                 type="button"
-                onClick={() => toggle(id)}
-                className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow-sm hover:bg-destructive hover:text-destructive-foreground hover:border-destructive transition-colors"
-                title="取消選取"
+                onClick={clearAllSelection}
+                className="rounded-md border border-border px-2 py-0.5 text-[10px] text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
               >
-                <X className="h-2.5 w-2.5" />
+                清除全部
               </button>
-            </span>
-          ))}
+            </div>
+          </div>
+          {showSkuChipList ? (
+            <div className="max-h-20 overflow-y-auto overflow-x-hidden pr-1">
+              <div className="flex flex-wrap gap-1.5">
+                {selectedSkuChips.map(({ id, sku }) => (
+                  <span
+                    key={id}
+                    className="relative inline-flex max-w-[160px] items-center rounded-md border border-primary/30 bg-primary/5 pl-2 pr-6 py-1"
+                  >
+                    <span className="truncate font-mono-data text-[11px] text-foreground" title={sku}>
+                      {sku}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => toggle(id)}
+                      className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full border border-border bg-background text-muted-foreground shadow-sm hover:bg-destructive hover:text-destructive-foreground hover:border-destructive transition-colors"
+                      title="取消選取"
+                    >
+                      <X className="h-2.5 w-2.5" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <p className="font-body text-[11px] text-muted-foreground">
+              已選 {selectedIds.length} 件產品，點擊「展開 SKU」可查看或移除個別項目
+            </p>
+          )}
         </div>
       )}
 
-      {/* table */}
-      <div className="flex-1 overflow-auto p-6">
+      {/* table — min-h-0 lets flex child shrink; pagination pinned below scroll area */}
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="min-h-0 flex-1 overflow-auto p-6">
         <div className="min-w-max overflow-hidden rounded-xl border border-border bg-card">
           <table className="w-full text-sm">
             <thead className="bg-muted/50 text-[11px] uppercase tracking-wider text-muted-foreground">
@@ -1014,10 +1066,10 @@ export function PublishedProductsView() {
             </tbody>
           </table>
         </div>
+        </div>
 
-        {/* Pagination */}
         {sorted.length > pageSize && (
-          <div className="mt-4 flex items-center justify-center gap-2">
+          <div className="flex shrink-0 items-center justify-center gap-2 border-t border-border bg-card px-6 py-2.5">
             <button
               onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
               disabled={currentPage === 1}
