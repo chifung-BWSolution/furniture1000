@@ -22,18 +22,37 @@ export interface PmsPitchingListItem {
 
 /**
  * Search PMS v3 bwf_pitchings for 快速報價 pitching selection.
+ * Pass `ids` to batch-load related pitchings for 報價單一覽 enrichment.
  */
 export async function fetchPmsPitchings(options?: {
   search?: string;
   limit?: number;
+  ids?: string[];
 }): Promise<PmsPitchingListItem[]> {
   try {
+    const ids = (options?.ids || []).map((id) => id.trim()).filter(Boolean);
+
+    // Chunk id lookups — edge MAX_LIMIT is 150
+    if (ids.length > 150) {
+      const chunks: string[][] = [];
+      for (let i = 0; i < ids.length; i += 150) {
+        chunks.push(ids.slice(i, i + 150));
+      }
+      const parts = await Promise.all(
+        chunks.map((chunk) =>
+          fetchPmsPitchings({ ids: chunk, limit: chunk.length }),
+        ),
+      );
+      return parts.flat();
+    }
+
     const { data, error } = await supabase.functions.invoke(
       'supabase-functions-fetch-pms-pitchings',
       {
         body: {
           search: options?.search?.trim() || '',
-          limit: options?.limit ?? 80,
+          limit: options?.limit ?? (ids.length > 0 ? ids.length : 80),
+          ...(ids.length > 0 ? { ids } : {}),
         },
       },
     );

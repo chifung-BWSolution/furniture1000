@@ -78,7 +78,7 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: "Unauthorized" }, 401);
   }
 
-  let body: { search?: string; limit?: number } = {};
+  let body: { search?: string; limit?: number; ids?: string[] } = {};
   try {
     body = await req.json();
   } catch {
@@ -86,8 +86,11 @@ Deno.serve(async (req: Request) => {
   }
 
   const search = (body.search || "").trim();
+  const idList = Array.isArray(body.ids)
+    ? [...new Set(body.ids.map((id) => String(id || "").trim()).filter(Boolean))]
+    : [];
   const limit = Math.min(
-    Math.max(Number(body.limit) || DEFAULT_LIMIT, 1),
+    Math.max(Number(body.limit) || (idList.length > 0 ? idList.length : DEFAULT_LIMIT), 1),
     MAX_LIMIT,
   );
 
@@ -102,9 +105,11 @@ Deno.serve(async (req: Request) => {
         "id, pitching_code, pitching_name, customer_id, real_customer_display_name, real_customer_name, main_pm_id, main_designer_id, pitching_stages, estimated_income, estimated_expense, enquiry_date, n_customer_type_id, n_bwf_service_types_id",
       )
       .order("enquiry_date", { ascending: false, nullsFirst: false })
-      .limit(limit);
+      .limit(Math.min(Math.max(limit, idList.length || 1), MAX_LIMIT));
 
-    if (search) {
+    if (idList.length > 0) {
+      query = query.in("id", idList.slice(0, MAX_LIMIT));
+    } else if (search) {
       const pattern = `%${escapeIlike(search)}%`;
       query = query.or(
         [

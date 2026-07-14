@@ -1,5 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
-import { Search, SlidersHorizontal, FileText, Clock, RefreshCw, Trash2 } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Clock, Trash2 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import {
@@ -13,6 +14,29 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { resolvePitchingCode, resolvePitchingName } from '@/lib/bwfQuoteItems';
+import {
+  fetchPmsPitchings,
+  pitchingDisplayTitle,
+  type PmsPitchingListItem,
+} from '@/lib/pmsPitchings';
+import {
+  ListPageShell,
+  ListRefreshButton,
+  ListTableCard,
+  ListTableEmptyRow,
+  ListTableLoadingRow,
+  LIST_TABLE_TH_CLASS,
+} from '@/components/dashboard/ListPageShell';
+import {
+  compareNullable,
+  formatListDate,
+  formatListMoney,
+  pitchingStatusBadgeClass,
+  pitchingStatusLabel,
+  quoteStatusBadgeClass,
+  SortHeaderIcon,
+  type ListSortDir,
+} from '@/lib/listTableUtils';
 
 interface QuoteRecord {
   id: string;
@@ -24,6 +48,7 @@ interface QuoteRecord {
   submitter: string;
   pitching_code: string | null;
   pitching_name: string | null;
+  bwf_pitching_id: string | null;
   project_data: {
     formData?: {
       pitchingCode?: string;
@@ -31,6 +56,7 @@ interface QuoteRecord {
       projectName?: string;
       clientName?: string;
       company?: string;
+      projectManager?: string;
     };
     [key: string]: unknown;
   };
@@ -38,12 +64,28 @@ interface QuoteRecord {
   modified_date?: string | null;
 }
 
+type QuoteListRow = QuoteRecord & {
+  pitching: PmsPitchingListItem | null;
+};
+
 interface QuotationListViewProps {
   onOpenQuote?: (quoteId: string) => void;
 }
 
 const LIST_SELECT =
-  'id, quote_id, version, status, total_amount, cost_price, submitter, pitching_code, pitching_name, created_at, modified_date, project_data';
+  'id, quote_id, version, status, total_amount, cost_price, submitter, pitching_code, pitching_name, bwf_pitching_id, created_at, modified_date, project_data';
+
+type SortKey =
+  | 'enquiry_date'
+  | 'remaining_days'
+  | 'customer_type'
+  | 'display_name'
+  | 'service_type'
+  | 'total_amount'
+  | 'cost_price'
+  | 'staff'
+  | 'quote_status'
+  | 'pitching_stages';
 
 /** Keep one row per quote_id — latest modified_date wins (legacy duplicate cleanup in UI). */
 function dedupeQuotesByQuoteId(rows: QuoteRecord[]): QuoteRecord[] {
@@ -65,29 +107,6 @@ function dedupeQuotesByQuoteId(rows: QuoteRecord[]): QuoteRecord[] {
   );
 }
 
-function getStatusColor(status: string) {
-  switch (status) {
-    case '待審核':
-      return 'bg-amber-500/15 text-amber-400 border-amber-500/30';
-    case '已通過':
-      return 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30';
-    case '已退回':
-      return 'bg-rose-500/15 text-rose-400 border-rose-500/30';
-    default:
-      return 'bg-muted text-muted-foreground border-border';
-  }
-}
-
-function formatDateTime(dateStr: string) {
-  const date = new Date(dateStr);
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
-  const h = String(date.getHours()).padStart(2, '0');
-  const min = String(date.getMinutes()).padStart(2, '0');
-  return `${y}/${m}/${d} ${h}:${min}`;
-}
-
 function quoteDisplayCode(q: QuoteRecord): string {
   return resolvePitchingCode({
     pitchingCode: q.pitching_code,
@@ -95,7 +114,8 @@ function quoteDisplayCode(q: QuoteRecord): string {
   });
 }
 
-function quoteDisplayName(q: QuoteRecord): string {
+function quoteDisplayName(q: QuoteListRow): string {
+  if (q.pitching) return pitchingDisplayTitle(q.pitching);
   const name = resolvePitchingName({
     pitchingName: q.pitching_name,
     formData: q.project_data?.formData as Record<string, unknown> | undefined,
@@ -104,12 +124,37 @@ function quoteDisplayName(q: QuoteRecord): string {
   return name || client || '未命名專案';
 }
 
+function quoteCode(q: QuoteListRow): string {
+  return (
+    q.pitching?.pitching_code?.trim() ||
+    quoteDisplayCode(q) ||
+    '—'
+  );
+}
+
+function staffLabel(q: QuoteListRow): string {
+  if (q.pitching) {
+    const parts = [q.pitching.main_pm_name, q.pitching.main_designer_name]
+      .map((x) => x?.trim())
+      .filter(Boolean);
+    if (parts.length > 0) return parts.join(' / ');
+  }
+  return (
+    q.project_data?.formData?.projectManager?.trim() ||
+    q.submitter?.trim() ||
+    '—'
+  );
+}
+
 export function QuotationListView({ onOpenQuote }: QuotationListViewProps) {
-  const [quotes, setQuotes] = useState<QuoteRecord[]>([]);
+  const [quotes, setQuotes] = useState<QuoteListRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [deleteTarget, setDeleteTarget] = useState<QuoteRecord | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<QuoteListRow | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [sortKey, setSortKey] = useState<SortKey>('enquiry_date');
+  const [sortDir, setSortDir] = useState<ListSortDir>('desc');
+  const [activeId, setActiveId] = useState<string | null>(null);
 
   const fetchQuotes = useCallback(async () => {
     setIsLoading(true);
@@ -120,7 +165,33 @@ export function QuotationListView({ onOpenQuote }: QuotationListViewProps) {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      setQuotes(dedupeQuotesByQuoteId((data as QuoteRecord[]) || []));
+      const deduped = dedupeQuotesByQuoteId((data as QuoteRecord[]) || []);
+
+      const pitchingIds = [
+        ...new Set(
+          deduped
+            .map((q) => q.bwf_pitching_id)
+            .filter((id): id is string => Boolean(id)),
+        ),
+      ];
+
+      let pitchingById = new Map<string, PmsPitchingListItem>();
+      if (pitchingIds.length > 0) {
+        const pitchings = await fetchPmsPitchings({
+          ids: pitchingIds,
+          limit: pitchingIds.length,
+        });
+        pitchingById = new Map(pitchings.map((p) => [p.id, p]));
+      }
+
+      setQuotes(
+        deduped.map((q) => ({
+          ...q,
+          pitching: q.bwf_pitching_id
+            ? pitchingById.get(q.bwf_pitching_id) || null
+            : null,
+        })),
+      );
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : '無法載入報價單列表';
       toast.error('載入失敗', { description: message });
@@ -146,7 +217,7 @@ export function QuotationListView({ onOpenQuote }: QuotationListViewProps) {
 
       setQuotes((prev) => prev.filter((q) => q.id !== deleteTarget.id));
       toast.success('已刪除報價單', {
-        description: quoteDisplayCode(deleteTarget) || deleteTarget.quote_id,
+        description: quoteCode(deleteTarget),
       });
       setDeleteTarget(null);
     } catch (err: unknown) {
@@ -157,187 +228,314 @@ export function QuotationListView({ onOpenQuote }: QuotationListViewProps) {
     }
   };
 
-  const filteredQuotes = quotes.filter((q) => {
-    if (!searchQuery.trim()) return true;
+  const filteredQuotes = useMemo(() => {
+    if (!searchQuery.trim()) return quotes;
     const query = searchQuery.toLowerCase();
-    const code = quoteDisplayCode(q).toLowerCase();
-    const name = quoteDisplayName(q).toLowerCase();
-    const clientName = (q.project_data?.formData?.clientName || '').toLowerCase();
-    return (
-      code.includes(query) ||
-      name.includes(query) ||
-      clientName.includes(query) ||
-      q.submitter.toLowerCase().includes(query) ||
-      // Quiet match for internal quote_id (bookmarks / support)
-      q.quote_id.toLowerCase().includes(query)
-    );
-  });
+    return quotes.filter((q) => {
+      const code = quoteCode(q).toLowerCase();
+      const name = quoteDisplayName(q).toLowerCase();
+      const clientName = (
+        q.pitching?.customer_name ||
+        q.project_data?.formData?.clientName ||
+        ''
+      ).toLowerCase();
+      const pm = staffLabel(q).toLowerCase();
+      return (
+        code.includes(query) ||
+        name.includes(query) ||
+        clientName.includes(query) ||
+        pm.includes(query) ||
+        q.submitter.toLowerCase().includes(query) ||
+        q.status.toLowerCase().includes(query) ||
+        q.quote_id.toLowerCase().includes(query)
+      );
+    });
+  }, [quotes, searchQuery]);
+
+  const sortedQuotes = useMemo(() => {
+    const rows = [...filteredQuotes];
+    rows.sort((a, b) => {
+      switch (sortKey) {
+        case 'enquiry_date': {
+          const aDate =
+            a.pitching?.enquiry_date || a.modified_date || a.created_at;
+          const bDate =
+            b.pitching?.enquiry_date || b.modified_date || b.created_at;
+          return compareNullable(
+            aDate ? new Date(aDate).getTime() : null,
+            bDate ? new Date(bDate).getTime() : null,
+            sortDir,
+          );
+        }
+        case 'remaining_days':
+          return compareNullable(
+            a.pitching?.remaining_days ?? null,
+            b.pitching?.remaining_days ?? null,
+            sortDir,
+          );
+        case 'customer_type':
+          return compareNullable(
+            a.pitching?.customer_type,
+            b.pitching?.customer_type,
+            sortDir,
+          );
+        case 'display_name':
+          return compareNullable(
+            quoteDisplayName(a),
+            quoteDisplayName(b),
+            sortDir,
+          );
+        case 'service_type':
+          return compareNullable(
+            a.pitching?.service_type,
+            b.pitching?.service_type,
+            sortDir,
+          );
+        case 'total_amount':
+          return compareNullable(a.total_amount, b.total_amount, sortDir);
+        case 'cost_price':
+          return compareNullable(a.cost_price, b.cost_price, sortDir);
+        case 'staff':
+          return compareNullable(staffLabel(a), staffLabel(b), sortDir);
+        case 'quote_status':
+          return compareNullable(
+            `${a.version} ${a.status}`,
+            `${b.version} ${b.status}`,
+            sortDir,
+          );
+        case 'pitching_stages':
+          return compareNullable(
+            a.pitching?.pitching_stages,
+            b.pitching?.pitching_stages,
+            sortDir,
+          );
+        default:
+          return 0;
+      }
+    });
+    return rows;
+  }, [filteredQuotes, sortKey, sortDir]);
+
+  const toggleSort = (key: SortKey) => {
+    if (sortKey === key) {
+      setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    } else {
+      setSortKey(key);
+      setSortDir(
+        key === 'enquiry_date' ||
+          key === 'remaining_days' ||
+          key === 'total_amount'
+          ? 'desc'
+          : 'asc',
+      );
+    }
+  };
 
   const deleteLabel = deleteTarget
-    ? [quoteDisplayCode(deleteTarget), quoteDisplayName(deleteTarget)]
+    ? [quoteCode(deleteTarget), quoteDisplayName(deleteTarget)]
         .filter(Boolean)
         .join(' · ')
     : '';
 
   return (
-    <div className="h-full overflow-y-auto bg-background p-6 md:p-8">
-      <div className="mx-auto max-w-4xl">
-        {/* Header */}
-        <div className="mb-6">
-          <h1 className="font-display text-2xl font-bold tracking-tight text-foreground">
-            報價單一覽
-          </h1>
-          <p className="mt-1 font-body text-sm text-muted-foreground">
-            管理和追蹤所有已提交的報價記錄
-          </p>
-        </div>
+    <>
+      <ListPageShell
+        title="報價單一覽"
+        subtitle="管理和追蹤所有已提交的報價記錄（含關聯 PMS Pitching）"
+        search={searchQuery}
+        onSearchChange={setSearchQuery}
+        searchPlaceholder="搜尋 pitching code / 客戶名稱 / 提案名稱 / 提交者…"
+        searchActions={
+          <ListRefreshButton onClick={fetchQuotes} loading={isLoading} />
+        }
+      >
+        <ListTableCard
+          minWidthClassName="min-w-[1280px]"
+          footer={
+            !isLoading && sortedQuotes.length > 0
+              ? `共 ${sortedQuotes.length} 筆 · 點擊任一列開啟報價`
+              : null
+          }
+        >
+          <thead>
+            <tr className="border-b border-border bg-muted/50">
+              {(
+                [
+                  ['enquiry_date', '查詢日期'],
+                  ['remaining_days', '剩餘天數'],
+                  ['customer_type', '客戶類型'],
+                  ['display_name', '提案顯示名稱'],
+                  ['service_type', '服務類型'],
+                  ['total_amount', '報價金額'],
+                  ['cost_price', '成本'],
+                  ['staff', '主要PM及設計師'],
+                  ['quote_status', '報價狀態'],
+                  ['pitching_stages', 'Pitching'],
+                ] as const
+              ).map(([key, label]) => (
+                <th key={key} className={LIST_TABLE_TH_CLASS}>
+                  <button
+                    type="button"
+                    onClick={() => toggleSort(key)}
+                    className="inline-flex items-center gap-1.5 transition-colors hover:text-foreground"
+                  >
+                    {label}
+                    <SortHeaderIcon active={sortKey === key} dir={sortDir} />
+                  </button>
+                </th>
+              ))}
+              <th className={LIST_TABLE_TH_CLASS}>
+                <span className="sr-only">操作</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {isLoading ? (
+              <ListTableLoadingRow colSpan={11} label="載入報價單列表…" />
+            ) : sortedQuotes.length === 0 ? (
+              <ListTableEmptyRow
+                colSpan={11}
+                message={
+                  searchQuery
+                    ? `找不到「${searchQuery.trim()}」`
+                    : '尚無報價記錄'
+                }
+              />
+            ) : (
+              sortedQuotes.map((quote) => {
+                const selected = activeId === quote.id;
+                const title = quoteDisplayName(quote);
+                const code = quoteCode(quote);
+                const days = quote.pitching?.remaining_days ?? null;
+                const enquiryDate =
+                  quote.pitching?.enquiry_date ||
+                  quote.modified_date ||
+                  quote.created_at;
 
-        {/* Search & Filter Bar */}
-        <div className="mb-6 flex items-center gap-3">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <input
-              type="text"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="搜尋專案編號、專案名稱..."
-              className="w-full rounded-xl border border-border bg-card pl-10 pr-4 py-2.5 font-body text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
-            />
-          </div>
-          <button
-            type="button"
-            className="flex items-center gap-2 rounded-xl border border-border bg-card px-4 py-2.5 font-body text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-          >
-            <SlidersHorizontal className="h-4 w-4" />
-            進階篩選
-          </button>
-          <button
-            type="button"
-            onClick={fetchQuotes}
-            className="flex items-center justify-center h-10 w-10 rounded-xl border border-border bg-card text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            title="重新載入"
-          >
-            <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
-          </button>
-        </div>
-
-        {/* Quote List */}
-        {isLoading ? (
-          <div className="space-y-4">
-            {[1, 2, 3].map((i) => (
-              <div
-                key={i}
-                className="animate-pulse rounded-xl border border-border bg-card p-5"
-              >
-                <div className="flex items-start justify-between">
-                  <div className="space-y-2">
-                    <div className="h-3 w-24 rounded bg-muted" />
-                    <div className="h-5 w-48 rounded bg-muted" />
-                    <div className="h-3 w-32 rounded bg-muted" />
-                  </div>
-                  <div className="space-y-2 text-right">
-                    <div className="h-5 w-20 rounded bg-muted ml-auto" />
-                    <div className="h-3 w-28 rounded bg-muted ml-auto" />
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : filteredQuotes.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-20 text-center">
-            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-muted/50 mb-4">
-              <FileText className="h-7 w-7 text-muted-foreground/60" />
-            </div>
-            <h3 className="font-display text-base font-semibold text-foreground/80 mb-1">
-              {searchQuery ? '沒有符合的報價單' : '尚無報價記錄'}
-            </h3>
-            <p className="font-body text-sm text-muted-foreground">
-              {searchQuery
-                ? '請嘗試不同的搜尋關鍵字'
-                : '建立新報價單後，記錄將顯示在此處'}
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {filteredQuotes.map((quote) => {
-              const code = quoteDisplayCode(quote);
-              const title = quoteDisplayName(quote);
-              const clientName =
-                quote.project_data?.formData?.clientName || '—';
-
-              return (
-                <div
-                  key={quote.id}
-                  onClick={() => onOpenQuote?.(quote.quote_id)}
-                  className="group cursor-pointer rounded-xl border border-border bg-card p-5 transition-all duration-200 hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5 hover:-translate-y-0.5"
-                >
-                  <div className="flex items-start justify-between gap-4">
-                    {/* Left */}
-                    <div className="min-w-0 flex-1">
-                      {/* Top Row: pitching code badge, Version+Status */}
-                      <div className="mb-2 flex flex-wrap items-center gap-2">
-                        <span className="font-mono-data text-[11px] tracking-wider text-muted-foreground">
-                          {code || '—'}
+                return (
+                  <tr
+                    key={quote.id}
+                    tabIndex={0}
+                    onMouseEnter={() => setActiveId(quote.id)}
+                    onFocus={() => setActiveId(quote.id)}
+                    onClick={() => onOpenQuote?.(quote.quote_id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        onOpenQuote?.(quote.quote_id);
+                      }
+                    }}
+                    className={cn(
+                      'cursor-pointer border-b border-border/70 transition-colors last:border-b-0',
+                      selected ? 'bg-primary/10' : 'hover:bg-accent/50',
+                    )}
+                  >
+                    <td className="whitespace-nowrap px-3 py-3 font-mono-data text-xs text-foreground">
+                      {formatListDate(enquiryDate)}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-3">
+                      {days == null ? (
+                        <span className="font-body text-xs text-muted-foreground">
+                          —
                         </span>
-                        <span className="inline-flex items-center rounded-md border border-primary/30 bg-primary/10 px-1.5 py-0.5 font-mono-data text-[10px] font-bold tracking-wider text-primary">
-                          BWF
-                        </span>
+                      ) : (
                         <span
-                          className={`inline-flex items-center rounded-md border px-2 py-0.5 font-body text-[11px] font-medium ${getStatusColor(quote.status)}`}
+                          className={cn(
+                            'inline-flex items-center gap-1 font-body text-xs font-medium',
+                            days < 0
+                              ? 'text-rose-600'
+                              : days <= 14
+                                ? 'text-amber-600'
+                                : 'text-emerald-600',
+                          )}
                         >
-                          {quote.version} · {quote.status}
+                          <Clock className="h-3.5 w-3.5" />
+                          {days} 天
                         </span>
-                      </div>
-
-                      {/* Main Title — pitching_name (recognition), not code */}
-                      <h3 className="mb-1 truncate font-display text-base font-bold text-foreground group-hover:text-primary transition-colors">
+                      )}
+                    </td>
+                    <td className="max-w-[140px] px-3 py-3 font-body text-xs leading-snug text-foreground">
+                      {quote.pitching?.customer_type || '—'}
+                    </td>
+                    <td className="min-w-[220px] max-w-[320px] px-3 py-3">
+                      <div className="truncate font-body text-sm font-semibold text-primary">
                         {title}
-                      </h3>
-
-                      {/* Subtitle */}
-                      <p className="font-body text-sm text-muted-foreground">
-                        {clientName}
-                        <span className="mx-2 text-border">·</span>
-                        <span className="text-xs">提交者: {quote.submitter}</span>
-                      </p>
-                    </div>
-
-                    {/* Right */}
-                    <div className="flex items-start gap-3 flex-shrink-0">
-                      <div className="flex flex-col items-end">
-                        <span className="font-display text-lg font-bold text-foreground">
-                          ${quote.total_amount.toLocaleString()}
-                        </span>
-                        {quote.cost_price != null && (
-                          <span className="mt-0.5 font-mono-data text-[11px] text-muted-foreground">
-                            成本: ${quote.cost_price.toLocaleString()}
-                          </span>
-                        )}
-                        <span className="mt-1 flex items-center gap-1 font-mono-data text-[11px] text-muted-foreground">
-                          <Clock className="h-3 w-3" />
-                          {formatDateTime(quote.modified_date || quote.created_at)}
-                        </span>
                       </div>
+                      <div className="mt-0.5 truncate font-mono-data text-[11px] text-muted-foreground">
+                        {code}
+                        {quote.project_data?.formData?.clientName
+                          ? ` · ${quote.project_data.formData.clientName}`
+                          : ''}
+                      </div>
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-3">
+                      {quote.pitching?.service_type ? (
+                        <span className="inline-flex rounded-full border border-violet-200 bg-violet-50 px-2.5 py-0.5 font-body text-[11px] font-medium text-violet-700">
+                          {quote.pitching.service_type}
+                        </span>
+                      ) : (
+                        <span className="font-body text-xs text-muted-foreground">
+                          —
+                        </span>
+                      )}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-3 font-mono-data text-xs font-semibold text-foreground">
+                      ${formatListMoney(quote.total_amount)}
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-3 font-mono-data text-xs text-muted-foreground">
+                      {quote.cost_price != null
+                        ? `$${formatListMoney(quote.cost_price)}`
+                        : 'N/A'}
+                    </td>
+                    <td className="max-w-[160px] px-3 py-3 font-body text-xs text-foreground">
+                      <div>{staffLabel(quote)}</div>
+                      <div className="mt-0.5 text-[11px] text-muted-foreground">
+                        提交: {quote.submitter || '—'}
+                      </div>
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-3">
+                      <span
+                        className={cn(
+                          'inline-flex rounded-md border px-2 py-0.5 font-body text-[11px] font-medium',
+                          quoteStatusBadgeClass(quote.status),
+                        )}
+                      >
+                        {quote.version} · {quote.status}
+                      </span>
+                    </td>
+                    <td className="whitespace-nowrap px-3 py-3">
+                      <span
+                        className={cn(
+                          'inline-flex rounded-md border px-2 py-0.5 font-body text-[11px] font-medium',
+                          pitchingStatusBadgeClass(
+                            quote.pitching?.pitching_stages,
+                          ),
+                        )}
+                      >
+                        {pitchingStatusLabel(quote.pitching?.pitching_stages)}
+                      </span>
+                    </td>
+                    <td className="whitespace-nowrap px-2 py-3">
                       <button
                         type="button"
                         title="刪除報價單"
-                        aria-label={`刪除報價單 ${code || quote.quote_id}`}
+                        aria-label={`刪除報價單 ${code}`}
                         onClick={(e) => {
                           e.stopPropagation();
                           setDeleteTarget(quote);
                         }}
-                        className="mt-0.5 flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-muted-foreground/70 transition-colors hover:border-destructive/30 hover:bg-destructive/10 hover:text-destructive"
+                        className="flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-muted-foreground/70 transition-colors hover:border-destructive/30 hover:bg-destructive/10 hover:text-destructive"
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </ListTableCard>
+      </ListPageShell>
 
       <AlertDialog
         open={!!deleteTarget}
@@ -354,7 +552,7 @@ export function QuotationListView({ onOpenQuote }: QuotationListViewProps) {
             <AlertDialogDescription className="font-body text-sm">
               確定要刪除報價單{' '}
               <span className="font-mono-data font-bold text-foreground">
-                {deleteTarget ? quoteDisplayCode(deleteTarget) || '—' : ''}
+                {deleteTarget ? quoteCode(deleteTarget) : ''}
               </span>
               嗎？
               <br />
@@ -384,6 +582,6 @@ export function QuotationListView({ onOpenQuote }: QuotationListViewProps) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
-    </div>
+    </>
   );
 }
