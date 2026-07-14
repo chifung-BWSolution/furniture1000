@@ -9,7 +9,7 @@ import {
 } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
-import { writeLoginLog } from '@/lib/loginLog';
+import { consumeSsoLoginPending, writeLoginLog } from '@/lib/loginLog';
 import { clearPmsStaffCache, fetchPmsStaffInfo } from '@/lib/pmsStaff';
 
 type AuthContextValue = {
@@ -49,7 +49,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } else if (nextSession?.user?.id && event === 'SIGNED_IN') {
         clearPmsStaffCache();
         void fetchPmsStaffInfo(nextSession.user.id);
-        void writeLoginLog('login');
+        if (!consumeSsoLoginPending()) {
+          void writeLoginLog('login', 'password');
+        }
       } else if (nextSession?.user?.id && event === 'USER_UPDATED') {
         clearPmsStaffCache();
         void fetchPmsStaffInfo(nextSession.user.id);

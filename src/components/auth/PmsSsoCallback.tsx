@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Loader2, CheckCircle2, XCircle } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
+import { markSsoLoginPending } from '@/lib/loginLog';
 import { resolveSsoPostLoginPath } from '@/lib/ssoRedirect';
 
 type CallbackState = 'processing' | 'success' | 'error';
@@ -44,6 +45,7 @@ export function PmsSsoCallback() {
           throw new Error('Session tokens missing from exchange response');
         }
 
+        markSsoLoginPending();
         const { error: sessionError } = await supabase.auth.setSession({
           access_token: data.access_token,
           refresh_token: data.refresh_token,

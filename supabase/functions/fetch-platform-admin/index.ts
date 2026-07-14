@@ -222,22 +222,32 @@ async function fetchLoginLogs(
   };
 
   const logs: LoginLog[] = [];
+  const loginLogDedupeKeys = new Set<string>();
+
+  const loginAtMs = (iso: string): number => new Date(iso).getTime();
+  const loginDedupeKey = (userId: string, iso: string): string => {
+    const bucket = Math.floor(loginAtMs(iso) / 120_000);
+    return `${userId}|${bucket}`;
+  };
 
   const { data: loginRows } = await furnitureAdmin
     .from("login_log")
-    .select("id, user_id, user_email, user_name, event, logged_at")
+    .select("id, user_id, user_email, user_name, event, login_method, logged_at")
     .order("logged_at", { ascending: false })
     .limit(150);
 
   for (const row of loginRows ?? []) {
     const email = normalizeEmail(row.user_email);
+    const userId = String(row.user_id ?? "");
+    if (userId) loginLogDedupeKeys.add(loginDedupeKey(userId, String(row.logged_at)));
+    const method = String(row.login_method ?? "password");
     logs.push({
       id: `ll-${row.id}`,
       user: formatUser(String(row.user_name ?? ""), email),
       email: email ?? undefined,
       type: row.event === "logout" ? "logout" : "login",
       ip: "—",
-      location: "登入",
+      location: method === "sso" ? "SSO" : "密碼登入",
       at: String(row.logged_at),
       suspicious: false,
     });
@@ -251,15 +261,22 @@ async function fetchLoginLogs(
     .limit(150);
 
   for (const row of ssoRows ?? []) {
+    const userId = String(row.user_id ?? "");
+    const usedAt = String(row.used_at);
+    if (userId && loginLogDedupeKeys.has(loginDedupeKey(userId, usedAt))) continue;
     const email = normalizeEmail(row.email) ?? "";
-    const user = nameByAuthId.get(String(row.user_id ?? "")) ?? nameByEmail.get(email) ?? email;
+    const user = formatUser(
+      nameByAuthId.get(userId) ?? nameByEmail.get(email) ?? email,
+      email,
+    );
     logs.push({
       id: `sso-${row.id}`,
       user,
+      email: email || undefined,
       type: "login",
       ip: "—",
       location: "SSO",
-      at: String(row.used_at),
+      at: usedAt,
       suspicious: false,
     });
   }

@@ -173,6 +173,19 @@ async function handleExchange(
     console.error("[pms-sso] mark used failed:", markError.message);
   }
 
+  const usedAt = new Date().toISOString();
+  const { error: loginLogError } = await admin.from("login_log").insert({
+    user_id: row.user_id,
+    user_email: row.email,
+    user_name: null,
+    event: "login",
+    login_method: "sso",
+    logged_at: usedAt,
+  });
+  if (loginLogError) {
+    console.warn("[pms-sso] login_log insert failed:", loginLogError.message);
+  }
+
   const session = sessionData.session;
   const user = sessionData.user;
 

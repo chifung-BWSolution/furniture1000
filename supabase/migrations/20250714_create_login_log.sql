@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS public.login_log (
   user_email text,
   user_name text,
   event text NOT NULL DEFAULT 'login' CHECK (event IN ('login', 'logout')),
+  login_method text NOT NULL DEFAULT 'password' CHECK (login_method IN ('password', 'sso')),
   logged_at timestamptz NOT NULL DEFAULT now()
 );
 
