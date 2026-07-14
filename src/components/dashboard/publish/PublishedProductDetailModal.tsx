@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { normalizeBodyHtmlForShopify } from '@/lib/bodyHtml';
-import { resolveMirrorGalleryUrls, resolveMirrorPrimaryImageUrl, sortShopifyImages } from '@/lib/shopifyMirrorImages';
+import { resolveMirrorGalleryUrlsInSavedOrder, resolveMirrorPrimaryImageUrl, sortShopifyImages } from '@/lib/shopifyMirrorImages';
 import { toast } from 'sonner';
 import { PUBLISH_STATE_META, type PublishState } from '@/constants/analytics-mock';
 import { Textarea } from '@/components/ui/textarea';
@@ -271,7 +271,7 @@ export function PublishedProductDetailModal({
       }, {})
     );
     setEditFallbackSku(r.sku || '');
-    const gallery = resolveMirrorGalleryUrls(r);
+    const gallery = resolveMirrorGalleryUrlsInSavedOrder(r);
     setEditImages(gallery);
     setSelectedImg(gallery[0] || resolveMirrorPrimaryImageUrl(r) || null);
     setDragImgIndex(null);

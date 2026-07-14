@@ -2,6 +2,7 @@
 
 import {
   dedupeImageUrls,
+  dedupeImageUrlsPreserveOrder,
   imageIdentityKey,
   pickBestPrimaryImageUrl,
   sortUrlsPrimaryFirst,
@@ -43,28 +44,25 @@ export function sortShopifyImages(images: unknown): ShopifyMirrorImage[] {
 }
 
 /**
- * Primary thumbnail for 已上載產品 — prefer *_primary_* white-bg shot over dialog/lifestyle.
+ * Primary thumbnail for 已上載產品 — use saved image_url when set (user reorder / DB primary),
+ * otherwise pick *_primary_* white-bg shot over dialog/lifestyle.
  */
 export function resolveMirrorPrimaryImageUrl(row: {
   image_url?: string | null;
   images?: unknown;
 }): string {
+  const direct = (row.image_url || '').trim();
+  if (direct.startsWith('http')) return direct;
+
   const candidates: string[] = [];
   for (const im of sortShopifyImages(row.images)) {
     const src = imageSrc(im);
     if (src.startsWith('http')) candidates.push(src);
   }
-  const direct = (row.image_url || '').trim();
-  if (direct.startsWith('http')) {
-    const dk = imageIdentityKey(direct);
-    if (!candidates.some((u) => imageIdentityKey(u) === dk)) {
-      candidates.unshift(direct);
-    }
-  }
   return pickBestPrimaryImageUrl(candidates);
 }
 
-/** Ordered unique gallery URLs [primary, ...extras] for display and metafields. */
+/** Ordered unique gallery URLs [primary, ...extras] — role-based sort for initial import display. */
 export function resolveMirrorGalleryUrls(row: {
   image_url?: string | null;
   images?: unknown;
@@ -77,6 +75,27 @@ export function resolveMirrorGalleryUrls(row: {
     candidates.unshift(row.image_url!.trim());
   }
   return sortUrlsPrimaryFirst(dedupeImageUrls(candidates.filter((u) => u.startsWith('http'))));
+}
+
+/**
+ * Gallery URLs in DB-saved order (position + image_url) — no filename-role re-sort.
+ * Use in detail edit views after user drag-reorder save.
+ */
+export function resolveMirrorGalleryUrlsInSavedOrder(row: {
+  image_url?: string | null;
+  images?: unknown;
+}): string[] {
+  const fromImages = sortShopifyImages(row.images)
+    .map((im) => imageSrc(im))
+    .filter((u) => u.startsWith('http'));
+
+  const direct = (row.image_url || '').trim();
+  if (direct.startsWith('http')) {
+    const dk = imageIdentityKey(direct);
+    const rest = fromImages.filter((u) => imageIdentityKey(u) !== dk);
+    return dedupeImageUrlsPreserveOrder([direct, ...rest]);
+  }
+  return dedupeImageUrlsPreserveOrder(fromImages);
 }
 
 /** Normalize images JSON for DB storage with sequential positions. */
