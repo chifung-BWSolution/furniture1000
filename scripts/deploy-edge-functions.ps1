@@ -86,6 +86,11 @@ Deploy-Function `
   -Name 'resolve-pms-staff-by-ids'
 
 Deploy-Function `
+  -Slug 'supabase-functions-fetch-platform-admin' `
+  -FilePath (Join-Path $root 'supabase\functions\fetch-platform-admin\index.ts') `
+  -Name 'fetch-platform-admin'
+
+Deploy-Function `
   -Slug 'supabase-functions-send-upload-log-report-email' `
   -FilePath (Join-Path $root 'supabase\functions\send-upload-log-report-email\index.ts') `
   -Name 'send-upload-log-report-email'

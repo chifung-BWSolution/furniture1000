@@ -203,13 +203,6 @@ export const ROLE_META: Record<UserRole, { label: string; className: string }> =
   designer: { label: '設計師', className: 'bg-amber-500/15 text-amber-600 border-amber-500/30' },
   client: { label: '客戶', className: 'bg-slate-500/15 text-slate-600 border-slate-500/30' },
 };
-export const MOCK_USERS: PlatformUser[] = [
-  { id: 'u1', name: '陳志峰 CF', email: 'cf@bwsolution.com', role: 'admin', active: true, lastLogin: '2026-06-03T08:30:00Z' },
-  { id: 'u2', name: 'Amy Wong', email: 'amy@bwsolution.com', role: 'pm', active: true, lastLogin: '2026-06-02T17:10:00Z' },
-  { id: 'u3', name: 'Ken Lau', email: 'ken@bwsolution.com', role: 'uploader', active: true, lastLogin: '2026-06-03T09:05:00Z' },
-  { id: 'u4', name: 'Siu Ming', email: 'ming@bwsolution.com', role: 'designer', active: false, lastLogin: '2026-05-20T14:00:00Z' },
-  { id: 'u5', name: '匯豐 陳大文', email: 'chan@hsbc.com', role: 'client', active: true, lastLogin: '2026-06-01T16:30:00Z' },
-];
 // permission matrix: role × capability
 export const PERMISSIONS = ['查看產品', '編輯產品', '上架發佈', '管理報價', '查看成本', '管理用戶'];
 export const ROLE_PERMISSIONS: Record<UserRole, boolean[]> = {
@@ -240,21 +233,3 @@ export const LOG_TYPE_META: Record<LogType, { label: string; className: string }
   edit: { label: '編輯', className: 'bg-sky-500/15 text-sky-600 border-sky-500/30' },
   publish: { label: '發佈', className: 'bg-primary/15 text-primary border-primary/30' },
 };
-export const MOCK_LOGS: LoginLog[] = [
-  { id: 'l1', user: '陳志峰 CF', type: 'login', ip: '203.198.12.4', location: '香港', at: '2026-06-03T08:30:00Z', suspicious: false },
-  { id: 'l2', user: 'Ken Lau', type: 'publish', ip: '203.198.12.9', location: '香港', at: '2026-06-03T09:20:00Z', suspicious: false },
-  { id: 'l3', user: 'Amy Wong', type: 'failed', ip: '45.62.118.7', location: '美國洛杉磯', at: '2026-06-03T03:14:00Z', suspicious: true },
-  { id: 'l4', user: 'Amy Wong', type: 'failed', ip: '45.62.118.7', location: '美國洛杉磯', at: '2026-06-03T03:15:00Z', suspicious: true },
-  { id: 'l5', user: 'Siu Ming', type: 'login', ip: '116.48.x.x', location: '香港', at: '2026-06-02T14:02:00Z', suspicious: false },
-  { id: 'l6', user: 'Ken Lau', type: 'edit', ip: '203.198.12.9', location: '香港', at: '2026-06-02T11:40:00Z', suspicious: false },
-  { id: 'l7', user: '陳志峰 CF', type: 'logout', ip: '203.198.12.4', location: '香港', at: '2026-06-02T18:50:00Z', suspicious: false },
-];
-export const MOCK_SECURITY_TREND = [
-  { day: '5/28', 成功: 42, 失敗: 2 },
-  { day: '5/29', 成功: 38, 失敗: 1 },
-  { day: '5/30', 成功: 45, 失敗: 0 },
-  { day: '5/31', 成功: 40, 失敗: 3 },
-  { day: '6/1', 成功: 50, 失敗: 1 },
-  { day: '6/2', 成功: 48, 失敗: 2 },
-  { day: '6/3', 成功: 52, 失敗: 4 },
-];
