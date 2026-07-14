@@ -313,7 +313,7 @@ export function useAppStore() {
       const saved = sessionStorage.getItem('current-view') as ViewType | null;
       if (saved) return saved;
     } catch { /* ignore */ }
-    return 'quick-quote';
+    return 'dashboard';
   });
   const setCurrentView = (view: ViewType) => {
     try { sessionStorage.setItem('current-view', view); } catch { /* ignore */ }

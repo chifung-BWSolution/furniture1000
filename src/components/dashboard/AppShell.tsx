@@ -114,6 +114,7 @@ const CustomerCompanyInfoView = lazy(() =>
 // Views that fetch their own data independently of the app store's product
 // load — they must not be gated by store.isLoading, so they render immediately.
 const SELF_LOADING_VIEWS = new Set<ViewType>([
+  "dashboard",
   "listed-products",
   "product-catalog",
   "manufacturer-catalog",
@@ -342,10 +343,7 @@ export function AppShell() {
     switch (store.currentView) {
       case "dashboard":
         return (
-          <DashboardView
-            onNavigateToAI={() => store.setCurrentView("ai-processor")}
-            onNavigateToCopywriting={() => store.setCurrentView("publish-copywriting")}
-          />
+          <DashboardView onNavigate={handleViewChange} />
         );
       case "ai-processor":
         return (
@@ -491,13 +489,6 @@ export function AppShell() {
       case "confirmed-projects":
         return <ConfirmedProjectsView />;
 
-      case "advanced-search":
-        return (
-          <PlaceholderView
-            title="進階搜尋"
-            description="跨產品、廠家、分類的深度搜尋功能。"
-          />
-        );
       case "customer-design-projects":
         return <CustomerDesignProjectsView />;
       case "customer-product-search":
@@ -628,15 +619,17 @@ export function AppShell() {
       />
 
       <div className="flex flex-1 min-h-0 overflow-hidden">
-        <SidebarNav
-          activeSection={activeSection}
-          currentView={store.currentView}
-          onViewChange={handleViewChange}
-          isDarkMode={store.isDarkMode}
-          onToggleDarkMode={store.toggleDarkMode}
-          isCollapsed={sidebarCollapsed}
-          onCollapseChange={setSidebarCollapsed}
-        />
+        {activeSection !== 'home' && (
+          <SidebarNav
+            activeSection={activeSection}
+            currentView={store.currentView}
+            onViewChange={handleViewChange}
+            isDarkMode={store.isDarkMode}
+            onToggleDarkMode={store.toggleDarkMode}
+            isCollapsed={sidebarCollapsed}
+            onCollapseChange={setSidebarCollapsed}
+          />
+        )}
 
         <main className="flex flex-1 flex-col min-w-0 overflow-hidden">
         {/* 方案 D: Unhealthy DB banner */}
@@ -665,6 +658,10 @@ export function AppShell() {
           publishProgress={store.publishProgress}
           hasUnsavedChanges={store.hasUnsavedChanges}
           stats={store.stats}
+          hideBreadcrumbParent={activeSection === 'home'}
+          showDarkModeToggle={activeSection === 'home'}
+          isDarkMode={store.isDarkMode}
+          onToggleDarkMode={store.toggleDarkMode}
         />
 
         <div className="flex-1 overflow-hidden">

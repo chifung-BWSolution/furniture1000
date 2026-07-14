@@ -1,9 +1,10 @@
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Database, ChevronRight, Save, Loader2, Check } from 'lucide-react';
+import { Database, ChevronRight, Save, Loader2, Check, Moon, Sun } from 'lucide-react';
 import { ViewType } from '@/types/product';
 import { getViewMeta } from './navConfig';
+import { Switch } from '@/components/ui/switch';
 
 interface TopBarProps {
   currentView: ViewType;
@@ -21,6 +22,10 @@ interface TopBarProps {
     success: number;
     errors: number;
   };
+  hideBreadcrumbParent?: boolean;
+  showDarkModeToggle?: boolean;
+  isDarkMode?: boolean;
+  onToggleDarkMode?: () => void;
 }
 
 
@@ -35,9 +40,14 @@ export function TopBar({
   publishProgress,
   hasUnsavedChanges,
   stats,
+  hideBreadcrumbParent = false,
+  showDarkModeToggle = false,
+  isDarkMode = false,
+  onToggleDarkMode,
 }: TopBarProps) {
   const meta = getViewMeta(currentView);
-  const viewInfo = { label: meta.viewLabel, parent: meta.sectionLabel };
+  const showParent = !hideBreadcrumbParent && meta.sectionLabel && meta.sectionLabel !== meta.viewLabel;
+  const viewInfo = { label: meta.viewLabel, parent: showParent ? meta.sectionLabel : '' };
 
   // Show stats (總共/已選) on product list views
   const showProductButtons = currentView === 'listed-products' || currentView === 'ready-to-publish' || currentView === 'product-catalog';
@@ -143,6 +153,14 @@ export function TopBar({
               </Button>
             </div>
           )}
+        </div>
+      )}
+
+      {showDarkModeToggle && onToggleDarkMode && (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          {isDarkMode ? <Moon className="h-3.5 w-3.5" /> : <Sun className="h-3.5 w-3.5" />}
+          <span className="hidden sm:inline">{isDarkMode ? '深色模式' : '淺色模式'}</span>
+          <Switch checked={isDarkMode} onCheckedChange={onToggleDarkMode} className="scale-90" />
         </div>
       )}
     </header>

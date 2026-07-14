@@ -25,6 +25,14 @@ export interface PrimaryItem {
 
 export const NAV_CONFIG: PrimaryItem[] = [
   {
+    id: 'home',
+    label: '儀表板',
+    icon: LayoutDashboard,
+    children: [
+      { view: 'dashboard', label: '儀表板', icon: LayoutDashboard },
+    ],
+  },
+  {
     id: 'solutions',
     label: '傢俬方案',
     icon: Layers,
@@ -62,8 +70,6 @@ export const NAV_CONFIG: PrimaryItem[] = [
     label: '產品管理',
     icon: Package,
     children: [
-      { view: 'dashboard', label: '儀表板', icon: LayoutDashboard },
-      { view: 'advanced-search', label: '進階搜尋', icon: Search },
       { view: 'manufacturer-catalog', label: '廠家目錄', icon: BookOpen },
       { view: 'ai-processor', label: '上載PDF', icon: FileUp },
       { view: 'listed-products', label: '待處理產品', icon: Boxes },
@@ -111,11 +117,11 @@ export function findSection(view: ViewType): PrimarySection {
   for (const p of NAV_CONFIG) {
     if (p.children.some((c) => c.view === view)) return p.id;
   }
-  return 'products';
+  return 'home';
 }
 
 export function getSection(id: PrimarySection): PrimaryItem {
-  return NAV_CONFIG.find((p) => p.id === id) ?? NAV_CONFIG[3];
+  return NAV_CONFIG.find((p) => p.id === id) ?? NAV_CONFIG[0];
 }
 
 export function getViewMeta(view: ViewType): { sectionLabel: string; viewLabel: string } {

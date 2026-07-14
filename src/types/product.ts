@@ -98,9 +98,9 @@ export interface AppSettings {
 }
 
 export type ViewType =
-  // 產品管理
+  // 儀表板
   | 'dashboard'
-  | 'advanced-search'
+  // 產品管理
   | 'manufacturer-catalog'
   | 'factory-detail'
   | 'ai-processor'
@@ -141,6 +141,7 @@ export type ViewType =
   | 'category-registry';
 
 export type PrimarySection =
+  | 'home'
   | 'solutions'
   | 'customers'
   | 'quote'
