@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react';
 import { supabase } from '@/lib/supabase';
 import { flattenRtsListRow } from '@/lib/rtsProductSync';
 import { dedupeFactoryNames, expandFactoryFilterSelection } from '@/lib/factoryNames';
@@ -28,10 +28,22 @@ interface UsePublishRtsListOpts {
   countStage: PublishRtsCountStage;
   reloadKey?: number;
   orderBy?: PublishListOrder[];
+  /** When true (copywriting only), list/count/factories show rejected=true rows. */
+  rejectedOnly?: boolean;
+  /** Extra controls rendered at the far right of the filter toolbar (before count badge). */
+  toolbarEnd?: ReactNode;
 }
 
 /** Publish list sourced from ready_to_shopify (workflow flags) + embedded products (display/sync). */
-export function usePublishRtsList({ applyBaseFilters, applyProductsCountFilters, countStage, reloadKey = 0, orderBy }: UsePublishRtsListOpts) {
+export function usePublishRtsList({
+  applyBaseFilters,
+  applyProductsCountFilters,
+  countStage,
+  reloadKey = 0,
+  orderBy,
+  rejectedOnly = false,
+  toolbarEnd,
+}: UsePublishRtsListOpts) {
   const [rows, setRows] = useState<any[]>([]);
   const [totalCount, setTotalCount] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -90,13 +102,16 @@ export function usePublishRtsList({ applyBaseFilters, applyProductsCountFilters,
   useEffect(() => {
     let cancelled = false;
     supabase
-      .rpc('get_publish_rts_factories', { p_stage: countStage })
+      .rpc('get_publish_rts_factories', {
+        p_stage: countStage,
+        p_rejected_only: countStage === 'copywriting' ? rejectedOnly : false,
+      })
       .then(({ data, error }) => {
         if (cancelled || error) return;
         setAvailableFactories(dedupeFactoryNames((data as string[] | null) ?? []));
       });
     return () => { cancelled = true; };
-  }, [reloadKey, countStage]);
+  }, [reloadKey, countStage, rejectedOnly]);
 
   useEffect(() => {
     const onClick = (e: MouseEvent) => {
@@ -131,6 +146,7 @@ export function usePublishRtsList({ applyBaseFilters, applyProductsCountFilters,
           p_factories: selectedFactories.length > 0 ? expandFactoryFilterSelection(selectedFactories) : null,
           p_limit: pageSize,
           p_offset: from,
+          p_rejected_only: countStage === 'copywriting' ? rejectedOnly : false,
         })
         .abortSignal(dataController.signal);
       if (dataController.signal.aborted || requestId !== fetchSeq.current) return;
@@ -156,6 +172,7 @@ export function usePublishRtsList({ applyBaseFilters, applyProductsCountFilters,
               p_level1: level1Filter || null,
               p_level2: level2Filter || null,
               p_factories: selectedFactories.length > 0 ? expandFactoryFilterSelection(selectedFactories) : null,
+              p_rejected_only: countStage === 'copywriting' ? rejectedOnly : false,
             })
             .abortSignal(countController.signal);
           if (!countController.signal.aborted && requestId === fetchSeq.current) {
@@ -180,7 +197,7 @@ export function usePublishRtsList({ applyBaseFilters, applyProductsCountFilters,
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentPage, pageSize, debouncedSearch, level1Filter, level2Filter, selectedFactories, reloadKey, countStage]);
+  }, [currentPage, pageSize, debouncedSearch, level1Filter, level2Filter, selectedFactories, reloadKey, countStage, rejectedOnly]);
 
   useEffect(() => { fetchRows(); }, [fetchRows]);
   useEffect(() => () => {
@@ -275,7 +292,10 @@ export function usePublishRtsList({ applyBaseFilters, applyProductsCountFilters,
         )}
       </div>
 
-      <span className="rounded-full bg-primary/10 px-2.5 py-0.5 font-mono-data text-[11px] font-semibold text-primary">{totalCount} 件產品</span>
+      <div className="ml-auto flex items-center gap-2">
+        {toolbarEnd}
+        <span className="rounded-full bg-primary/10 px-2.5 py-0.5 font-mono-data text-[11px] font-semibold text-primary">{totalCount} 件產品</span>
+      </div>
     </div>
   );
 

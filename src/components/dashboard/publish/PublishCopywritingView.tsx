@@ -4,6 +4,7 @@ import {
   UploadCloud, Search, X, Bold, Italic, Underline as UnderlineIcon,
   List, ListOrdered, Image as ImageIcon, Palette,
   AlignLeft, AlignCenter, AlignRight, Wand2, Plus, Check, Save, Hash,
+  Ban, Archive,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -55,7 +56,65 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
   const [activeId, setActiveId] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const [viewMode, setViewMode] = useState<'active' | 'rejected'>('active');
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isRejecting, setIsRejecting] = useState(false);
   const cardRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+
+  const rejectedOnly = viewMode === 'rejected';
+
+  const toggleSelected = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const handleRejectSelected = useCallback(async () => {
+    const ids = Array.from(selectedIds);
+    if (ids.length === 0) return;
+    setIsRejecting(true);
+    try {
+      const { error } = await supabase
+        .from('ready_to_shopify')
+        .update({ rejected: true })
+        .in('id', ids);
+      if (error) throw error;
+      toast.success(`已將 ${ids.length} 件產品標記為「暫不考慮」`, {
+        description: '產品已移至「不考慮產品」列表',
+      });
+      setSelectedIds(new Set());
+      setReloadKey((k) => k + 1);
+    } catch (err) {
+      toast.error('標記失敗', { description: err instanceof Error ? err.message : '請稍後再試' });
+    } finally {
+      setIsRejecting(false);
+    }
+  }, [selectedIds]);
+
+  const rejectToolbarButton = !rejectedOnly ? (
+    <button
+      type="button"
+      onClick={handleRejectSelected}
+      disabled={selectedIds.size === 0 || isRejecting}
+      className={cn(
+        'flex h-8 items-center gap-1.5 rounded-lg border px-3 text-xs font-body font-semibold transition-colors',
+        selectedIds.size > 0
+          ? 'border-rose-500/40 text-rose-600 hover:bg-rose-500/10'
+          : 'border-border text-muted-foreground opacity-50',
+      )}
+    >
+      {isRejecting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Ban className="h-3 w-3" />}
+      {isRejecting ? '處理中...' : '暫不考慮'}
+      {selectedIds.size > 0 && !isRejecting && (
+        <span className="rounded-full bg-rose-500/15 px-1.5 py-0.5 font-mono-data text-[10px] text-rose-600">
+          {selectedIds.size}
+        </span>
+      )}
+    </button>
+  ) : null;
 
   // Only show products where copywriting is NOT yet done.
   // NOTE: do NOT select the heavy `images` JSONB column here — it stores base64
@@ -67,6 +126,8 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
     applyProductsCountFilters: (q) => q.eq('in_shopify_queue', true).or('copy_done.is.null,copy_done.eq.false').is('shopify_product_id', null),
     countStage: 'copywriting',
     reloadKey,
+    rejectedOnly,
+    toolbarEnd: rejectToolbarButton,
   });
 
   const items: CopyItem[] = useMemo(() => rows.map((r: any) => {
@@ -94,6 +155,10 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
       revertReason: r.revert_reason ?? null,
     };
   }), [rows]);
+
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [viewMode, reloadKey]);
 
   const product = items.find((p) => p.id === activeId) ?? null;
 
@@ -646,10 +711,33 @@ ${rawDesc}
       <div className="flex h-full flex-col overflow-hidden bg-background">
         <div className="flex shrink-0 items-center gap-2 border-b border-border bg-muted/30 px-8 py-3">
           <FileText className="h-4 w-4 text-primary" />
-          <h2 className="font-display text-sm font-bold">產品文案</h2>
+          <h2 className="font-display text-sm font-bold">
+            {rejectedOnly ? '不考慮產品' : '產品文案'}
+          </h2>
           <span className="ml-1 rounded-full bg-primary/10 px-2.5 py-0.5 font-mono-data text-[11px] font-semibold text-primary">
-            {totalCount} 件產品待處理
+            {totalCount} 件產品{rejectedOnly ? '' : '待處理'}
           </span>
+          <div className="ml-auto flex items-center gap-2">
+            {rejectedOnly ? (
+              <button
+                type="button"
+                onClick={() => setViewMode('active')}
+                className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+              >
+                <ChevronLeft className="h-3.5 w-3.5" />
+                返回待處理
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setViewMode('rejected')}
+                className="flex items-center gap-1.5 rounded-lg border border-rose-500/30 bg-rose-500/5 px-3 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-500/10"
+              >
+                <Archive className="h-3.5 w-3.5" />
+                不考慮產品
+              </button>
+            )}
+          </div>
         </div>
         {Toolbar}
         <div className="flex-1 overflow-auto p-8">
@@ -658,18 +746,44 @@ ${rawDesc}
           ) : items.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-3 py-24 text-center">
               <FileText className="h-8 w-8 text-muted-foreground/40" />
-              <p className="font-display text-sm text-muted-foreground">尚無符合條件的產品</p>
-              <p className="font-body text-[12px] text-muted-foreground/70">到「產品管理 → 待處理產品」點「A 加入Shopify」即可加入，或調整上方篩選</p>
+              <p className="font-display text-sm text-muted-foreground">
+                {rejectedOnly ? '尚無標記為「暫不考慮」的產品' : '尚無符合條件的產品'}
+              </p>
+              <p className="font-body text-[12px] text-muted-foreground/70">
+                {rejectedOnly
+                  ? '在「產品文案」列表勾選產品並點「暫不考慮」後，產品會顯示於此'
+                  : '到「產品管理 → 待處理產品」點「A 加入Shopify」即可加入，或調整上方篩選'}
+              </p>
             </div>
           ) : (
             <div className="mx-auto grid max-w-6xl grid-cols-1 gap-4 lg:grid-cols-2">
-              {items.map((p) => (
-                <button
+              {items.map((p) => {
+                const isSelected = selectedIds.has(p.id);
+                return (
+                <div
                   key={p.id}
-                  ref={(el) => { cardRefs.current[p.id] = el; }}
-                  onClick={() => openProduct(p)}
-                  className="group relative flex flex-col gap-3 rounded-2xl border border-border bg-card p-4 text-left transition-all hover:border-primary/40 hover:shadow-md"
+                  className={cn(
+                    'group relative flex flex-col gap-3 rounded-2xl border border-border bg-card p-4 text-left transition-all hover:border-primary/40 hover:shadow-md',
+                    isSelected && 'border-rose-500/40 bg-rose-500/5 ring-1 ring-rose-500/20',
+                  )}
                 >
+                  {!rejectedOnly && (
+                    <div className="absolute left-3 top-3 z-10">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleSelected(p.id)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="h-4 w-4 rounded border-border accent-rose-600"
+                        aria-label={`選取 ${p.title}`}
+                      />
+                    </div>
+                  )}
+                  <button
+                    ref={(el) => { cardRefs.current[p.id] = el; }}
+                    onClick={() => openProduct(p)}
+                    className="flex w-full flex-col gap-3 text-left"
+                  >
                   {/* Revert reason banner — full-width row above content, wraps freely */}
                   {p.revertReason && (p.revertReason.labels.length > 0 || p.revertReason.other) && (
                     <div className="flex w-full flex-wrap items-center gap-1 rounded-lg bg-amber-500/10 px-2.5 py-2 ring-1 ring-amber-500/25">
@@ -686,7 +800,7 @@ ${rawDesc}
                       )}
                     </div>
                   )}
-                  <div className="flex items-center gap-4">
+                  <div className={cn('flex items-center gap-4', !rejectedOnly && 'pl-6')}>
                     <img src={p.imageUrl} alt={p.title} loading="lazy" className="h-20 w-20 shrink-0 rounded-xl object-cover bg-muted" />
                     <div className="min-w-0 flex-1">
                       <h3 className="font-display text-[14px] font-bold text-foreground line-clamp-1">{p.title}</h3>
@@ -699,8 +813,9 @@ ${rawDesc}
                       <span className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-medium text-primary">編輯文案 <ArrowRight className="h-3 w-3" /></span>
                     </div>
                   </div>
-                </button>
-              ))}
+                  </button>
+                </div>
+              );})}
             </div>
           )}
         </div>
