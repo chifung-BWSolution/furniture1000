@@ -1,5 +1,12 @@
 /** Shopify mirror image helpers — single source of truth for gallery order. */
 
+import {
+  dedupeImageUrls,
+  imageIdentityKey,
+  pickBestPrimaryImageUrl,
+  sortUrlsPrimaryFirst,
+} from './productMergeImages';
+
 export type ShopifyMirrorImage = {
   id?: string | number;
   src?: string;
@@ -36,18 +43,25 @@ export function sortShopifyImages(images: unknown): ShopifyMirrorImage[] {
 }
 
 /**
- * Primary thumbnail for 已上載產品 — always the lowest-position Shopify image.
- * Falls back to image_url when images[] is empty.
+ * Primary thumbnail for 已上載產品 — prefer *_primary_* white-bg shot over dialog/lifestyle.
  */
 export function resolveMirrorPrimaryImageUrl(row: {
   image_url?: string | null;
   images?: unknown;
 }): string {
-  const sorted = sortShopifyImages(row.images);
-  const fromGallery = imageSrc(sorted[0] || {});
-  if (fromGallery.startsWith('http')) return fromGallery;
+  const candidates: string[] = [];
+  for (const im of sortShopifyImages(row.images)) {
+    const src = imageSrc(im);
+    if (src.startsWith('http')) candidates.push(src);
+  }
   const direct = (row.image_url || '').trim();
-  return direct.startsWith('http') ? direct : '';
+  if (direct.startsWith('http')) {
+    const dk = imageIdentityKey(direct);
+    if (!candidates.some((u) => imageIdentityKey(u) === dk)) {
+      candidates.unshift(direct);
+    }
+  }
+  return pickBestPrimaryImageUrl(candidates);
 }
 
 /** Ordered unique gallery URLs [primary, ...extras] for display and metafields. */
@@ -55,22 +69,14 @@ export function resolveMirrorGalleryUrls(row: {
   image_url?: string | null;
   images?: unknown;
 }): string[] {
-  const urls: string[] = [];
-  const seen = new Set<string>();
-  const add = (src?: string | null) => {
-    const s = (src || '').trim();
-    if (!s.startsWith('http')) return;
-    const key = s.split('?')[0];
-    if (seen.has(key)) return;
-    seen.add(key);
-    urls.push(s);
-  };
-
+  const candidates: string[] = [];
   for (const im of sortShopifyImages(row.images)) {
-    add(imageSrc(im));
+    candidates.push(imageSrc(im));
   }
-  if (urls.length === 0) add(row.image_url);
-  return urls;
+  if ((row.image_url || '').trim().startsWith('http')) {
+    candidates.unshift(row.image_url!.trim());
+  }
+  return sortUrlsPrimaryFirst(dedupeImageUrls(candidates.filter((u) => u.startsWith('http'))));
 }
 
 /** Normalize images JSON for DB storage with sequential positions. */

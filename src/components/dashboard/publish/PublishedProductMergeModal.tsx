@@ -8,6 +8,13 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
+  buildMergeGalleryFromProducts,
+  collectMergeProductImageUrls,
+  dedupeImageUrls,
+  imageDedupeKey,
+  isHttpUrl,
+} from '@/lib/productMergeImages';
+import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
 
@@ -61,54 +68,6 @@ export interface MergeVariantRow {
 
 const PICKER_PAGE_SIZE = 25;
 const ROW_DRAG_MIME = 'application/x-merge-row-key';
-
-function isHttpUrl(src: unknown): src is string {
-  return typeof src === 'string' && /^https?:\/\//.test(src);
-}
-
-function normalizeImageUrl(src: string): string {
-  try {
-    const u = new URL(src);
-    return `${u.origin}${u.pathname}`;
-  } catch {
-    return src.split('?')[0] ?? src;
-  }
-}
-
-function imageDedupeKey(src: string): string {
-  return normalizeImageUrl(src).replace(
-    /_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?=\.[a-z0-9]+$)/i,
-    '',
-  );
-}
-
-function dedupeImageUrls(urls: string[]): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const url of urls) {
-    if (!isHttpUrl(url)) continue;
-    const key = imageDedupeKey(url);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(url);
-  }
-  return out;
-}
-
-function collectProductImageUrls(product: ShopifyProductRow): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  const add = (url: string | null | undefined) => {
-    if (!isHttpUrl(url)) return;
-    const key = imageDedupeKey(url);
-    if (seen.has(key)) return;
-    seen.add(key);
-    out.push(url);
-  };
-  add(product.image_url);
-  for (const im of product.images ?? []) add(im.src);
-  return out;
-}
 
 function resolveVariantImageSrc(
   row: ShopifyProductRow,
@@ -214,20 +173,14 @@ function buildGalleryFromProducts(
   productOrder: string[],
   productByShopifyId: Map<string, ShopifyProductRow>,
 ): string[] {
-  const urls: string[] = [];
-  for (const shopifyId of productOrder) {
-    const product = productByShopifyId.get(shopifyId);
-    if (!product) continue;
-    urls.push(...collectProductImageUrls(product));
-  }
-  return dedupeImageUrls(urls);
+  return buildMergeGalleryFromProducts(productOrder, productByShopifyId);
 }
 
 function appendProductImages(
   prev: string[],
   product: ShopifyProductRow,
 ): string[] {
-  return dedupeImageUrls([...prev, ...collectProductImageUrls(product)]);
+  return dedupeImageUrls([...prev, ...collectMergeProductImageUrls(product)]);
 }
 
 function MergeVariantRowView({
@@ -557,7 +510,7 @@ export function PublishedProductMergeModal({
         setProductCache((cache) => {
           const product = cache.get(row.shopify_product_id);
           if (product) {
-            const urlsToRemove = new Set(collectProductImageUrls(product));
+            const urlsToRemove = new Set(collectMergeProductImageUrls(product));
             setGalleryUrls((g) => g.filter((u) => !urlsToRemove.has(u)));
             const nextCache = new Map(cache);
             nextCache.delete(row.shopify_product_id);

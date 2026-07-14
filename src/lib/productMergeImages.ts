@@ -13,7 +13,38 @@ export function normalizeImageUrl(src: string): string {
   }
 }
 
+/** Filename stem — matches Storage vs Shopify CDN for the same asset. */
+export function imageIdentityKey(src: string): string {
+  const noQuery = src.split('?')[0];
+  const base = noQuery.substring(noQuery.lastIndexOf('/') + 1);
+  return base.replace(/\.[a-zA-Z0-9]+$/, '').trim().toLowerCase();
+}
+
+/** Lower = preferred as Shopify primary (white-bg product shot before dialog/lifestyle). */
+export function imageRolePriority(url: string): number {
+  const base = url.split('?')[0].toLowerCase();
+  if (base.includes('_primary_')) return 0;
+  if (
+    base.includes('_dialog_') ||
+    base.includes('_lifestyle_') ||
+    base.includes('_scene_')
+  ) {
+    return 2;
+  }
+  return 1;
+}
+
+export function sortUrlsPrimaryFirst(urls: string[]): string[] {
+  return [...urls].sort((a, b) => {
+    const roleDiff = imageRolePriority(a) - imageRolePriority(b);
+    if (roleDiff !== 0) return roleDiff;
+    return a.localeCompare(b);
+  });
+}
+
 export function imageDedupeKey(src: string): string {
+  const stem = imageIdentityKey(src);
+  if (stem) return stem;
   return normalizeImageUrl(src).replace(
     /_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?=\.[a-z0-9]+$)/i,
     '',
@@ -21,31 +52,52 @@ export function imageDedupeKey(src: string): string {
 }
 
 export function dedupeImageUrls(urls: string[]): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
+  const byKey = new Map<string, string>();
   for (const url of urls) {
     if (!isHttpUrl(url)) continue;
     const key = imageDedupeKey(url);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(url);
+    const existing = byKey.get(key);
+    if (!existing || imageRolePriority(url) < imageRolePriority(existing)) {
+      byKey.set(key, url);
+    }
   }
-  return out;
+  return sortUrlsPrimaryFirst([...byKey.values()]);
 }
 
 export function dedupeGalleryUrls(urls: string[], primarySrc: string | null): string[] {
-  const out: string[] = [];
-  const seen = new Set<string>();
-  const add = (src: string | null | undefined) => {
-    if (!isHttpUrl(src)) return;
-    const key = imageDedupeKey(src);
-    if (seen.has(key)) return;
-    seen.add(key);
-    out.push(src);
-  };
-  if (primarySrc) add(primarySrc);
-  for (const url of urls) add(url);
-  return out;
+  const merged = primarySrc ? [primarySrc, ...urls] : urls;
+  return dedupeImageUrls(merged);
+}
+
+/** Collect all HTTP image URLs from a mirror row; primary-role URLs sort first. */
+export function collectMergeProductImageUrls(product: {
+  image_url?: string | null;
+  images?: Array<{ src?: string | null }> | null;
+}): string[] {
+  const raw: string[] = [];
+  if (isHttpUrl(product.image_url)) raw.push(product.image_url);
+  for (const im of product.images ?? []) {
+    if (isHttpUrl(im?.src)) raw.push(im.src);
+  }
+  return dedupeImageUrls(raw);
+}
+
+export function buildMergeGalleryFromProducts(
+  productOrder: string[],
+  productByShopifyId: Map<string, { image_url?: string | null; images?: Array<{ src?: string | null }> | null }>,
+): string[] {
+  const raw: string[] = [];
+  for (const shopifyId of productOrder) {
+    const product = productByShopifyId.get(shopifyId);
+    if (!product) continue;
+    raw.push(...collectMergeProductImageUrls(product));
+  }
+  return dedupeImageUrls(raw);
+}
+
+export function pickBestPrimaryImageUrl(urls: string[]): string {
+  const sorted = sortUrlsPrimaryFirst(dedupeImageUrls(urls));
+  return sorted[0] ?? '';
 }
 
 export interface MergeVariantRowBase {
