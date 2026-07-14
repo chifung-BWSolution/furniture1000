@@ -1,0 +1,262 @@
+/**
+ * Quote line items live in `bwf_quote_item` (not project_data.items).
+ * Shared API for load / replace / image resolve.
+ */
+import { supabase } from '@/lib/supabase';
+import {
+  resolveQuoteItemImages,
+  type QuoteItemImageFields,
+} from '@/lib/quoteImageStorage';
+
+/** Frontend quotation line shape (camelCase). */
+export type BwfQuoteItemInput = QuoteItemImageFields & {
+  id?: string;
+  name?: string;
+  unitPrice?: number;
+  quantity?: number;
+  unit?: string;
+  costPrice?: number | null;
+  exchangeRate?: number | null;
+  hkdCostPrice?: number | null;
+  category?: string;
+  material?: string;
+  color?: string;
+  dimensionLMm?: number | null;
+  dimensionWMm?: number | null;
+  dimensionHMm?: number | null;
+  deliveryTermName?: string;
+  factoryName?: string;
+  factoryFromCatalog?: boolean;
+  isCustomTerm?: boolean;
+  /** Transient UI field — never persisted. */
+  exchangeRateInput?: string;
+};
+
+export type BwfQuoteItemRow = {
+  id: string;
+  quote_uuid: string;
+  sort_order: number;
+  client_item_id: string | null;
+  name: string;
+  image: string;
+  reference_image: string | null;
+  remarks_image: string | null;
+  unit_price: number;
+  quantity: number;
+  unit: string | null;
+  cost_price: number | null;
+  exchange_rate: number | null;
+  hkd_cost_price: number | null;
+  category: string | null;
+  material: string | null;
+  color: string | null;
+  remarks: string | null;
+  dimension_l_mm: number | null;
+  dimension_w_mm: number | null;
+  dimension_h_mm: number | null;
+  delivery_term_name: string | null;
+  factory_name: string | null;
+  factory_from_catalog: boolean | null;
+  is_custom_term: boolean | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+};
+
+function numOrNull(v: unknown): number | null {
+  if (v == null || v === '') return null;
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function numOrZero(v: unknown): number {
+  const n = numOrNull(v);
+  return n == null ? 0 : n;
+}
+
+/** Map DB row → frontend item (preserves client_item_id as `id` when present). */
+export function mapRowToItem(row: BwfQuoteItemRow): BwfQuoteItemInput {
+  return {
+    id: row.client_item_id || row.id,
+    name: row.name || '',
+    image: row.image || '',
+    referenceImage: row.reference_image || undefined,
+    remarksImage: row.remarks_image || undefined,
+    remarks: row.remarks || undefined,
+    unitPrice: numOrZero(row.unit_price),
+    quantity: numOrZero(row.quantity) || 1,
+    unit: row.unit || undefined,
+    costPrice: numOrNull(row.cost_price),
+    exchangeRate: numOrNull(row.exchange_rate),
+    hkdCostPrice: numOrNull(row.hkd_cost_price),
+    category: row.category || undefined,
+    material: row.material || undefined,
+    color: row.color || undefined,
+    dimensionLMm: numOrNull(row.dimension_l_mm),
+    dimensionWMm: numOrNull(row.dimension_w_mm),
+    dimensionHMm: numOrNull(row.dimension_h_mm),
+    deliveryTermName: row.delivery_term_name || undefined,
+    factoryName: row.factory_name || undefined,
+    factoryFromCatalog: Boolean(row.factory_from_catalog),
+    isCustomTerm: Boolean(row.is_custom_term),
+  };
+}
+
+/** Map frontend item → RPC JSON row (snake_case). */
+export function mapItemToRow(
+  item: BwfQuoteItemInput,
+  sortOrder: number,
+): Record<string, unknown> {
+  const {
+    exchangeRateInput: _exchangeRateInput,
+    id,
+    name,
+    image,
+    referenceImage,
+    remarksImage,
+    remarks,
+    unitPrice,
+    quantity,
+    unit,
+    costPrice,
+    exchangeRate,
+    hkdCostPrice,
+    category,
+    material,
+    color,
+    dimensionLMm,
+    dimensionWMm,
+    dimensionHMm,
+    deliveryTermName,
+    factoryName,
+    factoryFromCatalog,
+    isCustomTerm,
+  } = item;
+
+  return {
+    sort_order: sortOrder,
+    client_item_id: id || null,
+    name: name || '',
+    image: image || '',
+    reference_image: referenceImage || null,
+    remarks_image: remarksImage || null,
+    unit_price: numOrZero(unitPrice),
+    quantity: numOrZero(quantity) || 1,
+    unit: unit || null,
+    cost_price: numOrNull(costPrice),
+    exchange_rate: numOrNull(exchangeRate),
+    hkd_cost_price: numOrNull(hkdCostPrice),
+    category: category || null,
+    material: material || null,
+    color: color || null,
+    remarks: remarks ?? null,
+    dimension_l_mm: numOrNull(dimensionLMm),
+    dimension_w_mm: numOrNull(dimensionWMm),
+    dimension_h_mm: numOrNull(dimensionHMm),
+    delivery_term_name: deliveryTermName || null,
+    factory_name: factoryName || null,
+    factory_from_catalog: Boolean(factoryFromCatalog),
+    is_custom_term: Boolean(isCustomTerm),
+  };
+}
+
+/** Load items for a quote UUID, ordered by sort_order. */
+export async function loadQuoteItems(
+  quoteUuid: string,
+): Promise<BwfQuoteItemInput[]> {
+  const { data, error } = await supabase
+    .from('bwf_quote_item')
+    .select('*')
+    .eq('quote_uuid', quoteUuid)
+    .order('sort_order', { ascending: true });
+
+  if (error) throw error;
+  return ((data || []) as BwfQuoteItemRow[]).map(mapRowToItem);
+}
+
+/**
+ * Replace all items for a quote (delete + insert via RPC).
+ * Call after resolving images to Storage URLs.
+ */
+export async function replaceQuoteItems(
+  quoteUuid: string,
+  items: BwfQuoteItemInput[],
+): Promise<void> {
+  const payload = items.map((item, index) => mapItemToRow(item, index));
+  const { error } = await supabase.rpc('save_bwf_quote_items', {
+    p_quote_uuid: quoteUuid,
+    p_items: payload,
+  });
+  if (error) throw error;
+}
+
+/** Upload any base64 image fields on items to Storage before DB write. */
+export async function resolveItemImagesToStorage<T extends BwfQuoteItemInput>(
+  items: T[],
+  quoteScope: string,
+): Promise<T[]> {
+  return Promise.all(
+    items.map(async (item, index) => {
+      const itemKey = item.id || String(index);
+      return resolveQuoteItemImages(item, quoteScope, itemKey);
+    }),
+  );
+}
+
+/**
+ * Build frontend items from legacy project_data.items JSON (pre-migration rows
+ * or drafts). Prefer loadQuoteItems when DB rows exist.
+ */
+export function itemsFromLegacyProjectData(
+  projectData: Record<string, unknown> | null | undefined,
+): BwfQuoteItemInput[] {
+  const raw = projectData?.items;
+  if (!Array.isArray(raw)) return [];
+  return raw.map((item, index) => {
+    if (!item || typeof item !== 'object') {
+      return { id: String(index), name: '', image: '', unitPrice: 0, quantity: 1 };
+    }
+    const row = item as BwfQuoteItemInput;
+    return {
+      ...row,
+      id: row.id || String(index),
+      name: row.name || '',
+      image: row.image || '',
+      unitPrice: numOrZero(row.unitPrice),
+      quantity: numOrZero(row.quantity) || 1,
+    };
+  });
+}
+
+/** Strip `items` from project_data before writing quote header JSON. */
+export function stripItemsFromProjectData(
+  projectData: Record<string, unknown>,
+): Record<string, unknown> {
+  const { items: _items, ...rest } = projectData;
+  return rest;
+}
+
+/** Resolve pitching code from columns or legacy formData.projectName. */
+export function resolvePitchingCode(opts: {
+  pitchingCode?: string | null;
+  formData?: Record<string, unknown> | null;
+  quoteMeta?: Record<string, unknown> | null;
+}): string {
+  const fromForm =
+    (typeof opts.formData?.pitchingCode === 'string' && opts.formData.pitchingCode) ||
+    (typeof opts.formData?.projectName === 'string' && opts.formData.projectName) ||
+    '';
+  const fromMeta =
+    (typeof opts.quoteMeta?.projectName === 'string' && opts.quoteMeta.projectName) ||
+    '';
+  return (opts.pitchingCode || fromForm || fromMeta || '').trim();
+}
+
+export function resolvePitchingName(opts: {
+  pitchingName?: string | null;
+  formData?: Record<string, unknown> | null;
+}): string {
+  const fromForm =
+    (typeof opts.formData?.pitchingName === 'string' && opts.formData.pitchingName) ||
+    '';
+  return (opts.pitchingName || fromForm || '').trim();
+}

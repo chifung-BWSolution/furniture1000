@@ -65,6 +65,8 @@ export type Database = {
           hkd_cost_price: number | null
           id: string
           modified_date: string | null
+          pitching_code: string | null
+          pitching_name: string | null
           project_data: Json
           quote_id: string
           status: string
@@ -85,6 +87,8 @@ export type Database = {
           hkd_cost_price?: number | null
           id?: string
           modified_date?: string | null
+          pitching_code?: string | null
+          pitching_name?: string | null
           project_data?: Json
           quote_id: string
           status?: string
@@ -105,6 +109,8 @@ export type Database = {
           hkd_cost_price?: number | null
           id?: string
           modified_date?: string | null
+          pitching_code?: string | null
+          pitching_name?: string | null
           project_data?: Json
           quote_id?: string
           status?: string
@@ -114,6 +120,104 @@ export type Database = {
           version?: string
         }
         Relationships: []
+      }
+      bwf_quote_item: {
+        Row: {
+          id: string
+          quote_uuid: string
+          sort_order: number
+          client_item_id: string | null
+          name: string
+          image: string
+          reference_image: string | null
+          remarks_image: string | null
+          unit_price: number
+          quantity: number
+          unit: string | null
+          cost_price: number | null
+          exchange_rate: number | null
+          hkd_cost_price: number | null
+          category: string | null
+          material: string | null
+          color: string | null
+          remarks: string | null
+          dimension_l_mm: number | null
+          dimension_w_mm: number | null
+          dimension_h_mm: number | null
+          delivery_term_name: string | null
+          factory_name: string | null
+          factory_from_catalog: boolean | null
+          is_custom_term: boolean | null
+          created_at: string | null
+          updated_at: string | null
+        }
+        Insert: {
+          id?: string
+          quote_uuid: string
+          sort_order?: number
+          client_item_id?: string | null
+          name?: string
+          image?: string
+          reference_image?: string | null
+          remarks_image?: string | null
+          unit_price?: number
+          quantity?: number
+          unit?: string | null
+          cost_price?: number | null
+          exchange_rate?: number | null
+          hkd_cost_price?: number | null
+          category?: string | null
+          material?: string | null
+          color?: string | null
+          remarks?: string | null
+          dimension_l_mm?: number | null
+          dimension_w_mm?: number | null
+          dimension_h_mm?: number | null
+          delivery_term_name?: string | null
+          factory_name?: string | null
+          factory_from_catalog?: boolean | null
+          is_custom_term?: boolean | null
+          created_at?: string | null
+          updated_at?: string | null
+        }
+        Update: {
+          id?: string
+          quote_uuid?: string
+          sort_order?: number
+          client_item_id?: string | null
+          name?: string
+          image?: string
+          reference_image?: string | null
+          remarks_image?: string | null
+          unit_price?: number
+          quantity?: number
+          unit?: string | null
+          cost_price?: number | null
+          exchange_rate?: number | null
+          hkd_cost_price?: number | null
+          category?: string | null
+          material?: string | null
+          color?: string | null
+          remarks?: string | null
+          dimension_l_mm?: number | null
+          dimension_w_mm?: number | null
+          dimension_h_mm?: number | null
+          delivery_term_name?: string | null
+          factory_name?: string | null
+          factory_from_catalog?: boolean | null
+          is_custom_term?: boolean | null
+          created_at?: string | null
+          updated_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bwf_quote_item_quote_uuid_fkey"
+            columns: ["quote_uuid"]
+            isOneToOne: false
+            referencedRelation: "bwf_quote"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       delivery_terms: {
         Row: {
