@@ -46,7 +46,10 @@ function getNextQuoteVersion(version: string): string {
 interface QuoteFormData {
   company: string;
   projectManager: string;
-  projectName: string;
+  /** PMS pitching_code (BWF-…) — displayed as 報價單號 */
+  pitchingCode: string;
+  /** PMS pitching_name — list/search only, not shown on form */
+  pitchingName: string;
   /** PMS pitching UUID — persisted to bwf_quote.bwf_pitching_id on save */
   pmsPitchingId?: string;
   /** PMS project UUID — persisted to bwf_quote.bwf_project_id on save */
@@ -102,7 +105,8 @@ interface QuickQuoteViewProps {
 const DEFAULT_FORM_DATA = (): QuoteFormData => ({
   company: 'Branding Works Design Ltd',
   projectManager: '',
-  projectName: '',
+  pitchingCode: '',
+  pitchingName: '',
   pmsPitchingId: undefined,
   pmsProjectId: undefined,
   clientName: '',
@@ -121,6 +125,20 @@ const DEFAULT_FORM_DATA = (): QuoteFormData => ({
   remarks: '',
 });
 
+/** Normalize saved/session form JSON (legacy projectName → pitchingCode). */
+function normalizeQuoteFormData(raw: Partial<QuoteFormData> & { projectName?: string }): QuoteFormData {
+  const base = DEFAULT_FORM_DATA();
+  const pitchingCode =
+    (raw.pitchingCode || raw.projectName || '').trim() || base.pitchingCode;
+  const pitchingName = (raw.pitchingName || '').trim();
+  return {
+    ...base,
+    ...raw,
+    pitchingCode,
+    pitchingName,
+  };
+}
+
 /** Sync read of PMS deep-link prefill (avoids gate flash on /quote/quick?pmsProjectId=...). */
 function readUrlPrefill(): {
   form: QuoteFormData;
@@ -134,13 +152,14 @@ function readUrlPrefill(): {
   if (!prefill?.pmsPitchingId && !prefill?.pmsProjectId) {
     return { form: DEFAULT_FORM_DATA(), label: null, applied: false };
   }
-  const labelParts = [prefill.projectName, prefill.clientName].filter(Boolean);
+  const labelParts = [prefill.pitchingCode || prefill.projectName, prefill.clientName].filter(Boolean);
   return {
     form: {
       ...DEFAULT_FORM_DATA(),
       company: prefill.company || 'Branding Works Design Ltd',
       projectManager: prefill.projectManager || '',
-      projectName: prefill.projectName || '',
+      pitchingCode: prefill.pitchingCode || prefill.projectName || '',
+      pitchingName: prefill.pitchingName || '',
       pmsPitchingId: prefill.pmsPitchingId,
       pmsProjectId: prefill.pmsProjectId,
       clientName: prefill.clientName || '',
@@ -152,7 +171,11 @@ function readUrlPrefill(): {
     label:
       labelParts.length > 0
         ? labelParts.join(' · ')
-        : prefill.projectName || prefill.pmsPitchingId || prefill.pmsProjectId || null,
+        : prefill.pitchingCode ||
+          prefill.projectName ||
+          prefill.pmsPitchingId ||
+          prefill.pmsProjectId ||
+          null,
     applied: true,
   };
 }
@@ -181,6 +204,9 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
     projectData: Record<string, unknown>;
     bwfPitchingId?: string | null;
     bwfProjectId?: string | null;
+    quoteUuid?: string;
+    pitchingCode?: string | null;
+    pitchingName?: string | null;
   } | null>(null);
   const [formData, setFormData] = useState<QuoteFormData>(
     () => initialUrlPrefillRef.current.form,
@@ -208,7 +234,8 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
       ...DEFAULT_FORM_DATA(),
       company: prefill.company || 'Branding Works Design Ltd',
       projectManager: prefill.projectManager || '',
-      projectName: prefill.projectName || '',
+      pitchingCode: prefill.pitchingCode || prefill.projectName || '',
+      pitchingName: prefill.pitchingName || '',
       pmsPitchingId: prefill.pmsPitchingId,
       pmsProjectId: prefill.pmsProjectId,
       clientName: prefill.clientName || '',
@@ -217,11 +244,15 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
       clientIndustry: prefill.clientIndustry || [],
       quotationType: prefill.quotationType || [],
     });
-    const labelParts = [prefill.projectName, prefill.clientName].filter(Boolean);
+    const labelParts = [prefill.pitchingCode || prefill.projectName, prefill.clientName].filter(Boolean);
     setSelectedPitchingLabel(
       labelParts.length > 0
         ? labelParts.join(' · ')
-        : prefill.projectName || prefill.pmsPitchingId || prefill.pmsProjectId || null,
+        : prefill.pitchingCode ||
+          prefill.projectName ||
+          prefill.pmsPitchingId ||
+          prefill.pmsProjectId ||
+          null,
     );
     pmsPrefillAppliedRef.current = true;
     sessionRestoredRef.current = true;
@@ -247,10 +278,10 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
     try {
       const raw = sessionStorage.getItem(quickQuoteFormKey(userEmail));
       if (raw) {
-        const parsed = { ...DEFAULT_FORM_DATA(), ...JSON.parse(raw) } as QuoteFormData;
+        const parsed = normalizeQuoteFormData(JSON.parse(raw));
         setFormData(parsed);
         if (parsed.pmsPitchingId) {
-          const label = [parsed.projectName, parsed.clientName].filter(Boolean).join(' · ');
+          const label = [parsed.pitchingCode, parsed.clientName].filter(Boolean).join(' · ');
           setSelectedPitchingLabel(label || parsed.pmsPitchingId);
         }
       }
@@ -281,8 +312,8 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
       pmsPitchingId: item.id,
       // Related project_id is resolved by defaults fetch (may stay empty).
       pmsProjectId: undefined,
-      // projectName stores PMS pitching_code for PMS list joins
-      projectName: item.pitching_code?.trim() || prev.projectName,
+      pitchingCode: item.pitching_code?.trim() || prev.pitchingCode,
+      pitchingName: item.pitching_name?.trim() || prev.pitchingName,
       projectManager: item.main_pm_name?.trim() || prev.projectManager,
       clientName: item.customer_name?.trim() || prev.clientName,
     }));
@@ -352,11 +383,11 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
         // Persist resolved cross-link ids (project → pitching always; pitching → project if any)
         pmsPitchingId: defaults.pitching_id || prev.pmsPitchingId,
         pmsProjectId: defaults.project_id || prev.pmsProjectId || undefined,
-        // Prefer pitching_code; fall back to project_code for display/joins
-        projectName:
+        pitchingCode:
           defaults.pitching_code ||
           defaults.project_code ||
-          prev.projectName,
+          prev.pitchingCode,
+        pitchingName: defaults.pitching_name || prev.pitchingName,
         clientName: defaults.client_name || prev.clientName,
         clientIndustry:
           defaults.selected_industries.length > 0
@@ -460,7 +491,9 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
           ),
         };
 
-        const savedFormData = projectDataToUse.formData as QuoteFormData | undefined;
+        const savedFormData = projectDataToUse.formData as
+          | (Partial<QuoteFormData> & { projectName?: string })
+          | undefined;
 
         // Hydrate form data from saved state
         if (savedFormData) {
@@ -470,29 +503,24 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
           const projectId =
             savedFormData.pmsProjectId ||
             (typeof data.bwf_project_id === 'string' ? data.bwf_project_id : undefined);
-          setFormData({
-            company: savedFormData.company || 'Branding Works Design Ltd',
-            projectManager: savedFormData.projectManager || '',
-            projectName: savedFormData.projectName || '',
+          const columnCode =
+            typeof data.pitching_code === 'string' ? data.pitching_code : '';
+          const columnName =
+            typeof data.pitching_name === 'string' ? data.pitching_name : '';
+          const normalized = normalizeQuoteFormData({
+            ...savedFormData,
+            pitchingCode:
+              savedFormData.pitchingCode ||
+              savedFormData.projectName ||
+              columnCode ||
+              '',
+            pitchingName: savedFormData.pitchingName || columnName || '',
             pmsPitchingId: pitchingId,
             pmsProjectId: projectId,
-            clientName: savedFormData.clientName || '',
-            clientPhone: savedFormData.clientPhone || '',
-            clientEmail: savedFormData.clientEmail || '',
-            clientIndustry: savedFormData.clientIndustry || [],
-            clientIndustryOther: savedFormData.clientIndustryOther || '',
-            quotationType: savedFormData.quotationType || [],
-            serviceScope: savedFormData.serviceScope || [],
-            officeArea: savedFormData.officeArea || '',
-            headcount: savedFormData.headcount || '',
-            budgetMin: savedFormData.budgetMin || '',
-            budgetMax: savedFormData.budgetMax || '',
-            workPeriod: savedFormData.workPeriod || '',
-            validityDays: savedFormData.validityDays || '30',
-            remarks: savedFormData.remarks || '',
           });
+          setFormData(normalized);
           if (pitchingId || projectId) {
-            const label = [savedFormData.projectName, savedFormData.clientName]
+            const label = [normalized.pitchingCode, normalized.clientName]
               .filter(Boolean)
               .join(' · ');
             setSelectedPitchingLabel(label || pitchingId || projectId || null);
@@ -510,6 +538,9 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
           projectData: projectDataToUse,
           bwfPitchingId: (data.bwf_pitching_id as string | null) ?? null,
           bwfProjectId: (data.bwf_project_id as string | null) ?? null,
+          quoteUuid: data.id as string,
+          pitchingCode: (data.pitching_code as string | null) ?? null,
+          pitchingName: (data.pitching_name as string | null) ?? null,
         });
         loadedQuoteIdRef.current = editingQuoteId;
 
@@ -565,8 +596,8 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
     if (!formData.projectManager.trim()) {
       newErrors.projectManager = '請填寫項目經理姓名';
     }
-    if (!formData.projectName.trim()) {
-      newErrors.projectName = '請填寫報價單號';
+    if (!formData.pitchingCode.trim()) {
+      newErrors.pitchingCode = '請先選擇 PMS Pitching（報價單號）';
     }
     if (!formData.clientName.trim()) {
       newErrors.clientName = '請填寫客戶名稱';
@@ -792,7 +823,7 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
                   </div>
                   <div className="mt-0.5 truncate font-mono-data text-sm font-semibold text-foreground">
                     {selectedPitchingLabel ||
-                      formData.projectName ||
+                      formData.pitchingCode ||
                       formData.pmsPitchingId ||
                       '—'}
                   </div>
@@ -861,23 +892,21 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
                 </div>
               </div>
 
-              {/* Project Name (full width) */}
+              {/* Pitching code — read-only 報價單號 from PMS */}
               <div>
                 <label className="mb-1.5 block font-body text-sm font-medium text-foreground">
                   報價單號 <span className="text-red-500">*</span>
                 </label>
-                <input
-                  type="text"
-                  value={formData.projectName}
-                  onChange={(e) => updateField('projectName', e.target.value)}
-                  placeholder="例：Q2026-0601-866"
+                <div
                   className={cn(
-                    'w-full rounded-lg border bg-background px-4 py-2.5 font-body text-sm text-foreground placeholder:text-muted-foreground/60 transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20',
-                    errors.projectName ? 'border-red-500' : 'border-border'
+                    'w-full rounded-lg border bg-muted/40 px-4 py-2.5 font-mono-data text-sm text-foreground',
+                    errors.pitchingCode ? 'border-red-500' : 'border-border',
                   )}
-                />
-                {errors.projectName && (
-                  <p className="mt-1 text-xs text-red-500">{errors.projectName}</p>
+                >
+                  {formData.pitchingCode || '—'}
+                </div>
+                {errors.pitchingCode && (
+                  <p className="mt-1 text-xs text-red-500">{errors.pitchingCode}</p>
                 )}
               </div>
 
@@ -1194,7 +1223,7 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
                   <div>
                     <span className="block font-body text-xs text-white/50">報價單號</span>
                     <span className="mt-0.5 block font-mono-data text-sm text-white/90 truncate">
-                      {formData.projectName || '—'}
+                      {formData.pitchingCode || '—'}
                     </span>
                   </div>
                   <div>

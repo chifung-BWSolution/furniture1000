@@ -12,6 +12,7 @@ export interface PmsPitchingQuoteDefaults {
   pitching_id: string | null;
   project_id: string | null;
   pitching_code: string | null;
+  pitching_name: string | null;
   project_code: string | null;
   customer_id: string | null;
   client_name: string | null;
@@ -66,6 +67,7 @@ export async function fetchPmsPitchingQuoteDefaults(options?: {
       pitching_id: data.pitching_id ? String(data.pitching_id) : null,
       project_id: data.project_id ? String(data.project_id) : null,
       pitching_code: data.pitching_code ?? null,
+      pitching_name: data.pitching_name ?? null,
       project_code: data.project_code ?? null,
       customer_id: data.customer_id ?? null,
       client_name: data.client_name ?? null,

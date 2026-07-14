@@ -6,7 +6,15 @@ import { extractPmsPitchingIdFromProjectData, extractPmsProjectIdFromProjectData
 import { useAuth } from '@/contexts/AuthProvider';
 import { usePmsStaffName } from '@/hooks/use-pms-staff-name';
 import { withInsertAuditFields } from '@/lib/pmsAudit';
-import { resolveQuoteProjectDataImages, quoteProjectDataHasBase64Images } from '@/lib/quoteImageStorage';
+import { quoteItemHasBase64Images } from '@/lib/quoteImageStorage';
+import {
+  replaceQuoteItems,
+  resolveItemImagesToStorage,
+  stripItemsFromProjectData,
+  resolvePitchingCode,
+  resolvePitchingName,
+  type BwfQuoteItemInput,
+} from '@/lib/bwfQuoteItems';
 
 interface SubmitReviewModalProps {
   open: boolean;
@@ -16,10 +24,14 @@ interface SubmitReviewModalProps {
   totalCostPrice?: number | null;
   version: string;
   projectData: Record<string, unknown>;
+  /** Line items persisted to bwf_quote_item (not project_data). */
+  items?: BwfQuoteItemInput[];
   /** Explicit PMS pitching uuid (preferred over digging into projectData). */
   bwfPitchingId?: string | null;
   /** Explicit PMS project uuid (preferred over digging into projectData). */
   bwfProjectId?: string | null;
+  pitchingCode?: string | null;
+  pitchingName?: string | null;
 }
 
 function generateQuoteId(): string {
@@ -39,8 +51,11 @@ export function SubmitReviewModal({
   totalCostPrice,
   version,
   projectData,
+  items = [],
   bwfPitchingId,
   bwfProjectId,
+  pitchingCode,
+  pitchingName,
 }: SubmitReviewModalProps) {
   const { user } = useAuth();
   const staffName = usePmsStaffName(user?.id);
@@ -75,20 +90,34 @@ export function SubmitReviewModal({
       extractPmsProjectIdFromProjectData(projectData) ||
       null;
 
-    // Keep formData ids in sync for PMS list joins / reopen.
+    const formDataRaw =
+      (projectData.formData as Record<string, unknown> | undefined) || {};
+    const code = resolvePitchingCode({
+      pitchingCode,
+      formData: formDataRaw,
+      quoteMeta: projectData.quoteMeta as Record<string, unknown> | undefined,
+    });
+    const name = resolvePitchingName({
+      pitchingName,
+      formData: formDataRaw,
+    });
+
+    // Keep formData ids + pitching fields in sync for PMS list joins / reopen.
     const formData = {
-      ...((projectData.formData as Record<string, unknown> | undefined) || {}),
+      ...formDataRaw,
+      pitchingCode: code,
+      pitchingName: name,
       ...(pitchingId ? { pmsPitchingId: pitchingId } : {}),
       ...(projectId ? { pmsProjectId: projectId } : {}),
     };
-    const payloadProjectData = {
+    const payloadProjectData = stripItemsFromProjectData({
       ...projectData,
       formData,
-    };
+    });
 
     try {
-      const resolvedProjectData = await resolveQuoteProjectDataImages(payloadProjectData, quoteId);
-      if (quoteProjectDataHasBase64Images(resolvedProjectData)) {
+      const resolvedItems = await resolveItemImagesToStorage(items, quoteId);
+      if (resolvedItems.some((item) => quoteItemHasBase64Images(item))) {
         throw new Error('部分圖片未能上傳至 Storage，請檢查網絡後重試');
       }
 
@@ -99,19 +128,30 @@ export function SubmitReviewModal({
         total_amount: totalAmount,
         cost_price: totalCostPrice ?? null,
         submitter: submitter.trim(),
-        project_data: resolvedProjectData,
+        project_data: payloadProjectData,
+        pitching_code: code || null,
+        pitching_name: name || null,
         ...(pitchingId ? { bwf_pitching_id: pitchingId } : {}),
         ...(projectId ? { bwf_project_id: projectId } : {}),
       });
 
-      const { error: dbError } = await supabase.from('bwf_quote').insert(insertPayload);
+      const { data: inserted, error: dbError } = await supabase
+        .from('bwf_quote')
+        .insert(insertPayload)
+        .select('id')
+        .single();
 
       if (dbError) {
         throw dbError;
       }
+      if (!inserted?.id) {
+        throw new Error('報價單已建立但缺少 id');
+      }
+
+      await replaceQuoteItems(inserted.id, resolvedItems);
 
       toast.success('報價單已提交審核', {
-        description: `編號: ${quoteId} | 版本: ${version}`,
+        description: `報價單號: ${code || '—'} | 版本: ${version}`,
       });
       onSuccess(quoteId);
       setSubmitter('');

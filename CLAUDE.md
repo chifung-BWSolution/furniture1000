@@ -115,9 +115,21 @@ Invoke-RestMethod -Method Post -Uri "https://api.supabase.com/v1/projects/riaubh
 PMS（bwteam-project.com）BWF pitching 詳情的 Quote tab 會列出本專案 `bwf_quote`
 （依 `bwf_pitching_id`），並經 SSO 開新報價。
 
-**Schema**：`bwf_quote.bwf_pitching_id` + `bwf_quote.bwf_project_id`（PMS UUIDs，無跨庫 FK）。
-存檔時同時寫欄位與 `project_data.formData.pmsPitchingId` /
-`pmsProjectId`；`formData.projectName` = PMS `pitching_code`（或 `project_code`）。
+**Schema（報價識別）**：
+- `bwf_quote.quote_id`（`Q2026-…`）＝內部 URL／版本鍵（`/quote/<quote_id>`），**不是** UI「報價單號」
+- `bwf_quote.pitching_code`＋`formData.pitchingCode`＝PMS `pitching_code`（或 `project_code`），UI／PDF「報價單號」
+- `bwf_quote.pitching_name`＋`formData.pitchingName`＝PMS `pitching_name`，**僅**報價一覽標題／搜尋用（表單與 PDF 不顯示）
+- PDF 標題固定「傢俱報價單」
+- URL query `projectName` 仍＝PMS **code**（handoff 相容）；可選 `pitchingName`
+
+**Schema（列項目）**：明細在 `bwf_quote_item`（`quote_uuid` → `bwf_quote.id` ON DELETE CASCADE）。
+`project_data` **不再**存 `items`。寫入用 RPC `save_bwf_quote_items`（見 `src/lib/bwfQuoteItems.ts`）。
+圖片欄位應為 Storage HTTP URL（`resolveItemImagesToStorage`／`quoteImageStorage`）。
+
+**列表查詢**：`QuotationListView` 禁止 `.select('*')`；只選 header 欄位
+（含 `pitching_code`／`pitching_name`），不要帶 item 圖片。
+
+存檔時同時寫 `bwf_pitching_id`／`bwf_project_id` 與 `formData.pmsPitchingId`／`pmsProjectId`。
 
 **SSO**：PMS `GET /api/bwf/sso/start?redirect_to=<encoded Furniture path+query>`。
 Furniture `/auth/pms/callback` 交換 session 後必須導向 `redirect_to`（保留 query）。
@@ -126,19 +138,20 @@ Furniture `/auth/pms/callback` 交換 session 後必須導向 `redirect_to`（�
 
 **快速報價 deep link**：`/quote/quick?...` 預填 Step 1（見 `src/lib/pmsQuotePrefill.ts`）。
 Query：`pmsPitchingId`（=`bwf_pitchings.id`）與／或 `pmsProjectId`
-（=`bwf_projects.id`，**不是** pitching alias）、`projectName`, `projectManager`,
-`clientName`, `clientPhone`, `clientEmail`, `clientIndustry`, `quotationType`,
-`company`（可選）。報價編號仍由 Furniture 自動產生，PMS 不必傳。
+（=`bwf_projects.id`，**不是** pitching alias）、`projectName`（＝code）、
+`pitchingName`（可選）、`projectManager`, `clientName`, `clientPhone`, `clientEmail`,
+`clientIndustry`, `quotationType`, `company`（可選）。
 
 **ID 解析**（edge `fetch-pms-pitching-quote-defaults`）：
 - 傳 `project_id` → 必有關聯 pitching → 回傳兩者，存 `bwf_project_id` + `bwf_pitching_id`
 - 傳 `pitching_id` → 若有關聯 `bwf_projects` 也回傳 `project_id`；否則只存 pitching
+- 回傳 `pitching_code`、`pitching_name`、客戶／產業／預算
 
 **站內選擇 Pitching**（無 PMS SSO 時）：快速報價先顯示極簡搜尋頁
 `PmsPitchingGate`（唯一建立入口）→ edge `supabase-functions-fetch-pms-pitchings`
 搜尋 `bwf_pitchings`；選定後才進入表單 wizard，並用既有
 `fetch-pms-pitching-quote-defaults` 帶入客戶／產業／預算（並嘗試補 `project_id`）。
-PMS deep link（`pmsProjectId` / `pmsPitchingId`）會跳過搜尋頁，直接進入預填表單。
+PMS deep link（`pmsProjectId`／`pmsPitchingId`）會跳過搜尋頁，直接進入預填表單。
 
 **開啟既有報價**：`/quote/<quote_id>`（例 `/quote/Q2026-0708-263`）。
 PMS v1 可只做列表；需要時用此 URL 連回編輯。
@@ -148,3 +161,4 @@ PMS v1 可只做列表；需要時用此 URL 連回編輯。
 - 客戶產業選項 ← `nos_customer_tags` where `collection_id = 4f5de598-…`
 - 客戶產業預設 ← `customer_tags` for that customer（同 collection）
 - 預算上下限 ← `bwf_pitchings.estimated_income`
+- `pitching_name` ← `bwf_pitchings.pitching_name`

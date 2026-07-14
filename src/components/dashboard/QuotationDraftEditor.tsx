@@ -31,7 +31,7 @@ import {
 } from "@/components/ui/command";
 import { fetchFactories } from "@/lib/factorySupabase";
 import type { QuotationDimensionMode, QuotationPDFData } from "@/types/quotation-pdf";
-import { uploadQuoteImageFile, resolveQuoteProjectDataImages } from "@/lib/quoteImageStorage";
+import { uploadQuoteImageFile } from "@/lib/quoteImageStorage";
 import { isHttpImageUrl } from "@/lib/imageStorage";
 import {
   saveDraft,
@@ -57,11 +57,25 @@ import {
   exchangeRateInputDisplay,
 } from "@/lib/quoteCostExchange";
 import { withUpdateAuditFields } from "@/lib/pmsAudit";
+import {
+  loadQuoteItems,
+  replaceQuoteItems,
+  resolveItemImagesToStorage,
+  itemsFromLegacyProjectData,
+  stripItemsFromProjectData,
+  resolvePitchingCode,
+  resolvePitchingName,
+  type BwfQuoteItemInput,
+} from "@/lib/bwfQuoteItems";
+import { quoteItemHasBase64Images } from "@/lib/quoteImageStorage";
 
 interface QuoteFormData {
   company: string;
   projectManager: string;
-  projectName: string;
+  pitchingCode?: string;
+  pitchingName?: string;
+  /** @deprecated legacy — treated as pitchingCode when loading */
+  projectName?: string;
   pmsPitchingId?: string;
   pmsProjectId?: string;
   clientName: string;
@@ -123,6 +137,9 @@ interface QuotationDraftEditorProps {
     projectData: Record<string, unknown>;
     bwfPitchingId?: string | null;
     bwfProjectId?: string | null;
+    quoteUuid?: string;
+    pitchingCode?: string | null;
+    pitchingName?: string | null;
   };
 }
 
@@ -1207,6 +1224,38 @@ const DEFAULT_ITEMS: QuotationItem[] = [
   },
 ];
 
+function mapInputToQuotationItem(item: BwfQuoteItemInput): QuotationItem {
+  const costPrice = item.costPrice ?? null;
+  const exchangeRate = item.exchangeRate ?? null;
+  return {
+    id: item.id || generateId(),
+    image: item.image || "",
+    name: item.name || "",
+    costPrice,
+    exchangeRate,
+    hkdCostPrice:
+      item.hkdCostPrice ?? computeHkdCostPrice(costPrice, exchangeRate),
+    unitPrice: item.unitPrice || 0,
+    quantity: item.quantity || 1,
+    unit: item.unit || "",
+    category: item.category,
+    material: item.material,
+    color: item.color,
+    remarks: item.remarks,
+    remarksImage: item.remarksImage,
+    referenceImage: item.referenceImage,
+    dimensionLMm: item.dimensionLMm ?? null,
+    dimensionWMm: item.dimensionWMm ?? null,
+    dimensionHMm: item.dimensionHMm ?? null,
+    dimensionMode:
+      (item as { dimensionMode?: QuotationDimensionMode }).dimensionMode ?? "lwh",
+    deliveryTermName: item.deliveryTermName,
+    factoryName: item.factoryName || "",
+    factoryFromCatalog: item.factoryFromCatalog ?? false,
+    isCustomTerm: item.isCustomTerm,
+  };
+}
+
 export function QuotationDraftEditor({
   formData,
   onBack: _onBack,
@@ -1239,28 +1288,18 @@ export function QuotationDraftEditor({
   const savedDeliveryDetails = savedProjectData.deliveryDetails as
     | string
     | undefined;
-  const savedItems = savedProjectData.items as
-    | Array<{
-        image: string;
-        name: string;
-        costPrice?: number | null;
-        exchangeRate?: number | null;
-        hkdCostPrice?: number | null;
-        unitPrice: number;
-        quantity: number;
-        category?: string;
-        material?: string;
-        color?: string;
-        remarks?: string;
-        remarksImage?: string;
-        referenceImage?: string;
-        dimensionLMm?: number | null;
-        dimensionWMm?: number | null;
-        dimensionHMm?: number | null;
-        dimensionMode?: QuotationDimensionMode;
-        deliveryTermName?: string;
-      }>
-    | undefined;
+  const legacyItems = itemsFromLegacyProjectData(
+    savedProjectData as Record<string, unknown>,
+  );
+  const pitchingCodeDisplay = resolvePitchingCode({
+    pitchingCode: existingQuote?.pitchingCode,
+    formData: formData as unknown as Record<string, unknown>,
+    quoteMeta: savedQuoteMeta as unknown as Record<string, unknown>,
+  });
+  const pitchingNameStored = resolvePitchingName({
+    pitchingName: existingQuote?.pitchingName,
+    formData: formData as unknown as Record<string, unknown>,
+  });
   const savedTermsContent = savedProjectData.termsContent as
     | {
         transport: string;
@@ -1296,13 +1335,13 @@ export function QuotationDraftEditor({
     email: savedClientInfo?.email || formData.clientEmail,
   });
 
-  // Quote meta (editable)
+  // Quote meta (editable) — pitching code is read-only from PMS
   const [quoteMeta, setQuoteMeta] = useState({
-    projectName: savedQuoteMeta?.projectName || formData.projectName,
     pmName: savedQuoteMeta?.pmName || formData.projectManager,
     validity: savedQuoteMeta?.validity || formData.validityDays || "30",
     deliveryAddress: savedQuoteMeta?.deliveryAddress || "",
   });
+  const [pitchingCode] = useState(pitchingCodeDisplay);
 
   // Delivery details (editable)
   const [deliveryDetails, setDeliveryDetails] = useState(
@@ -1386,10 +1425,13 @@ export function QuotationDraftEditor({
     }
     setTermsSaving(true);
     try {
-      const resolvedProjectData = await resolveQuoteProjectDataImages(
-        buildProjectData(),
-        existingQuote.quoteId,
-      );
+      const quoteScope = existingQuote.quoteId;
+      const contentItems = items.filter(hasQuoteItemContent);
+      const resolvedItems = await resolveItemImagesToStorage(contentItems, quoteScope);
+      if (resolvedItems.some((item) => quoteItemHasBase64Images(item))) {
+        throw new Error("部分圖片未能上傳至 Storage，請檢查網絡後重試");
+      }
+
       const pitchingId =
         formData.pmsPitchingId ||
         existingQuote.bwfPitchingId ||
@@ -1398,8 +1440,11 @@ export function QuotationDraftEditor({
         formData.pmsProjectId ||
         existingQuote.bwfProjectId ||
         null;
+      const headerProjectData = stripItemsFromProjectData(buildProjectData());
       const updatePayload = await withUpdateAuditFields({
-        project_data: resolvedProjectData,
+        project_data: headerProjectData,
+        pitching_code: pitchingCode || null,
+        pitching_name: pitchingNameStored || formData.pitchingName || null,
         ...(pitchingId ? { bwf_pitching_id: pitchingId } : {}),
         ...(projectId ? { bwf_project_id: projectId } : {}),
       });
@@ -1408,26 +1453,24 @@ export function QuotationDraftEditor({
         .update(updatePayload)
         .eq("quote_id", existingQuote.quoteId);
       if (error) throw error;
-      const resolvedItems = resolvedProjectData.items as Array<{
-        image?: string;
-        referenceImage?: string;
-        remarks?: string;
-      }> | undefined;
-      if (Array.isArray(resolvedItems)) {
-        setItems((prev) =>
-          prev.map((item, index) => {
-            const row = resolvedItems[index];
-            if (!row) return item;
-            return {
-              ...item,
-              image: row.image ?? item.image,
-              referenceImage: row.referenceImage ?? item.referenceImage,
-              remarks: row.remarks ?? item.remarks,
-              remarksImage: undefined,
-            };
-          }),
-        );
+
+      if (existingQuote.quoteUuid) {
+        await replaceQuoteItems(existingQuote.quoteUuid, resolvedItems);
       }
+
+      setItems((prev) =>
+        prev.map((item) => {
+          const row = resolvedItems.find((r) => r.id === item.id);
+          if (!row) return item;
+          return {
+            ...item,
+            image: row.image ?? item.image,
+            referenceImage: row.referenceImage ?? item.referenceImage,
+            remarks: row.remarks ?? item.remarks,
+            remarksImage: undefined,
+          };
+        }),
+      );
       toast.success("條款已保存");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "保存失敗";
@@ -1442,42 +1485,45 @@ export function QuotationDraftEditor({
   const [factories, setFactories] = useState<string[]>([]);
   const [factoriesLoading, setFactoriesLoading] = useState(false);
   const [items, setItems] = useState<QuotationItem[]>(() => {
-    if (savedItems && savedItems.length > 0) {
-      return savedItems.map((item) => {
-        const costPrice = item.costPrice ?? null;
-        const exchangeRate = item.exchangeRate ?? null;
-        return {
-          id: generateId(),
-          image: item.image || "",
-          name: item.name || "",
-          costPrice,
-          exchangeRate,
-          hkdCostPrice:
-            item.hkdCostPrice ??
-            computeHkdCostPrice(costPrice, exchangeRate),
-          unitPrice: item.unitPrice || 0,
-          quantity: item.quantity || 1,
-          unit: (item as { unit?: string }).unit || "",
-          category: item.category,
-          material: item.material,
-          color: item.color,
-          remarks: item.remarks,
-          remarksImage: item.remarksImage,
-          referenceImage: item.referenceImage,
-          dimensionLMm: item.dimensionLMm ?? null,
-          dimensionWMm: item.dimensionWMm ?? null,
-          dimensionHMm: item.dimensionHMm ?? null,
-          dimensionMode: (item as { dimensionMode?: QuotationDimensionMode }).dimensionMode ?? 'lwh',
-          deliveryTermName: item.deliveryTermName,
-          factoryName: (item as { factoryName?: string }).factoryName || "",
-          factoryFromCatalog:
-            (item as { factoryFromCatalog?: boolean }).factoryFromCatalog ?? false,
-          isCustomTerm: (item as { isCustomTerm?: boolean }).isCustomTerm,
-        };
-      });
+    if (legacyItems.length > 0) {
+      return legacyItems.map((item) => mapInputToQuotationItem(item));
     }
     return DEFAULT_ITEMS;
   });
+  const [, setItemsLoadedFromDb] = useState(false);
+
+  // Load line items from bwf_quote_item (prefer over empty legacy JSON)
+  useEffect(() => {
+    const quoteUuid = existingQuote?.quoteUuid;
+    if (!quoteUuid) {
+      setItemsLoadedFromDb(true);
+      return;
+    }
+    // Prefer items already hydrated from project_data / IndexedDB draft
+    if (legacyItems.length > 0) {
+      setItemsLoadedFromDb(true);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const rows = await loadQuoteItems(quoteUuid);
+        if (cancelled) return;
+        if (rows.length > 0) {
+          setItems(rows.map((item) => mapInputToQuotationItem(item)));
+        }
+      } catch (err) {
+        console.warn('[QuotationDraftEditor] loadQuoteItems failed', err);
+      } finally {
+        if (!cancelled) setItemsLoadedFromDb(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // legacyItems length is stable for this existingQuote mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [existingQuote?.quoteUuid]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1749,7 +1795,17 @@ export function QuotationDraftEditor({
           setClientInfo(cached.clientInfo as typeof clientInfo);
         }
         if (cached.quoteMeta) {
-          setQuoteMeta(cached.quoteMeta as typeof quoteMeta);
+          const meta = cached.quoteMeta as {
+            pmName?: string;
+            validity?: string;
+            deliveryAddress?: string;
+            projectName?: string;
+          };
+          setQuoteMeta({
+            pmName: meta.pmName || quoteMeta.pmName,
+            validity: meta.validity || quoteMeta.validity,
+            deliveryAddress: meta.deliveryAddress || "",
+          });
         }
         if (cached.deliveryDetails) {
           setDeliveryDetails(cached.deliveryDetails);
@@ -1946,9 +2002,12 @@ export function QuotationDraftEditor({
       null;
     const nextFormData = {
       ...formData,
+      pitchingCode,
+      pitchingName: pitchingNameStored || formData.pitchingName || "",
       ...(pitchingId ? { pmsPitchingId: pitchingId } : {}),
       ...(projectId ? { pmsProjectId: projectId } : {}),
     };
+    // Items live in bwf_quote_item — omit from project_data JSON.
     return {
       formData: nextFormData,
       companyInfo,
@@ -1956,7 +2015,6 @@ export function QuotationDraftEditor({
       quoteMeta,
       deliveryDetails,
       termsContent,
-      items: items.map(({ id, exchangeRateInput: _exchangeRateInput, ...rest }) => rest),
       subtotal,
       discountNote,
       discountValue,
@@ -1981,8 +2039,9 @@ export function QuotationDraftEditor({
     clientInfo,
     quoteMeta: {
       ...quoteMeta,
+      projectName: pitchingCode,
       deliveryAddress,
-      quoteNumber: quoteMeta.projectName || existingQuote?.quoteId || "",
+      quoteNumber: pitchingCode,
       date: new Date().toLocaleDateString("zh-HK", {
         year: "numeric",
         month: "numeric",
@@ -2228,17 +2287,9 @@ export function QuotationDraftEditor({
                   <label className="mb-1 block font-body text-xs text-muted-foreground">
                     報價單號
                   </label>
-                  <input
-                    type="text"
-                    value={quoteMeta.projectName}
-                    onChange={(e) =>
-                      setQuoteMeta((p) => ({
-                        ...p,
-                        projectName: e.target.value,
-                      }))
-                    }
-                    className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
-                  />
+                  <div className="rounded-md border border-border/50 bg-muted/30 px-3 py-2 font-mono-data text-xs text-foreground/80">
+                    {pitchingCode || "—"}
+                  </div>
                 </div>
                 <div>
                   <label className="mb-1 block font-body text-xs text-muted-foreground">
@@ -2776,8 +2827,11 @@ export function QuotationDraftEditor({
         totalCostPrice={totalCostPrice}
         version={currentVersion}
         projectData={buildProjectData()}
+        items={items.filter(hasQuoteItemContent)}
         bwfPitchingId={formData.pmsPitchingId || existingQuote?.bwfPitchingId || null}
         bwfProjectId={formData.pmsProjectId || existingQuote?.bwfProjectId || null}
+        pitchingCode={pitchingCode}
+        pitchingName={pitchingNameStored || formData.pitchingName || ""}
       />
 
       {/* Product Selector Modal */}

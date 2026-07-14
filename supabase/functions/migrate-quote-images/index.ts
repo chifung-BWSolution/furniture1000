@@ -130,69 +130,22 @@ async function resolveRemarksField(
   return serializeRemarksContent(resolved);
 }
 
-function projectDataHasBase64(projectData: unknown): boolean {
-  if (!projectData || typeof projectData !== "object") return false;
-  const items = (projectData as { items?: unknown }).items;
-  if (!Array.isArray(items)) return false;
-  return items.some((item) => {
-    if (!item || typeof item !== "object") return false;
-    const o = item as Record<string, unknown>;
-    if (isBase64Image(o.image)) return true;
-    if (isBase64Image(o.referenceImage)) return true;
-    if (isBase64Image(o.remarksImage)) return true;
-    if (typeof o.remarks === "string") {
-      const blocks = parseRemarksContent(o.remarks, o.remarksImage as string | undefined);
-      return blocks.some((b) => b.type === "image" && isBase64Image(b.src));
-    }
-    return false;
-  });
-}
-
-async function resolveProjectDataImages(
-  supabase: ReturnType<typeof createClient>,
-  projectData: Record<string, unknown>,
-  quoteId: string,
-): Promise<Record<string, unknown>> {
-  const items = projectData.items;
-  if (!Array.isArray(items)) return projectData;
-
-  const resolvedItems = await Promise.all(
-    items.map(async (item, index) => {
-      if (!item || typeof item !== "object") return item;
-      const row = item as Record<string, unknown>;
-      const storageId = `${quoteId.replace(/[^a-zA-Z0-9_-]/g, "_")}_${index}`;
-
-      const [image, referenceImage, remarks] = await Promise.all([
-        typeof row.image === "string" && row.image.trim()
-          ? uploadBase64(supabase, row.image, storageId, "product")
-          : Promise.resolve(null),
-        typeof row.referenceImage === "string" && row.referenceImage.trim()
-          ? uploadBase64(supabase, row.referenceImage, storageId, "reference")
-          : Promise.resolve(null),
-        resolveRemarksField(supabase, row.remarks, row.remarksImage, storageId),
-      ]);
-
-      const next = { ...row, remarks, remarksImage: undefined };
-      if (image && isHttpUrl(image)) next.image = image;
-      else if (!isHttpUrl(row.image)) next.image = isHttpUrl(row.image) ? row.image : "";
-      if (referenceImage && isHttpUrl(referenceImage)) next.referenceImage = referenceImage;
-      else if (typeof row.referenceImage === "string" && isHttpUrl(row.referenceImage)) {
-        next.referenceImage = row.referenceImage;
-      } else {
-        delete next.referenceImage;
-      }
-      return next;
-    }),
-  );
-
-  return { ...projectData, items: resolvedItems };
+function itemHasBase64(row: Record<string, unknown>): boolean {
+  if (isBase64Image(row.image)) return true;
+  if (isBase64Image(row.reference_image)) return true;
+  if (isBase64Image(row.remarks_image)) return true;
+  if (typeof row.remarks === "string") {
+    const blocks = parseRemarksContent(row.remarks, row.remarks_image as string | undefined);
+    return blocks.some((b) => b.type === "image" && isBase64Image(b.src));
+  }
+  return false;
 }
 
 /**
  * migrate-quote-images
- * Converts base64 images inside bwf_quote.project_data.items to Supabase Storage URLs.
+ * Converts base64 images inside bwf_quote_item to Supabase Storage URLs.
  *
- * POST { batch_size?: number, after_quote_id?: string }
+ * POST { batch_size?: number, after_id?: string }
  */
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -203,16 +156,16 @@ Deno.serve(async (req: Request) => {
     const supabase = createClient(supabaseUrl, serviceKey);
 
     const body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
-    const batchSize = Math.min(Math.max(Number(body.batch_size) || 5, 1), 20);
-    const afterQuoteId = typeof body.after_quote_id === "string" ? body.after_quote_id : "";
+    const batchSize = Math.min(Math.max(Number(body.batch_size) || 10, 1), 50);
+    const afterId = typeof body.after_id === "string" ? body.after_id : "";
 
     let query = supabase
-      .from("bwf_quote")
-      .select("quote_id, project_data")
-      .order("quote_id", { ascending: true })
-      .limit(batchSize * 3);
+      .from("bwf_quote_item")
+      .select("id, quote_uuid, image, reference_image, remarks_image, remarks")
+      .order("id", { ascending: true })
+      .limit(batchSize * 5);
 
-    if (afterQuoteId) query = query.gt("quote_id", afterQuoteId);
+    if (afterId) query = query.gt("id", afterId);
 
     const { data: rows, error: fetchError } = await query;
     if (fetchError) return json({ error: fetchError.message }, 500);
@@ -220,44 +173,66 @@ Deno.serve(async (req: Request) => {
     let processed = 0;
     let converted = 0;
     let skipped = 0;
-    let lastQuoteId = afterQuoteId;
+    let lastId = afterId;
 
     for (const row of rows || []) {
       if (processed >= batchSize) break;
-      lastQuoteId = row.quote_id as string;
+      lastId = row.id as string;
       processed += 1;
 
-      const projectData = row.project_data as Record<string, unknown> | null;
-      if (!projectData || !projectDataHasBase64(projectData)) {
+      const record = row as Record<string, unknown>;
+      if (!itemHasBase64(record)) {
         skipped += 1;
         continue;
       }
 
-      const resolved = await resolveProjectDataImages(supabase, projectData, row.quote_id as string);
+      const storageId = `${String(row.quote_uuid).slice(0, 8)}_${String(row.id).slice(0, 8)}`;
+      const [image, referenceImage, remarks] = await Promise.all([
+        typeof row.image === "string" && row.image.trim()
+          ? uploadBase64(supabase, row.image, storageId, "product")
+          : Promise.resolve(null),
+        typeof row.reference_image === "string" && row.reference_image.trim()
+          ? uploadBase64(supabase, row.reference_image, storageId, "reference")
+          : Promise.resolve(null),
+        resolveRemarksField(supabase, row.remarks, row.remarks_image, storageId),
+      ]);
+
+      const patch: Record<string, unknown> = {
+        remarks,
+        remarks_image: null,
+        updated_at: new Date().toISOString(),
+      };
+      if (image && isHttpUrl(image)) patch.image = image;
+      else if (!isHttpUrl(row.image)) patch.image = "";
+      if (referenceImage && isHttpUrl(referenceImage)) patch.reference_image = referenceImage;
+      else if (!isHttpUrl(row.reference_image)) patch.reference_image = null;
+
       const { error: updateError } = await supabase
-        .from("bwf_quote")
-        .update({ project_data: resolved })
-        .eq("quote_id", row.quote_id);
+        .from("bwf_quote_item")
+        .update(patch)
+        .eq("id", row.id);
 
       if (updateError) {
-        console.error(`Update failed ${row.quote_id}:`, updateError.message);
+        console.error(`Update failed ${row.id}:`, updateError.message);
         skipped += 1;
       } else {
         converted += 1;
       }
     }
 
-    const { count } = await supabase.from("bwf_quote").select("*", { count: "exact", head: true });
+    const { count } = await supabase
+      .from("bwf_quote_item")
+      .select("*", { count: "exact", head: true });
     const done = processed < batchSize || (rows?.length || 0) === 0;
 
     return json({
       processed,
       converted,
       skipped,
-      last_quote_id: lastQuoteId,
-      total_quotes: count ?? null,
+      last_id: lastId,
+      total_items: count ?? null,
       done,
-      hint: done ? null : `Call again with after_quote_id: "${lastQuoteId}"`,
+      hint: done ? null : `Call again with after_id: "${lastId}"`,
     });
   } catch (e) {
     return json({ error: e instanceof Error ? e.message : String(e) }, 500);

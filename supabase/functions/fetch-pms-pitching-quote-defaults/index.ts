@@ -175,6 +175,7 @@ Deno.serve(async (req: Request) => {
         pitching_id: null,
         project_id: null,
         pitching_code: null,
+        pitching_name: null,
         project_code: null,
         customer_id: null,
         client_name: null,
@@ -197,6 +198,7 @@ Deno.serve(async (req: Request) => {
         pitching_id: null,
         project_id: resolved.projectId,
         pitching_code: null,
+        pitching_name: null,
         project_code: resolved.projectCode,
         customer_id: null,
         client_name: null,
@@ -210,7 +212,7 @@ Deno.serve(async (req: Request) => {
 
     const { data: pitching, error: pitchingError } = await pmsAdmin
       .from("bwf_pitchings")
-      .select("id, pitching_code, customer_id, estimated_income")
+      .select("id, pitching_code, pitching_name, customer_id, estimated_income")
       .eq("id", pitchingId)
       .maybeSingle();
 
@@ -222,6 +224,7 @@ Deno.serve(async (req: Request) => {
         pitching_id: pitchingId,
         project_id: resolved.projectId,
         pitching_code: null,
+        pitching_name: null,
         project_code: resolved.projectCode,
         customer_id: null,
         client_name: null,
@@ -283,6 +286,7 @@ Deno.serve(async (req: Request) => {
       pitching_id: pitching.id,
       project_id: resolved.projectId,
       pitching_code: pitching.pitching_code ?? null,
+      pitching_name: (pitching.pitching_name as string | null)?.trim() || null,
       project_code: resolved.projectCode,
       customer_id: customerId,
       client_name: clientName,

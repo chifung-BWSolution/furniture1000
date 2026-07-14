@@ -12,6 +12,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { resolvePitchingCode, resolvePitchingName } from '@/lib/bwfQuoteItems';
 
 interface QuoteRecord {
   id: string;
@@ -21,13 +22,16 @@ interface QuoteRecord {
   total_amount: number;
   cost_price: number | null;
   submitter: string;
+  pitching_code: string | null;
+  pitching_name: string | null;
   project_data: {
     formData?: {
+      pitchingCode?: string;
+      pitchingName?: string;
       projectName?: string;
       clientName?: string;
       company?: string;
     };
-    items?: Array<{ name: string; unitPrice: number; quantity: number }>;
     [key: string]: unknown;
   };
   created_at: string;
@@ -36,6 +40,9 @@ interface QuoteRecord {
 interface QuotationListViewProps {
   onOpenQuote?: (quoteId: string) => void;
 }
+
+const LIST_SELECT =
+  'id, quote_id, version, status, total_amount, cost_price, submitter, pitching_code, pitching_name, created_at, project_data';
 
 function getStatusColor(status: string) {
   switch (status) {
@@ -60,6 +67,22 @@ function formatDateTime(dateStr: string) {
   return `${y}/${m}/${d} ${h}:${min}`;
 }
 
+function quoteDisplayCode(q: QuoteRecord): string {
+  return resolvePitchingCode({
+    pitchingCode: q.pitching_code,
+    formData: q.project_data?.formData as Record<string, unknown> | undefined,
+  });
+}
+
+function quoteDisplayName(q: QuoteRecord): string {
+  const name = resolvePitchingName({
+    pitchingName: q.pitching_name,
+    formData: q.project_data?.formData as Record<string, unknown> | undefined,
+  });
+  const client = q.project_data?.formData?.clientName?.trim() || '';
+  return name || client || '未命名專案';
+}
+
 export function QuotationListView({ onOpenQuote }: QuotationListViewProps) {
   const [quotes, setQuotes] = useState<QuoteRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -72,7 +95,7 @@ export function QuotationListView({ onOpenQuote }: QuotationListViewProps) {
     try {
       const { data, error } = await supabase
         .from('bwf_quote')
-        .select('*')
+        .select(LIST_SELECT)
         .order('created_at', { ascending: false });
 
       if (error) throw error;
@@ -102,7 +125,7 @@ export function QuotationListView({ onOpenQuote }: QuotationListViewProps) {
 
       setQuotes((prev) => prev.filter((q) => q.id !== deleteTarget.id));
       toast.success('已刪除報價單', {
-        description: deleteTarget.quote_id,
+        description: quoteDisplayCode(deleteTarget) || deleteTarget.quote_id,
       });
       setDeleteTarget(null);
     } catch (err: unknown) {
@@ -116,18 +139,24 @@ export function QuotationListView({ onOpenQuote }: QuotationListViewProps) {
   const filteredQuotes = quotes.filter((q) => {
     if (!searchQuery.trim()) return true;
     const query = searchQuery.toLowerCase();
-    const projectName = q.project_data?.formData?.projectName || '';
-    const clientName = q.project_data?.formData?.clientName || '';
+    const code = quoteDisplayCode(q).toLowerCase();
+    const name = quoteDisplayName(q).toLowerCase();
+    const clientName = (q.project_data?.formData?.clientName || '').toLowerCase();
     return (
-      q.quote_id.toLowerCase().includes(query) ||
-      projectName.toLowerCase().includes(query) ||
-      clientName.toLowerCase().includes(query) ||
-      q.submitter.toLowerCase().includes(query)
+      code.includes(query) ||
+      name.includes(query) ||
+      clientName.includes(query) ||
+      q.submitter.toLowerCase().includes(query) ||
+      // Quiet match for internal quote_id (bookmarks / support)
+      q.quote_id.toLowerCase().includes(query)
     );
   });
 
-  const deleteProjectName =
-    deleteTarget?.project_data?.formData?.projectName || '未命名專案';
+  const deleteLabel = deleteTarget
+    ? [quoteDisplayCode(deleteTarget), quoteDisplayName(deleteTarget)]
+        .filter(Boolean)
+        .join(' · ')
+    : '';
 
   return (
     <div className="h-full overflow-y-auto bg-background p-6 md:p-8">
@@ -150,7 +179,7 @@ export function QuotationListView({ onOpenQuote }: QuotationListViewProps) {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="搜尋報價單編號、專案名稱..."
+              placeholder="搜尋專案編號、專案名稱..."
               className="w-full rounded-xl border border-border bg-card pl-10 pr-4 py-2.5 font-body text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
             />
           </div>
@@ -210,8 +239,8 @@ export function QuotationListView({ onOpenQuote }: QuotationListViewProps) {
         ) : (
           <div className="space-y-3">
             {filteredQuotes.map((quote) => {
-              const projectName =
-                quote.project_data?.formData?.projectName || '未命名專案';
+              const code = quoteDisplayCode(quote);
+              const title = quoteDisplayName(quote);
               const clientName =
                 quote.project_data?.formData?.clientName || '—';
 
@@ -224,10 +253,10 @@ export function QuotationListView({ onOpenQuote }: QuotationListViewProps) {
                   <div className="flex items-start justify-between gap-4">
                     {/* Left */}
                     <div className="min-w-0 flex-1">
-                      {/* Top Row: Quote ID, Company Badge, Version+Status */}
+                      {/* Top Row: pitching code badge, Version+Status */}
                       <div className="mb-2 flex flex-wrap items-center gap-2">
                         <span className="font-mono-data text-[11px] tracking-wider text-muted-foreground">
-                          {quote.quote_id}
+                          {code || '—'}
                         </span>
                         <span className="inline-flex items-center rounded-md border border-primary/30 bg-primary/10 px-1.5 py-0.5 font-mono-data text-[10px] font-bold tracking-wider text-primary">
                           BWF
@@ -239,9 +268,9 @@ export function QuotationListView({ onOpenQuote }: QuotationListViewProps) {
                         </span>
                       </div>
 
-                      {/* Main Title */}
+                      {/* Main Title — pitching_name (recognition), not code */}
                       <h3 className="mb-1 truncate font-display text-base font-bold text-foreground group-hover:text-primary transition-colors">
-                        {projectName}
+                        {title}
                       </h3>
 
                       {/* Subtitle */}
@@ -271,7 +300,7 @@ export function QuotationListView({ onOpenQuote }: QuotationListViewProps) {
                       <button
                         type="button"
                         title="刪除報價單"
-                        aria-label={`刪除報價單 ${quote.quote_id}`}
+                        aria-label={`刪除報價單 ${code || quote.quote_id}`}
                         onClick={(e) => {
                           e.stopPropagation();
                           setDeleteTarget(quote);
@@ -304,12 +333,12 @@ export function QuotationListView({ onOpenQuote }: QuotationListViewProps) {
             <AlertDialogDescription className="font-body text-sm">
               確定要刪除報價單{' '}
               <span className="font-mono-data font-bold text-foreground">
-                {deleteTarget?.quote_id}
+                {deleteTarget ? quoteDisplayCode(deleteTarget) || '—' : ''}
               </span>
               嗎？
               <br />
               <span className="mt-2 block text-xs text-muted-foreground">
-                「{deleteProjectName}」將永久移除，此操作無法撤銷。
+                「{deleteLabel}」將永久移除，此操作無法撤銷。
               </span>
             </AlertDialogDescription>
           </AlertDialogHeader>
