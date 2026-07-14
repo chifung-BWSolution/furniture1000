@@ -107,22 +107,38 @@ function deriveTier(price: number): SearchProduct['tier'] {
   return 'C';
 }
 
-function mapSearchProduct(r: any): SearchProduct {
+function stripHtml(html: string): string {
+  return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function mapSearchProduct(r: any, descLimit = 80): SearchProduct {
   const sale = Number(r.sale_price ?? r.price ?? 0);
   const img = (Array.isArray(r.images) && r.images[0]?.src) || r.image_url || '';
+  const rawDesc = r.description ?? r.body_html ?? '';
+  const description = (typeof rawDesc === 'string' && rawDesc.includes('<')
+    ? stripHtml(rawDesc)
+    : String(rawDesc ?? '')).slice(0, descLimit);
   return {
     id: r.id,
     title: r.title ?? '',
-    description: (r.description ?? '').slice(0, 80),
+    description,
     imageUrl: img,
     salePrice: sale,
-    category: r.category ?? r.collection ?? '其他',
+    category: r.category ?? r.collection ?? r.product_type ?? '其他',
     color: r.color ?? '—',
     material: r.material ?? '—',
     tier: deriveTier(sale),
     inStock: (r.delivery_term_name ?? '').includes('現貨') || (r.total_lead_time ?? 99) <= 7,
     deliveryDays: r.total_lead_time ?? r.shipping_days ?? 14,
   };
+}
+
+/** 依分區內已分配產品的確認狀態計算專案進度 0–100。 */
+export function computeProjectProgress(products: ZoneProduct[]): number {
+  const inZone = products.filter((p) => p.zoneId);
+  if (inZone.length === 0) return 0;
+  const confirmed = inZone.filter((p) => p.status === 'confirmed').length;
+  return Math.round((confirmed / inZone.length) * 100);
 }
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
@@ -230,8 +246,192 @@ export async function fetchSearchProducts(limit = 60): Promise<SearchProduct[]> 
   }
 }
 
-// ===========================================================================
-// WRITE operations
+/**
+ * 客戶專區：取得受邀專案（有非撤銷邀請的專案）。
+ * 若提供 clientEmail，僅顯示 email 相符或純連結邀請的專案。
+ */
+export async function fetchInvitedProjects(clientEmail?: string | null): Promise<DesignProject[]> {
+  try {
+    const { data: invs, error: invErr } = await supabase
+      .from('project_invitations')
+      .select('project_id, email, channel')
+      .neq('status', 'revoked');
+    if (invErr || !invs?.length) return [];
+
+    const email = clientEmail?.trim().toLowerCase() ?? null;
+    const projectIds = [...new Set(
+      invs
+        .filter((inv) => {
+          if (!email) return true;
+          if (inv.channel === 'link' || !inv.email) return true;
+          return String(inv.email).toLowerCase() === email;
+        })
+        .map((inv) => inv.project_id as string),
+    )];
+    if (projectIds.length === 0) return [];
+
+    const { data, error } = await supabase
+      .from('design_projects')
+      .select('*')
+      .in('id', projectIds)
+      .order('updated_at', { ascending: false });
+    if (error || !data) return [];
+    return data.map(mapProject);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * 客戶公司資料：優先以聯絡電郵配對，否則取第一筆。
+ */
+export async function fetchClientCompany(clientEmail?: string | null): Promise<ClientCompany | null> {
+  try {
+    const email = clientEmail?.trim().toLowerCase();
+    if (email) {
+      const { data, error } = await supabase
+        .from('client_companies')
+        .select('*')
+        .ilike('contact_email', email)
+        .maybeSingle();
+      if (!error && data) return mapCompany(data);
+    }
+    return fetchCompany();
+  } catch {
+    return null;
+  }
+}
+
+/** 客戶留言顯示名稱 */
+export function getClientAuthorName(company: ClientCompany | null): string {
+  if (company?.contactPerson) return `${company.contactPerson}（客戶）`;
+  return '客戶';
+}
+
+/** 重新計算並寫入專案進度。 */
+export async function recalculateAndSaveProjectProgress(projectId: string): Promise<number> {
+  const products = await fetchZoneProducts(projectId);
+  const progress = computeProjectProgress(products);
+  await saveProject(projectId, { progress });
+  return progress;
+}
+
+/**
+ * 客戶產品搜尋：受邀專案內產品 ∪ A 類已發佈產品（shopify active）。
+ */
+export async function fetchClientSearchProducts(projectIds: string[]): Promise<SearchProduct[]> {
+  const byId = new Map<string, SearchProduct>();
+
+  try {
+    if (projectIds.length > 0) {
+      const { data: zps } = await supabase
+        .from('zone_products')
+        .select('product_id, product_title, product_image_url, sale_price, project_id')
+        .in('project_id', projectIds)
+        .not('zone_id', 'is', null);
+
+      const linkedIds = [...new Set((zps ?? []).map((z) => z.product_id).filter(Boolean))] as string[];
+      const detailById: Record<string, ReturnType<typeof mapSearchProduct>> = {};
+
+      if (linkedIds.length > 0) {
+        const { data: prods } = await supabase
+          .from('products')
+          .select('id,title,description,price,sale_price,image_url,images,collection,category,color,material,total_lead_time,shipping_days,delivery_term_name')
+          .in('id', linkedIds);
+        for (const p of prods ?? []) {
+          detailById[p.id] = mapSearchProduct(p, 60);
+        }
+      }
+
+      for (const zp of zps ?? []) {
+        const pid = zp.product_id as string | null;
+        const key = pid ?? `zone-${zp.product_title}`;
+        if (byId.has(key)) continue;
+        if (pid && detailById[pid]) {
+          byId.set(key, { ...detailById[pid], description: detailById[pid].description.slice(0, 60) });
+        } else {
+          const sale = Number(zp.sale_price ?? 0);
+          byId.set(key, {
+            id: key,
+            title: zp.product_title ?? '',
+            description: '',
+            imageUrl: zp.product_image_url ?? '',
+            salePrice: sale,
+            category: '方案產品',
+            color: '—',
+            material: '—',
+            tier: deriveTier(sale),
+            inStock: false,
+            deliveryDays: 14,
+          });
+        }
+      }
+    }
+
+    const { data: published } = await supabase
+      .from('shopify_products')
+      .select('source_product_id, shopify_product_id, title, body_html, image_url, images, price, status, product_type')
+      .eq('status', 'active')
+      .is('configurable', null)
+      .order('published_at', { ascending: false, nullsFirst: false })
+      .limit(300);
+
+    const sourceIds = [...new Set(
+      (published ?? []).map((r) => r.source_product_id).filter(Boolean),
+    )] as string[];
+    const productMeta: Record<string, ReturnType<typeof mapSearchProduct>> = {};
+    if (sourceIds.length > 0) {
+      const { data: prods } = await supabase
+        .from('products')
+        .select('id,title,description,price,sale_price,image_url,images,collection,category,color,material,total_lead_time,shipping_days,delivery_term_name')
+        .in('id', sourceIds);
+      for (const p of prods ?? []) {
+        productMeta[p.id] = mapSearchProduct(p, 60);
+      }
+    }
+
+    for (const row of published ?? []) {
+      const price = Number(row.price ?? 0);
+      if (deriveTier(price) !== 'A') continue;
+      const sid = (row.source_product_id ?? row.shopify_product_id) as string;
+      if (byId.has(sid)) continue;
+      if (row.source_product_id && productMeta[row.source_product_id]) {
+        byId.set(sid, productMeta[row.source_product_id]);
+      } else {
+        byId.set(sid, mapSearchProduct({
+          id: sid,
+          title: row.title,
+          body_html: row.body_html,
+          price: row.price,
+          image_url: row.image_url,
+          images: row.images,
+          product_type: row.product_type,
+        }, 60));
+      }
+    }
+  } catch {
+    /* return partial results */
+  }
+
+  return Array.from(byId.values());
+}
+
+/**
+ * 客戶「確定產品」：受邀專案中，有分區產品的專案與產品清單。
+ */
+export async function fetchInvitedProjectsWithProducts(clientEmail?: string | null): Promise<{
+  projects: DesignProject[];
+  productsByProject: Record<string, ZoneProduct[]>;
+}> {
+  const projects = await fetchInvitedProjects(clientEmail);
+  const productsByProject: Record<string, ZoneProduct[]> = {};
+  await Promise.all(projects.map(async (p) => {
+    const zps = await fetchZoneProducts(p.id);
+    productsByProject[p.id] = zps.filter((x) => x.zoneId);
+  }));
+  return { projects, productsByProject };
+}
+
 // Each returns { ok, error, data? }. They never throw — callers do optimistic
 // UI updates and surface ok/error via toast.
 // ===========================================================================
@@ -321,6 +521,28 @@ export async function bulkUpdateZoneProductStatus(
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : '更新失敗' };
   }
+}
+
+/** 更新產品狀態並同步專案進度。 */
+export async function updateZoneProductStatusWithProgress(
+  zoneProductId: string,
+  projectId: string,
+  status: string,
+): Promise<WriteResult> {
+  const res = await updateZoneProductStatus(zoneProductId, status);
+  if (res.ok) await recalculateAndSaveProjectProgress(projectId);
+  return res;
+}
+
+/** 批量更新產品狀態並同步專案進度。 */
+export async function bulkUpdateZoneProductStatusWithProgress(
+  ids: string[],
+  projectId: string,
+  status: string,
+): Promise<WriteResult> {
+  const res = await bulkUpdateZoneProductStatus(ids, status);
+  if (res.ok) await recalculateAndSaveProjectProgress(projectId);
+  return res;
 }
 
 /** Generate a short share token without Date/Math (deterministic-ish, fine for demo). */
@@ -546,26 +768,22 @@ export async function deleteZone(zoneId: string): Promise<WriteResult> {
 
 /**
  * Find the most relevant project for the customer "確定產品" view:
- * the first project that actually has products assigned to zones.
- * Falls back to the first project, or null if none exist.
+ * first invited project that has zone-assigned products.
  */
-export async function fetchProjectWithProducts(): Promise<{
+export async function fetchProjectWithProducts(clientEmail?: string | null): Promise<{
   project: DesignProject | null;
   products: ZoneProduct[];
+  allProjects: DesignProject[];
 }> {
-  const projects = await fetchProjects();
-  if (projects.length === 0) return { project: null, products: [] };
+  const { projects, productsByProject } = await fetchInvitedProjectsWithProducts(clientEmail);
+  if (projects.length === 0) return { project: null, products: [], allProjects: [] };
 
-  // Look for a project whose zone_products include zone-assigned items.
   for (const p of projects) {
-    const zps = await fetchZoneProducts(p.id);
-    const inZone = zps.filter((x) => x.zoneId);
+    const inZone = productsByProject[p.id] ?? [];
     if (inZone.length > 0) {
-      return { project: p, products: inZone };
+      return { project: p, products: inZone, allProjects: projects };
     }
   }
-  // None had assigned products — return the first project with whatever it has.
   const first = projects[0];
-  const zps = await fetchZoneProducts(first.id);
-  return { project: first, products: zps.filter((x) => x.zoneId) };
+  return { project: first, products: productsByProject[first.id] ?? [], allProjects: projects };
 }

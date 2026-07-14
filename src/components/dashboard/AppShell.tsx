@@ -281,6 +281,7 @@ export function AppShell() {
   }, [store]);
   // Product to scroll-into-view when navigating from 發佈前檢查
   const [focusProductId, setFocusProductId] = useState<string | null>(null);
+  const [customerFocusProjectId, setCustomerFocusProjectId] = useState<string | null>(null);
   const rtpReloadRef = useRef<(() => void) | null>(null);
   const [rtpTotalCount, setRtpTotalCount] = useState(0);
   // Real total/selected counts reported up from ListedProductsView (所有產品)
@@ -490,13 +491,22 @@ export function AppShell() {
         return <ConfirmedProjectsView />;
 
       case "customer-design-projects":
-        return <CustomerDesignProjectsView />;
+        return (
+          <CustomerDesignProjectsView initialProjectId={customerFocusProjectId} />
+        );
       case "customer-product-search":
         return <CustomerProductSearchView />;
       case "customer-confirmed-products":
         return <CustomerConfirmedProductsView />;
       case "customer-company-info":
-        return <CustomerCompanyInfoView />;
+        return (
+          <CustomerCompanyInfoView
+            onOpenProject={(projectId) => {
+              setCustomerFocusProjectId(projectId);
+              store.setCurrentView('customer-design-projects');
+            }}
+          />
+        );
       case "quotation-settings":
         return (
           <PlaceholderView
@@ -602,6 +612,9 @@ export function AppShell() {
     store.setCurrentView(view);
     store.setFilterProductId(null);
     setEditingQuoteId(null);
+    if (view !== 'customer-design-projects') {
+      setCustomerFocusProjectId(null);
+    }
   };
 
   const handleSectionChange = (section: PrimarySection) => {

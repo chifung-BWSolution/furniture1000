@@ -119,6 +119,16 @@ export const ZONE_PRODUCT_STATUS_META: Record<
   pending: { label: '未確定', className: 'bg-muted text-muted-foreground border-border' },
 };
 
+/** 客戶專區確認狀態文案 */
+export const CLIENT_ZONE_STATUS_META: Record<
+  ZoneProductStatus,
+  { label: string; className: string }
+> = {
+  confirmed: { label: '已確認', className: 'bg-emerald-500/15 text-emerald-600 border-emerald-500/30' },
+  discussing: { label: '待討論', className: 'bg-amber-500/15 text-amber-600 border-amber-500/30' },
+  pending: { label: '待確認', className: 'bg-sky-500/15 text-sky-600 border-sky-500/30' },
+};
+
 export const TIER_META: Record<ProductTier, { label: string; className: string }> = {
   A: { label: 'A 類', className: 'bg-primary/15 text-primary border-primary/30' },
   B: { label: 'B 類', className: 'bg-sky-500/15 text-sky-600 border-sky-500/30' },
