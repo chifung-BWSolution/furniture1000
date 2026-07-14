@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { X, Download, Loader2, AlertTriangle } from 'lucide-react';
-import type { QuotationPDFData } from '@/types/quotation-pdf';
+import type { QuotationDimensionMode, QuotationPDFData } from '@/types/quotation-pdf';
 import { parseRemarksContent } from '@/lib/remarksContent';
 import { multiColorToChineseDisplay } from '@/constants/color-map';
 import { normalizeQuotationPdfGlyphs, pdfDisplayText } from '@/lib/quotationPdfGlyphs';
@@ -283,6 +283,25 @@ function renderPlainTermLines(
   );
 }
 
+function dimensionPdfSubLabel(mode?: QuotationDimensionMode): string {
+  return mode === 'dh' ? 'DIA * H' : 'W*D*H';
+}
+
+function formatItemDimensions(item: QuotationPDFData['items'][0] | undefined): string {
+  if (!item) return '';
+  const mode = item.dimensionMode ?? 'lwh';
+  const parts: string[] = [];
+  if (mode === 'dh') {
+    if (item.dimensionLMm != null) parts.push(String(item.dimensionLMm));
+    if (item.dimensionHMm != null) parts.push(String(item.dimensionHMm));
+  } else {
+    if (item.dimensionLMm != null) parts.push(String(item.dimensionLMm));
+    if (item.dimensionWMm != null) parts.push(String(item.dimensionWMm));
+    if (item.dimensionHMm != null) parts.push(String(item.dimensionHMm));
+  }
+  return parts.length > 0 ? parts.join('*') : '';
+}
+
 /**
  * Wrap L×W×H only when the string exceeds the column. Each dimension number stays intact;
  * breaks occur at * boundaries (e.g. 1800*750* / 750, or 1800*750 / *750).
@@ -346,13 +365,14 @@ function wrapDimensionsForPdf(dimText: string, maxChars = DESC_DIM_MAX_CHARS): s
 
 function renderDescDimensionsValue(
   dimText: string,
+  dimSubLabel: string,
   View: ReactPdfModule['View'],
   Text: ReactPdfModule['Text'],
 ) {
   const lines = wrapDimensionsForPdf(dimText);
   return (
     <View style={{ width: '50%', minWidth: 0, paddingHorizontal: 2, paddingVertical: 2 }}>
-      <Text style={styles.descDimLabelText}>W*D*H</Text>
+      <Text style={styles.descDimLabelText}>{dimSubLabel}</Text>
       {lines.map((line, li) => (
         <Text key={`dim-line-${li}`} wrap={false} style={styles.descDimValueText}>
           {pdfDisplayText(line)}
@@ -438,7 +458,6 @@ function pdfIllustrationImageHeight(dual: boolean): number {
 function renderQuotationTableRow(
   item: QuotationItem,
   idx: number,
-  formatDimensions: (item: QuotationItem | undefined) => string,
   View: ReactPdfModule['View'],
   Text: ReactPdfModule['Text'],
   Image: ReactPdfModule['Image'],
@@ -462,7 +481,7 @@ function renderQuotationTableRow(
     <View style={styles.tableRow} key={idx} wrap={false}>
       <View style={styles.colIndex}><Text style={styles.tableCellText}>{idx + 1}</Text></View>
       <View style={styles.colDesc}>
-        {renderDescriptionPdfContent(item, formatDimensions, View, Text)}
+        {renderDescriptionPdfContent(item, View, Text)}
       </View>
       <View style={styles.colMaterial}>
         {renderMaterialPdfContent(item?.material, View, Text)}
@@ -565,18 +584,18 @@ function renderIllustrationPdfContent(
 
 function renderDescriptionPdfContent(
   item: QuotationPDFData['items'][0] | undefined,
-  formatDimensions: (item: QuotationPDFData['items'][0] | undefined) => string,
   View: ReactPdfModule['View'],
   Text: ReactPdfModule['Text'],
 ) {
-  const dimText = formatDimensions(item);
+  const dimText = formatItemDimensions(item);
+  const dimSubLabel = dimensionPdfSubLabel(item?.dimensionMode);
   const rows: Array<
     | { kind: 'category'; label: string; value: string }
     | { kind: 'simple'; label: string; value: string }
-    | { kind: 'dimensions'; label: string; dimText: string }
+    | { kind: 'dimensions'; label: string; dimText: string; dimSubLabel: string }
   > = [
     { kind: 'category', label: '\u985E\u5225', value: item?.category || '' },
-    { kind: 'dimensions', label: '\u898F\u683C(mm)', dimText },
+    { kind: 'dimensions', label: '\u898F\u683C(mm)', dimText, dimSubLabel },
     { kind: 'simple', label: '\u984F\u8272', value: multiColorToChineseDisplay(item?.color || '') },
   ];
 
@@ -612,7 +631,7 @@ function renderDescriptionPdfContent(
             <Text style={styles.tableCellText}>{row.label}</Text>
           </View>
           {row.kind === 'dimensions' ? (
-            renderDescDimensionsValue(row.dimText, View, Text)
+            renderDescDimensionsValue(row.dimText, row.dimSubLabel, View, Text)
           ) : row.kind === 'category' ? (
             <View style={{ width: '50%', justifyContent: 'flex-start', paddingHorizontal: 2, paddingVertical: 2 }}>
               <Text
@@ -728,15 +747,6 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
   const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://26c0258f-253c-4e4e-9027-922d08aab63f.canvases.tempo.build';
   const logoUrl = `${baseUrl}/assets/bwf-logo.png`;
 
-  const formatDimensions = (item: QuotationPDFData['items'][0]) => {
-    if (!item) return '';
-    const parts: string[] = [];
-    if (item.dimensionLMm) parts.push(String(item.dimensionLMm));
-    if (item.dimensionWMm) parts.push(String(item.dimensionWMm));
-    if (item.dimensionHMm) parts.push(String(item.dimensionHMm));
-    return parts.length > 0 ? parts.join('*') : '';
-  };
-
   const renderTableHeader = () => (
     <View style={styles.tableHeader}>
       <View style={styles.colIndex}><Text style={styles.tableHeaderText}>{'\u5E8F\u865F'}</Text></View>
@@ -810,7 +820,6 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
             renderQuotationTableRow(
               item,
               idx,
-              formatDimensions,
               View,
               Text,
               Image,

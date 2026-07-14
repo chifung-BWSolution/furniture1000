@@ -30,7 +30,7 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { fetchFactories } from "@/lib/factorySupabase";
-import type { QuotationPDFData } from "@/types/quotation-pdf";
+import type { QuotationDimensionMode, QuotationPDFData } from "@/types/quotation-pdf";
 import {
   saveDraft,
   loadDraft,
@@ -98,6 +98,8 @@ interface QuotationItem {
   dimensionLMm?: number | null;
   dimensionWMm?: number | null;
   dimensionHMm?: number | null;
+  /** lwh = 長×闊×高 (default); dh = 直徑×高 */
+  dimensionMode?: QuotationDimensionMode;
   deliveryTermName?: string;
   factoryName?: string;
   /** True when 廠家 was set from 產品目錄 — shown read-only. */
@@ -608,6 +610,7 @@ function QuoteProductItemCard({
   onDragEnd,
   updateItem,
   updateExchangeRate,
+  updateDimensionMode,
   removeItem,
   factories,
   factoriesLoading,
@@ -622,10 +625,14 @@ function QuoteProductItemCard({
   onDragEnd: () => void;
   updateItem: (id: string, field: keyof QuotationItem, value: string | number | null | boolean) => void;
   updateExchangeRate: (id: string, raw: string) => void;
+  updateDimensionMode: (id: string, mode: QuotationDimensionMode) => void;
   removeItem: (id: string) => void;
   factories: string[];
   factoriesLoading: boolean;
 }) {
+  const dimensionMode = item.dimensionMode ?? 'lwh';
+  const isDiameterHeight = dimensionMode === 'dh';
+
   return (
     <div
       className={quoteRowReorderClass(
@@ -660,42 +667,79 @@ function QuoteProductItemCard({
               className={`${QUOTE_INPUT_CLASS} min-h-[34px] resize-y leading-relaxed`}
             />
           </QuoteFieldBlock>
-          <QuoteFieldBlock label="尺寸(mm), 長 x 闊 x 高">
-            <div className="flex w-full min-w-0 items-center gap-1">
+          <div className="min-w-0">
+            <div className="mb-1 flex h-4 items-center gap-1 font-body text-xs font-medium leading-4 text-muted-foreground">
+              <span>尺寸(mm),</span>
+              <select
+                value={dimensionMode}
+                onChange={(e) =>
+                  updateDimensionMode(item.id, e.target.value as QuotationDimensionMode)
+                }
+                className="h-4 max-w-full cursor-pointer rounded border border-border bg-background px-1 font-body text-xs font-medium text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+              >
+                <option value="lwh">長 x 闊 x 高</option>
+                <option value="dh">直徑 x 高</option>
+              </select>
+            </div>
+            <div className="grid w-full min-w-0 grid-cols-[1fr_auto_1fr_auto_1fr] items-center gap-x-1">
               <input
                 type="number"
                 min={0}
                 value={item.dimensionLMm ?? ""}
-                placeholder="L"
+                placeholder={isDiameterHeight ? "D" : "L"}
                 onChange={(e) =>
                   updateItem(item.id, "dimensionLMm", parseNonNegativeDimension(e.target.value))
                 }
                 className={QUOTE_DIMENSION_INPUT_CLASS}
               />
               <span className="shrink-0 text-xs text-muted-foreground">×</span>
-              <input
-                type="number"
-                min={0}
-                value={item.dimensionWMm ?? ""}
-                placeholder="W"
-                onChange={(e) =>
-                  updateItem(item.id, "dimensionWMm", parseNonNegativeDimension(e.target.value))
-                }
-                className={QUOTE_DIMENSION_INPUT_CLASS}
-              />
-              <span className="shrink-0 text-xs text-muted-foreground">×</span>
-              <input
-                type="number"
-                min={0}
-                value={item.dimensionHMm ?? ""}
-                placeholder="H"
-                onChange={(e) =>
-                  updateItem(item.id, "dimensionHMm", parseNonNegativeDimension(e.target.value))
-                }
-                className={QUOTE_DIMENSION_INPUT_CLASS}
-              />
+              {isDiameterHeight ? (
+                <>
+                  <input
+                    type="number"
+                    min={0}
+                    value={item.dimensionHMm ?? ""}
+                    placeholder="H"
+                    onChange={(e) =>
+                      updateItem(item.id, "dimensionHMm", parseNonNegativeDimension(e.target.value))
+                    }
+                    className={QUOTE_DIMENSION_INPUT_CLASS}
+                  />
+                  <span className="invisible shrink-0 text-xs" aria-hidden>
+                    ×
+                  </span>
+                  <div
+                    className={cn(QUOTE_DIMENSION_INPUT_CLASS, "invisible pointer-events-none border-transparent")}
+                    aria-hidden
+                  />
+                </>
+              ) : (
+                <>
+                  <input
+                    type="number"
+                    min={0}
+                    value={item.dimensionWMm ?? ""}
+                    placeholder="W"
+                    onChange={(e) =>
+                      updateItem(item.id, "dimensionWMm", parseNonNegativeDimension(e.target.value))
+                    }
+                    className={QUOTE_DIMENSION_INPUT_CLASS}
+                  />
+                  <span className="shrink-0 text-xs text-muted-foreground">×</span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={item.dimensionHMm ?? ""}
+                    placeholder="H"
+                    onChange={(e) =>
+                      updateItem(item.id, "dimensionHMm", parseNonNegativeDimension(e.target.value))
+                    }
+                    className={QUOTE_DIMENSION_INPUT_CLASS}
+                  />
+                </>
+              )}
             </div>
-          </QuoteFieldBlock>
+          </div>
           <QuoteFieldBlock label="顏色">
             <input
               type="text"
@@ -1063,6 +1107,7 @@ function createBlankProductItem(): QuotationItem {
     dimensionLMm: null,
     dimensionWMm: null,
     dimensionHMm: null,
+    dimensionMode: 'lwh',
     deliveryTermName: "",
     factoryName: "",
     factoryFromCatalog: false,
@@ -1185,6 +1230,7 @@ export function QuotationDraftEditor({
         dimensionLMm?: number | null;
         dimensionWMm?: number | null;
         dimensionHMm?: number | null;
+        dimensionMode?: QuotationDimensionMode;
         deliveryTermName?: string;
       }>
     | undefined;
@@ -1371,6 +1417,7 @@ export function QuotationDraftEditor({
           dimensionLMm: item.dimensionLMm ?? null,
           dimensionWMm: item.dimensionWMm ?? null,
           dimensionHMm: item.dimensionHMm ?? null,
+          dimensionMode: (item as { dimensionMode?: QuotationDimensionMode }).dimensionMode ?? 'lwh',
           deliveryTermName: item.deliveryTermName,
           factoryName: (item as { factoryName?: string }).factoryName || "",
           factoryFromCatalog:
@@ -1440,6 +1487,19 @@ export function QuotationDraftEditor({
           );
         }
         return next;
+      }),
+    );
+  };
+
+  const updateDimensionMode = (id: string, mode: QuotationDimensionMode) => {
+    setItems((prev) =>
+      prev.map((item) => {
+        if (item.id !== id) return item;
+        return {
+          ...item,
+          dimensionMode: mode,
+          ...(mode === 'dh' ? { dimensionWMm: null } : {}),
+        };
       }),
     );
   };
@@ -1700,6 +1760,8 @@ export function QuotationDraftEditor({
                 dimensionLMm: (item.dimensionLMm as number | null) ?? null,
                 dimensionWMm: (item.dimensionWMm as number | null) ?? null,
                 dimensionHMm: (item.dimensionHMm as number | null) ?? null,
+                dimensionMode:
+                  (item.dimensionMode as QuotationDimensionMode | undefined) ?? 'lwh',
                 deliveryTermName: item.deliveryTermName as string | undefined,
                 factoryName: (item.factoryName as string) || "",
                 factoryFromCatalog: Boolean(item.factoryFromCatalog),
@@ -1814,6 +1876,7 @@ export function QuotationDraftEditor({
         dimensionLMm: p.dimensionLMm,
         dimensionWMm: p.dimensionWMm,
         dimensionHMm: p.dimensionHMm,
+        dimensionMode: 'lwh' as const,
         deliveryTermName: p.deliveryTermName,
         factoryName: p.factoryName?.trim() || "",
         factoryFromCatalog: Boolean(p.factoryName?.trim()),
@@ -1901,6 +1964,7 @@ export function QuotationDraftEditor({
         dimensionLMm: item.dimensionLMm,
         dimensionWMm: item.dimensionWMm,
         dimensionHMm: item.dimensionHMm,
+        dimensionMode: item.dimensionMode ?? 'lwh',
         deliveryTermName: item.deliveryTermName,
         isCustomTerm: item.isCustomTerm,
         unit: item.unit,
@@ -2281,6 +2345,7 @@ export function QuotationDraftEditor({
                         onDragEnd={clearQuoteRowDrag}
                         updateItem={updateItem}
                         updateExchangeRate={updateExchangeRate}
+                        updateDimensionMode={updateDimensionMode}
                         removeItem={removeItem}
                         factories={factories}
                         factoriesLoading={factoriesLoading}

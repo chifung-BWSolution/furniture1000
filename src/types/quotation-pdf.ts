@@ -1,3 +1,5 @@
+export type QuotationDimensionMode = 'lwh' | 'dh';
+
 export interface QuotationPDFData {
   // Customer-facing PDF only. Editor-internal fields (gpSummary, priceMultiplier, etc.)
   // must never be passed into QuotationPDFPreview / QuotationDocument.
@@ -45,6 +47,8 @@ export interface QuotationPDFData {
     dimensionLMm?: number | null;
     dimensionWMm?: number | null;
     dimensionHMm?: number | null;
+    /** lwh = 長×闊×高 (default); dh = 直徑×高 */
+    dimensionMode?: QuotationDimensionMode;
     isCustomTerm?: boolean;
     unit?: string;
   }[];
