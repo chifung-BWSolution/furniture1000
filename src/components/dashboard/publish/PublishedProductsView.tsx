@@ -2,8 +2,15 @@ import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import {
   CheckCheck, Search, ArrowDownToLine, ArrowUpToLine, RotateCcw, ChevronDown,
-  CloudDownload, Loader2, X, Store, RefreshCw, ArrowUp, ArrowDown, GitMerge,
+  CloudDownload, Loader2, X, Store, RefreshCw, ArrowUp, ArrowDown, GitMerge, FolderTree,
 } from 'lucide-react';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { PUBLISH_STATE_META, type PublishState } from '@/constants/analytics-mock';
 import { supabase } from '@/lib/supabase';
 import { invokeEdgeFunctionDirect } from '@/lib/invokeEdgeFunction';
@@ -505,6 +512,18 @@ export function PublishedProductsView() {
   );
 
   // L1/L2 category options derived from product_type ("L1 / L2") across all rows.
+  const categoryCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    for (const p of items) {
+      const parts = (p.raw.product_type || '').split(' / ');
+      const l1 = parts[0]?.trim();
+      const l2 = parts[1]?.trim();
+      if (l1) counts[`level1:${l1}`] = (counts[`level1:${l1}`] || 0) + 1;
+      if (l1 && l2) counts[`level2:${l1}:${l2}`] = (counts[`level2:${l1}:${l2}`] || 0) + 1;
+    }
+    return counts;
+  }, [items]);
+
   const l1Options = useMemo(() => {
     const s = new Set<string>();
     items.forEach((p) => { const l1 = (p.raw.product_type || '').split(' / ')[0]?.trim(); if (l1) s.add(l1); });
@@ -778,23 +797,65 @@ export function PublishedProductsView() {
           >
             {[20, 25, 50, 100].map(n => <option key={n} value={n}>每頁 {n} 項</option>)}
           </select>
-          <select
-            value={level1Filter}
-            onChange={(e) => { setLevel1Filter(e.target.value); setLevel2Filter(''); }}
-            className="h-8 rounded-lg border border-border bg-card px-2 text-xs focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer"
+          <Select
+            value={level1Filter || '__all__'}
+            onValueChange={(val) => {
+              setLevel1Filter(val === '__all__' ? '' : val);
+              setLevel2Filter('');
+            }}
           >
-            <option value="">全部一級分類</option>
-            {l1Options.map(l1 => <option key={l1} value={l1}>{l1}</option>)}
-          </select>
-          <select
-            value={level2Filter}
-            onChange={(e) => setLevel2Filter(e.target.value)}
-            disabled={!level1Filter}
-            className="h-8 rounded-lg border border-border bg-card px-2 text-xs focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 cursor-pointer disabled:opacity-50"
-          >
-            <option value="">全部二級分類</option>
-            {l2Options.map(l2 => <option key={l2} value={l2}>{l2}</option>)}
-          </select>
+            <SelectTrigger className="h-8 w-[150px] text-xs font-body gap-1">
+              <FolderTree className="h-3 w-3 text-muted-foreground" />
+              <SelectValue placeholder="一級分類" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">全部一級分類</SelectItem>
+              {l1Options.map((l1) => {
+                const cnt = (l1 === level1Filter && !level2Filter)
+                  ? filtered.length
+                  : categoryCounts[`level1:${l1}`];
+                return (
+                  <SelectItem key={l1} value={l1}>
+                    <span className="flex items-center justify-between gap-3 w-full min-w-[120px]">
+                      <span>{l1}</span>
+                      {cnt != null && (
+                        <span className="font-mono-data text-xs font-semibold text-foreground/70 ml-auto">{cnt}</span>
+                      )}
+                    </span>
+                  </SelectItem>
+                );
+              })}
+            </SelectContent>
+          </Select>
+          {level1Filter && l2Options.length > 0 && (
+            <Select
+              value={level2Filter || '__all__'}
+              onValueChange={(val) => setLevel2Filter(val === '__all__' ? '' : val)}
+            >
+              <SelectTrigger className="h-8 w-[150px] text-xs font-body gap-1">
+                <FolderTree className="h-3 w-3 text-muted-foreground" />
+                <SelectValue placeholder="二級分類" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">全部二級分類</SelectItem>
+                {l2Options.map((l2) => {
+                  const cnt = l2 === level2Filter
+                    ? filtered.length
+                    : categoryCounts[`level2:${level1Filter}:${l2}`];
+                  return (
+                    <SelectItem key={l2} value={l2}>
+                      <span className="flex items-center justify-between gap-3 w-full min-w-[120px]">
+                        <span>{l2}</span>
+                        {cnt != null && (
+                          <span className="font-mono-data text-xs font-semibold text-foreground/70 ml-auto">{cnt}</span>
+                        )}
+                      </span>
+                    </SelectItem>
+                  );
+                })}
+              </SelectContent>
+            </Select>
+          )}
           <div className="relative">
             <select
               value={factoryFilter}
