@@ -409,6 +409,60 @@ async function ensureGalleryImagesOnShopify(
   return images;
 }
 
+/** Map gallery URLs to live Shopify image rows (deduped) for position reorder. */
+function buildOrderedShopifyImagesFromGallery(
+  shopifyImages: ShopifyRecord[],
+  galleryUrls: string[],
+  primarySrc: string | null,
+): ShopifyRecord[] {
+  const byDedupe = indexShopifyImagesByDedupe(shopifyImages);
+  const seen = new Set<string>();
+  const uniqueGallery: string[] = [];
+  const add = (src: string | null | undefined) => {
+    if (!isHttpUrl(src)) return;
+    const key = imageDedupeKey(src);
+    if (seen.has(key)) return;
+    seen.add(key);
+    uniqueGallery.push(src);
+  };
+  add(primarySrc);
+  for (const url of galleryUrls) add(url);
+
+  const ordered: ShopifyRecord[] = [];
+  for (const src of uniqueGallery) {
+    const im = byDedupe.get(imageDedupeKey(src));
+    if (im?.id != null) ordered.push(im);
+  }
+  return ordered;
+}
+
+/** PUT explicit positions so Shopify featured image matches gallery order. */
+async function reorderShopifyProductImages(
+  apiBase: string,
+  headers: Record<string, string>,
+  shopifyId: string,
+  orderedImages: ShopifyRecord[],
+): Promise<boolean> {
+  const images = orderedImages
+    .filter((im) => im.id != null)
+    .map((im, i) => ({ id: Number(im.id), position: i + 1 }));
+  if (images.length === 0) return false;
+
+  const resp = await fetch(`${apiBase}/products/${shopifyId}.json`, {
+    method: "PUT",
+    headers,
+    body: JSON.stringify({ product: { id: Number(shopifyId), images } }),
+  });
+  if (!resp.ok) {
+    console.warn(
+      "[publish-to-shopify] gallery reorder failed:",
+      (await resp.text()).slice(0, 200),
+    );
+    return false;
+  }
+  return true;
+}
+
 async function setVariantImageId(
   apiBase: string,
   headers: Record<string, string>,
@@ -1110,6 +1164,21 @@ Deno.serve(async (req: Request) => {
                       orderedGallery,
                       resolvedImageUrl || product.primary_image_src || product.image_url || null,
                     );
+                    const fbMid = await fetchShopifyProduct(shopifyApiBase, shopifyHeaders, shopifyProductId);
+                    if (fbMid) {
+                      const fbMidImages = (fbMid.images as ShopifyRecord[]) || [];
+                      const fbOrdered = buildOrderedShopifyImagesFromGallery(
+                        fbMidImages,
+                        orderedGallery,
+                        resolvedImageUrl || product.primary_image_src || product.image_url || null,
+                      );
+                      await reorderShopifyProductImages(
+                        shopifyApiBase,
+                        shopifyHeaders,
+                        shopifyProductId,
+                        fbOrdered,
+                      );
+                    }
                     await syncMoreImageMetafieldsToShopify(
                       shopifyApiBase,
                       shopifyHeaders,
@@ -1241,6 +1310,23 @@ Deno.serve(async (req: Request) => {
                 variantImageSpecs,
                 resolvedImageUrl || orderedGallery[0] || null,
               );
+            }
+            if (orderedGallery.length > 0) {
+              const midProduct = await fetchShopifyProduct(shopifyApiBase, shopifyHeaders, shopifyProductId);
+              if (midProduct) {
+                const midImages = (midProduct.images as ShopifyRecord[]) || [];
+                const orderedForReorder = buildOrderedShopifyImagesFromGallery(
+                  midImages,
+                  orderedGallery,
+                  resolvedImageUrl || product.primary_image_src || product.image_url || null,
+                );
+                await reorderShopifyProductImages(
+                  shopifyApiBase,
+                  shopifyHeaders,
+                  shopifyProductId,
+                  orderedForReorder,
+                );
+              }
             }
             await syncMoreImageMetafieldsToShopify(
               shopifyApiBase,

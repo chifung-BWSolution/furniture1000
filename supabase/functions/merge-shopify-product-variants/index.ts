@@ -275,6 +275,33 @@ function imageNormKey(src: string): string {
   return imageDedupeKey(src);
 }
 
+/** PUT explicit positions so Shopify featured image matches merge UI gallery order. */
+async function reorderShopifyProductImages(
+  apiBase: string,
+  headers: Record<string, string>,
+  shopifyId: string,
+  orderedImages: ShopifyRecord[],
+): Promise<boolean> {
+  const images = orderedImages
+    .filter((im) => im.id != null)
+    .map((im, i) => ({ id: Number(im.id), position: i + 1 }));
+  if (images.length === 0) return false;
+
+  const resp = await fetch(`${apiBase}/products/${shopifyId}.json`, {
+    method: "PUT",
+    headers,
+    body: JSON.stringify({ product: { id: Number(shopifyId), images } }),
+  });
+  if (!resp.ok) {
+    console.warn(
+      "[merge-shopify-product-variants] gallery reorder failed:",
+      (await resp.text()).slice(0, 200),
+    );
+    return false;
+  }
+  return true;
+}
+
 /** POST gallery URLs that are not yet attached to the merged parent product. */
 async function ensureGalleryImagesOnShopify(
   apiBase: string,
@@ -586,6 +613,15 @@ Deno.serve(async (req: Request) => {
     const { attached: imagesAttached, failed: imagesFailed } = await attachVariantImages(
       apiBase, headers, parentId, specs, imageSrcBySku, primaryFromUi,
     );
+
+    // Reorder live Shopify gallery so position 1 = merge UI primary (variant image_id
+    // assignment alone does not guarantee the storefront featured image stays correct).
+    const midProduct = await fetchShopifyProduct(apiBase, headers, parentId);
+    if (midProduct && galleryUrls.length > 0) {
+      const midImages = collectProductImages(midProduct);
+      const orderedForReorder = buildMirrorImagesFromGallery(midImages, galleryUrls, primaryFromUi);
+      await reorderShopifyProductImages(apiBase, headers, parentId, orderedForReorder);
+    }
 
     // Archive child listings on Shopify (manual DELETE later if needed).
     const archivedOnShopify: string[] = [];
