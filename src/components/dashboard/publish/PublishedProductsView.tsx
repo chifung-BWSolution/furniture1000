@@ -12,6 +12,9 @@ import { toast } from 'sonner';
 import { PublishedProductDetailModal, type PublishedDisplayProduct } from './PublishedProductDetailModal';
 import { PublishedProductMergeModal } from './PublishedProductMergeModal';
 
+/** Products per edge-function batch (avoids relay timeout + cuts HTTP overhead). */
+const SHOPIFY_PUSH_BATCH_SIZE = 25;
+
 async function parseInvokeError(
   error: unknown,
   data?: { error?: string } | null,
@@ -258,8 +261,7 @@ export function PublishedProductsView() {
     if (!opts?.silent) setIsLoading(false);
   }, []);
 
-  // One-way push: update selected Shopify products from shopify_products mirror.
-  // One product per edge-function call avoids relay/timeout when syncing many rows.
+  // Batch push: one edge-function call per chunk (not one HTTP round-trip per product).
   const pushToShopify = useCallback(async () => {
     const selectedRows = items.filter((p) => selectedIds.includes(p.id));
     if (selectedRows.length === 0) {
@@ -276,36 +278,60 @@ export function PublishedProductsView() {
       return;
     }
 
+    const batches: string[][] = [];
+    for (let i = 0; i < shopifyIds.length; i += SHOPIFY_PUSH_BATCH_SIZE) {
+      batches.push(shopifyIds.slice(i, i + SHOPIFY_PUSH_BATCH_SIZE));
+    }
+
     setIsSyncing(true);
     const toastId = toast.loading(`正在推送至 Shopify (0/${shopifyIds.length})…`);
     let pushed = 0;
+    let skipped = 0;
     let failed = 0;
     let firstErr: string | undefined;
+    let processed = 0;
 
     try {
-      for (let i = 0; i < shopifyIds.length; i++) {
-        const id = shopifyIds[i];
-        toast.loading(`正在推送至 Shopify (${i + 1}/${shopifyIds.length})…`, { id: toastId });
-
-        const { data, error } = await supabase.functions.invoke(
-          'supabase-functions-update-shopify-product',
-          { body: { push_from_mirror: true, shopify_product_id: id } },
+      for (let b = 0; b < batches.length; b++) {
+        const batch = batches[b];
+        toast.loading(
+          `正在推送至 Shopify (${processed}/${shopifyIds.length})… 批次 ${b + 1}/${batches.length}`,
+          { id: toastId },
         );
 
+        const { data, error } = await invokeEdgeFunctionDirect(
+          'supabase-functions-update-shopify-product',
+          { shopify_product_ids: batch },
+          { timeoutMs: 5 * 60 * 1000 },
+        );
+
+        processed += batch.length;
+
         if (error || data?.error || data?.success === false) {
-          failed++;
-          if (!firstErr) firstErr = await parseInvokeError(error, data);
+          failed += batch.length;
+          if (!firstErr) firstErr = error?.message || (data?.error as string) || '未知錯誤';
         } else {
-          pushed++;
+          pushed += Number(data?.pushed ?? 0);
+          skipped += Number(data?.skipped ?? 0);
+          failed += Number(data?.failed ?? 0);
+          const batchErr = Array.isArray(data?.errors) && data.errors[0]?.error
+            ? String(data.errors[0].error)
+            : undefined;
+          if (failed > 0 && !firstErr && batchErr) firstErr = batchErr;
         }
       }
 
-      if (pushed > 0) await loadProducts({ silent: true });
+      if (pushed > 0 || skipped > 0) await loadProducts({ silent: true });
 
-      if (failed > 0 && pushed > 0) {
+      const descParts: string[] = [];
+      if (pushed > 0) descParts.push(`已更新 ${pushed} 件`);
+      if (skipped > 0) descParts.push(`略過 ${skipped} 件（Shopify 已一致）`);
+      if (failed > 0) descParts.push(`失敗 ${failed} 件`);
+
+      if (failed > 0 && (pushed > 0 || skipped > 0)) {
         toast.warning('部分產品推送失敗', {
           id: toastId,
-          description: `成功 ${pushed} 件 · 失敗 ${failed} 件${firstErr ? ` — ${firstErr.slice(0, 120)}` : ''}`,
+          description: `${descParts.join(' · ')}${firstErr ? ` — ${firstErr.slice(0, 120)}` : ''}`,
           duration: 8000,
         });
       } else if (failed > 0) {
@@ -317,7 +343,7 @@ export function PublishedProductsView() {
       } else {
         toast.success('已推送至 Shopify', {
           id: toastId,
-          description: `已更新 ${pushed} 件現有產品（含 SEO）`,
+          description: descParts.length > 0 ? descParts.join(' · ') : `已處理 ${shopifyIds.length} 件`,
           duration: 6000,
         });
       }
