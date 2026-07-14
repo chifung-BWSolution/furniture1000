@@ -532,7 +532,7 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
       });
 
       toast.success('已提交到下一步', {
-        description: '產品已移至「產品信息」，資料已同步至 ready_to_shopify',
+        description: '產品已移至「產品價錢」，資料已同步至 ready_to_shopify',
       });
 
       setActiveId(null);

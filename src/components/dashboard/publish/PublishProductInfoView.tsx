@@ -401,7 +401,7 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
       <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-muted/30 px-8 py-3">
         <div className="flex items-center gap-2">
           <Boxes className="h-4 w-4 text-primary" />
-          <h2 className="font-display text-sm font-bold">產品信息</h2>
+          <h2 className="font-display text-sm font-bold">產品價錢</h2>
           <span className="ml-1 rounded-full bg-primary/10 px-2.5 py-0.5 font-mono-data text-[11px] font-semibold text-primary">
             {totalCount} 件待補充
           </span>
