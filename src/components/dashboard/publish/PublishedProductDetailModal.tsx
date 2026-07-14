@@ -1,8 +1,8 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import {
   X, Loader2, Package, Tag, DollarSign, Ruler, Boxes, Store, RefreshCw, ImageIcon, Search,
-  Factory, ChevronsUpDown, Check,
+  Factory, ChevronsUpDown, Check, GripVertical,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { normalizeBodyHtmlForShopify } from '@/lib/bodyHtml';
@@ -206,6 +206,8 @@ export function PublishedProductDetailModal({
   const [manufacturerList, setManufacturerList] = useState<string[]>(MANUFACTURERS);
   const [factoryItemsList, setFactoryItemsList] = useState<FactoryItem[]>([]);
   const [manufacturerListLoading, setManufacturerListLoading] = useState(true);
+  const [editImages, setEditImages] = useState<string[]>([]);
+  const [dragImgIndex, setDragImgIndex] = useState<number | null>(null);
 
   useEffect(() => {
     supabase
@@ -269,7 +271,10 @@ export function PublishedProductDetailModal({
       }, {})
     );
     setEditFallbackSku(r.sku || '');
-    setSelectedImg(resolveMirrorPrimaryImageUrl(r) || null);
+    const gallery = resolveMirrorGalleryUrls(r);
+    setEditImages(gallery);
+    setSelectedImg(gallery[0] || resolveMirrorPrimaryImageUrl(r) || null);
+    setDragImgIndex(null);
   }, [r]);
 
   useEffect(() => {
@@ -295,10 +300,25 @@ export function PublishedProductDetailModal({
     });
   }, [manufacturerSearch, manufacturerList, factoryItemsList]);
 
-  const allImages: string[] = useMemo(() => resolveMirrorGalleryUrls(r), [r.image_url, r.images]);
   const sortedImgs = useMemo(() => sortShopifyImages(r.images) as ShopifyImage[], [r.images]);
 
-  const displayImg = (selectedImg && allImages.includes(selectedImg)) ? selectedImg : (allImages[0] || '');
+  const handleImageReorderDrop = useCallback((targetIndex: number) => {
+    if (dragImgIndex === null || dragImgIndex === targetIndex) {
+      setDragImgIndex(null);
+      return;
+    }
+    setEditImages((prev) => {
+      const next = [...prev];
+      const [moved] = next.splice(dragImgIndex, 1);
+      next.splice(targetIndex, 0, moved);
+      return next;
+    });
+    setDragImgIndex(null);
+  }, [dragImgIndex]);
+
+  const clearImageDrag = useCallback(() => setDragImgIndex(null), []);
+
+  const displayImg = (selectedImg && editImages.includes(selectedImg)) ? selectedImg : (editImages[0] || '');
   const variants: ShopifyVariant[] = Array.isArray(r.variants) ? r.variants : [];
   const showVariantMainImageCol = variants.length >= 2;
 
@@ -315,8 +335,8 @@ export function PublishedProductDetailModal({
       const compareNum = editCompareAtPrice !== '' ? parseFloat(editCompareAtPrice) : null;
       const productType = [editL1, editL2].filter(Boolean).join(' / ') || null;
       const handleNorm = editHandle.trim() || null;
-      const preservedImages = allImages.length > 0
-        ? allImages.map((src, i) => {
+      const preservedImages = editImages.length > 0
+        ? editImages.map((src, i) => {
           const existing = sortedImgs.find(
             (im) => im.src && imageDedupeKey(im.src) === imageDedupeKey(src),
           );
@@ -339,7 +359,7 @@ export function PublishedProductDetailModal({
         const key = variantEditKey(v, i);
         const selectedSrc = editVariantImageSrc[key];
         const imageId = selectedSrc
-          ? resolveImageIdForSrc(selectedSrc, sortedImgs, allImages[0] ?? r.image_url)
+          ? resolveImageIdForSrc(selectedSrc, sortedImgs, editImages[0] ?? r.image_url)
           : v.image_id;
         return {
           ...v,
@@ -360,7 +380,7 @@ export function PublishedProductDetailModal({
         tags: editTags,
         price: priceNum,
         compare_at_price: compareNum,
-        image_url: allImages[0] || resolveMirrorPrimaryImageUrl(r) || null,
+        image_url: editImages[0] || resolveMirrorPrimaryImageUrl(r) || null,
         images: preservedImages,
         variants: updatedVariants.length > 0 ? updatedVariants : r.variants,
         sku: primarySku,
@@ -372,7 +392,7 @@ export function PublishedProductDetailModal({
         'my_fields.materials': editMaterials.trim() || null,
         ...Object.fromEntries(
           [1, 2, 3, 4].flatMap((i) => {
-            const url = allImages[i - 1] ?? null;
+            const url = editImages[i - 1] ?? null;
             const alt = url && editTitle.trim() ? editTitle.trim() : null;
             return [
               [`custom.more_image_link_${i}`, url],
@@ -459,26 +479,52 @@ export function PublishedProductDetailModal({
                 <ImageIcon className="h-16 w-16 text-muted-foreground/30" />
               )}
             </div>
-            {allImages.length > 0 && (
+            {editImages.length > 0 && (
               <div>
                 <div className="mb-2 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
                   <ImageIcon className="h-3 w-3" />
-                  媒體 ({allImages.length})
+                  媒體 ({editImages.length})
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  {allImages.map((src, i) => (
-                    <button
-                      key={i}
-                      onClick={() => setSelectedImg(src)}
+                  {editImages.map((src, i) => (
+                    <div
+                      key={src}
+                      draggable
+                      onDragStart={(e) => {
+                        e.dataTransfer.effectAllowed = 'move';
+                        setDragImgIndex(i);
+                      }}
+                      onDragEnd={clearImageDrag}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDrop={() => handleImageReorderDrop(i)}
                       className={cn(
-                        'h-14 w-14 overflow-hidden rounded-lg border-2 bg-muted transition-all',
-                        selectedImg === src ? 'border-primary ring-1 ring-primary/30' : 'border-transparent hover:border-muted-foreground/40'
+                        'group relative h-14 w-14 cursor-grab overflow-hidden rounded-lg border-2 bg-muted transition-all active:cursor-grabbing',
+                        selectedImg === src ? 'border-primary ring-1 ring-primary/30' : 'border-transparent hover:border-muted-foreground/40',
+                        dragImgIndex === i && 'opacity-50',
                       )}
                     >
-                      <img src={src} alt="" className="h-full w-full object-cover" />
-                    </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedImg(src)}
+                        className="h-full w-full"
+                        title={i === 0 ? '產品主圖' : `圖片 ${i + 1}`}
+                      >
+                        <img src={src} alt="" draggable={false} className="h-full w-full object-cover" />
+                      </button>
+                      {i === 0 && (
+                        <span className="pointer-events-none absolute left-0.5 top-0.5 rounded bg-primary px-1 py-px text-[8px] font-bold leading-none text-primary-foreground">
+                          主圖
+                        </span>
+                      )}
+                      <span className="pointer-events-none absolute bottom-0.5 right-0.5 flex h-4 w-4 items-center justify-center rounded bg-black/50 text-white opacity-0 transition-opacity group-hover:opacity-100">
+                        <GripVertical className="h-2.5 w-2.5" />
+                      </span>
+                    </div>
                   ))}
                 </div>
+                <p className="mt-2 text-[10.5px] text-muted-foreground/60">
+                  拖拉縮圖可調整順序，最左為產品主圖
+                </p>
               </div>
             )}
 
@@ -837,11 +883,11 @@ export function PublishedProductDetailModal({
                 <X className="h-4 w-4" />
               </button>
             </div>
-            {allImages.length === 0 ? (
+            {editImages.length === 0 ? (
               <p className="py-8 text-center text-xs text-muted-foreground">此產品沒有可選媒體圖片</p>
             ) : (
               <div className="grid grid-cols-4 gap-2">
-                {allImages.map((src) => {
+                {editImages.map((src) => {
                   const isSelected = variantImagePickerKey
                     && editVariantImageSrc[variantImagePickerKey] === src;
                   return (
