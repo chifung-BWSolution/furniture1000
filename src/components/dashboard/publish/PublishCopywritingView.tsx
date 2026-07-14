@@ -714,30 +714,28 @@ ${rawDesc}
           <h2 className="font-display text-sm font-bold">
             {rejectedOnly ? '不考慮產品' : '產品文案'}
           </h2>
-          <span className="ml-1 rounded-full bg-primary/10 px-2.5 py-0.5 font-mono-data text-[11px] font-semibold text-primary">
+          <span className="rounded-full bg-primary/10 px-2.5 py-0.5 font-mono-data text-[11px] font-semibold text-primary">
             {totalCount} 件產品{rejectedOnly ? '' : '待處理'}
           </span>
-          <div className="ml-auto flex items-center gap-2">
-            {rejectedOnly ? (
-              <button
-                type="button"
-                onClick={() => setViewMode('active')}
-                className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
-              >
-                <ChevronLeft className="h-3.5 w-3.5" />
-                返回待處理
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setViewMode('rejected')}
-                className="flex items-center gap-1.5 rounded-lg border border-rose-500/30 bg-rose-500/5 px-3 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-500/10"
-              >
-                <Archive className="h-3.5 w-3.5" />
-                不考慮產品
-              </button>
-            )}
-          </div>
+          {rejectedOnly ? (
+            <button
+              type="button"
+              onClick={() => setViewMode('active')}
+              className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-0.5 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <ChevronLeft className="h-3.5 w-3.5" />
+              返回待處理
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setViewMode('rejected')}
+              className="flex items-center gap-1.5 rounded-lg border border-rose-500/30 bg-rose-500/5 px-2.5 py-0.5 text-sm font-semibold text-rose-600 hover:bg-rose-500/10"
+            >
+              <Archive className="h-3.5 w-3.5" />
+              不考慮產品
+            </button>
+          )}
         </div>
         {Toolbar}
         <div className="flex-1 overflow-auto p-8">
