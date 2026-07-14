@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { extractPmsPitchingIdFromProjectData, extractPmsProjectIdFromProjectData } from '@/lib/pmsQuotePrefill';
 import { useAuth } from '@/contexts/AuthProvider';
 import { usePmsStaffName } from '@/hooks/use-pms-staff-name';
-import { withInsertAuditFields } from '@/lib/pmsAudit';
+import { withInsertAuditFields, withUpdateAuditFields } from '@/lib/pmsAudit';
 import { quoteItemHasBase64Images } from '@/lib/quoteImageStorage';
 import {
   replaceQuoteItems,
@@ -16,10 +16,16 @@ import {
   type BwfQuoteItemInput,
 } from '@/lib/bwfQuoteItems';
 
+export interface SubmitReviewResult {
+  quoteId: string;
+  quoteUuid: string;
+  version: string;
+}
+
 interface SubmitReviewModalProps {
   open: boolean;
   onClose: () => void;
-  onSuccess: (quoteId: string) => void;
+  onSuccess: (result: SubmitReviewResult) => void;
   totalAmount: number;
   totalCostPrice?: number | null;
   version: string;
@@ -32,6 +38,9 @@ interface SubmitReviewModalProps {
   bwfProjectId?: string | null;
   pitchingCode?: string | null;
   pitchingName?: string | null;
+  /** When set, update the existing row instead of inserting a new quote. */
+  existingQuoteId?: string | null;
+  existingQuoteUuid?: string | null;
 }
 
 function generateQuoteId(): string {
@@ -56,6 +65,8 @@ export function SubmitReviewModal({
   bwfProjectId,
   pitchingCode,
   pitchingName,
+  existingQuoteId,
+  existingQuoteUuid,
 }: SubmitReviewModalProps) {
   const { user } = useAuth();
   const staffName = usePmsStaffName(user?.id);
@@ -80,7 +91,6 @@ export function SubmitReviewModal({
     setError('');
     setIsSubmitting(true);
 
-    const quoteId = generateQuoteId();
     const pitchingId =
       bwfPitchingId ||
       extractPmsPitchingIdFromProjectData(projectData) ||
@@ -89,6 +99,26 @@ export function SubmitReviewModal({
       bwfProjectId ||
       extractPmsProjectIdFromProjectData(projectData) ||
       null;
+
+    let isUpdate = !!existingQuoteId?.trim();
+    let quoteId = isUpdate ? existingQuoteId!.trim() : generateQuoteId();
+    let quoteUuid = existingQuoteUuid?.trim() || '';
+
+    // Same PMS pitching → update existing quote instead of creating another row.
+    if (!isUpdate && pitchingId) {
+      const { data: existingByPitching } = await supabase
+        .from('bwf_quote')
+        .select('id, quote_id')
+        .eq('bwf_pitching_id', pitchingId)
+        .order('modified_date', { ascending: false, nullsFirst: false })
+        .limit(1)
+        .maybeSingle();
+      if (existingByPitching?.quote_id && existingByPitching?.id) {
+        isUpdate = true;
+        quoteId = existingByPitching.quote_id;
+        quoteUuid = existingByPitching.id;
+      }
+    }
 
     const formDataRaw =
       (projectData.formData as Record<string, unknown> | undefined) || {};
@@ -121,7 +151,7 @@ export function SubmitReviewModal({
         throw new Error('部分圖片未能上傳至 Storage，請檢查網絡後重試');
       }
 
-      const insertPayload = await withInsertAuditFields({
+      const rowPayload = {
         quote_id: quoteId,
         version,
         status: '待審核',
@@ -133,27 +163,41 @@ export function SubmitReviewModal({
         pitching_name: name || null,
         ...(pitchingId ? { bwf_pitching_id: pitchingId } : {}),
         ...(projectId ? { bwf_project_id: projectId } : {}),
-      });
+      };
 
-      const { data: inserted, error: dbError } = await supabase
-        .from('bwf_quote')
-        .insert(insertPayload)
-        .select('id')
-        .single();
+      let persistedUuid = quoteUuid;
 
-      if (dbError) {
-        throw dbError;
+      if (isUpdate) {
+        const updatePayload = await withUpdateAuditFields(rowPayload);
+        const { data: updated, error: dbError } = await supabase
+          .from('bwf_quote')
+          .update(updatePayload)
+          .eq('quote_id', quoteId)
+          .select('id')
+          .single();
+
+        if (dbError) throw dbError;
+        if (!updated?.id) throw new Error('報價單已更新但缺少 id');
+        persistedUuid = updated.id;
+      } else {
+        const insertPayload = await withInsertAuditFields(rowPayload);
+        const { data: inserted, error: dbError } = await supabase
+          .from('bwf_quote')
+          .insert(insertPayload)
+          .select('id')
+          .single();
+
+        if (dbError) throw dbError;
+        if (!inserted?.id) throw new Error('報價單已建立但缺少 id');
+        persistedUuid = inserted.id;
       }
-      if (!inserted?.id) {
-        throw new Error('報價單已建立但缺少 id');
-      }
 
-      await replaceQuoteItems(inserted.id, resolvedItems);
+      await replaceQuoteItems(persistedUuid, resolvedItems);
 
-      toast.success('報價單已提交審核', {
-        description: `報價單號: ${code || '—'} | 版本: ${version}`,
+      toast.success(isUpdate ? '報價單已更新並提交審核' : '報價單已提交審核', {
+        description: `${quoteId} · ${code || '—'} · 版本 ${version}`,
       });
-      onSuccess(quoteId);
+      onSuccess({ quoteId, quoteUuid: persistedUuid, version });
       setSubmitter('');
       onClose();
     } catch (err: unknown) {

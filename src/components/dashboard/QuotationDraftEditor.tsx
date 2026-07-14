@@ -18,7 +18,7 @@ import { TermsRichEditor } from "@/components/dashboard/TermsRichEditor";
 import { RemarksRichEditor } from "@/components/dashboard/RemarksRichEditor";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
-import { SubmitReviewModal } from "@/components/dashboard/SubmitReviewModal";
+import { SubmitReviewModal, type SubmitReviewResult } from "@/components/dashboard/SubmitReviewModal";
 import { ProductSelectorModal } from "@/components/dashboard/ProductSelectorModal";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
@@ -128,6 +128,8 @@ interface QuotationDraftEditorProps {
   onBack: () => void;
   userEmail?: string | null;
   onOpenPdfPreview?: (data: QuotationPDFData) => void;
+  /** Called after 版本審核 persists to DB — parent can track quote id for subsequent updates. */
+  onQuotePersisted?: (result: SubmitReviewResult) => void;
   existingQuote?: {
     quoteId: string;
     version: string;
@@ -1261,6 +1263,7 @@ export function QuotationDraftEditor({
   onBack: _onBack,
   userEmail,
   onOpenPdfPreview,
+  onQuotePersisted,
   existingQuote,
 }: QuotationDraftEditorProps) {
   // Determine initial values from existingQuote or defaults
@@ -1702,18 +1705,17 @@ export function QuotationDraftEditor({
   const handleOpenSubmitReview = () => {
     setShowSubmitModal(true);
   };
-  const [currentVersion] = useState(() => {
+  const currentVersion = useMemo(() => {
     if (existingQuote?.version) {
-      // Increment the minor version: v1.1 -> v1.2, v1.2 -> v1.3
       const match = existingQuote.version.match(/^v(\d+)\.(\d+)$/);
       if (match) {
-        const major = parseInt(match[1]);
-        const minor = parseInt(match[2]) + 1;
+        const major = parseInt(match[1], 10);
+        const minor = parseInt(match[2], 10) + 1;
         return `v${major}.${minor}`;
       }
     }
-    return "v1.1";
-  });
+    return 'v1.1';
+  }, [existingQuote?.version]);
 
   // Product selector modal state
   const [showProductSelector, setShowProductSelector] = useState(false);
@@ -2813,15 +2815,14 @@ export function QuotationDraftEditor({
       <SubmitReviewModal
         open={showSubmitModal}
         onClose={() => setShowSubmitModal(false)}
-        onSuccess={(quoteId) => {
+        onSuccess={(result) => {
           setShowSubmitModal(false);
-          // Mark as persisted so the unsaved-work guard no longer blocks navigation.
           setPersisted(true);
           unsavedGuard.clear();
-          // Clean up local draft after successful submission
           deleteDraft(storageKey).catch(() => {});
-          if (quoteId) deleteDraft(makeDraftKey(userEmail, quoteId)).catch(() => {});
+          deleteDraft(makeDraftKey(userEmail, result.quoteId)).catch(() => {});
           resetQuickQuoteSessionStorage(userEmail);
+          onQuotePersisted?.(result);
         }}
         totalAmount={grandTotal}
         totalCostPrice={totalCostPrice}
@@ -2832,6 +2833,8 @@ export function QuotationDraftEditor({
         bwfProjectId={formData.pmsProjectId || existingQuote?.bwfProjectId || null}
         pitchingCode={pitchingCode}
         pitchingName={pitchingNameStored || formData.pitchingName || ""}
+        existingQuoteId={existingQuote?.quoteId ?? null}
+        existingQuoteUuid={existingQuote?.quoteUuid ?? null}
       />
 
       {/* Product Selector Modal */}

@@ -1310,6 +1310,22 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
                   setCurrentStep(3);
                 }
               }}
+              onQuotePersisted={(result) => {
+                setLoadedQuoteData((prev) => ({
+                  quoteId: result.quoteId,
+                  quoteUuid: result.quoteUuid,
+                  version: result.version,
+                  status: '待審核',
+                  totalAmount: prev?.totalAmount ?? 0,
+                  submitter: prev?.submitter ?? formData.projectManager,
+                  projectData: prev?.projectData ?? {},
+                  bwfPitchingId: prev?.bwfPitchingId ?? formData.pmsPitchingId ?? null,
+                  bwfProjectId: prev?.bwfProjectId ?? formData.pmsProjectId ?? null,
+                  pitchingCode: prev?.pitchingCode ?? formData.pitchingCode ?? null,
+                  pitchingName: prev?.pitchingName ?? formData.pitchingName ?? null,
+                }));
+                loadedQuoteIdRef.current = result.quoteId;
+              }}
               existingQuote={loadedQuoteData || undefined}
             />
           </div>

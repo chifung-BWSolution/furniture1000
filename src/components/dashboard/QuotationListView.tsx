@@ -35,6 +35,7 @@ interface QuoteRecord {
     [key: string]: unknown;
   };
   created_at: string;
+  modified_date?: string | null;
 }
 
 interface QuotationListViewProps {
@@ -42,7 +43,27 @@ interface QuotationListViewProps {
 }
 
 const LIST_SELECT =
-  'id, quote_id, version, status, total_amount, cost_price, submitter, pitching_code, pitching_name, created_at, project_data';
+  'id, quote_id, version, status, total_amount, cost_price, submitter, pitching_code, pitching_name, created_at, modified_date, project_data';
+
+/** Keep one row per quote_id — latest modified_date wins (legacy duplicate cleanup in UI). */
+function dedupeQuotesByQuoteId(rows: QuoteRecord[]): QuoteRecord[] {
+  const byQuoteId = new Map<string, QuoteRecord>();
+  for (const row of rows) {
+    const prev = byQuoteId.get(row.quote_id);
+    if (!prev) {
+      byQuoteId.set(row.quote_id, row);
+      continue;
+    }
+    const prevTs = new Date(prev.modified_date || prev.created_at).getTime();
+    const rowTs = new Date(row.modified_date || row.created_at).getTime();
+    if (rowTs >= prevTs) byQuoteId.set(row.quote_id, row);
+  }
+  return [...byQuoteId.values()].sort(
+    (a, b) =>
+      new Date(b.modified_date || b.created_at).getTime() -
+      new Date(a.modified_date || a.created_at).getTime(),
+  );
+}
 
 function getStatusColor(status: string) {
   switch (status) {
@@ -99,7 +120,7 @@ export function QuotationListView({ onOpenQuote }: QuotationListViewProps) {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      setQuotes((data as QuoteRecord[]) || []);
+      setQuotes(dedupeQuotesByQuoteId((data as QuoteRecord[]) || []));
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : '無法載入報價單列表';
       toast.error('載入失敗', { description: message });
@@ -294,7 +315,7 @@ export function QuotationListView({ onOpenQuote }: QuotationListViewProps) {
                         )}
                         <span className="mt-1 flex items-center gap-1 font-mono-data text-[11px] text-muted-foreground">
                           <Clock className="h-3 w-3" />
-                          {formatDateTime(quote.created_at)}
+                          {formatDateTime(quote.modified_date || quote.created_at)}
                         </span>
                       </div>
                       <button
