@@ -734,7 +734,7 @@ ${rawDesc}
               className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-2.5 py-0.5 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
             >
               <ChevronLeft className="h-3.5 w-3.5" />
-              返回待處理
+              返回產品文案
             </button>
           ) : (
             <button
