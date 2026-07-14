@@ -104,20 +104,26 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
   }, [selectedIds]);
 
   const handleRestoreSelected = useCallback(async () => {
-    const rtsIds = rowsRef.current
-      .filter((r: any) => selectedIds.has(r.id))
+    const restoredRows = rowsRef.current.filter((r: any) => selectedIds.has(r.id));
+    const rtsIds = restoredRows
       .map((r: any) => String(r.rts_id ?? ''))
       .filter(Boolean);
     if (rtsIds.length === 0) return;
     setIsRestoring(true);
     try {
+      const now = getPublishTimestampHk();
       const { error } = await supabase
         .from('ready_to_shopify')
-        .update({ rejected: false })
+        .update({ rejected: false, copy_queued_at: now })
         .in('id', rtsIds);
       if (error) throw error;
+      await Promise.all(
+        restoredRows.map((r: any) => syncRtsWorkflowToProduct(supabase, String(r.id), {
+          copy_queued_at: now,
+        })),
+      );
       toast.success(`已還原 ${rtsIds.length} 件產品`, {
-        description: '產品已放回「產品文案」列表',
+        description: '產品已放回「產品文案」列表最前',
       });
       setSelectedIds(new Set());
       setReloadKey((k) => k + 1);
