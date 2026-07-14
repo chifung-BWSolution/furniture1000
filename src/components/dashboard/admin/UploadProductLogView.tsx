@@ -371,7 +371,7 @@ export function UploadProductLogView() {
               </div>
 
               <p className="text-xs leading-relaxed text-muted-foreground">
-                「產品目前停留」僅顯示今天（即時查詢）；「今日已處理」：產品文案取 upload_log + products.copy_done_at（員工以 upload_log 登入帳號為準）；產品信息取 upload_log（完成）+ ready_to_shopify.info_completed_at。
+                「產品目前停留」僅顯示今天（即時查詢）；「今日已處理」：產品文案每件產品以最後一次「提交到下一步」計 1 件（upload_log + copy_done_at，歸屬最後操作者與該提交日）；產品信息取 upload_log（完成）+ ready_to_shopify.info_completed_at。
               </p>
             </>
           ) : null}

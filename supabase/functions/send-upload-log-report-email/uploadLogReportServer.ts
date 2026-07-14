@@ -128,6 +128,26 @@ function dedupeKey(hkDate: string, stage: UploadLogStage, productId: string): st
   return `${hkDate}|${stage}|${productId}`;
 }
 
+function isCopywritingSubmit(log: RawLogRow): boolean {
+  return log.stage === "copywriting" && log.action === "submit" && Boolean(log.product_id);
+}
+
+/** 產品文案：每件產品只計一次，歸屬最後一次提交日期與操作者。 */
+function dedupeCopywritingByLastSubmit(logs: RawLogRow[]): RawLogRow[] {
+  const other = logs.filter((log) => !isCopywritingSubmit(log));
+  const latestByProduct = new Map<string, RawLogRow>();
+
+  for (const log of logs) {
+    if (!isCopywritingSubmit(log) || !log.product_id) continue;
+    const existing = latestByProduct.get(log.product_id);
+    if (!existing || new Date(log.logged_at).getTime() > new Date(existing.logged_at).getTime()) {
+      latestByProduct.set(log.product_id, log);
+    }
+  }
+
+  return [...other, ...latestByProduct.values()];
+}
+
 function buildDailyRows(logs: RawLogRow[], dayCount: number): DailyReportRow[] {
   const sortedDates = buildDateRange(dayCount);
   const byDateStage = new Map<string, Map<UploadLogStage, Map<string, Set<string>>>>();
@@ -455,6 +475,6 @@ export async function fetchUploadLogReportServer(dayCount = 30): Promise<UploadL
       furniture_group_check: Number(fgRes.data) || 0,
       ready_to_publish: Number(readyRes.data) || 0,
     },
-    dailyRows: buildDailyRows(logs, dayCount),
+    dailyRows: buildDailyRows(dedupeCopywritingByLastSubmit(logs), dayCount),
   };
 }

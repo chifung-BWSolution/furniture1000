@@ -142,6 +142,29 @@ function dedupeKey(hkDate: string, stage: UploadLogStage, productId: string): st
   return `${hkDate}|${stage}|${productId}`;
 }
 
+function isCopywritingSubmit(log: RawLogRow): boolean {
+  return log.stage === 'copywriting' && log.action === 'submit' && Boolean(log.product_id);
+}
+
+/**
+ * 產品文案：每件產品只計一次，歸屬於最後一次「提交到下一步」的日期與操作者
+ * （含退回後由他人重提的情況；舊日期的 upload_log 不再計入）。
+ */
+function dedupeCopywritingByLastSubmit(logs: RawLogRow[]): RawLogRow[] {
+  const other = logs.filter((log) => !isCopywritingSubmit(log));
+  const latestByProduct = new Map<string, RawLogRow>();
+
+  for (const log of logs) {
+    if (!isCopywritingSubmit(log) || !log.product_id) continue;
+    const existing = latestByProduct.get(log.product_id);
+    if (!existing || new Date(log.logged_at).getTime() > new Date(existing.logged_at).getTime()) {
+      latestByProduct.set(log.product_id, log);
+    }
+  }
+
+  return [...other, ...latestByProduct.values()];
+}
+
 function buildDailyRows(logs: RawLogRow[], dayCount: number): DailyReportRow[] {
   const sortedDates = buildDateRange(dayCount);
 
@@ -566,7 +589,8 @@ export async function fetchUploadLogReport(dayCount = 30): Promise<UploadLogRepo
   ]);
   staffMapFromDb.forEach((sid, pid) => productStaffMap.set(pid, sid));
 
-  const logs = await enrichLogsWithStaff(merged, productStaffMap);
+  const enriched = await enrichLogsWithStaff(merged, productStaffMap);
+  const logs = dedupeCopywritingByLastSubmit(enriched);
 
   const pendingCounts = await fetchPendingCounts();
 
