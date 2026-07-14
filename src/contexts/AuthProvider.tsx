@@ -9,6 +9,7 @@ import {
 } from 'react';
 import type { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
+import { writeLoginLog } from '@/lib/loginLog';
 import { clearPmsStaffCache, fetchPmsStaffInfo } from '@/lib/pmsStaff';
 
 type AuthContextValue = {
@@ -45,7 +46,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Refresh / clear PMS staff cache on login, SSO, logout (not every token refresh).
       if (event === 'SIGNED_OUT') {
         clearPmsStaffCache();
-      } else if (nextSession?.user?.id && (event === 'SIGNED_IN' || event === 'USER_UPDATED')) {
+      } else if (nextSession?.user?.id && event === 'SIGNED_IN') {
+        clearPmsStaffCache();
+        void fetchPmsStaffInfo(nextSession.user.id);
+        void writeLoginLog('login');
+      } else if (nextSession?.user?.id && event === 'USER_UPDATED') {
         clearPmsStaffCache();
         void fetchPmsStaffInfo(nextSession.user.id);
       }
@@ -58,6 +63,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
+    await writeLoginLog('logout');
     await supabase.auth.signOut();
     clearPmsStaffCache();
     setSession(null);

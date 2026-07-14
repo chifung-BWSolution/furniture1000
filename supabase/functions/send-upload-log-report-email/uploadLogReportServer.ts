@@ -78,11 +78,29 @@ function toHkDate(iso: string): string {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Hong_Kong" }).format(new Date(iso));
 }
 
-function displayUser(name: string | null): string {
+function formatUploadLogUserLabel(
+  name: string | null | undefined,
+  email: string | null | undefined,
+): string {
   const n = name?.trim();
-  if (n && n !== HISTORICAL_USER_LABEL && n !== UNKNOWN_USER_LABEL && !looksLikeEmail(n)) {
-    return n;
+  const e = email?.trim().toLowerCase();
+  if (!n && !e) return UNKNOWN_USER_LABEL;
+  if (!n) return e!;
+  if (!e) return n;
+  if (n.toLowerCase() === e || n.includes(e)) return n;
+  if (n === "Branding Works" && e === "chifung.login@gmail.com") return `${n} (${e})`;
+  if (looksLikeEmail(n)) return e;
+  return n;
+}
+
+function displayUser(name: string | null, email: string | null): string {
+  const n = name?.trim();
+  if (n === HISTORICAL_USER_LABEL) return HISTORICAL_USER_LABEL;
+  if (n && n !== UNKNOWN_USER_LABEL && !looksLikeEmail(n)) {
+    return formatUploadLogUserLabel(n, email);
   }
+  const fromEmail = formatUploadLogUserLabel(null, email);
+  if (fromEmail !== UNKNOWN_USER_LABEL) return fromEmail;
   return UNKNOWN_USER_LABEL;
 }
 
@@ -162,7 +180,7 @@ function buildDailyRows(logs: RawLogRow[], dayCount: number): DailyReportRow[] {
     const stageMap = byDateStage.get(hkDate)!;
     if (!stageMap.has(stage)) stageMap.set(stage, new Map());
     const userMap = stageMap.get(stage)!;
-    const user = displayUser(log.user_name);
+    const user = displayUser(log.user_name, log.user_email);
     if (!userMap.has(user)) userMap.set(user, new Set());
     userMap.get(user)!.add(log.product_id);
   }

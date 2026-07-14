@@ -71,8 +71,10 @@ export function LoginHistoryView() {
   }, [load]);
 
   const filtered = useMemo(() => logs.filter((l) => {
-    if (search && !l.user.includes(search) && !l.ip.includes(search) && !l.location.includes(search)) {
-      return false;
+    if (search) {
+      const q = search.toLowerCase();
+      const hay = [l.user, l.email ?? '', l.ip, l.location].join(' ').toLowerCase();
+      if (!hay.includes(q)) return false;
     }
     if (typeFilter !== 'all' && l.type !== typeFilter) return false;
     return true;

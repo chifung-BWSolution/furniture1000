@@ -2,6 +2,7 @@ import { supabase } from '@/lib/supabase';
 import { resolvePmsStaffByAuthUserIds, resolvePmsStaffByIds } from '@/lib/pmsStaff';
 import { getPublishDateHk } from '@/lib/publishTimestamps';
 import type { UploadLogStage } from '@/lib/uploadLog';
+import { formatUploadLogUserLabel } from '@/lib/uploadLogUserDisplay';
 
 export const UPLOAD_LOG_STAGES: UploadLogStage[] = [
   'copywriting',
@@ -89,11 +90,14 @@ function toHkDate(iso: string): string {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Hong_Kong' }).format(new Date(iso));
 }
 
-function displayUser(name: string | null, _email: string | null): string {
+function displayUser(name: string | null, email: string | null): string {
   const n = name?.trim();
-  if (n && n !== HISTORICAL_USER_LABEL && n !== UNKNOWN_USER_LABEL && !looksLikeEmail(n)) {
-    return n;
+  if (n === HISTORICAL_USER_LABEL) return HISTORICAL_USER_LABEL;
+  if (n && n !== UNKNOWN_USER_LABEL && !looksLikeEmail(n)) {
+    return formatUploadLogUserLabel(n, email);
   }
+  const fromEmail = formatUploadLogUserLabel(null, email);
+  if (fromEmail !== '（無用戶紀錄）') return fromEmail;
   return UNKNOWN_USER_LABEL;
 }
 

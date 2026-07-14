@@ -8,6 +8,7 @@ import type { LogType, PlatformUser, UserRole } from '@/constants/analytics-mock
 export interface LoginLog {
   id: string;
   user: string;
+  email?: string;
   type: LogType;
   ip: string;
   location: string;

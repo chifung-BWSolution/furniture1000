@@ -184,6 +184,7 @@ async function syncProfiles(
 type LoginLog = {
   id: string;
   user: string;
+  email?: string;
   type: LogType;
   ip: string;
   location: string;
@@ -209,7 +210,38 @@ async function fetchLoginLogs(
     if (p.auth_user_id) nameByAuthId.set(p.auth_user_id, label);
   }
 
+  const formatUser = (name: string | null | undefined, email: string | null | undefined): string => {
+    const n = String(name ?? "").trim();
+    const e = normalizeEmail(email) ?? "";
+    if (n && e && n !== e && !n.includes(e)) {
+      if (n === "Branding Works" && e === "chifung.login@gmail.com") {
+        return `${n} (${e})`;
+      }
+    }
+    return n || (e ? nameByEmail.get(e) ?? e : "") || "未知用戶";
+  };
+
   const logs: LoginLog[] = [];
+
+  const { data: loginRows } = await furnitureAdmin
+    .from("login_log")
+    .select("id, user_id, user_email, user_name, event, logged_at")
+    .order("logged_at", { ascending: false })
+    .limit(150);
+
+  for (const row of loginRows ?? []) {
+    const email = normalizeEmail(row.user_email);
+    logs.push({
+      id: `ll-${row.id}`,
+      user: formatUser(String(row.user_name ?? ""), email),
+      email: email ?? undefined,
+      type: row.event === "logout" ? "logout" : "login",
+      ip: "—",
+      location: "登入",
+      at: String(row.logged_at),
+      suspicious: false,
+    });
+  }
 
   const { data: ssoRows } = await furnitureAdmin
     .from("pms_sso_codes")
@@ -240,16 +272,17 @@ async function fetchLoginLogs(
 
   for (const row of uploadRows ?? []) {
     const email = normalizeEmail(row.user_email);
-    const user =
+    const user = formatUser(
       String(row.user_name ?? "").trim() ||
-      (email ? nameByEmail.get(email) : null) ||
-      (row.user_id ? nameByAuthId.get(String(row.user_id)) : null) ||
-      email ||
-      "未知用戶";
+        (email ? nameByEmail.get(email) : null) ||
+        (row.user_id ? nameByAuthId.get(String(row.user_id)) : null),
+      email,
+    );
     if (user === "歷史紀錄") continue;
     logs.push({
       id: `ul-${row.id}`,
       user,
+      email: email ?? undefined,
       type: mapUploadAction(String(row.action), String(row.stage)),
       ip: "—",
       location: "系統",
