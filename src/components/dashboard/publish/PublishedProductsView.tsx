@@ -325,7 +325,7 @@ export function PublishedProductsView() {
 
       const descParts: string[] = [];
       if (pushed > 0) descParts.push(`已更新 ${pushed} 件`);
-      if (skipped > 0) descParts.push(`略過 ${skipped} 件（Shopify 已一致）`);
+      if (skipped > 0) descParts.push(`略過 ${skipped} 件（檢查後與 Shopify 一致）`);
       if (failed > 0) descParts.push(`失敗 ${failed} 件`);
 
       if (failed > 0 && (pushed > 0 || skipped > 0)) {

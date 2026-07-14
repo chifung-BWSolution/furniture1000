@@ -232,30 +232,33 @@ async function syncProductMetafieldsToShopify(
   headers: Record<string, string>,
   shopifyId: string,
   metafields: Record<string, string> | undefined,
-): Promise<{ ok: number; fail: number }> {
+  liveMap?: Map<string, string>,
+): Promise<{ ok: number; fail: number; skipped: number }> {
   let ok = 0;
   let fail = 0;
+  let skipped = 0;
   const mf = metafields || {};
-  const cols = new Set([
-    ...Object.keys(mf),
-    ...MORE_IMAGE_LINK_COLS,
-    ...MORE_IMAGE_ALT_COLS,
-  ]);
+  const cols = expectedMetafieldCols(mf);
+  const resolvedLiveMap = liveMap ?? await fetchLiveMetafieldMap(apiBase, headers, shopifyId);
+
   for (const col of cols) {
-    if (!METAFIELD_DEFS[col]) continue;
     const isMoreImage = MORE_IMAGE_LINK_COLS.includes(col) || MORE_IMAGE_ALT_COLS.includes(col);
     if (!isMoreImage && !(col in mf)) continue;
+    const want = (mf[col] ?? "").trim();
+    const live = (resolvedLiveMap.get(col) ?? "").trim();
+    if (want === live) {
+      skipped++;
+      continue;
+    }
     try {
-      const success = await upsertProductMetafield(
-        apiBase, headers, shopifyId, col, mf[col] ?? "",
-      );
+      const success = await upsertProductMetafield(apiBase, headers, shopifyId, col, mf[col] ?? "");
       if (success) ok++;
       else fail++;
     } catch {
       fail++;
     }
   }
-  return { ok, fail };
+  return { ok, fail, skipped };
 }
 
 function firstSkuFromVariants(variants: Record<string, unknown>[]): string | null {
@@ -485,6 +488,7 @@ function productCoreFieldsMatch(
     tags?: string[] | string;
     variants?: PushPayload["variants"];
     price?: number | null;
+    compareAtPrice?: number | null;
     sku?: string | null;
   },
 ): boolean {
@@ -547,23 +551,130 @@ function productCoreFieldsMatch(
     }
     if (requestedVariantOptions.has(idKey)) {
       if (String(v.option1 ?? "").trim() !== (requestedVariantOptions.get(idKey) || "")) return false;
-    } else if (requestedVariantOptions.has(indexKey)) {
+    } else     if (requestedVariantOptions.has(indexKey)) {
       if (String(v.option1 ?? "").trim() !== (requestedVariantOptions.get(indexKey) || "")) return false;
+    }
+    if (
+      payload.compareAtPrice != null &&
+      !isNaN(Number(payload.compareAtPrice)) &&
+      payload.price != null &&
+      !isNaN(Number(payload.price)) &&
+      Number(payload.compareAtPrice) > Number(payload.price)
+    ) {
+      const liveCompare = v.compare_at_price != null ? Number(v.compare_at_price) : null;
+      if (liveCompare !== Number(payload.compareAtPrice)) return false;
     }
   }
   return true;
 }
 
-function seoUpdateNeeded(
-  existing: Record<string, unknown>,
+type LiveSeoState = {
+  handle: string;
+  seoTitle: string;
+  seoDescription: string;
+};
+
+async function fetchLiveProductSeo(
+  shopDomain: string,
+  token: string,
+  shopifyId: string,
+): Promise<LiveSeoState | null> {
+  const resp = await fetch(`https://${shopDomain}/admin/api/2024-10/graphql.json`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": token },
+    body: JSON.stringify({
+      query: `query ProductSeo($id: ID!) {
+        product(id: $id) {
+          handle
+          seo { title description }
+        }
+      }`,
+      variables: { id: `gid://shopify/Product/${shopifyId}` },
+    }),
+  });
+  if (!resp.ok) return null;
+  const j = await resp.json();
+  const product = j?.data?.product;
+  if (!product) return null;
+  return {
+    handle: typeof product.handle === "string" ? product.handle.trim() : "",
+    seoTitle: typeof product.seo?.title === "string" ? product.seo.title.trim() : "",
+    seoDescription: typeof product.seo?.description === "string" ? product.seo.description.trim() : "",
+  };
+}
+
+function liveMetafieldMapFromResponse(metafields: { namespace?: string; key?: string; value?: string }[]): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const mf of metafields) {
+    if (!mf.namespace || !mf.key) continue;
+    map.set(`${mf.namespace}.${mf.key}`, String(mf.value ?? "").trim());
+  }
+  return map;
+}
+
+async function fetchLiveMetafieldMap(
+  apiBase: string,
+  headers: Record<string, string>,
+  shopifyId: string,
+): Promise<Map<string, string>> {
+  const resp = await fetch(`${apiBase}/products/${shopifyId}/metafields.json?limit=250`, { headers });
+  if (!resp.ok) return new Map();
+  const j = await resp.json();
+  return liveMetafieldMapFromResponse(Array.isArray(j.metafields) ? j.metafields : []);
+}
+
+function expectedMetafieldCols(metafields: Record<string, string>): Set<string> {
+  const cols = new Set<string>([
+    ...Object.keys(metafields),
+    ...MORE_IMAGE_LINK_COLS,
+    ...MORE_IMAGE_ALT_COLS,
+  ]);
+  return new Set([...cols].filter((col) => METAFIELD_DEFS[col]));
+}
+
+function metafieldsMatchMirror(
+  liveMap: Map<string, string>,
+  expected: Record<string, string>,
+): boolean {
+  for (const col of expectedMetafieldCols(expected)) {
+    const want = (expected[col] ?? "").trim();
+    const live = (liveMap.get(col) ?? "").trim();
+    if (want !== live) return false;
+  }
+  return true;
+}
+
+function seoMatchesMirror(
+  liveSeo: LiveSeoState | null,
+  existingHandle: string,
   handle: string | undefined,
   seoTitle: string | undefined,
   seoDescription: string | undefined,
 ): boolean {
-  const existingHandle = typeof existing.handle === "string" ? existing.handle.trim() : "";
   const normalizedHandle = normalizeShopifyHandle(handle) || undefined;
-  if (normalizedHandle && normalizedHandle !== existingHandle) return true;
-  return typeof seoTitle === "string" || typeof seoDescription === "string";
+  const wantHandle = normalizedHandle || existingHandle;
+  const wantSeoTitle = typeof seoTitle === "string" ? seoTitle.trim() : "";
+  const wantSeoDesc = typeof seoDescription === "string" ? seoDescription.trim() : "";
+
+  if (!liveSeo) {
+    return !normalizedHandle || normalizedHandle === existingHandle;
+  }
+  if (wantHandle && liveSeo.handle !== wantHandle) return false;
+  if (wantSeoTitle !== liveSeo.seoTitle) return false;
+  if (wantSeoDesc !== liveSeo.seoDescription) return false;
+  return true;
+}
+
+type MirrorLiveDiff = {
+  core: boolean;
+  gallery: boolean;
+  variantImages: boolean;
+  metafields: boolean;
+  seo: boolean;
+};
+
+function hasSyncWork(diff: MirrorLiveDiff): boolean {
+  return diff.core || diff.gallery || diff.variantImages || diff.metafields || diff.seo;
 }
 
 function mapLiveImagesForMirror(images: Record<string, unknown>[]) {
@@ -943,23 +1054,90 @@ async function pushProductToShopify(
     primarySrc,
   );
   const coreMatches = productCoreFieldsMatch(existing, existingVariants, {
-    title, bodyHtml, vendor, productType: productType, tags, variants, price, sku,
+    title, bodyHtml, vendor, productType: productType, tags, variants, price, compareAtPrice, sku,
   });
-  const seoNeeded = seoUpdateNeeded(existing, handle, seoTitle, seoDescription);
+  const existingHandle = typeof existing.handle === "string" ? existing.handle.trim() : "";
 
-  if (coreMatches && galleryMatches && variantImagesMatch && !seoNeeded) {
+  const mediaUrlsForMetafields = dedupedMirror
+    .map((im) => im.src)
+    .filter((src): src is string => typeof src === "string" && /^https?:\/\//.test(src))
+    .slice(0, 4);
+  const mergedMetafields = { ...(metafields || {}) };
+  applyMoreImageLinkMetafields(
+    mergedMetafields,
+    mediaUrlsForMetafields,
+    typeof title === "string" ? title : null,
+  );
+
+  let liveMetafieldMap: Map<string, string> | undefined;
+  let liveSeo: LiveSeoState | null | undefined;
+
+  const diff: MirrorLiveDiff = {
+    core: !coreMatches,
+    gallery: !galleryMatches,
+    variantImages: !variantImagesMatch,
+    metafields: false,
+    seo: false,
+  };
+
+  const obviousChange = diff.core || diff.gallery || diff.variantImages;
+  const mirrorHasSeoPayload = typeof seoTitle === "string" || typeof seoDescription === "string"
+    || !!(normalizeShopifyHandle(handle) && normalizeShopifyHandle(handle) !== existingHandle);
+
+  if (!obviousChange) {
+    liveMetafieldMap = await fetchLiveMetafieldMap(apiBase, headers, shopifyId);
+    diff.metafields = !metafieldsMatchMirror(liveMetafieldMap, mergedMetafields);
+    if (!diff.metafields) {
+      liveSeo = await fetchLiveProductSeo(shopDomain, shopifyToken, shopifyId);
+      diff.seo = !seoMatchesMirror(liveSeo, existingHandle, handle, seoTitle, seoDescription);
+      if (!hasSyncWork(diff)) {
+        return { success: true, skipped: true, metafields_updated: 0, metafields_failed: 0 };
+      }
+    }
+  }
+
+  if (obviousChange || diff.metafields) {
+    if (!liveMetafieldMap) {
+      liveMetafieldMap = await fetchLiveMetafieldMap(apiBase, headers, shopifyId);
+    }
+    if (obviousChange) {
+      diff.metafields = !metafieldsMatchMirror(liveMetafieldMap, mergedMetafields);
+    }
+  }
+
+  if (mirrorHasSeoPayload || (!obviousChange && diff.metafields)) {
+    if (liveSeo === undefined) {
+      liveSeo = await fetchLiveProductSeo(shopDomain, shopifyToken, shopifyId);
+      diff.seo = !seoMatchesMirror(liveSeo, existingHandle, handle, seoTitle, seoDescription);
+    }
+  }
+
+  if (!hasSyncWork(diff)) {
     return { success: true, skipped: true, metafields_updated: 0, metafields_failed: 0 };
   }
 
   const productUpdate: Record<string, unknown> = { id: Number(shopifyId) };
-  if (typeof title === "string" && title.trim()) productUpdate.title = title;
-  if (typeof bodyHtml === "string") productUpdate.body_html = bodyHtml;
-  if (typeof vendor === "string") productUpdate.vendor = vendor;
-  if (typeof productType === "string") productUpdate.product_type = productType;
-  if (tags !== undefined) {
-    productUpdate.tags = Array.isArray(tags)
-      ? tags.filter(Boolean).join(", ")
-      : String(tags || "");
+  if (diff.core) {
+    if (typeof title === "string" && title.trim() && String(existing.title ?? "").trim() !== title.trim()) {
+      productUpdate.title = title;
+    }
+    if (typeof bodyHtml === "string" && String(existing.body_html ?? "") !== bodyHtml) {
+      productUpdate.body_html = bodyHtml;
+    }
+    if (typeof vendor === "string" && String(existing.vendor ?? "") !== vendor) {
+      productUpdate.vendor = vendor;
+    }
+    if (typeof productType === "string" && String(existing.product_type ?? "") !== productType) {
+      productUpdate.product_type = productType;
+    }
+    if (tags !== undefined) {
+      const nextTags = Array.isArray(tags)
+        ? tags.filter(Boolean).join(", ")
+        : String(tags || "");
+      if (normalizeTagsForCompare(existing.tags) !== nextTags) {
+        productUpdate.tags = nextTags;
+      }
+    }
   }
 
   const requestedVariantSkus = new Map<string, string | null>();
@@ -979,11 +1157,14 @@ async function pushProductToShopify(
   }
   const fallbackSku = sku == null ? undefined : String(sku).trim();
   const shouldUpdateVariants =
-    (price != null && !isNaN(Number(price))) ||
-    requestedVariantSkus.size > 0 ||
-    requestedVariantOptions.size > 0 ||
-    requestedVariantPrices.size > 0 ||
-    fallbackSku !== undefined;
+    diff.core && (
+      (price != null && !isNaN(Number(price))) ||
+      requestedVariantSkus.size > 0 ||
+      requestedVariantOptions.size > 0 ||
+      requestedVariantPrices.size > 0 ||
+      fallbackSku !== undefined ||
+      (compareAtPrice != null && !isNaN(Number(compareAtPrice)))
+    );
 
   if (shouldUpdateVariants) {
     productUpdate.variants = existingVariants.map((v, index) => {
@@ -991,9 +1172,10 @@ async function pushProductToShopify(
       const idKey = v.id != null ? String(v.id) : "";
       const indexKey = `index-${index}`;
       const variantPrice = requestedVariantPrices.get(idKey) ?? requestedVariantPrices.get(indexKey);
-      if (variantPrice != null) {
+      if (variantPrice != null && String(v.price ?? "") !== variantPrice) {
         nv.price = variantPrice;
-      } else if (price != null && !isNaN(Number(price))) {
+      } else if (price != null && !isNaN(Number(price)) && variantPrice == null
+        && String(v.price ?? "") !== Number(price).toFixed(2)) {
         nv.price = Number(price).toFixed(2);
       }
       if (
@@ -1002,25 +1184,36 @@ async function pushProductToShopify(
         !isNaN(Number(compareAtPrice)) &&
         Number(compareAtPrice) > Number(price)
       ) {
-        nv.compare_at_price = Number(compareAtPrice).toFixed(2);
+        const liveCompare = v.compare_at_price != null ? Number(v.compare_at_price) : null;
+        if (liveCompare !== Number(compareAtPrice)) {
+          nv.compare_at_price = Number(compareAtPrice).toFixed(2);
+        }
       }
       if (requestedVariantSkus.has(idKey)) {
-        nv.sku = requestedVariantSkus.get(idKey) || "";
+        const nextSku = requestedVariantSkus.get(idKey) || "";
+        if (String(v.sku ?? "").trim() !== nextSku) nv.sku = nextSku;
       } else if (requestedVariantSkus.has(indexKey)) {
-        nv.sku = requestedVariantSkus.get(indexKey) || "";
-      } else if (fallbackSku !== undefined && existingVariants.length === 1) {
+        const nextSku = requestedVariantSkus.get(indexKey) || "";
+        if (String(v.sku ?? "").trim() !== nextSku) nv.sku = nextSku;
+      } else if (fallbackSku !== undefined && existingVariants.length === 1
+        && String(v.sku ?? "").trim() !== fallbackSku) {
         nv.sku = fallbackSku;
       }
       if (requestedVariantOptions.has(idKey)) {
-        nv.option1 = requestedVariantOptions.get(idKey) || "";
+        const nextOpt = requestedVariantOptions.get(idKey) || "";
+        if (String(v.option1 ?? "").trim() !== nextOpt) nv.option1 = nextOpt;
       } else if (requestedVariantOptions.has(indexKey)) {
-        nv.option1 = requestedVariantOptions.get(indexKey) || "";
+        const nextOpt = requestedVariantOptions.get(indexKey) || "";
+        if (String(v.option1 ?? "").trim() !== nextOpt) nv.option1 = nextOpt;
       }
-      return nv;
-    });
+      return Object.keys(nv).length > 1 ? nv : null;
+    }).filter((nv): nv is Record<string, unknown> => nv != null);
+    if (Array.isArray(productUpdate.variants) && productUpdate.variants.length === 0) {
+      delete productUpdate.variants;
+    }
   }
 
-  if (Array.isArray(images)) {
+  if (diff.gallery && Array.isArray(images)) {
     const valid = images.filter((u) => typeof u === "string" && /^https?:\/\//.test(u));
     const liveHasVariantImages = existingVariants.length > 1
       && existingVariants.some((v) => v.image_id != null);
@@ -1046,25 +1239,13 @@ async function pushProductToShopify(
     }
     updated = (await putResp.json()).product as Record<string, unknown>;
   }
-  const existingHandle = typeof existing.handle === "string" ? existing.handle.trim() : "";
-
-  const mediaUrlsForMetafields = dedupedMirror
-    .map((im) => im.src)
-    .filter((src): src is string => typeof src === "string" && /^https?:\/\//.test(src))
-    .slice(0, 4);
-  const mergedMetafields = { ...(metafields || {}) };
-  applyMoreImageLinkMetafields(
-    mergedMetafields,
-    mediaUrlsForMetafields,
-    typeof title === "string" ? title : null,
-  );
 
   let variantImagesSynced = 0;
   let galleryImagesDeleted = 0;
   let keptGalleryImages: Record<string, unknown>[] = [];
 
-  const needsGallerySync = dedupedMirror.length > 0 && !galleryMatches;
-  const needsVariantImageSync = mirrorHasVariantImages && !variantImagesMatch;
+  const needsGallerySync = diff.gallery && dedupedMirror.length > 0;
+  const needsVariantImageSync = diff.variantImages && mirrorHasVariantImages;
 
   if (Array.isArray(variants) && dedupedMirror.length > 0 && (needsGallerySync || needsVariantImageSync)) {
     if (needsGallerySync) {
@@ -1099,24 +1280,35 @@ async function pushProductToShopify(
   }
 
   const normalizedHandle = normalizeShopifyHandle(handle) || undefined;
-  let handleForSeo: string | undefined = normalizedHandle;
-  if (normalizedHandle && normalizedHandle !== existingHandle) {
-    const usedByOther = await mirrorHandleUsedByOther(supabase, normalizedHandle, shopifyId);
-    if (usedByOther) {
-      console.warn(
-        `[update-shopify-product] Skip duplicate handle "${normalizedHandle}" for product ${shopifyId} — keeping Shopify handle "${existingHandle}"`,
-      );
-      handleForSeo = undefined;
+  let handleForSeo: string | undefined;
+  let seoTitleForUpdate: string | undefined;
+  let seoDescriptionForUpdate: string | undefined;
+
+  if (diff.seo) {
+    if (normalizedHandle && normalizedHandle !== existingHandle) {
+      const usedByOther = await mirrorHandleUsedByOther(supabase, normalizedHandle, shopifyId);
+      if (!usedByOther) handleForSeo = normalizedHandle;
+      else {
+        console.warn(
+          `[update-shopify-product] Skip duplicate handle "${normalizedHandle}" for product ${shopifyId} — keeping Shopify handle "${existingHandle}"`,
+        );
+      }
     }
-  } else if (normalizedHandle && normalizedHandle === existingHandle) {
-    handleForSeo = undefined;
+    const liveSeoTitle = liveSeo?.seoTitle ?? "";
+    const liveSeoDesc = liveSeo?.seoDescription ?? "";
+    if (typeof seoTitle === "string" && seoTitle.trim() !== liveSeoTitle) {
+      seoTitleForUpdate = seoTitle;
+    }
+    if (typeof seoDescription === "string" && seoDescription.trim() !== liveSeoDesc) {
+      seoDescriptionForUpdate = seoDescription;
+    }
   }
 
-  const seoResult = seoNeeded
+  const seoResult = diff.seo
     ? await updateSeoAndHandle(shopDomain, shopifyToken, shopifyId, {
       handle: handleForSeo,
-      seoTitle: typeof seoTitle === "string" ? seoTitle : undefined,
-      seoDescription: typeof seoDescription === "string" ? seoDescription : undefined,
+      seoTitle: seoTitleForUpdate,
+      seoDescription: seoDescriptionForUpdate,
     })
     : { ok: true };
   if (!seoResult.ok) {
@@ -1132,9 +1324,9 @@ async function pushProductToShopify(
   }
 
   const mfs = buildMetafields(mergedMetafields);
-  const mfStats = mfs.length > 0
-    ? await syncProductMetafieldsToShopify(apiBase, headers, shopifyId, mergedMetafields)
-    : { ok: 0, fail: 0 };
+  const mfStats = diff.metafields && mfs.length > 0
+    ? await syncProductMetafieldsToShopify(apiBase, headers, shopifyId, mergedMetafields, liveMetafieldMap)
+    : { ok: 0, fail: 0, skipped: 0 };
   const mfOk = mfStats.ok;
   const mfFail = mfStats.fail;
 
