@@ -692,14 +692,14 @@ function QuoteProductItemCard({
             />
           </QuoteFieldBlock>
           <div className="min-w-0">
-            <div className="mb-1 flex h-4 items-center gap-1 font-body text-xs font-medium leading-4 text-muted-foreground">
-              <span>尺寸(mm),</span>
+            <div className="mb-1 flex min-h-[22px] flex-wrap items-center gap-1.5 font-body text-xs font-medium text-muted-foreground">
+              <span className="shrink-0 leading-normal">尺寸(mm),</span>
               <select
                 value={dimensionMode}
                 onChange={(e) =>
                   updateDimensionMode(item.id, e.target.value as QuotationDimensionMode)
                 }
-                className="h-4 max-w-full cursor-pointer rounded border border-border bg-background px-1 font-body text-xs font-medium text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                className="h-[22px] min-w-0 max-w-full cursor-pointer rounded-md border border-border bg-background px-1.5 font-body text-xs leading-normal text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
               >
                 <option value="lwh">長 x 闊 x 高</option>
                 <option value="dh">直徑 x 高</option>
@@ -1545,11 +1545,7 @@ export function QuotationDraftEditor({
     setItems((prev) =>
       prev.map((item) => {
         if (item.id !== id) return item;
-        return {
-          ...item,
-          dimensionMode: mode,
-          ...(mode === 'dh' ? { dimensionWMm: null } : {}),
-        };
+        return { ...item, dimensionMode: mode };
       }),
     );
   };
