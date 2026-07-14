@@ -125,6 +125,8 @@ PMS（bwteam-project.com）BWF pitching 詳情的 Quote tab 會列出本專案 `
 **Schema（列項目）**：明細在 `bwf_quote_item`（`quote_uuid` → `bwf_quote.id` ON DELETE CASCADE）。
 `project_data` **不再**存 `items`。寫入用 RPC `save_bwf_quote_items`（見 `src/lib/bwfQuoteItems.ts`）。
 圖片欄位應為 Storage HTTP URL（`resolveItemImagesToStorage`／`quoteImageStorage`）。
+DB 觸發器 `trg_bwf_quote_extract_embedded_items`：若舊前端仍把 `items` 寫進 JSON，會自動抽到
+`bwf_quote_item` 並從 `project_data` 刪除（僅在該 quote 尚無 item 列時 seed）。
 
 **列表查詢**：`QuotationListView` 禁止 `.select('*')`；只選 header 欄位
 （含 `pitching_code`／`pitching_name`），不要帶 item 圖片。

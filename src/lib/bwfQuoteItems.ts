@@ -232,6 +232,10 @@ export function stripItemsFromProjectData(
   projectData: Record<string, unknown>,
 ): Record<string, unknown> {
   const { items: _items, ...rest } = projectData;
+  // Defensive: also drop if somehow reassigned
+  if ('items' in rest) {
+    delete (rest as { items?: unknown }).items;
+  }
   return rest;
 }
 

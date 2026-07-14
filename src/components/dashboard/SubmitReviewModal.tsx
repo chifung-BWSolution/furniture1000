@@ -132,11 +132,20 @@ export function SubmitReviewModal({
       formData: formDataRaw,
     });
 
+    // Prefer explicit items prop; fall back to legacy embedded project_data.items
+    // (old clients / drafts) so we never drop line items on submit.
+    const embeddedItems = Array.isArray(projectData.items)
+      ? (projectData.items as BwfQuoteItemInput[])
+      : [];
+    const sourceItems = items.length > 0 ? items : embeddedItems;
+
     // Keep formData ids + pitching fields in sync for PMS list joins / reopen.
     const formData = {
       ...formDataRaw,
       pitchingCode: code,
       pitchingName: name,
+      // Clear legacy overloaded field so it cannot be mistaken for a title
+      projectName: undefined,
       ...(pitchingId ? { pmsPitchingId: pitchingId } : {}),
       ...(projectId ? { pmsProjectId: projectId } : {}),
     };
@@ -144,11 +153,18 @@ export function SubmitReviewModal({
       ...projectData,
       formData,
     });
+    if ('items' in payloadProjectData) {
+      delete payloadProjectData.items;
+    }
 
     try {
-      const resolvedItems = await resolveItemImagesToStorage(items, quoteId);
+      const resolvedItems = await resolveItemImagesToStorage(sourceItems, quoteId);
       if (resolvedItems.some((item) => quoteItemHasBase64Images(item))) {
         throw new Error('部分圖片未能上傳至 Storage，請檢查網絡後重試');
+      }
+
+      if ('items' in payloadProjectData) {
+        throw new Error('internal: project_data must not contain items');
       }
 
       const rowPayload = {

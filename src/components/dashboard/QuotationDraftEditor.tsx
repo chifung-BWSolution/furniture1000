@@ -1444,6 +1444,9 @@ export function QuotationDraftEditor({
         existingQuote.bwfProjectId ||
         null;
       const headerProjectData = stripItemsFromProjectData(buildProjectData());
+      if ('items' in headerProjectData) {
+        delete headerProjectData.items;
+      }
       const updatePayload = await withUpdateAuditFields({
         project_data: headerProjectData,
         pitching_code: pitchingCode || null,
