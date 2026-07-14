@@ -31,6 +31,8 @@ import {
 } from "@/components/ui/command";
 import { fetchFactories } from "@/lib/factorySupabase";
 import type { QuotationDimensionMode, QuotationPDFData } from "@/types/quotation-pdf";
+import { uploadQuoteImageFile, resolveQuoteProjectDataImages } from "@/lib/quoteImageStorage";
+import { isHttpImageUrl } from "@/lib/imageStorage";
 import {
   saveDraft,
   loadDraft,
@@ -222,12 +224,15 @@ function ImageUploadModal({
   onSelect,
   title,
   previewUrl,
+  uploadImage,
 }: {
   open: boolean;
   onClose: () => void;
-  onSelect: (dataUrl: string) => void;
+  onSelect: (url: string) => void;
   title: string;
   previewUrl?: string;
+  /** When set, uploads to Supabase Storage and passes back HTTP URL. */
+  uploadImage?: (file: File) => Promise<string>;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const dropRef = useRef<HTMLButtonElement>(null);
@@ -242,11 +247,12 @@ function ImageUploadModal({
     }
     try {
       setBusy(true);
-      const dataUrl = await fileToDataUrl(file);
-      onSelect(dataUrl);
+      const url = uploadImage ? await uploadImage(file) : await fileToDataUrl(file);
+      onSelect(url);
       onClose();
-    } catch {
-      toast.error("讀取檔案失敗");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "上傳失敗";
+      toast.error("無法上傳圖片", { description: msg });
     } finally {
       setBusy(false);
     }
@@ -369,6 +375,7 @@ function ReferenceImageCell({
   sizePx = QUOTE_CARD_IMAGE_PX,
   imageFit = "contain",
   fluid = false,
+  uploadImage,
 }: {
   value: string;
   onChange: (url: string) => void;
@@ -377,6 +384,7 @@ function ReferenceImageCell({
   imageFit?: "cover" | "contain";
   /** Expand to fill grid column width (keeps square aspect ratio) */
   fluid?: boolean;
+  uploadImage?: (file: File) => Promise<string>;
 }) {
   const [modalOpen, setModalOpen] = useState(false);
 
@@ -422,6 +430,7 @@ function ReferenceImageCell({
         onSelect={(url) => onChange(url)}
         title={modalTitle}
         previewUrl={value || undefined}
+        uploadImage={uploadImage}
       />
     </>
   );
@@ -614,6 +623,7 @@ function QuoteProductItemCard({
   removeItem,
   factories,
   factoriesLoading,
+  quoteImageScope,
 }: {
   item: QuotationItem;
   index: number;
@@ -629,9 +639,23 @@ function QuoteProductItemCard({
   removeItem: (id: string) => void;
   factories: string[];
   factoriesLoading: boolean;
+  /** Scope for Supabase Storage paths (quote id or draft key). */
+  quoteImageScope: string;
 }) {
   const dimensionMode = item.dimensionMode ?? 'lwh';
   const isDiameterHeight = dimensionMode === 'dh';
+  const uploadProductImage = useCallback(
+    (file: File) => uploadQuoteImageFile(file, quoteImageScope, item.id, 'product'),
+    [quoteImageScope, item.id],
+  );
+  const uploadReferenceImage = useCallback(
+    (file: File) => uploadQuoteImageFile(file, quoteImageScope, item.id, 'reference'),
+    [quoteImageScope, item.id],
+  );
+  const uploadRemarksImage = useCallback(
+    (file: File) => uploadQuoteImageFile(file, quoteImageScope, item.id, 'remarks'),
+    [quoteImageScope, item.id],
+  );
 
   return (
     <div
@@ -865,6 +889,7 @@ function QuoteProductItemCard({
             value={item.remarks || ""}
             legacyImage={item.remarksImage}
             onChange={(val) => updateItem(item.id, "remarks", val)}
+            uploadImage={uploadRemarksImage}
           />
         </QuoteFieldBlock>
 
@@ -879,6 +904,7 @@ function QuoteProductItemCard({
             modalTitle="上傳產品圖片"
             imageFit="contain"
             fluid
+            uploadImage={uploadProductImage}
           />
         </QuoteFieldBlock>
         <QuoteFieldBlock
@@ -891,6 +917,7 @@ function QuoteProductItemCard({
             modalTitle="上傳參考圖"
             imageFit="contain"
             fluid
+            uploadImage={uploadReferenceImage}
           />
         </QuoteFieldBlock>
 
@@ -1359,7 +1386,10 @@ export function QuotationDraftEditor({
     }
     setTermsSaving(true);
     try {
-      const currentProjectData = buildProjectData();
+      const resolvedProjectData = await resolveQuoteProjectDataImages(
+        buildProjectData(),
+        existingQuote.quoteId,
+      );
       const pitchingId =
         formData.pmsPitchingId ||
         existingQuote.bwfPitchingId ||
@@ -1369,7 +1399,7 @@ export function QuotationDraftEditor({
         existingQuote.bwfProjectId ||
         null;
       const updatePayload = await withUpdateAuditFields({
-        project_data: currentProjectData,
+        project_data: resolvedProjectData,
         ...(pitchingId ? { bwf_pitching_id: pitchingId } : {}),
         ...(projectId ? { bwf_project_id: projectId } : {}),
       });
@@ -1378,6 +1408,26 @@ export function QuotationDraftEditor({
         .update(updatePayload)
         .eq("quote_id", existingQuote.quoteId);
       if (error) throw error;
+      const resolvedItems = resolvedProjectData.items as Array<{
+        image?: string;
+        referenceImage?: string;
+        remarks?: string;
+      }> | undefined;
+      if (Array.isArray(resolvedItems)) {
+        setItems((prev) =>
+          prev.map((item, index) => {
+            const row = resolvedItems[index];
+            if (!row) return item;
+            return {
+              ...item,
+              image: row.image ?? item.image,
+              referenceImage: row.referenceImage ?? item.referenceImage,
+              remarks: row.remarks ?? item.remarks,
+              remarksImage: undefined,
+            };
+          }),
+        );
+      }
       toast.success("條款已保存");
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "保存失敗";
@@ -1633,9 +1683,9 @@ export function QuotationDraftEditor({
   // True once 版本審核 has been done with the current content; cleared on edit.
   const [persisted, setPersisted] = useState(false);
 
-  // Derive the draft key: use existing quoteId or "NEW"
   const rawQuoteId = existingQuote?.quoteId || "NEW";
   const storageKey = makeDraftKey(userEmail, rawQuoteId);
+  const quoteImageScope = existingQuote?.quoteId || rawQuoteId;
 
   // 報價內容 is considered "有數據" if any row has a product name.
   const hasQuoteData = items.some(hasQuoteItemContent);
@@ -1862,7 +1912,7 @@ export function QuotationDraftEditor({
       const exchangeRate = null;
       return {
         id: generateId(),
-        image: p.image,
+        image: p.image && isHttpImageUrl(p.image) ? p.image : "",
         name: p.name,
         costPrice,
         exchangeRate,
@@ -2349,6 +2399,7 @@ export function QuotationDraftEditor({
                         removeItem={removeItem}
                         factories={factories}
                         factoriesLoading={factoriesLoading}
+                        quoteImageScope={quoteImageScope}
                       />
                     ),
                   )}

@@ -66,6 +66,8 @@ interface RemarksRichEditorProps {
   onChange: (serialized: string) => void;
   /** Narrow layout for quote item cards — single-line text, smaller image previews */
   compact?: boolean;
+  /** Upload to Supabase Storage; returns HTTP URL (required for quote editor). */
+  uploadImage?: (file: File) => Promise<string>;
 }
 
 export function RemarksRichEditor({
@@ -73,6 +75,7 @@ export function RemarksRichEditor({
   legacyImage,
   onChange,
   compact = false,
+  uploadImage,
 }: RemarksRichEditorProps) {
   const [blocks, setBlocks] = useState<RemarksBlock[]>(() =>
     parseRemarksContent(value, legacyImage),
@@ -149,19 +152,34 @@ export function RemarksRichEditor({
     ]);
   };
 
-  const addImageBlock = async (src: string) => {
+  const addImageBlock = async (fileOrSrc: File | string) => {
     if (imageCount >= MAX_REMARKS_IMAGES) {
       toast.error(`備註欄位最多上傳 ${MAX_REMARKS_IMAGES} 張圖片`);
       return;
     }
-    emitChange([
-      ...blocks,
-      {
-        type: "image",
-        src,
-        id: Math.random().toString(36).slice(2, 12),
-      },
-    ]);
+    try {
+      let src: string;
+      if (fileOrSrc instanceof File) {
+        if (uploadImage) {
+          src = await uploadImage(fileOrSrc);
+        } else {
+          src = await fileToDataUrl(fileOrSrc);
+        }
+      } else {
+        src = fileOrSrc;
+      }
+      emitChange([
+        ...blocks,
+        {
+          type: "image",
+          src,
+          id: Math.random().toString(36).slice(2, 12),
+        },
+      ]);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "上傳失敗";
+      toast.error("無法上傳圖片", { description: msg });
+    }
   };
 
   const updateTextBlock = (id: string, content: string) => {
@@ -190,7 +208,7 @@ export function RemarksRichEditor({
       if (item.type.startsWith("image/")) {
         e.preventDefault();
         const file = item.getAsFile();
-        if (file) await addImageBlock(await fileToDataUrl(file));
+        if (file) await addImageBlock(file);
         return;
       }
     }
@@ -199,7 +217,7 @@ export function RemarksRichEditor({
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     e.target.value = "";
-    if (file) await addImageBlock(await fileToDataUrl(file));
+    if (file) await addImageBlock(file);
   };
 
   return (

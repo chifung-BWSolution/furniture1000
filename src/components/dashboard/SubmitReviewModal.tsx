@@ -6,6 +6,7 @@ import { extractPmsPitchingIdFromProjectData, extractPmsProjectIdFromProjectData
 import { useAuth } from '@/contexts/AuthProvider';
 import { usePmsStaffName } from '@/hooks/use-pms-staff-name';
 import { withInsertAuditFields } from '@/lib/pmsAudit';
+import { resolveQuoteProjectDataImages, quoteProjectDataHasBase64Images } from '@/lib/quoteImageStorage';
 
 interface SubmitReviewModalProps {
   open: boolean;
@@ -86,6 +87,11 @@ export function SubmitReviewModal({
     };
 
     try {
+      const resolvedProjectData = await resolveQuoteProjectDataImages(payloadProjectData, quoteId);
+      if (quoteProjectDataHasBase64Images(resolvedProjectData)) {
+        throw new Error('部分圖片未能上傳至 Storage，請檢查網絡後重試');
+      }
+
       const insertPayload = await withInsertAuditFields({
         quote_id: quoteId,
         version,
@@ -93,7 +99,7 @@ export function SubmitReviewModal({
         total_amount: totalAmount,
         cost_price: totalCostPrice ?? null,
         submitter: submitter.trim(),
-        project_data: payloadProjectData,
+        project_data: resolvedProjectData,
         ...(pitchingId ? { bwf_pitching_id: pitchingId } : {}),
         ...(projectId ? { bwf_project_id: projectId } : {}),
       });
@@ -201,7 +207,7 @@ export function SubmitReviewModal({
             {isSubmitting ? (
               <span className="flex items-center gap-2">
                 <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                提交中...
+                上傳圖片並提交中...
               </span>
             ) : (
               '確認提交'
