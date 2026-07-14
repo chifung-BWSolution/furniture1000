@@ -1,0 +1,97 @@
+---
+description: After Supabase schema or edge-function changes, deploy migrations and functions via Supabase CLI/API without waiting for the user
+alwaysApply: true
+---
+
+# Supabase deploy (Furniture 1000)
+
+When you add or change **SQL migrations** (`supabase/migrations/`) or **edge functions** (`supabase/functions/`), deploy them yourself in the same session. Do not only tell the user to run commands manually.
+
+## Project
+
+| Item | Value |
+|------|-------|
+| Project ref | `riaubhtruisbwdlwjzur` |
+| Project name | Furniture 1000 |
+| CLI | `npx supabase` (devDependency `supabase@2.x`) |
+| Auth | `SUPABASE_ACCESS_TOKEN` (already in cloud env) |
+
+Link once per session if needed:
+
+```bash
+npx supabase link --project-ref riaubhtruisbwdlwjzur --yes
+```
+
+## 1. Migrations
+
+**Prefer targeted apply** for new migration files (remote history may not match local `supabase/migrations/`):
+
+```bash
+# Check table/object does not already exist
+curl -s -X POST "https://api.supabase.com/v1/projects/riaubhtruisbwdlwjzur/database/query" \
+  -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"query":"select to_regclass('\''public.<table>'\'') as exists;"}'
+
+# Apply single migration
+SQL=$(cat supabase/migrations/<file>.sql | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')
+curl -s -X POST "https://api.supabase.com/v1/projects/riaubhtruisbwdlwjzur/database/migrations" \
+  -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"name\":\"<migration_slug>\",\"query\":$SQL}"
+```
+
+- `migration_slug` = filename without date prefix (e.g. `20260714_create_platform_user_profiles.sql` → `create_platform_user_profiles`).
+- After apply: verify columns/table exist, then `notify pgrst, 'reload schema';`.
+
+**Avoid** `npx supabase db push` unless the user explicitly asks — local/remote migration history is out of sync and a full push can be risky.
+
+## 2. Edge functions
+
+Deploy new/changed functions automatically:
+
+```bash
+npx supabase functions deploy <function-folder-name> \
+  --project-ref riaubhtruisbwdlwjzur \
+  --no-verify-jwt
+```
+
+This repo also uses **prefixed slugs** for many functions. After CLI deploy, also deploy the prefixed alias (same as `scripts/deploy-edge-functions.ps1`):
+
+```bash
+# slug = supabase-functions-<function-folder-name>
+curl -s -X POST "https://api.supabase.com/v1/projects/riaubhtruisbwdlwjzur/functions/deploy?slug=supabase-functions-<name>" \
+  -H "Authorization: Bearer $SUPABASE_ACCESS_TOKEN" \
+  -F "metadata=@/tmp/meta.json;type=application/json" \
+  -F "file=@supabase/functions/<name>/index.ts"
+```
+
+`meta.json`: `{"name":"<name>","entrypoint_path":"index.ts","verify_jwt":false}`
+
+Frontend invokes often try **prefixed slug first**, then bare name — deploy both when adding a new function.
+
+Add new functions to `scripts/deploy-edge-functions.ps1` when created.
+
+## 3. Verify
+
+- Migration: query `information_schema.columns` or `to_regclass`.
+- Function: unauthenticated POST should return `401 Unauthorized` (not 404).
+- List functions: `GET https://api.supabase.com/v1/projects/riaubhtruisbwdlwjzur/functions`
+
+## 4. Report to user
+
+After deploy, briefly state:
+- migration name + table verified, or
+- function slug(s) + ACTIVE status.
+
+## When to run
+
+- User says「部署 migration / edge function / supabase」or similar.
+- You created a migration or edge function as part of a feature — deploy before marking the task done.
+- User confirms「已部署 supabase CLI」— treat as permission to run deploys yourself going forward.
+
+## Skip when
+
+- User explicitly says not to deploy to production.
+- Only local/dev schema experiments with no remote intent.
+- `SUPABASE_ACCESS_TOKEN` is missing (report and stop).
