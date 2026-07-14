@@ -77,17 +77,19 @@ function StageDayTable({
   row,
   todayHk,
   pendingCounts,
+  publishedShopifyCount,
   showDateHeader = false,
 }: {
   row: DailyReportRow;
   todayHk: string;
   pendingCounts: Record<UploadLogStage, number>;
+  publishedShopifyCount: number;
   showDateHeader?: boolean;
 }) {
   const isToday = row.hkDate === todayHk;
 
   return (
-    <div className={cn(showDateHeader && 'space-y-3')}>
+    <div className={cn((showDateHeader || isToday) && 'space-y-3')}>
       {showDateHeader && (
         <h3
           className={cn(
@@ -97,6 +99,14 @@ function StageDayTable({
         >
           {formatHkDateLabel(row.hkDate, todayHk)}
         </h3>
+      )}
+      {isToday && (
+        <p className="text-sm text-muted-foreground">
+          已上載shopify 產品 :
+          <span className="ml-1 font-mono-data text-base font-semibold text-foreground">
+            {publishedShopifyCount}
+          </span>
+        </p>
       )}
       <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
         <table className="w-full">
@@ -361,6 +371,7 @@ export function UploadProductLogView() {
                     row={row}
                     todayHk={report.todayHk}
                     pendingCounts={report.pendingCounts}
+                    publishedShopifyCount={report.publishedShopifyCount}
                     showDateHeader={viewMode === 'all'}
                   />
                 ))}

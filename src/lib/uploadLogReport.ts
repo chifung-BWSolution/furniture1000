@@ -59,6 +59,8 @@ export interface UploadLogReport {
   generatedAt: string;
   todayHk: string;
   pendingCounts: Record<UploadLogStage, number>;
+  /** Matches 已上載產品 → 已發佈 (shopify_products active, non-configurable). */
+  publishedShopifyCount: number;
   dailyRows: DailyReportRow[];
 }
 
@@ -531,6 +533,20 @@ async function fetchHistoricalLogRows(
   return historical;
 }
 
+/** Same filters as PublishedProductsView「已發佈」count. */
+async function fetchPublishedShopifyCount(): Promise<number> {
+  const { count, error } = await supabase
+    .from('shopify_products')
+    .select('*', { count: 'exact', head: true })
+    .eq('status', 'active')
+    .is('configurable', null);
+  if (error) {
+    console.warn('[uploadLogReport] published shopify count failed:', error.message);
+    return 0;
+  }
+  return count ?? 0;
+}
+
 async function fetchPendingCounts(): Promise<Record<UploadLogStage, number>> {
   const [copyRes, infoRes, fgRes, readyRes] = await Promise.all([
     supabase.rpc('get_publish_rts_count', { p_stage: 'copywriting' }),
@@ -600,12 +616,16 @@ export async function fetchUploadLogReport(dayCount = 30): Promise<UploadLogRepo
   const enriched = await enrichLogsWithStaff(merged, productStaffMap);
   const logs = dedupeCopywritingByLastSubmit(enriched);
 
-  const pendingCounts = await fetchPendingCounts();
+  const [pendingCounts, publishedShopifyCount] = await Promise.all([
+    fetchPendingCounts(),
+    fetchPublishedShopifyCount(),
+  ]);
 
   return {
     generatedAt: new Date().toISOString(),
     todayHk,
     pendingCounts,
+    publishedShopifyCount,
     dailyRows: buildDailyRows(logs, dayCount),
   };
 }
