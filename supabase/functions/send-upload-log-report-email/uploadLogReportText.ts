@@ -4,6 +4,8 @@ import {
   type UploadLogReport,
 } from "./uploadLogReportServer.ts";
 
+const UPLOAD_LOG_REPORT_FOOTNOTE =
+  "「產品目前停留」僅顯示今天（即時查詢）。「今日已處理」：產品文案每件產品以最後一次「提交到下一步」計 1 件（upload_log + copy_done_at，歸屬最後操作者與該提交日）；產品信息取 upload_log（完成）+ ready_to_shopify.info_completed_at。兩階段同日數量可能不同——文案已於前日提交、信息於當日才批次完成時，文案計在前日、信息計在當日。";
 const STAGE_COL_WIDTH = 14;
 const PENDING_COL_WIDTH = 14;
 const PROCESSED_USER_INDENT = 2;
@@ -116,7 +118,7 @@ export function formatUploadLogReportAsText(
 
   lines.push(
     "—",
-    "「產品目前停留」僅顯示今天；「今日已處理」：產品文案每件產品以最後一次「提交到下一步」計 1 件（upload_log + copy_done_at）；產品信息 upload_log（完成）+ ready_to_shopify。",
+    UPLOAD_LOG_REPORT_FOOTNOTE,
   );
 
   return lines.join("\n");

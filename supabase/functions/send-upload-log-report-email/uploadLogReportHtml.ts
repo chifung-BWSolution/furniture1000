@@ -4,6 +4,9 @@ import {
   type UploadLogReport,
 } from "./uploadLogReportServer.ts";
 
+const UPLOAD_LOG_REPORT_FOOTNOTE =
+  "「產品目前停留」僅顯示今天（即時查詢）。「今日已處理」：產品文案每件產品以最後一次「提交到下一步」計 1 件（upload_log + copy_done_at，歸屬最後操作者與該提交日）；產品信息取 upload_log（完成）+ ready_to_shopify.info_completed_at。兩階段同日數量可能不同——文案已於前日提交、信息於當日才批次完成時，文案計在前日、信息計在當日。";
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -103,7 +106,7 @@ export function formatUploadLogReportAsHtml(
     <p style="margin:0 0 16px;font-size:13px;color:#6b7280;">資料更新於 ${escapeHtml(generatedLabel)}（香港時間）</p>
     ${daySections}
     <hr style="margin:24px 0;border:none;border-top:1px solid #e5e7eb;">
-    <p style="margin:0;font-size:12px;color:#9ca3af;">「產品目前停留」僅顯示今天；「今日已處理」：產品文案每件產品以最後一次「提交到下一步」計 1 件（upload_log + copy_done_at）；產品信息 upload_log（完成）+ ready_to_shopify。</p>
+    <p style="margin:0;font-size:12px;color:#9ca3af;">${escapeHtml(UPLOAD_LOG_REPORT_FOOTNOTE)}</p>
   </div>
 </body>
 </html>`;

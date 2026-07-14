@@ -12,6 +12,7 @@ import { uploadFileToStorage, uploadImageSourceToStorage, isHttpImageUrl } from 
 import { excludeAlreadyPublishedRts } from '@/lib/publishPipeline';
 import { syncRtsContentToProduct, syncRtsWorkflowToProduct } from '@/lib/rtsProductSync';
 import { writeUploadLog } from '@/lib/uploadLog';
+import { getPublishTimestampHk } from '@/lib/publishTimestamps';
 import { normalizeBodyHtmlForShopify } from '@/lib/bodyHtml';
 import { usePublishRtsList } from './usePublishRtsList';
 
@@ -375,7 +376,7 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
     setIsSubmitting(true);
     try {
       const { image_url: resolvedPrimary, images: imagesJsonArr } = await persistCopywritingImages();
-      const copyDoneAt = new Date().toISOString();
+      const copyDoneAt = getPublishTimestampHk();
       const imagesJson = imagesJsonArr ?? [];
       const resolvedExtras = imagesJson.map((im) => im.src);
 
