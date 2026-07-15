@@ -2913,6 +2913,7 @@ export function QuotationDraftEditor({
         }}
         onSelect={handleProductSelected}
         existingProductNames={[]}
+        priorityLevel1Categories={formData.serviceScope}
       />
 
     </>

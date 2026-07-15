@@ -39,6 +39,7 @@ import {
 import { sortIndustryLabels } from '@/lib/clientIndustrySort';
 import { filterIndustriesBySearch } from '@/lib/clientIndustryCatalog';
 import { PmsPitchingGate } from '@/components/dashboard/PmsPitchingGate';
+import { fetchLevel1CategoryOptions } from '@/lib/productCategoryOptions';
 
 const LazyQuotationPDFPreviewModal = lazy(() =>
   import('@/components/dashboard/QuotationPDFPreview').then((mod) => ({
@@ -94,15 +95,6 @@ const OFFICE_FURNITURE_GRADE_LABEL = '辦公室傢俬級別';
 const QUOTATION_TYPES = ['國際品牌', '本地品牌', '基本傢俬'];
 
 const OFFICE_FURNITURE_CATEGORY_LABEL = '辦公室傢俬類別';
-const SERVICE_SCOPES = [
-  '辦公室前台',
-  '工作台',
-  '學校傢俬',
-  '辦公椅',
-  '梳化',
-  '文件櫃',
-  '其他傢俬訂造',
-];
 
 const WORK_PERIODS = [
   '即時 3-5天內 - 緊急',
@@ -253,6 +245,8 @@ export function QuickQuoteView({
   const [industryOptions, setIndustryOptions] = useState<string[]>(FALLBACK_INDUSTRIES);
   const [industrySearchQuery, setIndustrySearchQuery] = useState('');
   const [pmsIndustryCatalog, setPmsIndustryCatalog] = useState<PmsIndustryOption[]>([]);
+  const [level1CategoryOptions, setLevel1CategoryOptions] = useState<string[]>([]);
+  const [level1CategoriesLoading, setLevel1CategoriesLoading] = useState(true);
   const [selectedPitchingLabel, setSelectedPitchingLabel] = useState<string | null>(
     () => initialUrlPrefillRef.current.label,
   );
@@ -327,6 +321,21 @@ export function QuickQuoteView({
       // ignore
     }
   }, [authLoading, userEmail, editingQuoteId, freshSessionKey]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLevel1CategoriesLoading(true);
+    fetchLevel1CategoryOptions()
+      .then((options) => {
+        if (!cancelled) setLevel1CategoryOptions(options);
+      })
+      .finally(() => {
+        if (!cancelled) setLevel1CategoriesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const filteredIndustryOptions = useMemo(
     () =>
@@ -1138,23 +1147,34 @@ export function QuickQuoteView({
                   )}
                   <span className="ml-1 font-body text-xs text-muted-foreground">(可多選)</span>
                 </div>
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
-                  {SERVICE_SCOPES.map((scope) => (
-                    <button
-                      key={scope}
-                      type="button"
-                      onClick={() => toggleTag('serviceScope', scope)}
-                      className={cn(
-                        'flex items-center justify-center rounded-xl border-2 px-4 py-4 font-body text-sm font-semibold transition-all',
-                        formData.serviceScope.includes(scope)
-                          ? 'border-foreground bg-foreground text-background shadow-lg'
-                          : 'border-border bg-card text-muted-foreground hover:border-foreground/30 hover:text-foreground'
-                      )}
-                    >
-                      {scope}
-                    </button>
-                  ))}
-                </div>
+                {level1CategoriesLoading ? (
+                  <div className="flex items-center gap-2 py-6 text-muted-foreground">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span className="font-body text-sm">載入產品分類…</span>
+                  </div>
+                ) : level1CategoryOptions.length === 0 ? (
+                  <p className="font-body text-sm text-muted-foreground">
+                    尚未設定產品分類，請至「設定 &gt; 產品分類」新增一級分類。
+                  </p>
+                ) : (
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
+                    {level1CategoryOptions.map((scope) => (
+                      <button
+                        key={scope}
+                        type="button"
+                        onClick={() => toggleTag('serviceScope', scope)}
+                        className={cn(
+                          'flex items-center justify-center rounded-xl border-2 px-4 py-4 font-body text-sm font-semibold transition-all',
+                          formData.serviceScope.includes(scope)
+                            ? 'border-foreground bg-foreground text-background shadow-lg'
+                            : 'border-border bg-card text-muted-foreground hover:border-foreground/30 hover:text-foreground'
+                        )}
+                      >
+                        {scope}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 {errors.serviceScope && (
                   <p className="mt-1.5 text-xs text-red-500">{errors.serviceScope}</p>
                 )}

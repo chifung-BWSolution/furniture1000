@@ -32,6 +32,8 @@ export type CatalogQueryParams = {
   factory_name?: string;
   level1?: string;
   level2?: string;
+  /** When set (and level1 filter empty), matching products appear first in results. */
+  priority_level1?: string[];
   page?: number;
   page_size?: number;
 };
@@ -297,6 +299,49 @@ function applySearchToQuery<T extends { or: Function; ilike: Function }>(
   return query.or(`${titleCol}.ilike.${pattern},${skuCol}.ilike.${pattern}`) as T;
 }
 
+function sortByPriorityLevel1(
+  rows: CatalogProductRow[],
+  priority: string[],
+): CatalogProductRow[] {
+  if (!priority.length) return rows;
+  const rank = new Map(priority.map((l1, i) => [l1.trim(), i]));
+  return [...rows].sort((a, b) => {
+    const aKey = (a.level1_category || '').trim();
+    const bKey = (b.level1_category || '').trim();
+    const aRank = rank.has(aKey) ? rank.get(aKey)! : 9999;
+    const bRank = rank.has(bKey) ? rank.get(bKey)! : 9999;
+    if (aRank !== bRank) return aRank - bRank;
+    return (b.sort_ts || '').localeCompare(a.sort_ts || '');
+  });
+}
+
+const PRODUCTS_CATALOG_SELECT =
+  'id, title, sku, image_url, images, sale_price, price, cost_price, factories_display_name, level1_category, level2_category, category, material, dimension_l_mm, dimension_w_mm, dimension_h_mm, color, remarks, delivery_term_name, shopify_product_id, modified_date, created_at';
+
+function applyProductsCatalogFilters(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  query: any,
+  params: CatalogQueryParams,
+  opts?: { priorityOnly?: boolean; excludePriority?: string[] },
+) {
+  const search = params.search || '';
+  const factory = params.factory_name || '';
+  const level1 = params.level1 || '';
+  const level2 = params.level2 || '';
+  let q = applySearchToQuery(query, search);
+  if (factory.trim()) q = q.eq('factories_display_name', factory.trim());
+  if (level1.trim()) q = q.eq('level1_category', level1.trim());
+  if (level2.trim()) q = q.eq('level2_category', level2.trim());
+  if (opts?.priorityOnly && params.priority_level1?.length) {
+    q = q.in('level1_category', params.priority_level1);
+  }
+  if (opts?.excludePriority?.length) {
+    const quoted = opts.excludePriority.map((p) => `"${p.replace(/"/g, '""')}"`).join(',');
+    q = q.or(`level1_category.is.null,level1_category.not.in.(${quoted})`);
+  }
+  return q;
+}
+
 async function fetchShopifySourceRows(params: CatalogQueryParams): Promise<CatalogProductRow[]> {
   const search = params.search || '';
   const factory = params.factory_name || '';
@@ -352,44 +397,17 @@ async function fetchShopifySourceRows(params: CatalogQueryParams): Promise<Catal
     if (!merged.has(key)) merged.set(key, mapped);
   }
 
-  return applyClientFilters([...merged.values()], params);
+  const filtered = applyClientFilters([...merged.values()], params);
+  const priority = (params.priority_level1 || []).filter(Boolean);
+  if (priority.length > 0 && !(params.level1 || '').trim()) {
+    return sortByPriorityLevel1(filtered, priority);
+  }
+  return filtered;
 }
 
-async function fetchSystemSourceRows(params: CatalogQueryParams): Promise<{
-  rows: CatalogProductRow[];
-  total: number;
-}> {
-  const search = params.search || '';
-  const factory = params.factory_name || '';
-  const level1 = params.level1 || '';
-  const level2 = params.level2 || '';
-  const page = params.page || 1;
-  const pageSize = params.page_size || 20;
-  const from = (page - 1) * pageSize;
-  const to = from + pageSize - 1;
-
-  let query = supabase
-    .from('products')
-    .select(
-      'id, title, sku, image_url, images, sale_price, price, cost_price, factories_display_name, level1_category, level2_category, category, material, dimension_l_mm, dimension_w_mm, dimension_h_mm, color, remarks, delivery_term_name, shopify_product_id, modified_date, created_at',
-      { count: 'exact' },
-    )
-    .not('title', 'is', null)
-    .neq('title', '');
-
-  query = applySearchToQuery(query, search);
-  if (factory.trim()) query = query.eq('factories_display_name', factory.trim());
-  if (level1.trim()) query = query.eq('level1_category', level1.trim());
-  if (level2.trim()) query = query.eq('level2_category', level2.trim());
-
-  query = query.order('modified_date', { ascending: false, nullsFirst: false })
-    .order('created_at', { ascending: false })
-    .range(from, to);
-
-  const { data, error, count } = await query;
-  if (error) throw error;
-
-  const productRows = (data || []) as Record<string, unknown>[];
+async function enrichProductRows(
+  productRows: Record<string, unknown>[],
+): Promise<CatalogProductRow[]> {
   const productIds = productRows.map((row) => String(row.id));
 
   const [spRes, rtsRes] = await Promise.all([
@@ -425,7 +443,7 @@ async function fetchSystemSourceRows(params: CatalogQueryParams): Promise<{
     if (pid && !spByProductId.has(pid)) rtsByProductId.set(pid, row as Record<string, unknown>);
   }
 
-  const rows = productRows.map((product) => {
+  return productRows.map((product) => {
     const pid = String(product.id);
     const sp = spByProductId.get(pid);
     if (sp) return mapShopifyProductsRow(sp, product);
@@ -433,8 +451,113 @@ async function fetchSystemSourceRows(params: CatalogQueryParams): Promise<{
     if (rts) return mapRtsRow(rts, product);
     return mapProductsRow(product);
   });
+}
 
+async function fetchSystemSourceRows(params: CatalogQueryParams): Promise<{
+  rows: CatalogProductRow[];
+  total: number;
+}> {
+  const priority = (params.priority_level1 || []).filter(Boolean);
+  if (priority.length > 0 && !(params.level1 || '').trim()) {
+    return fetchSystemSourceRowsWithPriority(params, priority);
+  }
+
+  const page = params.page || 1;
+  const pageSize = params.page_size || 20;
+  const from = (page - 1) * pageSize;
+  const to = from + pageSize - 1;
+
+  let query = applyProductsCatalogFilters(
+    supabase
+      .from('products')
+      .select(PRODUCTS_CATALOG_SELECT, { count: 'exact' })
+      .not('title', 'is', null)
+      .neq('title', ''),
+    params,
+  );
+
+  query = query
+    .order('modified_date', { ascending: false, nullsFirst: false })
+    .order('created_at', { ascending: false })
+    .range(from, to);
+
+  const { data, error, count } = await query;
+  if (error) throw error;
+
+  const rows = await enrichProductRows((data || []) as Record<string, unknown>[]);
   return { rows, total: count || 0 };
+}
+
+async function fetchSystemSourceRowsWithPriority(
+  params: CatalogQueryParams,
+  priority: string[],
+): Promise<{ rows: CatalogProductRow[]; total: number }> {
+  const page = params.page || 1;
+  const pageSize = params.page_size || 20;
+  const offset = (page - 1) * pageSize;
+
+  const base = () =>
+    applyProductsCatalogFilters(
+      supabase
+        .from('products')
+        .select(PRODUCTS_CATALOG_SELECT)
+        .not('title', 'is', null)
+        .neq('title', ''),
+      params,
+    )
+      .order('modified_date', { ascending: false, nullsFirst: false })
+      .order('created_at', { ascending: false });
+
+  const [{ count: priorityCount }, { count: totalCount }] = await Promise.all([
+    applyProductsCatalogFilters(
+      supabase.from('products').select('id', { count: 'exact', head: true }).not('title', 'is', null).neq('title', ''),
+      params,
+      { priorityOnly: true },
+    ),
+    applyProductsCatalogFilters(
+      supabase.from('products').select('id', { count: 'exact', head: true }).not('title', 'is', null).neq('title', ''),
+      params,
+    ),
+  ]);
+
+  const pTotal = priorityCount || 0;
+  const tTotal = totalCount || 0;
+  const productRows: Record<string, unknown>[] = [];
+
+  if (offset < pTotal) {
+    const priorityTo = Math.min(offset + pageSize - 1, pTotal - 1);
+    const { data: priorityData, error: priorityErr } = await applyProductsCatalogFilters(
+      base(),
+      params,
+      { priorityOnly: true },
+    ).range(offset, priorityTo);
+    if (priorityErr) throw priorityErr;
+    productRows.push(...((priorityData || []) as Record<string, unknown>[]));
+
+    const remaining = pageSize - productRows.length;
+    if (remaining > 0 && pTotal < tTotal) {
+      const { data: fillData, error: fillErr } = await applyProductsCatalogFilters(
+        base(),
+        params,
+        { excludePriority: priority },
+      ).range(0, remaining - 1);
+      if (fillErr) throw fillErr;
+      productRows.push(...((fillData || []) as Record<string, unknown>[]));
+    }
+  } else {
+    const nonOffset = offset - pTotal;
+    const nonTo = nonOffset + pageSize - 1;
+    const { data: nonData, error: nonErr } = await applyProductsCatalogFilters(
+      base(),
+      params,
+      { excludePriority: priority },
+    ).range(nonOffset, nonTo);
+    if (nonErr) throw nonErr;
+    productRows.push(...((nonData || []) as Record<string, unknown>[]));
+  }
+
+  const rows = await enrichProductRows(productRows);
+  return { rows, total: tTotal };
 }
 
 export async function fetchProductCatalog(

@@ -42,6 +42,8 @@ interface ProductSelectorModalProps {
     factoryName?: string;
   }[]) => void;
   existingProductNames?: string[];
+  /** Level-1 categories from quote wizard — products in these categories appear first when no level1 filter is set. */
+  priorityLevel1Categories?: string[];
 }
 
 const CATALOG_SOURCE_OPTIONS: Array<{
@@ -57,6 +59,7 @@ export function ProductSelectorModal({
   onClose,
   onSelect,
   existingProductNames = [],
+  priorityLevel1Categories = [],
 }: ProductSelectorModalProps) {
   const [catalogSource, setCatalogSource] = useState<CatalogSourceType>('system');
   const [search, setSearch] = useState('');
@@ -113,6 +116,12 @@ export function ProductSelectorModal({
     fetchCatalogFactoryNames(catalogSource).then(setFactories);
   }, [open, catalogSource]);
 
+  const priorityLevel1 = useMemo(
+    () => priorityLevel1Categories.map((c) => c.trim()).filter(Boolean),
+    [priorityLevel1Categories],
+  );
+  const priorityActive = priorityLevel1.length > 0 && !level1Filter;
+
   const fetchProducts = useCallback(
     async (
       source: CatalogSourceType,
@@ -121,6 +130,7 @@ export function ProductSelectorModal({
       pageVal: number,
       level1Val: string,
       level2Val: string,
+      priorityLevel1Val: string[],
     ) => {
       setIsLoading(true);
       try {
@@ -130,6 +140,10 @@ export function ProductSelectorModal({
           factory_name: factoryVal,
           level1: level1Val,
           level2: level2Val,
+          priority_level1:
+            !level1Val.trim() && priorityLevel1Val.length > 0
+              ? priorityLevel1Val
+              : undefined,
           page: pageVal,
           page_size: PAGE_SIZE,
         });
@@ -159,9 +173,10 @@ export function ProductSelectorModal({
         pageVal,
         level1Filter,
         level2Filter,
+        priorityLevel1,
       );
     },
-    [catalogSource, search, factoryFilter, level1Filter, level2Filter, fetchProducts],
+    [catalogSource, search, factoryFilter, level1Filter, level2Filter, priorityLevel1, fetchProducts],
   );
 
   const existingCount = existingProductNames.length;
@@ -274,6 +289,11 @@ export function ProductSelectorModal({
             <div className="mt-1 flex flex-wrap items-center gap-2">
               <p className="font-body text-xs text-muted-foreground">
                 從資料庫搜尋產品並加入報價單
+                {priorityActive ? (
+                  <span className="ml-1 text-primary">
+                    · 已依報價類別優先排序（{priorityLevel1.join('、')}）
+                  </span>
+                ) : null}
               </p>
               {CATALOG_SOURCE_OPTIONS.map((opt) => (
                 <button
