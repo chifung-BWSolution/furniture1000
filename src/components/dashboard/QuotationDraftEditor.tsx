@@ -953,7 +953,7 @@ function QuoteProductItemCard({
         >
           <input
             type="number"
-            value={item.unitPrice || ""}
+            value={typeof item.unitPrice === "number" ? item.unitPrice : ""}
             placeholder="0"
             min={0}
             onChange={(e) =>
@@ -1090,7 +1090,7 @@ function QuoteCustomTermCard({
             <QuoteFieldBlock label="單價">
               <input
                 type="number"
-                value={item.unitPrice || ""}
+                value={typeof item.unitPrice === "number" ? item.unitPrice : ""}
                 placeholder="0"
                 min={0}
                 onChange={(e) =>
@@ -1495,9 +1495,15 @@ export function QuotationDraftEditor({
     if (legacyItems.length > 0) {
       return legacyItems.map((item) => mapInputToQuotationItem(item));
     }
+    // Existing quotes load line items from bwf_quote_item — avoid flashing DEFAULT_ITEMS.
+    if (existingQuote?.quoteUuid) {
+      return [];
+    }
     return DEFAULT_ITEMS;
   });
   const [itemsLoadedFromDb, setItemsLoadedFromDb] = useState(false);
+  /** Prevents async loadQuoteItems from overwriting in-session user edits. */
+  const itemsUserEditedRef = useRef(false);
 
   // Load line items from bwf_quote_item (prefer over empty legacy JSON)
   useEffect(() => {
@@ -1516,6 +1522,7 @@ export function QuotationDraftEditor({
       try {
         const rows = await loadQuoteItems(quoteUuid);
         if (cancelled) return;
+        if (itemsUserEditedRef.current) return;
         if (rows.length > 0) {
           setItems(rows.map((item) => mapInputToQuotationItem(item)));
         }
@@ -1548,10 +1555,12 @@ export function QuotationDraftEditor({
   }, []);
 
   const addItem = () => {
+    itemsUserEditedRef.current = true;
     setItems((prev) => [...prev, createBlankProductItem()]);
   };
 
   const addCustomTerm = () => {
+    itemsUserEditedRef.current = true;
     setItems((prev) => [
       ...prev,
       {
@@ -1570,6 +1579,7 @@ export function QuotationDraftEditor({
   };
 
   const removeItem = (id: string) => {
+    itemsUserEditedRef.current = true;
     setItems((prev) => prev.filter((item) => item.id !== id));
   };
 
@@ -1578,6 +1588,7 @@ export function QuotationDraftEditor({
     field: keyof QuotationItem,
     value: string | number | null | boolean,
   ) => {
+    itemsUserEditedRef.current = true;
     setItems((prev) =>
       prev.map((item) => {
         if (item.id !== id) return item;
@@ -1596,6 +1607,7 @@ export function QuotationDraftEditor({
   };
 
   const updateDimensionMode = (id: string, mode: QuotationDimensionMode) => {
+    itemsUserEditedRef.current = true;
     setItems((prev) =>
       prev.map((item) => {
         if (item.id !== id) return item;
@@ -1605,6 +1617,7 @@ export function QuotationDraftEditor({
   };
 
   const updateExchangeRate = (id: string, raw: string) => {
+    itemsUserEditedRef.current = true;
     const sanitized = sanitizeExchangeRateInput(raw);
     const rate = parseExchangeRateValue(sanitized);
     setItems((prev) =>
@@ -1624,6 +1637,7 @@ export function QuotationDraftEditor({
   const [dropInsertIndex, setDropInsertIndex] = useState<number | null>(null);
 
   const moveItem = useCallback((fromId: string, insertIndex: number) => {
+    itemsUserEditedRef.current = true;
     setItems((prev) => {
       const fromIndex = prev.findIndex((i) => i.id === fromId);
       if (fromIndex === -1) return prev;
@@ -1665,8 +1679,25 @@ export function QuotationDraftEditor({
     setDropInsertIndex(null);
   }, []);
 
-  // Unit price multiplier (cost-based)
-  const [priceMultiplier, setPriceMultiplier] = useState<string>("1");
+  // Unit price multiplier (cost-based) — persisted in project_data after 版本審核.
+  const savedPriceMultiplier = (() => {
+    if (copyPayload?.priceMultiplier != null && copyPayload.priceMultiplier !== "") {
+      return String(copyPayload.priceMultiplier);
+    }
+    const raw = (savedProjectData as Record<string, unknown>).priceMultiplier;
+    if (raw == null || raw === "") return "1";
+    return String(raw);
+  })();
+  const [priceMultiplier, setPriceMultiplier] = useState<string>(savedPriceMultiplier);
+
+  // Re-hydrate multiplier when parent reloads project_data after 版本審核.
+  useEffect(() => {
+    if (!existingQuote?.quoteId) return;
+    const raw = (existingQuote.projectData as Record<string, unknown> | undefined)
+      ?.priceMultiplier;
+    if (raw == null || raw === "") return;
+    setPriceMultiplier(String(raw));
+  }, [existingQuote?.quoteId, existingQuote?.projectData]);
 
   const applyPriceMultiplier = () => {
     const mult = parseFloat(priceMultiplier);
@@ -1674,10 +1705,15 @@ export function QuotationDraftEditor({
       toast.error("請輸入有效的倍率數字");
       return;
     }
+    itemsUserEditedRef.current = true;
     setItems((prev) =>
       prev.map((item) => {
-        if (item.costPrice != null && item.costPrice > 0) {
-          return { ...item, unitPrice: Math.round(item.costPrice * mult) };
+        const base =
+          item.hkdCostPrice != null && item.hkdCostPrice > 0
+            ? Math.ceil(item.hkdCostPrice)
+            : item.costPrice;
+        if (base != null && base > 0) {
+          return { ...item, unitPrice: Math.round(base * mult) };
         }
         return item;
       }),
@@ -1726,6 +1762,11 @@ export function QuotationDraftEditor({
   const rawQuoteId = existingQuote?.quoteId || "NEW";
   const storageKey = makeDraftKey(userEmail, rawQuoteId);
   const quoteImageScope = existingQuote?.quoteId || rawQuoteId;
+
+  // Reset item-edit guard when switching quotes.
+  useEffect(() => {
+    itemsUserEditedRef.current = false;
+  }, [storageKey]);
 
   // 報價內容 is considered "有數據" if any row has a product name.
   const hasQuoteData = items.some(hasQuoteItemContent);
@@ -1790,6 +1831,9 @@ export function QuotationDraftEditor({
             ship: gp.ship ?? 0,
             installation: gp.installation ?? 0,
           });
+        }
+        if (cachedRecord.priceMultiplier != null && cachedRecord.priceMultiplier !== "") {
+          setPriceMultiplier(String(cachedRecord.priceMultiplier));
         }
         if (cached.termsContent) {
           const cachedMeta = cached.quoteMeta as { deliveryAddress?: string } | undefined;
@@ -1874,6 +1918,7 @@ export function QuotationDraftEditor({
       discountNote,
       installationFee,
       gpSummary,
+      priceMultiplier: parseFloat(priceMultiplier) || 1,
     }),
     [
       storageKey,
@@ -1888,6 +1933,7 @@ export function QuotationDraftEditor({
       discountNote,
       installationFee,
       gpSummary,
+      priceMultiplier,
     ],
   );
 
@@ -1980,6 +2026,7 @@ export function QuotationDraftEditor({
     }
 
     // Always append selected products as new rows (no deduplication)
+    itemsUserEditedRef.current = true;
     const newRows = products.map((p) => {
       const costPrice = p.costPrice ?? null;
       const exchangeRate = null;
@@ -2042,6 +2089,7 @@ export function QuotationDraftEditor({
       grandTotal,
       installationFee,
       gpSummary,
+      priceMultiplier: parseFloat(priceMultiplier) || 1,
     };
   };
 

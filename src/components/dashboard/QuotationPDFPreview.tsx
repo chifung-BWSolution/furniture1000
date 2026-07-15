@@ -816,6 +816,7 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
   })();
   const isFreeInstallation = (data.subtotal || 0) >= 12000;
   const installationAmount = isFreeInstallation ? 0 : (data.installationFee?.amount ?? 0);
+  const installFeeRaw = data.installationFee?.amount;
   const grandTotal = Math.max(0, (data.subtotal || 0) - discountValue + installationAmount);
   const items = data.items || [];
 
@@ -848,15 +849,17 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
         </Text>
       </View>
       <View style={{ width: '10.5%', padding: 4, justifyContent: 'center', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd' }}>
-        <Text style={styles.tableCellText}>{isFreeInstallation ? 'FREE' : pdfDisplayText(data.installationFee?.freeLabel || '\u53E6\u8B70')}</Text>
+        <Text style={styles.tableCellText}>{isFreeInstallation ? 'FREE' : ''}</Text>
       </View>
       <View style={{ width: '12.5%', padding: 4, justifyContent: 'center', alignItems: 'center' }}>
         <Text style={styles.tableCellText}>
           {isFreeInstallation
             ? 'FREE'
-            : installationAmount > 0
-              ? `HK$${installationAmount.toLocaleString()}`
-              : pdfDisplayText(data.installationFee?.chargeLabel || '\u53E6\u8B70')}
+            : installFeeRaw === null || installFeeRaw === undefined
+              ? ''
+              : installFeeRaw === 0
+                ? 'HK$0'
+                : `HK$${Number(installFeeRaw).toLocaleString()}`}
         </Text>
       </View>
     </View>
