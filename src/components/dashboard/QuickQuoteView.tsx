@@ -789,6 +789,14 @@ export function QuickQuoteView({
                         loadedQuoteData.version,
                     )}
                   </span>
+                  {(loadedQuoteData.pitchingCode || formData.pitchingCode) && (
+                    <>
+                      <span className="mx-2 text-border">·</span>
+                      <span className="font-mono-data text-xs tracking-wider text-foreground">
+                        {loadedQuoteData.pitchingCode || formData.pitchingCode}
+                      </span>
+                    </>
+                  )}
                 </p>
               )}
             </div>
