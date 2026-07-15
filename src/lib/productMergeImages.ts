@@ -17,9 +17,13 @@ export function normalizeImageUrl(src: string): string {
 
 /**
  * Filename stem — matches Storage vs Shopify CDN for the same asset.
- * Also collapses Shopify re-upload suffixes:
- * - numeric (`foo.jpg` → `foo_1.jpg`)
+ * Also collapses Shopify re-upload suffixes ONLY:
+ * - short numeric (`foo.jpg` → `foo_1.jpg` / `foo_12.jpg`)
  * - UUID (`foo.jpg` → `foo_<uuid>.jpg`)
+ *
+ * Do NOT strip long digit tails (timestamps like `_1781790000001`) or
+ * meaningful sequences (`_img_0010` vs `_img_0011`) — that falsely merges
+ * different gallery images into one identity.
  */
 export function imageIdentityKey(src: string): string {
   const noQuery = src.split('?')[0];
@@ -30,7 +34,7 @@ export function imageIdentityKey(src: string): string {
       /_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
       '',
     )
-    .replace(/_\d+$/, '')
+    .replace(/_\d{1,2}$/, '')
     .trim()
     .toLowerCase();
 }

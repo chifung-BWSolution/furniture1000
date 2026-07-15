@@ -196,7 +196,7 @@ Deno.serve(async (req: Request) => {
               /_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
               "",
             )
-            .replace(/_\d+$/, "")
+            .replace(/_\d{1,2}$/, "")
             .trim()
             .toLowerCase();
         };

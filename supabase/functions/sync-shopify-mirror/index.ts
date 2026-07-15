@@ -188,7 +188,8 @@ function imageIdentityKey(url: string): string {
       /_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
       "",
     )
-    .replace(/_\d+$/, "")
+    // Only Shopify short re-upload suffixes (_1 / _12), never timestamps.
+    .replace(/_\d{1,2}$/, "")
     .trim()
     .toLowerCase();
 }
