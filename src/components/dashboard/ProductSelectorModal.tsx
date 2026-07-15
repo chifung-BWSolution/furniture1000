@@ -1,29 +1,27 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { Search, X, ChevronLeft, ChevronRight, Package, Loader2, Check } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
-import { fetchFactories } from '@/lib/factorySupabase';
+import { cn } from '@/lib/utils';
+import {
+  fetchCatalogFactoryNames,
+  fetchProductCatalog,
+  type CatalogProductRow,
+  type CatalogSourceType,
+} from '@/lib/productCatalogQuery';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 function normalizeProductColor(raw?: string | null): string | undefined {
   if (!raw?.trim()) return undefined;
   return raw.trim();
 }
 
-interface MasterProduct {
-  id: string;
-  title: string;
-  image_url: string | null;
-  sale_price: number | null;
-  cost_price: number | null;
-  factory_name: string | null;
-  category: string | null;
-  material: string | null;
-  dimension_l_mm: number | null;
-  dimension_w_mm: number | null;
-  dimension_h_mm: number | null;
-  color: string | null;
-  remarks: string | null;
-  delivery_term_name: string | null;
-}
+type MasterProduct = CatalogProductRow;
 
 interface ProductSelectorModalProps {
   open: boolean;
@@ -43,11 +41,24 @@ interface ProductSelectorModalProps {
     deliveryTermName?: string;
     factoryName?: string;
   }[]) => void;
-  /** Names of products already in the list, used to pre-select checkboxes */
   existingProductNames?: string[];
 }
 
-export function ProductSelectorModal({ open, onClose, onSelect, existingProductNames = [] }: ProductSelectorModalProps) {
+const CATALOG_SOURCE_OPTIONS: Array<{
+  value: CatalogSourceType;
+  label: string;
+}> = [
+  { value: 'shopify', label: 'A類產品 - shopify上架' },
+  { value: 'system', label: 'B類產品 - 系統產品目錄(包含shopify產品)' },
+];
+
+export function ProductSelectorModal({
+  open,
+  onClose,
+  onSelect,
+  existingProductNames = [],
+}: ProductSelectorModalProps) {
+  const [catalogSource, setCatalogSource] = useState<CatalogSourceType>('system');
   const [search, setSearch] = useState('');
   const [factoryFilter, setFactoryFilter] = useState('');
   const [level1Filter, setLevel1Filter] = useState('');
@@ -78,7 +89,6 @@ export function ProductSelectorModal({ open, onClose, onSelect, existingProductN
     [categoryPairs, level1Filter],
   );
 
-  // Fetch 一級/二級分類 options (same source as 待處理產品)
   useEffect(() => {
     if (!open) return;
     supabase
@@ -98,193 +108,75 @@ export function ProductSelectorModal({ open, onClose, onSelect, existingProductN
       });
   }, [open]);
 
-  // Fetch factories for filter dropdown
   useEffect(() => {
-    if (open) {
-      fetchFactories().then((list) => {
-        if (list.length > 0) {
-          setFactories(list);
-        } else {
-          // Fallback: get distinct factory names from local products table
-          supabase
-            .from('products')
-            .select('factory_name')
-            .not('factory_name', 'is', null)
-            .neq('factory_name', '')
-            .then(({ data }) => {
-              const unique = [...new Set((data || []).map((r: any) => r.factory_name).filter(Boolean))];
-              setFactories(unique as string[]);
-            });
-        }
-      });
-    }
-  }, [open]);
+    if (!open) return;
+    fetchCatalogFactoryNames(catalogSource).then(setFactories);
+  }, [open, catalogSource]);
 
-  // Fetch products - try edge function (master DB) first, fall back to local products table
-  const fetchProducts = useCallback(async (
-    searchVal: string,
-    factoryVal: string,
-    pageVal: number,
-    level1Val: string,
-    level2Val: string,
-    level2Categories: string[],
-  ) => {
-    setIsLoading(true);
-    try {
-      console.log('[ProductSelector] Fetching products...', {
-        search: searchVal,
-        factory: factoryVal,
-        level1: level1Val,
-        level2: level2Val,
-        page: pageVal,
-      });
-      const { data, error } = await supabase.functions.invoke(
-        'supabase-functions-fetch-product-catalog',
-        {
-          body: {
-            search: searchVal.trim(),
-            factory_name: factoryVal,
-            level1: level1Val,
-            level2: level2Val,
-            level2_categories: level2Categories,
-            page: pageVal,
-            page_size: PAGE_SIZE,
-          },
-        }
-      );
-
-      console.log('[ProductSelector] Response:', { data, error });
-
-      if (!error && data && !data.error && Array.isArray(data.products)) {
-        setProducts(data.products);
-        setTotalPages(data.total_pages || 1);
-        setTotal(data.total || 0);
-        return;
-      }
-
-      console.warn('[ProductSelector] Edge function failed, falling back to local products table', error || data?.error);
-      await fetchFromLocalProducts(searchVal, factoryVal, pageVal, level1Val, level2Val);
-    } catch (err) {
-      console.error('[ProductSelector] Network error, falling back to local:', err);
-      await fetchFromLocalProducts(searchVal, factoryVal, pageVal, level1Val, level2Val);
-    } finally {
-      setIsLoading(false);
-    }
-  }, []);
-
-  // Fallback: fetch from local products table
-  const fetchFromLocalProducts = useCallback(async (
-    searchVal: string,
-    factoryVal: string,
-    pageVal: number,
-    level1Val: string,
-    level2Val: string,
-  ) => {
-    try {
-      const from = (pageVal - 1) * PAGE_SIZE;
-      const to = from + PAGE_SIZE - 1;
-
-      let query = supabase
-        .from('products')
-        .select('id, title, images, sale_price, cost_price, factory_name, category, level1_category, level2_category, material, dimension_l_mm, dimension_w_mm, dimension_h_mm, color, remarks, delivery_term_name', {
-          count: 'exact',
-        })
-        .not('title', 'is', null)
-        .neq('title', '');
-
-      if (searchVal.trim()) {
-        query = query.ilike('title', `%${searchVal.trim()}%`);
-      }
-
-      if (factoryVal.trim()) {
-        query = query.eq('factory_name', factoryVal.trim());
-      }
-
-      if (level1Val.trim()) {
-        query = query.eq('level1_category', level1Val.trim());
-      }
-
-      if (level2Val.trim()) {
-        query = query.eq('level2_category', level2Val.trim());
-      }
-
-      query = query.order('created_at', { ascending: false }).range(from, to);
-
-      const { data: rows, error: localErr, count } = await query;
-
-      if (localErr) {
-        console.error('[ProductSelector] Local fallback error:', localErr);
+  const fetchProducts = useCallback(
+    async (
+      source: CatalogSourceType,
+      searchVal: string,
+      factoryVal: string,
+      pageVal: number,
+      level1Val: string,
+      level2Val: string,
+    ) => {
+      setIsLoading(true);
+      try {
+        const result = await fetchProductCatalog({
+          source,
+          search: searchVal,
+          factory_name: factoryVal,
+          level1: level1Val,
+          level2: level2Val,
+          page: pageVal,
+          page_size: PAGE_SIZE,
+        });
+        setProducts(result.products);
+        setTotalPages(result.total_pages || 1);
+        setTotal(result.total || 0);
+      } catch (err) {
+        console.error('[ProductSelector] fetch failed:', err);
         setProducts([]);
         setTotalPages(1);
         setTotal(0);
-        return;
+      } finally {
+        setIsLoading(false);
       }
+    },
+    [],
+  );
 
-      // Map local products to the same shape as master products
-      const mapped: MasterProduct[] = (rows || []).map((row: any) => ({
-        id: row.id,
-        title: row.title || '',
-        image_url: Array.isArray(row.images) && row.images.length > 0 ? row.images[0] : null,
-        sale_price: row.sale_price,
-        cost_price: row.cost_price,
-        factory_name: row.factory_name || '',
-        category: row.level2_category || row.category || null,
-        material: row.material || null,
-        dimension_l_mm: row.dimension_l_mm,
-        dimension_w_mm: row.dimension_w_mm,
-        dimension_h_mm: row.dimension_h_mm,
-        color: row.color || null,
-        remarks: row.remarks || null,
-        delivery_term_name: row.delivery_term_name || null,
-      }));
-
-      setProducts(mapped);
-      setTotalPages(Math.ceil((count || 0) / PAGE_SIZE));
-      setTotal(count || 0);
-    } catch (err) {
-      console.error('[ProductSelector] Local fallback network error:', err);
-      setProducts([]);
-      setTotalPages(1);
-      setTotal(0);
-    }
-  }, []);
-
-  // Debounce timer ref
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const level2CategoriesForLevel1 = useMemo(() => {
-    if (!level1Filter || level2Filter) return [] as string[];
-    return level2Options;
-  }, [level1Filter, level2Filter, level2Options]);
+  const runFetch = useCallback(
+    (pageVal: number) => {
+      fetchProducts(
+        catalogSource,
+        search,
+        factoryFilter,
+        pageVal,
+        level1Filter,
+        level2Filter,
+      );
+    },
+    [catalogSource, search, factoryFilter, level1Filter, level2Filter, fetchProducts],
+  );
 
-  const runFetch = useCallback((pageVal: number) => {
-    fetchProducts(
-      search,
-      factoryFilter,
-      pageVal,
-      level1Filter,
-      level2Filter,
-      level2CategoriesForLevel1,
-    );
-  }, [search, factoryFilter, level1Filter, level2Filter, level2CategoriesForLevel1, fetchProducts]);
-
-  // Track the count of existing products for immediate display
   const existingCount = existingProductNames.length;
 
-  // Reset state when modal opens & do initial fetch
   useEffect(() => {
-    if (open) {
-      setSelectedProducts(new Map());
-      setSearch('');
-      setFactoryFilter('');
-      setLevel1Filter('');
-      setLevel2Filter('');
-      setPage(1);
-      fetchProducts('', '', 1, '', '', []);
-    }
-  }, [open, fetchProducts]);
+    if (!open) return;
+    setSelectedProducts(new Map());
+    setSearch('');
+    setFactoryFilter('');
+    setLevel1Filter('');
+    setLevel2Filter('');
+    setPage(1);
+    setCatalogSource('system');
+  }, [open]);
 
-  // Pre-select products that are already in the list when products load
   useEffect(() => {
     if (open && products.length > 0 && existingProductNames.length > 0) {
       setSelectedProducts((prev) => {
@@ -299,10 +191,9 @@ export function ProductSelectorModal({ open, onClose, onSelect, existingProductN
     }
   }, [open, products, existingProductNames]);
 
-  // Derive a display count: show existing count immediately while loading, then actual selection count
-  const displaySelectedCount = isLoading && selectedProducts.size === 0 ? existingCount : selectedProducts.size;
+  const displaySelectedCount =
+    isLoading && selectedProducts.size === 0 ? existingCount : selectedProducts.size;
 
-  // Debounced search/filter effect
   useEffect(() => {
     if (!open) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -313,22 +204,25 @@ export function ProductSelectorModal({ open, onClose, onSelect, existingProductN
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [search, factoryFilter, level1Filter, level2Filter, open, runFetch]);
+  }, [search, factoryFilter, level1Filter, level2Filter, catalogSource, open, runFetch]);
 
-  // Page change (no debounce)
   useEffect(() => {
     if (!open || page === 1) return;
     runFetch(page);
   }, [page, open, runFetch]);
 
+  const handleCatalogSourceChange = (next: CatalogSourceType) => {
+    if (next === catalogSource) return;
+    setCatalogSource(next);
+    setFactoryFilter('');
+    setPage(1);
+  };
+
   const toggleProduct = (product: MasterProduct) => {
     setSelectedProducts((prev) => {
       const next = new Map(prev);
-      if (next.has(product.id)) {
-        next.delete(product.id);
-      } else {
-        next.set(product.id, product);
-      }
+      if (next.has(product.id)) next.delete(product.id);
+      else next.set(product.id, product);
       return next;
     });
   };
@@ -338,10 +232,8 @@ export function ProductSelectorModal({ open, onClose, onSelect, existingProductN
     setSelectedProducts((prev) => {
       const next = new Map(prev);
       if (allCurrentPageSelected) {
-        // Deselect all on current page
         products.forEach((p) => next.delete(p.id));
       } else {
-        // Select all on current page
         products.forEach((p) => next.set(p.id, p));
       }
       return next;
@@ -375,16 +267,30 @@ export function ProductSelectorModal({ open, onClose, onSelect, existingProductN
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="relative mx-4 flex max-h-[85vh] w-full max-w-[900px] flex-col rounded-2xl border border-border bg-card shadow-2xl">
-        {/* Header */}
-        <div className="flex items-center justify-between border-b border-border px-6 py-4">
-          <div>
-            <h2 className="font-display text-lg font-bold text-foreground">
-              產品目錄
-            </h2>
-            <p className="mt-0.5 font-body text-xs text-muted-foreground">
-              從資料庫搜尋產品並加入報價單
-            </p>
+      <div className="relative mx-4 flex max-h-[85vh] w-full max-w-[1024px] flex-col rounded-2xl border border-border bg-card shadow-2xl">
+        <div className="flex items-start justify-between border-b border-border px-6 py-4">
+          <div className="min-w-0 flex-1 pr-4">
+            <h2 className="font-display text-lg font-bold text-foreground">產品目錄</h2>
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <p className="font-body text-xs text-muted-foreground">
+                從資料庫搜尋產品並加入報價單
+              </p>
+              {CATALOG_SOURCE_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => handleCatalogSourceChange(opt.value)}
+                  className={cn(
+                    'rounded-md border px-2.5 py-1 font-body text-[11px] font-medium transition-all',
+                    catalogSource === opt.value
+                      ? 'border-primary bg-primary/10 text-primary shadow-sm'
+                      : 'border-border bg-card text-muted-foreground hover:border-primary/50 hover:text-foreground',
+                  )}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
           </div>
           <button
             type="button"
@@ -395,80 +301,92 @@ export function ProductSelectorModal({ open, onClose, onSelect, existingProductN
           </button>
         </div>
 
-        {/* Search & Filter Bar */}
-        <div className="flex flex-col gap-3 border-b border-border px-6 py-4 sm:flex-row sm:items-center">
-          <div className="relative flex-1">
+        <div className="flex flex-col gap-3 border-b border-border px-6 py-4 lg:flex-row lg:items-center">
+          <div className="relative min-w-0 flex-[1.6]">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground/60" />
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="搜尋產品名稱..."
+              placeholder="搜尋產品名稱或 SKU…"
               className="w-full rounded-lg border border-border bg-background py-2.5 pl-10 pr-4 font-body text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
             />
           </div>
-          <select
-            value={factoryFilter}
-            onChange={(e) => {
-              setFactoryFilter(e.target.value);
+
+          <Select
+            value={factoryFilter || '__all__'}
+            onValueChange={(value) => {
+              setFactoryFilter(value === '__all__' ? '' : value);
               setPage(1);
             }}
-            className="rounded-lg border border-border bg-background px-3 py-2.5 font-body text-sm text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
           >
-            <option value="">所有廠家</option>
-            {factories.map((f) => (
-              <option key={f} value={f}>
-                {f}
-              </option>
-            ))}
-          </select>
-          <select
-            value={level1Filter}
-            onChange={(e) => {
-              setLevel1Filter(e.target.value);
+            <SelectTrigger className="h-10 w-full min-w-[6.5rem] max-w-[7.5rem] shrink-0 font-body text-sm lg:w-[7.5rem]">
+              <SelectValue placeholder="所有廠家" />
+            </SelectTrigger>
+            <SelectContent className="max-h-64 max-w-[min(20rem,90vw)]">
+              <SelectItem value="__all__">所有廠家</SelectItem>
+              {factories.map((f) => (
+                <SelectItem key={f} value={f} className="whitespace-normal break-words">
+                  {f}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
+          <Select
+            value={level1Filter || '__all__'}
+            onValueChange={(value) => {
+              setLevel1Filter(value === '__all__' ? '' : value);
               setLevel2Filter('');
               setPage(1);
             }}
-            className="rounded-lg border border-border bg-background px-3 py-2.5 font-body text-sm text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
           >
-            <option value="">全部一級分類</option>
-            {level1Options.map((l1) => (
-              <option key={l1} value={l1}>
-                {l1}
-              </option>
-            ))}
-          </select>
+            <SelectTrigger className="h-10 w-full min-w-[8.5rem] max-w-[11rem] shrink-0 font-body text-sm">
+              <SelectValue placeholder="全部一級分類" />
+            </SelectTrigger>
+            <SelectContent className="max-h-64 max-w-[min(24rem,90vw)]">
+              <SelectItem value="__all__">全部一級分類</SelectItem>
+              {level1Options.map((l1) => (
+                <SelectItem key={l1} value={l1} className="whitespace-normal break-words">
+                  {l1}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+
           {level1Filter && level2Options.length > 0 ? (
-            <select
-              value={level2Filter}
-              onChange={(e) => {
-                setLevel2Filter(e.target.value);
+            <Select
+              value={level2Filter || '__all__'}
+              onValueChange={(value) => {
+                setLevel2Filter(value === '__all__' ? '' : value);
                 setPage(1);
               }}
-              className="rounded-lg border border-border bg-background px-3 py-2.5 font-body text-sm text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
             >
-              <option value="">全部二級分類</option>
-              {level2Options.map((l2) => (
-                <option key={l2} value={l2}>
-                  {l2}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger className="h-10 w-full min-w-[8.5rem] max-w-[11rem] shrink-0 font-body text-sm">
+                <SelectValue placeholder="全部二級分類" />
+              </SelectTrigger>
+              <SelectContent className="max-h-64 max-w-[min(24rem,90vw)]">
+                <SelectItem value="__all__">全部二級分類</SelectItem>
+                {level2Options.map((l2) => (
+                  <SelectItem key={l2} value={l2} className="whitespace-normal break-words">
+                    {l2}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           ) : null}
-          <div className="flex items-center gap-2 font-mono-data text-xs text-muted-foreground">
+
+          <div className="flex shrink-0 items-center gap-2 font-mono-data text-xs text-muted-foreground">
             <Package className="h-3.5 w-3.5" />
             {total} 件產品
           </div>
         </div>
 
-        {/* Product Table */}
         <div className="flex-1 overflow-y-auto px-6 py-3">
           {isLoading ? (
             <div className="flex h-48 items-center justify-center">
               <Loader2 className="h-6 w-6 animate-spin text-primary" />
-              <span className="ml-2 font-body text-sm text-muted-foreground">
-                載入中...
-              </span>
+              <span className="ml-2 font-body text-sm text-muted-foreground">載入中...</span>
             </div>
           ) : products.length === 0 ? (
             <div className="flex h-48 flex-col items-center justify-center text-muted-foreground/60">
@@ -476,20 +394,21 @@ export function ProductSelectorModal({ open, onClose, onSelect, existingProductN
               <span className="font-body text-sm">找不到符合條件的產品</span>
             </div>
           ) : (
-            <table className="w-full text-left">
+            <table className="w-full table-fixed text-left">
               <thead>
                 <tr className="border-b border-border">
-                  <th className="pb-2 pr-2 w-8">
+                  <th className="w-8 pb-2 pr-2">
                     <button
                       type="button"
                       onClick={toggleSelectAll}
-                      className={`flex h-4 w-4 items-center justify-center rounded border transition-colors ${
+                      className={cn(
+                        'flex h-4 w-4 items-center justify-center rounded border transition-colors',
                         isAllSelected
                           ? 'border-primary bg-primary'
                           : isSomeSelected
-                          ? 'border-primary/60 bg-primary/30'
-                          : 'border-border bg-background hover:border-primary/50'
-                      }`}
+                            ? 'border-primary/60 bg-primary/30'
+                            : 'border-border bg-background hover:border-primary/50',
+                      )}
                     >
                       {isAllSelected && <Check className="h-3 w-3 text-primary-foreground" />}
                       {isSomeSelected && !isAllSelected && (
@@ -497,22 +416,22 @@ export function ProductSelectorModal({ open, onClose, onSelect, existingProductN
                       )}
                     </button>
                   </th>
-                  <th className="pb-2 pr-3 font-body text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                  <th className="w-12 pb-2 pr-3 font-body text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                     圖片
                   </th>
-                  <th className="pb-2 pr-3 font-body text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                  <th className="w-[34%] pb-2 pr-3 font-body text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                     產品名稱
                   </th>
-                  <th className="pb-2 pr-3 font-body text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                  <th className="w-[14%] pb-2 pr-3 font-body text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                     廠家
                   </th>
-                  <th className="pb-2 pr-3 font-body text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                  <th className="w-[12%] pb-2 pr-3 font-body text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                     類別
                   </th>
-                  <th className="pb-2 pr-3 font-body text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                  <th className="w-[10%] pb-2 pr-3 font-body text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                     成本價
                   </th>
-                  <th className="pb-2 pr-3 font-body text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                  <th className="w-[10%] pb-2 pr-3 font-body text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                     售價
                   </th>
                 </tr>
@@ -524,25 +443,27 @@ export function ProductSelectorModal({ open, onClose, onSelect, existingProductN
                     <tr
                       key={product.id}
                       onClick={() => toggleProduct(product)}
-                      className={`cursor-pointer border-b border-border/40 transition-colors last:border-b-0 ${
+                      className={cn(
+                        'cursor-pointer border-b border-border/40 transition-colors last:border-b-0',
                         isSelected
                           ? 'bg-primary/10 ring-1 ring-inset ring-primary/30'
-                          : 'hover:bg-accent/50'
-                      }`}
+                          : 'hover:bg-accent/50',
+                      )}
                     >
                       <td className="py-2.5 pr-2">
                         <div
-                          className={`flex h-4 w-4 items-center justify-center rounded border transition-colors ${
+                          className={cn(
+                            'flex h-4 w-4 items-center justify-center rounded border transition-colors',
                             isSelected
                               ? 'border-primary bg-primary'
-                              : 'border-border bg-background'
-                          }`}
+                              : 'border-border bg-background',
+                          )}
                         >
                           {isSelected && <Check className="h-3 w-3 text-primary-foreground" />}
                         </div>
                       </td>
                       <td className="py-2.5 pr-3">
-                        <div className="h-10 w-10 aspect-square overflow-hidden rounded-md border border-border bg-muted/30">
+                        <div className="h-10 w-10 overflow-hidden rounded-md border border-border bg-muted/30">
                           {product.image_url ? (
                             <img
                               src={product.image_url}
@@ -557,17 +478,24 @@ export function ProductSelectorModal({ open, onClose, onSelect, existingProductN
                         </div>
                       </td>
                       <td className="py-2.5 pr-3">
-                        <span className="font-body text-xs font-medium text-foreground line-clamp-2">
-                          {product.title || '—'}
-                        </span>
+                        <div className="min-w-0">
+                          <div className="truncate font-body text-xs font-medium text-foreground">
+                            {product.title || '—'}
+                          </div>
+                          {product.sku ? (
+                            <div className="truncate font-mono-data text-[10px] text-muted-foreground">
+                              {product.sku}
+                            </div>
+                          ) : null}
+                        </div>
                       </td>
                       <td className="py-2.5 pr-3">
-                        <span className="font-body text-xs text-muted-foreground">
+                        <span className="block truncate font-body text-xs text-muted-foreground">
                           {product.factory_name || '—'}
                         </span>
                       </td>
                       <td className="py-2.5 pr-3">
-                        <span className="font-body text-xs text-muted-foreground">
+                        <span className="block truncate font-body text-xs text-muted-foreground">
                           {product.category || '—'}
                         </span>
                       </td>
@@ -593,9 +521,7 @@ export function ProductSelectorModal({ open, onClose, onSelect, existingProductN
           )}
         </div>
 
-        {/* Pagination & Action Footer */}
         <div className="flex items-center justify-between border-t border-border px-6 py-4">
-          {/* Pagination */}
           <div className="flex items-center gap-2">
             <button
               type="button"
@@ -620,7 +546,6 @@ export function ProductSelectorModal({ open, onClose, onSelect, existingProductN
             </button>
           </div>
 
-          {/* Selection count & Add Button */}
           <div className="flex items-center gap-3">
             {displaySelectedCount > 0 && (
               <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-3 py-1 font-mono-data text-xs font-medium text-primary">
