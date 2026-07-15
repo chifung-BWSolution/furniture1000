@@ -324,6 +324,7 @@ export function PublishedProductsView() {
   const [importSearch, setImportSearch] = useState('');
 
   const [isSyncing, setIsSyncing] = useState(false);
+  const [isRepairingMetafields, setIsRepairingMetafields] = useState(false);
   const [isReconcilingMirror, setIsReconcilingMirror] = useState(false);
   const [mergeProducts, setMergeProducts] = useState<DisplayProduct[]>([]);
   const [showMergeModal, setShowMergeModal] = useState(false);
@@ -520,6 +521,106 @@ export function PublishedProductsView() {
       });
     } finally {
       setIsSyncing(false);
+    }
+  }, [items, selectedIds, loadProducts]);
+
+  /** Rebuild core metafields (尺寸/材料/出貨時間) from source data and push to Shopify. */
+  const repairMetafields = useCallback(async () => {
+    const selectedRows = selectedIds.length > 0
+      ? items.filter((p) => selectedIds.includes(p.id))
+      : items.filter((p) => p.state === 'published' && /^\d+$/.test(p.shopify_product_id));
+    if (selectedRows.length === 0) {
+      toast.message('沒有可修復的已上載產品');
+      return;
+    }
+
+    const shopifyIds = [...new Set(
+      selectedRows
+        .map((p) => p.shopify_product_id)
+        .filter((id) => /^\d+$/.test(id)),
+    )];
+
+    setIsRepairingMetafields(true);
+    const scopeLabel = selectedIds.length > 0 ? `已選 ${shopifyIds.length}` : `全部 ${shopifyIds.length}`;
+    const toastId = toast.loading(`正在修復 Metafields（${scopeLabel}）…`);
+    let repaired = 0;
+    let skipped = 0;
+    let failed = 0;
+    let firstErr: string | undefined;
+
+    const BATCH_SIZE = 5;
+    const batches: string[][] = [];
+    for (let i = 0; i < shopifyIds.length; i += BATCH_SIZE) {
+      batches.push(shopifyIds.slice(i, i + BATCH_SIZE));
+    }
+
+    try {
+      for (let bi = 0; bi < batches.length; bi++) {
+        const batch = batches[bi];
+        toast.loading(
+          `正在修復 Metafields（批次 ${bi + 1}/${batches.length}，${batch.length} 件）…`,
+          { id: toastId },
+        );
+        const { data, error } = await invokeEdgeFunctionDirect(
+          'supabase-functions-update-shopify-product',
+          { repair_metafields: true, shopify_product_ids: batch },
+          { timeoutMs: 3 * 60 * 1000 },
+        );
+        if (error || data?.error) {
+          failed += batch.length;
+          if (!firstErr) firstErr = error?.message || (data?.error as string);
+          continue;
+        }
+        repaired += Number(data?.repaired ?? 0);
+        skipped += Number(data?.skipped ?? 0);
+        failed += Number(data?.failed ?? 0);
+        if (!firstErr && Array.isArray(data?.errors) && data.errors[0]?.error) {
+          firstErr = String((data.errors[0] as { error?: string }).error);
+        }
+        if (bi < batches.length - 1) {
+          await new Promise((r) => setTimeout(r, 800));
+        }
+      }
+
+      if (repaired > 0) await loadProducts({ silent: true });
+
+      const parts: string[] = [];
+      if (repaired > 0) parts.push(`已修復 ${repaired} 件`);
+      if (skipped > 0) parts.push(`略過 ${skipped} 件（無來源資料）`);
+      if (failed > 0) parts.push(`失敗 ${failed} 件`);
+
+      if (failed > 0 && repaired > 0) {
+        toast.warning('部分 Metafields 修復失敗', {
+          id: toastId,
+          description: `${parts.join(' · ')}${firstErr ? `\n${firstErr.slice(0, 160)}` : ''}`,
+          duration: 12000,
+        });
+      } else if (failed > 0) {
+        toast.error('Metafields 修復失敗', {
+          id: toastId,
+          description: firstErr || '請稍後重試',
+          duration: 10000,
+        });
+      } else if (repaired === 0) {
+        toast.message('無需修復', {
+          id: toastId,
+          description: parts.join(' · ') || '所選產品均無可回填的來源資料',
+          duration: 8000,
+        });
+      } else {
+        toast.success('Metafields 修復完成', {
+          id: toastId,
+          description: parts.join(' · '),
+          duration: 8000,
+        });
+      }
+    } catch (e) {
+      toast.error('Metafields 修復失敗', {
+        id: toastId,
+        description: e instanceof Error ? e.message : '未知錯誤',
+      });
+    } finally {
+      setIsRepairingMetafields(false);
     }
   }, [items, selectedIds, loadProducts]);
 
@@ -886,6 +987,20 @@ export function PublishedProductsView() {
             >
               {isReconcilingMirror ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Store className="h-3.5 w-3.5" />}
               {isReconcilingMirror ? '同步中...' : '更新 Shopify 目錄'}
+            </button>
+            <button
+              type="button"
+              onClick={() => repairMetafields()}
+              disabled={isRepairingMetafields || isSyncing}
+              title="從產品資料重建尺寸、材料、出貨時間等 Metafields 並推送至 Shopify。未勾選時修復全部已發佈產品。"
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 text-xs font-semibold text-amber-800 dark:text-amber-400 hover:bg-amber-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isRepairingMetafields ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+              {isRepairingMetafields
+                ? '修復中...'
+                : selectedIds.length > 0
+                  ? `修復 Metafields (${selectedIds.length})`
+                  : '修復 Metafields（全部）'}
             </button>
             <button
               type="button"

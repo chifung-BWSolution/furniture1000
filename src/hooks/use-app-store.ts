@@ -1024,7 +1024,7 @@ export function useAppStore() {
     // finalised title, body_html, price, image_url, images, variants.
     const { data: rtsRows, error: rtsErr } = await supabase
       .from('ready_to_shopify')
-      .select('id,product_id,title,body_html,vendor,price,image_url,image_url_2,image_url_3,images,variants,product_type,tags,shopify_url,shopify_page_title,shopify_page_description,dimension_l_mm,dimension_w_mm,dimension_h_mm,material,"my_fields.materials",customize,sku,products(image_url)')
+      .select('id,product_id,title,body_html,vendor,price,image_url,image_url_2,image_url_3,images,variants,product_type,tags,shopify_url,shopify_page_title,shopify_page_description,dimension_l_mm,dimension_w_mm,dimension_h_mm,material,"my_fields.materials",customize,sku,products(dimension_l_mm,dimension_w_mm,dimension_h_mm,material,customize,image_url)')
       .in('product_id', productIdsToPublish);
     if (rtsErr) {
       console.warn('[publishToShopify] ready_to_shopify fetch error:', rtsErr.message);
@@ -1062,16 +1062,26 @@ export function useAppStore() {
       let metafields: Record<string, string> | undefined;
       if (rts) {
         const mf: Record<string, string> = {};
+        const prod = rts?.products as {
+          dimension_l_mm?: number | null;
+          dimension_w_mm?: number | null;
+          dimension_h_mm?: number | null;
+          material?: string | null;
+          customize?: string | null;
+        } | null;
         // normal_size: "{L}(W)x{W}(D)x{H}(H)(mm)" — only when all three dims present
-        const L = rts.dimension_l_mm, W = rts.dimension_w_mm, H = rts.dimension_h_mm;
+        const L = rts.dimension_l_mm ?? prod?.dimension_l_mm;
+        const W = rts.dimension_w_mm ?? prod?.dimension_w_mm;
+        const H = rts.dimension_h_mm ?? prod?.dimension_h_mm;
         if (L != null && W != null && H != null) {
           mf['my_fields.normal_size'] = `${L}(W)x${W}(D)x${H}(H)(mm)`;
         }
         // 產品物料 → my_fields.materials. Prefer the dedicated metafield column
         // (edited on 產品信息頁), fall back to the legacy `material` column.
-        const materialsVal = (rts['my_fields.materials'] ?? rts.material ?? '');
+        const materialsVal = (rts['my_fields.materials'] ?? rts.material ?? prod?.material ?? '');
         if (materialsVal && String(materialsVal).trim()) mf['my_fields.materials'] = String(materialsVal).trim();
-        if (rts.customize && String(rts.customize).trim()) mf['my_fields.production_time'] = String(rts.customize).trim();
+        const customizeVal = (rts.customize ?? prod?.customize ?? '');
+        if (customizeVal && String(customizeVal).trim()) mf['my_fields.production_time'] = String(customizeVal).trim();
         if (Object.keys(mf).length > 0) metafields = mf;
       }
 

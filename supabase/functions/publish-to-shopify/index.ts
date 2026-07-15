@@ -657,6 +657,27 @@ async function syncMoreImageMetafieldsToShopify(
   }
 }
 
+/** Push text/core metafields via separate API calls — inline create often drops them. */
+async function syncCoreMetafieldsToShopify(
+  apiBase: string,
+  headers: Record<string, string>,
+  shopifyId: string,
+  metafields: Record<string, string> | undefined,
+): Promise<{ ok: number; fail: number }> {
+  let ok = 0;
+  let fail = 0;
+  if (!metafields) return { ok, fail };
+  for (const [col, rawVal] of Object.entries(metafields)) {
+    if (IMAGE_METAFIELD_COL_PREFIXES.some((p) => col.startsWith(p) || col === p)) continue;
+    const val = rawVal != null ? cleanMetafieldValue(String(rawVal).trim()) : "";
+    if (!val) continue;
+    const success = await upsertProductMetafield(apiBase, headers, shopifyId, col, val);
+    if (success) ok++;
+    else fail++;
+  }
+  return { ok, fail };
+}
+
 /**
  * After product images exist on Shopify, write more_image_* metafields using live CDN URLs
  * and return refreshed product + mirror column map. Supabase URLs are upload sources only.
@@ -1315,6 +1336,19 @@ Deno.serve(async (req: Request) => {
                 );
                 if (fbCdnFinalize.liveProduct) finalFallbackProduct = fbCdnFinalize.liveProduct;
 
+                const fbCoreMf = product.metafields && !Array.isArray(product.metafields)
+                  ? stripImageUrlMetafields(product.metafields)
+                  : undefined;
+                const fbCoreSync = await syncCoreMetafieldsToShopify(
+                  shopifyApiBase,
+                  shopifyHeaders,
+                  shopifyProductId,
+                  fbCoreMf,
+                );
+                console.log(
+                  `[publish-to-shopify] 🏷️ Fallback core metafields synced for "${product.title}": ${fbCoreSync.ok} ok, ${fbCoreSync.fail} fail`,
+                );
+
                 // 寫入 shopify_products mirror（fallback：無圖上傳成功）
                 try {
                   const fbSpImages = (finalFallbackProduct.images as ShopifyRecord[]) || [];
@@ -1473,6 +1507,19 @@ Deno.serve(async (req: Request) => {
           resolvedPrimary,
         );
         if (cdnFinalize.liveProduct) finalProduct = cdnFinalize.liveProduct;
+
+        const coreMf = product.metafields && !Array.isArray(product.metafields)
+          ? stripImageUrlMetafields(product.metafields)
+          : undefined;
+        const coreSync = await syncCoreMetafieldsToShopify(
+          shopifyApiBase,
+          shopifyHeaders,
+          shopifyProductId,
+          coreMf,
+        );
+        console.log(
+          `[publish-to-shopify] 🏷️ Core metafields synced for "${product.title}": ${coreSync.ok} ok, ${coreSync.fail} fail`,
+        );
 
         const shopifyVariants = (finalProduct.variants as Record<string, unknown>[]) || [];
         const shopifyFirstVariant = shopifyVariants[0] || {};

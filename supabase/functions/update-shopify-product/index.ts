@@ -1586,6 +1586,181 @@ type MirrorPushItemResult = {
   error?: string;
 };
 
+const CORE_METAFIELD_COLS = [
+  "my_fields.normal_size",
+  "my_fields.materials",
+  "my_fields.production_time",
+] as const;
+
+/** Rebuild core text metafields from ready_to_shopify + products source rows. */
+function buildCoreMetafieldsFromSources(
+  rts: Record<string, unknown> | null | undefined,
+  product: Record<string, unknown> | null | undefined,
+): Record<string, string> {
+  const mf: Record<string, string> = {};
+  const L = rts?.dimension_l_mm ?? product?.dimension_l_mm;
+  const W = rts?.dimension_w_mm ?? product?.dimension_w_mm;
+  const H = rts?.dimension_h_mm ?? product?.dimension_h_mm;
+  if (L != null && W != null && H != null) {
+    mf["my_fields.normal_size"] = `${L}(W)x${W}(D)x${H}(H)(mm)`;
+  }
+  const materialsVal = (
+    rts?.["my_fields.materials"] ?? rts?.material ?? product?.material ?? ""
+  ) as string;
+  if (materialsVal && String(materialsVal).trim()) {
+    mf["my_fields.materials"] = String(materialsVal).trim();
+  }
+  const customizeVal = (rts?.customize ?? product?.customize ?? "") as string;
+  if (customizeVal && String(customizeVal).trim()) {
+    mf["my_fields.production_time"] = String(customizeVal).trim();
+  }
+  return mf;
+}
+
+/**
+ * Backfill core metafields: rebuild from products/RTS → update mirror → push to Shopify.
+ * Use when products were published before post-create metafield sync was implemented.
+ */
+async function repairMetafieldsForProducts(
+  supabase: ReturnType<typeof createClient>,
+  shopDomain: string,
+  shopifyToken: string,
+  shopifyProductIds?: string[],
+): Promise<{
+  repaired: number;
+  failed: number;
+  skipped: number;
+  errors: { shopify_product_id: string; error: string }[];
+  results: { shopify_product_id: string; action: "repaired" | "skipped" | "failed"; metafields?: string[]; error?: string }[];
+}> {
+  const apiBase = `https://${shopDomain}/admin/api/2024-01`;
+  const headers = {
+    "Content-Type": "application/json",
+    "X-Shopify-Access-Token": shopifyToken,
+  };
+
+  let query = supabase.from("shopify_products").select("*");
+  if (shopifyProductIds?.length) {
+    const ids = shopifyProductIds.map(String).filter((id) => /^\d+$/.test(id));
+    if (ids.length === 0) {
+      return { repaired: 0, failed: 0, skipped: 0, errors: [], results: [] };
+    }
+    query = query.in("shopify_product_id", ids);
+  }
+
+  const { data: rows, error: fetchErr } = await query;
+  if (fetchErr) throw new Error(fetchErr.message);
+  const mirrorRows = (rows || []) as Record<string, unknown>[];
+
+  const sourceIds = [
+    ...new Set(
+      mirrorRows
+        .map((r) => String(r.source_product_id || "").trim())
+        .filter((id) => id.length > 0),
+    ),
+  ];
+
+  const productMap = new Map<string, Record<string, unknown>>();
+  const rtsMap = new Map<string, Record<string, unknown>>();
+
+  if (sourceIds.length > 0) {
+    const { data: products } = await supabase
+      .from("products")
+      .select("id,dimension_l_mm,dimension_w_mm,dimension_h_mm,material,customize")
+      .in("id", sourceIds);
+    for (const p of (products || []) as Record<string, unknown>[]) {
+      productMap.set(String(p.id), p);
+    }
+
+    const { data: rtsRows } = await supabase
+      .from("ready_to_shopify")
+      .select('product_id,dimension_l_mm,dimension_w_mm,dimension_h_mm,material,"my_fields.materials",customize')
+      .in("product_id", sourceIds);
+    for (const r of (rtsRows || []) as Record<string, unknown>[]) {
+      rtsMap.set(String(r.product_id), r);
+    }
+  }
+
+  let repaired = 0;
+  let failed = 0;
+  let skipped = 0;
+  const errors: { shopify_product_id: string; error: string }[] = [];
+  const results: {
+    shopify_product_id: string;
+    action: "repaired" | "skipped" | "failed";
+    metafields?: string[];
+    error?: string;
+  }[] = [];
+
+  const REPAIR_CONCURRENCY = 1;
+  const itemResults = await mapWithConcurrency(mirrorRows, REPAIR_CONCURRENCY, async (row) => {
+    const sid = String(row.shopify_product_id || "");
+    if (!/^\d+$/.test(sid)) {
+      return { shopify_product_id: sid, action: "skipped" as const };
+    }
+
+    const sourceId = String(row.source_product_id || "").trim();
+    const rts = sourceId ? rtsMap.get(sourceId) : null;
+    const product = sourceId ? productMap.get(sourceId) : null;
+    const built = buildCoreMetafieldsFromSources(rts, product);
+
+    const merged: Record<string, string> = {};
+    for (const col of CORE_METAFIELD_COLS) {
+      const builtVal = built[col]?.trim() || "";
+      const mirrorVal = row[col] != null ? String(row[col]).trim() : "";
+      merged[col] = builtVal || mirrorVal;
+    }
+
+    const hasAny = CORE_METAFIELD_COLS.some((col) => merged[col]?.trim());
+    if (!hasAny) {
+      return { shopify_product_id: sid, action: "skipped" as const };
+    }
+
+    const spUpdate: Record<string, string | null> = {};
+    for (const col of CORE_METAFIELD_COLS) {
+      spUpdate[col] = merged[col]?.trim() || null;
+    }
+    await supabase.from("shopify_products").update(spUpdate).eq("shopify_product_id", sid);
+
+    try {
+      const syncResult = await syncProductMetafieldsToShopify(apiBase, headers, sid, merged);
+      if (syncResult.fail > 0) {
+        return {
+          shopify_product_id: sid,
+          action: "failed" as const,
+          error: `${syncResult.fail} metafield(s) failed to sync`,
+        };
+      }
+      const updatedCols = CORE_METAFIELD_COLS.filter((col) => merged[col]?.trim());
+      return {
+        shopify_product_id: sid,
+        action: "repaired" as const,
+        metafields: [...updatedCols],
+      };
+    } catch (err) {
+      return {
+        shopify_product_id: sid,
+        action: "failed" as const,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
+  });
+
+  for (const item of itemResults) {
+    results.push(item);
+    if (item.action === "skipped") skipped++;
+    else if (item.action === "repaired") repaired++;
+    else {
+      failed++;
+      if (errors.length < 20 && item.error) {
+        errors.push({ shopify_product_id: item.shopify_product_id, error: item.error });
+      }
+    }
+  }
+
+  return { repaired, failed, skipped, errors, results };
+}
+
 const MIRROR_PUSH_CONCURRENCY = 5;
 
 /** Push mirror rows to Shopify (existing products only — never creates). */
@@ -1649,6 +1824,7 @@ async function pushMirrorRows(
  * Push one mirror row: POST { push_from_mirror: true, shopify_product_id }
  * Push selected mirror rows: POST { shopify_product_ids: string[] }
  * Batch push all mirror rows: POST { push_all_from_mirror: true }
+ * Repair core metafields from source data: POST { repair_metafields: true, shopify_product_ids?: string[] }
  */
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -1675,6 +1851,7 @@ Deno.serve(async (req: Request) => {
     const body = await req.json().catch(() => ({})) as {
       push_all_from_mirror?: boolean;
       push_from_mirror?: boolean;
+      repair_metafields?: boolean;
       shopify_product_ids?: string[];
       shopify_product_id?: string;
       source_product_id?: string;
@@ -1693,6 +1870,19 @@ Deno.serve(async (req: Request) => {
       seo_title?: string;
       seo_description?: string;
     };
+
+    if (body.repair_metafields) {
+      const ids = Array.isArray(body.shopify_product_ids)
+        ? body.shopify_product_ids.map(String).filter((id) => /^\d+$/.test(id))
+        : undefined;
+      const stats = await repairMetafieldsForProducts(supabase, shopDomain, shopifyToken, ids);
+      return json({
+        success: stats.failed === 0,
+        mode: "repair_metafields",
+        ...stats,
+        ...(ids ? { requested: ids.length } : { scope: "all_mirror_rows" }),
+      });
+    }
 
     if (body.push_all_from_mirror) {
       const { data: rows, error: fetchErr } = await supabase.from("shopify_products").select("*");
