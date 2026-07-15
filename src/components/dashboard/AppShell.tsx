@@ -178,6 +178,7 @@ export function AppShell() {
   const [publishModalProducts, setPublishModalProducts] = useState<Product[]>([]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [editingQuoteId, setEditingQuoteIdRaw] = useState<string | null>(null);
+  const [editingQuoteUuid, setEditingQuoteUuidRaw] = useState<string | null>(null);
   const [quickQuoteFreshKey, setQuickQuoteFreshKey] = useState(0);
   const deepLinkHandledRef = useRef<string | null>(null);
 
@@ -185,8 +186,20 @@ export function AppShell() {
     (id: string | null) => {
       setEditingQuoteIdRaw(id);
       writeQuickQuoteEditingId(user?.email, id);
+      if (!id) setEditingQuoteUuidRaw(null);
     },
     [user?.email],
+  );
+
+  const openQuoteForEdit = useCallback(
+    (quoteId: string, opts?: { quoteUuid?: string }) => {
+      if (!unsavedGuard.confirmLeave()) return;
+      writeQuickQuoteCopyFrom(user?.email, null);
+      setEditingQuoteId(quoteId);
+      setEditingQuoteUuidRaw(opts?.quoteUuid ?? null);
+      store.setCurrentView("quick-quote");
+    },
+    [user?.email, store],
   );
 
   // Deep links: /quote/quick?... (PMS new quote) and /quote/:quoteId (open existing)
@@ -556,9 +569,11 @@ export function AppShell() {
           <QuickQuoteView
             key={`quick-quote-${quickQuoteFreshKey}`}
             editingQuoteId={editingQuoteId}
+            editingQuoteUuid={editingQuoteUuid}
             freshSessionKey={quickQuoteFreshKey}
             onClearEditingQuote={() => {
               setEditingQuoteId(null);
+              setEditingQuoteUuidRaw(null);
               store.setCurrentView("quotation-list");
             }}
           />
@@ -573,12 +588,7 @@ export function AppShell() {
       case "quotation-list":
         return (
           <QuotationListView
-            onOpenQuote={(quoteId) => {
-              if (!unsavedGuard.confirmLeave()) return;
-              writeQuickQuoteCopyFrom(user?.email, null);
-              setEditingQuoteId(quoteId);
-              store.setCurrentView("quick-quote");
-            }}
+            onOpenQuote={openQuoteForEdit}
             onCopyQuote={(quoteUuid) => {
               if (!unsavedGuard.confirmLeave()) return;
               writeQuickQuoteCopyFrom(user?.email, quoteUuid);
@@ -612,6 +622,7 @@ export function AppShell() {
       resetQuickQuoteSessionStorage(user?.email);
       void deleteDraft(makeDraftKey(user?.email, "NEW"));
       setEditingQuoteId(null);
+      setEditingQuoteUuidRaw(null);
       setQuickQuoteFreshKey((k) => k + 1);
       store.setCurrentView("quick-quote");
       store.setFilterProductId(null);

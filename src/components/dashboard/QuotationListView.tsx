@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Clock, Copy, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronUp, Clock, Copy, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
@@ -50,6 +50,7 @@ import {
   staffDisplayLabel,
 } from '@/lib/staffDisplay';
 import { collectStaffNamesFromQuoteRows } from '@/lib/quoteStaffOptions';
+import { compareQuoteVersion } from '@/lib/quoteVersions';
 
 interface QuoteRecord {
   id: string;
@@ -82,7 +83,7 @@ type QuoteListRow = QuoteRecord & {
 };
 
 interface QuotationListViewProps {
-  onOpenQuote?: (quoteId: string) => void;
+  onOpenQuote?: (quoteId: string, opts?: { quoteUuid?: string }) => void;
   onCopyQuote?: (quoteUuid: string) => void;
 }
 
@@ -101,24 +102,23 @@ type SortKey =
   | 'quote_status'
   | 'pitching_stages';
 
-/** Keep one row per quote_id — latest modified_date wins (legacy duplicate cleanup in UI). */
-function dedupeQuotesByQuoteId(rows: QuoteRecord[]): QuoteRecord[] {
-  const byQuoteId = new Map<string, QuoteRecord>();
+/** Group all version rows; each group sorted newest version first. */
+function groupQuoteVersions(rows: QuoteRecord[]): Map<string, QuoteListRow[]> {
+  const map = new Map<string, QuoteListRow[]>();
   for (const row of rows) {
-    const prev = byQuoteId.get(row.quote_id);
-    if (!prev) {
-      byQuoteId.set(row.quote_id, row);
-      continue;
-    }
-    const prevTs = new Date(prev.modified_date || prev.created_at).getTime();
-    const rowTs = new Date(row.modified_date || row.created_at).getTime();
-    if (rowTs >= prevTs) byQuoteId.set(row.quote_id, row);
+    const list = map.get(row.quote_id) || [];
+    list.push(row as QuoteListRow);
+    map.set(row.quote_id, list);
   }
-  return [...byQuoteId.values()].sort(
-    (a, b) =>
-      new Date(b.modified_date || b.created_at).getTime() -
-      new Date(a.modified_date || a.created_at).getTime(),
-  );
+  for (const [key, list] of map) {
+    list.sort((a, b) => -compareQuoteVersion(a.version, b.version));
+    map.set(key, list);
+  }
+  return map;
+}
+
+function latestQuoteInGroup(versions: QuoteListRow[]): QuoteListRow {
+  return versions[0];
 }
 
 function quoteDisplayCode(q: QuoteRecord): string {
@@ -172,7 +172,9 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
   const [isDeleting, setIsDeleting] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>('enquiry_date');
   const [sortDir, setSortDir] = useState<ListSortDir>('desc');
-  const [activeId, setActiveId] = useState<string | null>(null);
+  const [expandedQuoteIds, setExpandedQuoteIds] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   const fetchQuotes = useCallback(async () => {
     setIsLoading(true);
@@ -183,11 +185,11 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      const deduped = dedupeQuotesByQuoteId((data as QuoteRecord[]) || []);
+      const allRows = (data as QuoteRecord[]) || [];
 
       const pitchingIds = [
         ...new Set(
-          deduped
+          allRows
             .map((q) => q.bwf_pitching_id)
             .filter((id): id is string => Boolean(id)),
         ),
@@ -203,7 +205,7 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
       }
 
       setQuotes(
-        deduped.map((q) => ({
+        allRows.map((q) => ({
           ...q,
           pitching: q.bwf_pitching_id
             ? pitchingById.get(q.bwf_pitching_id) || null
@@ -251,8 +253,12 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
     [quotes],
   );
 
-  const filteredQuotes = useMemo(() => {
-    let rows = quotes;
+  const quoteGroups = useMemo(() => groupQuoteVersions(quotes), [quotes]);
+
+  const filteredLatestQuotes = useMemo(() => {
+    const latestRows = [...quoteGroups.values()].map(latestQuoteInGroup);
+
+    let rows = latestRows;
 
     if (staffFilter !== '__all__') {
       rows = rows.filter((q) =>
@@ -286,13 +292,14 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
         pm.includes(query) ||
         q.submitter.toLowerCase().includes(query) ||
         q.status.toLowerCase().includes(query) ||
-        q.quote_id.toLowerCase().includes(query)
+        q.quote_id.toLowerCase().includes(query) ||
+        q.version.toLowerCase().includes(query)
       );
     });
-  }, [quotes, searchQuery, staffFilter]);
+  }, [quoteGroups, searchQuery, staffFilter]);
 
-  const sortedQuotes = useMemo(() => {
-    const rows = [...filteredQuotes];
+  const sortedLatestQuotes = useMemo(() => {
+    const rows = [...filteredLatestQuotes];
     rows.sort((a, b) => {
       switch (sortKey) {
         case 'enquiry_date': {
@@ -353,7 +360,46 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
       }
     });
     return rows;
-  }, [filteredQuotes, sortKey, sortDir]);
+  }, [filteredLatestQuotes, sortKey, sortDir]);
+
+  const toggleQuoteVersions = (quoteId: string) => {
+    setExpandedQuoteIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(quoteId)) next.delete(quoteId);
+      else next.add(quoteId);
+      return next;
+    });
+  };
+
+  const displayRows = useMemo(() => {
+    const rows: Array<{
+      quote: QuoteListRow;
+      quoteId: string;
+      isOlderVersion: boolean;
+      versionCount: number;
+      showExpandControl: boolean;
+      expanded: boolean;
+    }> = [];
+
+    for (const latest of sortedLatestQuotes) {
+      const versions = quoteGroups.get(latest.quote_id) || [latest];
+      const expanded = expandedQuoteIds.has(latest.quote_id);
+      const visible = expanded ? versions : [versions[0]];
+      visible.forEach((quote, index) => {
+        rows.push({
+          quote,
+          quoteId: latest.quote_id,
+          isOlderVersion: index > 0,
+          versionCount: versions.length,
+          showExpandControl: index === 0 && versions.length > 1,
+          expanded,
+        });
+      });
+    }
+    return rows;
+  }, [sortedLatestQuotes, quoteGroups, expandedQuoteIds]);
+
+  const [activeId, setActiveId] = useState<string | null>(null);
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -422,8 +468,8 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
         <ListTableCard
           minWidthClassName="min-w-[1280px]"
           footer={
-            !isLoading && sortedQuotes.length > 0
-              ? `共 ${sortedQuotes.length} 筆 · 點擊任一列開啟報價`
+            !isLoading && displayRows.length > 0
+              ? `共 ${sortedLatestQuotes.length} 張報價 · ${quotes.length} 個版本紀錄`
               : null
           }
         >
@@ -462,13 +508,13 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
           <tbody>
             {isLoading ? (
               <ListTableLoadingRow colSpan={11} label="載入報價單列表…" />
-            ) : sortedQuotes.length === 0 ? (
+            ) : displayRows.length === 0 ? (
               <ListTableEmptyRow
                 colSpan={11}
                 message={emptyMessage}
               />
             ) : (
-              sortedQuotes.map((quote) => {
+              displayRows.map(({ quote, quoteId, isOlderVersion, versionCount, showExpandControl, expanded }) => {
                 const selected = activeId === quote.id;
                 const title = quoteDisplayName(quote);
                 const code = quoteCode(quote);
@@ -484,15 +530,18 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
                     tabIndex={0}
                     onMouseEnter={() => setActiveId(quote.id)}
                     onFocus={() => setActiveId(quote.id)}
-                    onClick={() => onOpenQuote?.(quote.quote_id)}
+                    onClick={() =>
+                      onOpenQuote?.(quote.quote_id, { quoteUuid: quote.id })
+                    }
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
-                        onOpenQuote?.(quote.quote_id);
+                        onOpenQuote?.(quote.quote_id, { quoteUuid: quote.id });
                       }
                     }}
                     className={cn(
                       'cursor-pointer border-b border-border/70 transition-colors last:border-b-0',
+                      isOlderVersion ? 'bg-muted/15' : '',
                       selected ? 'bg-primary/10' : 'hover:bg-accent/50',
                     )}
                   >
@@ -524,14 +573,43 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
                       {quote.pitching?.customer_type || '—'}
                     </td>
                     <td className="min-w-[220px] max-w-[320px] px-3 py-3">
-                      <div className="truncate font-body text-sm font-semibold text-primary">
-                        {title}
-                      </div>
-                      <div className="mt-0.5 truncate font-mono-data text-[11px] text-muted-foreground">
-                        {code}
-                        {quote.project_data?.formData?.clientName
-                          ? ` · ${quote.project_data.formData.clientName}`
-                          : ''}
+                      <div className="flex items-start gap-1.5">
+                        {showExpandControl ? (
+                          <button
+                            type="button"
+                            title={expanded ? '收合版本' : `展開 ${versionCount} 個版本`}
+                            aria-label={expanded ? '收合版本' : `展開 ${versionCount} 個版本`}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleQuoteVersions(quoteId);
+                            }}
+                            className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-border/60 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                          >
+                            {expanded ? (
+                              <ChevronUp className="h-4 w-4" />
+                            ) : (
+                              <ChevronDown className="h-4 w-4" />
+                            )}
+                          </button>
+                        ) : (
+                          <span className="inline-block w-6 shrink-0" aria-hidden />
+                        )}
+                        <div className="min-w-0">
+                          <div
+                            className={cn(
+                              'truncate font-body text-sm font-semibold text-primary',
+                              isOlderVersion && 'font-medium text-foreground/80',
+                            )}
+                          >
+                            {title}
+                          </div>
+                          <div className="mt-0.5 truncate font-mono-data text-[11px] text-muted-foreground">
+                            {code}
+                            {quote.project_data?.formData?.clientName
+                              ? ` · ${quote.project_data.formData.clientName}`
+                              : ''}
+                          </div>
+                        </div>
                       </div>
                     </td>
                     <td className="whitespace-nowrap px-3 py-3">
@@ -633,14 +711,14 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
               確認刪除
             </AlertDialogTitle>
             <AlertDialogDescription className="font-body text-sm">
-              確定要刪除報價單{' '}
+              確定要刪除報價單版本{' '}
               <span className="font-mono-data font-bold text-foreground">
-                {deleteTarget ? quoteCode(deleteTarget) : ''}
+                {deleteTarget ? `${deleteTarget.version}` : ''}
               </span>
-              嗎？
+              （{deleteTarget ? quoteCode(deleteTarget) : ''}）嗎？
               <br />
               <span className="mt-2 block text-xs text-muted-foreground">
-                「{deleteLabel}」將永久移除，此操作無法撤銷。
+                「{deleteLabel}」的此版本將永久移除；其他版本不受影響。
               </span>
             </AlertDialogDescription>
           </AlertDialogHeader>

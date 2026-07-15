@@ -16,6 +16,11 @@ import {
   writeQuickQuoteCopyFrom,
 } from '@/lib/quickQuoteSession';
 import { loadQuoteCopyPayload, type QuoteCopyPayload } from '@/lib/quoteCopy';
+import {
+  compareQuoteVersion,
+  maxQuoteVersion,
+  bumpQuoteVersion,
+} from '@/lib/quoteVersions';
 import { unsavedGuard } from '@/lib/unsavedGuard';
 import {
   migrateTermsContentToCurrent,
@@ -39,11 +44,16 @@ const LazyQuotationPDFPreviewModal = lazy(() =>
 );
 
 function getNextQuoteVersion(version: string): string {
-  const match = version.match(/^v(\d+)\.(\d+)$/);
-  if (match) {
-    return `v${parseInt(match[1], 10)}.${parseInt(match[2], 10) + 1}`;
-  }
-  return 'v1.1';
+  return bumpQuoteVersion(version);
+}
+
+async function fetchMaxVersionForQuote(quoteId: string): Promise<string> {
+  const { data, error } = await supabase
+    .from('bwf_quote')
+    .select('version')
+    .eq('quote_id', quoteId);
+  if (error) throw error;
+  return maxQuoteVersion((data || []).map((r) => String(r.version || '')));
 }
 
 interface QuoteFormData {
@@ -100,6 +110,8 @@ const STEPS = [
 
 interface QuickQuoteViewProps {
   editingQuoteId?: string | null;
+  /** When set, open this specific version row (bwf_quote.id). */
+  editingQuoteUuid?: string | null;
   onClearEditingQuote?: () => void;
   /** Increment to reset wizard to 建立新報價單 step 1. */
   freshSessionKey?: number;
@@ -183,7 +195,12 @@ function readUrlPrefill(): {
   };
 }
 
-export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessionKey = 0 }: QuickQuoteViewProps) {
+export function QuickQuoteView({
+  editingQuoteId,
+  editingQuoteUuid,
+  onClearEditingQuote,
+  freshSessionKey = 0,
+}: QuickQuoteViewProps) {
   const { user, loading: authLoading } = useAuth();
   const userEmail = user?.email ?? null;
   const initialUrlPrefillRef = useRef(readUrlPrefill());
@@ -210,6 +227,7 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
     quoteUuid?: string;
     pitchingCode?: string | null;
     pitchingName?: string | null;
+    maxVersionInChain?: string;
   } | null>(null);
   const [formData, setFormData] = useState<QuoteFormData>(
     () => initialUrlPrefillRef.current.form,
@@ -442,23 +460,38 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
       return;
     }
 
-    // Avoid re-fetching when auth settles or the tab regains focus (prevents duplicate restore toasts)
-    if (loadedQuoteIdRef.current === editingQuoteId) return;
+    const loadKey = `${editingQuoteId}::${editingQuoteUuid || 'latest'}`;
+    if (loadedQuoteIdRef.current === loadKey) return;
 
     const loadQuote = async () => {
       setIsLoadingQuote(true);
       try {
-        // Always fetch authoritative server copy when opening an existing quote.
-        const { data, error } = await supabase
-          .from('bwf_quote')
-          .select('*')
-          .eq('quote_id', editingQuoteId)
-          .order('modified_date', { ascending: false, nullsFirst: false })
-          .limit(1)
-          .maybeSingle();
+        let data: Record<string, unknown> | null = null;
 
-        if (error) throw error;
+        if (editingQuoteUuid) {
+          const { data: row, error } = await supabase
+            .from('bwf_quote')
+            .select('*')
+            .eq('id', editingQuoteUuid)
+            .maybeSingle();
+          if (error) throw error;
+          data = row;
+        } else {
+          const { data: rows, error } = await supabase
+            .from('bwf_quote')
+            .select('*')
+            .eq('quote_id', editingQuoteId)
+            .order('modified_date', { ascending: false, nullsFirst: false })
+            .limit(1);
+          if (error) throw error;
+          data = rows?.[0] ?? null;
+        }
+
         if (!data) throw new Error('報價單不存在');
+
+        const maxVersionInChain = await fetchMaxVersionForQuote(
+          String(data.quote_id),
+        );
 
         // Discard any local IndexedDB draft — edits only persist via 版本審核.
         try {
@@ -520,19 +553,20 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
         }
 
         setLoadedQuoteData({
-          quoteId: data.quote_id,
-          version: data.version,
-          status: data.status,
-          totalAmount: data.total_amount,
-          submitter: data.submitter,
+          quoteId: data.quote_id as string,
+          version: data.version as string,
+          status: data.status as string,
+          totalAmount: data.total_amount as number,
+          submitter: data.submitter as string,
           projectData: projectDataToUse,
           bwfPitchingId: (data.bwf_pitching_id as string | null) ?? null,
           bwfProjectId: (data.bwf_project_id as string | null) ?? null,
           quoteUuid: data.id as string,
           pitchingCode: (data.pitching_code as string | null) ?? null,
           pitchingName: (data.pitching_name as string | null) ?? null,
+          maxVersionInChain,
         });
-        loadedQuoteIdRef.current = editingQuoteId;
+        loadedQuoteIdRef.current = loadKey;
 
         // Skip directly to step 4 editor
         setIsQuotationReady(true);
@@ -549,7 +583,7 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
     };
 
     loadQuote();
-  }, [editingQuoteId, onClearEditingQuote, userEmail, authLoading]);
+  }, [editingQuoteId, editingQuoteUuid, onClearEditingQuote, userEmail, authLoading]);
 
   const updateField = (field: keyof QuoteFormData, value: string | string[]) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -744,7 +778,10 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
                   <span className="mx-2 text-border">·</span>
                   送出新版本將為{' '}
                   <span className="font-semibold text-primary">
-                    {getNextQuoteVersion(loadedQuoteData.version)}
+                    {getNextQuoteVersion(
+                      loadedQuoteData.maxVersionInChain ||
+                        loadedQuoteData.version,
+                    )}
                   </span>
                 </p>
               )}
@@ -1340,9 +1377,9 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
                   bwfProjectId: prev?.bwfProjectId ?? formData.pmsProjectId ?? null,
                   pitchingCode: prev?.pitchingCode ?? formData.pitchingCode ?? null,
                   pitchingName: prev?.pitchingName ?? formData.pitchingName ?? null,
+                  maxVersionInChain: result.version,
                 }));
-                // Allow re-fetching the same quote after a successful 版本審核.
-                loadedQuoteIdRef.current = null;
+                loadedQuoteIdRef.current = `${result.quoteId}::${result.quoteUuid}`;
               }}
               existingQuote={loadedQuoteData || undefined}
             />

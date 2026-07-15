@@ -66,6 +66,7 @@ import {
   type BwfQuoteItemInput,
 } from "@/lib/bwfQuoteItems";
 import type { QuoteCopyPayload } from "@/lib/quoteCopy";
+import { bumpQuoteVersion } from "@/lib/quoteVersions";
 
 interface QuoteFormData {
   company: string;
@@ -142,6 +143,8 @@ interface QuotationDraftEditorProps {
     quoteUuid?: string;
     pitchingCode?: string | null;
     pitchingName?: string | null;
+    /** Highest version string in the quote_id chain — used to compute next submit version. */
+    maxVersionInChain?: string;
   };
   /** Body fields copied from another quote (items, delivery, terms). Header uses formData. */
   initialCopyPayload?: QuoteCopyPayload | null;
@@ -1694,16 +1697,10 @@ export function QuotationDraftEditor({
     setShowSubmitModal(true);
   };
   const currentVersion = useMemo(() => {
-    if (existingQuote?.version) {
-      const match = existingQuote.version.match(/^v(\d+)\.(\d+)$/);
-      if (match) {
-        const major = parseInt(match[1], 10);
-        const minor = parseInt(match[2], 10) + 1;
-        return `v${major}.${minor}`;
-      }
-    }
-    return 'v1.1';
-  }, [existingQuote?.version]);
+    const base =
+      existingQuote?.maxVersionInChain || existingQuote?.version || null;
+    return bumpQuoteVersion(base);
+  }, [existingQuote?.maxVersionInChain, existingQuote?.version]);
 
   // Product selector modal state
   const [showProductSelector, setShowProductSelector] = useState(false);

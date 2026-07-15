@@ -5,7 +5,7 @@ import { toast } from 'sonner';
 import { extractPmsPitchingIdFromProjectData, extractPmsProjectIdFromProjectData } from '@/lib/pmsQuotePrefill';
 import { useAuth } from '@/contexts/AuthProvider';
 import { usePmsStaffName } from '@/hooks/use-pms-staff-name';
-import { withInsertAuditFields, withUpdateAuditFields } from '@/lib/pmsAudit';
+import { withInsertAuditFields } from '@/lib/pmsAudit';
 import { quoteItemHasBase64Images } from '@/lib/quoteImageStorage';
 import { fetchQuoteStaffFilterOptions } from '@/lib/quoteStaffOptions';
 import { StaffNameCombobox } from '@/components/dashboard/StaffNameCombobox';
@@ -17,6 +17,9 @@ import {
   resolvePitchingName,
   type BwfQuoteItemInput,
 } from '@/lib/bwfQuoteItems';
+import {
+  nextQuoteVersionFromChain,
+} from '@/lib/quoteVersions';
 
 export interface SubmitReviewResult {
   quoteId: string;
@@ -130,22 +133,33 @@ export function SubmitReviewModal({
 
     let isUpdate = !!existingQuoteId?.trim();
     let quoteId = isUpdate ? existingQuoteId!.trim() : generateQuoteId();
-    let quoteUuid = existingQuoteUuid?.trim() || '';
+    let resolvedVersion = version;
 
-    // Same PMS pitching → update existing quote instead of creating another row.
+    // Same PMS pitching → attach to existing quote_id (new version row, not overwrite).
     if (!isUpdate && pitchingId && !forceNewQuote) {
       const { data: existingByPitching } = await supabase
         .from('bwf_quote')
-        .select('id, quote_id')
+        .select('quote_id')
         .eq('bwf_pitching_id', pitchingId)
         .order('modified_date', { ascending: false, nullsFirst: false })
         .limit(1)
         .maybeSingle();
-      if (existingByPitching?.quote_id && existingByPitching?.id) {
+      if (existingByPitching?.quote_id) {
         isUpdate = true;
         quoteId = existingByPitching.quote_id;
-        quoteUuid = existingByPitching.id;
       }
+    }
+
+    if (isUpdate) {
+      const { data: versionRows, error: versionErr } = await supabase
+        .from('bwf_quote')
+        .select('version')
+        .eq('quote_id', quoteId);
+      if (versionErr) throw versionErr;
+      const chain = (versionRows || []).map((r) => String(r.version || ''));
+      resolvedVersion = existingQuoteId?.trim()
+        ? version
+        : nextQuoteVersionFromChain(chain);
     }
 
     const formDataRaw =
@@ -197,7 +211,7 @@ export function SubmitReviewModal({
 
       const rowPayload = {
         quote_id: quoteId,
-        version,
+        version: resolvedVersion,
         status: '待審核',
         total_amount: totalAmount,
         cost_price: totalCostPrice ?? null,
@@ -209,42 +223,26 @@ export function SubmitReviewModal({
         ...(projectId ? { bwf_project_id: projectId } : {}),
       };
 
-      let persistedUuid = quoteUuid;
+      const insertPayload = await withInsertAuditFields(rowPayload);
+      const { data: inserted, error: dbError } = await supabase
+        .from('bwf_quote')
+        .insert(insertPayload)
+        .select('id')
+        .single();
 
-      if (isUpdate) {
-        const updatePayload = await withUpdateAuditFields(rowPayload);
-        const { data: updated, error: dbError } = await supabase
-          .from('bwf_quote')
-          .update(updatePayload)
-          .eq('quote_id', quoteId)
-          .select('id')
-          .single();
-
-        if (dbError) throw dbError;
-        if (!updated?.id) throw new Error('報價單已更新但缺少 id');
-        persistedUuid = updated.id;
-      } else {
-        const insertPayload = await withInsertAuditFields(rowPayload);
-        const { data: inserted, error: dbError } = await supabase
-          .from('bwf_quote')
-          .insert(insertPayload)
-          .select('id')
-          .single();
-
-        if (dbError) throw dbError;
-        if (!inserted?.id) throw new Error('報價單已建立但缺少 id');
-        persistedUuid = inserted.id;
-      }
+      if (dbError) throw dbError;
+      if (!inserted?.id) throw new Error('報價單已建立但缺少 id');
+      const persistedUuid = inserted.id;
 
       await replaceQuoteItems(persistedUuid, resolvedItems);
 
-      toast.success(isUpdate ? '報價單已更新並提交審核' : '報價單已提交審核', {
-        description: `${quoteId} · ${code || '—'} · 版本 ${version}`,
+      toast.success(isUpdate ? '報價單新版本已提交審核' : '報價單已提交審核', {
+        description: `${quoteId} · ${code || '—'} · 版本 ${resolvedVersion}`,
       });
       onSuccess({
         quoteId,
         quoteUuid: persistedUuid,
-        version,
+        version: resolvedVersion,
         projectData: payloadProjectData,
         totalAmount,
       });
