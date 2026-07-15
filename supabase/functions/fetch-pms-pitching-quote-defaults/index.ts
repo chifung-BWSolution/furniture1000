@@ -45,6 +45,39 @@ function sortIndustryOptions<T extends { display: string }>(rows: T[]): T[] {
   });
 }
 
+const REMOVED_INDUSTRY_DISPLAYS = new Set([
+  "教育及培訓業 - Education and Training",
+]);
+
+const ADDED_INDUSTRY_OPTIONS = [
+  { id: "bwf-local:primary-school", display: "中小學 - Primary and School" },
+  { id: "bwf-local:kindergarten", display: "幼稚園 - Kindergarten" },
+  { id: "bwf-local:university", display: "大專院校 - University" },
+  { id: "bwf-local:education", display: "教育行業 - Education" },
+];
+
+function isRemovedIndustryDisplay(display: string): boolean {
+  const trimmed = display.trim();
+  if (!trimmed) return true;
+  if (REMOVED_INDUSTRY_DISPLAYS.has(trimmed)) return true;
+  return industryEnglishSortKey(trimmed) === "education and training";
+}
+
+function applyClientIndustryCatalogOverrides<
+  T extends { id: string; display: string },
+>(options: T[]): T[] {
+  const filtered = options.filter((o) => !isRemovedIndustryDisplay(o.display));
+  const existing = new Set(filtered.map((o) => o.display.trim().toLowerCase()));
+  const additions = ADDED_INDUSTRY_OPTIONS.filter(
+    (o) => !existing.has(o.display.trim().toLowerCase()),
+  ) as T[];
+  return sortIndustryOptions([...filtered, ...additions]);
+}
+
+function sanitizeSelectedIndustries(selected: string[]): string[] {
+  return selected.filter((s) => !isRemovedIndustryDisplay(s));
+}
+
 function firstNonEmpty(...values: Array<string | null | undefined>): string | null {
   for (const v of values) {
     const s = (v || "").trim();
@@ -192,7 +225,7 @@ Deno.serve(async (req: Request) => {
       throw new Error(`Industry tags lookup failed: ${industryError.message}`);
     }
 
-    const industryOptions = sortIndustryOptions(
+    const industryOptions = applyClientIndustryCatalogOverrides(
       (industryRows || [])
         .map((row) => ({
           id: row.id as string,
@@ -320,11 +353,11 @@ Deno.serve(async (req: Request) => {
 
       if (tagIds.length > 0) {
         const optionById = new Map(industryOptions.map((o) => [o.id, o.display]));
-        selectedIndustries = [...new Set(
+        selectedIndustries = sanitizeSelectedIndustries([...new Set(
           tagIds
             .map((id) => optionById.get(id))
             .filter((d): d is string => Boolean(d)),
-        )];
+        )]);
       }
     }
 

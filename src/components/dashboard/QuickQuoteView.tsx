@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback, useRef, lazy, Suspense } from 'react';
+import { useState, useEffect, useCallback, useRef, lazy, Suspense, useMemo } from 'react';
 import { cn } from '@/lib/utils';
-import { Check, ChevronRight, ChevronLeft, Sparkles, Loader2 } from 'lucide-react';
+import { Check, ChevronRight, ChevronLeft, Sparkles, Loader2, Search } from 'lucide-react';
 import { QuotationDraftEditor } from '@/components/dashboard/QuotationDraftEditor';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
@@ -37,6 +37,7 @@ import {
   type PmsPitchingListItem,
 } from '@/lib/pmsPitchings';
 import { sortIndustryLabels } from '@/lib/clientIndustrySort';
+import { filterIndustriesBySearch } from '@/lib/clientIndustryCatalog';
 import { PmsPitchingGate } from '@/components/dashboard/PmsPitchingGate';
 
 const LazyQuotationPDFPreviewModal = lazy(() =>
@@ -240,6 +241,7 @@ export function QuickQuoteView({
   const copyFromUuid = readQuickQuoteCopyFrom(userEmail);
   const [errors, setErrors] = useState<Partial<Record<keyof QuoteFormData, string>>>({});
   const [industryOptions, setIndustryOptions] = useState<string[]>(FALLBACK_INDUSTRIES);
+  const [industrySearchQuery, setIndustrySearchQuery] = useState('');
   const [pmsIndustryCatalog, setPmsIndustryCatalog] = useState<PmsIndustryOption[]>([]);
   const [selectedPitchingLabel, setSelectedPitchingLabel] = useState<string | null>(
     () => initialUrlPrefillRef.current.label,
@@ -316,6 +318,16 @@ export function QuickQuoteView({
     }
   }, [authLoading, userEmail, editingQuoteId, freshSessionKey]);
 
+  const filteredIndustryOptions = useMemo(
+    () =>
+      filterIndustriesBySearch(
+        industryOptions,
+        industrySearchQuery,
+        formData.clientIndustry,
+      ),
+    [industryOptions, industrySearchQuery, formData.clientIndustry],
+  );
+
   const resetToNewQuote = useCallback(() => {
     setCurrentStep(1);
     setIsQuotationReady(false);
@@ -324,6 +336,7 @@ export function QuickQuoteView({
     setFormData(DEFAULT_FORM_DATA());
     setSelectedPitchingLabel(null);
     setErrors({});
+    setIndustrySearchQuery('');
     pmsDefaultsLoadedForRef.current = null;
     resetQuickQuoteSessionStorage(userEmail, { keepCopyFrom: true });
     deleteDraft(makeDraftKey(userEmail, 'NEW')).catch(() => {});
@@ -1020,11 +1033,29 @@ export function QuickQuoteView({
 
               {/* Client Industry Tags — PMS nos_customer_tags (collection industry) when available */}
               <div>
-                <label className="mb-2 block font-body text-sm font-medium text-foreground">
-                  客戶產業 <span className="text-red-500">*</span>
-                </label>
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <label className="font-body text-sm font-medium text-foreground">
+                    客戶產業 <span className="text-red-500">*</span>
+                  </label>
+                  <div className="relative w-full min-w-[200px] max-w-xs sm:w-64">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <input
+                      type="search"
+                      value={industrySearchQuery}
+                      onChange={(e) => setIndustrySearchQuery(e.target.value)}
+                      placeholder="搜尋產業（中 / 英）"
+                      aria-label="搜尋客戶產業"
+                      className="w-full rounded-lg border border-border bg-background py-2 pl-9 pr-3 font-body text-sm text-foreground placeholder:text-muted-foreground/60 transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                    />
+                  </div>
+                </div>
                 <div className="flex flex-wrap items-center gap-2">
-                  {industryOptions.map((industry) => (
+                  {filteredIndustryOptions.length === 0 ? (
+                    <p className="font-body text-sm text-muted-foreground">
+                      找不到符合「{industrySearchQuery.trim()}」的產業
+                    </p>
+                  ) : (
+                    filteredIndustryOptions.map((industry) => (
                     <button
                       key={industry}
                       type="button"
@@ -1038,7 +1069,8 @@ export function QuickQuoteView({
                     >
                       {industry}
                     </button>
-                  ))}
+                    ))
+                  )}
                   {pmsIndustryCatalog.length === 0 &&
                     formData.clientIndustry.includes('其他') && (
                     <input
