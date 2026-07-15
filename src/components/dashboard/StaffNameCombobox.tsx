@@ -2,12 +2,6 @@ import { useMemo, useState } from 'react';
 import { Check, ChevronsUpDown, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Popover, PopoverAnchor, PopoverContent } from '@/components/ui/popover';
-import {
-  Command,
-  CommandGroup,
-  CommandItem,
-  CommandList,
-} from '@/components/ui/command';
 
 interface StaffNameComboboxProps {
   value: string;
@@ -17,6 +11,12 @@ interface StaffNameComboboxProps {
   placeholder?: string;
   hasError?: boolean;
   id?: string;
+}
+
+function filterStaffOptions(options: string[], query: string): string[] {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) return options;
+  return options.filter((name) => name.toLowerCase().includes(normalized));
 }
 
 export function StaffNameCombobox({
@@ -30,27 +30,30 @@ export function StaffNameCombobox({
 }: StaffNameComboboxProps) {
   const [open, setOpen] = useState(false);
 
-  const filteredOptions = useMemo(() => {
-    const query = value.trim().toLowerCase();
-    if (!query) return options;
-    return options.filter((name) => name.toLowerCase().includes(query));
-  }, [options, value]);
+  const filteredOptions = useMemo(
+    () => filterStaffOptions(options, value),
+    [options, value],
+  );
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={setOpen} modal={false}>
       <PopoverAnchor asChild>
         <div className="relative">
           <input
             id={id}
             type="text"
             value={value}
-            onChange={(e) => onChange(e.target.value)}
+            onChange={(e) => {
+              onChange(e.target.value);
+              setOpen(true);
+            }}
             onFocus={() => setOpen(true)}
             placeholder={placeholder}
             autoComplete="off"
             role="combobox"
             aria-expanded={open}
             aria-autocomplete="list"
+            aria-controls={id ? `${id}-listbox` : undefined}
             className={cn(
               'w-full rounded-lg border bg-background px-4 py-2.5 pr-10 font-body text-sm text-foreground placeholder:text-muted-foreground/50 transition-all focus:outline-none focus:ring-2',
               hasError
@@ -71,49 +74,64 @@ export function StaffNameCombobox({
         </div>
       </PopoverAnchor>
       <PopoverContent
-        className="w-[var(--radix-popover-trigger-width)] p-0"
+        id={id ? `${id}-listbox` : undefined}
+        role="listbox"
+        className="z-[120] w-[var(--radix-popover-trigger-width)] p-1"
         align="start"
+        sideOffset={4}
         onOpenAutoFocus={(e) => e.preventDefault()}
+        onInteractOutside={(e) => {
+          const target = e.target as HTMLElement | null;
+          if (target?.closest(`#${CSS.escape(id ?? '')}`)) {
+            e.preventDefault();
+          }
+        }}
       >
-        <Command shouldFilter={false}>
-          <CommandList className="max-h-[220px]">
-            {loading ? (
-              <div className="flex items-center justify-center gap-2 py-6">
-                <Loader2 className="h-4 w-4 animate-spin text-primary" />
-                <span className="font-body text-xs text-muted-foreground">
-                  載入 PM 及設計師名單…
-                </span>
-              </div>
-            ) : filteredOptions.length === 0 ? (
-              <div className="px-3 py-4 text-center">
-                <p className="font-body text-xs text-muted-foreground">
-                  {value.trim()
-                    ? `找不到「${value.trim()}」，可直接使用輸入的名稱`
-                    : '尚無可選名單，請直接輸入姓名'}
-                </p>
-              </div>
-            ) : (
-              <CommandGroup>
-                {filteredOptions.map((name) => (
-                  <CommandItem
-                    key={name}
-                    value={name}
-                    onSelect={() => {
+        {loading ? (
+          <div className="flex items-center justify-center gap-2 py-4">
+            <Loader2 className="h-4 w-4 animate-spin text-primary" />
+            <span className="font-body text-xs text-muted-foreground">
+              載入 PM 及設計師名單…
+            </span>
+          </div>
+        ) : filteredOptions.length === 0 ? (
+          <div className="px-3 py-4 text-center">
+            <p className="font-body text-xs text-muted-foreground">
+              {value.trim()
+                ? `找不到「${value.trim()}」，可直接使用輸入的名稱`
+                : '尚無可選名單，請直接輸入姓名'}
+            </p>
+          </div>
+        ) : (
+          <ul className="max-h-[220px] overflow-y-auto">
+            {filteredOptions.map((name) => {
+              const selected = value.trim() === name;
+              return (
+                <li key={name} role="presentation">
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={selected}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
                       onChange(name);
                       setOpen(false);
                     }}
-                    className="cursor-pointer font-body text-sm"
+                    className={cn(
+                      'flex w-full cursor-pointer items-center gap-2 rounded-md px-3 py-2 text-left font-body text-sm transition-colors hover:bg-accent',
+                      selected && 'bg-accent/70',
+                    )}
                   >
                     <span className="flex-1 truncate">{name}</span>
-                    {value.trim() === name && (
-                      <Check className="h-3.5 w-3.5 text-primary" />
+                    {selected && (
+                      <Check className="h-3.5 w-3.5 shrink-0 text-primary" />
                     )}
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-            )}
-          </CommandList>
-        </Command>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </PopoverContent>
     </Popover>
   );
