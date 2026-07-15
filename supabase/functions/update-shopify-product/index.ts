@@ -1597,6 +1597,10 @@ const IMAGE_METAFIELD_COLS = [
   ...MORE_IMAGE_ALT_COLS,
 ] as const;
 
+function isUuid(id: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+}
+
 /** Rebuild core text metafields from ready_to_shopify + products source rows. */
 function buildCoreMetafieldsFromSources(
   rts: Record<string, unknown> | null | undefined,
@@ -1845,11 +1849,20 @@ async function repairMetafieldsForProducts(
     ...new Set(
       mirrorRows
         .map((r) => String(r.source_product_id || "").trim())
-        .filter((id) => id.length > 0),
+        .filter((id) => isUuid(id)),
+    ),
+  ];
+
+  const skuLookup = [
+    ...new Set(
+      mirrorRows
+        .map((r) => String(r.sku || "").trim())
+        .filter((sku) => sku.length > 0),
     ),
   ];
 
   const productMap = new Map<string, Record<string, unknown>>();
+  const productBySku = new Map<string, Record<string, unknown>>();
   const rtsMap = new Map<string, Record<string, unknown>>();
 
   // PostgREST `.in()` has URL length limits — chunk source lookups.
@@ -1872,6 +1885,18 @@ async function repairMetafieldsForProducts(
     }
   }
 
+  for (let i = 0; i < skuLookup.length; i += 100) {
+    const chunk = skuLookup.slice(i, i + 100);
+    const { data: products } = await supabase
+      .from("products")
+      .select("sku,dimension_l_mm,dimension_w_mm,dimension_h_mm,material,customize")
+      .in("sku", chunk);
+    for (const p of (products || []) as Record<string, unknown>[]) {
+      const sku = String(p.sku || "").trim();
+      if (sku) productBySku.set(sku, p);
+    }
+  }
+
   let repaired = 0;
   let failed = 0;
   let skipped = 0;
@@ -1891,8 +1916,10 @@ async function repairMetafieldsForProducts(
     }
 
     const sourceId = String(row.source_product_id || "").trim();
-    const rts = sourceId ? rtsMap.get(sourceId) : null;
-    const product = sourceId ? productMap.get(sourceId) : null;
+    const sku = String(row.sku || "").trim();
+    const rts = sourceId && isUuid(sourceId) ? rtsMap.get(sourceId) : null;
+    let product = sourceId && isUuid(sourceId) ? productMap.get(sourceId) : null;
+    if (!product && sku) product = productBySku.get(sku) ?? null;
     const built = buildCoreMetafieldsFromSources(rts, product);
 
     const merged: Record<string, string> = {};
@@ -1912,23 +1939,29 @@ async function repairMetafieldsForProducts(
       liveMap = state.liveMap;
       metafieldGids = state.metafieldGids;
     } catch {
-      // Fall back to REST images only; leave liveMap empty so we write all merged cols.
       try {
         liveImages = await fetchShopifyProductImages(apiBase, headers, sid);
       } catch {
         liveImages = [];
       }
     }
+
+    // Fill gaps from live Shopify (imported products / mirror drift).
+    for (const col of [...CORE_METAFIELD_COLS, ...IMAGE_METAFIELD_COLS]) {
+      if (!String(merged[col] ?? "").trim()) {
+        const liveVal = liveMap.get(col)?.trim();
+        if (liveVal) merged[col] = liveVal;
+      }
+    }
+
     const imageUrls = collectImageUrlsForMetafields(liveImages, row);
     const title = String(row.title || "").trim();
-    // Only rewrite more_image_* when we have image URLs — never wipe existing
-    // gallery metafields just because the live fetch returned empty.
     if (imageUrls.length > 0) {
       const imageCols = moreImageLinkColumnsFromUrls(imageUrls, title || null);
       for (const col of IMAGE_METAFIELD_COLS) {
         const val = imageCols[col];
         if (val != null && String(val).trim()) merged[col] = String(val).trim();
-        else merged[col] = ""; // clear unused slots 2..4 when fewer than 4 images
+        else merged[col] = "";
       }
     }
 
