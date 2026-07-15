@@ -16,7 +16,6 @@ import {
 import { cn } from "@/lib/utils";
 import { TermsRichEditor } from "@/components/dashboard/TermsRichEditor";
 import { RemarksRichEditor } from "@/components/dashboard/RemarksRichEditor";
-import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import { SubmitReviewModal, type SubmitReviewResult } from "@/components/dashboard/SubmitReviewModal";
 import { ProductSelectorModal } from "@/components/dashboard/ProductSelectorModal";
@@ -56,18 +55,13 @@ import {
   formatHkdCostDisplayCeil,
   exchangeRateInputDisplay,
 } from "@/lib/quoteCostExchange";
-import { withUpdateAuditFields } from "@/lib/pmsAudit";
 import {
   loadQuoteItems,
-  replaceQuoteItems,
-  resolveItemImagesToStorage,
   itemsFromLegacyProjectData,
-  stripItemsFromProjectData,
   resolvePitchingCode,
   resolvePitchingName,
   type BwfQuoteItemInput,
 } from "@/lib/bwfQuoteItems";
-import { quoteItemHasBase64Images } from "@/lib/quoteImageStorage";
 
 interface QuoteFormData {
   company: string;
@@ -1400,7 +1394,10 @@ export function QuotationDraftEditor({
     ),
   );
   const [termsEditMode, setTermsEditMode] = useState(false);
-  const [termsSaving, setTermsSaving] = useState(false);
+
+  const finishTermsEdit = () => {
+    setTermsEditMode(false);
+  };
 
   // Re-apply canonical terms template when opening any saved quote (DB or IndexedDB).
   useEffect(() => {
@@ -1420,73 +1417,6 @@ export function QuotationDraftEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [existingQuote?.quoteId]);
 
-  const saveTermsToDb = async () => {
-    if (!existingQuote?.quoteId) {
-      // Not yet saved to DB — just toggle off edit mode
-      setTermsEditMode(false);
-      return;
-    }
-    setTermsSaving(true);
-    try {
-      const quoteScope = existingQuote.quoteId;
-      const contentItems = items.filter(hasQuoteItemContent);
-      const resolvedItems = await resolveItemImagesToStorage(contentItems, quoteScope);
-      if (resolvedItems.some((item) => quoteItemHasBase64Images(item))) {
-        throw new Error("部分圖片未能上傳至 Storage，請檢查網絡後重試");
-      }
-
-      const pitchingId =
-        formData.pmsPitchingId ||
-        existingQuote.bwfPitchingId ||
-        null;
-      const projectId =
-        formData.pmsProjectId ||
-        existingQuote.bwfProjectId ||
-        null;
-      const headerProjectData = stripItemsFromProjectData(buildProjectData());
-      if ('items' in headerProjectData) {
-        delete headerProjectData.items;
-      }
-      const updatePayload = await withUpdateAuditFields({
-        project_data: headerProjectData,
-        pitching_code: pitchingCode || null,
-        pitching_name: pitchingNameStored || formData.pitchingName || null,
-        ...(pitchingId ? { bwf_pitching_id: pitchingId } : {}),
-        ...(projectId ? { bwf_project_id: projectId } : {}),
-      });
-      const { error } = await supabase
-        .from("bwf_quote")
-        .update(updatePayload)
-        .eq("quote_id", existingQuote.quoteId);
-      if (error) throw error;
-
-      if (existingQuote.quoteUuid) {
-        await replaceQuoteItems(existingQuote.quoteUuid, resolvedItems);
-      }
-
-      setItems((prev) =>
-        prev.map((item) => {
-          const row = resolvedItems.find((r) => r.id === item.id);
-          if (!row) return item;
-          return {
-            ...item,
-            image: row.image ?? item.image,
-            referenceImage: row.referenceImage ?? item.referenceImage,
-            remarks: row.remarks ?? item.remarks,
-            remarksImage: undefined,
-          };
-        }),
-      );
-      toast.success("條款已保存");
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "保存失敗";
-      toast.error("保存失敗", { description: msg });
-    } finally {
-      setTermsSaving(false);
-      setTermsEditMode(false);
-    }
-  };
-
   // Product items table
   const [factories, setFactories] = useState<string[]>([]);
   const [factoriesLoading, setFactoriesLoading] = useState(false);
@@ -1496,7 +1426,7 @@ export function QuotationDraftEditor({
     }
     return DEFAULT_ITEMS;
   });
-  const [, setItemsLoadedFromDb] = useState(false);
+  const [itemsLoadedFromDb, setItemsLoadedFromDb] = useState(false);
 
   // Load line items from bwf_quote_item (prefer over empty legacy JSON)
   useEffect(() => {
@@ -1724,11 +1654,11 @@ export function QuotationDraftEditor({
   const [showProductSelector, setShowProductSelector] = useState(false);
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
 
-  // Draft auto-save state
+  // Draft state — baseline snapshot detects unsaved edits vs loaded content.
   const [draftLoaded, setDraftLoaded] = useState(false);
   const draftHydratedRef = useRef<string | null>(null);
-  // True once 版本審核 has been done with the current content; cleared on edit.
-  const [persisted, setPersisted] = useState(false);
+  const baselineSnapshotRef = useRef<string | null>(null);
+  const [snapshotReady, setSnapshotReady] = useState(false);
 
   const rawQuoteId = existingQuote?.quoteId || "NEW";
   const storageKey = makeDraftKey(userEmail, rawQuoteId);
@@ -1737,42 +1667,7 @@ export function QuotationDraftEditor({
   // 報價內容 is considered "有數據" if any row has a product name.
   const hasQuoteData = items.some(hasQuoteItemContent);
 
-  // Unsaved-work guard: dirty when there is quote data not yet submitted via 版本審核.
-  const isDirty = draftLoaded && hasQuoteData && !persisted;
-
-  useEffect(() => {
-    unsavedGuard.set(isDirty, QUOTE_UNSAVED_LEAVE_MESSAGE);
-    return () => unsavedGuard.clear();
-  }, [isDirty]);
-
-  useEffect(() => {
-    unsavedGuard.setLeaveHandler(() => {
-      deleteDraft(storageKey).catch(() => {});
-      resetQuickQuoteSessionStorage(userEmail);
-    });
-    return () => unsavedGuard.setLeaveHandler(null);
-  }, [storageKey, userEmail]);
-
-  // Warn on browser tab close / refresh while dirty.
-  useEffect(() => {
-    const handler = (e: BeforeUnloadEvent) => {
-      if (unsavedGuard.isDirty) {
-        e.preventDefault();
-        e.returnValue = '';
-      }
-    };
-    window.addEventListener('beforeunload', handler);
-    return () => window.removeEventListener('beforeunload', handler);
-  }, []);
-
-  // Any edit to quote content re-arms the dirty state.
-  useEffect(() => {
-    setPersisted(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, companyInfo, clientInfo, quoteMeta, deliveryDetails, termsContent, discountNote, installationFee, gpSummary]);
-
-  // Load draft from IndexedDB on mount (only for NEW quotes without existingQuote)
-  // For existing quotes, QuickQuoteView handles loading the draft before passing projectData.
+  // Load draft from IndexedDB on mount (NEW quotes only — existing quotes use server data).
   useEffect(() => {
     if (existingQuote) {
       draftHydratedRef.current = storageKey;
@@ -1932,14 +1827,71 @@ export function QuotationDraftEditor({
     ],
   );
 
-  // Auto-save draft locally while editing (no manual 儲存草稿 button).
+  // Unsaved-work guard: dirty only when content differs from the loaded baseline.
+  const currentSnapshot = useMemo(
+    () => JSON.stringify(buildDraftData()),
+    [buildDraftData],
+  );
+
+  const isDirty =
+    snapshotReady &&
+    hasQuoteData &&
+    currentSnapshot !== baselineSnapshotRef.current;
+
   useEffect(() => {
-    if (!draftLoaded || !hasQuoteData || persisted) return;
+    unsavedGuard.set(isDirty, QUOTE_UNSAVED_LEAVE_MESSAGE);
+    return () => unsavedGuard.clear();
+  }, [isDirty]);
+
+  useEffect(() => {
+    unsavedGuard.setLeaveHandler(() => {
+      deleteDraft(storageKey).catch(() => {});
+      resetQuickQuoteSessionStorage(userEmail);
+    });
+    return () => unsavedGuard.setLeaveHandler(null);
+  }, [storageKey, userEmail]);
+
+  // Warn on browser tab close / refresh while dirty.
+  useEffect(() => {
+    const handler = (e: BeforeUnloadEvent) => {
+      if (unsavedGuard.isDirty) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, []);
+
+  // Reset baseline when switching quotes.
+  useEffect(() => {
+    baselineSnapshotRef.current = null;
+    setSnapshotReady(false);
+  }, [storageKey]);
+
+  // Capture baseline once quote content has finished loading.
+  useEffect(() => {
+    if (!draftLoaded) return;
+    if (existingQuote?.quoteUuid && !itemsLoadedFromDb) return;
+    if (baselineSnapshotRef.current !== null) return;
+
+    const timer = window.setTimeout(() => {
+      baselineSnapshotRef.current = JSON.stringify(buildDraftData());
+      setSnapshotReady(true);
+    }, 0);
+
+    return () => window.clearTimeout(timer);
+  }, [draftLoaded, existingQuote?.quoteUuid, itemsLoadedFromDb, buildDraftData]);
+
+  // Auto-save draft locally for NEW quotes only (existing quotes persist via 版本審核).
+  useEffect(() => {
+    if (existingQuote) return;
+    if (!draftLoaded || !hasQuoteData) return;
     const timer = window.setTimeout(() => {
       saveDraft(buildDraftData()).catch(() => {});
     }, 800);
     return () => window.clearTimeout(timer);
-  }, [draftLoaded, hasQuoteData, persisted, buildDraftData]);
+  }, [existingQuote, draftLoaded, hasQuoteData, buildDraftData]);
 
   const handleProductSelected = (
     products: {
@@ -2647,21 +2599,15 @@ export function QuotationDraftEditor({
                   <button
                     type="button"
                     onClick={() =>
-                      termsEditMode ? saveTermsToDb() : setTermsEditMode(true)
+                      termsEditMode ? finishTermsEdit() : setTermsEditMode(true)
                     }
-                    disabled={termsSaving}
                     className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 font-body text-xs font-medium transition-colors ${
                       termsEditMode
                         ? "bg-primary/10 text-primary hover:bg-primary/20"
                         : "border border-border text-foreground/60 hover:bg-accent hover:text-foreground"
-                    } disabled:opacity-60 disabled:cursor-not-allowed`}
+                    }`}
                   >
-                    {termsSaving ? (
-                      <>
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        保存中...
-                      </>
-                    ) : termsEditMode ? (
+                    {termsEditMode ? (
                       <>
                         <Check className="h-3.5 w-3.5" />
                         完成編輯
@@ -2820,7 +2766,8 @@ export function QuotationDraftEditor({
         onClose={() => setShowSubmitModal(false)}
         onSuccess={(result) => {
           setShowSubmitModal(false);
-          setPersisted(true);
+          baselineSnapshotRef.current = JSON.stringify(buildDraftData());
+          setSnapshotReady(true);
           unsavedGuard.clear();
           deleteDraft(storageKey).catch(() => {});
           deleteDraft(makeDraftKey(userEmail, result.quoteId)).catch(() => {});

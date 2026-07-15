@@ -12,8 +12,8 @@ import {
   quickQuoteStepKey,
   readQuickQuoteStep,
   resetQuickQuoteSessionStorage,
-  shouldShowDraftRestoreNotice,
 } from '@/lib/quickQuoteSession';
+import { unsavedGuard } from '@/lib/unsavedGuard';
 import {
   migrateTermsContentToCurrent,
   type SavedTermsContent,
@@ -439,15 +439,7 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
     const loadQuote = async () => {
       setIsLoadingQuote(true);
       try {
-        // 1) Check IndexedDB for a local draft first
-        let cachedDraft: Awaited<ReturnType<typeof loadDraft>> = null;
-        try {
-          cachedDraft = await loadDraft(makeDraftKey(userEmail, editingQuoteId));
-        } catch {
-          // IndexedDB unavailable — fall through to API
-        }
-
-        // 2) Always fetch from server to get quoteId, version, status, etc.
+        // Always fetch authoritative server copy when opening an existing quote.
         const { data, error } = await supabase
           .from('bwf_quote')
           .select('*')
@@ -457,28 +449,15 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
         if (error) throw error;
         if (!data) throw new Error('報價單不存在');
 
-        // 3) If local draft exists and is newer than the server data, use it
+        // Discard any local IndexedDB draft — edits only persist via 版本審核.
+        try {
+          await deleteDraft(makeDraftKey(userEmail, editingQuoteId));
+        } catch {
+          // IndexedDB unavailable — continue with server data
+        }
+
         const serverProjectData = data.project_data as Record<string, unknown>;
         let projectDataToUse = serverProjectData;
-        let usingLocalDraft = false;
-
-        if (cachedDraft && cachedDraft.updatedAt) {
-          const serverUpdatedAt = data.updated_at ? new Date(data.updated_at as string).getTime() : 0;
-          if (cachedDraft.updatedAt > serverUpdatedAt) {
-            // Build projectData from cached draft so QuotationDraftEditor hydrates from it
-            projectDataToUse = {
-              formData: cachedDraft.formData,
-              companyInfo: cachedDraft.companyInfo,
-              clientInfo: cachedDraft.clientInfo,
-              quoteMeta: cachedDraft.quoteMeta,
-              deliveryDetails: cachedDraft.deliveryDetails,
-              termsContent: cachedDraft.termsContent,
-              items: cachedDraft.items,
-              subtotal: cachedDraft.subtotal,
-            };
-            usingLocalDraft = true;
-          }
-        }
 
         const quoteMetaForTerms = projectDataToUse.quoteMeta as
           | { deliveryAddress?: string }
@@ -543,15 +522,6 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
           pitchingName: (data.pitching_name as string | null) ?? null,
         });
         loadedQuoteIdRef.current = editingQuoteId;
-
-        if (
-          usingLocalDraft &&
-          shouldShowDraftRestoreNotice(userEmail, editingQuoteId)
-        ) {
-          toast.info('已從本地草稿恢復', {
-            description: `上次本地儲存於 ${new Date(cachedDraft!.updatedAt).toLocaleString('zh-HK')}`,
-          });
-        }
 
         // Skip directly to step 4 editor
         setIsQuotationReady(true);
@@ -1303,6 +1273,7 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
               userEmail={userEmail}
               onOpenPdfPreview={setPdfPreviewData}
               onBack={() => {
+                if (!unsavedGuard.confirmLeave()) return;
                 if (loadedQuoteData) {
                   setLoadedQuoteData(null);
                   onClearEditingQuote?.();

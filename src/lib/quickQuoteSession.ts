@@ -63,4 +63,4 @@ export function readQuickQuoteStep(email: string | null | undefined): number {
 }
 
 export const QUOTE_UNSAVED_LEAVE_MESSAGE =
-  '報價內容尚未儲存。離開前請先按「取消」再按「版本審核」，否則內容將會遺失。';
+  '您有未儲存的報價修改。離開前請先按「版本審核」提交，否則內容將會遺失。';
