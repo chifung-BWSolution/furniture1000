@@ -102,7 +102,7 @@ function MetricCard({ label, value, sub, icon, valueColor = 'text-foreground', d
     >
       <div className="flex items-center justify-between">
         <p className="text-sm font-medium text-foreground">{label}</p>
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/15 text-primary">
           {icon}
         </div>
       </div>
@@ -135,7 +135,7 @@ function QuickLink({ label, description, badge, icon, onClick, delay = 0 }: Quic
     >
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2.5 min-w-0">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
             {icon}
           </div>
           <p className="text-sm font-medium text-foreground">{label}</p>
@@ -187,7 +187,7 @@ export function DashboardView({ onNavigate }: DashboardViewProps) {
   };
 
   return (
-    <div className="h-full overflow-y-auto">
+    <div className="h-full overflow-y-auto bg-background">
       <div className="space-y-8 p-6">
         <div>
           <h1 className="font-display text-xl font-bold tracking-tight text-foreground">儀表板</h1>
