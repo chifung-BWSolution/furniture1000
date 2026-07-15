@@ -329,12 +329,16 @@ function normalizeImageUrl(src: string): string {
 const SHOPIFY_IMAGE_UUID_SUFFIX =
   /_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?=\.[a-z0-9]+$)/i;
 
-/** Filename stem — matches Storage vs Shopify CDN; collapses `foo_1` re-uploads. */
+/** Filename stem — matches Storage vs Shopify CDN; collapses `foo_1` / `foo_<uuid>`. */
 function imageIdentityKey(src: string): string {
   const noQuery = src.split("?")[0];
   const base = noQuery.substring(noQuery.lastIndexOf("/") + 1);
   return base
     .replace(/\.[a-zA-Z0-9]+$/, "")
+    .replace(
+      /_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+      "",
+    )
     .replace(/_\d+$/, "")
     .trim()
     .toLowerCase();

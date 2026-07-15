@@ -184,6 +184,10 @@ function imageIdentityKey(url: string): string {
   const base = noQuery.substring(noQuery.lastIndexOf("/") + 1);
   return base
     .replace(/\.[a-zA-Z0-9]+$/, "")
+    .replace(
+      /_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+      "",
+    )
     .replace(/_\d+$/, "")
     .trim()
     .toLowerCase();

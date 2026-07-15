@@ -322,7 +322,7 @@ async function applyProductSeoMirror(
  * filename stem (basename without query string / extension) instead. */
 /**
  * Filename stem — matches Supabase Storage vs Shopify CDN for the same asset.
- * Also collapses Shopify re-upload suffixes (`foo.jpg` → `foo_1.jpg`).
+ * Also collapses Shopify re-upload suffixes (`foo_1` / `foo_<uuid>`).
  */
 function imageIdentityKey(url: string): string {
   if (!url || typeof url !== "string") return "";
@@ -330,6 +330,10 @@ function imageIdentityKey(url: string): string {
   const base = noQuery.substring(noQuery.lastIndexOf("/") + 1);
   return base
     .replace(/\.[a-zA-Z0-9]+$/, "")
+    .replace(
+      /_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+      "",
+    )
     .replace(/_\d+$/, "")
     .trim()
     .toLowerCase();

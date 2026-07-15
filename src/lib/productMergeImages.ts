@@ -17,14 +17,19 @@ export function normalizeImageUrl(src: string): string {
 
 /**
  * Filename stem — matches Storage vs Shopify CDN for the same asset.
- * Also collapses Shopify re-upload suffixes (`foo.jpg` → `foo_1.jpg`) so
- * accidental double-uploads dedupe to one gallery slot.
+ * Also collapses Shopify re-upload suffixes:
+ * - numeric (`foo.jpg` → `foo_1.jpg`)
+ * - UUID (`foo.jpg` → `foo_<uuid>.jpg`)
  */
 export function imageIdentityKey(src: string): string {
   const noQuery = src.split('?')[0];
   const base = noQuery.substring(noQuery.lastIndexOf('/') + 1);
   return base
     .replace(/\.[a-zA-Z0-9]+$/, '')
+    .replace(
+      /_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+      '',
+    )
     .replace(/_\d+$/, '')
     .trim()
     .toLowerCase();
