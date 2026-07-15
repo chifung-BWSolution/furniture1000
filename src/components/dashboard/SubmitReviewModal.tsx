@@ -22,6 +22,8 @@ export interface SubmitReviewResult {
   quoteId: string;
   quoteUuid: string;
   version: string;
+  projectData: Record<string, unknown>;
+  totalAmount: number;
 }
 
 interface SubmitReviewModalProps {
@@ -236,7 +238,13 @@ export function SubmitReviewModal({
       toast.success(isUpdate ? '報價單已更新並提交審核' : '報價單已提交審核', {
         description: `${quoteId} · ${code || '—'} · 版本 ${version}`,
       });
-      onSuccess({ quoteId, quoteUuid: persistedUuid, version });
+      onSuccess({
+        quoteId,
+        quoteUuid: persistedUuid,
+        version,
+        projectData: payloadProjectData,
+        totalAmount,
+      });
       setSubmitter('');
       onClose();
     } catch (err: unknown) {

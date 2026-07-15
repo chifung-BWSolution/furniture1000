@@ -444,7 +444,9 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
           .from('bwf_quote')
           .select('*')
           .eq('quote_id', editingQuoteId)
-          .single();
+          .order('modified_date', { ascending: false, nullsFirst: false })
+          .limit(1)
+          .maybeSingle();
 
         if (error) throw error;
         if (!data) throw new Error('報價單不存在');
@@ -1287,15 +1289,16 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
                   quoteUuid: result.quoteUuid,
                   version: result.version,
                   status: '待審核',
-                  totalAmount: prev?.totalAmount ?? 0,
+                  totalAmount: result.totalAmount,
                   submitter: prev?.submitter ?? formData.projectManager,
-                  projectData: prev?.projectData ?? {},
+                  projectData: result.projectData,
                   bwfPitchingId: prev?.bwfPitchingId ?? formData.pmsPitchingId ?? null,
                   bwfProjectId: prev?.bwfProjectId ?? formData.pmsProjectId ?? null,
                   pitchingCode: prev?.pitchingCode ?? formData.pitchingCode ?? null,
                   pitchingName: prev?.pitchingName ?? formData.pitchingName ?? null,
                 }));
-                loadedQuoteIdRef.current = result.quoteId;
+                // Allow re-fetching the same quote after a successful 版本審核.
+                loadedQuoteIdRef.current = null;
               }}
               existingQuote={loadedQuoteData || undefined}
             />

@@ -55,6 +55,7 @@ import {
   formatHkdCostDisplayCeil,
   exchangeRateInputDisplay,
 } from "@/lib/quoteCostExchange";
+import { parseGpSummary } from "@/lib/quoteGpSummary";
 import {
   loadQuoteItems,
   itemsFromLegacyProjectData,
@@ -1378,13 +1379,24 @@ export function QuotationDraftEditor({
         : null,
   });
 
-  const savedGpSummary = (savedProjectData as Record<string, unknown>).gpSummary as
-    | { ship?: number; installation?: number }
-    | undefined;
-  const [gpSummary, setGpSummary] = useState({
-    ship: savedGpSummary?.ship ?? 0,
-    installation: savedGpSummary?.installation ?? 0,
-  });
+  const savedGpSummary = parseGpSummary(
+    (savedProjectData as Record<string, unknown>).gpSummary,
+  );
+  const [gpSummary, setGpSummary] = useState(savedGpSummary);
+
+  // Keep GP Ship/Installation in sync when parent reloads project_data after 版本審核.
+  useEffect(() => {
+    if (!existingQuote?.quoteId) return;
+    const next = parseGpSummary(
+      (existingQuote.projectData as Record<string, unknown> | undefined)
+        ?.gpSummary,
+    );
+    setGpSummary((prev) =>
+      prev.ship === next.ship && prev.installation === next.installation
+        ? prev
+        : next,
+    );
+  }, [existingQuote?.quoteId, existingQuote?.projectData]);
 
   // Terms content — migrate legacy templates (incl. saved DB quotes & IndexedDB drafts)
   const [termsContent, setTermsContent] = useState(() =>
