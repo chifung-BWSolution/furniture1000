@@ -1592,6 +1592,11 @@ const CORE_METAFIELD_COLS = [
   "my_fields.production_time",
 ] as const;
 
+const IMAGE_METAFIELD_COLS = [
+  ...MORE_IMAGE_LINK_COLS,
+  ...MORE_IMAGE_ALT_COLS,
+] as const;
+
 /** Rebuild core text metafields from ready_to_shopify + products source rows. */
 function buildCoreMetafieldsFromSources(
   rts: Record<string, unknown> | null | undefined,
@@ -1617,9 +1622,193 @@ function buildCoreMetafieldsFromSources(
   return mf;
 }
 
+/** Prefer live Shopify CDN image URLs; fall back to mirror images / image_url. */
+function collectImageUrlsForMetafields(
+  liveImages: { src?: string; position?: number }[] | undefined,
+  mirrorRow: Record<string, unknown>,
+): string[] {
+  const live = [...(liveImages || [])]
+    .filter((im) => typeof im.src === "string" && /^https?:\/\//.test(im.src))
+    .sort((a, b) => (Number(a.position) || 99) - (Number(b.position) || 99))
+    .map((im) => String(im.src));
+  if (live.length > 0) return live.slice(0, 4);
+
+  const fromMirror: string[] = [];
+  if (Array.isArray(mirrorRow.images)) {
+    for (const im of mirrorRow.images) {
+      if (typeof im === "string" && /^https?:\/\//.test(im)) {
+        fromMirror.push(im);
+        continue;
+      }
+      const src = (im as { src?: string })?.src;
+      if (src && /^https?:\/\//.test(src)) fromMirror.push(src);
+    }
+  }
+  if (fromMirror.length === 0 && mirrorRow.image_url && /^https?:\/\//.test(String(mirrorRow.image_url))) {
+    fromMirror.push(String(mirrorRow.image_url));
+  }
+  return fromMirror.slice(0, 4);
+}
+
+async function fetchShopifyProductImages(
+  apiBase: string,
+  headers: Record<string, string>,
+  shopifyId: string,
+): Promise<{ src?: string; position?: number }[]> {
+  const resp = await shopifyFetch(`${apiBase}/products/${shopifyId}.json?fields=id,title,images`, { headers });
+  if (!resp.ok) return [];
+  const j = await resp.json();
+  return Array.isArray(j?.product?.images) ? j.product.images : [];
+}
+
+/** One GraphQL read: product images + metafield map. */
+async function fetchShopifyProductRepairState(
+  shopDomain: string,
+  shopifyToken: string,
+  shopifyId: string,
+): Promise<{
+  images: { src?: string; position?: number }[];
+  liveMap: Map<string, string>;
+  metafieldGids: Map<string, string>;
+}> {
+  const query = `
+    query ProductRepairState($id: ID!) {
+      product(id: $id) {
+        images(first: 10) { edges { node { url } } }
+        metafields(first: 50) {
+          edges { node { id namespace key value } }
+        }
+      }
+    }
+  `;
+  const resp = await shopifyFetch(`https://${shopDomain}/admin/api/2024-01/graphql.json`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Shopify-Access-Token": shopifyToken,
+    },
+    body: JSON.stringify({
+      query,
+      variables: { id: `gid://shopify/Product/${shopifyId}` },
+    }),
+  });
+  if (!resp.ok) {
+    return { images: [], liveMap: new Map(), metafieldGids: new Map() };
+  }
+  const j = await resp.json();
+  const product = j?.data?.product;
+  const images = (product?.images?.edges || [])
+    .map((e: { node?: { url?: string } }, idx: number) => ({
+      src: e?.node?.url,
+      position: idx + 1,
+    }))
+    .filter((im: { src?: string }) => typeof im.src === "string" && /^https?:\/\//.test(im.src));
+  const liveMap = new Map<string, string>();
+  const metafieldGids = new Map<string, string>();
+  for (const edge of product?.metafields?.edges || []) {
+    const node = edge?.node;
+    if (!node?.namespace || !node?.key) continue;
+    const col = `${node.namespace}.${node.key}`;
+    liveMap.set(col, String(node.value ?? "").trim());
+    if (node.id) metafieldGids.set(col, String(node.id));
+  }
+  return { images, liveMap, metafieldGids };
+}
+
+/** Batch-write metafields via GraphQL metafieldsSet (much fewer API calls). */
+async function batchSetProductMetafields(
+  shopDomain: string,
+  shopifyToken: string,
+  shopifyId: string,
+  metafields: Record<string, string>,
+): Promise<{ ok: number; fail: number }> {
+  const inputs = Object.entries(metafields)
+    .map(([col, value]) => {
+      const trimmed = String(value ?? "").trim();
+      if (!trimmed) return null;
+      const dot = col.indexOf(".");
+      if (dot < 0) return null;
+      return {
+        ownerId: `gid://shopify/Product/${shopifyId}`,
+        namespace: col.slice(0, dot),
+        key: col.slice(dot + 1),
+        type: METAFIELD_DEFS[col] || "single_line_text_field",
+        value: trimmed,
+      };
+    })
+    .filter(Boolean) as {
+      ownerId: string;
+      namespace: string;
+      key: string;
+      type: string;
+      value: string;
+    }[];
+
+  if (inputs.length === 0) return { ok: 0, fail: 0 };
+
+  let ok = 0;
+  let fail = 0;
+  // metafieldsSet accepts up to 25 inputs per call
+  for (let i = 0; i < inputs.length; i += 25) {
+    const chunk = inputs.slice(i, i + 25);
+    const resp = await shopifyFetch(`https://${shopDomain}/admin/api/2024-01/graphql.json`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Shopify-Access-Token": shopifyToken,
+      },
+      body: JSON.stringify({
+        query: `
+          mutation MetafieldsSet($metafields: [MetafieldsSetInput!]!) {
+            metafieldsSet(metafields: $metafields) {
+              metafields { id }
+              userErrors { field message }
+            }
+          }
+        `,
+        variables: { metafields: chunk },
+      }),
+    });
+    if (!resp.ok) {
+      fail += chunk.length;
+      continue;
+    }
+    const j = await resp.json();
+    const errors = j?.data?.metafieldsSet?.userErrors || [];
+    const written = (j?.data?.metafieldsSet?.metafields || []).length;
+    if (errors.length > 0 && written === 0) fail += chunk.length;
+    else ok += written || chunk.length;
+  }
+  return { ok, fail };
+}
+
+async function batchDeleteMetafieldsByGid(
+  shopDomain: string,
+  shopifyToken: string,
+  gids: string[],
+): Promise<void> {
+  for (const gid of gids) {
+    await shopifyFetch(`https://${shopDomain}/admin/api/2024-01/graphql.json`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Shopify-Access-Token": shopifyToken,
+      },
+      body: JSON.stringify({
+        query: `
+          mutation MetafieldDelete($input: MetafieldDeleteInput!) {
+            metafieldDelete(input: $input) { deletedId userErrors { message } }
+          }
+        `,
+        variables: { input: { id: gid } },
+      }),
+    });
+  }
+}
+
 /**
- * Backfill core metafields: rebuild from products/RTS → update mirror → push to Shopify.
- * Use when products were published before post-create metafield sync was implemented.
+ * Backfill metafields: rebuild core fields from products/RTS, rebuild more_image_*
+ * from live Shopify CDN images, update mirror, push to Shopify.
  */
 async function repairMetafieldsForProducts(
   supabase: ReturnType<typeof createClient>,
@@ -1639,7 +1828,7 @@ async function repairMetafieldsForProducts(
     "X-Shopify-Access-Token": shopifyToken,
   };
 
-  let query = supabase.from("shopify_products").select("*");
+  let query = supabase.from("shopify_products").select("*").is("configurable", null);
   if (shopifyProductIds?.length) {
     const ids = shopifyProductIds.map(String).filter((id) => /^\d+$/.test(id));
     if (ids.length === 0) {
@@ -1663,11 +1852,13 @@ async function repairMetafieldsForProducts(
   const productMap = new Map<string, Record<string, unknown>>();
   const rtsMap = new Map<string, Record<string, unknown>>();
 
-  if (sourceIds.length > 0) {
+  // PostgREST `.in()` has URL length limits — chunk source lookups.
+  for (let i = 0; i < sourceIds.length; i += 100) {
+    const chunk = sourceIds.slice(i, i + 100);
     const { data: products } = await supabase
       .from("products")
       .select("id,dimension_l_mm,dimension_w_mm,dimension_h_mm,material,customize")
-      .in("id", sourceIds);
+      .in("id", chunk);
     for (const p of (products || []) as Record<string, unknown>[]) {
       productMap.set(String(p.id), p);
     }
@@ -1675,7 +1866,7 @@ async function repairMetafieldsForProducts(
     const { data: rtsRows } = await supabase
       .from("ready_to_shopify")
       .select('product_id,dimension_l_mm,dimension_w_mm,dimension_h_mm,material,"my_fields.materials",customize')
-      .in("product_id", sourceIds);
+      .in("product_id", chunk);
     for (const r of (rtsRows || []) as Record<string, unknown>[]) {
       rtsMap.set(String(r.product_id), r);
     }
@@ -1708,34 +1899,89 @@ async function repairMetafieldsForProducts(
     for (const col of CORE_METAFIELD_COLS) {
       const builtVal = built[col]?.trim() || "";
       const mirrorVal = row[col] != null ? String(row[col]).trim() : "";
-      merged[col] = builtVal || mirrorVal;
+      if (builtVal || mirrorVal) merged[col] = builtVal || mirrorVal;
     }
 
-    const hasAny = CORE_METAFIELD_COLS.some((col) => merged[col]?.trim());
+    // Rebuild more_image_* from live Shopify CDN images (storefront depends on these).
+    let liveImages: { src?: string; position?: number }[] = [];
+    let liveMap = new Map<string, string>();
+    let metafieldGids = new Map<string, string>();
+    try {
+      const state = await fetchShopifyProductRepairState(shopDomain, shopifyToken, sid);
+      liveImages = state.images;
+      liveMap = state.liveMap;
+      metafieldGids = state.metafieldGids;
+    } catch {
+      // Fall back to REST images only; leave liveMap empty so we write all merged cols.
+      try {
+        liveImages = await fetchShopifyProductImages(apiBase, headers, sid);
+      } catch {
+        liveImages = [];
+      }
+    }
+    const imageUrls = collectImageUrlsForMetafields(liveImages, row);
+    const title = String(row.title || "").trim();
+    // Only rewrite more_image_* when we have image URLs — never wipe existing
+    // gallery metafields just because the live fetch returned empty.
+    if (imageUrls.length > 0) {
+      const imageCols = moreImageLinkColumnsFromUrls(imageUrls, title || null);
+      for (const col of IMAGE_METAFIELD_COLS) {
+        const val = imageCols[col];
+        if (val != null && String(val).trim()) merged[col] = String(val).trim();
+        else merged[col] = ""; // clear unused slots 2..4 when fewer than 4 images
+      }
+    }
+
+    const hasAny = Object.keys(merged).some((col) => String(merged[col] ?? "").trim());
     if (!hasAny) {
       return { shopify_product_id: sid, action: "skipped" as const };
     }
 
     const spUpdate: Record<string, string | null> = {};
-    for (const col of CORE_METAFIELD_COLS) {
-      spUpdate[col] = merged[col]?.trim() || null;
+    for (const col of Object.keys(merged)) {
+      const trimmed = String(merged[col] ?? "").trim();
+      spUpdate[col] = trimmed || null;
     }
     await supabase.from("shopify_products").update(spUpdate).eq("shopify_product_id", sid);
 
     try {
-      const syncResult = await syncProductMetafieldsToShopify(apiBase, headers, sid, merged);
-      if (syncResult.fail > 0) {
+      const toSet: Record<string, string> = {};
+      const toDeleteGids: string[] = [];
+      for (const [col, raw] of Object.entries(merged)) {
+        const want = String(raw ?? "").trim();
+        const live = (liveMap.get(col) ?? "").trim();
+        if (want === live) continue;
+        if (!want) {
+          const gid = metafieldGids.get(col);
+          if (gid) toDeleteGids.push(gid);
+          continue;
+        }
+        toSet[col] = want;
+      }
+
+      if (Object.keys(toSet).length === 0 && toDeleteGids.length === 0) {
+        return {
+          shopify_product_id: sid,
+          action: "repaired" as const,
+          metafields: Object.keys(merged).filter((col) => String(merged[col] ?? "").trim()),
+        };
+      }
+
+      const setResult = await batchSetProductMetafields(shopDomain, shopifyToken, sid, toSet);
+      if (toDeleteGids.length > 0) {
+        await batchDeleteMetafieldsByGid(shopDomain, shopifyToken, toDeleteGids);
+      }
+      if (setResult.fail > 0 && setResult.ok === 0 && Object.keys(toSet).length > 0) {
         return {
           shopify_product_id: sid,
           action: "failed" as const,
-          error: `${syncResult.fail} metafield(s) failed to sync`,
+          error: `${setResult.fail} metafield(s) failed to sync`,
         };
       }
-      const updatedCols = CORE_METAFIELD_COLS.filter((col) => merged[col]?.trim());
       return {
         shopify_product_id: sid,
         action: "repaired" as const,
-        metafields: [...updatedCols],
+        metafields: Object.keys(merged).filter((col) => String(merged[col] ?? "").trim()),
       };
     } catch (err) {
       return {

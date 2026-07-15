@@ -992,7 +992,7 @@ export function PublishedProductsView() {
               type="button"
               onClick={() => repairMetafields()}
               disabled={isRepairingMetafields || isSyncing}
-              title="從產品資料重建尺寸、材料、出貨時間等 Metafields 並推送至 Shopify。未勾選時修復全部已發佈產品。"
+              title="從產品資料重建尺寸、材料、出貨時間，並從 Shopify 圖片補寫 more_image_* Metafields。未勾選時修復全部已發佈產品。"
               className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 text-xs font-semibold text-amber-800 dark:text-amber-400 hover:bg-amber-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isRepairingMetafields ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
