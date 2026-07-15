@@ -3,7 +3,7 @@ import type { LogType } from '@/constants/analytics-mock';
 import type { LoginLog } from '@/lib/adminApi';
 import { UPLOAD_LOG_STAGE_LABELS } from '@/lib/uploadLog';
 
-const PUBLISH_GROUP_MS = 180_000;
+const ACTIVITY_GROUP_MS = 180_000;
 
 type UploadRow = {
   id: string;
@@ -43,18 +43,34 @@ function resolveSku(
     || '';
 }
 
-function buildEditDetail(stage: string, pageLabel: string | null, sku: string): string {
-  const page = String(pageLabel ?? '').trim()
-    || UPLOAD_LOG_STAGE_LABELS[stage as keyof typeof UPLOAD_LOG_STAGE_LABELS]
-    || stage
-    || '系統';
-  if (sku) return `${page} · SKU ${sku}`;
-  return page;
+function activityGroupKey(user: string, at: string, logType: LogType): string {
+  const bucket = Math.floor(new Date(at).getTime() / ACTIVITY_GROUP_MS);
+  return `${user}|${bucket}|${logType}`;
 }
 
-function publishGroupKey(user: string, at: string): string {
-  const bucket = Math.floor(new Date(at).getTime() / PUBLISH_GROUP_MS);
-  return `${user}|${bucket}`;
+function pushGroupedActivityLogs(
+  groups: Map<string, PendingUploadLog[]>,
+  logs: LoginLog[],
+  logType: LogType,
+): void {
+  for (const [, group] of groups) {
+    group.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+    const lead = group[0];
+    const skus = [...new Set(group.map((g) => g.sku).filter(Boolean))];
+    logs.push({
+      id: `ul-${lead.id}${group.length > 1 ? `+${group.length}` : ''}`,
+      user: lead.user,
+      type: logType,
+      skus: skus.length > 0 ? skus : undefined,
+      detail: skus.length === 0
+        ? (UPLOAD_LOG_STAGE_LABELS[lead.stage as keyof typeof UPLOAD_LOG_STAGE_LABELS] || '系統')
+        : undefined,
+      ip: '—',
+      location: '系統',
+      at: lead.at,
+      suspicious: false,
+    });
+  }
 }
 
 async function fetchSkuMap(productIds: string[]): Promise<Map<string, string>> {
@@ -108,48 +124,26 @@ export async function buildUploadActivityLogs(limit = 200): Promise<LoginLog[]> 
   }
 
   const logs: LoginLog[] = [];
+  const editGroups = new Map<string, PendingUploadLog[]>();
   const publishGroups = new Map<string, PendingUploadLog[]>();
 
   for (const item of pending) {
     if (item.logType === 'publish') {
-      const key = publishGroupKey(item.user, item.at);
+      const key = activityGroupKey(item.user, item.at, 'publish');
       const group = publishGroups.get(key) ?? [];
       group.push(item);
       publishGroups.set(key, group);
       continue;
     }
 
-    logs.push({
-      id: `ul-${item.id}`,
-      user: item.user,
-      type: item.logType,
-      detail: buildEditDetail(item.stage, item.pageLabel, item.sku),
-      skus: item.sku ? [item.sku] : undefined,
-      ip: '—',
-      location: '系統',
-      at: item.at,
-      suspicious: false,
-    });
+    const key = activityGroupKey(item.user, item.at, 'edit');
+    const group = editGroups.get(key) ?? [];
+    group.push(item);
+    editGroups.set(key, group);
   }
 
-  for (const [, group] of publishGroups) {
-    group.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
-    const lead = group[0];
-    const skus = [...new Set(group.map((g) => g.sku).filter(Boolean))];
-    logs.push({
-      id: `ul-${lead.id}${group.length > 1 ? `+${group.length}` : ''}`,
-      user: lead.user,
-      type: 'publish',
-      detail: skus.length === 0
-        ? (UPLOAD_LOG_STAGE_LABELS[lead.stage as keyof typeof UPLOAD_LOG_STAGE_LABELS] || '準備上載')
-        : undefined,
-      skus: skus.length > 0 ? skus : undefined,
-      ip: '—',
-      location: '系統',
-      at: lead.at,
-      suspicious: false,
-    });
-  }
+  pushGroupedActivityLogs(editGroups, logs, 'edit');
+  pushGroupedActivityLogs(publishGroups, logs, 'publish');
 
   return logs;
 }

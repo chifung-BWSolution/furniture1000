@@ -222,19 +222,6 @@ function resolveSku(
     || "";
 }
 
-function buildEditDetail(
-  stage: string,
-  pageLabel: string | null | undefined,
-  productSku: string | null | undefined,
-  productId: string | null | undefined,
-  skuByProductId: Map<string, string>,
-): string | undefined {
-  const page = String(pageLabel ?? "").trim() || STAGE_PAGE_LABELS[stage] || stage || "系統";
-  const sku = resolveSku(productSku, productId, skuByProductId);
-  if (sku) return `${page} · SKU ${sku}`;
-  return page;
-}
-
 type PendingUploadLog = {
   id: string;
   user: string;
@@ -247,12 +234,38 @@ type PendingUploadLog = {
   at: string;
 };
 
-/** Group bulk publish actions (same user within 3 minutes) into one row. */
-const PUBLISH_GROUP_MS = 180_000;
+/** Group bulk actions (same user within 3 minutes) into one row. */
+const ACTIVITY_GROUP_MS = 180_000;
 
-function publishGroupKey(user: string, email: string | undefined, at: string): string {
-  const bucket = Math.floor(new Date(at).getTime() / PUBLISH_GROUP_MS);
-  return `${user}|${email ?? ""}|${bucket}`;
+function activityGroupKey(user: string, email: string | undefined, at: string, logType: LogType): string {
+  const bucket = Math.floor(new Date(at).getTime() / ACTIVITY_GROUP_MS);
+  return `${user}|${email ?? ""}|${bucket}|${logType}`;
+}
+
+function pushGroupedActivityLogs(
+  groups: Map<string, PendingUploadLog[]>,
+  logs: LoginLog[],
+  logType: LogType,
+): void {
+  for (const [, group] of groups) {
+    group.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+    const lead = group[0];
+    const skus = [...new Set(group.map((g) => g.sku).filter(Boolean))];
+    logs.push({
+      id: `ul-${lead.id}${group.length > 1 ? `+${group.length}` : ""}`,
+      user: lead.user,
+      email: lead.email,
+      type: logType,
+      skus: skus.length > 0 ? skus : undefined,
+      detail: skus.length === 0
+        ? (STAGE_PAGE_LABELS[lead.stage] || "系統")
+        : undefined,
+      ip: "—",
+      location: "系統",
+      at: lead.at,
+      suspicious: false,
+    });
+  }
 }
 
 async function fetchLoginLogs(
@@ -406,53 +419,25 @@ async function fetchLoginLogs(
     });
   }
 
+  const editGroups = new Map<string, PendingUploadLog[]>();
   const publishGroups = new Map<string, PendingUploadLog[]>();
   for (const item of pendingUpload) {
     if (item.logType === "publish") {
-      const key = publishGroupKey(item.user, item.email, item.at);
+      const key = activityGroupKey(item.user, item.email, item.at, "publish");
       const group = publishGroups.get(key) ?? [];
       group.push(item);
       publishGroups.set(key, group);
       continue;
     }
 
-    const detail = buildEditDetail(
-      item.stage,
-      item.pageLabel,
-      item.sku,
-      item.productId,
-      skuByProductId,
-    );
-    logs.push({
-      id: `ul-${item.id}`,
-      user: item.user,
-      email: item.email,
-      type: item.logType,
-      detail,
-      skus: item.sku ? [item.sku] : undefined,
-      ip: "—",
-      location: "系統",
-      at: item.at,
-      suspicious: false,
-    });
+    const key = activityGroupKey(item.user, item.email, item.at, "edit");
+    const group = editGroups.get(key) ?? [];
+    group.push(item);
+    editGroups.set(key, group);
   }
 
-  for (const [, group] of publishGroups) {
-    group.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
-    const lead = group[0];
-    const skus = [...new Set(group.map((g) => g.sku).filter(Boolean))];
-    logs.push({
-      id: `ul-${lead.id}${group.length > 1 ? `+${group.length}` : ""}`,
-      user: lead.user,
-      email: lead.email,
-      type: "publish",
-      skus: skus.length > 0 ? skus : undefined,
-      ip: "—",
-      location: "系統",
-      at: lead.at,
-      suspicious: false,
-    });
-  }
+  pushGroupedActivityLogs(editGroups, logs, "edit");
+  pushGroupedActivityLogs(publishGroups, logs, "publish");
 
   logs.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
 

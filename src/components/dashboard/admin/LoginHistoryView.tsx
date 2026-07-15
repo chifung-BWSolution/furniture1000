@@ -33,25 +33,16 @@ function fmt(d: string) {
 const DETAIL_COL_CLASS = 'w-[300px] min-w-[300px] max-w-[300px]';
 
 function LogDetailCell({ log }: { log: LoginLog }) {
-  if (log.type === 'publish') {
-    if (log.skus && log.skus.length > 0) {
-      return (
-        <div className={cn(DETAIL_COL_CLASS, 'flex flex-wrap items-baseline gap-y-0.5 font-mono-data text-[11.5px] leading-relaxed text-muted-foreground')}>
-          {log.skus.map((sku, i) => (
-            <span key={`${sku}-${i}`} className="whitespace-nowrap">
-              &quot;{sku}&quot;{i < log.skus!.length - 1 ? ', ' : ''}
-            </span>
-          ))}
-        </div>
-      );
-    }
-    if (log.detail) {
-      return (
-        <span className={cn(DETAIL_COL_CLASS, 'block font-body text-[12px] leading-relaxed text-muted-foreground whitespace-normal break-words')}>
-          {log.detail}
-        </span>
-      );
-    }
+  if ((log.type === 'publish' || log.type === 'edit') && log.skus && log.skus.length > 0) {
+    return (
+      <div className={cn(DETAIL_COL_CLASS, 'flex flex-wrap items-baseline gap-y-0.5 font-mono-data text-[11.5px] leading-relaxed text-muted-foreground')}>
+        {log.skus.map((sku, i) => (
+          <span key={`${sku}-${i}`} className="whitespace-nowrap">
+            &quot;{sku}&quot;{i < log.skus!.length - 1 ? ', ' : ''}
+          </span>
+        ))}
+      </div>
+    );
   }
 
   if (log.detail) {
@@ -69,9 +60,7 @@ function exportLogsCsv(logs: LoginLog[]) {
   const header = ['用戶', '頁面 / 內容', '操作', 'IP', '位置', '時間'];
   const rows = logs.map((l) => [
     l.user,
-    l.type === 'publish' && l.skus?.length
-      ? l.skus.map((s) => `"${s}"`).join(', ')
-      : (l.detail ?? ''),
+    (l.skus?.length ? l.skus.map((s) => `"${s}"`).join(', ') : (l.detail ?? '')),
     LOG_TYPE_META[l.type].label,
     l.ip,
     l.location,
