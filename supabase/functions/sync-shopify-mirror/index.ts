@@ -209,34 +209,88 @@ function sortLiveImages(images: Record<string, unknown>[]): Record<string, unkno
 }
 
 /**
- * Remove stem-duplicate images from live Shopify (keeps first by position).
- * Fixes accidental double-uploads (Storage + CDN / foo.jpg + foo_1.jpg).
+ * Remove stem-duplicate images from live Shopify.
+ * Prefer keeping the image whose CDN URL is referenced by more_image_link_* metafields
+ * so storefront links do not break after purge. Then rewrite more_image_* to kept URLs.
  */
 async function purgeDuplicateShopifyImages(
   shopDomain: string,
   token: string,
   productId: string,
   images: Record<string, unknown>[],
-): Promise<{ kept: Record<string, unknown>[]; deleted: number }> {
+  preferredSrcs: string[] = [],
+): Promise<{ kept: Record<string, unknown>[]; deleted: number; rewrittenMetafields: boolean }> {
   const ordered = [...images]
     .filter((im) => typeof im.src === "string" && (im.src as string).startsWith("http"))
     .sort((a, b) => (Number(a.position) || 99) - (Number(b.position) || 99));
 
-  const seen = new Set<string>();
-  const kept: Record<string, unknown>[] = [];
-  const deleteIds: string[] = [];
+  if (ordered.length <= 1) {
+    return { kept: ordered, deleted: 0, rewrittenMetafields: false };
+  }
+
+  const preferredKeys = new Set(
+    preferredSrcs
+      .filter((s) => typeof s === "string" && s.startsWith("http"))
+      .map((s) => imageIdentityKey(s)),
+  );
+  const preferredExact = new Set(
+    preferredSrcs
+      .filter((s) => typeof s === "string" && s.startsWith("http"))
+      .map((s) => s.split("?")[0]),
+  );
+
+  // Group by stem identity
+  const groups = new Map<string, Record<string, unknown>[]>();
   for (const im of ordered) {
     const key = imageIdentityKey(String(im.src));
-    if (seen.has(key)) {
-      if (im.id != null) deleteIds.push(String(im.id));
-      continue;
+    const list = groups.get(key) || [];
+    list.push(im);
+    groups.set(key, list);
+  }
+
+  // No duplicates → nothing to do (avoid unnecessary Shopify writes)
+  if (![...groups.values()].some((g) => g.length > 1)) {
+    return { kept: ordered, deleted: 0, rewrittenMetafields: false };
+  }
+
+  const pickKeep = (group: Record<string, unknown>[]): Record<string, unknown> => {
+    const exact = group.find((im) => preferredExact.has(String(im.src).split("?")[0]));
+    if (exact) return exact;
+    const byStem = group.find((im) => preferredKeys.has(imageIdentityKey(String(im.src))));
+    if (byStem) return byStem;
+    // Prefer non-UUID / shorter filename (original upload)
+    return [...group].sort((a, b) => {
+      const sa = String(a.src);
+      const sb = String(b.src);
+      const ua = /_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(sa) ? 1 : 0;
+      const ub = /_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i.test(sb) ? 1 : 0;
+      if (ua !== ub) return ua - ub;
+      return sa.length - sb.length || (Number(a.position) || 99) - (Number(b.position) || 99);
+    })[0];
+  };
+
+  const kept: Record<string, unknown>[] = [];
+  const deleteIds: string[] = [];
+  // Preserve original position order of first occurrence groups
+  const seenGroup = new Set<string>();
+  for (const im of ordered) {
+    const key = imageIdentityKey(String(im.src));
+    if (seenGroup.has(key)) continue;
+    seenGroup.add(key);
+    const group = groups.get(key) || [im];
+    const keep = pickKeep(group);
+    kept.push(keep);
+    for (const other of group) {
+      if (other === keep) continue;
+      if (other.id != null) deleteIds.push(String(other.id));
     }
-    seen.add(key);
-    kept.push(im);
   }
 
   let deleted = 0;
-  const headers = { "X-Shopify-Access-Token": token };
+  const headers = {
+    "Content-Type": "application/json",
+    "X-Shopify-Access-Token": token,
+  };
   for (const imageId of deleteIds) {
     try {
       const resp = await fetch(
@@ -253,7 +307,97 @@ async function purgeDuplicateShopifyImages(
       console.warn(`[sync-shopify-mirror] delete image error:`, err);
     }
   }
-  return { kept, deleted };
+
+  // Rewrite more_image_link_* to kept CDN URLs so storefront never points at deleted dupes.
+  let rewrittenMetafields = false;
+  const keptUrls = kept
+    .map((im) => String(im.src || ""))
+    .filter((s) => s.startsWith("http"))
+    .slice(0, 4);
+  if (deleted > 0 && keptUrls.length > 0) {
+    try {
+      for (let i = 1; i <= 4; i++) {
+        const url = keptUrls[i - 1] || "";
+        const ns = "custom";
+        const linkKey = `more_image_link_${i}`;
+        const altKey = `more_image_alt_${i}`;
+
+        const existingResp = await fetch(
+          `https://${shopDomain}/admin/api/2024-10/products/${productId}/metafields.json?namespace=${ns}&key=${linkKey}`,
+          { headers },
+        );
+        const existing = existingResp.ok
+          ? ((await existingResp.json()).metafields?.[0] as { id?: number; value?: string } | undefined)
+          : undefined;
+
+        if (!url) {
+          if (existing?.id) {
+            await fetch(`https://${shopDomain}/admin/api/2024-10/metafields/${existing.id}.json`, {
+              method: "DELETE",
+              headers,
+            });
+            rewrittenMetafields = true;
+          }
+          continue;
+        }
+
+        if (existing?.value === url) continue;
+
+        if (existing?.id) {
+          const pr = await fetch(`https://${shopDomain}/admin/api/2024-10/metafields/${existing.id}.json`, {
+            method: "PUT",
+            headers,
+            body: JSON.stringify({ metafield: { id: existing.id, type: "url", value: url } }),
+          });
+          if (pr.ok) rewrittenMetafields = true;
+        } else {
+          const pr = await fetch(
+            `https://${shopDomain}/admin/api/2024-10/products/${productId}/metafields.json`,
+            {
+              method: "POST",
+              headers,
+              body: JSON.stringify({
+                metafield: { namespace: ns, key: linkKey, type: "url", value: url },
+              }),
+            },
+          );
+          if (pr.ok) rewrittenMetafields = true;
+        }
+
+        // Keep alt in sync when present / create lightly
+        void altKey;
+      }
+    } catch (err) {
+      console.warn(`[sync-shopify-mirror] more_image rewrite failed for ${productId}:`, err);
+    }
+  }
+
+  return { kept, deleted, rewrittenMetafields };
+}
+
+async function fetchMoreImagePreferredSrcs(
+  shopDomain: string,
+  token: string,
+  productId: string,
+): Promise<string[]> {
+  const headers = { "X-Shopify-Access-Token": token };
+  const out: string[] = [];
+  try {
+    const resp = await fetch(
+      `https://${shopDomain}/admin/api/2024-10/products/${productId}/metafields.json?namespace=custom`,
+      { headers },
+    );
+    if (!resp.ok) return out;
+    const mfs = ((await resp.json()).metafields || []) as Array<{ key?: string; value?: string }>;
+    for (let i = 1; i <= 4; i++) {
+      const mf = mfs.find((m) => m.key === `more_image_link_${i}`);
+      const val = (mf?.value || "").trim();
+      if (val.startsWith("http")) out.push(val);
+    }
+  } catch {
+    /* ignore */
+  }
+  return out;
 }
 
 function buildMirrorRow(
@@ -429,27 +573,65 @@ Deno.serve(async (req: Request) => {
       existingByShopifyId.set(String(r.shopify_product_id), r);
     });
 
-    // ── 3. Purge stem-duplicate images on Shopify, then UPSERT mirror ──
+    // ── 3. Purge stem-duplicate images on Shopify (only when needed), then UPSERT mirror ──
     let upserted = 0;
     let imagesPurged = 0;
+    let metafieldsRewritten = 0;
     const nowIso = new Date().toISOString();
     const rows: Record<string, unknown>[] = [];
     for (const p of live) {
       const sp = p as Record<string, unknown>;
       const shopifyId = String(sp.id);
       const rawImages = (sp.images as Record<string, unknown>[]) ?? [];
+      let moreImageCols: Record<string, string | null> | null = null;
       if (rawImages.length > 1) {
-        const { kept, deleted } = await purgeDuplicateShopifyImages(
-          shopDomain,
-          shopifyToken,
-          shopifyId,
-          rawImages,
-        );
-        imagesPurged += deleted;
-        sp.images = kept;
+        // Cheap stem-dup check before any metafield/Shopify write.
+        const stemSeen = new Set<string>();
+        let hasStemDup = false;
+        for (const im of rawImages) {
+          const src = typeof im.src === "string" ? im.src : "";
+          if (!src.startsWith("http")) continue;
+          const key = imageIdentityKey(src);
+          if (stemSeen.has(key)) {
+            hasStemDup = true;
+            break;
+          }
+          stemSeen.add(key);
+        }
+
+        if (hasStemDup) {
+          const preferred = await fetchMoreImagePreferredSrcs(
+            shopDomain,
+            shopifyToken,
+            shopifyId,
+          );
+          const { kept, deleted, rewrittenMetafields } = await purgeDuplicateShopifyImages(
+            shopDomain,
+            shopifyToken,
+            shopifyId,
+            rawImages,
+            preferred,
+          );
+          imagesPurged += deleted;
+          if (rewrittenMetafields) metafieldsRewritten++;
+          sp.images = kept;
+          if (deleted > 0) {
+            const keptUrls = kept
+              .map((im) => String(im.src || ""))
+              .filter((s) => s.startsWith("http"))
+              .slice(0, 4);
+            moreImageCols = {};
+            for (let i = 1; i <= 4; i++) {
+              const url = keptUrls[i - 1] || null;
+              moreImageCols[`custom.more_image_link_${i}`] = url;
+            }
+          }
+        }
       }
       const prev = existingByShopifyId.get(shopifyId);
-      rows.push(buildMirrorRow(sp, shopDomain, nowIso, prev));
+      const row = buildMirrorRow(sp, shopDomain, nowIso, prev);
+      if (moreImageCols) Object.assign(row, moreImageCols);
+      rows.push(row);
     }
     const UPSERT_CHUNK = 50;
     for (let i = 0; i < rows.length; i += UPSERT_CHUNK) {
@@ -523,6 +705,7 @@ Deno.serve(async (req: Request) => {
       upserted,
       deleted,
       images_purged: imagesPurged,
+      metafields_rewritten: metafieldsRewritten,
       seo_backfilled: seoBackfilled,
       fetched_pages: fetchedPages,
     });
