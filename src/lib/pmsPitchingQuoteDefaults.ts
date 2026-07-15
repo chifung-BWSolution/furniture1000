@@ -16,6 +16,8 @@ export interface PmsPitchingQuoteDefaults {
   project_code: string | null;
   customer_id: string | null;
   client_name: string | null;
+  client_phone: string | null;
+  client_email: string | null;
   estimated_income: number | string | null;
   budget_min: string | null;
   budget_max: string | null;
@@ -71,6 +73,8 @@ export async function fetchPmsPitchingQuoteDefaults(options?: {
       project_code: data.project_code ?? null,
       customer_id: data.customer_id ?? null,
       client_name: data.client_name ?? null,
+      client_phone: data.client_phone ?? null,
+      client_email: data.client_email ?? null,
       estimated_income: data.estimated_income ?? null,
       budget_min: data.budget_min ?? null,
       budget_max: data.budget_max ?? null,

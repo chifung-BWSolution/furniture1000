@@ -160,6 +160,8 @@ PMS v1 可只做列表；需要時用此 URL 連回編輯。
 
 **PMS 預設值**（edge `supabase-functions-fetch-pms-pitching-quote-defaults`）：
 - 客戶名稱 ← `customers.company_name`（via `bwf_pitchings.customer_id`）
+- 客戶電話 ← `customers.phone_display`（fallback `phone_number_a` → `phone_number_b`）
+- 客戶電郵 ← `customers.email`
 - 客戶產業選項 ← `nos_customer_tags` where `collection_id = 4f5de598-…`
 - 客戶產業預設 ← `customer_tags` for that customer（同 collection）
 - 預算上下限 ← `bwf_pitchings.estimated_income`

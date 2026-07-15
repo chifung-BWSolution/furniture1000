@@ -23,6 +23,14 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
+function firstNonEmpty(...values: Array<string | null | undefined>): string | null {
+  for (const v of values) {
+    const s = (v || "").trim();
+    if (s) return s;
+  }
+  return null;
+}
+
 function formatBudget(value: number | string | null | undefined): string | null {
   if (value === null || value === undefined || value === "") return null;
   const n = typeof value === "number" ? value : Number(String(value).replace(/,/g, ""));
@@ -179,6 +187,8 @@ Deno.serve(async (req: Request) => {
         project_code: null,
         customer_id: null,
         client_name: null,
+        client_phone: null,
+        client_email: null,
         estimated_income: null,
         budget_min: null,
         budget_max: null,
@@ -202,6 +212,8 @@ Deno.serve(async (req: Request) => {
         project_code: resolved.projectCode,
         customer_id: null,
         client_name: null,
+        client_phone: null,
+        client_email: null,
         estimated_income: null,
         budget_min: null,
         budget_max: null,
@@ -228,6 +240,8 @@ Deno.serve(async (req: Request) => {
         project_code: resolved.projectCode,
         customer_id: null,
         client_name: null,
+        client_phone: null,
+        client_email: null,
         estimated_income: null,
         budget_min: null,
         budget_max: null,
@@ -238,12 +252,16 @@ Deno.serve(async (req: Request) => {
 
     const customerId = (pitching.customer_id as string | null) || null;
     let clientName: string | null = null;
+    let clientPhone: string | null = null;
+    let clientEmail: string | null = null;
     let selectedIndustries: string[] = [];
 
     if (customerId) {
       const { data: customer, error: customerError } = await pmsAdmin
         .from("customers")
-        .select("company_name, display_name, customer_name")
+        .select(
+          "company_name, display_name, customer_name, email, phone_display, phone_number_a, phone_number_b",
+        )
         .eq("id", customerId)
         .maybeSingle();
 
@@ -256,6 +274,13 @@ Deno.serve(async (req: Request) => {
         (customer?.display_name as string | null)?.trim() ||
         (customer?.customer_name as string | null)?.trim() ||
         null;
+
+      clientPhone = firstNonEmpty(
+        customer?.phone_display as string | null,
+        customer?.phone_number_a as string | null,
+        customer?.phone_number_b as string | null,
+      );
+      clientEmail = firstNonEmpty(customer?.email as string | null);
 
       const { data: tagRows, error: tagError } = await pmsAdmin
         .from("customer_tags")
@@ -290,6 +315,8 @@ Deno.serve(async (req: Request) => {
       project_code: resolved.projectCode,
       customer_id: customerId,
       client_name: clientName,
+      client_phone: clientPhone,
+      client_email: clientEmail,
       estimated_income: pitching.estimated_income ?? null,
       budget_min: budget,
       budget_max: budget,

@@ -389,6 +389,8 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
           prev.pitchingCode,
         pitchingName: defaults.pitching_name || prev.pitchingName,
         clientName: defaults.client_name || prev.clientName,
+        clientPhone: defaults.client_phone || prev.clientPhone,
+        clientEmail: defaults.client_email || prev.clientEmail,
         clientIndustry:
           defaults.selected_industries.length > 0
             ? defaults.selected_industries
