@@ -20,7 +20,9 @@ import { PublishedProductDetailModal, type PublishedDisplayProduct } from './Pub
 import { PublishedProductMergeModal } from './PublishedProductMergeModal';
 
 /** Products per edge-function batch (avoids relay timeout + cuts HTTP overhead). */
-const SHOPIFY_PUSH_BATCH_SIZE = 25;
+/** Small batches — each product may trigger many Shopify metafield API calls; large batches hit 504. */
+const SHOPIFY_PUSH_BATCH_SIZE = 3;
+const SHOPIFY_PUSH_MAX_RETRIES = 2;
 /** Above this count, SKU chip list starts collapsed to avoid pushing the table off-screen. */
 const SELECTED_SKU_COLLAPSE_THRESHOLD = 12;
 
@@ -301,6 +303,25 @@ export function PublishedProductsView() {
     let firstErr: string | undefined;
     let processed = 0;
 
+    const invokeBatch = async (batch: string[]) => {
+      let lastError: string | undefined;
+      for (let attempt = 0; attempt <= SHOPIFY_PUSH_MAX_RETRIES; attempt++) {
+        const { data, error } = await invokeEdgeFunctionDirect(
+          'supabase-functions-update-shopify-product',
+          { shopify_product_ids: batch },
+          { timeoutMs: 2 * 60 * 1000 },
+        );
+        if (!error && !data?.error && data?.success !== false) {
+          return { data, error: null as Error | null };
+        }
+        lastError = error?.message || (data?.error as string) || '未知錯誤';
+        const isRetryable = /504|502|408|逾時|timeout/i.test(lastError);
+        if (!isRetryable || attempt === SHOPIFY_PUSH_MAX_RETRIES) break;
+        await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+      }
+      return { data: null, error: new Error(lastError || '未知錯誤') };
+    };
+
     try {
       for (let b = 0; b < batches.length; b++) {
         const batch = batches[b];
@@ -309,18 +330,40 @@ export function PublishedProductsView() {
           { id: toastId },
         );
 
-        const { data, error } = await invokeEdgeFunctionDirect(
-          'supabase-functions-update-shopify-product',
-          { shopify_product_ids: batch },
-          { timeoutMs: 5 * 60 * 1000 },
-        );
+        let batchResult = await invokeBatch(batch);
+
+        // 504 on multi-product batch — fall back to one product per request
+        if (batchResult.error && batch.length > 1 && /504|502|408|逾時|timeout/i.test(batchResult.error.message)) {
+          for (const sid of batch) {
+            toast.loading(
+              `正在推送至 Shopify (${processed}/${shopifyIds.length})… 單件重試 ${sid}`,
+              { id: toastId },
+            );
+            const single = await invokeBatch([sid]);
+            processed += 1;
+            if (single.error || single.data?.success === false) {
+              failed += 1;
+              if (!firstErr) firstErr = single.error?.message || (single.data?.error as string);
+            } else {
+              pushed += Number(single.data?.pushed ?? 0);
+              skipped += Number(single.data?.skipped ?? 0);
+              failed += Number(single.data?.failed ?? 0);
+            }
+          }
+          continue;
+        }
 
         processed += batch.length;
 
-        if (error || data?.error || data?.success === false) {
+        if (batchResult.error || batchResult.data?.success === false) {
           failed += batch.length;
-          if (!firstErr) firstErr = error?.message || (data?.error as string) || '未知錯誤';
+          if (!firstErr) {
+            firstErr = batchResult.error?.message
+              || (batchResult.data?.error as string)
+              || '未知錯誤';
+          }
         } else {
+          const data = batchResult.data;
           pushed += Number(data?.pushed ?? 0);
           skipped += Number(data?.skipped ?? 0);
           failed += Number(data?.failed ?? 0);

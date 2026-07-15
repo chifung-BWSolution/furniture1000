@@ -1058,10 +1058,17 @@ async function pushProductToShopify(
   });
   const existingHandle = typeof existing.handle === "string" ? existing.handle.trim() : "";
 
-  const mediaUrlsForMetafields = dedupedMirror
+  const mirrorCdnUrls = dedupedMirror
     .map((im) => im.src)
     .filter((src): src is string => typeof src === "string" && /^https?:\/\//.test(src))
     .slice(0, 4);
+  const liveCdnUrls = [...liveImages]
+    .filter((im) => typeof im.src === "string" && /^https?:\/\//.test(im.src))
+    .sort((a, b) => (Number(a.position) || 99) - (Number(b.position) || 99))
+    .map((im) => String(im.src))
+    .slice(0, 4);
+  // Prefer live Shopify CDN URLs for more_image metafields (storefront reads these).
+  const mediaUrlsForMetafields = liveCdnUrls.length > 0 ? liveCdnUrls : mirrorCdnUrls;
   const mergedMetafields = { ...(metafields || {}) };
   applyMoreImageLinkMetafields(
     mergedMetafields,
@@ -1490,13 +1497,24 @@ Deno.serve(async (req: Request) => {
     if (Array.isArray(body.shopify_product_ids) && body.shopify_product_ids.length > 0) {
       const ids = body.shopify_product_ids.map(String).filter((id) => /^\d+$/.test(id));
       if (ids.length === 0) return json({ error: "No valid numeric shopify_product_ids" }, 400);
+      const MAX_PER_REQUEST = 8;
+      const batchIds = ids.slice(0, MAX_PER_REQUEST);
+      const truncated = ids.length > MAX_PER_REQUEST;
       const { data: rows, error: fetchErr } = await supabase
         .from("shopify_products")
         .select("*")
-        .in("shopify_product_id", ids);
+        .in("shopify_product_id", batchIds);
       if (fetchErr) return json({ error: fetchErr.message }, 500);
       const stats = await pushMirrorRows(supabase, shopDomain, shopifyToken, (rows || []) as Record<string, unknown>[]);
-      return json({ success: true, mode: "push_selected_from_mirror", ...stats });
+      return json({
+        success: true,
+        mode: "push_selected_from_mirror",
+        ...stats,
+        requested: ids.length,
+        processed: batchIds.length,
+        truncated,
+        remaining: truncated ? ids.length - MAX_PER_REQUEST : 0,
+      });
     }
 
     if (body.push_from_mirror && body.shopify_product_id) {
