@@ -36,6 +36,7 @@ import {
   formatPmsPitchingLabel,
   type PmsPitchingListItem,
 } from '@/lib/pmsPitchings';
+import { sortIndustryLabels } from '@/lib/clientIndustrySort';
 import { PmsPitchingGate } from '@/components/dashboard/PmsPitchingGate';
 
 const LazyQuotationPDFPreviewModal = lazy(() =>
@@ -399,7 +400,9 @@ export function QuickQuoteView({
 
       if (defaults.industry_options.length > 0) {
         setPmsIndustryCatalog(defaults.industry_options);
-        setIndustryOptions(defaults.industry_options.map((o) => o.display));
+        setIndustryOptions(
+          sortIndustryLabels(defaults.industry_options.map((o) => o.display)),
+        );
       }
 
       if (!pitchingId && !projectId) return;

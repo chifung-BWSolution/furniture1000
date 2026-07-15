@@ -23,6 +23,28 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
+function industryEnglishSortKey(label: string): string {
+  const trimmed = label.trim();
+  if (!trimmed) return "";
+  const dashParts = trimmed.split(/\s*-\s+/);
+  if (dashParts.length >= 2) {
+    const english = dashParts.slice(1).join(" - ").trim();
+    if (english) return english.toLowerCase();
+  }
+  const enTail = trimmed.match(/[A-Za-z][A-Za-z0-9\s\-&',./()]*$/);
+  if (enTail) return enTail[0].trim().toLowerCase();
+  return trimmed.toLowerCase();
+}
+
+function sortIndustryOptions<T extends { display: string }>(rows: T[]): T[] {
+  return [...rows].sort((a, b) => {
+    const ka = industryEnglishSortKey(a.display);
+    const kb = industryEnglishSortKey(b.display);
+    if (ka !== kb) return ka.localeCompare(kb, "en");
+    return a.display.localeCompare(b.display, "zh-Hant");
+  });
+}
+
 function firstNonEmpty(...values: Array<string | null | undefined>): string | null {
   for (const v of values) {
     const s = (v || "").trim();
@@ -164,19 +186,20 @@ Deno.serve(async (req: Request) => {
     const { data: industryRows, error: industryError } = await pmsAdmin
       .from("nos_customer_tags")
       .select("id, display")
-      .eq("collection_id", INDUSTRY_COLLECTION_ID)
-      .order("display", { ascending: true });
+      .eq("collection_id", INDUSTRY_COLLECTION_ID);
 
     if (industryError) {
       throw new Error(`Industry tags lookup failed: ${industryError.message}`);
     }
 
-    const industryOptions = (industryRows || [])
-      .map((row) => ({
-        id: row.id as string,
-        display: String(row.display || "").trim(),
-      }))
-      .filter((row) => row.id && row.display);
+    const industryOptions = sortIndustryOptions(
+      (industryRows || [])
+        .map((row) => ({
+          id: row.id as string,
+          display: String(row.display || "").trim(),
+        }))
+        .filter((row) => row.id && row.display),
+    );
 
     if (!rawPitchingId && !rawProjectId) {
       return jsonResponse({
