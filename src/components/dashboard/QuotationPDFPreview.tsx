@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { X, Download, Loader2, AlertTriangle } from 'lucide-react';
 import type { QuotationDimensionMode, QuotationPDFData } from '@/types/quotation-pdf';
 import { parseRemarksContent } from '@/lib/remarksContent';
@@ -48,6 +48,92 @@ const NOTO_SANS_SC_BOLD =
  */
 const PDF_FONT_FAMILY = ['NotoSansTC', 'NotoSansJP', 'NotoSansHK', 'NotoSansSC'] as const;
 
+const FONT_FETCH_TIMEOUT_MS = 25_000;
+const PDF_RENDER_TIMEOUT_MS = 90_000;
+
+/** Cached blob: URLs for font files — avoids re-downloading ~50MB on every preview. */
+const fontBlobUrlCache = new Map<string, string>();
+
+async function fetchFontBlobUrl(url: string): Promise<string> {
+  const cached = fontBlobUrlCache.get(url);
+  if (cached) return cached;
+
+  const controller = new AbortController();
+  const timer = window.setTimeout(() => controller.abort(), FONT_FETCH_TIMEOUT_MS);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) throw new Error(`Font HTTP ${res.status}`);
+    const blob = await res.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    fontBlobUrlCache.set(url, objectUrl);
+    return objectUrl;
+  } finally {
+    window.clearTimeout(timer);
+  }
+}
+
+async function registerPdfFonts(mod: ReactPdfModule): Promise<void> {
+  const [tcRegular, tcBold, jpRegular, jpBold, hkRegular, hkBold, scRegular, scBold] =
+    await Promise.all([
+      fetchFontBlobUrl(NOTO_SANS_TC_REGULAR),
+      fetchFontBlobUrl(NOTO_SANS_TC_BOLD),
+      fetchFontBlobUrl(NOTO_SANS_JP_REGULAR),
+      fetchFontBlobUrl(NOTO_SANS_JP_BOLD),
+      fetchFontBlobUrl(NOTO_SANS_HK_REGULAR),
+      fetchFontBlobUrl(NOTO_SANS_HK_BOLD),
+      fetchFontBlobUrl(NOTO_SANS_SC_REGULAR),
+      fetchFontBlobUrl(NOTO_SANS_SC_BOLD),
+    ]);
+
+  mod.Font.register({
+    family: 'NotoSansTC',
+    fonts: [
+      { src: tcRegular, fontWeight: 400 },
+      { src: tcBold, fontWeight: 700 },
+    ],
+  });
+  mod.Font.register({
+    family: 'NotoSansJP',
+    fonts: [
+      { src: jpRegular, fontWeight: 400 },
+      { src: jpBold, fontWeight: 700 },
+    ],
+  });
+  mod.Font.register({
+    family: 'NotoSansHK',
+    fonts: [
+      { src: hkRegular, fontWeight: 400 },
+      { src: hkBold, fontWeight: 700 },
+    ],
+  });
+  mod.Font.register({
+    family: 'NotoSansSC',
+    fonts: [
+      { src: scRegular, fontWeight: 400 },
+      { src: scBold, fontWeight: 700 },
+    ],
+  });
+  mod.Font.registerHyphenationCallback((word: string) => {
+    const cjk = /[\u3000-\u30FF\u3400-\u9FFF\uF900-\uFAFF\uFF00-\uFFEF]/;
+    if (!cjk.test(word)) return [word];
+    const parts: string[] = [];
+    let latin = '';
+    for (const ch of word) {
+      if (cjk.test(ch)) {
+        if (latin) {
+          parts.push(latin);
+          latin = '';
+        }
+        parts.push(ch, '');
+      } else {
+        latin += ch;
+      }
+    }
+    if (latin) parts.push(latin);
+    return parts.length ? parts : [word];
+  });
+}
+
 async function loadReactPdfModule(): Promise<ReactPdfModule> {
   if (cachedModule) return cachedModule;
   if (loadPromise) return loadPromise;
@@ -57,62 +143,12 @@ async function loadReactPdfModule(): Promise<ReactPdfModule> {
     cachedModule = mod;
     if (!fontRegistered) {
       try {
-        // Primary: full Noto Sans TC — covers the complete Traditional repertoire
-        // including HK-specific Han glyphs like 枱.
-        mod.Font.register({
-          family: 'NotoSansTC',
-          fonts: [
-            { src: NOTO_SANS_TC_REGULAR, fontWeight: 400 },
-            { src: NOTO_SANS_TC_BOLD, fontWeight: 700 },
-          ],
-        });
-        mod.Font.register({
-          family: 'NotoSansJP',
-          fonts: [
-            { src: NOTO_SANS_JP_REGULAR, fontWeight: 400 },
-            { src: NOTO_SANS_JP_BOLD, fontWeight: 700 },
-          ],
-        });
-        mod.Font.register({
-          family: 'NotoSansHK',
-          fonts: [
-            { src: NOTO_SANS_HK_REGULAR, fontWeight: 400 },
-            { src: NOTO_SANS_HK_BOLD, fontWeight: 700 },
-          ],
-        });
-        mod.Font.register({
-          family: 'NotoSansSC',
-          fonts: [
-            { src: NOTO_SANS_SC_REGULAR, fontWeight: 400 },
-            { src: NOTO_SANS_SC_BOLD, fontWeight: 700 },
-          ],
-        });
-        // Wrong-glyph / legacy forms (e.g. 爲 → "2") are handled by normalizeQuotationPdfGlyphs().
-        mod.Font.registerHyphenationCallback((word: string) => {
-          // Allow CJK line breaks in narrow cells without inserting "-" at wrap points.
-          // Each char followed by '' gives break opportunities; empty segments are not rendered.
-          const cjk = /[\u3000-\u30FF\u3400-\u9FFF\uF900-\uFAFF\uFF00-\uFFEF]/;
-          if (!cjk.test(word)) return [word];
-          const parts: string[] = [];
-          let latin = '';
-          for (const ch of word) {
-            if (cjk.test(ch)) {
-              if (latin) {
-                parts.push(latin);
-                latin = '';
-              }
-              parts.push(ch, '');
-            } else {
-              latin += ch;
-            }
-          }
-          if (latin) parts.push(latin);
-          return parts.length ? parts : [word];
-        });
+        await registerPdfFonts(mod);
         fontRegistered = true;
         console.log('PDF fonts registered successfully');
       } catch (e) {
         console.warn('Failed to register PDF fonts:', e);
+        throw e instanceof Error ? e : new Error('PDF 字體載入失敗');
       }
     }
     return mod;
@@ -977,78 +1013,83 @@ interface QuotationPDFPreviewProps {
 
 export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPreviewProps) {
   const [isDownloading, setIsDownloading] = useState(false);
-  const [pdfRendering, setPdfRendering] = useState(true);
-  const pdfContainerRef = useRef<HTMLDivElement>(null);
-  const { mod: pdfMod, loading, error } = useReactPdf();
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [renderError, setRenderError] = useState<string | null>(null);
+  const [rendering, setRendering] = useState(false);
+  const [renderAttempt, setRenderAttempt] = useState(0);
+  const previewUrlRef = useRef<string | null>(null);
+  const { mod: pdfMod, loading, error: moduleError } = useReactPdf();
+
+  const dataKey = useMemo(() => JSON.stringify(data), [data]);
+
+  const buildPreviewBlob = useCallback(async () => {
+    if (!pdfMod || !data) return null;
+    return Promise.race([
+      pdfMod.pdf(<QuotationDocument data={data} pdfMod={pdfMod} />).toBlob(),
+      new Promise<never>((_, reject) => {
+        window.setTimeout(
+          () => reject(new Error('PDF 生成逾時，請檢查網絡後重試或使用「下載 PDF」')),
+          PDF_RENDER_TIMEOUT_MS,
+        );
+      }),
+    ]);
+  }, [pdfMod, data]);
 
   useEffect(() => {
-    if (!pdfMod || !data) return;
+    if (!open || !pdfMod || !data) return;
 
-    setPdfRendering(true);
-
-    // Smart loading detection: observe the PDFViewer's iframe load event
-    // with a maximum timeout as fallback
     let cancelled = false;
-    const maxTimeout = setTimeout(() => {
-      if (!cancelled) setPdfRendering(false);
-    }, 8000); // fallback max 8s
+    setRendering(true);
+    setRenderError(null);
+    setPreviewUrl(null);
 
-    // Use MutationObserver to detect when the iframe is inserted, then listen for its load
-    const container = pdfContainerRef.current;
-    if (!container) {
-      clearTimeout(maxTimeout);
-      setPdfRendering(false);
-      return;
-    }
-
-    const checkIframe = () => {
-      const iframe = container.querySelector('iframe');
-      if (iframe) {
-        // If already loaded (contentDocument ready)
-        try {
-          if (iframe.contentDocument?.readyState === 'complete') {
-            if (!cancelled) setPdfRendering(false);
-            clearTimeout(maxTimeout);
-            return true;
-          }
-        } catch { /* cross-origin, fall through to load event */ }
-
-        iframe.addEventListener('load', () => {
-          if (!cancelled) setPdfRendering(false);
-          clearTimeout(maxTimeout);
-        }, { once: true });
-        return true;
+    (async () => {
+      try {
+        const blob = await buildPreviewBlob();
+        if (cancelled || !blob) return;
+        if (previewUrlRef.current) {
+          URL.revokeObjectURL(previewUrlRef.current);
+        }
+        const objectUrl = URL.createObjectURL(blob);
+        previewUrlRef.current = objectUrl;
+        setPreviewUrl(objectUrl);
+      } catch (err) {
+        if (!cancelled) {
+          const message =
+            err instanceof Error ? err.message : 'PDF 預覽生成失敗';
+          setRenderError(message);
+        }
+      } finally {
+        if (!cancelled) setRendering(false);
       }
-      return false;
-    };
-
-    // Try immediately
-    if (!checkIframe()) {
-      // Observe for iframe insertion
-      const observer = new MutationObserver(() => {
-        if (checkIframe()) observer.disconnect();
-      });
-      observer.observe(container, { childList: true, subtree: true });
-
-      // Cleanup observer
-      return () => {
-        cancelled = true;
-        clearTimeout(maxTimeout);
-        observer.disconnect();
-      };
-    }
+    })();
 
     return () => {
       cancelled = true;
-      clearTimeout(maxTimeout);
     };
-  }, [pdfMod, data]);
+  }, [open, pdfMod, dataKey, renderAttempt, buildPreviewBlob]);
+
+  useEffect(() => {
+    if (!open) return;
+    return () => {
+      if (previewUrlRef.current) {
+        URL.revokeObjectURL(previewUrlRef.current);
+        previewUrlRef.current = null;
+      }
+      setPreviewUrl(null);
+      setRenderError(null);
+      setRendering(false);
+    };
+  }, [open]);
 
   const handleDownload = async () => {
     if (!pdfMod) return;
     setIsDownloading(true);
     try {
-      const blob = await pdfMod.pdf(<QuotationDocument data={data} pdfMod={pdfMod} />).toBlob();
+      const blob = previewUrl
+        ? await fetch(previewUrl).then((r) => r.blob())
+        : await buildPreviewBlob();
+      if (!blob) return;
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
@@ -1065,6 +1106,8 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
     }
   };
 
+  const combinedError = moduleError || renderError;
+
   if (!open) return null;
 
   return (
@@ -1079,7 +1122,7 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
           <div className="flex items-center gap-3">
             <button
               onClick={handleDownload}
-              disabled={isDownloading || loading || !!error}
+              disabled={isDownloading || loading || !!combinedError}
               className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 font-body text-sm font-semibold text-primary-foreground shadow-md shadow-primary/20 transition-all hover:bg-primary/90 active:scale-[0.98] disabled:opacity-60"
             >
               {isDownloading ? (
@@ -1098,42 +1141,43 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
           </div>
         </div>
 
-        {/* PDF Viewer */}
-        <div className="flex-1 overflow-hidden rounded-b-2xl bg-neutral-800 p-4" style={{ minHeight: '800px' }}>
+        {/* PDF Viewer — blob iframe (more reliable than react-pdf PDFViewer) */}
+        <div className="relative flex-1 overflow-hidden rounded-b-2xl bg-neutral-800 p-4" style={{ minHeight: '800px' }}>
           {loading && (
             <div className="flex h-full items-center justify-center text-white">
               <Loader2 className="mr-3 h-6 w-6 animate-spin" />
               <p>Loading PDF renderer...</p>
             </div>
           )}
-          {error && (
-            <div className="flex h-full flex-col items-center justify-center text-white gap-3">
+          {combinedError && !loading && (
+            <div className="flex h-full flex-col items-center justify-center gap-3 text-white">
               <AlertTriangle className="h-8 w-8 text-amber-400" />
-              <p className="text-sm">Failed to load PDF module</p>
-              <p className="text-xs text-neutral-400 max-w-md text-center">{error}</p>
+              <p className="text-sm">PDF 預覽失敗</p>
+              <p className="max-w-md text-center text-xs text-neutral-400">{combinedError}</p>
               <button
-                onClick={() => window.location.reload()}
+                type="button"
+                onClick={() => setRenderAttempt((n) => n + 1)}
                 className="mt-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
               >
-                Reload Page
+                重試
               </button>
             </div>
           )}
-          {pdfMod && data && (
-            <div ref={pdfContainerRef} className="relative h-full w-full">
-              {pdfRendering && (
-                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center rounded-lg bg-neutral-800/90 text-white gap-3">
-                  <Loader2 className="h-8 w-8 animate-spin text-indigo-400" />
-                  <p className="text-sm font-medium">正在生成 PDF 預覽...</p>
-                  <p className="text-xs text-neutral-400">Loading document preview</p>
-                </div>
-              )}
-              <pdfMod.PDFViewer width="100%" height="100%" style={{ borderRadius: 8 }}>
-                <QuotationDocument data={data} pdfMod={pdfMod} />
-              </pdfMod.PDFViewer>
+          {rendering && !loading && !combinedError && (
+            <div className="absolute inset-4 z-10 flex flex-col items-center justify-center rounded-lg bg-neutral-800/95 text-white gap-3">
+              <Loader2 className="h-8 w-8 animate-spin text-indigo-400" />
+              <p className="text-sm font-medium">正在生成 PDF 預覽...</p>
+              <p className="text-xs text-neutral-400">首次載入字體可能需要 10–30 秒</p>
             </div>
           )}
-          {pdfMod && !data && (
+          {previewUrl && !combinedError && (
+            <iframe
+              title="報價單 PDF 預覽"
+              src={`${previewUrl}#toolbar=1&navpanes=0`}
+              className="h-full w-full rounded-lg border-0 bg-white"
+            />
+          )}
+          {pdfMod && !data && !loading && (
             <div className="flex h-full items-center justify-center text-white">
               <p>No data available for PDF preview</p>
             </div>
