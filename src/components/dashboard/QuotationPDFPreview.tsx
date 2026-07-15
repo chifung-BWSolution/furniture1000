@@ -5,6 +5,7 @@ import { parseRemarksContent } from '@/lib/remarksContent';
 import { multiColorToChineseDisplay } from '@/constants/color-map';
 import { normalizeQuotationPdfGlyphs, pdfDisplayText } from '@/lib/quotationPdfGlyphs';
 import { quoteItemLineSubtotal } from '@/lib/quoteItemTotals';
+import { buildQuotationPdfFilename } from '@/lib/quotationPdfFilename';
 
 export type { QuotationPDFData } from '@/types/quotation-pdf';
 
@@ -1093,8 +1094,10 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
       const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      const quoteNumber = (data?.quoteMeta?.quoteNumber || 'Draft').trim();
-      link.download = `BWF_報價單_${quoteNumber}.pdf`;
+      link.download = buildQuotationPdfFilename(
+        data?.quoteMeta?.quoteNumber || 'Draft',
+        data?.quoteMeta?.version,
+      );
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
@@ -1107,6 +1110,7 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
   };
 
   const combinedError = moduleError || renderError;
+  const downloadDisabled = isDownloading || loading || !!combinedError || !previewUrl;
 
   if (!open) return null;
 
@@ -1122,7 +1126,7 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
           <div className="flex items-center gap-3">
             <button
               onClick={handleDownload}
-              disabled={isDownloading || loading || !!combinedError}
+              disabled={downloadDisabled}
               className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 font-body text-sm font-semibold text-primary-foreground shadow-md shadow-primary/20 transition-all hover:bg-primary/90 active:scale-[0.98] disabled:opacity-60"
             >
               {isDownloading ? (
@@ -1173,9 +1177,26 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
           {previewUrl && !combinedError && (
             <iframe
               title="報價單 PDF 預覽"
-              src={`${previewUrl}#toolbar=1&navpanes=0`}
+              src={`${previewUrl}#toolbar=0&navpanes=0`}
               className="h-full w-full rounded-lg border-0 bg-white"
             />
+          )}
+          {previewUrl && !combinedError && (
+            <div className="absolute inset-x-4 bottom-4 z-20 flex justify-center">
+              <button
+                type="button"
+                onClick={handleDownload}
+                disabled={downloadDisabled}
+                className="inline-flex items-center gap-2 rounded-lg border border-border/80 bg-card/95 px-5 py-2.5 font-body text-sm font-semibold text-foreground shadow-lg backdrop-blur-sm transition-all hover:bg-card active:scale-[0.98] disabled:opacity-60"
+              >
+                {isDownloading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Download className="h-4 w-4" />
+                )}
+                下載
+              </button>
+            </div>
           )}
           {pdfMod && !data && !loading && (
             <div className="flex h-full items-center justify-center text-white">

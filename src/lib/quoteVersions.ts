@@ -1,40 +1,54 @@
-/** Parse / compare / bump bwf_quote version strings (v{major}.{minor}). */
+/**
+ * Quote version strings: v1, v2, v3 …
+ * Legacy rows may still store v1.1, v1.7 (minor digit = sequence number).
+ */
 
 export type ParsedQuoteVersion = { major: number; minor: number };
 
+/** Numeric sequence for compare / bump (v1 → 1, legacy v1.7 → 7). */
+export function quoteVersionSequence(version: string | null | undefined): number {
+  const s = (version || '').trim();
+  const simple = s.match(/^v(\d+)$/i);
+  if (simple) return parseInt(simple[1], 10);
+  const legacy = s.match(/^v(\d+)\.(\d+)$/i);
+  if (legacy) return parseInt(legacy[2], 10);
+  return 0;
+}
+
+export function formatQuoteVersion(n: number): string {
+  return `v${n}`;
+}
+
+/** @deprecated Prefer quoteVersionSequence — kept for call sites using ParsedQuoteVersion. */
 export function parseQuoteVersion(version: string | null | undefined): ParsedQuoteVersion {
-  const m = (version || '').trim().match(/^v(\d+)\.(\d+)$/i);
-  if (!m) return { major: 0, minor: 0 };
-  return {
-    major: parseInt(m[1], 10),
-    minor: parseInt(m[2], 10),
-  };
+  const seq = quoteVersionSequence(version);
+  return { major: 1, minor: seq };
 }
 
 export function compareQuoteVersion(a: string, b: string): number {
-  const va = parseQuoteVersion(a);
-  const vb = parseQuoteVersion(b);
-  if (va.major !== vb.major) return va.major - vb.major;
-  return va.minor - vb.minor;
-}
-
-export function formatQuoteVersion(major: number, minor: number): string {
-  return `v${major}.${minor}`;
+  return quoteVersionSequence(a) - quoteVersionSequence(b);
 }
 
 export function bumpQuoteVersion(version: string | null | undefined): string {
-  const { major, minor } = parseQuoteVersion(version);
-  if (major === 0 && minor === 0) return 'v1.1';
-  return formatQuoteVersion(major, minor + 1);
+  return formatQuoteVersion(quoteVersionSequence(version) + 1);
 }
 
 export function maxQuoteVersion(versions: string[]): string {
-  if (versions.length === 0) return 'v1.0';
-  return versions.reduce((best, v) =>
-    compareQuoteVersion(v, best) > 0 ? v : best,
+  if (versions.length === 0) return formatQuoteVersion(0);
+  const maxSeq = versions.reduce(
+    (best, v) => Math.max(best, quoteVersionSequence(v)),
+    0,
   );
+  return formatQuoteVersion(maxSeq);
 }
 
 export function nextQuoteVersionFromChain(versions: string[]): string {
   return bumpQuoteVersion(maxQuoteVersion(versions));
+}
+
+/** Normalize stored version for UI / filenames (legacy v1.7 → v7). */
+export function displayQuoteVersion(version: string | null | undefined): string {
+  const seq = quoteVersionSequence(version);
+  if (seq <= 0) return (version || '').trim() || '—';
+  return formatQuoteVersion(seq);
 }

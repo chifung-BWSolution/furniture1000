@@ -66,7 +66,7 @@ import {
   type BwfQuoteItemInput,
 } from "@/lib/bwfQuoteItems";
 import type { QuoteCopyPayload } from "@/lib/quoteCopy";
-import { bumpQuoteVersion } from "@/lib/quoteVersions";
+import { bumpQuoteVersion, displayQuoteVersion } from "@/lib/quoteVersions";
 
 interface QuoteFormData {
   company: string;
@@ -1064,7 +1064,7 @@ function QuoteCustomTermCard({
               className={QUOTE_INPUT_CLASS}
             />
           </QuoteFieldBlock>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
             <QuoteFieldBlock label="數量">
               <input
                 type="number"
@@ -1075,6 +1075,16 @@ function QuoteCustomTermCard({
                   updateItem(item.id, "quantity", e.target.value ? parseInt(e.target.value) : 0)
                 }
                 className={QUOTE_NUMBER_INPUT_CLASS}
+              />
+            </QuoteFieldBlock>
+            <QuoteFieldBlock label="單位">
+              <input
+                type="text"
+                value={item.unit || ""}
+                placeholder="—"
+                maxLength={4}
+                onChange={(e) => updateItem(item.id, "unit", e.target.value)}
+                className={QUOTE_INPUT_CLASS}
               />
             </QuoteFieldBlock>
             <QuoteFieldBlock label="單價">
@@ -1553,6 +1563,7 @@ export function QuotationDraftEditor({
         hkdCostPrice: null,
         unitPrice: 0,
         quantity: 1,
+        unit: "",
         isCustomTerm: true,
       },
     ]);
@@ -2052,6 +2063,9 @@ export function QuotationDraftEditor({
       projectName: pitchingCode,
       deliveryAddress,
       quoteNumber: pitchingCode,
+      version: existingQuote?.version
+        ? displayQuoteVersion(existingQuote.version)
+        : undefined,
       date: new Date().toLocaleDateString("zh-HK", {
         year: "numeric",
         month: "numeric",

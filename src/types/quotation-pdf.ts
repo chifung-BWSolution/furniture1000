@@ -21,6 +21,8 @@ export interface QuotationPDFData {
     validity: string;
     deliveryAddress: string;
     quoteNumber?: string;
+    /** e.g. v1, v2 — used in PDF download filename. */
+    version?: string;
     date?: string;
   };
   deliveryDetails: string;

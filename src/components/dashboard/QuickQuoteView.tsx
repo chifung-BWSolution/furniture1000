@@ -20,6 +20,7 @@ import {
   compareQuoteVersion,
   maxQuoteVersion,
   bumpQuoteVersion,
+  displayQuoteVersion,
 } from '@/lib/quoteVersions';
 import { unsavedGuard } from '@/lib/unsavedGuard';
 import {
@@ -774,7 +775,9 @@ export function QuickQuoteView({
                   </span>
                   <span className="mx-2 text-border">·</span>
                   目前版本{' '}
-                  <span className="font-semibold">{loadedQuoteData.version}</span>
+                  <span className="font-semibold">
+                    {displayQuoteVersion(loadedQuoteData.version)}
+                  </span>
                   <span className="mx-2 text-border">·</span>
                   送出新版本將為{' '}
                   <span className="font-semibold text-primary">

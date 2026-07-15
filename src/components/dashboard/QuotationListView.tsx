@@ -50,7 +50,7 @@ import {
   staffDisplayLabel,
 } from '@/lib/staffDisplay';
 import { collectStaffNamesFromQuoteRows } from '@/lib/quoteStaffOptions';
-import { compareQuoteVersion } from '@/lib/quoteVersions';
+import { compareQuoteVersion, displayQuoteVersion } from '@/lib/quoteVersions';
 
 interface QuoteRecord {
   id: string;
@@ -647,7 +647,7 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
                           quoteStatusBadgeClass(quote.status),
                         )}
                       >
-                        {quote.version} · {quote.status}
+                        {displayQuoteVersion(quote.version)} · {quote.status}
                       </span>
                     </td>
                     <td className="whitespace-nowrap px-3 py-3">
@@ -713,7 +713,7 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
             <AlertDialogDescription className="font-body text-sm">
               確定要刪除報價單版本{' '}
               <span className="font-mono-data font-bold text-foreground">
-                {deleteTarget ? `${deleteTarget.version}` : ''}
+                {deleteTarget ? displayQuoteVersion(deleteTarget.version) : ''}
               </span>
               （{deleteTarget ? quoteCode(deleteTarget) : ''}）嗎？
               <br />
