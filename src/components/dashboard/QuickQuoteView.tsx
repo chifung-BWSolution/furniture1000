@@ -93,7 +93,16 @@ const FALLBACK_INDUSTRIES = ['餐飲', '辦公', '零售', '醫療', '教育', '
 const OFFICE_FURNITURE_GRADE_LABEL = '辦公室傢俬級別';
 const QUOTATION_TYPES = ['國際品牌', '本地品牌', '基本傢俬'];
 
-const SERVICE_SCOPES = ['辦公枱', '辦公椅', '儲物櫃', '軟裝', '師傅安裝', '拉線', '其他'];
+const OFFICE_FURNITURE_CATEGORY_LABEL = '辦公室傢俬類別';
+const SERVICE_SCOPES = [
+  '辦公室前台',
+  '工作台',
+  '學校傢俬',
+  '辦公椅',
+  '梳化',
+  '文件櫃',
+  '其他傢俬訂造',
+];
 
 const WORK_PERIODS = [
   { value: 'urgent', label: '急件 (1-2個月)' },
@@ -652,7 +661,7 @@ export function QuickQuoteView({
     const newErrors: Partial<Record<keyof QuoteFormData, string>> = {};
 
     if (formData.serviceScope.length === 0) {
-      newErrors.serviceScope = '請選擇至少一個服務範圍';
+      newErrors.serviceScope = `請選擇至少一個${OFFICE_FURNITURE_CATEGORY_LABEL}`;
     }
 
 
@@ -1115,11 +1124,11 @@ export function QuickQuoteView({
 
           {currentStep === 2 && (
             <div className="space-y-6">
-              {/* Service Scope Selection */}
+              {/* Office furniture category */}
               <div>
                 <div className="mb-3 flex items-baseline gap-2">
                   <label className="font-body text-sm font-medium text-foreground">
-                    服務範圍 <span className="text-red-500">*</span>
+                    {OFFICE_FURNITURE_CATEGORY_LABEL} <span className="text-red-500">*</span>
                   </label>
                   {formData.quotationType.length > 0 && (
                     <span className="font-body text-xs text-muted-foreground">
