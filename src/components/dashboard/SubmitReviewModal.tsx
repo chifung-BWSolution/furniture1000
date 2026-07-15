@@ -7,6 +7,8 @@ import { useAuth } from '@/contexts/AuthProvider';
 import { usePmsStaffName } from '@/hooks/use-pms-staff-name';
 import { withInsertAuditFields, withUpdateAuditFields } from '@/lib/pmsAudit';
 import { quoteItemHasBase64Images } from '@/lib/quoteImageStorage';
+import { fetchQuoteStaffFilterOptions } from '@/lib/quoteStaffOptions';
+import { StaffNameCombobox } from '@/components/dashboard/StaffNameCombobox';
 import {
   replaceQuoteItems,
   resolveItemImagesToStorage,
@@ -71,6 +73,8 @@ export function SubmitReviewModal({
   const { user } = useAuth();
   const staffName = usePmsStaffName(user?.id);
   const [submitter, setSubmitter] = useState('');
+  const [staffOptions, setStaffOptions] = useState<string[]>([]);
+  const [staffOptionsLoading, setStaffOptionsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
 
@@ -80,6 +84,25 @@ export function SubmitReviewModal({
     if (!open || !staffName) return;
     setSubmitter((prev) => (prev.trim() ? prev : staffName));
   }, [open, staffName]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    let cancelled = false;
+    setStaffOptionsLoading(true);
+
+    fetchQuoteStaffFilterOptions()
+      .then((options) => {
+        if (!cancelled) setStaffOptions(options);
+      })
+      .finally(() => {
+        if (!cancelled) setStaffOptionsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
 
   if (!open) return null;
 
@@ -270,18 +293,23 @@ export function SubmitReviewModal({
 
         {/* Submitter Input */}
         <div className="mb-6">
-          <label className="mb-1.5 block font-body text-sm font-medium text-foreground">
+          <label
+            htmlFor="submit-review-submitter"
+            className="mb-1.5 block font-body text-sm font-medium text-foreground"
+          >
             提交者姓名 <span className="text-rose-400">*</span>
           </label>
-          <input
-            type="text"
+          <StaffNameCombobox
+            id="submit-review-submitter"
             value={submitter}
-            onChange={(e) => {
-              setSubmitter(e.target.value);
+            onChange={(next) => {
+              setSubmitter(next);
               if (error) setError('');
             }}
-            placeholder="請輸入您的姓名"
-            className="w-full rounded-lg border border-border bg-background px-4 py-2.5 font-body text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20 transition-all"
+            options={staffOptions}
+            loading={staffOptionsLoading}
+            placeholder="請輸入或從 PM 及設計師名單選擇"
+            hasError={Boolean(error)}
           />
           {error && (
             <p className="mt-1.5 font-body text-xs text-rose-400">{error}</p>

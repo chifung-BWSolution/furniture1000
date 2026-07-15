@@ -44,6 +44,12 @@ import {
   SortHeaderIcon,
   type ListSortDir,
 } from '@/lib/listTableUtils';
+import {
+  canonicalStaffName,
+  matchesStaffFilter,
+  staffDisplayLabel,
+} from '@/lib/staffDisplay';
+import { collectStaffNamesFromQuoteRows } from '@/lib/quoteStaffOptions';
 
 interface QuoteRecord {
   id: string;
@@ -139,31 +145,20 @@ function quoteCode(q: QuoteListRow): string {
   );
 }
 
-function staffNamesForQuote(q: QuoteListRow): string[] {
-  if (q.pitching) {
-    const names = [q.pitching.main_pm_name, q.pitching.main_designer_name]
-      .map((x) => x?.trim())
-      .filter((x): x is string => Boolean(x));
-    if (names.length > 0) return names;
-  }
-  const pm = q.project_data?.formData?.projectManager?.trim();
-  if (pm) return [pm];
-  const sub = q.submitter?.trim();
-  if (sub) return [sub];
-  return [];
-}
-
 function staffLabel(q: QuoteListRow): string {
   if (q.pitching) {
-    const parts = [q.pitching.main_pm_name, q.pitching.main_designer_name]
-      .map((x) => x?.trim())
-      .filter(Boolean);
-    if (parts.length > 0) return parts.join(' / ');
+    const label = staffDisplayLabel([
+      q.pitching.main_pm_name,
+      q.pitching.main_designer_name,
+    ]);
+    if (label !== '—') return label;
   }
   return (
-    q.project_data?.formData?.projectManager?.trim() ||
-    q.submitter?.trim() ||
-    '—'
+    canonicalStaffName(
+      q.project_data?.formData?.projectManager?.trim() ||
+        q.submitter?.trim() ||
+        '',
+    ) || '—'
   );
 }
 
@@ -250,23 +245,25 @@ export function QuotationListView({ onOpenQuote }: QuotationListViewProps) {
     }
   };
 
-  const staffFilterOptions = useMemo(() => {
-    const names = new Set<string>();
-    for (const q of quotes) {
-      for (const name of staffNamesForQuote(q)) {
-        names.add(name);
-      }
-    }
-    return [...names].sort((a, b) => a.localeCompare(b, 'zh-Hant'));
-  }, [quotes]);
+  const staffFilterOptions = useMemo(
+    () => collectStaffNamesFromQuoteRows(quotes),
+    [quotes],
+  );
 
   const filteredQuotes = useMemo(() => {
     let rows = quotes;
 
     if (staffFilter !== '__all__') {
-      const target = staffFilter.toLowerCase();
       rows = rows.filter((q) =>
-        staffNamesForQuote(q).some((name) => name.toLowerCase() === target),
+        matchesStaffFilter(
+          [
+            q.pitching?.main_pm_name,
+            q.pitching?.main_designer_name,
+            q.project_data?.formData?.projectManager,
+            q.submitter,
+          ],
+          staffFilter,
+        ),
       );
     }
 
@@ -558,7 +555,10 @@ export function QuotationListView({ onOpenQuote }: QuotationListViewProps) {
                     <td className="max-w-[160px] px-3 py-3 font-body text-xs text-foreground">
                       <div>{staffLabel(quote)}</div>
                       <div className="mt-0.5 text-[11px] text-muted-foreground">
-                        提交: {quote.submitter || '—'}
+                        提交:{' '}
+                        {quote.submitter
+                          ? canonicalStaffName(quote.submitter)
+                          : '—'}
                       </div>
                     </td>
                     <td className="whitespace-nowrap px-3 py-3">
