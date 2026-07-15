@@ -27,6 +27,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     let mounted = true;
+    // INITIAL_SESSION + SIGNED_IN can both fire on page load; log at most once per full load.
+    let sessionLoginLogged = false;
+
+    const logSessionLoginOnce = () => {
+      if (sessionLoginLogged) return;
+      sessionLoginLogged = true;
+      if (!consumeSsoLoginPending()) {
+        void writeLoginLog('login', 'password');
+      }
+    };
 
     supabase.auth.getSession().then(({ data: { session: current } }) => {
       if (!mounted) return;
@@ -46,12 +56,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Refresh / clear PMS staff cache on login, SSO, logout (not every token refresh).
       if (event === 'SIGNED_OUT') {
         clearPmsStaffCache();
+      } else if (nextSession?.user?.id && event === 'INITIAL_SESSION') {
+        clearPmsStaffCache();
+        void fetchPmsStaffInfo(nextSession.user.id);
+        // Page load / browser refresh with an existing session counts as one login.
+        logSessionLoginOnce();
       } else if (nextSession?.user?.id && event === 'SIGNED_IN') {
         clearPmsStaffCache();
         void fetchPmsStaffInfo(nextSession.user.id);
-        if (!consumeSsoLoginPending()) {
-          void writeLoginLog('login', 'password');
-        }
+        // Fresh sign-in after logout / password flow (INITIAL_SESSION already handled refresh).
+        logSessionLoginOnce();
       } else if (nextSession?.user?.id && event === 'USER_UPDATED') {
         clearPmsStaffCache();
         void fetchPmsStaffInfo(nextSession.user.id);

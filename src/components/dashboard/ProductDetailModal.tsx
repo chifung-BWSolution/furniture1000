@@ -52,6 +52,7 @@ import { uploadBase64Image } from '@/lib/imageStorage';
 import { toast } from 'sonner';
 import { withUpdateAuditFields } from '@/lib/pmsAudit';
 import { collectProductGalleryUrls } from '@/lib/productGallery';
+import { writeProductEditLog } from '@/lib/uploadLog';
 // Color map utilities available if needed
 // import { getChineseColorLabel, getColorHex } from '@/constants/color-map';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -108,6 +109,8 @@ interface ProductDetailModalProps {
   onClose: () => void;
   onProductUpdated: (updatedProduct: ProductForDetail) => void;
   showAIImageTools?: boolean;
+  /** Audit log stage when saving from 待處理產品 / 產品目錄 */
+  activityStage?: 'listed_products' | 'product_catalog';
 }
 
 // ─── Lightbox Component ────────────────────────────────────────────────
@@ -392,6 +395,7 @@ export function ProductDetailModal({
   onClose,
   onProductUpdated,
   showAIImageTools = false,
+  activityStage,
 }: ProductDetailModalProps) {
   // Form state
   const [title, setTitle] = useState('');
@@ -800,6 +804,14 @@ export function ProductDetailModal({
         return;
       }
 
+      if (activityStage) {
+        void writeProductEditLog({
+          productId: product.id,
+          stage: activityStage,
+          productSku: sku.trim() || product.sku || null,
+        });
+      }
+
       // ─── Step 2: If product has a bwfMasterId, sync to master DB ────
       let masterSyncSuccess = true;
       if (product.bwfMasterId) {
@@ -967,7 +979,7 @@ export function ProductDetailModal({
     productionLeadTime, shippingDays, shippingFee, color, remarks,
     dimensionL, dimensionW, dimensionH,
     images, pendingNewFiles, pendingDeletePaths,
-    product, onProductUpdated, onClose,
+    product, onProductUpdated, onClose, activityStage, sku,
   ]);
 
   // Get the selected display image

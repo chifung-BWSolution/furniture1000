@@ -1,17 +1,17 @@
 import { supabase } from '@/lib/supabase';
 import { resolvePmsStaffByAuthUserIds, resolvePmsStaffByIds } from '@/lib/pmsStaff';
 import { getPublishDateHk } from '@/lib/publishTimestamps';
-import type { UploadLogStage } from '@/lib/uploadLog';
+import type { PublishLogStage } from '@/lib/uploadLog';
 import { formatUploadLogUserLabel } from '@/lib/uploadLogUserDisplay';
 
-export const UPLOAD_LOG_STAGES: UploadLogStage[] = [
+export const UPLOAD_LOG_STAGES: PublishLogStage[] = [
   'copywriting',
   'product_info',
   'furniture_group_check',
   'ready_to_publish',
 ];
 
-export const STAGE_LABELS: Record<UploadLogStage, string> = {
+export const STAGE_LABELS: Record<PublishLogStage, string> = {
   copywriting: '產品文案',
   product_info: '產品信息',
   furniture_group_check: '傢俬組檢查',
@@ -26,7 +26,7 @@ export const UPLOAD_LOG_REPORT_FOOTNOTE =
   '「產品目前停留」僅顯示今天（即時查詢）。「今日已處理」：產品文案每件產品以最後一次「提交到下一步」計 1 件（upload_log + copy_done_at，歸屬最後操作者與該提交日）；產品信息取 upload_log（完成）+ ready_to_shopify.info_completed_at。兩階段同日數量可能不同——文案已於前日提交、信息於當日才批次完成時，文案計在前日、信息計在當日。';
 
 /** Actions that count as “modified / completed” per stage. */
-const STAGE_ACTIONS: Record<UploadLogStage, Set<string>> = {
+const STAGE_ACTIONS: Record<PublishLogStage, Set<string>> = {
   copywriting: new Set(['submit']),
   // Only 「完成」 moves to 傢俬組檢查; per-product 「儲存」 is not counted as processed.
   product_info: new Set(['complete']),
@@ -35,7 +35,7 @@ const STAGE_ACTIONS: Record<UploadLogStage, Set<string>> = {
 };
 
 /** Never attribute copywriting / product_info via products.editor_staff_id (editor ≠ actor). */
-const STAGES_NO_EDITOR_STAFF_LOOKUP = new Set<UploadLogStage>([
+const STAGES_NO_EDITOR_STAFF_LOOKUP = new Set<PublishLogStage>([
   'copywriting',
   'product_info',
 ]);
@@ -52,13 +52,13 @@ export interface StageDailyStats {
 
 export interface DailyReportRow {
   hkDate: string;
-  stages: Record<UploadLogStage, StageDailyStats>;
+  stages: Record<PublishLogStage, StageDailyStats>;
 }
 
 export interface UploadLogReport {
   generatedAt: string;
   todayHk: string;
-  pendingCounts: Record<UploadLogStage, number>;
+  pendingCounts: Record<PublishLogStage, number>;
   /** Matches 已上載產品 → 已發佈 (shopify_products active, non-configurable). */
   publishedShopifyCount: number;
   dailyRows: DailyReportRow[];
@@ -66,7 +66,7 @@ export interface UploadLogReport {
 
 interface RawLogRow {
   product_id: string | null;
-  stage: UploadLogStage;
+  stage: PublishLogStage;
   action: string;
   user_name: string | null;
   user_email: string | null;
@@ -128,7 +128,7 @@ function resolveStaffId(
   return editorStaffId?.trim() || creatorStaffId?.trim() || null;
 }
 
-function emptyStageStats(): Record<UploadLogStage, StageDailyStats> {
+function emptyStageStats(): Record<PublishLogStage, StageDailyStats> {
   return {
     copywriting: { completedCount: 0, users: [] },
     product_info: { completedCount: 0, users: [] },
@@ -148,7 +148,7 @@ function buildDateRange(dayCount: number): string[] {
   return dates;
 }
 
-function dedupeKey(hkDate: string, stage: UploadLogStage, productId: string): string {
+function dedupeKey(hkDate: string, stage: PublishLogStage, productId: string): string {
   return `${hkDate}|${stage}|${productId}`;
 }
 
@@ -178,7 +178,7 @@ function dedupeCopywritingByLastSubmit(logs: RawLogRow[]): RawLogRow[] {
 function buildDailyRows(logs: RawLogRow[], dayCount: number): DailyReportRow[] {
   const sortedDates = buildDateRange(dayCount);
 
-  const byDateStage = new Map<string, Map<UploadLogStage, Map<string, Set<string>>>>();
+  const byDateStage = new Map<string, Map<PublishLogStage, Map<string, Set<string>>>>();
 
   for (const log of logs) {
     if (!log.product_id) continue;
@@ -244,7 +244,7 @@ function pushHistorical(
   rows: RawLogRow[],
   covered: Set<string>,
   productId: string | null,
-  stage: UploadLogStage,
+  stage: PublishLogStage,
   action: string,
   loggedAt: string | null,
   editorStaffId?: string | null,
@@ -547,7 +547,7 @@ async function fetchPublishedShopifyCount(): Promise<number> {
   return count ?? 0;
 }
 
-async function fetchPendingCounts(): Promise<Record<UploadLogStage, number>> {
+async function fetchPendingCounts(): Promise<Record<PublishLogStage, number>> {
   const [copyRes, infoRes, fgRes, readyRes] = await Promise.all([
     supabase.rpc('get_publish_rts_count', { p_stage: 'copywriting' }),
     supabase.rpc('get_publish_rts_count', { p_stage: 'product-info' }),

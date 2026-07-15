@@ -221,6 +221,8 @@ export interface LoginLog {
   id: string;
   user: string;
   type: LogType;
+  /** Page / product context for edit & publish rows */
+  detail?: string;
   ip: string;
   location: string;
   at: string;

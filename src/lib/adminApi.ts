@@ -10,6 +10,8 @@ export interface LoginLog {
   user: string;
   email?: string;
   type: LogType;
+  /** Page / product context for edit & publish rows */
+  detail?: string;
   ip: string;
   location: string;
   at: string;
@@ -90,15 +92,28 @@ export async function fetchPlatformAdminData(): Promise<PlatformAdminData> {
 
     const logs: LoginLog[] = (uploadLogs ?? [])
       .filter((l) => l.user_name !== '歷史紀錄')
-      .map((l) => ({
-        id: `ul-${l.id}`,
-        user: l.user_name?.trim() || l.user_email || '未知用戶',
-        type: l.action === 'upload' ? 'publish' as LogType : 'edit' as LogType,
-        ip: '—',
-        location: '系統',
-        at: l.logged_at,
-        suspicious: false,
-      }));
+      .map((l) => {
+        const stageLabels: Record<string, string> = {
+          copywriting: '產品文案',
+          product_info: '產品信息',
+          furniture_group_check: '傢俬組檢查',
+          ready_to_publish: '準備上載',
+          listed_products: '待處理產品',
+          product_catalog: '產品目錄',
+        };
+        const page = stageLabels[String(l.stage)] || String(l.stage || '系統');
+        const type = l.action === 'upload' ? 'publish' as LogType : 'edit' as LogType;
+        return {
+          id: `ul-${l.id}`,
+          user: l.user_name?.trim() || l.user_email || '未知用戶',
+          type,
+          detail: page,
+          ip: '—',
+          location: '系統',
+          at: l.logged_at,
+          suspicious: false,
+        };
+      });
 
     return { users, logs, securityTrend: [] };
   } catch {

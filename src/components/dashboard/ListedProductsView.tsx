@@ -2674,6 +2674,7 @@ export function ListedProductsView({
               setDetailProduct(null);
             }}
             showAIImageTools={isCatalog}
+            activityStage={isCatalog ? 'product_catalog' : 'listed_products'}
           />
         )}
       </div>

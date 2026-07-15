@@ -186,16 +186,44 @@ type LoginLog = {
   user: string;
   email?: string;
   type: LogType;
+  detail?: string;
   ip: string;
   location: string;
   at: string;
   suspicious: boolean;
 };
 
+const STAGE_PAGE_LABELS: Record<string, string> = {
+  copywriting: "產品文案",
+  product_info: "產品信息",
+  furniture_group_check: "傢俬組檢查",
+  ready_to_publish: "準備上載",
+  listed_products: "待處理產品",
+  product_catalog: "產品目錄",
+  ai_processor: "AI 處理",
+  settings: "設定",
+  general: "系統",
+};
+
 function mapUploadAction(action: string, stage: string): LogType {
   if (action === "upload") return "publish";
   if (stage === "ready_to_publish" && action === "add_to_ready") return "publish";
   return "edit";
+}
+
+function buildEditDetail(
+  stage: string,
+  pageLabel: string | null | undefined,
+  productSku: string | null | undefined,
+  productId: string | null | undefined,
+  skuByProductId: Map<string, string>,
+): string | undefined {
+  const page = String(pageLabel ?? "").trim() || STAGE_PAGE_LABELS[stage] || stage || "系統";
+  const sku = String(productSku ?? "").trim()
+    || (productId ? skuByProductId.get(productId) : "")
+    || "";
+  if (sku) return `${page} · SKU ${sku}`;
+  return page;
 }
 
 async function fetchLoginLogs(
@@ -223,11 +251,19 @@ async function fetchLoginLogs(
 
   const logs: LoginLog[] = [];
   const loginLogDedupeKeys = new Set<string>();
+  const displayedLoginKeys = new Set<string>();
 
   const loginAtMs = (iso: string): number => new Date(iso).getTime();
   const loginDedupeKey = (userId: string, iso: string): string => {
     const bucket = Math.floor(loginAtMs(iso) / 120_000);
     return `${userId}|${bucket}`;
+  };
+  const shouldIncludeLogin = (userKey: string, iso: string): boolean => {
+    const bucket = Math.floor(loginAtMs(iso) / 120_000);
+    const key = `${userKey}|${bucket}`;
+    if (displayedLoginKeys.has(key)) return false;
+    displayedLoginKeys.add(key);
+    return true;
   };
 
   const { data: loginRows } = await furnitureAdmin
@@ -239,7 +275,10 @@ async function fetchLoginLogs(
   for (const row of loginRows ?? []) {
     const email = normalizeEmail(row.user_email);
     const userId = String(row.user_id ?? "");
-    if (userId) loginLogDedupeKeys.add(loginDedupeKey(userId, String(row.logged_at)));
+    const userKey = userId || email || String(row.user_name ?? "");
+    const loggedAt = String(row.logged_at);
+    if (userKey && !shouldIncludeLogin(userKey, loggedAt)) continue;
+    if (userId) loginLogDedupeKeys.add(loginDedupeKey(userId, loggedAt));
     const method = String(row.login_method ?? "password");
     logs.push({
       id: `ll-${row.id}`,
@@ -248,7 +287,7 @@ async function fetchLoginLogs(
       type: row.event === "logout" ? "logout" : "login",
       ip: "—",
       location: method === "sso" ? "SSO" : "密碼登入",
-      at: String(row.logged_at),
+      at: loggedAt,
       suspicious: false,
     });
   }
@@ -263,8 +302,10 @@ async function fetchLoginLogs(
   for (const row of ssoRows ?? []) {
     const userId = String(row.user_id ?? "");
     const usedAt = String(row.used_at);
-    if (userId && loginLogDedupeKeys.has(loginDedupeKey(userId, usedAt))) continue;
     const email = normalizeEmail(row.email) ?? "";
+    const userKey = userId || email;
+    if (userKey && !shouldIncludeLogin(userKey, usedAt)) continue;
+    if (userId && loginLogDedupeKeys.has(loginDedupeKey(userId, usedAt))) continue;
     const user = formatUser(
       nameByAuthId.get(userId) ?? nameByEmail.get(email) ?? email,
       email,
@@ -283,9 +324,28 @@ async function fetchLoginLogs(
 
   const { data: uploadRows } = await furnitureAdmin
     .from("upload_log")
-    .select("id, user_name, user_email, user_id, stage, action, logged_at")
+    .select("id, user_name, user_email, user_id, stage, action, logged_at, product_id, page_label, product_sku")
     .order("logged_at", { ascending: false })
     .limit(200);
+
+  const productIds = [
+    ...new Set(
+      (uploadRows ?? [])
+        .map((r) => String(r.product_id ?? "").trim())
+        .filter(Boolean),
+    ),
+  ];
+  const skuByProductId = new Map<string, string>();
+  if (productIds.length > 0) {
+    const { data: productRows } = await furnitureAdmin
+      .from("products")
+      .select("id, sku, product_sku")
+      .in("id", productIds);
+    for (const p of productRows ?? []) {
+      const sku = String(p.sku ?? p.product_sku ?? "").trim();
+      if (sku) skuByProductId.set(String(p.id), sku);
+    }
+  }
 
   for (const row of uploadRows ?? []) {
     const email = normalizeEmail(row.user_email);
@@ -296,11 +356,20 @@ async function fetchLoginLogs(
       email,
     );
     if (user === "歷史紀錄") continue;
+    const logType = mapUploadAction(String(row.action), String(row.stage));
+    const detail = buildEditDetail(
+      String(row.stage),
+      row.page_label as string | null | undefined,
+      row.product_sku as string | null | undefined,
+      row.product_id as string | null | undefined,
+      skuByProductId,
+    );
     logs.push({
       id: `ul-${row.id}`,
       user,
       email: email ?? undefined,
-      type: mapUploadAction(String(row.action), String(row.stage)),
+      type: logType,
+      detail: logType === "edit" || logType === "publish" ? detail : undefined,
       ip: "—",
       location: "系統",
       at: String(row.logged_at),

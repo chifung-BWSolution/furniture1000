@@ -4,7 +4,7 @@ import { supabase } from '@/lib/supabase';
 import {
   ClipboardList, RefreshCw, Loader2, Clock, ChevronLeft, ChevronRight, Mail,
 } from 'lucide-react';
-import type { UploadLogStage } from '@/lib/uploadLog';
+import type { PublishLogStage } from '@/lib/uploadLog';
 import {
   fetchUploadLogReport,
   formatHkDateLabel,
@@ -19,7 +19,7 @@ import {
 
 const REFRESH_INTERVAL_MS = 60 * 60 * 1000;
 
-const STAGE_ROW_COLORS: Record<UploadLogStage, string> = {
+const STAGE_ROW_COLORS: Record<PublishLogStage, string> = {
   copywriting: 'bg-violet-500/[0.06]',
   product_info: 'bg-sky-500/[0.06]',
   furniture_group_check: 'bg-amber-500/[0.06]',
@@ -82,7 +82,7 @@ function StageDayTable({
 }: {
   row: DailyReportRow;
   todayHk: string;
-  pendingCounts: Record<UploadLogStage, number>;
+  pendingCounts: Record<PublishLogStage, number>;
   publishedShopifyCount: number;
   showDateHeader?: boolean;
 }) {
