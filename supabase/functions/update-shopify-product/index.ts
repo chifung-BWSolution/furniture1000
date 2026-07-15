@@ -677,6 +677,138 @@ function hasSyncWork(diff: MirrorLiveDiff): boolean {
   return diff.core || diff.gallery || diff.variantImages || diff.metafields || diff.seo;
 }
 
+/** Granular labels for partial core sync (title-only, price-only, etc.). */
+function coreChangeLabels(
+  existing: Record<string, unknown>,
+  existingVariants: Record<string, unknown>[],
+  payload: {
+    title?: string;
+    bodyHtml?: string;
+    vendor?: string;
+    productType?: string;
+    tags?: string[] | string;
+    variants?: PushPayload["variants"];
+    price?: number | null;
+    compareAtPrice?: number | null;
+    sku?: string | null;
+  },
+): string[] {
+  const labels: string[] = [];
+  if (typeof payload.title === "string" && payload.title.trim()
+    && String(existing.title ?? "").trim() !== payload.title.trim()) {
+    labels.push("title");
+  }
+  if (typeof payload.bodyHtml === "string"
+    && String(existing.body_html ?? "") !== payload.bodyHtml) {
+    labels.push("description");
+  }
+  if (typeof payload.vendor === "string"
+    && String(existing.vendor ?? "") !== payload.vendor) {
+    labels.push("vendor");
+  }
+  if (typeof payload.productType === "string"
+    && String(existing.product_type ?? "") !== payload.productType) {
+    labels.push("product_type");
+  }
+  if (payload.tags !== undefined
+    && normalizeTagsForCompare(existing.tags) !== normalizeTagsForCompare(payload.tags)) {
+    labels.push("tags");
+  }
+
+  const requestedVariantSkus = new Map<string, string | null>();
+  const requestedVariantOptions = new Map<string, string | null>();
+  const requestedVariantPrices = new Map<string, string | null>();
+  if (Array.isArray(payload.variants)) {
+    for (const [index, variant] of payload.variants.entries()) {
+      const key = variant.id != null ? String(variant.id) : `index-${variant.index ?? index}`;
+      requestedVariantSkus.set(key, variant.sku == null ? null : String(variant.sku).trim());
+      if (variant.option1 != null) requestedVariantOptions.set(key, String(variant.option1).trim());
+      if (variant.price != null && !isNaN(Number(variant.price))) {
+        requestedVariantPrices.set(key, Number(variant.price).toFixed(2));
+      }
+    }
+  }
+  const fallbackSku = payload.sku == null ? undefined : String(payload.sku).trim();
+
+  for (const [index, v] of existingVariants.entries()) {
+    const idKey = v.id != null ? String(v.id) : "";
+    const indexKey = `index-${index}`;
+    const variantPrice = requestedVariantPrices.get(idKey) ?? requestedVariantPrices.get(indexKey);
+    if (variantPrice != null && String(v.price ?? "") !== variantPrice && !labels.includes("price")) {
+      labels.push("price");
+    }
+    if (payload.price != null && !isNaN(Number(payload.price)) && variantPrice == null
+      && String(v.price ?? "") !== Number(payload.price).toFixed(2) && !labels.includes("price")) {
+      labels.push("price");
+    }
+    if (requestedVariantSkus.has(idKey)) {
+      if (String(v.sku ?? "").trim() !== (requestedVariantSkus.get(idKey) || "") && !labels.includes("sku")) {
+        labels.push("sku");
+      }
+    } else if (requestedVariantSkus.has(indexKey)) {
+      if (String(v.sku ?? "").trim() !== (requestedVariantSkus.get(indexKey) || "") && !labels.includes("sku")) {
+        labels.push("sku");
+      }
+    } else if (fallbackSku !== undefined && existingVariants.length === 1
+      && String(v.sku ?? "").trim() !== fallbackSku && !labels.includes("sku")) {
+      labels.push("sku");
+    }
+    if (requestedVariantOptions.has(idKey)) {
+      if (String(v.option1 ?? "").trim() !== (requestedVariantOptions.get(idKey) || "")
+        && !labels.includes("variants")) {
+        labels.push("variants");
+      }
+    } else if (requestedVariantOptions.has(indexKey)) {
+      if (String(v.option1 ?? "").trim() !== (requestedVariantOptions.get(indexKey) || "")
+        && !labels.includes("variants")) {
+        labels.push("variants");
+      }
+    }
+    if (
+      payload.compareAtPrice != null && !isNaN(Number(payload.compareAtPrice))
+      && payload.price != null && !isNaN(Number(payload.price))
+      && Number(payload.compareAtPrice) > Number(payload.price)
+    ) {
+      const liveCompare = v.compare_at_price != null ? Number(v.compare_at_price) : null;
+      if (liveCompare !== Number(payload.compareAtPrice) && !labels.includes("compare_at_price")) {
+        labels.push("compare_at_price");
+      }
+    }
+  }
+  return labels;
+}
+
+function diffToChangeLabels(diff: MirrorLiveDiff, coreLabels: string[]): string[] {
+  const out: string[] = [];
+  if (diff.core) out.push(...coreLabels);
+  if (diff.gallery) out.push("images");
+  if (diff.variantImages) out.push("variant_images");
+  if (diff.metafields) out.push("metafields");
+  if (diff.seo) out.push("seo");
+  return out;
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  fn: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  if (items.length === 0) return [];
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(Math.max(1, limit), items.length);
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (true) {
+        const i = nextIndex++;
+        if (i >= items.length) break;
+        results[i] = await fn(items[i], i);
+      }
+    }),
+  );
+  return results;
+}
+
 function mapLiveImagesForMirror(images: Record<string, unknown>[]) {
   return images.map((im, i) => ({
     id: im.id,
@@ -1011,6 +1143,7 @@ async function pushProductToShopify(
   success: boolean;
   skipped?: boolean;
   error?: string;
+  changes?: string[];
   metafields_updated?: number;
   metafields_failed?: number;
 }> {
@@ -1088,18 +1221,28 @@ async function pushProductToShopify(
   };
 
   const obviousChange = diff.core || diff.gallery || diff.variantImages;
-  const mirrorHasSeoPayload = typeof seoTitle === "string" || typeof seoDescription === "string"
-    || !!(normalizeShopifyHandle(handle) && normalizeShopifyHandle(handle) !== existingHandle);
+  const normalizedMirrorHandle = normalizeShopifyHandle(handle);
+  const mirrorHasSeoPayload = (typeof seoTitle === "string" && seoTitle.trim() !== "")
+    || (typeof seoDescription === "string" && seoDescription.trim() !== "")
+    || !!(normalizedMirrorHandle && normalizedMirrorHandle !== existingHandle);
+  const coreLabels = coreChangeLabels(existing, existingVariants, {
+    title, bodyHtml, vendor, productType: productType, tags, variants, price, compareAtPrice, sku,
+  });
 
   if (!obviousChange) {
-    liveMetafieldMap = await fetchLiveMetafieldMap(apiBase, headers, shopifyId);
+    // Parallel fetch — common skip path for bulk sync (metafields + SEO check together).
+    [liveMetafieldMap, liveSeo] = await Promise.all([
+      fetchLiveMetafieldMap(apiBase, headers, shopifyId),
+      mirrorHasSeoPayload
+        ? fetchLiveProductSeo(shopDomain, shopifyToken, shopifyId)
+        : Promise.resolve(null),
+    ]);
     diff.metafields = !metafieldsMatchMirror(liveMetafieldMap, mergedMetafields);
-    if (!diff.metafields) {
-      liveSeo = await fetchLiveProductSeo(shopDomain, shopifyToken, shopifyId);
+    if (!diff.metafields && mirrorHasSeoPayload) {
       diff.seo = !seoMatchesMirror(liveSeo, existingHandle, handle, seoTitle, seoDescription);
-      if (!hasSyncWork(diff)) {
-        return { success: true, skipped: true, metafields_updated: 0, metafields_failed: 0 };
-      }
+    }
+    if (!hasSyncWork(diff)) {
+      return { success: true, skipped: true, changes: [], metafields_updated: 0, metafields_failed: 0 };
     }
   }
 
@@ -1120,8 +1263,10 @@ async function pushProductToShopify(
   }
 
   if (!hasSyncWork(diff)) {
-    return { success: true, skipped: true, metafields_updated: 0, metafields_failed: 0 };
+    return { success: true, skipped: true, changes: [], metafields_updated: 0, metafields_failed: 0 };
   }
+
+  const changeLabels = diffToChangeLabels(diff, coreLabels);
 
   const productUpdate: Record<string, unknown> = { id: Number(shopifyId) };
   if (diff.core) {
@@ -1395,6 +1540,7 @@ async function pushProductToShopify(
 
   return {
     success: true,
+    changes: changeLabels,
     live_handle: liveHandle,
     metafields_updated: mfOk,
     metafields_failed: mfFail,
@@ -1403,6 +1549,15 @@ async function pushProductToShopify(
     ...(sourceProductId ? {} : {}),
   };
 }
+
+type MirrorPushItemResult = {
+  shopify_product_id: string;
+  action: "skipped" | "pushed" | "failed";
+  changes?: string[];
+  error?: string;
+};
+
+const MIRROR_PUSH_CONCURRENCY = 5;
 
 /** Push mirror rows to Shopify (existing products only — never creates). */
 async function pushMirrorRows(
@@ -1415,24 +1570,47 @@ async function pushMirrorRows(
   let failed = 0;
   let skipped = 0;
   const errors: { shopify_product_id: string; error: string }[] = [];
-  for (const row of rows) {
+  const results: MirrorPushItemResult[] = [];
+
+  const itemResults = await mapWithConcurrency(rows, MIRROR_PUSH_CONCURRENCY, async (row) => {
     const sid = String(row.shopify_product_id || "");
     if (!/^\d+$/.test(sid)) {
-      skipped++;
-      continue;
+      return { shopify_product_id: sid, action: "skipped" as const, changes: [] as string[] };
     }
     const payload = mirrorRowToPayload(row);
-    const result = await pushProductToShopify(supabase, shopDomain, shopifyToken, sid, payload, { skipMirrorWrite: true });
+    const result = await pushProductToShopify(
+      supabase, shopDomain, shopifyToken, sid, payload, { skipMirrorWrite: true },
+    );
     if (result.skipped) {
-      skipped++;
-    } else if (result.success) {
-      pushed++;
-    } else {
+      return { shopify_product_id: sid, action: "skipped" as const, changes: [] as string[] };
+    }
+    if (result.success) {
+      return {
+        shopify_product_id: sid,
+        action: "pushed" as const,
+        changes: result.changes ?? [],
+      };
+    }
+    return {
+      shopify_product_id: sid,
+      action: "failed" as const,
+      error: result.error || "unknown",
+    };
+  });
+
+  for (const item of itemResults) {
+    results.push(item);
+    if (item.action === "skipped") skipped++;
+    else if (item.action === "pushed") pushed++;
+    else {
       failed++;
-      if (errors.length < 20) errors.push({ shopify_product_id: sid, error: result.error || "unknown" });
+      if (errors.length < 20 && item.error) {
+        errors.push({ shopify_product_id: item.shopify_product_id, error: item.error });
+      }
     }
   }
-  return { pushed, failed, skipped, errors };
+
+  return { pushed, failed, skipped, errors, results };
 }
 
 /**
@@ -1497,7 +1675,7 @@ Deno.serve(async (req: Request) => {
     if (Array.isArray(body.shopify_product_ids) && body.shopify_product_ids.length > 0) {
       const ids = body.shopify_product_ids.map(String).filter((id) => /^\d+$/.test(id));
       if (ids.length === 0) return json({ error: "No valid numeric shopify_product_ids" }, 400);
-      const MAX_PER_REQUEST = 8;
+      const MAX_PER_REQUEST = 20;
       const batchIds = ids.slice(0, MAX_PER_REQUEST);
       const truncated = ids.length > MAX_PER_REQUEST;
       const { data: rows, error: fetchErr } = await supabase

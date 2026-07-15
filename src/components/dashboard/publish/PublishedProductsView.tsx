@@ -19,12 +19,51 @@ import { toast } from 'sonner';
 import { PublishedProductDetailModal, type PublishedDisplayProduct } from './PublishedProductDetailModal';
 import { PublishedProductMergeModal } from './PublishedProductMergeModal';
 
-/** Products per edge-function batch (avoids relay timeout + cuts HTTP overhead). */
-/** Small batches — each product may trigger many Shopify metafield API calls; large batches hit 504. */
-const SHOPIFY_PUSH_BATCH_SIZE = 3;
+/** Concurrent single-product pushes — diff-first on server; real-time progress. */
+const SHOPIFY_PUSH_CONCURRENCY = 6;
 const SHOPIFY_PUSH_MAX_RETRIES = 2;
+const SHOPIFY_PUSH_TIMEOUT_MS = 90 * 1000;
 /** Above this count, SKU chip list starts collapsed to avoid pushing the table off-screen. */
 const SELECTED_SKU_COLLAPSE_THRESHOLD = 12;
+const CHANGE_LABEL_ZH: Record<string, string> = {
+  title: '標題',
+  description: '描述',
+  vendor: '廠商',
+  product_type: '分類',
+  tags: '標籤',
+  price: '價格',
+  sku: 'SKU',
+  variants: '款式',
+  compare_at_price: '對比價',
+  images: '圖片',
+  variant_images: '款式圖',
+  metafields: '屬性',
+  seo: 'SEO',
+};
+
+function formatSyncChanges(changes: string[] | undefined): string {
+  if (!changes?.length) return '';
+  return changes.map((c) => CHANGE_LABEL_ZH[c] || c).join('、');
+}
+
+async function runWithConcurrency<T>(
+  items: T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<void>,
+): Promise<void> {
+  if (items.length === 0) return;
+  let next = 0;
+  const workers = Math.min(Math.max(1, limit), items.length);
+  await Promise.all(
+    Array.from({ length: workers }, async () => {
+      while (true) {
+        const i = next++;
+        if (i >= items.length) break;
+        await worker(items[i], i);
+      }
+    }),
+  );
+}
 
 async function parseInvokeError(
   error: unknown,
@@ -273,7 +312,7 @@ export function PublishedProductsView() {
     if (!opts?.silent) setIsLoading(false);
   }, []);
 
-  // Batch push: one edge-function call per chunk (not one HTTP round-trip per product).
+  // Diff-first sync: one product per request, concurrent workers, skip unchanged items.
   const pushToShopify = useCallback(async () => {
     const selectedRows = items.filter((p) => selectedIds.includes(p.id));
     if (selectedRows.length === 0) {
@@ -290,26 +329,35 @@ export function PublishedProductsView() {
       return;
     }
 
-    const batches: string[][] = [];
-    for (let i = 0; i < shopifyIds.length; i += SHOPIFY_PUSH_BATCH_SIZE) {
-      batches.push(shopifyIds.slice(i, i + SHOPIFY_PUSH_BATCH_SIZE));
-    }
+    const titleByShopifyId = new Map(
+      selectedRows.map((p) => [p.shopify_product_id, p.title] as const),
+    );
 
     setIsSyncing(true);
-    const toastId = toast.loading(`正在推送至 Shopify (0/${shopifyIds.length})…`);
+    const toastId = toast.loading(`正在檢查並同步 (0/${shopifyIds.length})…`);
     let pushed = 0;
     let skipped = 0;
     let failed = 0;
-    let firstErr: string | undefined;
     let processed = 0;
+    let firstErr: string | undefined;
+    const skippedTitles: string[] = [];
+    const updatedSummaries: string[] = [];
 
-    const invokeBatch = async (batch: string[]) => {
+    const updateProgressToast = () => {
+      const parts = [`正在檢查並同步 (${processed}/${shopifyIds.length})`];
+      if (pushed > 0) parts.push(`已更新 ${pushed}`);
+      if (skipped > 0) parts.push(`略過 ${skipped}`);
+      if (failed > 0) parts.push(`失敗 ${failed}`);
+      toast.loading(parts.join(' · '), { id: toastId });
+    };
+
+    const invokeOne = async (shopifyProductId: string) => {
       let lastError: string | undefined;
       for (let attempt = 0; attempt <= SHOPIFY_PUSH_MAX_RETRIES; attempt++) {
         const { data, error } = await invokeEdgeFunctionDirect(
           'supabase-functions-update-shopify-product',
-          { shopify_product_ids: batch },
-          { timeoutMs: 2 * 60 * 1000 },
+          { push_from_mirror: true, shopify_product_id: shopifyProductId },
+          { timeoutMs: SHOPIFY_PUSH_TIMEOUT_MS },
         );
         if (!error && !data?.error && data?.success !== false) {
           return { data, error: null as Error | null };
@@ -317,91 +365,105 @@ export function PublishedProductsView() {
         lastError = error?.message || (data?.error as string) || '未知錯誤';
         const isRetryable = /504|502|408|逾時|timeout/i.test(lastError);
         if (!isRetryable || attempt === SHOPIFY_PUSH_MAX_RETRIES) break;
-        await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+        await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
       }
       return { data: null, error: new Error(lastError || '未知錯誤') };
     };
 
     try {
-      for (let b = 0; b < batches.length; b++) {
-        const batch = batches[b];
-        toast.loading(
-          `正在推送至 Shopify (${processed}/${shopifyIds.length})… 批次 ${b + 1}/${batches.length}`,
-          { id: toastId },
-        );
+      await runWithConcurrency(shopifyIds, SHOPIFY_PUSH_CONCURRENCY, async (sid) => {
+        const result = await invokeOne(sid);
+        processed += 1;
 
-        let batchResult = await invokeBatch(batch);
-
-        // 504 on multi-product batch — fall back to one product per request
-        if (batchResult.error && batch.length > 1 && /504|502|408|逾時|timeout/i.test(batchResult.error.message)) {
-          for (const sid of batch) {
-            toast.loading(
-              `正在推送至 Shopify (${processed}/${shopifyIds.length})… 單件重試 ${sid}`,
-              { id: toastId },
-            );
-            const single = await invokeBatch([sid]);
-            processed += 1;
-            if (single.error || single.data?.success === false) {
-              failed += 1;
-              if (!firstErr) firstErr = single.error?.message || (single.data?.error as string);
-            } else {
-              pushed += Number(single.data?.pushed ?? 0);
-              skipped += Number(single.data?.skipped ?? 0);
-              failed += Number(single.data?.failed ?? 0);
-            }
-          }
-          continue;
-        }
-
-        processed += batch.length;
-
-        if (batchResult.error || batchResult.data?.success === false) {
-          failed += batch.length;
+        if (result.error || result.data?.success === false) {
+          failed += 1;
           if (!firstErr) {
-            firstErr = batchResult.error?.message
-              || (batchResult.data?.error as string)
+            firstErr = result.error?.message
+              || (result.data?.error as string)
               || '未知錯誤';
           }
         } else {
-          const data = batchResult.data;
-          pushed += Number(data?.pushed ?? 0);
-          skipped += Number(data?.skipped ?? 0);
-          failed += Number(data?.failed ?? 0);
-          const batchErr = Array.isArray(data?.errors) && data.errors[0]?.error
-            ? String(data.errors[0].error)
-            : undefined;
-          if (failed > 0 && !firstErr && batchErr) firstErr = batchErr;
-        }
-      }
+          const data = result.data;
+          const itemResults = Array.isArray(data?.results) ? data.results as {
+            action?: string;
+            changes?: string[];
+          }[] : [];
+          const item = itemResults[0];
+          const itemSkipped = item?.action === 'skipped' || Number(data?.skipped ?? 0) > 0;
+          const itemPushed = item?.action === 'pushed' || Number(data?.pushed ?? 0) > 0;
+          const itemFailed = item?.action === 'failed' || Number(data?.failed ?? 0) > 0;
 
-      if (pushed > 0 || skipped > 0) await loadProducts({ silent: true });
+          if (itemFailed) {
+            failed += 1;
+            const batchErr = Array.isArray(data?.errors) && data.errors[0]?.error
+              ? String(data.errors[0].error)
+              : undefined;
+            if (!firstErr && batchErr) firstErr = batchErr;
+          } else if (itemSkipped) {
+            skipped += 1;
+            const title = titleByShopifyId.get(sid);
+            if (title && skippedTitles.length < 5) skippedTitles.push(title);
+          } else if (itemPushed) {
+            pushed += 1;
+            const changeText = formatSyncChanges(item?.changes);
+            const title = titleByShopifyId.get(sid);
+            if (title && updatedSummaries.length < 5) {
+              updatedSummaries.push(changeText ? `${title}（${changeText}）` : title);
+            }
+          } else {
+            pushed += Number(data?.pushed ?? 0);
+            skipped += Number(data?.skipped ?? 0);
+            failed += Number(data?.failed ?? 0);
+          }
+        }
+
+        updateProgressToast();
+      });
+
+      if (pushed > 0) await loadProducts({ silent: true });
 
       const descParts: string[] = [];
       if (pushed > 0) descParts.push(`已更新 ${pushed} 件`);
-      if (skipped > 0) descParts.push(`略過 ${skipped} 件（檢查後與 Shopify 一致）`);
+      if (skipped > 0) descParts.push(`略過 ${skipped} 件（與 Shopify 一致）`);
       if (failed > 0) descParts.push(`失敗 ${failed} 件`);
 
+      const detailLines: string[] = [];
+      if (updatedSummaries.length > 0) {
+        detailLines.push(`更新：${updatedSummaries.join('；')}`);
+      }
+      if (skippedTitles.length > 0) {
+        const more = skipped > skippedTitles.length ? ` 等 ${skipped} 件` : '';
+        detailLines.push(`略過：${skippedTitles.join('、')}${more}`);
+      }
+      const description = [descParts.join(' · '), ...detailLines].filter(Boolean).join('\n');
+
       if (failed > 0 && (pushed > 0 || skipped > 0)) {
-        toast.warning('部分產品推送失敗', {
+        toast.warning('部分產品同步失敗', {
           id: toastId,
-          description: `${descParts.join(' · ')}${firstErr ? ` — ${firstErr.slice(0, 120)}` : ''}`,
-          duration: 8000,
+          description: `${description}${firstErr ? `\n${firstErr.slice(0, 120)}` : ''}`,
+          duration: 10000,
         });
       } else if (failed > 0) {
-        toast.error('推送到 Shopify 失敗', {
+        toast.error('同步至 Shopify 失敗', {
           id: toastId,
           description: firstErr || '請稍後重試',
           duration: 8000,
         });
-      } else {
-        toast.success('已推送至 Shopify', {
+      } else if (skipped > 0 && pushed === 0) {
+        toast.message('無需同步', {
           id: toastId,
-          description: descParts.length > 0 ? descParts.join(' · ') : `已處理 ${shopifyIds.length} 件`,
-          duration: 6000,
+          description: description || `已檢查 ${shopifyIds.length} 件，均與 Shopify 一致`,
+          duration: 8000,
+        });
+      } else {
+        toast.success('同步完成', {
+          id: toastId,
+          description: description || `已處理 ${shopifyIds.length} 件`,
+          duration: 8000,
         });
       }
     } catch (e) {
-      toast.error('推送到 Shopify 失敗', {
+      toast.error('同步至 Shopify 失敗', {
         id: toastId,
         description: e instanceof Error ? e.message : '未知錯誤',
       });
