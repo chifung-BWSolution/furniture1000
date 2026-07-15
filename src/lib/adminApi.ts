@@ -4,6 +4,7 @@
 // ============================================================================
 import { supabase } from '@/lib/supabase';
 import type { LogType, PlatformUser, UserRole } from '@/constants/analytics-mock';
+import { mergeUploadActivityLogs } from '@/lib/loginLogEnrichment';
 
 export interface LoginLog {
   id: string;
@@ -70,17 +71,18 @@ async function invokeAdmin(body: Record<string, unknown> = {}): Promise<Platform
 /** Sync + load platform users and login logs from real system data. */
 export async function fetchPlatformAdminData(): Promise<PlatformAdminData> {
   const remote = await invokeAdmin({ action: 'fetch' });
-  if (remote) return remote;
+  if (remote) {
+    return {
+      ...remote,
+      logs: await mergeUploadActivityLogs(remote.logs),
+    };
+  }
 
-  // Fallback: profiles table only (if edge function unavailable but table exists).
+  // Fallback: profiles table + client-built upload activity logs.
   try {
-    const [{ data: profiles }, { data: uploadLogs }] = await Promise.all([
+    const [{ data: profiles }, logs] = await Promise.all([
       supabase.from('platform_user_profiles').select('*').order('display_name'),
-      supabase
-        .from('upload_log')
-        .select('id, user_name, user_email, stage, action, logged_at')
-        .order('logged_at', { ascending: false })
-        .limit(100),
+      mergeUploadActivityLogs([]),
     ]);
 
     const users: PlatformUser[] = (profiles ?? []).map((p) => ({
@@ -91,31 +93,6 @@ export async function fetchPlatformAdminData(): Promise<PlatformAdminData> {
       active: p.active ?? true,
       lastLogin: p.last_login_at ?? new Date(0).toISOString(),
     }));
-
-    const logs: LoginLog[] = (uploadLogs ?? [])
-      .filter((l) => l.user_name !== '歷史紀錄')
-      .map((l) => {
-        const stageLabels: Record<string, string> = {
-          copywriting: '產品文案',
-          product_info: '產品信息',
-          furniture_group_check: '傢俬組檢查',
-          ready_to_publish: '準備上載',
-          listed_products: '待處理產品',
-          product_catalog: '產品目錄',
-        };
-        const page = stageLabels[String(l.stage)] || String(l.stage || '系統');
-        const type = l.action === 'upload' ? 'publish' as LogType : 'edit' as LogType;
-        return {
-          id: `ul-${l.id}`,
-          user: l.user_name?.trim() || l.user_email || '未知用戶',
-          type,
-          detail: page,
-          ip: '—',
-          location: '系統',
-          at: l.logged_at,
-          suspicious: false,
-        };
-      });
 
     return { users, logs, securityTrend: [] };
   } catch {

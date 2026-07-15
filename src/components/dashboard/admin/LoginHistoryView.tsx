@@ -33,16 +33,25 @@ function fmt(d: string) {
 const DETAIL_COL_CLASS = 'w-[300px] min-w-[300px] max-w-[300px]';
 
 function LogDetailCell({ log }: { log: LoginLog }) {
-  if (log.type === 'publish' && log.skus && log.skus.length > 0) {
-    return (
-      <div className={cn(DETAIL_COL_CLASS, 'flex flex-wrap items-baseline gap-y-0.5 font-mono-data text-[11.5px] leading-relaxed text-muted-foreground')}>
-        {log.skus.map((sku, i) => (
-          <span key={`${sku}-${i}`} className="whitespace-nowrap">
-            &quot;{sku}&quot;{i < log.skus!.length - 1 ? ', ' : ''}
-          </span>
-        ))}
-      </div>
-    );
+  if (log.type === 'publish') {
+    if (log.skus && log.skus.length > 0) {
+      return (
+        <div className={cn(DETAIL_COL_CLASS, 'flex flex-wrap items-baseline gap-y-0.5 font-mono-data text-[11.5px] leading-relaxed text-muted-foreground')}>
+          {log.skus.map((sku, i) => (
+            <span key={`${sku}-${i}`} className="whitespace-nowrap">
+              &quot;{sku}&quot;{i < log.skus!.length - 1 ? ', ' : ''}
+            </span>
+          ))}
+        </div>
+      );
+    }
+    if (log.detail) {
+      return (
+        <span className={cn(DETAIL_COL_CLASS, 'block font-body text-[12px] leading-relaxed text-muted-foreground whitespace-normal break-words')}>
+          {log.detail}
+        </span>
+      );
+    }
   }
 
   if (log.detail) {
