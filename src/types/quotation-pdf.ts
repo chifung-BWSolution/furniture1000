@@ -50,6 +50,8 @@ export interface QuotationPDFData {
     /** lwh = 長×闊×高 (default); dh = 直徑×高 */
     dimensionMode?: QuotationDimensionMode;
     isCustomTerm?: boolean;
+    /** Reference-only line — excluded from totals; PDF shows 可選產品 + checkbox. */
+    isOptional?: boolean;
     unit?: string;
   }[];
   subtotal: number;

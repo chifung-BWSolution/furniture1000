@@ -4,6 +4,7 @@ import type { QuotationDimensionMode, QuotationPDFData } from '@/types/quotation
 import { parseRemarksContent } from '@/lib/remarksContent';
 import { multiColorToChineseDisplay } from '@/constants/color-map';
 import { normalizeQuotationPdfGlyphs, pdfDisplayText } from '@/lib/quotationPdfGlyphs';
+import { quoteItemLineSubtotal } from '@/lib/quoteItemTotals';
 
 export type { QuotationPDFData } from '@/types/quotation-pdf';
 
@@ -455,6 +456,43 @@ function pdfIllustrationImageHeight(dual: boolean): number {
   return Math.round(ILLUSTRATION_COL_WIDTH_PT * (dual ? 0.72 : 0.85));
 }
 
+function renderSubtotalPdfCell(
+  item: QuotationItem,
+  View: ReactPdfModule['View'],
+  Text: ReactPdfModule['Text'],
+) {
+  if (item?.isOptional) {
+    return (
+      <View
+        style={{
+          ...styles.colSubtotal,
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'center',
+        }}
+      >
+        <Text style={{ ...styles.tableCellText, marginRight: 4 }}>可選產品</Text>
+        <View
+          style={{
+            width: 10,
+            height: 10,
+            borderWidth: 1.5,
+            borderColor: '#000',
+          }}
+        />
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.colSubtotal}>
+      <Text style={styles.tableCellText}>
+        HK${quoteItemLineSubtotal(item).toLocaleString()}
+      </Text>
+    </View>
+  );
+}
+
 function renderQuotationTableRow(
   item: QuotationItem,
   idx: number,
@@ -472,7 +510,7 @@ function renderQuotationTableRow(
         <View style={styles.colQty}><Text style={styles.tableCellText}>{item?.quantity || 0}</Text></View>
         <View style={styles.colUnit}><Text style={styles.tableCellText}>{pdfDisplayText(item?.unit || '')}</Text></View>
         <View style={styles.colUnitPrice}><Text style={styles.tableCellText}>HK${(item?.unitPrice || 0).toLocaleString()}</Text></View>
-        <View style={styles.colSubtotal}><Text style={styles.tableCellText}>HK${((item?.unitPrice || 0) * (item?.quantity || 0)).toLocaleString()}</Text></View>
+        {renderSubtotalPdfCell(item, View, Text)}
       </View>
     );
   }
@@ -499,7 +537,7 @@ function renderQuotationTableRow(
       <View style={styles.colQty}><Text style={styles.tableCellText}>{item?.quantity || 0}</Text></View>
       <View style={styles.colUnit}><Text style={styles.tableCellText}>{pdfDisplayText(item?.unit || '')}</Text></View>
       <View style={styles.colUnitPrice}><Text style={styles.tableCellText}>HK${(item?.unitPrice || 0).toLocaleString()}</Text></View>
-      <View style={styles.colSubtotal}><Text style={styles.tableCellText}>HK${((item?.unitPrice || 0) * (item?.quantity || 0)).toLocaleString()}</Text></View>
+      {renderSubtotalPdfCell(item, View, Text)}
     </View>
   );
 }

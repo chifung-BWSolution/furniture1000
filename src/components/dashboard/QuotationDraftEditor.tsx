@@ -20,6 +20,7 @@ import { toast } from "sonner";
 import { SubmitReviewModal, type SubmitReviewResult } from "@/components/dashboard/SubmitReviewModal";
 import { ProductSelectorModal } from "@/components/dashboard/ProductSelectorModal";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Command,
   CommandEmpty,
@@ -56,6 +57,7 @@ import {
   exchangeRateInputDisplay,
 } from "@/lib/quoteCostExchange";
 import { parseGpSummary } from "@/lib/quoteGpSummary";
+import { quoteBillableSubtotal, quoteItemLineSubtotal } from "@/lib/quoteItemTotals";
 import {
   loadQuoteItems,
   itemsFromLegacyProjectData,
@@ -115,6 +117,8 @@ interface QuotationItem {
   factoryName?: string;
   /** True when 廠家 was set from 產品目錄 — shown read-only. */
   factoryFromCatalog?: boolean;
+  /** Reference-only line — excluded from quote totals; PDF shows 可選產品 + checkbox. */
+  isOptional?: boolean;
   isCustomTerm?: boolean;
 }
 
@@ -950,11 +954,33 @@ function QuoteProductItemCard({
             className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
           />
         </QuoteFieldBlock>
+
+        {/* Row 1 — col 8: 可選產品 (above HKD$小計) */}
+        <div className="col-start-8 row-start-1 flex min-w-0 items-end justify-end">
+          <label className="flex cursor-pointer items-center gap-1.5">
+            <Checkbox
+              checked={item.isOptional ?? false}
+              onCheckedChange={(checked) =>
+                updateItem(item.id, "isOptional", checked === true)
+              }
+              className="border-foreground/60 data-[state=checked]:border-primary"
+            />
+            <span className="whitespace-nowrap font-body text-xs text-muted-foreground">
+              可選產品
+            </span>
+          </label>
+        </div>
+
         {/* Row 2 — col 8: 小計 */}
         <QuoteFieldBlock label="HKD$小計" className="col-start-8 row-start-2 min-w-0">
           <div className="flex h-[34px] items-center rounded-md border border-border/60 bg-muted/20 px-2">
-            <span className="truncate font-mono-data text-xs font-medium text-foreground">
-              ${(item.unitPrice * item.quantity).toLocaleString()}
+            <span
+              className={cn(
+                "truncate font-mono-data text-xs font-medium",
+                item.isOptional ? "text-muted-foreground" : "text-foreground",
+              )}
+            >
+              ${quoteItemLineSubtotal(item).toLocaleString()}
             </span>
           </div>
         </QuoteFieldBlock>
@@ -1152,6 +1178,7 @@ function createBlankProductItem(): QuotationItem {
     deliveryTermName: "",
     factoryName: "",
     factoryFromCatalog: false,
+    isOptional: false,
   };
 }
 
@@ -1250,6 +1277,7 @@ function mapInputToQuotationItem(item: BwfQuoteItemInput): QuotationItem {
     factoryName: item.factoryName || "",
     factoryFromCatalog: item.factoryFromCatalog ?? false,
     isCustomTerm: item.isCustomTerm,
+    isOptional: item.isOptional ?? false,
   };
 }
 
@@ -1625,10 +1653,7 @@ export function QuotationDraftEditor({
     toast.success(`已按成本倍率 ×${mult} 更新單價`);
   };
 
-  const subtotal = items.reduce(
-    (sum, item) => sum + item.unitPrice * item.quantity,
-    0,
-  );
+  const subtotal = quoteBillableSubtotal(items);
   const discountValue = (() => {
     const n = parseFloat(discountNote);
     return isNaN(n) ? 0 : n;
@@ -1780,6 +1805,7 @@ export function QuotationDraftEditor({
                 factoryName: (item.factoryName as string) || "",
                 factoryFromCatalog: Boolean(item.factoryFromCatalog),
                 isCustomTerm: item.isCustomTerm as boolean | undefined,
+                isOptional: Boolean(item.isOptional),
               };
             }),
           );
@@ -2041,6 +2067,7 @@ export function QuotationDraftEditor({
         dimensionMode: item.dimensionMode ?? 'lwh',
         deliveryTermName: item.deliveryTermName,
         isCustomTerm: item.isCustomTerm,
+        isOptional: item.isOptional,
         unit: item.unit,
       })),
     subtotal,
