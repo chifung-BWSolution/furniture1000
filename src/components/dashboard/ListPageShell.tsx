@@ -32,7 +32,7 @@ export function ListPageShell({
 }: ListPageShellProps) {
   return (
     <div className={cn('flex h-full flex-col bg-background', className)}>
-      <div className="border-b border-border bg-card/40 px-5 py-5 md:px-8">
+      <div className="border-b border-border bg-primary/5 px-5 py-5 md:px-8">
         <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div>
             <h1 className="font-display text-2xl font-bold tracking-tight text-foreground">
