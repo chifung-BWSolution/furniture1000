@@ -314,65 +314,106 @@ async function purgeDuplicateShopifyImages(
     .map((im) => String(im.src || ""))
     .filter((s) => s.startsWith("http"))
     .slice(0, 4);
-  if (deleted > 0 && keptUrls.length > 0) {
-    try {
-      for (let i = 1; i <= 4; i++) {
-        const url = keptUrls[i - 1] || "";
-        const ns = "custom";
-        const linkKey = `more_image_link_${i}`;
-        const altKey = `more_image_alt_${i}`;
-
-        const existingResp = await fetch(
-          `https://${shopDomain}/admin/api/2024-10/products/${productId}/metafields.json?namespace=${ns}&key=${linkKey}`,
-          { headers },
-        );
-        const existing = existingResp.ok
-          ? ((await existingResp.json()).metafields?.[0] as { id?: number; value?: string } | undefined)
-          : undefined;
-
-        if (!url) {
-          if (existing?.id) {
-            await fetch(`https://${shopDomain}/admin/api/2024-10/metafields/${existing.id}.json`, {
-              method: "DELETE",
-              headers,
-            });
-            rewrittenMetafields = true;
-          }
-          continue;
-        }
-
-        if (existing?.value === url) continue;
-
-        if (existing?.id) {
-          const pr = await fetch(`https://${shopDomain}/admin/api/2024-10/metafields/${existing.id}.json`, {
-            method: "PUT",
-            headers,
-            body: JSON.stringify({ metafield: { id: existing.id, type: "url", value: url } }),
-          });
-          if (pr.ok) rewrittenMetafields = true;
-        } else {
-          const pr = await fetch(
-            `https://${shopDomain}/admin/api/2024-10/products/${productId}/metafields.json`,
-            {
-              method: "POST",
-              headers,
-              body: JSON.stringify({
-                metafield: { namespace: ns, key: linkKey, type: "url", value: url },
-              }),
-            },
-          );
-          if (pr.ok) rewrittenMetafields = true;
-        }
-
-        // Keep alt in sync when present / create lightly
-        void altKey;
-      }
-    } catch (err) {
-      console.warn(`[sync-shopify-mirror] more_image rewrite failed for ${productId}:`, err);
-    }
+  if (deleted > 0) {
+    rewrittenMetafields = await rewriteMoreImageLinksToUrls(
+      shopDomain,
+      token,
+      productId,
+      keptUrls,
+    );
   }
 
   return { kept, deleted, rewrittenMetafields };
+}
+
+/**
+ * Align custom.more_image_link_1..4 with the product's current live gallery URLs.
+ * Clears slots beyond the live gallery so storefront never points at removed images.
+ */
+async function rewriteMoreImageLinksToUrls(
+  shopDomain: string,
+  token: string,
+  productId: string,
+  keptUrls: string[],
+): Promise<boolean> {
+  const headers = {
+    "Content-Type": "application/json",
+    "X-Shopify-Access-Token": token,
+  };
+  let rewritten = false;
+  try {
+    for (let i = 1; i <= 4; i++) {
+      const url = keptUrls[i - 1] || "";
+      const ns = "custom";
+      const linkKey = `more_image_link_${i}`;
+
+      const existingResp = await fetch(
+        `https://${shopDomain}/admin/api/2024-10/products/${productId}/metafields.json?namespace=${ns}&key=${linkKey}`,
+        { headers },
+      );
+      const existing = existingResp.ok
+        ? ((await existingResp.json()).metafields?.[0] as { id?: number; value?: string } | undefined)
+        : undefined;
+
+      if (!url) {
+        if (existing?.id) {
+          await fetch(`https://${shopDomain}/admin/api/2024-10/metafields/${existing.id}.json`, {
+            method: "DELETE",
+            headers,
+          });
+          rewritten = true;
+        }
+        continue;
+      }
+
+      if (existing?.value === url) continue;
+
+      if (existing?.id) {
+        const pr = await fetch(`https://${shopDomain}/admin/api/2024-10/metafields/${existing.id}.json`, {
+          method: "PUT",
+          headers,
+          body: JSON.stringify({ metafield: { id: existing.id, type: "url", value: url } }),
+        });
+        if (pr.ok) rewritten = true;
+      } else {
+        const pr = await fetch(
+          `https://${shopDomain}/admin/api/2024-10/products/${productId}/metafields.json`,
+          {
+            method: "POST",
+            headers,
+            body: JSON.stringify({
+              metafield: { namespace: ns, key: linkKey, type: "url", value: url },
+            }),
+          },
+        );
+        if (pr.ok) rewritten = true;
+      }
+    }
+  } catch (err) {
+    console.warn(`[sync-shopify-mirror] more_image rewrite failed for ${productId}:`, err);
+  }
+  return rewritten;
+}
+
+/** True when mirror more_image_link_* points at stems no longer in the live gallery. */
+function mirrorMoreImageLinksAreOrphaned(
+  liveImages: Record<string, unknown>[],
+  mirrorLinks: Array<string | null | undefined>,
+): boolean {
+  const liveUrls = liveImages
+    .map((im) => String(im.src || ""))
+    .filter((s) => s.startsWith("http"));
+  const liveKeys = new Set(liveUrls.map((s) => imageIdentityKey(s)));
+  const liveExact = new Set(liveUrls.map((s) => s.split("?")[0]));
+  const links = mirrorLinks.filter((s): s is string => typeof s === "string" && s.startsWith("http"));
+  if (links.length === 0) return false;
+  if (links.length > liveUrls.length) return true;
+  for (const link of links) {
+    const exact = link.split("?")[0];
+    if (liveExact.has(exact) || liveKeys.has(imageIdentityKey(link))) continue;
+    return true;
+  }
+  return false;
 }
 
 async function fetchMoreImagePreferredSrcs(
@@ -552,28 +593,32 @@ Deno.serve(async (req: Request) => {
     const liveIds = new Set(live.map((p) => String(p.id)));
 
     // ── 2. Load existing mirror rows to preserve id / source_product_id / local SEO ──
+    // Also load more_image_link_* so we can cheaply detect orphaned metafield URLs
+    // without fetching metafields for every product on each sync.
     const { data: existingRows } = await supabase
       .from("shopify_products")
-      .select("id, shopify_product_id, source_product_id, shopify_page_title, shopify_page_description, shopify_url, configurable");
-    const existingByShopifyId = new Map<string, {
+      .select(
+        'id, shopify_product_id, source_product_id, shopify_page_title, shopify_page_description, shopify_url, configurable, "custom.more_image_link_1", "custom.more_image_link_2", "custom.more_image_link_3", "custom.more_image_link_4"',
+      );
+    type MirrorPrev = {
       id: string;
       source_product_id: string | null;
       shopify_page_title: string | null;
       shopify_page_description: string | null;
       shopify_url: string | null;
-    }>();
-    (existingRows || []).forEach((r: {
-      id: string;
-      shopify_product_id: string;
-      source_product_id: string | null;
-      shopify_page_title: string | null;
-      shopify_page_description: string | null;
-      shopify_url: string | null;
-    }) => {
+      "custom.more_image_link_1"?: string | null;
+      "custom.more_image_link_2"?: string | null;
+      "custom.more_image_link_3"?: string | null;
+      "custom.more_image_link_4"?: string | null;
+    };
+    const existingByShopifyId = new Map<string, MirrorPrev>();
+    (existingRows || []).forEach((r: MirrorPrev & { shopify_product_id: string }) => {
       existingByShopifyId.set(String(r.shopify_product_id), r);
     });
 
-    // ── 3. Purge stem-duplicate images on Shopify (only when needed), then UPSERT mirror ──
+    // ── 3. Purge stem-duplicate images on Shopify (only when needed),
+    //     repair orphaned more_image_link_* (when mirror shows stale URLs),
+    //     then UPSERT mirror ──
     let upserted = 0;
     let imagesPurged = 0;
     let metafieldsRewritten = 0;
@@ -582,53 +627,79 @@ Deno.serve(async (req: Request) => {
     for (const p of live) {
       const sp = p as Record<string, unknown>;
       const shopifyId = String(sp.id);
+      const prev = existingByShopifyId.get(shopifyId);
       const rawImages = (sp.images as Record<string, unknown>[]) ?? [];
       let moreImageCols: Record<string, string | null> | null = null;
-      if (rawImages.length > 1) {
-        // Cheap stem-dup check before any metafield/Shopify write.
-        const stemSeen = new Set<string>();
-        let hasStemDup = false;
-        for (const im of rawImages) {
-          const src = typeof im.src === "string" ? im.src : "";
-          if (!src.startsWith("http")) continue;
-          const key = imageIdentityKey(src);
-          if (stemSeen.has(key)) {
-            hasStemDup = true;
-            break;
-          }
-          stemSeen.add(key);
-        }
 
-        if (hasStemDup) {
-          const preferred = await fetchMoreImagePreferredSrcs(
+      // Cheap stem-dup check before any metafield/Shopify write.
+      const stemSeen = new Set<string>();
+      let hasStemDup = false;
+      for (const im of rawImages) {
+        const src = typeof im.src === "string" ? im.src : "";
+        if (!src.startsWith("http")) continue;
+        const key = imageIdentityKey(src);
+        if (stemSeen.has(key)) {
+          hasStemDup = true;
+          break;
+        }
+        stemSeen.add(key);
+      }
+
+      if (hasStemDup) {
+        const preferred = await fetchMoreImagePreferredSrcs(
+          shopDomain,
+          shopifyToken,
+          shopifyId,
+        );
+        const { kept, deleted, rewrittenMetafields } = await purgeDuplicateShopifyImages(
+          shopDomain,
+          shopifyToken,
+          shopifyId,
+          rawImages,
+          preferred,
+        );
+        imagesPurged += deleted;
+        if (rewrittenMetafields) metafieldsRewritten++;
+        sp.images = kept;
+        if (deleted > 0) {
+          const keptUrls = kept
+            .map((im) => String(im.src || ""))
+            .filter((s) => s.startsWith("http"))
+            .slice(0, 4);
+          moreImageCols = {};
+          for (let i = 1; i <= 4; i++) {
+            moreImageCols[`custom.more_image_link_${i}`] = keptUrls[i - 1] || null;
+          }
+        }
+      } else {
+        // No stem dupes → do not re-upload. Still repair more_image_link if mirror
+        // shows links that no longer match the live gallery (e.g. gallery shrank).
+        const mirrorLinks = [
+          prev?.["custom.more_image_link_1"],
+          prev?.["custom.more_image_link_2"],
+          prev?.["custom.more_image_link_3"],
+          prev?.["custom.more_image_link_4"],
+        ];
+        const liveSorted = sortLiveImages(rawImages);
+        if (mirrorMoreImageLinksAreOrphaned(liveSorted, mirrorLinks)) {
+          const keptUrls = liveSorted
+            .map((im) => String(im.src || ""))
+            .filter((s) => s.startsWith("http"))
+            .slice(0, 4);
+          const rewritten = await rewriteMoreImageLinksToUrls(
             shopDomain,
             shopifyToken,
             shopifyId,
+            keptUrls,
           );
-          const { kept, deleted, rewrittenMetafields } = await purgeDuplicateShopifyImages(
-            shopDomain,
-            shopifyToken,
-            shopifyId,
-            rawImages,
-            preferred,
-          );
-          imagesPurged += deleted;
-          if (rewrittenMetafields) metafieldsRewritten++;
-          sp.images = kept;
-          if (deleted > 0) {
-            const keptUrls = kept
-              .map((im) => String(im.src || ""))
-              .filter((s) => s.startsWith("http"))
-              .slice(0, 4);
-            moreImageCols = {};
-            for (let i = 1; i <= 4; i++) {
-              const url = keptUrls[i - 1] || null;
-              moreImageCols[`custom.more_image_link_${i}`] = url;
-            }
+          if (rewritten) metafieldsRewritten++;
+          moreImageCols = {};
+          for (let i = 1; i <= 4; i++) {
+            moreImageCols[`custom.more_image_link_${i}`] = keptUrls[i - 1] || null;
           }
         }
       }
-      const prev = existingByShopifyId.get(shopifyId);
+
       const row = buildMirrorRow(sp, shopDomain, nowIso, prev);
       if (moreImageCols) Object.assign(row, moreImageCols);
       rows.push(row);
