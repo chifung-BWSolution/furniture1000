@@ -28,6 +28,13 @@ import {
   LIST_TABLE_TH_CLASS,
 } from '@/components/dashboard/ListPageShell';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   compareNullable,
   formatListDate,
   formatListMoney,
@@ -132,6 +139,20 @@ function quoteCode(q: QuoteListRow): string {
   );
 }
 
+function staffNamesForQuote(q: QuoteListRow): string[] {
+  if (q.pitching) {
+    const names = [q.pitching.main_pm_name, q.pitching.main_designer_name]
+      .map((x) => x?.trim())
+      .filter((x): x is string => Boolean(x));
+    if (names.length > 0) return names;
+  }
+  const pm = q.project_data?.formData?.projectManager?.trim();
+  if (pm) return [pm];
+  const sub = q.submitter?.trim();
+  if (sub) return [sub];
+  return [];
+}
+
 function staffLabel(q: QuoteListRow): string {
   if (q.pitching) {
     const parts = [q.pitching.main_pm_name, q.pitching.main_designer_name]
@@ -150,6 +171,7 @@ export function QuotationListView({ onOpenQuote }: QuotationListViewProps) {
   const [quotes, setQuotes] = useState<QuoteListRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [staffFilter, setStaffFilter] = useState('__all__');
   const [deleteTarget, setDeleteTarget] = useState<QuoteListRow | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey>('enquiry_date');
@@ -228,10 +250,29 @@ export function QuotationListView({ onOpenQuote }: QuotationListViewProps) {
     }
   };
 
+  const staffFilterOptions = useMemo(() => {
+    const names = new Set<string>();
+    for (const q of quotes) {
+      for (const name of staffNamesForQuote(q)) {
+        names.add(name);
+      }
+    }
+    return [...names].sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+  }, [quotes]);
+
   const filteredQuotes = useMemo(() => {
-    if (!searchQuery.trim()) return quotes;
+    let rows = quotes;
+
+    if (staffFilter !== '__all__') {
+      const target = staffFilter.toLowerCase();
+      rows = rows.filter((q) =>
+        staffNamesForQuote(q).some((name) => name.toLowerCase() === target),
+      );
+    }
+
+    if (!searchQuery.trim()) return rows;
     const query = searchQuery.toLowerCase();
-    return quotes.filter((q) => {
+    return rows.filter((q) => {
       const code = quoteCode(q).toLowerCase();
       const name = quoteDisplayName(q).toLowerCase();
       const clientName = (
@@ -250,7 +291,7 @@ export function QuotationListView({ onOpenQuote }: QuotationListViewProps) {
         q.quote_id.toLowerCase().includes(query)
       );
     });
-  }, [quotes, searchQuery]);
+  }, [quotes, searchQuery, staffFilter]);
 
   const sortedQuotes = useMemo(() => {
     const rows = [...filteredQuotes];
@@ -337,6 +378,19 @@ export function QuotationListView({ onOpenQuote }: QuotationListViewProps) {
         .join(' · ')
     : '';
 
+  const emptyMessage = useMemo(() => {
+    if (staffFilter !== '__all__' && searchQuery.trim()) {
+      return `找不到「${staffFilter}」且符合「${searchQuery.trim()}」的報價`;
+    }
+    if (staffFilter !== '__all__') {
+      return `找不到「${staffFilter}」的報價`;
+    }
+    if (searchQuery.trim()) {
+      return `找不到「${searchQuery.trim()}」`;
+    }
+    return '尚無報價記錄';
+  }, [searchQuery, staffFilter]);
+
   return (
     <>
       <ListPageShell
@@ -345,6 +399,24 @@ export function QuotationListView({ onOpenQuote }: QuotationListViewProps) {
         search={searchQuery}
         onSearchChange={setSearchQuery}
         searchPlaceholder="搜尋 pitching code / 客戶名稱 / 提案名稱 / 提交者…"
+        searchLeading={
+          <Select value={staffFilter} onValueChange={setStaffFilter}>
+            <SelectTrigger
+              className="h-10 w-[168px] shrink-0 rounded-xl border-border bg-card font-body text-sm shadow-sm"
+              aria-label="篩選主要 PM 及設計師"
+            >
+              <SelectValue placeholder="PM及設計師" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">全部 PM及設計師</SelectItem>
+              {staffFilterOptions.map((name) => (
+                <SelectItem key={name} value={name}>
+                  {name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        }
         searchActions={
           <ListRefreshButton onClick={fetchQuotes} loading={isLoading} />
         }
@@ -395,11 +467,7 @@ export function QuotationListView({ onOpenQuote }: QuotationListViewProps) {
             ) : sortedQuotes.length === 0 ? (
               <ListTableEmptyRow
                 colSpan={11}
-                message={
-                  searchQuery
-                    ? `找不到「${searchQuery.trim()}」`
-                    : '尚無報價記錄'
-                }
+                message={emptyMessage}
               />
             ) : (
               sortedQuotes.map((quote) => {

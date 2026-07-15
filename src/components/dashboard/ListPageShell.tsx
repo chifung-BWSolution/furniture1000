@@ -9,6 +9,8 @@ interface ListPageShellProps {
   onSearchChange: (value: string) => void;
   searchPlaceholder: string;
   searchInputRef?: Ref<HTMLInputElement>;
+  /** Extra controls to the left of the search field (e.g. filters). */
+  searchLeading?: ReactNode;
   /** Extra controls next to the search field (e.g. refresh). */
   searchActions?: ReactNode;
   children: ReactNode;
@@ -23,6 +25,7 @@ export function ListPageShell({
   onSearchChange,
   searchPlaceholder,
   searchInputRef,
+  searchLeading,
   searchActions,
   children,
   className,
@@ -37,7 +40,13 @@ export function ListPageShell({
             </h1>
             <p className="mt-1 font-body text-sm text-muted-foreground">{subtitle}</p>
           </div>
-          <div className="flex w-full items-center gap-2 md:max-w-lg">
+          <div
+            className={cn(
+              'flex w-full items-center gap-2',
+              searchLeading ? 'md:max-w-2xl' : 'md:max-w-lg',
+            )}
+          >
+            {searchLeading}
             <div className="relative min-w-0 flex-1">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <input
