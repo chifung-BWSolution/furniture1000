@@ -187,6 +187,7 @@ type LoginLog = {
   email?: string;
   type: LogType;
   detail?: string;
+  skus?: string[];
   ip: string;
   location: string;
   at: string;
@@ -211,6 +212,16 @@ function mapUploadAction(action: string, stage: string): LogType {
   return "edit";
 }
 
+function resolveSku(
+  productSku: string | null | undefined,
+  productId: string | null | undefined,
+  skuByProductId: Map<string, string>,
+): string {
+  return String(productSku ?? "").trim()
+    || (productId ? skuByProductId.get(productId) ?? "" : "")
+    || "";
+}
+
 function buildEditDetail(
   stage: string,
   pageLabel: string | null | undefined,
@@ -219,11 +230,29 @@ function buildEditDetail(
   skuByProductId: Map<string, string>,
 ): string | undefined {
   const page = String(pageLabel ?? "").trim() || STAGE_PAGE_LABELS[stage] || stage || "系統";
-  const sku = String(productSku ?? "").trim()
-    || (productId ? skuByProductId.get(productId) : "")
-    || "";
+  const sku = resolveSku(productSku, productId, skuByProductId);
   if (sku) return `${page} · SKU ${sku}`;
   return page;
+}
+
+type PendingUploadLog = {
+  id: string;
+  user: string;
+  email?: string;
+  logType: LogType;
+  stage: string;
+  pageLabel: string | null | undefined;
+  productId: string | null | undefined;
+  sku: string;
+  at: string;
+};
+
+/** Group bulk publish actions (same user within 3 minutes) into one row. */
+const PUBLISH_GROUP_MS = 180_000;
+
+function publishGroupKey(user: string, email: string | undefined, at: string): string {
+  const bucket = Math.floor(new Date(at).getTime() / PUBLISH_GROUP_MS);
+  return `${user}|${email ?? ""}|${bucket}`;
 }
 
 async function fetchLoginLogs(
@@ -347,6 +376,8 @@ async function fetchLoginLogs(
     }
   }
 
+  const pendingUpload: PendingUploadLog[] = [];
+
   for (const row of uploadRows ?? []) {
     const email = normalizeEmail(row.user_email);
     const user = formatUser(
@@ -357,22 +388,68 @@ async function fetchLoginLogs(
     );
     if (user === "歷史紀錄") continue;
     const logType = mapUploadAction(String(row.action), String(row.stage));
-    const detail = buildEditDetail(
-      String(row.stage),
-      row.page_label as string | null | undefined,
+    const sku = resolveSku(
       row.product_sku as string | null | undefined,
       row.product_id as string | null | undefined,
       skuByProductId,
     );
-    logs.push({
-      id: `ul-${row.id}`,
+    pendingUpload.push({
+      id: String(row.id),
       user,
       email: email ?? undefined,
-      type: logType,
-      detail: logType === "edit" || logType === "publish" ? detail : undefined,
+      logType,
+      stage: String(row.stage),
+      pageLabel: row.page_label as string | null | undefined,
+      productId: row.product_id as string | null | undefined,
+      sku,
+      at: String(row.logged_at),
+    });
+  }
+
+  const publishGroups = new Map<string, PendingUploadLog[]>();
+  for (const item of pendingUpload) {
+    if (item.logType === "publish") {
+      const key = publishGroupKey(item.user, item.email, item.at);
+      const group = publishGroups.get(key) ?? [];
+      group.push(item);
+      publishGroups.set(key, group);
+      continue;
+    }
+
+    const detail = buildEditDetail(
+      item.stage,
+      item.pageLabel,
+      item.sku,
+      item.productId,
+      skuByProductId,
+    );
+    logs.push({
+      id: `ul-${item.id}`,
+      user: item.user,
+      email: item.email,
+      type: item.logType,
+      detail,
+      skus: item.sku ? [item.sku] : undefined,
       ip: "—",
       location: "系統",
-      at: String(row.logged_at),
+      at: item.at,
+      suspicious: false,
+    });
+  }
+
+  for (const [, group] of publishGroups) {
+    group.sort((a, b) => new Date(b.at).getTime() - new Date(a.at).getTime());
+    const lead = group[0];
+    const skus = [...new Set(group.map((g) => g.sku).filter(Boolean))];
+    logs.push({
+      id: `ul-${lead.id}${group.length > 1 ? `+${group.length}` : ""}`,
+      user: lead.user,
+      email: lead.email,
+      type: "publish",
+      skus: skus.length > 0 ? skus : undefined,
+      ip: "—",
+      location: "系統",
+      at: lead.at,
       suspicious: false,
     });
   }

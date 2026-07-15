@@ -221,8 +221,10 @@ export interface LoginLog {
   id: string;
   user: string;
   type: LogType;
-  /** Page / product context for edit & publish rows */
+  /** Page / product context for edit rows */
   detail?: string;
+  /** Product SKUs for publish rows */
+  skus?: string[];
   ip: string;
   location: string;
   at: string;

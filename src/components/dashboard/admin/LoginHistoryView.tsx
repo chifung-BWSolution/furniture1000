@@ -29,11 +29,40 @@ function fmt(d: string) {
   return `${x.getFullYear()}/${String(x.getMonth() + 1).padStart(2, '0')}/${String(x.getDate()).padStart(2, '0')} ${String(x.getHours()).padStart(2, '0')}:${String(x.getMinutes()).padStart(2, '0')}`;
 }
 
+/** Fixed-width detail column — publish SKUs wrap per item to next line when needed. */
+const DETAIL_COL_CLASS = 'w-[300px] min-w-[300px] max-w-[300px]';
+
+function LogDetailCell({ log }: { log: LoginLog }) {
+  if (log.type === 'publish' && log.skus && log.skus.length > 0) {
+    return (
+      <div className={cn(DETAIL_COL_CLASS, 'flex flex-wrap items-baseline gap-y-0.5 font-mono-data text-[11.5px] leading-relaxed text-muted-foreground')}>
+        {log.skus.map((sku, i) => (
+          <span key={`${sku}-${i}`} className="whitespace-nowrap">
+            &quot;{sku}&quot;{i < log.skus!.length - 1 ? ', ' : ''}
+          </span>
+        ))}
+      </div>
+    );
+  }
+
+  if (log.detail) {
+    return (
+      <span className={cn(DETAIL_COL_CLASS, 'block font-body text-[12px] leading-relaxed text-muted-foreground whitespace-normal break-words')}>
+        {log.detail}
+      </span>
+    );
+  }
+
+  return <span className="text-[12px] text-muted-foreground/30">—</span>;
+}
+
 function exportLogsCsv(logs: LoginLog[]) {
   const header = ['用戶', '頁面 / 內容', '操作', 'IP', '位置', '時間'];
   const rows = logs.map((l) => [
     l.user,
-    l.detail ?? '',
+    l.type === 'publish' && l.skus?.length
+      ? l.skus.map((s) => `"${s}"`).join(', ')
+      : (l.detail ?? ''),
     LOG_TYPE_META[l.type].label,
     l.ip,
     l.location,
@@ -74,7 +103,14 @@ export function LoginHistoryView() {
   const filtered = useMemo(() => logs.filter((l) => {
     if (search) {
       const q = search.toLowerCase();
-      const hay = [l.user, l.email ?? '', l.detail ?? '', l.ip, l.location].join(' ').toLowerCase();
+      const hay = [
+        l.user,
+        l.email ?? '',
+        l.detail ?? '',
+        ...(l.skus ?? []),
+        l.ip,
+        l.location,
+      ].join(' ').toLowerCase();
       if (!hay.includes(q)) return false;
     }
     if (typeFilter !== 'all' && l.type !== typeFilter) return false;
@@ -155,7 +191,7 @@ export function LoginHistoryView() {
               <thead className="bg-muted/50 text-[11px] uppercase tracking-wider text-muted-foreground">
                 <tr>
                   <th className="px-4 py-2.5 text-left font-medium w-[140px]">用戶</th>
-                  <th className="px-3 py-2.5 text-left font-medium">頁面 / 內容</th>
+                  <th className={cn('px-3 py-2.5 text-left font-medium', DETAIL_COL_CLASS)}>頁面 / 內容</th>
                   <th className="px-3 py-2.5 text-left font-medium w-[88px]">操作</th>
                   <th className="px-3 py-2.5 text-left font-medium">IP / 位置</th>
                   <th className="px-3 py-2.5 text-left font-medium w-[130px]">時間</th>
@@ -171,13 +207,7 @@ export function LoginHistoryView() {
                       </span>
                     </td>
                     <td className="px-3 py-2.5">
-                      {l.detail ? (
-                        <span className="block font-body text-[12px] leading-relaxed text-muted-foreground whitespace-normal break-words">
-                          {l.detail}
-                        </span>
-                      ) : (
-                        <span className="text-[12px] text-muted-foreground/30">—</span>
-                      )}
+                      <LogDetailCell log={l} />
                     </td>
                     <td className="px-3 py-2.5">
                       <span className={cn('inline-flex rounded-full border px-2 py-0.5 text-[10.5px] font-medium whitespace-nowrap', LOG_TYPE_META[l.type].className)}>

@@ -10,8 +10,10 @@ export interface LoginLog {
   user: string;
   email?: string;
   type: LogType;
-  /** Page / product context for edit & publish rows */
+  /** Page / product context for edit rows */
   detail?: string;
+  /** Product SKUs for publish rows (and optional edit rows) */
+  skus?: string[];
   ip: string;
   location: string;
   at: string;

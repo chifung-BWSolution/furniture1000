@@ -1230,6 +1230,8 @@ export function useAppStore() {
               rtsId: typeof rtsUuid === 'string' ? rtsUuid : item.rts_id ?? null,
               stage: 'ready_to_publish',
               action: 'upload',
+              pageLabel: '準備上載',
+              productSku: item.sku || null,
             });
 
             setReadyToPublishList(prev => prev.filter(p => {
@@ -1441,6 +1443,8 @@ export function useAppStore() {
             rtsId: rts?.id ?? null,
             stage: 'ready_to_publish',
             action: 'upload',
+            pageLabel: '準備上載',
+            productSku: (rts?.sku || product.sku || '').toString().trim() || null,
           });
           toast.success('產品已成功發佈至 Shopify', {
             action: {
