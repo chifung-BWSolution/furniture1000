@@ -105,9 +105,13 @@ const SERVICE_SCOPES = [
 ];
 
 const WORK_PERIODS = [
-  { value: 'urgent', label: '急件 (1-2個月)' },
-  { value: 'normal', label: '正常 (3-6個月)' },
-  { value: 'flexible', label: '可協調' },
+  '即時 3-5天內 - 緊急',
+  '7天內 - 加急',
+  '7-14天內',
+  '3-4星期內',
+  '1-3個月內',
+  '3-6個月內',
+  '1年內',
 ];
 
 const STEPS = [
@@ -687,9 +691,6 @@ export function QuickQuoteView({
     ) {
       newErrors.budgetMax = '預算上限必須大於下限';
     }
-    if (!formData.workPeriod) {
-      newErrors.workPeriod = '請選擇工期需求';
-    }
     if (!formData.validityDays.trim()) {
       newErrors.validityDays = '請填寫有效期限';
     } else if (!/^\d+$/.test(formData.validityDays.trim())) {
@@ -1258,22 +1259,27 @@ export function QuickQuoteView({
               {/* Work Period — rectangle pill single-select */}
               <div>
                 <label className="mb-2 block font-body text-sm font-medium text-foreground">
-                  工期需求 <span className="text-red-500">*</span>
+                  工期需求
                 </label>
                 <div className="flex flex-wrap gap-2">
                   {WORK_PERIODS.map((period) => (
                     <button
-                      key={period.value}
+                      key={period}
                       type="button"
-                      onClick={() => updateField('workPeriod', period.value)}
+                      onClick={() =>
+                        updateField(
+                          'workPeriod',
+                          formData.workPeriod === period ? '' : period,
+                        )
+                      }
                       className={cn(
                         'rounded-md border px-4 py-2.5 font-body text-sm font-medium transition-all',
-                        formData.workPeriod === period.value
+                        formData.workPeriod === period
                           ? 'border-primary bg-primary/10 text-primary shadow-sm'
                           : 'border-border bg-card text-muted-foreground hover:border-primary/50 hover:text-foreground'
                       )}
                     >
-                      {period.label}
+                      {period}
                     </button>
                   ))}
                 </div>
