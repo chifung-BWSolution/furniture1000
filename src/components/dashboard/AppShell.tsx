@@ -520,13 +520,6 @@ export function AppShell() {
             }}
           />
         );
-      case "quotation-settings":
-        return (
-          <PlaceholderView
-            title="報價設定"
-            description="預設條款、稅率、付款方式與簽署設定。"
-          />
-        );
       case "publish-copywriting":
         return <PublishCopywritingView focusProductId={focusProductId} onFocusHandled={() => setFocusProductId(null)} />;
       case "publish-product-info":
@@ -576,13 +569,6 @@ export function AppShell() {
               setEditingQuoteUuidRaw(null);
               store.setCurrentView("quotation-list");
             }}
-          />
-        );
-      case "product-report":
-        return (
-          <PlaceholderView
-            title="產品報告"
-            description="查看產品銷售數據和績效分析報告。"
           />
         );
       case "quotation-list":

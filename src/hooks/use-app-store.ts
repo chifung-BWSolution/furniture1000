@@ -311,6 +311,9 @@ export function useAppStore() {
   const [currentView, setCurrentViewRaw] = useState<ViewType>(() => {
     try {
       const saved = sessionStorage.getItem('current-view') as ViewType | null;
+      if (saved === 'product-report' || saved === 'quotation-settings') {
+        return 'quick-quote';
+      }
       if (saved) return saved;
     } catch { /* ignore */ }
     return 'dashboard';

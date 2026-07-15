@@ -119,9 +119,7 @@ export type ViewType =
   | 'customer-company-info'
   // 傢俬報價
   | 'quick-quote'
-  | 'product-report'
   | 'quotation-list'
-  | 'quotation-settings'
   // 網上發佈
   | 'publish-copywriting'
   | 'publish-product-info'
