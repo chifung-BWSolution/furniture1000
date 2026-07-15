@@ -73,8 +73,15 @@ async function main() {
   );
   console.log(`ready_to_shopify "${SRC_TYPE}": ${rtsRows.length}`);
 
-  const productIds = [...new Set(rtsRows.map((r) => r.product_id).filter(Boolean))];
-  console.log(`linked products: ${productIds.length}`);
+  const productIdsFromRts = [...new Set(rtsRows.map((r) => r.product_id).filter(Boolean))];
+
+  const orphanProducts = await restGet(
+    `products?select=id,title&level1_category=eq.${encodeURIComponent(SRC_L1)}&level2_category=eq.${encodeURIComponent(SRC_L2)}`,
+  );
+  console.log(`products orphan "${SRC_L1}/${SRC_L2}": ${orphanProducts.length}`);
+
+  const productIds = [...new Set([...productIdsFromRts, ...orphanProducts.map((p) => p.id)])];
+  console.log(`unique products to update: ${productIds.length}`);
 
   const before = await rpcCount(DST_L1, DST_L2);
   console.log(`copywriting RPC count (${DST_L1}/${DST_L2}) before: ${before}`);
@@ -93,13 +100,34 @@ async function main() {
     console.log(`updated ready_to_shopify.product_type → ${DST_TYPE}`);
   }
 
-  if (productIds.length > 0) {
-    await patchIn('products', 'id', productIds, {
+  if (orphanProducts.length > 0) {
+    const res = await fetch(
+      `${FURNITURE}/rest/v1/products?level1_category=eq.${encodeURIComponent(SRC_L1)}&level2_category=eq.${encodeURIComponent(SRC_L2)}`,
+      { method: 'PATCH', headers, body: JSON.stringify({ level1_category: DST_L1, level2_category: DST_L2 }) },
+    );
+    if (!res.ok) throw new Error(`products orphan patch: ${await res.text()}`);
+    console.log(`updated orphan products.level1/level2 → ${DST_L1} / ${DST_L2}`);
+  }
+
+  const remainingOrphans = await restGet(
+    `products?select=id&level1_category=eq.${encodeURIComponent(SRC_L1)}&level2_category=eq.${encodeURIComponent(SRC_L2)}`,
+  );
+  const stillInRts = productIdsFromRts.filter((id) => !remainingOrphans.some((p) => p.id === id));
+  if (stillInRts.length > 0) {
+    await patchIn('products', 'id', stillInRts, {
       level1_category: DST_L1,
       level2_category: DST_L2,
     });
-    console.log(`updated products.level1/level2 → ${DST_L1} / ${DST_L2}`);
+    console.log(`updated RTS-linked products.level1/level2 → ${DST_L1} / ${DST_L2}`);
   }
+
+  const spRes = await fetch(
+    `${FURNITURE}/rest/v1/shopify_products?product_type=eq.${encodeURIComponent(SRC_TYPE)}`,
+    { method: 'PATCH', headers, body: JSON.stringify({ product_type: DST_TYPE }) },
+  );
+  if (!spRes.ok) throw new Error(`shopify_products patch: ${await spRes.text()}`);
+  const spCount = await restGet(`shopify_products?select=shopify_product_id&product_type=eq.${encodeURIComponent(DST_TYPE)}`);
+  console.log(`shopify_products aligned (total "${DST_TYPE}"): ${spCount.length}`);
 
   const after = await rpcCount(DST_L1, DST_L2);
   console.log(`copywriting RPC count (${DST_L1}/${DST_L2}) after: ${after}`);
