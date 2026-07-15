@@ -2214,7 +2214,7 @@ export function QuotationDraftEditor({
                 </div>
                 <div>
                   <label className="mb-1.5 block font-body text-xs text-muted-foreground">
-                    報價類型
+                    辦公室傢俬級別
                   </label>
                   <div className="flex flex-wrap gap-1.5">
                     {formData.quotationType.map((tag) => (

@@ -90,11 +90,8 @@ interface QuoteFormData {
 
 /** Fallback when not opened from a PMS pitching (no industry catalog loaded). */
 const FALLBACK_INDUSTRIES = ['餐飲', '辦公', '零售', '醫療', '教育', '酒店', '住宅', '其他'];
-const QUOTATION_TYPES = [
-  '商業設計工程',
-  '小型工程',
-  '傢俬採購',
-];
+const OFFICE_FURNITURE_GRADE_LABEL = '辦公室傢俬級別';
+const QUOTATION_TYPES = ['國際品牌', '本地品牌', '基本傢俬'];
 
 const SERVICE_SCOPES = ['辦公枱', '辦公椅', '儲物櫃', '軟裝', '師傅安裝', '拉線', '其他'];
 
@@ -644,7 +641,7 @@ export function QuickQuoteView({
       newErrors.clientIndustry = '請選擇至少一個客戶產業';
     }
     if (formData.quotationType.length === 0) {
-      newErrors.quotationType = '請選擇至少一個報價類型';
+      newErrors.quotationType = `請選擇至少一個${OFFICE_FURNITURE_GRADE_LABEL}`;
     }
 
     setErrors(newErrors);
@@ -1087,10 +1084,10 @@ export function QuickQuoteView({
                 )}
               </div>
 
-              {/* Quotation Type Tags */}
+              {/* Office furniture grade */}
               <div>
                 <label className="mb-2 block font-body text-sm font-medium text-foreground">
-                  報價類型 <span className="text-red-500">*</span>
+                  {OFFICE_FURNITURE_GRADE_LABEL} <span className="text-red-500">*</span>
                 </label>
                 <div className="flex flex-wrap gap-2">
                   {QUOTATION_TYPES.map((type) => (
@@ -1124,7 +1121,11 @@ export function QuickQuoteView({
                   <label className="font-body text-sm font-medium text-foreground">
                     服務範圍 <span className="text-red-500">*</span>
                   </label>
-                  <span className="font-body text-xs text-muted-foreground">— 傢俬採購</span>
+                  {formData.quotationType.length > 0 && (
+                    <span className="font-body text-xs text-muted-foreground">
+                      — {formData.quotationType.join('、')}
+                    </span>
+                  )}
                   <span className="ml-1 font-body text-xs text-muted-foreground">(可多選)</span>
                 </div>
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4">
