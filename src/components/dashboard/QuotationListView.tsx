@@ -525,94 +525,10 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
                   quote.created_at;
                 const isLatestExpanded = expanded && showExpandControl;
                 const isOldExpanded = expanded && isOlderVersion;
+                const versionDate = quote.modified_date || quote.created_at;
 
-                if (isOldExpanded) {
-                  return (
-                    <tr
-                      key={quote.id}
-                      className="border-b border-border/40 last:border-b-0"
-                      onMouseEnter={() => setActiveId(quote.id)}
-                    >
-                      <td colSpan={11} className="px-3 py-1.5">
-                        <div
-                          role="button"
-                          tabIndex={0}
-                          onClick={() =>
-                            onOpenQuote?.(quote.quote_id, { quoteUuid: quote.id })
-                          }
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter' || e.key === ' ') {
-                              e.preventDefault();
-                              onOpenQuote?.(quote.quote_id, { quoteUuid: quote.id });
-                            }
-                          }}
-                          className={cn(
-                            'ml-7 mr-4 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-dashed border-border/70 bg-muted/25 px-4 py-2.5 transition-colors sm:max-w-[calc(100%-2rem)]',
-                            selected
-                              ? 'border-primary/35 bg-primary/5 ring-1 ring-primary/15'
-                              : 'hover:border-border hover:bg-muted/40',
-                          )}
-                        >
-                          <span className="shrink-0 rounded bg-muted px-2 py-0.5 font-body text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                            舊版
-                          </span>
-                          <span className="font-mono-data text-[11px] text-muted-foreground">
-                            {formatListDate(enquiryDate)}
-                          </span>
-                          <span
-                            className={cn(
-                              'inline-flex rounded-md border px-2 py-0.5 font-body text-[10px] font-medium opacity-80',
-                              quoteStatusBadgeClass(quote.status),
-                            )}
-                          >
-                            {displayQuoteVersion(quote.version)} · {quote.status}
-                          </span>
-                          <span className="font-mono-data text-[11px] text-muted-foreground">
-                            ${formatListMoney(quote.total_amount)}
-                          </span>
-                          <span className="font-mono-data text-[11px] text-muted-foreground/80">
-                            成本{' '}
-                            {quote.cost_price != null
-                              ? `$${formatListMoney(quote.cost_price)}`
-                              : 'N/A'}
-                          </span>
-                          <span className="min-w-0 flex-1 truncate font-body text-[11px] text-muted-foreground/70">
-                            提交:{' '}
-                            {quote.submitter
-                              ? canonicalStaffName(quote.submitter)
-                              : '—'}
-                          </span>
-                          <div className="flex shrink-0 items-center gap-1">
-                            <button
-                              type="button"
-                              title="複製報價單"
-                              aria-label={`複製報價單 ${code}`}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onCopyQuote?.(quote.id);
-                              }}
-                              className="flex h-7 w-7 items-center justify-center rounded-md border border-transparent text-muted-foreground/60 transition-colors hover:border-primary/30 hover:bg-primary/10 hover:text-primary"
-                            >
-                              <Copy className="h-3.5 w-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              title="刪除報價單"
-                              aria-label={`刪除報價單 ${code}`}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setDeleteTarget(quote);
-                              }}
-                              className="flex h-7 w-7 items-center justify-center rounded-md border border-transparent text-muted-foreground/60 transition-colors hover:border-destructive/30 hover:bg-destructive/10 hover:text-destructive"
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                }
+                const openQuote = () =>
+                  onOpenQuote?.(quote.quote_id, { quoteUuid: quote.id });
 
                 return (
                   <tr
@@ -620,27 +536,44 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
                     tabIndex={0}
                     onMouseEnter={() => setActiveId(quote.id)}
                     onFocus={() => setActiveId(quote.id)}
-                    onClick={() =>
-                      onOpenQuote?.(quote.quote_id, { quoteUuid: quote.id })
-                    }
+                    onClick={openQuote}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') {
                         e.preventDefault();
-                        onOpenQuote?.(quote.quote_id, { quoteUuid: quote.id });
+                        openQuote();
                       }
                     }}
                     className={cn(
-                      'cursor-pointer border-b border-border/70 transition-colors last:border-b-0',
+                      'cursor-pointer border-b transition-colors last:border-b-0',
+                      isOldExpanded
+                        ? 'border-border/40 border-l-2 border-l-muted-foreground/25 bg-muted/20'
+                        : 'border-border/70',
                       isLatestExpanded && 'border-l-[3px] border-l-primary bg-primary/[0.04]',
-                      selected ? 'bg-primary/10' : 'hover:bg-accent/50',
+                      selected
+                        ? isOldExpanded
+                          ? 'bg-muted/35'
+                          : 'bg-primary/10'
+                        : isOldExpanded
+                          ? 'hover:bg-muted/30'
+                          : 'hover:bg-accent/50',
                     )}
                   >
-                    <td className="whitespace-nowrap px-3 py-3 font-mono-data text-xs text-foreground">
-                      {formatListDate(enquiryDate)}
+                    <td
+                      className={cn(
+                        'whitespace-nowrap font-mono-data text-foreground',
+                        isOldExpanded ? 'px-3 py-2 text-[11px] text-muted-foreground/80' : 'px-3 py-3 text-xs',
+                      )}
+                    >
+                      {formatListDate(isOldExpanded ? versionDate : enquiryDate)}
                     </td>
-                    <td className="whitespace-nowrap px-3 py-3">
-                      {days == null ? (
-                        <span className="font-body text-xs text-muted-foreground">
+                    <td
+                      className={cn(
+                        'whitespace-nowrap',
+                        isOldExpanded ? 'px-3 py-2' : 'px-3 py-3',
+                      )}
+                    >
+                      {isOldExpanded || days == null ? (
+                        <span className="font-body text-xs text-muted-foreground/60">
                           —
                         </span>
                       ) : (
@@ -659,10 +592,22 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
                         </span>
                       )}
                     </td>
-                    <td className="max-w-[140px] px-3 py-3 font-body text-xs leading-snug text-foreground">
-                      {quote.pitching?.customer_type || '—'}
+                    <td
+                      className={cn(
+                        'max-w-[140px] font-body leading-snug',
+                        isOldExpanded
+                          ? 'px-3 py-2 text-[11px] text-muted-foreground/60'
+                          : 'px-3 py-3 text-xs text-foreground',
+                      )}
+                    >
+                      {isOldExpanded ? '—' : quote.pitching?.customer_type || '—'}
                     </td>
-                    <td className="min-w-[220px] max-w-[320px] px-3 py-3">
+                    <td
+                      className={cn(
+                        'min-w-[220px] max-w-[320px]',
+                        isOldExpanded ? 'px-3 py-2' : 'px-3 py-3',
+                      )}
+                    >
                       <div className="flex items-start gap-1.5">
                         {showExpandControl ? (
                           <button
@@ -681,63 +626,126 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
                               <ChevronDown className="h-4 w-4" />
                             )}
                           </button>
+                        ) : isOldExpanded ? (
+                          <>
+                            <span className="inline-block w-6 shrink-0" aria-hidden />
+                            <span className="inline-block w-6 shrink-0" aria-hidden />
+                          </>
                         ) : (
                           <span className="inline-block w-6 shrink-0" aria-hidden />
                         )}
                         <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <div className="truncate font-body text-sm font-semibold text-primary">
-                              {title}
-                            </div>
-                            {isLatestExpanded ? (
-                              <span className="shrink-0 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 font-body text-[10px] font-semibold text-primary">
-                                最新
+                          {isOldExpanded ? (
+                            <div className="flex items-center gap-2">
+                              <span className="shrink-0 rounded border border-border/80 bg-muted/50 px-2 py-0.5 font-body text-[10px] font-semibold text-muted-foreground">
+                                舊版
                               </span>
-                            ) : null}
-                          </div>
-                          <div className="mt-0.5 truncate font-mono-data text-[11px] text-muted-foreground">
-                            {code}
-                            {quote.project_data?.formData?.clientName
-                              ? ` · ${quote.project_data.formData.clientName}`
-                              : ''}
-                          </div>
+                              <span className="truncate font-mono-data text-[11px] text-muted-foreground/80">
+                                {displayQuoteVersion(quote.version)}
+                              </span>
+                            </div>
+                          ) : (
+                            <>
+                              <div className="flex items-center gap-2">
+                                <div className="truncate font-body text-sm font-semibold text-primary">
+                                  {title}
+                                </div>
+                                {isLatestExpanded ? (
+                                  <span className="shrink-0 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 font-body text-[10px] font-semibold text-primary">
+                                    最新
+                                  </span>
+                                ) : null}
+                              </div>
+                              <div className="mt-0.5 truncate font-mono-data text-[11px] text-muted-foreground">
+                                {code}
+                                {quote.project_data?.formData?.clientName
+                                  ? ` · ${quote.project_data.formData.clientName}`
+                                  : ''}
+                              </div>
+                            </>
+                          )}
                         </div>
                       </div>
                     </td>
-                    <td className="whitespace-nowrap px-3 py-3">
-                      {quote.pitching?.service_type ? (
+                    <td
+                      className={cn(
+                        'whitespace-nowrap',
+                        isOldExpanded ? 'px-3 py-2' : 'px-3 py-3',
+                      )}
+                    >
+                      {isOldExpanded ? (
+                        <span className="font-body text-xs text-muted-foreground/60">—</span>
+                      ) : quote.pitching?.service_type ? (
                         <span className="inline-flex rounded-full border border-violet-200 bg-violet-50 px-2.5 py-0.5 font-body text-[11px] font-medium text-violet-700">
                           {quote.pitching.service_type}
                         </span>
                       ) : (
-                        <span className="font-body text-xs text-muted-foreground">
-                          —
-                        </span>
+                        <span className="font-body text-xs text-muted-foreground">—</span>
                       )}
                     </td>
-                    <td className="whitespace-nowrap px-3 py-3 font-mono-data text-xs font-semibold text-foreground">
+                    <td
+                      className={cn(
+                        'whitespace-nowrap font-mono-data',
+                        isOldExpanded
+                          ? 'px-3 py-2 text-[11px] font-normal text-muted-foreground/85'
+                          : 'px-3 py-3 text-xs font-semibold text-foreground',
+                      )}
+                    >
                       ${formatListMoney(quote.total_amount)}
                     </td>
-                    <td className="whitespace-nowrap px-3 py-3 font-mono-data text-xs text-muted-foreground">
+                    <td
+                      className={cn(
+                        'whitespace-nowrap font-mono-data',
+                        isOldExpanded
+                          ? 'px-3 py-2 text-[11px] text-muted-foreground/75'
+                          : 'px-3 py-3 text-xs text-muted-foreground',
+                      )}
+                    >
                       {quote.cost_price != null
                         ? `$${formatListMoney(quote.cost_price)}`
                         : 'N/A'}
                     </td>
-                    <td className="max-w-[160px] px-3 py-3 font-body text-xs text-foreground">
-                      <div>{staffLabel(quote)}</div>
-                      <div className="mt-0.5 text-[11px] text-muted-foreground">
-                        提交:{' '}
-                        {quote.submitter
-                          ? canonicalStaffName(quote.submitter)
-                          : '—'}
-                      </div>
+                    <td
+                      className={cn(
+                        'max-w-[160px] font-body',
+                        isOldExpanded
+                          ? 'px-3 py-2 text-[11px] text-muted-foreground/75'
+                          : 'px-3 py-3 text-xs text-foreground',
+                      )}
+                    >
+                      {isOldExpanded ? (
+                        <div>
+                          提交:{' '}
+                          {quote.submitter
+                            ? canonicalStaffName(quote.submitter)
+                            : '—'}
+                        </div>
+                      ) : (
+                        <>
+                          <div>{staffLabel(quote)}</div>
+                          <div className="mt-0.5 text-[11px] text-muted-foreground">
+                            提交:{' '}
+                            {quote.submitter
+                              ? canonicalStaffName(quote.submitter)
+                              : '—'}
+                          </div>
+                        </>
+                      )}
                     </td>
-                    <td className="whitespace-nowrap px-3 py-3">
+                    <td
+                      className={cn(
+                        'whitespace-nowrap',
+                        isOldExpanded ? 'px-3 py-2' : 'px-3 py-3',
+                      )}
+                    >
                       <div className="flex flex-wrap items-center gap-1.5">
                         <span
                           className={cn(
-                            'inline-flex rounded-md border px-2 py-0.5 font-body text-[11px] font-medium',
+                            'inline-flex rounded-md border px-2 py-0.5 font-body font-medium',
                             quoteStatusBadgeClass(quote.status),
+                            isOldExpanded
+                              ? 'text-[10px] opacity-75'
+                              : 'text-[11px]',
                             isLatestExpanded && 'ring-1 ring-primary/20',
                           )}
                         >
@@ -750,19 +758,33 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
                         ) : null}
                       </div>
                     </td>
-                    <td className="whitespace-nowrap px-3 py-3">
-                      <span
-                        className={cn(
-                          'inline-flex rounded-md border px-2 py-0.5 font-body text-[11px] font-medium',
-                          pitchingStatusBadgeClass(
-                            quote.pitching?.pitching_stages,
-                          ),
-                        )}
-                      >
-                        {pitchingStatusLabel(quote.pitching?.pitching_stages)}
-                      </span>
+                    <td
+                      className={cn(
+                        'whitespace-nowrap',
+                        isOldExpanded ? 'px-3 py-2' : 'px-3 py-3',
+                      )}
+                    >
+                      {isOldExpanded ? (
+                        <span className="font-body text-xs text-muted-foreground/60">—</span>
+                      ) : (
+                        <span
+                          className={cn(
+                            'inline-flex rounded-md border px-2 py-0.5 font-body text-[11px] font-medium',
+                            pitchingStatusBadgeClass(
+                              quote.pitching?.pitching_stages,
+                            ),
+                          )}
+                        >
+                          {pitchingStatusLabel(quote.pitching?.pitching_stages)}
+                        </span>
+                      )}
                     </td>
-                    <td className="whitespace-nowrap px-2 py-3">
+                    <td
+                      className={cn(
+                        'whitespace-nowrap',
+                        isOldExpanded ? 'px-2 py-2' : 'px-2 py-3',
+                      )}
+                    >
                       <div className="flex items-center justify-end gap-1">
                         <button
                           type="button"
@@ -772,9 +794,12 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
                             e.stopPropagation();
                             onCopyQuote?.(quote.id);
                           }}
-                          className="flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-muted-foreground/70 transition-colors hover:border-primary/30 hover:bg-primary/10 hover:text-primary"
+                          className={cn(
+                            'flex items-center justify-center rounded-lg border border-transparent text-muted-foreground/70 transition-colors hover:border-primary/30 hover:bg-primary/10 hover:text-primary',
+                            isOldExpanded ? 'h-7 w-7' : 'h-8 w-8',
+                          )}
                         >
-                          <Copy className="h-4 w-4" />
+                          <Copy className={isOldExpanded ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
                         </button>
                         <button
                           type="button"
@@ -784,9 +809,12 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
                             e.stopPropagation();
                             setDeleteTarget(quote);
                           }}
-                          className="flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-muted-foreground/70 transition-colors hover:border-destructive/30 hover:bg-destructive/10 hover:text-destructive"
+                          className={cn(
+                            'flex items-center justify-center rounded-lg border border-transparent text-muted-foreground/70 transition-colors hover:border-destructive/30 hover:bg-destructive/10 hover:text-destructive',
+                            isOldExpanded ? 'h-7 w-7' : 'h-8 w-8',
+                          )}
                         >
-                          <Trash2 className="h-4 w-4" />
+                          <Trash2 className={isOldExpanded ? 'h-3.5 w-3.5' : 'h-4 w-4'} />
                         </button>
                       </div>
                     </td>
