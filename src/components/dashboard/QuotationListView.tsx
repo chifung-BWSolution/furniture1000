@@ -95,11 +95,10 @@ type SortKey =
   | 'remaining_days'
   | 'customer_type'
   | 'display_name'
-  | 'service_type'
+  | 'quote_status'
   | 'total_amount'
   | 'cost_price'
   | 'staff'
-  | 'quote_status'
   | 'pitching_stages';
 
 /** Group all version rows; each group sorted newest version first. */
@@ -331,10 +330,10 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
             quoteDisplayName(b),
             sortDir,
           );
-        case 'service_type':
+        case 'quote_status':
           return compareNullable(
-            a.pitching?.service_type,
-            b.pitching?.service_type,
+            `${a.version} ${a.status}`,
+            `${b.version} ${b.status}`,
             sortDir,
           );
         case 'total_amount':
@@ -343,12 +342,6 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
           return compareNullable(a.cost_price, b.cost_price, sortDir);
         case 'staff':
           return compareNullable(staffLabel(a), staffLabel(b), sortDir);
-        case 'quote_status':
-          return compareNullable(
-            `${a.version} ${a.status}`,
-            `${b.version} ${b.status}`,
-            sortDir,
-          );
         case 'pitching_stages':
           return compareNullable(
             a.pitching?.pitching_stages,
@@ -481,11 +474,10 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
                   ['remaining_days', '剩餘天數'],
                   ['customer_type', '客戶類型'],
                   ['display_name', '提案顯示名稱'],
-                  ['service_type', '服務類型'],
+                  ['quote_status', '報價狀態'],
                   ['total_amount', '報價金額'],
                   ['cost_price', '成本'],
                   ['staff', '主要PM及設計師'],
-                  ['quote_status', '報價狀態'],
                   ['pitching_stages', 'Pitching'],
                 ] as const
               ).map(([key, label]) => (
@@ -507,10 +499,10 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
           </thead>
           <tbody>
             {isLoading ? (
-              <ListTableLoadingRow colSpan={11} label="載入報價單列表…" />
+              <ListTableLoadingRow colSpan={10} label="載入報價單列表…" />
             ) : displayRows.length === 0 ? (
               <ListTableEmptyRow
-                colSpan={11}
+                colSpan={10}
                 message={emptyMessage}
               />
             ) : (
@@ -673,15 +665,25 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
                         isOldExpanded ? 'px-3 py-2' : 'px-3 py-3',
                       )}
                     >
-                      {isOldExpanded ? (
-                        <span className="font-body text-xs text-muted-foreground/60">—</span>
-                      ) : quote.pitching?.service_type ? (
-                        <span className="inline-flex rounded-full border border-violet-200 bg-violet-50 px-2.5 py-0.5 font-body text-[11px] font-medium text-violet-700">
-                          {quote.pitching.service_type}
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span
+                          className={cn(
+                            'inline-flex rounded-md border px-2 py-0.5 font-body font-medium',
+                            quoteStatusBadgeClass(quote.status),
+                            isOldExpanded
+                              ? 'text-[10px] opacity-75'
+                              : 'text-[11px]',
+                            isLatestExpanded && 'ring-1 ring-primary/20',
+                          )}
+                        >
+                          {displayQuoteVersion(quote.version)} · {quote.status}
                         </span>
-                      ) : (
-                        <span className="font-body text-xs text-muted-foreground">—</span>
-                      )}
+                        {showExpandControl && !expanded ? (
+                          <span className="font-body text-[10px] text-muted-foreground">
+                            {versionCount} 版
+                          </span>
+                        ) : null}
+                      </div>
                     </td>
                     <td
                       className={cn(
@@ -731,32 +733,6 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
                           </div>
                         </>
                       )}
-                    </td>
-                    <td
-                      className={cn(
-                        'whitespace-nowrap',
-                        isOldExpanded ? 'px-3 py-2' : 'px-3 py-3',
-                      )}
-                    >
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span
-                          className={cn(
-                            'inline-flex rounded-md border px-2 py-0.5 font-body font-medium',
-                            quoteStatusBadgeClass(quote.status),
-                            isOldExpanded
-                              ? 'text-[10px] opacity-75'
-                              : 'text-[11px]',
-                            isLatestExpanded && 'ring-1 ring-primary/20',
-                          )}
-                        >
-                          {displayQuoteVersion(quote.version)} · {quote.status}
-                        </span>
-                        {showExpandControl && !expanded ? (
-                          <span className="font-body text-[10px] text-muted-foreground">
-                            {versionCount} 版
-                          </span>
-                        ) : null}
-                      </div>
                     </td>
                     <td
                       className={cn(
