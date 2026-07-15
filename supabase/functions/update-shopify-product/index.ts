@@ -1961,7 +1961,7 @@ async function repairMetafieldsForProducts(
       for (const col of IMAGE_METAFIELD_COLS) {
         const val = imageCols[col];
         if (val != null && String(val).trim()) merged[col] = String(val).trim();
-        else merged[col] = "";
+        else merged[col] = ""; // clear slots beyond actual image count (e.g. 3 images → slot 4 empty)
       }
     }
 
