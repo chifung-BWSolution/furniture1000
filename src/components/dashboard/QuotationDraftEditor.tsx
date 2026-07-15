@@ -86,8 +86,6 @@ interface QuoteFormData {
   serviceScope: string[];
   officeArea: string;
   headcount: string;
-  budgetMin: string;
-  budgetMax: string;
   workPeriod: string;
   validityDays: string;
   remarks: string;

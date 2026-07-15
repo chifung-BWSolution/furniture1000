@@ -82,8 +82,6 @@ interface QuoteFormData {
   officeArea: string;
   headcount: string;
   // Step 3
-  budgetMin: string;
-  budgetMax: string;
   workPeriod: string;
   validityDays: string;
   remarks: string;
@@ -138,8 +136,6 @@ const DEFAULT_FORM_DATA = (): QuoteFormData => ({
   serviceScope: [],
   officeArea: '',
   headcount: '',
-  budgetMin: '',
-  budgetMax: '',
   workPeriod: '',
   validityDays: '30',
   remarks: '',
@@ -456,8 +452,6 @@ export function QuickQuoteView({
           defaults.selected_industries.length > 0
             ? defaults.selected_industries
             : prev.clientIndustry,
-        budgetMin: defaults.budget_min ?? prev.budgetMin,
-        budgetMax: defaults.budget_max ?? prev.budgetMax,
       }));
 
       if (defaults.pitching_code || defaults.project_code || defaults.client_name) {
@@ -685,21 +679,6 @@ export function QuickQuoteView({
   const validateStep3 = (): boolean => {
     const newErrors: Partial<Record<keyof QuoteFormData, string>> = {};
 
-    if (formData.budgetMin.trim() && !/^\d+$/.test(formData.budgetMin.trim())) {
-      newErrors.budgetMin = '請輸入有效數字';
-    }
-    if (formData.budgetMax.trim() && !/^\d+$/.test(formData.budgetMax.trim())) {
-      newErrors.budgetMax = '請輸入有效數字';
-    }
-    if (
-      formData.budgetMin.trim() &&
-      formData.budgetMax.trim() &&
-      /^\d+$/.test(formData.budgetMin.trim()) &&
-      /^\d+$/.test(formData.budgetMax.trim()) &&
-      parseInt(formData.budgetMin) > parseInt(formData.budgetMax)
-    ) {
-      newErrors.budgetMax = '預算上限必須大於下限';
-    }
     if (!formData.validityDays.trim()) {
       newErrors.validityDays = '請填寫有效期限';
     } else if (!/^\d+$/.test(formData.validityDays.trim())) {
@@ -1229,53 +1208,6 @@ export function QuickQuoteView({
 
           {currentStep === 3 && (
             <div className="space-y-6">
-              {/* Budget Range */}
-              <div>
-                <label className="mb-1.5 block font-body text-sm font-medium text-foreground">
-                  預算區間 HK$
-                </label>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <input
-                      type="text"
-                      value={formData.budgetMin}
-                      onChange={(e) => {
-                        const val = e.target.value.replace(/[^0-9]/g, '');
-                        updateField('budgetMin', val);
-                      }}
-                      placeholder="例：50000"
-                      className={cn(
-                        'w-full rounded-lg border bg-background px-4 py-2.5 font-body text-sm text-foreground placeholder:text-muted-foreground/60 transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20',
-                        errors.budgetMin ? 'border-red-500' : 'border-border'
-                      )}
-                    />
-                    <span className="mt-1 block font-body text-xs text-muted-foreground">預算下限</span>
-                    {errors.budgetMin && (
-                      <p className="mt-0.5 text-xs text-red-500">{errors.budgetMin}</p>
-                    )}
-                  </div>
-                  <div>
-                    <input
-                      type="text"
-                      value={formData.budgetMax}
-                      onChange={(e) => {
-                        const val = e.target.value.replace(/[^0-9]/g, '');
-                        updateField('budgetMax', val);
-                      }}
-                      placeholder="例：200000"
-                      className={cn(
-                        'w-full rounded-lg border bg-background px-4 py-2.5 font-body text-sm text-foreground placeholder:text-muted-foreground/60 transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20',
-                        errors.budgetMax ? 'border-red-500' : 'border-border'
-                      )}
-                    />
-                    <span className="mt-1 block font-body text-xs text-muted-foreground">預算上限</span>
-                    {errors.budgetMax && (
-                      <p className="mt-0.5 text-xs text-red-500">{errors.budgetMax}</p>
-                    )}
-                  </div>
-                </div>
-              </div>
-
               {/* Work Period — rectangle pill single-select */}
               <div>
                 <label className="mb-2 block font-body text-sm font-medium text-foreground">
