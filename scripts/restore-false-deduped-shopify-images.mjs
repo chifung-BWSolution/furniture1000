@@ -65,7 +65,10 @@ function dedupe(urls) {
   return out;
 }
 
-/** Preferred restore gallery: primary, image_url_2/3, then images[] by position (max 4). */
+/** Preferred restore gallery: primary, image_url_2/3, then images[] by position (max 4).
+ * Content-unique by MD5 is applied later in restore loop when comparing live gallery;
+ * here we still avoid obvious path duplicates via identity key.
+ */
 function preferredGallery(row, maxN = 4) {
   const urls = [];
   const push = (s) => {
