@@ -523,6 +523,96 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
                   quote.pitching?.enquiry_date ||
                   quote.modified_date ||
                   quote.created_at;
+                const isLatestExpanded = expanded && showExpandControl;
+                const isOldExpanded = expanded && isOlderVersion;
+
+                if (isOldExpanded) {
+                  return (
+                    <tr
+                      key={quote.id}
+                      className="border-b border-border/40 last:border-b-0"
+                      onMouseEnter={() => setActiveId(quote.id)}
+                    >
+                      <td colSpan={11} className="px-3 py-1.5">
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          onClick={() =>
+                            onOpenQuote?.(quote.quote_id, { quoteUuid: quote.id })
+                          }
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              onOpenQuote?.(quote.quote_id, { quoteUuid: quote.id });
+                            }
+                          }}
+                          className={cn(
+                            'ml-7 mr-4 flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-dashed border-border/70 bg-muted/25 px-4 py-2.5 transition-colors sm:max-w-[calc(100%-2rem)]',
+                            selected
+                              ? 'border-primary/35 bg-primary/5 ring-1 ring-primary/15'
+                              : 'hover:border-border hover:bg-muted/40',
+                          )}
+                        >
+                          <span className="shrink-0 rounded bg-muted px-2 py-0.5 font-body text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                            舊版
+                          </span>
+                          <span className="font-mono-data text-[11px] text-muted-foreground">
+                            {formatListDate(enquiryDate)}
+                          </span>
+                          <span
+                            className={cn(
+                              'inline-flex rounded-md border px-2 py-0.5 font-body text-[10px] font-medium opacity-80',
+                              quoteStatusBadgeClass(quote.status),
+                            )}
+                          >
+                            {displayQuoteVersion(quote.version)} · {quote.status}
+                          </span>
+                          <span className="font-mono-data text-[11px] text-muted-foreground">
+                            ${formatListMoney(quote.total_amount)}
+                          </span>
+                          <span className="font-mono-data text-[11px] text-muted-foreground/80">
+                            成本{' '}
+                            {quote.cost_price != null
+                              ? `$${formatListMoney(quote.cost_price)}`
+                              : 'N/A'}
+                          </span>
+                          <span className="min-w-0 flex-1 truncate font-body text-[11px] text-muted-foreground/70">
+                            提交:{' '}
+                            {quote.submitter
+                              ? canonicalStaffName(quote.submitter)
+                              : '—'}
+                          </span>
+                          <div className="flex shrink-0 items-center gap-1">
+                            <button
+                              type="button"
+                              title="複製報價單"
+                              aria-label={`複製報價單 ${code}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onCopyQuote?.(quote.id);
+                              }}
+                              className="flex h-7 w-7 items-center justify-center rounded-md border border-transparent text-muted-foreground/60 transition-colors hover:border-primary/30 hover:bg-primary/10 hover:text-primary"
+                            >
+                              <Copy className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              title="刪除報價單"
+                              aria-label={`刪除報價單 ${code}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setDeleteTarget(quote);
+                              }}
+                              className="flex h-7 w-7 items-center justify-center rounded-md border border-transparent text-muted-foreground/60 transition-colors hover:border-destructive/30 hover:bg-destructive/10 hover:text-destructive"
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                }
 
                 return (
                   <tr
@@ -541,7 +631,7 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
                     }}
                     className={cn(
                       'cursor-pointer border-b border-border/70 transition-colors last:border-b-0',
-                      isOlderVersion ? 'bg-muted/15' : '',
+                      isLatestExpanded && 'border-l-[3px] border-l-primary bg-primary/[0.04]',
                       selected ? 'bg-primary/10' : 'hover:bg-accent/50',
                     )}
                   >
@@ -595,13 +685,15 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
                           <span className="inline-block w-6 shrink-0" aria-hidden />
                         )}
                         <div className="min-w-0">
-                          <div
-                            className={cn(
-                              'truncate font-body text-sm font-semibold text-primary',
-                              isOlderVersion && 'font-medium text-foreground/80',
-                            )}
-                          >
-                            {title}
+                          <div className="flex items-center gap-2">
+                            <div className="truncate font-body text-sm font-semibold text-primary">
+                              {title}
+                            </div>
+                            {isLatestExpanded ? (
+                              <span className="shrink-0 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 font-body text-[10px] font-semibold text-primary">
+                                最新
+                              </span>
+                            ) : null}
                           </div>
                           <div className="mt-0.5 truncate font-mono-data text-[11px] text-muted-foreground">
                             {code}
@@ -641,14 +733,22 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
                       </div>
                     </td>
                     <td className="whitespace-nowrap px-3 py-3">
-                      <span
-                        className={cn(
-                          'inline-flex rounded-md border px-2 py-0.5 font-body text-[11px] font-medium',
-                          quoteStatusBadgeClass(quote.status),
-                        )}
-                      >
-                        {displayQuoteVersion(quote.version)} · {quote.status}
-                      </span>
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <span
+                          className={cn(
+                            'inline-flex rounded-md border px-2 py-0.5 font-body text-[11px] font-medium',
+                            quoteStatusBadgeClass(quote.status),
+                            isLatestExpanded && 'ring-1 ring-primary/20',
+                          )}
+                        >
+                          {displayQuoteVersion(quote.version)} · {quote.status}
+                        </span>
+                        {showExpandControl && !expanded ? (
+                          <span className="font-body text-[10px] text-muted-foreground">
+                            {versionCount} 版
+                          </span>
+                        ) : null}
+                      </div>
                     </td>
                     <td className="whitespace-nowrap px-3 py-3">
                       <span
