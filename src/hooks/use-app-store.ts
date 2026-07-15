@@ -310,11 +310,11 @@ export function useAppStore() {
   });
   const [currentView, setCurrentViewRaw] = useState<ViewType>(() => {
     try {
-      const saved = sessionStorage.getItem('current-view') as ViewType | null;
+      const saved = sessionStorage.getItem('current-view');
       if (saved === 'product-report' || saved === 'quotation-settings') {
         return 'quick-quote';
       }
-      if (saved) return saved;
+      if (saved) return saved as ViewType;
     } catch { /* ignore */ }
     return 'dashboard';
   });
