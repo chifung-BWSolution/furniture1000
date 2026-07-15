@@ -14,6 +14,32 @@ function json(body: unknown, status = 200) {
   });
 }
 
+/** Shopify REST/GraphQL — stay under ~2 req/s and retry 429. */
+const SHOPIFY_MIN_INTERVAL_MS = 550;
+let lastShopifyCallAt = 0;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function shopifyFetch(url: string, init?: RequestInit): Promise<Response> {
+  for (let attempt = 0; attempt <= 5; attempt++) {
+    const now = Date.now();
+    const gap = SHOPIFY_MIN_INTERVAL_MS - (now - lastShopifyCallAt);
+    if (gap > 0) await sleep(gap);
+    lastShopifyCallAt = Date.now();
+
+    const resp = await fetch(url, init);
+    if (resp.status !== 429 || attempt === 5) return resp;
+
+    const retryAfterSec = Number(resp.headers.get("Retry-After") || 0);
+    const backoffMs = retryAfterSec > 0 ? retryAfterSec * 1000 : 1200 * (attempt + 1);
+    await sleep(backoffMs);
+    lastShopifyCallAt = Date.now();
+  }
+  return fetch(url, init);
+}
+
 // "namespace.key" → Shopify metafield type. Mirrors the columns on shopify_products.
 const METAFIELD_DEFS: Record<string, string> = {
   "my_fields.recommend_size": "multi_line_text_field",
@@ -88,7 +114,7 @@ async function updateSeoAndHandle(
   }
   if (!hasHandle && input.seo === undefined) return { ok: true };
 
-  const resp = await fetch(`https://${shopDomain}/admin/api/2024-10/graphql.json`, {
+  const resp = await shopifyFetch(`https://${shopDomain}/admin/api/2024-10/graphql.json`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": token },
     body: JSON.stringify({
@@ -192,7 +218,7 @@ async function upsertProductMetafield(
   const type = METAFIELD_DEFS[col] || "single_line_text_field";
   const trimmed = value.trim();
 
-  const existingResp = await fetch(
+  const existingResp = await shopifyFetch(
     `${apiBase}/products/${shopifyId}/metafields.json?namespace=${namespace}&key=${key}`,
     { headers },
   );
@@ -202,7 +228,7 @@ async function upsertProductMetafield(
 
   if (!trimmed) {
     if (existing?.id) {
-      const del = await fetch(`${apiBase}/metafields/${existing.id}.json`, { method: "DELETE", headers });
+      const del = await shopifyFetch(`${apiBase}/metafields/${existing.id}.json`, { method: "DELETE", headers });
       return del.ok;
     }
     return true;
@@ -211,7 +237,7 @@ async function upsertProductMetafield(
   if (existing?.value === trimmed) return true;
 
   if (existing?.id) {
-    const pr = await fetch(`${apiBase}/metafields/${existing.id}.json`, {
+    const pr = await shopifyFetch(`${apiBase}/metafields/${existing.id}.json`, {
       method: "PUT",
       headers,
       body: JSON.stringify({ metafield: { id: existing.id, type, value: trimmed } }),
@@ -219,7 +245,7 @@ async function upsertProductMetafield(
     return pr.ok;
   }
 
-  const r = await fetch(`${apiBase}/products/${shopifyId}/metafields.json`, {
+  const r = await shopifyFetch(`${apiBase}/products/${shopifyId}/metafields.json`, {
     method: "POST",
     headers,
     body: JSON.stringify({ metafield: { namespace, key, type, value: trimmed } }),
@@ -579,7 +605,7 @@ async function fetchLiveProductSeo(
   token: string,
   shopifyId: string,
 ): Promise<LiveSeoState | null> {
-  const resp = await fetch(`https://${shopDomain}/admin/api/2024-10/graphql.json`, {
+  const resp = await shopifyFetch(`https://${shopDomain}/admin/api/2024-10/graphql.json`, {
     method: "POST",
     headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": token },
     body: JSON.stringify({
@@ -617,7 +643,7 @@ async function fetchLiveMetafieldMap(
   headers: Record<string, string>,
   shopifyId: string,
 ): Promise<Map<string, string>> {
-  const resp = await fetch(`${apiBase}/products/${shopifyId}/metafields.json?limit=250`, { headers });
+  const resp = await shopifyFetch(`${apiBase}/products/${shopifyId}/metafields.json?limit=250`, { headers });
   if (!resp.ok) return new Map();
   const j = await resp.json();
   return liveMetafieldMapFromResponse(Array.isArray(j.metafields) ? j.metafields : []);
@@ -833,7 +859,7 @@ async function reorderShopifyProductImages(
     .map((im, i) => ({ id: Number(im.id), position: i + 1 }));
   if (images.length === 0) return false;
 
-  const resp = await fetch(`${apiBase}/products/${shopifyId}.json`, {
+  const resp = await shopifyFetch(`${apiBase}/products/${shopifyId}.json`, {
     method: "PUT",
     headers,
     body: JSON.stringify({ product: { id: Number(shopifyId), images } }),
@@ -860,7 +886,7 @@ async function syncProductGalleryCleanup(
     dedupedMirror.map((im) => imageDedupeKey(resolveAttachImageSrc(String(im.src), primarySrc))),
   );
 
-  let product = (await fetch(`${apiBase}/products/${shopifyId}.json`, { headers })
+  let product = (await shopifyFetch(`${apiBase}/products/${shopifyId}.json`, { headers })
     .then((r) => r.json())).product as Record<string, unknown>;
   let liveImages = [...((product.images as Record<string, unknown>[]) || [])];
   let canonicalByKey = indexLiveImagesByDedupe(liveImages, primarySrc);
@@ -869,7 +895,7 @@ async function syncProductGalleryCleanup(
     const src = resolveAttachImageSrc(String(im.src), primarySrc);
     const key = imageDedupeKey(src);
     if (canonicalByKey.has(key)) continue;
-    const postResp = await fetch(`${apiBase}/products/${shopifyId}/images.json`, {
+    const postResp = await shopifyFetch(`${apiBase}/products/${shopifyId}/images.json`, {
       method: "POST",
       headers,
       body: JSON.stringify({ image: { src } }),
@@ -884,7 +910,7 @@ async function syncProductGalleryCleanup(
     );
   }
 
-  product = (await fetch(`${apiBase}/products/${shopifyId}.json`, { headers })
+  product = (await shopifyFetch(`${apiBase}/products/${shopifyId}.json`, { headers })
     .then((r) => r.json())).product as Record<string, unknown>;
   liveImages = [...((product.images as Record<string, unknown>[]) || [])];
   canonicalByKey = indexLiveImagesByDedupe(liveImages, primarySrc);
@@ -897,7 +923,7 @@ async function syncProductGalleryCleanup(
     const key = imageDedupeKey(src);
     const canonical = pickCanonicalForKey(liveImages, key, primarySrc, canonicalByKey);
     if (!keepKeys.has(key) || (canonical?.id != null && Number(id) !== Number(canonical.id))) {
-      const delResp = await fetch(
+      const delResp = await shopifyFetch(
         `${apiBase}/products/${shopifyId}/images/${id}.json`,
         { method: "DELETE", headers },
       );
@@ -905,7 +931,7 @@ async function syncProductGalleryCleanup(
     }
   }
 
-  product = (await fetch(`${apiBase}/products/${shopifyId}.json`, { headers })
+  product = (await shopifyFetch(`${apiBase}/products/${shopifyId}.json`, { headers })
     .then((r) => r.json())).product as Record<string, unknown>;
   liveImages = [...((product.images as Record<string, unknown>[]) || [])];
   canonicalByKey = indexLiveImagesByDedupe(liveImages, primarySrc);
@@ -1094,7 +1120,7 @@ async function syncVariantImagesFromMirror(
     let target = indexLiveImagesByDedupe(images, primarySrc).get(imageDedupeKey(src));
 
     if (!target?.id) {
-      const postResp = await fetch(`${apiBase}/products/${shopifyId}/images.json`, {
+      const postResp = await shopifyFetch(`${apiBase}/products/${shopifyId}/images.json`, {
         method: "POST",
         headers,
         body: JSON.stringify({ image: { src } }),
@@ -1118,7 +1144,7 @@ async function syncVariantImagesFromMirror(
       continue;
     }
 
-    const resp = await fetch(`${apiBase}/products/${shopifyId}/variants/${variantId}.json`, {
+    const resp = await shopifyFetch(`${apiBase}/products/${shopifyId}/variants/${variantId}.json`, {
       method: "PUT",
       headers,
       body: JSON.stringify({ variant: { id: variantId, image_id: imageId } }),
@@ -1162,7 +1188,7 @@ async function pushProductToShopify(
   const apiBase = `https://${shopDomain}/admin/api/2024-10`;
   const headers = { "Content-Type": "application/json", "X-Shopify-Access-Token": shopifyToken };
 
-  const getResp = await fetch(`${apiBase}/products/${shopifyId}.json`, { headers });
+  const getResp = await shopifyFetch(`${apiBase}/products/${shopifyId}.json`, { headers });
   if (!getResp.ok) {
     const t = await getResp.text();
     return { success: false, error: `Shopify GET failed (${getResp.status}): ${t.slice(0, 200)}` };
@@ -1383,7 +1409,7 @@ async function pushProductToShopify(
   const hasProductFieldChanges = Object.keys(productUpdate).length > 1;
   let updated = existing;
   if (hasProductFieldChanges) {
-    const putResp = await fetch(`${apiBase}/products/${shopifyId}.json`, {
+    const putResp = await shopifyFetch(`${apiBase}/products/${shopifyId}.json`, {
       method: "PUT",
       headers,
       body: JSON.stringify({ product: productUpdate }),
@@ -1409,7 +1435,7 @@ async function pushProductToShopify(
       );
       keptGalleryImages = galleryResult.kept;
       galleryImagesDeleted = galleryResult.deleted;
-      let refreshResp = await fetch(`${apiBase}/products/${shopifyId}.json`, { headers });
+      let refreshResp = await shopifyFetch(`${apiBase}/products/${shopifyId}.json`, { headers });
       if (refreshResp.ok) {
         updated = (await refreshResp.json()).product as Record<string, unknown>;
       }
@@ -1422,7 +1448,7 @@ async function pushProductToShopify(
     if (keptGalleryImages.length > 0) {
       await reorderShopifyProductImages(apiBase, headers, shopifyId, keptGalleryImages);
     }
-    const refreshResp = await fetch(`${apiBase}/products/${shopifyId}.json`, { headers });
+    const refreshResp = await shopifyFetch(`${apiBase}/products/${shopifyId}.json`, { headers });
     if (refreshResp.ok) {
       updated = (await refreshResp.json()).product as Record<string, unknown>;
     }
@@ -1709,10 +1735,13 @@ Deno.serve(async (req: Request) => {
       if (fetchErr) return json({ error: fetchErr.message }, 500);
       if (!row) return json({ error: `No shopify_products row for ${sid}` }, 404);
       const stats = await pushMirrorRows(supabase, shopDomain, shopifyToken, [row as Record<string, unknown>]);
-      if (stats.failed > 0) {
-        return json({ success: false, error: stats.errors[0]?.error || "Push failed", ...stats });
-      }
-      return json({ success: true, mode: "push_from_mirror", ...stats });
+      // Always return 200 with per-item stats so client can distinguish 略過 vs 失敗.
+      return json({
+        success: stats.failed === 0,
+        mode: "push_from_mirror",
+        ...stats,
+        ...(stats.failed > 0 ? { error: stats.errors[0]?.error || "Push failed" } : {}),
+      });
     }
 
     const shopifyId = body.shopify_product_id;

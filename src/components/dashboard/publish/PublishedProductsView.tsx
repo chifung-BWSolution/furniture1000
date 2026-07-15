@@ -19,9 +19,12 @@ import { toast } from 'sonner';
 import { PublishedProductDetailModal, type PublishedDisplayProduct } from './PublishedProductDetailModal';
 import { PublishedProductMergeModal } from './PublishedProductMergeModal';
 
-/** Concurrent single-product pushes — diff-first on server; real-time progress. */
-const SHOPIFY_PUSH_CONCURRENCY = 6;
-const SHOPIFY_PUSH_MAX_RETRIES = 2;
+/** Bulk sync: low concurrency + spacing to avoid Shopify 429 (2 req/s). */
+const SHOPIFY_PUSH_CONCURRENCY_BULK = 1;
+const SHOPIFY_PUSH_CONCURRENCY_SMALL = 2;
+const SHOPIFY_PUSH_BULK_THRESHOLD = 10;
+const SHOPIFY_PUSH_INTERVAL_MS = 700;
+const SHOPIFY_PUSH_MAX_RETRIES = 4;
 const SHOPIFY_PUSH_TIMEOUT_MS = 90 * 1000;
 /** Above this count, SKU chip list starts collapsed to avoid pushing the table off-screen. */
 const SELECTED_SKU_COLLAPSE_THRESHOLD = 12;
@@ -46,19 +49,69 @@ function formatSyncChanges(changes: string[] | undefined): string {
   return changes.map((c) => CHANGE_LABEL_ZH[c] || c).join('、');
 }
 
+function isRateLimitError(msg: string): boolean {
+  return /429|calls per second|rate limit|Reduce request rates/i.test(msg);
+}
+
+function parseSyncItemResult(data: Record<string, unknown> | null | undefined): {
+  pushed: number;
+  skipped: number;
+  failed: number;
+  changes?: string[];
+  error?: string;
+} {
+  if (!data) return { pushed: 0, skipped: 0, failed: 1, error: '未知錯誤' };
+  const itemResults = Array.isArray(data.results) ? data.results as {
+    action?: string;
+    changes?: string[];
+    error?: string;
+  }[] : [];
+  const item = itemResults[0];
+  if (item?.action === 'skipped') return { pushed: 0, skipped: 1, failed: 0 };
+  if (item?.action === 'pushed') {
+    return { pushed: 1, skipped: 0, failed: 0, changes: item.changes };
+  }
+  if (item?.action === 'failed') {
+    const batchErr = Array.isArray(data.errors) && data.errors[0]?.error
+      ? String((data.errors[0] as { error?: string }).error)
+      : undefined;
+    return {
+      pushed: 0,
+      skipped: 0,
+      failed: 1,
+      error: item.error || batchErr || (data.error as string) || '未知錯誤',
+    };
+  }
+  return {
+    pushed: Number(data.pushed ?? 0),
+    skipped: Number(data.skipped ?? 0),
+    failed: Number(data.failed ?? 0),
+    error: data.error as string | undefined,
+  };
+}
+
 async function runWithConcurrency<T>(
   items: T[],
   limit: number,
   worker: (item: T, index: number) => Promise<void>,
+  opts?: { intervalMs?: number },
 ): Promise<void> {
   if (items.length === 0) return;
   let next = 0;
+  let lastStartAt = 0;
+  const intervalMs = opts?.intervalMs ?? 0;
   const workers = Math.min(Math.max(1, limit), items.length);
   await Promise.all(
     Array.from({ length: workers }, async () => {
       while (true) {
         const i = next++;
         if (i >= items.length) break;
+        if (intervalMs > 0) {
+          const now = Date.now();
+          const wait = intervalMs - (now - lastStartAt);
+          if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+          lastStartAt = Date.now();
+        }
         await worker(items[i], i);
       }
     }),
@@ -351,74 +404,67 @@ export function PublishedProductsView() {
       toast.loading(parts.join(' · '), { id: toastId });
     };
 
+    const concurrency = shopifyIds.length > SHOPIFY_PUSH_BULK_THRESHOLD
+      ? SHOPIFY_PUSH_CONCURRENCY_BULK
+      : SHOPIFY_PUSH_CONCURRENCY_SMALL;
+    const intervalMs = shopifyIds.length > SHOPIFY_PUSH_BULK_THRESHOLD
+      ? SHOPIFY_PUSH_INTERVAL_MS
+      : 350;
+
     const invokeOne = async (shopifyProductId: string) => {
       let lastError: string | undefined;
+      let lastData: Record<string, unknown> | null = null;
       for (let attempt = 0; attempt <= SHOPIFY_PUSH_MAX_RETRIES; attempt++) {
         const { data, error } = await invokeEdgeFunctionDirect(
           'supabase-functions-update-shopify-product',
           { push_from_mirror: true, shopify_product_id: shopifyProductId },
           { timeoutMs: SHOPIFY_PUSH_TIMEOUT_MS },
         );
+        lastData = (data as Record<string, unknown> | null) ?? null;
         if (!error && !data?.error && data?.success !== false) {
-          return { data, error: null as Error | null };
+          return { data: lastData, error: null as Error | null };
         }
         lastError = error?.message || (data?.error as string) || '未知錯誤';
-        const isRetryable = /504|502|408|逾時|timeout/i.test(lastError);
+        const isRetryable = /504|502|408|429|逾時|timeout|calls per second|rate limit/i.test(lastError);
         if (!isRetryable || attempt === SHOPIFY_PUSH_MAX_RETRIES) break;
-        await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
+        await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
       }
-      return { data: null, error: new Error(lastError || '未知錯誤') };
+      return { data: lastData, error: new Error(lastError || '未知錯誤') };
     };
 
     try {
-      await runWithConcurrency(shopifyIds, SHOPIFY_PUSH_CONCURRENCY, async (sid) => {
+      await runWithConcurrency(shopifyIds, concurrency, async (sid) => {
         const result = await invokeOne(sid);
         processed += 1;
 
-        if (result.error || result.data?.success === false) {
+        if (!result.data && result.error) {
           failed += 1;
-          if (!firstErr) {
-            firstErr = result.error?.message
-              || (result.data?.error as string)
-              || '未知錯誤';
-          }
+          if (!firstErr) firstErr = result.error.message;
         } else {
-          const data = result.data;
-          const itemResults = Array.isArray(data?.results) ? data.results as {
-            action?: string;
-            changes?: string[];
-          }[] : [];
-          const item = itemResults[0];
-          const itemSkipped = item?.action === 'skipped' || Number(data?.skipped ?? 0) > 0;
-          const itemPushed = item?.action === 'pushed' || Number(data?.pushed ?? 0) > 0;
-          const itemFailed = item?.action === 'failed' || Number(data?.failed ?? 0) > 0;
-
-          if (itemFailed) {
-            failed += 1;
-            const batchErr = Array.isArray(data?.errors) && data.errors[0]?.error
-              ? String(data.errors[0].error)
-              : undefined;
-            if (!firstErr && batchErr) firstErr = batchErr;
-          } else if (itemSkipped) {
-            skipped += 1;
+          const parsed = parseSyncItemResult(result.data);
+          if (parsed.failed > 0) {
+            failed += parsed.failed;
+            if (!firstErr) {
+              firstErr = parsed.error || result.error?.message || '未知錯誤';
+            }
+          }
+          if (parsed.skipped > 0) {
+            skipped += parsed.skipped;
             const title = titleByShopifyId.get(sid);
             if (title && skippedTitles.length < 5) skippedTitles.push(title);
-          } else if (itemPushed) {
-            pushed += 1;
-            const changeText = formatSyncChanges(item?.changes);
+          }
+          if (parsed.pushed > 0) {
+            pushed += parsed.pushed;
+            const changeText = formatSyncChanges(parsed.changes);
             const title = titleByShopifyId.get(sid);
             if (title && updatedSummaries.length < 5) {
               updatedSummaries.push(changeText ? `${title}（${changeText}）` : title);
             }
-          } else {
-            pushed += Number(data?.pushed ?? 0);
-            skipped += Number(data?.skipped ?? 0);
-            failed += Number(data?.failed ?? 0);
           }
         }
 
         updateProgressToast();
-      });
+      }, { intervalMs });
 
       if (pushed > 0) await loadProducts({ silent: true });
 
@@ -426,6 +472,9 @@ export function PublishedProductsView() {
       if (pushed > 0) descParts.push(`已更新 ${pushed} 件`);
       if (skipped > 0) descParts.push(`略過 ${skipped} 件（與 Shopify 一致）`);
       if (failed > 0) descParts.push(`失敗 ${failed} 件`);
+      if (failed > 0 && isRateLimitError(firstErr || '')) {
+        descParts.push('（Shopify API 速率限制，非略過）');
+      }
 
       const detailLines: string[] = [];
       if (updatedSummaries.length > 0) {
@@ -440,14 +489,16 @@ export function PublishedProductsView() {
       if (failed > 0 && (pushed > 0 || skipped > 0)) {
         toast.warning('部分產品同步失敗', {
           id: toastId,
-          description: `${description}${firstErr ? `\n${firstErr.slice(0, 120)}` : ''}`,
-          duration: 10000,
+          description: `${description}${firstErr ? `\n${firstErr.slice(0, 160)}` : ''}`,
+          duration: 12000,
         });
       } else if (failed > 0) {
-        toast.error('同步至 Shopify 失敗', {
+        toast.error(isRateLimitError(firstErr || '') ? 'Shopify API 速率限制' : '同步至 Shopify 失敗', {
           id: toastId,
-          description: firstErr || '請稍後重試',
-          duration: 8000,
+          description: isRateLimitError(firstErr || '')
+            ? `請減少一次選取數量，或稍後再試。${firstErr ? `\n${firstErr.slice(0, 160)}` : ''}`
+            : (firstErr || '請稍後重試'),
+          duration: 10000,
         });
       } else if (skipped > 0 && pushed === 0) {
         toast.message('無需同步', {
