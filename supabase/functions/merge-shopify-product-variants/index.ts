@@ -653,10 +653,13 @@ Deno.serve(async (req: Request) => {
     const prices = mergedVariants.map((v) => parseFloat(String(v.price ?? "0")) || 0);
     const minPrice = prices.length ? Math.min(...prices) : null;
     const productTitle = typeof finalProduct.title === "string" ? finalProduct.title : "";
-    const moreImageCols = moreImageLinkColumnsFromUrls(galleryUrls.slice(0, 4), productTitle);
+    const cdnUrlsForMetafields = orderedImages
+      .filter((im) => im.id != null && isHttpUrl(im.src))
+      .map((im) => im.src as string);
+    const moreImageCols = moreImageLinkColumnsFromUrls(cdnUrlsForMetafields.slice(0, 4), productTitle);
 
     await syncMoreImageMetafieldsToShopify(
-      apiBase, headers, parentId, galleryUrls.slice(0, 4), productTitle,
+      apiBase, headers, parentId, cdnUrlsForMetafields.slice(0, 4), productTitle,
     );
 
     await supabase
