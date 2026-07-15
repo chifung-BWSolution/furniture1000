@@ -1,4 +1,8 @@
 import { supabase } from '@/lib/supabase';
+import {
+  passesUrgentStockFilter,
+  URGENT_DELIVERY_TAG,
+} from '@/lib/quoteStockFilter';
 
 export type CatalogSourceType = 'shopify' | 'system';
 
@@ -34,6 +38,8 @@ export type CatalogQueryParams = {
   level2?: string;
   /** When set (and level1 filter empty), matching products appear first in results. */
   priority_level1?: string[];
+  /** Urgent quote — only in-stock products (現貨) with 3-7天送貨 tag. */
+  stock_only?: boolean;
   page?: number;
   page_size?: number;
 };
@@ -276,7 +282,7 @@ async function loadProductsByIds(ids: string[]): Promise<Map<string, Record<stri
     const { data, error } = await supabase
       .from('products')
       .select(
-        'id, title, sku, image_url, images, sale_price, price, cost_price, factories_display_name, level1_category, level2_category, category, material, dimension_l_mm, dimension_w_mm, dimension_h_mm, color, remarks, delivery_term_name, shopify_product_id, modified_date, created_at',
+        'id, title, sku, image_url, images, sale_price, price, cost_price, factories_display_name, level1_category, level2_category, category, material, dimension_l_mm, dimension_w_mm, dimension_h_mm, color, remarks, delivery_term_name, shopify_product_id, modified_date, created_at, in_stock, tags',
       )
       .in('id', chunk);
     if (error) throw error;
@@ -316,7 +322,7 @@ function sortByPriorityLevel1(
 }
 
 const PRODUCTS_CATALOG_SELECT =
-  'id, title, sku, image_url, images, sale_price, price, cost_price, factories_display_name, level1_category, level2_category, category, material, dimension_l_mm, dimension_w_mm, dimension_h_mm, color, remarks, delivery_term_name, shopify_product_id, modified_date, created_at';
+  'id, title, sku, image_url, images, sale_price, price, cost_price, factories_display_name, level1_category, level2_category, category, material, dimension_l_mm, dimension_w_mm, dimension_h_mm, color, remarks, delivery_term_name, shopify_product_id, modified_date, created_at, in_stock, tags';
 
 function applyProductsCatalogFilters(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -339,6 +345,9 @@ function applyProductsCatalogFilters(
     const quoted = opts.excludePriority.map((p) => `"${p.replace(/"/g, '""')}"`).join(',');
     q = q.or(`level1_category.is.null,level1_category.not.in.(${quoted})`);
   }
+  if (params.stock_only) {
+    q = q.eq('in_stock', true).contains('tags', [URGENT_DELIVERY_TAG]);
+  }
   return q;
 }
 
@@ -360,7 +369,7 @@ async function fetchShopifySourceRows(params: CatalogQueryParams): Promise<Catal
   let rtsQuery = supabase
     .from('ready_to_shopify')
     .select(
-      'id, product_id, shopify_product_id, title, sku, image_url, images, price, vendor, product_type, material, dimension_l_mm, dimension_w_mm, dimension_h_mm, color, remarks, imported_at, cost',
+      'id, product_id, shopify_product_id, title, sku, image_url, images, price, vendor, product_type, material, dimension_l_mm, dimension_w_mm, dimension_h_mm, color, remarks, imported_at, cost, in_stock, tags',
     )
     .order('imported_at', { ascending: false })
     .limit(MAX_SCAN_PER_TABLE);
@@ -381,6 +390,11 @@ async function fetchShopifySourceRows(params: CatalogQueryParams): Promise<Catal
     ),
   ];
   const productsById = await loadProductsByIds(productIds);
+  const rtsByProductId = new Map<string, Record<string, unknown>>();
+  for (const row of rtsData || []) {
+    const pid = strOrNull((row as { product_id?: string }).product_id);
+    if (pid) rtsByProductId.set(pid, row as Record<string, unknown>);
+  }
 
   const merged = new Map<string, CatalogProductRow>();
   for (const row of spData || []) {
@@ -397,7 +411,17 @@ async function fetchShopifySourceRows(params: CatalogQueryParams): Promise<Catal
     if (!merged.has(key)) merged.set(key, mapped);
   }
 
-  const filtered = applyClientFilters([...merged.values()], params);
+  let filtered = applyClientFilters([...merged.values()], params);
+  if (params.stock_only) {
+    filtered = filtered.filter((row) => {
+      const pid = row.productId;
+      if (!pid) return false;
+      return passesUrgentStockFilter(
+        productsById.get(pid),
+        rtsByProductId.get(pid),
+      );
+    });
+  }
   const priority = (params.priority_level1 || []).filter(Boolean);
   if (priority.length > 0 && !(params.level1 || '').trim()) {
     return sortByPriorityLevel1(filtered, priority);
@@ -407,6 +431,7 @@ async function fetchShopifySourceRows(params: CatalogQueryParams): Promise<Catal
 
 async function enrichProductRows(
   productRows: Record<string, unknown>[],
+  opts?: { stockOnly?: boolean },
 ): Promise<CatalogProductRow[]> {
   const productIds = productRows.map((row) => String(row.id));
 
@@ -423,7 +448,7 @@ async function enrichProductRows(
       ? supabase
           .from('ready_to_shopify')
           .select(
-            'id, product_id, shopify_product_id, title, sku, image_url, images, price, vendor, product_type, material, dimension_l_mm, dimension_w_mm, dimension_h_mm, color, remarks, imported_at, cost',
+            'id, product_id, shopify_product_id, title, sku, image_url, images, price, vendor, product_type, material, dimension_l_mm, dimension_w_mm, dimension_h_mm, color, remarks, imported_at, cost, in_stock, tags',
           )
           .in('product_id', productIds)
       : Promise.resolve({ data: [], error: null }),
@@ -443,14 +468,18 @@ async function enrichProductRows(
     if (pid && !spByProductId.has(pid)) rtsByProductId.set(pid, row as Record<string, unknown>);
   }
 
-  return productRows.map((product) => {
+  const rows: CatalogProductRow[] = [];
+  for (const product of productRows) {
     const pid = String(product.id);
-    const sp = spByProductId.get(pid);
-    if (sp) return mapShopifyProductsRow(sp, product);
     const rts = rtsByProductId.get(pid);
-    if (rts) return mapRtsRow(rts, product);
-    return mapProductsRow(product);
-  });
+    if (opts?.stockOnly && !passesUrgentStockFilter(product, rts)) continue;
+
+    const sp = spByProductId.get(pid);
+    if (sp) rows.push(mapShopifyProductsRow(sp, product));
+    else if (rts) rows.push(mapRtsRow(rts, product));
+    else rows.push(mapProductsRow(product));
+  }
+  return rows;
 }
 
 async function fetchSystemSourceRows(params: CatalogQueryParams): Promise<{
@@ -484,7 +513,9 @@ async function fetchSystemSourceRows(params: CatalogQueryParams): Promise<{
   const { data, error, count } = await query;
   if (error) throw error;
 
-  const rows = await enrichProductRows((data || []) as Record<string, unknown>[]);
+  const rows = await enrichProductRows((data || []) as Record<string, unknown>[], {
+    stockOnly: params.stock_only,
+  });
   return { rows, total: count || 0 };
 }
 
@@ -556,7 +587,7 @@ async function fetchSystemSourceRowsWithPriority(
     productRows.push(...((nonData || []) as Record<string, unknown>[]));
   }
 
-  const rows = await enrichProductRows(productRows);
+  const rows = await enrichProductRows(productRows, { stockOnly: params.stock_only });
   return { rows, total: tTotal };
 }
 

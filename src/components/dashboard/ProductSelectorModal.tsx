@@ -44,6 +44,8 @@ interface ProductSelectorModalProps {
   existingProductNames?: string[];
   /** Level-1 categories from quote wizard — products in these categories appear first when no level1 filter is set. */
   priorityLevel1Categories?: string[];
+  /** Urgent work period — only show in-stock (現貨) products with 3-7天送貨 tag. */
+  stockOnly?: boolean;
 }
 
 const CATALOG_SOURCE_OPTIONS: Array<{
@@ -60,6 +62,7 @@ export function ProductSelectorModal({
   onSelect,
   existingProductNames = [],
   priorityLevel1Categories = [],
+  stockOnly = false,
 }: ProductSelectorModalProps) {
   const [catalogSource, setCatalogSource] = useState<CatalogSourceType>('system');
   const [search, setSearch] = useState('');
@@ -131,6 +134,7 @@ export function ProductSelectorModal({
       level1Val: string,
       level2Val: string,
       priorityLevel1Val: string[],
+      stockOnlyVal: boolean,
     ) => {
       setIsLoading(true);
       try {
@@ -144,6 +148,7 @@ export function ProductSelectorModal({
             !level1Val.trim() && priorityLevel1Val.length > 0
               ? priorityLevel1Val
               : undefined,
+          stock_only: stockOnlyVal || undefined,
           page: pageVal,
           page_size: PAGE_SIZE,
         });
@@ -174,9 +179,10 @@ export function ProductSelectorModal({
         level1Filter,
         level2Filter,
         priorityLevel1,
+        stockOnly,
       );
     },
-    [catalogSource, search, factoryFilter, level1Filter, level2Filter, priorityLevel1, fetchProducts],
+    [catalogSource, search, factoryFilter, level1Filter, level2Filter, priorityLevel1, stockOnly, fetchProducts],
   );
 
   const existingCount = existingProductNames.length;
@@ -289,6 +295,11 @@ export function ProductSelectorModal({
             <div className="mt-1 flex flex-wrap items-center gap-2">
               <p className="font-body text-xs text-muted-foreground">
                 從資料庫搜尋產品並加入報價單
+                {stockOnly ? (
+                  <span className="ml-1 text-primary">
+                    · 僅顯示現貨（3-7天送貨）
+                  </span>
+                ) : null}
                 {priorityActive ? (
                   <span className="ml-1 text-primary">
                     · 已依報價類別優先排序（{priorityLevel1.join('、')}）

@@ -67,6 +67,7 @@ import {
 } from "@/lib/bwfQuoteItems";
 import type { QuoteCopyPayload } from "@/lib/quoteCopy";
 import { bumpQuoteVersion, displayQuoteVersion } from "@/lib/quoteVersions";
+import { isUrgentWorkPeriod } from "@/lib/quoteStockFilter";
 
 interface QuoteFormData {
   company: string;
@@ -2914,6 +2915,7 @@ export function QuotationDraftEditor({
         onSelect={handleProductSelected}
         existingProductNames={[]}
         priorityLevel1Categories={formData.serviceScope}
+        stockOnly={isUrgentWorkPeriod(formData.workPeriod)}
       />
 
     </>
