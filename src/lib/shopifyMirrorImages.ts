@@ -98,11 +98,22 @@ export function resolveMirrorGalleryUrlsInSavedOrder(row: {
   return dedupeImageUrlsPreserveOrder(fromImages);
 }
 
-/** Normalize images JSON for DB storage with sequential positions. */
+/** Normalize images JSON for DB storage with sequential positions (stem-deduped). */
 export function normalizeMirrorImagesJson(images: unknown): ShopifyMirrorImage[] | null {
   const sorted = sortShopifyImages(images);
   if (sorted.length === 0) return null;
-  return sorted.map((im, i) => ({
+  const seen = new Set<string>();
+  const deduped: ShopifyMirrorImage[] = [];
+  for (const im of sorted) {
+    const src = imageSrc(im);
+    if (!src.startsWith('http')) continue;
+    const key = imageIdentityKey(src);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(im);
+  }
+  if (deduped.length === 0) return null;
+  return deduped.map((im, i) => ({
     id: im.id,
     src: im.src || im.url,
     alt: im.alt || '',

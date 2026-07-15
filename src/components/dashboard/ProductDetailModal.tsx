@@ -49,10 +49,10 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { supabase } from '@/lib/supabase';
-import { isHttpImageUrl } from '@/lib/imageStorage';
 import { uploadBase64Image } from '@/lib/imageStorage';
 import { toast } from 'sonner';
 import { withUpdateAuditFields } from '@/lib/pmsAudit';
+import { collectProductGalleryUrls } from '@/lib/productGallery';
 // Color map utilities available if needed
 // import { getChineseColorLabel, getColorHex } from '@/constants/color-map';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -486,12 +486,17 @@ export function ProductDetailModal({
         setProductionLeadTime('');
       }
 
-      // Initialize images
-      const productImages: ProductImage[] = product.images && product.images.length > 0
-        ? product.images
-        : product.imageUrl
-          ? [{ src: product.imageUrl, alt: product.title }]
-          : [];
+      // Initialize images — prefer merged fields if list row already has them
+      const productImages: ProductImage[] = (() => {
+        const gallery = collectProductGalleryUrls({
+          image_url: product.imageUrl,
+          images: product.images,
+        });
+        if (gallery.length > 0) {
+          return gallery.map((src) => ({ src, alt: product.title }));
+        }
+        return [];
+      })();
       setImages(productImages);
       setSelectedImageIndex(0);
       setPendingNewFiles([]);
@@ -507,7 +512,7 @@ export function ProductDetailModal({
       try {
         const { data, error } = await supabase
           .from('products')
-          .select('description_html, description, image_url, images, level1_category, level2_category')
+          .select('description_html, description, image_url, image_url_2, image_url_3, lifestyle_image_url, images, level1_category, level2_category')
           .eq('id', product.id)
           .maybeSingle();
         if (cancelled || error || !data) {
@@ -518,14 +523,15 @@ export function ProductDetailModal({
         if (html) setDescription(html);
         if (data.level1_category) setLevel1Category(data.level1_category);
         if (data.level2_category) setLevel2Category(data.level2_category);
-        const rawImages = Array.isArray(data.images) ? data.images : [];
-        const httpImages = rawImages
-          .map((img: { src?: string; alt?: string; path?: string }) => img?.src)
-          .filter((src): src is string => isHttpImageUrl(src));
-        if (httpImages.length > 0) {
-          setImages(httpImages.map((src) => ({ src, alt: product.title || '' })));
-        } else if (isHttpImageUrl(data.image_url)) {
-          setImages([{ src: data.image_url!, alt: product.title || '' }]);
+        const gallery = collectProductGalleryUrls({
+          image_url: data.image_url,
+          image_url_2: data.image_url_2,
+          image_url_3: data.image_url_3,
+          lifestyle_image_url: data.lifestyle_image_url,
+          images: data.images,
+        });
+        if (gallery.length > 0) {
+          setImages(gallery.map((src) => ({ src, alt: product.title || '' })));
         }
       } catch (err) {
         console.warn('[ProductDetailModal] Heavy field fetch error:', err);

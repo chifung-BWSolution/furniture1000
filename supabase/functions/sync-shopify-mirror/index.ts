@@ -179,10 +179,77 @@ async function fetchProductsByIds(
   return products;
 }
 
+function imageIdentityKey(url: string): string {
+  const noQuery = url.split("?")[0];
+  const base = noQuery.substring(noQuery.lastIndexOf("/") + 1);
+  return base
+    .replace(/\.[a-zA-Z0-9]+$/, "")
+    .replace(/_\d+$/, "")
+    .trim()
+    .toLowerCase();
+}
+
 function sortLiveImages(images: Record<string, unknown>[]): Record<string, unknown>[] {
-  return [...images]
+  const sorted = [...images]
     .filter((im) => typeof im.src === "string" && (im.src as string).startsWith("http"))
     .sort((a, b) => (Number(a.position) || 99) - (Number(b.position) || 99));
+  const seen = new Set<string>();
+  const out: Record<string, unknown>[] = [];
+  for (const im of sorted) {
+    const key = imageIdentityKey(String(im.src));
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(im);
+  }
+  return out;
+}
+
+/**
+ * Remove stem-duplicate images from live Shopify (keeps first by position).
+ * Fixes accidental double-uploads (Storage + CDN / foo.jpg + foo_1.jpg).
+ */
+async function purgeDuplicateShopifyImages(
+  shopDomain: string,
+  token: string,
+  productId: string,
+  images: Record<string, unknown>[],
+): Promise<{ kept: Record<string, unknown>[]; deleted: number }> {
+  const ordered = [...images]
+    .filter((im) => typeof im.src === "string" && (im.src as string).startsWith("http"))
+    .sort((a, b) => (Number(a.position) || 99) - (Number(b.position) || 99));
+
+  const seen = new Set<string>();
+  const kept: Record<string, unknown>[] = [];
+  const deleteIds: string[] = [];
+  for (const im of ordered) {
+    const key = imageIdentityKey(String(im.src));
+    if (seen.has(key)) {
+      if (im.id != null) deleteIds.push(String(im.id));
+      continue;
+    }
+    seen.add(key);
+    kept.push(im);
+  }
+
+  let deleted = 0;
+  const headers = { "X-Shopify-Access-Token": token };
+  for (const imageId of deleteIds) {
+    try {
+      const resp = await fetch(
+        `https://${shopDomain}/admin/api/2024-10/products/${productId}/images/${imageId}.json`,
+        { method: "DELETE", headers },
+      );
+      if (resp.ok || resp.status === 404) deleted++;
+      else {
+        console.warn(
+          `[sync-shopify-mirror] failed to delete duplicate image ${imageId} on ${productId}: ${resp.status}`,
+        );
+      }
+    } catch (err) {
+      console.warn(`[sync-shopify-mirror] delete image error:`, err);
+    }
+  }
+  return { kept, deleted };
 }
 
 function buildMirrorRow(
@@ -358,13 +425,25 @@ Deno.serve(async (req: Request) => {
       existingByShopifyId.set(String(r.shopify_product_id), r);
     });
 
-    // ── 3. UPSERT each live product into the mirror (batched) ──
+    // ── 3. Purge stem-duplicate images on Shopify, then UPSERT mirror ──
     let upserted = 0;
+    let imagesPurged = 0;
     const nowIso = new Date().toISOString();
     const rows: Record<string, unknown>[] = [];
     for (const p of live) {
       const sp = p as Record<string, unknown>;
       const shopifyId = String(sp.id);
+      const rawImages = (sp.images as Record<string, unknown>[]) ?? [];
+      if (rawImages.length > 1) {
+        const { kept, deleted } = await purgeDuplicateShopifyImages(
+          shopDomain,
+          shopifyToken,
+          shopifyId,
+          rawImages,
+        );
+        imagesPurged += deleted;
+        sp.images = kept;
+      }
       const prev = existingByShopifyId.get(shopifyId);
       rows.push(buildMirrorRow(sp, shopDomain, nowIso, prev));
     }
@@ -439,6 +518,7 @@ Deno.serve(async (req: Request) => {
       live: live.length,
       upserted,
       deleted,
+      images_purged: imagesPurged,
       seo_backfilled: seoBackfilled,
       fetched_pages: fetchedPages,
     });

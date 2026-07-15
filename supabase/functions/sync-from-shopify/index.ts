@@ -187,14 +187,36 @@ Deno.serve(async (req: Request) => {
         const tags = ((sp.tags as string) || "").split(",").map((t: string) => t.trim()).filter(Boolean);
         const productType = (sp.product_type as string) || "";
         const images = (sp.images as Record<string, unknown>[]) || [];
-        const imageUrl = images.length > 0 ? (images[0].src as string) : "";
+        const imageIdentity = (src: string) => {
+          const noQuery = src.split("?")[0];
+          const base = noQuery.substring(noQuery.lastIndexOf("/") + 1);
+          return base
+            .replace(/\.[a-zA-Z0-9]+$/, "")
+            .replace(/_\d+$/, "")
+            .trim()
+            .toLowerCase();
+        };
+        const sortedImages = [...images].sort(
+          (a, b) => (Number(a.position) || 99) - (Number(b.position) || 99),
+        );
+        const seenImg = new Set<string>();
+        const dedupedImages: Record<string, unknown>[] = [];
+        for (const img of sortedImages) {
+          const src = typeof img.src === "string" ? img.src : "";
+          if (!src.startsWith("http")) continue;
+          const key = imageIdentity(src);
+          if (seenImg.has(key)) continue;
+          seenImg.add(key);
+          dedupedImages.push(img);
+        }
+        const imageUrl = dedupedImages.length > 0 ? (dedupedImages[0].src as string) : "";
         const variants = (sp.variants as Record<string, unknown>[]) || [];
         const mainPrice = variants.length > 0 ? parseFloat(String(variants[0].price)) || 0 : 0;
         const compareAtPrice = variants.length > 0 && variants[0].compare_at_price
           ? parseFloat(String(variants[0].compare_at_price)) || null : null;
 
-        const imagesJson = images.map((img: Record<string, unknown>) => ({
-          id: img.id, src: img.src, alt: img.alt || "", width: img.width, height: img.height, position: img.position,
+        const imagesJson = dedupedImages.map((img: Record<string, unknown>, i) => ({
+          id: img.id, src: img.src, alt: img.alt || "", width: img.width, height: img.height, position: i + 1,
         }));
 
         const shopifySyncedData = {

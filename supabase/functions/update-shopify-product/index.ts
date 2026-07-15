@@ -329,7 +329,21 @@ function normalizeImageUrl(src: string): string {
 const SHOPIFY_IMAGE_UUID_SUFFIX =
   /_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?=\.[a-z0-9]+$)/i;
 
+/** Filename stem — matches Storage vs Shopify CDN; collapses `foo_1` re-uploads. */
+function imageIdentityKey(src: string): string {
+  const noQuery = src.split("?")[0];
+  const base = noQuery.substring(noQuery.lastIndexOf("/") + 1);
+  return base
+    .replace(/\.[a-zA-Z0-9]+$/, "")
+    .replace(/_\d+$/, "")
+    .trim()
+    .toLowerCase();
+}
+
+/** Prefer stem so Storage URL ≡ CDN URL; fall back to path without UUID suffix. */
 function imageDedupeKey(src: string): string {
+  const stem = imageIdentityKey(src);
+  if (stem) return stem;
   return normalizeImageUrl(src).replace(SHOPIFY_IMAGE_UUID_SUFFIX, "");
 }
 

@@ -320,27 +320,37 @@ async function applyProductSeoMirror(
  *   cdn.shopify.com/.../abc_primary_123.jpg?v=… (Shopify, re-published)
  * Comparing full URLs misses these, sending the primary twice. We key on the
  * filename stem (basename without query string / extension) instead. */
+/**
+ * Filename stem — matches Supabase Storage vs Shopify CDN for the same asset.
+ * Also collapses Shopify re-upload suffixes (`foo.jpg` → `foo_1.jpg`).
+ */
 function imageIdentityKey(url: string): string {
   if (!url || typeof url !== "string") return "";
   const noQuery = url.split("?")[0];
   const base = noQuery.substring(noQuery.lastIndexOf("/") + 1);
-  return base.replace(/\.[a-zA-Z0-9]+$/, "").trim().toLowerCase();
+  return base
+    .replace(/\.[a-zA-Z0-9]+$/, "")
+    .replace(/_\d+$/, "")
+    .trim()
+    .toLowerCase();
 }
 
 function isHttpUrl(src: unknown): src is string {
   return typeof src === "string" && /^https?:\/\//.test(src);
 }
 
+/** Prefer filename stem so Storage URL ≡ Shopify CDN URL for the same file. */
 function imageDedupeKey(src: string): string {
+  const stem = imageIdentityKey(src);
+  if (stem) return stem;
   try {
     const u = new URL(src);
-    const path = `${u.origin}${u.pathname}`;
-    return path.replace(
+    return `${u.origin}${u.pathname}`.replace(
       /_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?=\.[a-z0-9]+$)/i,
       "",
     );
   } catch {
-    return imageIdentityKey(src);
+    return src.split("?")[0] ?? src;
   }
 }
 
@@ -773,7 +783,16 @@ function buildMirrorGalleryFields(
     .sort((a, b) => (Number(a.position) || 99) - (Number(b.position) || 99));
 
   if (sorted.length > 0) {
-    const normalized = sorted.map((im, i) => ({
+    // Stem-dedupe so create+re-attach duplicates (Storage + CDN / foo + foo_1) collapse.
+    const seen = new Set<string>();
+    const deduped: ShopifyRecord[] = [];
+    for (const im of sorted) {
+      const key = imageDedupeKey(String(im.src));
+      if (seen.has(key)) continue;
+      seen.add(key);
+      deduped.push(im);
+    }
+    const normalized = deduped.map((im, i) => ({
       id: im.id,
       src: im.src,
       alt: im.alt || "",
@@ -785,8 +804,17 @@ function buildMirrorGalleryFields(
     return { image_url: primary, images: normalized };
   }
   if (orderedGallery.length > 0) {
-    const fallback = orderedGallery.map((src, i) => ({ src, position: i + 1 }));
-    return { image_url: orderedGallery[0], images: fallback };
+    const seen = new Set<string>();
+    const unique: string[] = [];
+    for (const src of orderedGallery) {
+      if (!isHttpUrl(src)) continue;
+      const key = imageDedupeKey(src);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      unique.push(src);
+    }
+    const fallback = unique.map((src, i) => ({ src, position: i + 1 }));
+    return { image_url: unique[0] || null, images: fallback };
   }
   return { image_url: null, images: null };
 }

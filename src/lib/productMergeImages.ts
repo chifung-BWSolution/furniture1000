@@ -15,11 +15,19 @@ export function normalizeImageUrl(src: string): string {
   }
 }
 
-/** Filename stem — matches Storage vs Shopify CDN for the same asset. */
+/**
+ * Filename stem — matches Storage vs Shopify CDN for the same asset.
+ * Also collapses Shopify re-upload suffixes (`foo.jpg` → `foo_1.jpg`) so
+ * accidental double-uploads dedupe to one gallery slot.
+ */
 export function imageIdentityKey(src: string): string {
   const noQuery = src.split('?')[0];
   const base = noQuery.substring(noQuery.lastIndexOf('/') + 1);
-  return base.replace(/\.[a-zA-Z0-9]+$/, '').trim().toLowerCase();
+  return base
+    .replace(/\.[a-zA-Z0-9]+$/, '')
+    .replace(/_\d+$/, '')
+    .trim()
+    .toLowerCase();
 }
 
 /** Lower = preferred as Shopify primary (white-bg product shot before dialog/lifestyle). */
