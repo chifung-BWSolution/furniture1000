@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Clock, Trash2 } from 'lucide-react';
+import { Clock, Copy, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
@@ -83,6 +83,7 @@ type QuoteListRow = QuoteRecord & {
 
 interface QuotationListViewProps {
   onOpenQuote?: (quoteId: string) => void;
+  onCopyQuote?: (quoteUuid: string) => void;
 }
 
 const LIST_SELECT =
@@ -162,7 +163,7 @@ function staffLabel(q: QuoteListRow): string {
   );
 }
 
-export function QuotationListView({ onOpenQuote }: QuotationListViewProps) {
+export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListViewProps) {
   const [quotes, setQuotes] = useState<QuoteListRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -584,18 +585,32 @@ export function QuotationListView({ onOpenQuote }: QuotationListViewProps) {
                       </span>
                     </td>
                     <td className="whitespace-nowrap px-2 py-3">
-                      <button
-                        type="button"
-                        title="刪除報價單"
-                        aria-label={`刪除報價單 ${code}`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setDeleteTarget(quote);
-                        }}
-                        className="flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-muted-foreground/70 transition-colors hover:border-destructive/30 hover:bg-destructive/10 hover:text-destructive"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          type="button"
+                          title="複製報價單"
+                          aria-label={`複製報價單 ${code}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onCopyQuote?.(quote.id);
+                          }}
+                          className="flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-muted-foreground/70 transition-colors hover:border-primary/30 hover:bg-primary/10 hover:text-primary"
+                        >
+                          <Copy className="h-4 w-4" />
+                        </button>
+                        <button
+                          type="button"
+                          title="刪除報價單"
+                          aria-label={`刪除報價單 ${code}`}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeleteTarget(quote);
+                          }}
+                          className="flex h-8 w-8 items-center justify-center rounded-lg border border-transparent text-muted-foreground/70 transition-colors hover:border-destructive/30 hover:bg-destructive/10 hover:text-destructive"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 );

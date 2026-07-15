@@ -10,9 +10,12 @@ import type { QuotationPDFData } from '@/types/quotation-pdf';
 import {
   quickQuoteFormKey,
   quickQuoteStepKey,
+  readQuickQuoteCopyFrom,
   readQuickQuoteStep,
   resetQuickQuoteSessionStorage,
+  writeQuickQuoteCopyFrom,
 } from '@/lib/quickQuoteSession';
+import { loadQuoteCopyPayload, type QuoteCopyPayload } from '@/lib/quoteCopy';
 import { unsavedGuard } from '@/lib/unsavedGuard';
 import {
   migrateTermsContentToCurrent,
@@ -212,6 +215,9 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
     () => initialUrlPrefillRef.current.form,
   );
   const [pdfPreviewData, setPdfPreviewData] = useState<QuotationPDFData | null>(null);
+  const [copyPayload, setCopyPayload] = useState<QuoteCopyPayload | null>(null);
+  const [isLoadingCopy, setIsLoadingCopy] = useState(false);
+  const copyFromUuid = readQuickQuoteCopyFrom(userEmail);
   const [errors, setErrors] = useState<Partial<Record<keyof QuoteFormData, string>>>({});
   const [industryOptions, setIndustryOptions] = useState<string[]>(FALLBACK_INDUSTRIES);
   const [pmsIndustryCatalog, setPmsIndustryCatalog] = useState<PmsIndustryOption[]>([]);
@@ -294,11 +300,12 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
     setCurrentStep(1);
     setIsQuotationReady(false);
     setLoadedQuoteData(null);
+    setCopyPayload(null);
     setFormData(DEFAULT_FORM_DATA());
     setSelectedPitchingLabel(null);
     setErrors({});
     pmsDefaultsLoadedForRef.current = null;
-    resetQuickQuoteSessionStorage(userEmail);
+    resetQuickQuoteSessionStorage(userEmail, { keepCopyFrom: true });
     deleteDraft(makeDraftKey(userEmail, 'NEW')).catch(() => {});
   }, [userEmail]);
 
@@ -636,24 +643,43 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleNext = () => {
+  const handleNext = async () => {
     if (currentStep === 1 && validateStep1()) {
       setCurrentStep(2);
     } else if (currentStep === 2 && validateStep2()) {
       setCurrentStep(3);
     } else if (currentStep === 3 && validateStep3()) {
-      setIsQuotationReady(true);
-      setCurrentStep(4);
+      const sourceUuid = readQuickQuoteCopyFrom(userEmail);
+      if (sourceUuid) {
+        setIsLoadingCopy(true);
+        try {
+          const payload = await loadQuoteCopyPayload(sourceUuid);
+          setCopyPayload(payload);
+          setIsQuotationReady(true);
+          setCurrentStep(4);
+        } catch (err: unknown) {
+          const message = err instanceof Error ? err.message : '無法載入來源報價內容';
+          toast.error('複製失敗', { description: message });
+        } finally {
+          setIsLoadingCopy(false);
+        }
+      } else {
+        setCopyPayload(null);
+        setIsQuotationReady(true);
+        setCurrentStep(4);
+      }
     }
   };
 
   // Loading state for fetching an existing quote
-  if (isLoadingQuote) {
+  if (isLoadingQuote || isLoadingCopy) {
     return (
       <div className="flex h-full items-center justify-center">
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <span className="font-mono-data text-xs text-muted-foreground">載入報價單中...</span>
+          <span className="font-mono-data text-xs text-muted-foreground">
+            {isLoadingCopy ? '載入複製內容中...' : '載入報價單中...'}
+          </span>
         </div>
       </div>
     );
@@ -668,7 +694,17 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
     !formData.pmsProjectId?.trim();
 
   if (showPitchingGate) {
-    return <PmsPitchingGate onSelect={handleSelectPitching} />;
+    return (
+      <PmsPitchingGate
+        onSelect={handleSelectPitching}
+        title={copyFromUuid ? '複製報價單' : undefined}
+        subtitle={
+          copyFromUuid
+            ? '選擇 PMS Pitching 後，將帶入新專案資料並複製原報價的產品內容與條款'
+            : undefined
+        }
+      />
+    );
   }
 
   return (
@@ -716,10 +752,12 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
           ) : (
             <>
               <h1 className="font-display text-2xl font-bold tracking-tight text-foreground">
-                建立新報價單
+                {copyFromUuid ? '複製報價單' : '建立新報價單'}
               </h1>
               <p className="mt-1 font-body text-sm text-muted-foreground">
-                確認並補齊專案資料後生成報價
+                {copyFromUuid
+                  ? '確認新專案資料後，將複製原報價的產品內容與條款'
+                  : '確認並補齊專案資料後生成報價'}
               </p>
             </>
           )}
@@ -1276,6 +1314,8 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
               formData={formData}
               userEmail={userEmail}
               onOpenPdfPreview={setPdfPreviewData}
+              initialCopyPayload={copyPayload}
+              forceNewQuote={Boolean(copyFromUuid && copyPayload)}
               onBack={() => {
                 if (!unsavedGuard.confirmLeave()) return;
                 if (loadedQuoteData) {
@@ -1286,6 +1326,8 @@ export function QuickQuoteView({ editingQuoteId, onClearEditingQuote, freshSessi
                 }
               }}
               onQuotePersisted={(result) => {
+                writeQuickQuoteCopyFrom(userEmail, null);
+                setCopyPayload(null);
                 setLoadedQuoteData((prev) => ({
                   quoteId: result.quoteId,
                   quoteUuid: result.quoteUuid,

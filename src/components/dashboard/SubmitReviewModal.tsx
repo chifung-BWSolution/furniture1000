@@ -45,6 +45,8 @@ interface SubmitReviewModalProps {
   /** When set, update the existing row instead of inserting a new quote. */
   existingQuoteId?: string | null;
   existingQuoteUuid?: string | null;
+  /** Skip pitching dedup — always create a new quote row (複製報價單). */
+  forceNewQuote?: boolean;
 }
 
 function generateQuoteId(): string {
@@ -71,6 +73,7 @@ export function SubmitReviewModal({
   pitchingName,
   existingQuoteId,
   existingQuoteUuid,
+  forceNewQuote = false,
 }: SubmitReviewModalProps) {
   const { user } = useAuth();
   const staffName = usePmsStaffName(user?.id);
@@ -130,7 +133,7 @@ export function SubmitReviewModal({
     let quoteUuid = existingQuoteUuid?.trim() || '';
 
     // Same PMS pitching → update existing quote instead of creating another row.
-    if (!isUpdate && pitchingId) {
+    if (!isUpdate && pitchingId && !forceNewQuote) {
       const { data: existingByPitching } = await supabase
         .from('bwf_quote')
         .select('id, quote_id')

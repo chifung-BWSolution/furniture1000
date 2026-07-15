@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef, lazy, Suspense } from "react"
 import { useLocation } from "react-router-dom";
 import { useAppStore } from "@/hooks/use-app-store";
 import { unsavedGuard } from "@/lib/unsavedGuard";
-import { resetQuickQuoteSessionStorage, readQuickQuoteEditingId, writeQuickQuoteEditingId } from "@/lib/quickQuoteSession";
+import { resetQuickQuoteSessionStorage, readQuickQuoteEditingId, writeQuickQuoteEditingId, writeQuickQuoteCopyFrom, quickQuoteStepKey, quickQuoteFormKey, quickQuoteEditingIdKey } from "@/lib/quickQuoteSession";
 import { deleteDraft, makeDraftKey } from "@/lib/draftStore";
 import { useAuth } from "@/contexts/AuthProvider";
 import { SidebarNav } from "./SidebarNav";
@@ -575,7 +575,21 @@ export function AppShell() {
           <QuotationListView
             onOpenQuote={(quoteId) => {
               if (!unsavedGuard.confirmLeave()) return;
+              writeQuickQuoteCopyFrom(user?.email, null);
               setEditingQuoteId(quoteId);
+              store.setCurrentView("quick-quote");
+            }}
+            onCopyQuote={(quoteUuid) => {
+              if (!unsavedGuard.confirmLeave()) return;
+              writeQuickQuoteCopyFrom(user?.email, quoteUuid);
+              if (typeof window !== "undefined") {
+                sessionStorage.removeItem(quickQuoteStepKey(user?.email));
+                sessionStorage.removeItem(quickQuoteFormKey(user?.email));
+                sessionStorage.removeItem(quickQuoteEditingIdKey(user?.email));
+              }
+              void deleteDraft(makeDraftKey(user?.email, "NEW"));
+              setEditingQuoteId(null);
+              setQuickQuoteFreshKey((k) => k + 1);
               store.setCurrentView("quick-quote");
             }}
           />
@@ -594,6 +608,7 @@ export function AppShell() {
   const handleViewChange = (view: typeof store.currentView) => {
     if (view === "quick-quote") {
       if (unsavedGuard.isDirty && !unsavedGuard.confirmLeave()) return;
+      writeQuickQuoteCopyFrom(user?.email, null);
       resetQuickQuoteSessionStorage(user?.email);
       void deleteDraft(makeDraftKey(user?.email, "NEW"));
       setEditingQuoteId(null);

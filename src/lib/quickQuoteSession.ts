@@ -12,11 +12,40 @@ export function quickQuoteFormKey(email: string | null | undefined): string {
   return `bwf:quickQuote:${normalizeEmail(email)}:formData`;
 }
 
-export function resetQuickQuoteSessionStorage(email: string | null | undefined): void {
+/** Source bwf_quote.id (UUID) when duplicating via 複製報價單. */
+export function quickQuoteCopyFromKey(email: string | null | undefined): string {
+  return `bwf:quickQuote:${normalizeEmail(email)}:copyFromUuid`;
+}
+
+export function readQuickQuoteCopyFrom(
+  email: string | null | undefined,
+): string | null {
+  if (typeof window === 'undefined') return null;
+  const v = sessionStorage.getItem(quickQuoteCopyFromKey(email));
+  return v && v.trim() ? v : null;
+}
+
+export function writeQuickQuoteCopyFrom(
+  email: string | null | undefined,
+  quoteUuid: string | null,
+): void {
   if (typeof window === 'undefined') return;
+  const key = quickQuoteCopyFromKey(email);
+  if (quoteUuid?.trim()) sessionStorage.setItem(key, quoteUuid.trim());
+  else sessionStorage.removeItem(key);
+}
+
+export function resetQuickQuoteSessionStorage(
+  email: string | null | undefined,
+  opts?: { keepCopyFrom?: boolean },
+): void {
+  if (typeof window === 'undefined') return;
+  const copyFrom = opts?.keepCopyFrom ? readQuickQuoteCopyFrom(email) : null;
   sessionStorage.removeItem(quickQuoteStepKey(email));
   sessionStorage.removeItem(quickQuoteFormKey(email));
   sessionStorage.removeItem(quickQuoteEditingIdKey(email));
+  sessionStorage.removeItem(quickQuoteCopyFromKey(email));
+  if (copyFrom) writeQuickQuoteCopyFrom(email, copyFrom);
 }
 
 export function quickQuoteEditingIdKey(email: string | null | undefined): string {

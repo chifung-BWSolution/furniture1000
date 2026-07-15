@@ -25,6 +25,8 @@ import {
 
 interface PmsPitchingGateProps {
   onSelect: (item: PmsPitchingListItem) => void;
+  title?: string;
+  subtitle?: string;
 }
 
 type SortKey =
@@ -48,7 +50,7 @@ function staffLabel(item: PmsPitchingListItem): string {
 /**
  * Full-page PMS pitching picker for 快速報價 (replaces minimal search dropdown).
  */
-export function PmsPitchingGate({ onSelect }: PmsPitchingGateProps) {
+export function PmsPitchingGate({ onSelect, title, subtitle }: PmsPitchingGateProps) {
   const [search, setSearch] = useState('');
   const [items, setItems] = useState<PmsPitchingListItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -142,8 +144,11 @@ export function PmsPitchingGate({ onSelect }: PmsPitchingGateProps) {
 
   return (
     <ListPageShell
-      title="建立新報價單"
-      subtitle="從 PMS Pitching 列表選擇一筆，系統會自動帶入報價資料"
+      title={title || '建立新報價單'}
+      subtitle={
+        subtitle ||
+        '從 PMS Pitching 列表選擇一筆，系統會自動帶入報價資料'
+      }
       search={search}
       onSearchChange={setSearch}
       searchPlaceholder="搜尋 pitching code / 客戶名稱 / 提案名稱…"

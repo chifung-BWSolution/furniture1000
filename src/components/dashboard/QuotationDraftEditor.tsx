@@ -65,6 +65,7 @@ import {
   resolvePitchingName,
   type BwfQuoteItemInput,
 } from "@/lib/bwfQuoteItems";
+import type { QuoteCopyPayload } from "@/lib/quoteCopy";
 
 interface QuoteFormData {
   company: string;
@@ -142,6 +143,10 @@ interface QuotationDraftEditorProps {
     pitchingCode?: string | null;
     pitchingName?: string | null;
   };
+  /** Body fields copied from another quote (items, delivery, terms). Header uses formData. */
+  initialCopyPayload?: QuoteCopyPayload | null;
+  /** Always insert a new bwf_quote row (skip pitching dedup) — used for 複製報價單. */
+  forceNewQuote?: boolean;
 }
 
 const generateId = () => Math.random().toString(36).substring(2, 12);
@@ -1288,9 +1293,12 @@ export function QuotationDraftEditor({
   onOpenPdfPreview,
   onQuotePersisted,
   existingQuote,
+  initialCopyPayload,
+  forceNewQuote = false,
 }: QuotationDraftEditorProps) {
   // Determine initial values from existingQuote or defaults
   const savedProjectData = existingQuote?.projectData || {};
+  const copyPayload = initialCopyPayload ?? null;
   const savedCompanyInfo = savedProjectData.companyInfo as
     | {
         name?: string;
@@ -1345,7 +1353,7 @@ export function QuotationDraftEditor({
 
   // Company info (editable)
   const [companyInfo, setCompanyInfo] = useState({
-    name: savedCompanyInfo?.name || "Branding Works Design Ltd",
+    name: savedCompanyInfo?.name || formData.company || "Branding Works Design Ltd",
     address:
       savedCompanyInfo?.address ||
       "香港荃灣青山公路459-469號華力工業中心5字樓D-G室",
@@ -1371,12 +1379,14 @@ export function QuotationDraftEditor({
 
   // Delivery details (editable)
   const [deliveryDetails, setDeliveryDetails] = useState(
-    savedDeliveryDetails ||
+    copyPayload?.deliveryDetails ??
+      savedDeliveryDetails ??
       "訂單生產時間自收到訂金起計算，預計3-4 週完成。交付及安裝將分兩日進行：交付後1-2 個工作日內完成安裝。",
   );
 
   // Discount (numeric value) — initialized from existing quote's project_data
   const savedDiscountNote = (() => {
+    if (copyPayload) return copyPayload.discountNote;
     const raw = (savedProjectData as Record<string, unknown>).discountNote;
     return raw == null ? "" : String(raw);
   })();
@@ -1391,8 +1401,11 @@ export function QuotationDraftEditor({
     chargeLabel: "另議",
     amount: null as number | null,
   };
-  const savedInstallationFee = (savedProjectData as Record<string, unknown>)
-    .installationFee as typeof DEFAULT_INSTALL_FEE | undefined;
+  const savedInstallationFee = copyPayload?.installationFee
+    ? copyPayload.installationFee
+    : ((savedProjectData as Record<string, unknown>).installationFee as
+        | typeof DEFAULT_INSTALL_FEE
+        | undefined);
   const [installationFee, setInstallationFee] = useState({
     title: savedInstallationFee?.title || DEFAULT_INSTALL_FEE.title,
     subtitle: savedInstallationFee?.subtitle || DEFAULT_INSTALL_FEE.subtitle,
@@ -1407,9 +1420,9 @@ export function QuotationDraftEditor({
         : null,
   });
 
-  const savedGpSummary = parseGpSummary(
-    (savedProjectData as Record<string, unknown>).gpSummary,
-  );
+  const savedGpSummary = copyPayload
+    ? copyPayload.gpSummary
+    : parseGpSummary((savedProjectData as Record<string, unknown>).gpSummary);
   const [gpSummary, setGpSummary] = useState(savedGpSummary);
 
   // Keep GP Ship/Installation in sync when parent reloads project_data after 版本審核.
@@ -1429,7 +1442,9 @@ export function QuotationDraftEditor({
   // Terms content — migrate legacy templates (incl. saved DB quotes & IndexedDB drafts)
   const [termsContent, setTermsContent] = useState(() =>
     migrateTermsContentToCurrent(
-      savedTermsContent as SavedTermsContent | undefined,
+      (copyPayload?.termsContent ?? savedTermsContent) as
+        | SavedTermsContent
+        | undefined,
       savedQuoteMeta?.deliveryAddress,
     ),
   );
@@ -1461,6 +1476,9 @@ export function QuotationDraftEditor({
   const [factories, setFactories] = useState<string[]>([]);
   const [factoriesLoading, setFactoriesLoading] = useState(false);
   const [items, setItems] = useState<QuotationItem[]>(() => {
+    if (copyPayload?.items?.length) {
+      return copyPayload.items.map((item) => mapInputToQuotationItem(item));
+    }
     if (legacyItems.length > 0) {
       return legacyItems.map((item) => mapInputToQuotationItem(item));
     }
@@ -2824,6 +2842,7 @@ export function QuotationDraftEditor({
         pitchingName={pitchingNameStored || formData.pitchingName || ""}
         existingQuoteId={existingQuote?.quoteId ?? null}
         existingQuoteUuid={existingQuote?.quoteUuid ?? null}
+        forceNewQuote={forceNewQuote}
       />
 
       {/* Product Selector Modal */}
