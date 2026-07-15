@@ -1,5 +1,7 @@
 /** Shared image helpers for product merge / variant UIs (已上載 + 準備上載). */
 
+import { buildMoreImageMetafieldColumns } from '@/lib/shopifyMetafieldImages';
+
 export function isHttpUrl(src: unknown): src is string {
   return typeof src === 'string' && /^https?:\/\//.test(src);
 }
@@ -161,11 +163,10 @@ export function buildMoreImageMetafields(
   orderedUrls: string[],
   title?: string | null,
 ): Record<string, string> {
+  const cols = buildMoreImageMetafieldColumns(dedupeImageUrls(orderedUrls), title);
   const mf: Record<string, string> = {};
-  const deduped = dedupeImageUrls(orderedUrls);
-  for (let i = 0; i < Math.min(deduped.length, 4); i++) {
-    mf[`custom.more_image_link_${i + 1}`] = deduped[i];
-    if (title?.trim()) mf[`custom.more_image_alt_${i + 1}`] = title.trim();
+  for (const [col, val] of Object.entries(cols)) {
+    if (val != null && String(val).trim()) mf[col] = String(val).trim();
   }
   return mf;
 }

@@ -16,6 +16,7 @@ import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, Command
 import { CategoryTagPicker, type BwfCat } from './CategoryTagPicker';
 import { MANUFACTURERS } from '@/constants/manufacturers';
 import { fetchFactoriesWithIds, type FactoryItem } from '@/lib/factorySupabase';
+import { buildMoreImageMetafieldColumns } from '@/lib/shopifyMetafieldImages';
 
 interface ShopifyVariant {
   id?: string | number;
@@ -390,16 +391,7 @@ export function PublishedProductDetailModal({
         handle: handleNorm,
         'my_fields.normal_size': editNormalSize.trim() || null,
         'my_fields.materials': editMaterials.trim() || null,
-        ...Object.fromEntries(
-          [1, 2, 3, 4].flatMap((i) => {
-            const url = editImages[i - 1] ?? null;
-            const alt = url && editTitle.trim() ? editTitle.trim() : null;
-            return [
-              [`custom.more_image_link_${i}`, url],
-              [`custom.more_image_alt_${i}`, alt],
-            ];
-          }),
-        ),
+        ...buildMoreImageMetafieldColumns(editImages.slice(0, 4), editTitle),
       };
 
       const { error } = await supabase
@@ -417,7 +409,7 @@ export function PublishedProductDetailModal({
       }
       toast.success('已儲存至本地', {
         id: toastId,
-        description: '按「與 Shopify 同步」將 Supabase 資料推送至 Shopify 線上商店（僅更新現有產品）。',
+        description: '按「與 Shopify 同步」將本地資料推送至 Shopify（圖片 metafield 會使用 Shopify CDN）。',
         duration: 5000,
       });
       onSaved();

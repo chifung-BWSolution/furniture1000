@@ -1,6 +1,14 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
+/**
+ * publish-to-shopify — 準備上載 → Shopify → 已上載產品
+ *
+ * Image metafield policy: Supabase/HTTP URLs are upload sources only.
+ * `custom.more_image_link_*` on Shopify + shopify_products mirror always use
+ * live Shopify CDN URLs after images are attached to the product.
+ */
+
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
@@ -649,6 +657,67 @@ async function syncMoreImageMetafieldsToShopify(
   }
 }
 
+/**
+ * After product images exist on Shopify, write more_image_* metafields using live CDN URLs
+ * and return refreshed product + mirror column map. Supabase URLs are upload sources only.
+ */
+async function finalizeCdnImageMetafieldsForProduct(
+  apiBase: string,
+  headers: Record<string, string>,
+  shopifyId: string,
+  title: string,
+  orderedGallery: string[],
+  resolvedPrimary: string | null,
+): Promise<{
+  liveProduct: ShopifyRecord | null;
+  cdnUrls: string[];
+  mfColumns: Record<string, string | null>;
+}> {
+  let live = await fetchShopifyProduct(apiBase, headers, shopifyId);
+  if (!live) {
+    return { liveProduct: null, cdnUrls: [], mfColumns: moreImageLinkColumnsFromUrls([], title) };
+  }
+
+  let images = (live.images as ShopifyRecord[]) || [];
+  let cdnUrls = orderedShopifyCdnUrlsForMetafields(images, orderedGallery, resolvedPrimary).slice(0, 4);
+  if (cdnUrls.length === 0) {
+    cdnUrls = images
+      .filter((im) => isHttpUrl(im.src))
+      .sort((a, b) => (Number(a.position) || 99) - (Number(b.position) || 99))
+      .map((im) => String(im.src))
+      .slice(0, 4);
+  }
+
+  if (cdnUrls.length > 0) {
+    await syncMoreImageMetafieldsToShopify(apiBase, headers, shopifyId, cdnUrls, title);
+    live = await fetchShopifyProduct(apiBase, headers, shopifyId);
+    if (live) {
+      images = (live.images as ShopifyRecord[]) || images;
+      const refreshed = orderedShopifyCdnUrlsForMetafields(images, orderedGallery, resolvedPrimary).slice(0, 4);
+      if (refreshed.length > 0) cdnUrls = refreshed;
+    }
+  }
+
+  return {
+    liveProduct: live,
+    cdnUrls,
+    mfColumns: moreImageLinkColumnsFromUrls(cdnUrls, title),
+  };
+}
+
+function metafieldsArrayFromColumnMap(cols: Record<string, string | null | undefined>): {
+  namespace: string;
+  key: string;
+  type: string;
+  value: string;
+}[] {
+  const map: Record<string, string> = {};
+  for (const [col, val] of Object.entries(cols)) {
+    if (val != null && String(val).trim()) map[col] = String(val).trim();
+  }
+  return buildShopifyMetafields(map);
+}
+
 function buildOrderedGalleryUrls(
   product: ProductPayload,
   resolvedPrimary: string | null,
@@ -1202,6 +1271,7 @@ Deno.serve(async (req: Request) => {
                   "X-Shopify-Access-Token": shopifyAccessToken,
                 };
                 const orderedGallery = buildOrderedGalleryUrls(product, resolvedImageUrl);
+                const fbResolvedPrimary = resolvedImageUrl || product.primary_image_src || product.image_url || null;
                 let finalFallbackProduct = fallbackCreated;
                 if (orderedGallery.length > 0) {
                   try {
@@ -1210,16 +1280,15 @@ Deno.serve(async (req: Request) => {
                       shopifyHeaders,
                       shopifyProductId,
                       orderedGallery,
-                      resolvedImageUrl || product.primary_image_src || product.image_url || null,
+                      fbResolvedPrimary,
                     );
-                    let fbMidImages: ShopifyRecord[] = [];
                     const fbMid = await fetchShopifyProduct(shopifyApiBase, shopifyHeaders, shopifyProductId);
                     if (fbMid) {
-                      fbMidImages = (fbMid.images as ShopifyRecord[]) || [];
+                      const fbMidImages = (fbMid.images as ShopifyRecord[]) || [];
                       const fbOrdered = buildOrderedShopifyImagesFromGallery(
                         fbMidImages,
                         orderedGallery,
-                        resolvedImageUrl || product.primary_image_src || product.image_url || null,
+                        fbResolvedPrimary,
                       );
                       await reorderShopifyProductImages(
                         shopifyApiBase,
@@ -1228,19 +1297,6 @@ Deno.serve(async (req: Request) => {
                         fbOrdered,
                       );
                     }
-                    await syncMoreImageMetafieldsToShopify(
-                      shopifyApiBase,
-                      shopifyHeaders,
-                      shopifyProductId,
-                      orderedShopifyCdnUrlsForMetafields(
-                        fbMidImages,
-                        orderedGallery,
-                        resolvedImageUrl || product.primary_image_src || product.image_url || null,
-                      ).slice(0, 4),
-                      product.title || "",
-                    );
-                    const refreshed = await fetchShopifyProduct(shopifyApiBase, shopifyHeaders, shopifyProductId);
-                    if (refreshed) finalFallbackProduct = refreshed;
                   } catch (fbGalErr) {
                     console.warn(
                       `[publish-to-shopify] ⚠️ Fallback gallery attach failed for "${product.title}":`,
@@ -1248,6 +1304,16 @@ Deno.serve(async (req: Request) => {
                     );
                   }
                 }
+
+                const fbCdnFinalize = await finalizeCdnImageMetafieldsForProduct(
+                  shopifyApiBase,
+                  shopifyHeaders,
+                  shopifyProductId,
+                  product.title || "",
+                  orderedGallery,
+                  fbResolvedPrimary,
+                );
+                if (fbCdnFinalize.liveProduct) finalFallbackProduct = fbCdnFinalize.liveProduct;
 
                 // 寫入 shopify_products mirror（fallback：無圖上傳成功）
                 try {
@@ -1260,16 +1326,12 @@ Deno.serve(async (req: Request) => {
                   for (const m of shopifyMetafields) {
                     fbMfColumns[`${m.namespace}.${m.key}`] = m.value;
                   }
-                  const fbCdnUrls = orderedShopifyCdnUrlsForMetafields(
-                    fbSpImages,
-                    orderedGallery,
-                    resolvedImageUrl || product.primary_image_src || product.image_url || null,
-                  );
-                  const fbMergedMf = mergeMoreImageMetafieldColumns(
-                    fbMfColumns,
-                    fbCdnUrls,
-                    (finalFallbackProduct.title as string) || product.title || "",
-                  );
+                  const fbMergedMf: Record<string, string | null> = { ...fbMfColumns };
+                  for (const [col, val] of Object.entries(fbCdnFinalize.mfColumns)) {
+                    if (val != null && String(val).trim()) fbMergedMf[col] = String(val).trim();
+                    else fbMergedMf[col] = null;
+                  }
+                  const fbMirrorMetafields = metafieldsArrayFromColumnMap(fbMergedMf);
                   const fbSpRow: Record<string, unknown> = {
                     shopify_product_id: shopifyProductId,
                     source_product_id: product.id,
@@ -1290,8 +1352,10 @@ Deno.serve(async (req: Request) => {
                     shopify_updated_at: String(fallbackCreated.updated_at || new Date().toISOString()),
                     imported_at: new Date().toISOString(),
                     shop_domain: storeHost,
-                    metafields: shopifyMetafields.length > 0 ? shopifyMetafields : null,
-                    ...fbMergedMf,
+                    metafields: fbMirrorMetafields.length > 0 ? fbMirrorMetafields : null,
+                    ...Object.fromEntries(
+                      Object.entries(fbMergedMf).filter(([, v]) => v != null && String(v).trim()),
+                    ),
                     ...seoMirror,
                   };
                   if (product.rts_id) fbSpRow.id = product.rts_id;
@@ -1346,7 +1410,7 @@ Deno.serve(async (req: Request) => {
           "X-Shopify-Access-Token": shopifyAccessToken,
         };
 
-        // ── Post-create: attach per-variant images + sync more_image metafields ──
+        // ── Post-create: attach per-variant images + sync more_image metafields (Shopify CDN) ──
         const orderedGallery = buildOrderedGalleryUrls(product, resolvedImageUrl);
         const variantImageSpecs = productVariants
           .filter((v) => isHttpUrl((v as { image_src?: string }).image_src))
@@ -1356,6 +1420,7 @@ Deno.serve(async (req: Request) => {
           }));
 
         let finalProduct = createdProduct;
+        const resolvedPrimary = resolvedImageUrl || product.primary_image_src || product.image_url || null;
         if (orderedGallery.length > 0 || variantImageSpecs.length > 0) {
           try {
             await ensureGalleryImagesOnShopify(
@@ -1363,7 +1428,7 @@ Deno.serve(async (req: Request) => {
               shopifyHeaders,
               shopifyProductId,
               orderedGallery,
-              resolvedImageUrl || product.primary_image_src || product.image_url || null,
+              resolvedPrimary,
             );
             if (variantImageSpecs.length > 0) {
               await attachVariantImagesBySku(
@@ -1371,18 +1436,17 @@ Deno.serve(async (req: Request) => {
                 shopifyHeaders,
                 shopifyProductId,
                 variantImageSpecs,
-                resolvedImageUrl || orderedGallery[0] || null,
+                resolvedPrimary || orderedGallery[0] || null,
               );
             }
-            let postGalleryImages: ShopifyRecord[] = [];
             if (orderedGallery.length > 0) {
               const midProduct = await fetchShopifyProduct(shopifyApiBase, shopifyHeaders, shopifyProductId);
               if (midProduct) {
-                postGalleryImages = (midProduct.images as ShopifyRecord[]) || [];
+                const postGalleryImages = (midProduct.images as ShopifyRecord[]) || [];
                 const orderedForReorder = buildOrderedShopifyImagesFromGallery(
                   postGalleryImages,
                   orderedGallery,
-                  resolvedImageUrl || product.primary_image_src || product.image_url || null,
+                  resolvedPrimary,
                 );
                 await reorderShopifyProductImages(
                   shopifyApiBase,
@@ -1392,19 +1456,6 @@ Deno.serve(async (req: Request) => {
                 );
               }
             }
-            await syncMoreImageMetafieldsToShopify(
-              shopifyApiBase,
-              shopifyHeaders,
-              shopifyProductId,
-              orderedShopifyCdnUrlsForMetafields(
-                postGalleryImages,
-                orderedGallery,
-                resolvedImageUrl || product.primary_image_src || product.image_url || null,
-              ).slice(0, 4),
-              product.title || "",
-            );
-            const refreshed = await fetchShopifyProduct(shopifyApiBase, shopifyHeaders, shopifyProductId);
-            if (refreshed) finalProduct = refreshed;
           } catch (postImgErr) {
             console.warn(
               `[publish-to-shopify] ⚠️ Post-create gallery/variant image step failed for "${product.title}":`,
@@ -1412,6 +1463,16 @@ Deno.serve(async (req: Request) => {
             );
           }
         }
+
+        const cdnFinalize = await finalizeCdnImageMetafieldsForProduct(
+          shopifyApiBase,
+          shopifyHeaders,
+          shopifyProductId,
+          product.title || "",
+          orderedGallery,
+          resolvedPrimary,
+        );
+        if (cdnFinalize.liveProduct) finalProduct = cdnFinalize.liveProduct;
 
         const shopifyVariants = (finalProduct.variants as Record<string, unknown>[]) || [];
         const shopifyFirstVariant = shopifyVariants[0] || {};
@@ -1431,21 +1492,16 @@ Deno.serve(async (req: Request) => {
           const spVariants = (finalProduct.variants as Record<string, unknown>[]) || [];
           const spPrice = spVariants[0]?.price != null ? Number(spVariants[0].price) : (product.price ?? 0);
           const spCompareAt = spVariants[0]?.compare_at_price != null ? Number(spVariants[0].compare_at_price) : null;
-          // Persist metafields: raw array + dedicated namespace.key columns
           const mfColumns: Record<string, string> = {};
           for (const m of shopifyMetafields) {
             mfColumns[`${m.namespace}.${m.key}`] = m.value;
           }
-          const cdnUrlsForMf = orderedShopifyCdnUrlsForMetafields(
-            spImages,
-            orderedGallery,
-            resolvedImageUrl || product.primary_image_src || product.image_url || null,
-          );
-          const mergedMfColumns = mergeMoreImageMetafieldColumns(
-            mfColumns,
-            cdnUrlsForMf,
-            (finalProduct.title as string) || product.title || "",
-          );
+          const mergedMfColumns: Record<string, string | null> = { ...mfColumns };
+          for (const [col, val] of Object.entries(cdnFinalize.mfColumns)) {
+            if (val != null && String(val).trim()) mergedMfColumns[col] = String(val).trim();
+            else mergedMfColumns[col] = null;
+          }
+          const mirrorMetafields = metafieldsArrayFromColumnMap(mergedMfColumns);
           const parentSku = (product.sku && String(product.sku).trim()) || "";
           const spRow: Record<string, unknown> = {
             shopify_product_id: shopifyProductId,
@@ -1470,8 +1526,10 @@ Deno.serve(async (req: Request) => {
             shopify_updated_at: String(finalProduct.updated_at || new Date().toISOString()),
             imported_at: new Date().toISOString(),
             shop_domain: storeHost,
-            metafields: shopifyMetafields.length > 0 ? shopifyMetafields : null,
-            ...mergedMfColumns,
+            metafields: mirrorMetafields.length > 0 ? mirrorMetafields : null,
+            ...Object.fromEntries(
+              Object.entries(mergedMfColumns).filter(([, v]) => v != null && String(v).trim()),
+            ),
             ...seoMirror,
           };
           // id = ready_to_shopify row uuid (1:1 trace), when provided

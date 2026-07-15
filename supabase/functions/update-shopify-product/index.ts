@@ -1012,9 +1012,12 @@ function mirrorRowToPayload(row: Record<string, unknown>): PushPayload {
     .map((im) => im.src)
     .filter((src): src is string => typeof src === "string" && /^https?:\/\//.test(src))
     .slice(0, 4);
+  // Metafield image links must be Shopify CDN on storefront — prefer gallery CDN src over stale columns.
+  const cdnFirst = orderedForMetafields.filter((src) => /cdn\.shopify\.com/i.test(src));
+  const urlsForImageMetafields = cdnFirst.length > 0 ? cdnFirst : orderedForMetafields;
   applyMoreImageLinkMetafields(
     metafields,
-    orderedForMetafields,
+    urlsForImageMetafields,
     typeof row.title === "string" ? row.title : null,
   );
   return {
