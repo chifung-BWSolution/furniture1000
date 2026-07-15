@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,7 +8,6 @@ import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { Progress } from '@/components/ui/progress';
 import { MultiColorSelector } from './MultiColorSelector';
-import { CascadingCategorySelector, type CategorySelection } from './CascadingCategorySelector';
 import {
   Select,
   SelectContent,
@@ -416,9 +415,17 @@ export function ProductDetailModal({
   const [showSceneDialog, setShowSceneDialog] = useState(false);
   const [selectedScenes, setSelectedScenes] = useState<string[]>([]);
 
-  // Category dropdown state
-  const [categoryList, setCategoryList] = useState<{ id: string; name: string; parent_id: string | null; level: number; sort_order: number }[]>([]);
+  // Category dropdown state — flat level1/level2 pairs from 設定 > 產品分類
+  const [categoryPairs, setCategoryPairs] = useState<{ level1: string; level2: string }[]>([]);
   const [categoryListLoading, setCategoryListLoading] = useState(false);
+  const level1Options = useMemo(
+    () => Array.from(new Set(categoryPairs.map((p) => p.level1))),
+    [categoryPairs],
+  );
+  const level2Options = useMemo(
+    () => Array.from(new Set(categoryPairs.filter((p) => p.level1 === level1Category && p.level2).map((p) => p.level2))),
+    [categoryPairs, level1Category],
+  );
 
   // Image/Media state
   const [images, setImages] = useState<ProductImage[]>([]);
@@ -540,7 +547,7 @@ export function ProductDetailModal({
     return () => { cancelled = true; };
   }, [open, product?.id, product?.title]);
 
-  // Fetch categories directly from product_category table when modal opens
+  // Fetch level1/level2 pairs from product_category when modal opens
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
@@ -549,10 +556,17 @@ export function ProductDetailModal({
       try {
         const { data, error } = await supabase
           .from('product_category')
-          .select('id, name, parent_id, level, sort_order')
+          .select('level1, level2, sort_order')
           .order('sort_order', { ascending: true });
         if (!cancelled && data) {
-          setCategoryList(data);
+          setCategoryPairs(
+            data
+              .map((r: { level1: string | null; level2: string | null }) => ({
+                level1: String(r.level1 ?? '').trim(),
+                level2: String(r.level2 ?? '').trim(),
+              }))
+              .filter((p) => p.level1),
+          );
         }
         if (error) console.warn('[ProductDetailModal] Failed to fetch categories:', error);
       } catch (err) {
@@ -1282,18 +1296,47 @@ export function ProductDetailModal({
                       <Label htmlFor="detail-category" className="font-body text-sm text-muted-foreground">
                         分類 / Collection
                       </Label>
-                      <div className="flex flex-col gap-1">
-                        <CascadingCategorySelector
-                          categories={categoryList}
-                          value={level2Category || level1Category}
-                          onSelectionChange={(sel: CategorySelection) => {
-                            setLevel1Category(sel.level1);
-                            setLevel2Category(sel.level2);
-                          }}
-                          placeholder={categoryListLoading ? '載入中...' : '選擇類目'}
-                          showClear
-                          triggerClassName="font-body text-xs h-9"
-                        />
+                      <div className="flex flex-col gap-1.5">
+                        <div className="flex items-center gap-2">
+                          <Select
+                            value={level1Category || '__none__'}
+                            onValueChange={(v) => {
+                              if (v === '__none__') {
+                                setLevel1Category('');
+                                setLevel2Category('');
+                              } else {
+                                setLevel1Category(v);
+                                setLevel2Category('');
+                              }
+                            }}
+                            disabled={categoryListLoading}
+                          >
+                            <SelectTrigger id="detail-category" className="font-body text-xs h-9 flex-1">
+                              <SelectValue placeholder={categoryListLoading ? '載入中...' : '一級分類'} />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__none__">清除分類</SelectItem>
+                              {level1Options.map((l1) => (
+                                <SelectItem key={l1} value={l1}>{l1}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <Select
+                            value={level2Category || '__none__'}
+                            onValueChange={(v) => setLevel2Category(v === '__none__' ? '' : v)}
+                            disabled={categoryListLoading || !level1Category || level2Options.length === 0}
+                          >
+                            <SelectTrigger className="font-body text-xs h-9 flex-1">
+                              <SelectValue placeholder="二級分類" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="__none__">（僅一級）</SelectItem>
+                              {level2Options.map((l2) => (
+                                <SelectItem key={l2} value={l2}>{l2}</SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
                         {level1Category && (
                           <p className="font-body text-[11px] text-muted-foreground/70">
                             {level1Category}{level2Category ? ` › ${level2Category}` : ''}
