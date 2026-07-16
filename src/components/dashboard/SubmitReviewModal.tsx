@@ -87,11 +87,17 @@ export function SubmitReviewModal({
   const [error, setError] = useState('');
 
   // Default 提交者姓名 from auth user → public.users → staff.name (same as top-nav).
-  // Fill when the modal opens or when staffName arrives later; never overwrite typed input.
+  // Reset when closed so the next open always starts from the logged-in account name.
   useEffect(() => {
-    if (!open || !staffName) return;
-    setSubmitter((prev) => (prev.trim() ? prev : staffName));
-  }, [open, staffName]);
+    if (!open) {
+      setSubmitter('');
+      setError('');
+      return;
+    }
+    const defaultName = (staffName ?? user?.email ?? '').trim();
+    if (!defaultName) return;
+    setSubmitter((prev) => (prev.trim() ? prev : defaultName));
+  }, [open, staffName, user?.email]);
 
   useEffect(() => {
     if (!open) return;
@@ -280,12 +286,12 @@ export function SubmitReviewModal({
           </button>
         </div>
 
-        {/* Warning */}
-        <div className="mb-5 flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
-          <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-500" />
-          <p className="font-body text-xs leading-relaxed text-amber-200/90">
+        {/* Warning — same muted surface as 報價總金額 below (no amber wash) */}
+        <div className="mb-5 flex items-start gap-3 rounded-xl border border-border bg-muted/30 p-4">
+          <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-muted-foreground" />
+          <p className="font-body text-xs leading-relaxed text-foreground/80">
             提交後將產生版本快照{' '}
-            <span className="font-semibold text-amber-400">{version}</span>
+            <span className="font-semibold text-foreground">{version}</span>
             ，此版本內容將無法修改。如需修改，須建立新版本重新提交審核。
           </p>
         </div>
