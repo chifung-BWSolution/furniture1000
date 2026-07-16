@@ -59,6 +59,11 @@ import {
 import { parseGpSummary } from "@/lib/quoteGpSummary";
 import { quoteBillableProductCost, quoteBillableSubtotal, quoteItemLineSubtotal } from "@/lib/quoteItemTotals";
 import {
+  productSerialAt,
+  sectionTitleOrdinalAt,
+  sectionTitlePrefix,
+} from "@/lib/quoteSectionTitle";
+import {
   loadQuoteItems,
   itemsFromLegacyProjectData,
   resolvePitchingCode,
@@ -134,6 +139,8 @@ interface QuotationItem {
   /** Reference-only line — excluded from quote 合計 and GP Cost; PDF shows 可選產品 + checkbox. */
   isOptional?: boolean;
   isCustomTerm?: boolean;
+  /** Section heading row (一、開放區) — not priced; draggable. */
+  isSectionTitle?: boolean;
 }
 
 interface QuotationDraftEditorProps {
@@ -169,11 +176,14 @@ const generateId = () => Math.random().toString(36).substring(2, 12);
 function QuoteRowDragHandle({
   itemId,
   serialNumber,
+  serialLabel,
   onDragStart,
   onDragEnd,
 }: {
   itemId: string;
-  serialNumber: number;
+  serialNumber?: number;
+  /** Overrides serialNumber display (e.g. 一 for section titles). */
+  serialLabel?: string;
   onDragStart: (id: string) => void;
   onDragEnd: () => void;
 }) {
@@ -183,7 +193,7 @@ function QuoteRowDragHandle({
         className="font-display text-sm font-semibold tabular-nums leading-none text-foreground/75"
         aria-hidden
       >
-        {serialNumber}
+        {serialLabel ?? serialNumber}
       </span>
       <button
         type="button"
@@ -649,6 +659,7 @@ function QuoteFactoryField({
 function QuoteProductItemCard({
   item,
   index,
+  serialNumber,
   draggingItemId,
   dropInsertIndex,
   onDragOver,
@@ -666,6 +677,7 @@ function QuoteProductItemCard({
 }: {
   item: QuotationItem;
   index: number;
+  serialNumber: number;
   draggingItemId: string | null;
   dropInsertIndex: number | null;
   onDragOver: (e: React.DragEvent<HTMLDivElement>, index: number) => void;
@@ -714,7 +726,7 @@ function QuoteProductItemCard({
         <div className="col-start-1 row-span-2 row-start-1 flex justify-center pt-4">
           <QuoteRowDragHandle
             itemId={item.id}
-            serialNumber={index + 1}
+            serialNumber={serialNumber}
             onDragStart={onDragStart}
             onDragEnd={onDragEnd}
           />
@@ -1027,6 +1039,7 @@ function QuoteProductItemCard({
 function QuoteCustomTermCard({
   item,
   index,
+  serialNumber,
   draggingItemId,
   dropInsertIndex,
   onDragOver,
@@ -1039,6 +1052,7 @@ function QuoteCustomTermCard({
 }: {
   item: QuotationItem;
   index: number;
+  serialNumber: number;
   draggingItemId: string | null;
   dropInsertIndex: number | null;
   onDragOver: (e: React.DragEvent<HTMLDivElement>, index: number) => void;
@@ -1065,7 +1079,7 @@ function QuoteCustomTermCard({
         <div className="shrink-0 pt-4">
           <QuoteRowDragHandle
             itemId={item.id}
-            serialNumber={index + 1}
+            serialNumber={serialNumber}
             onDragStart={onDragStart}
             onDragEnd={onDragEnd}
           />
@@ -1134,6 +1148,83 @@ function QuoteCustomTermCard({
             </div>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function QuoteSectionTitleCard({
+  item,
+  index,
+  items,
+  draggingItemId,
+  dropInsertIndex,
+  onDragOver,
+  onDrop,
+  onDragStart,
+  onDragEnd,
+  updateItem,
+  removeItem,
+  labels,
+}: {
+  item: QuotationItem;
+  index: number;
+  items: QuotationItem[];
+  draggingItemId: string | null;
+  dropInsertIndex: number | null;
+  onDragOver: (e: React.DragEvent<HTMLDivElement>, index: number) => void;
+  onDrop: (e: React.DragEvent<HTMLDivElement>) => void;
+  onDragStart: (id: string) => void;
+  onDragEnd: () => void;
+  updateItem: (id: string, field: keyof QuotationItem, value: string | number | null) => void;
+  removeItem: (id: string) => void;
+  labels: QuoteUiLabels;
+}) {
+  const ordinal = sectionTitleOrdinalAt(items, index);
+  const prefix = sectionTitlePrefix(ordinal);
+
+  return (
+    <div
+      className={quoteRowReorderClass(
+        index,
+        item.id,
+        draggingItemId,
+        dropInsertIndex,
+        "rounded-lg border border-primary/25 bg-primary/5 p-3",
+      )}
+      onDragOver={(e) => onDragOver(e, index)}
+      onDrop={onDrop}
+    >
+      <div className="flex items-center gap-3">
+        <div className="shrink-0">
+          <QuoteRowDragHandle
+            itemId={item.id}
+            serialLabel={prefix.replace(/、$/, "") || String(ordinal)}
+            onDragStart={onDragStart}
+            onDragEnd={onDragEnd}
+          />
+        </div>
+        <div className="flex min-w-0 flex-1 items-center gap-2">
+          <span className="shrink-0 font-display text-sm font-bold text-foreground/80">
+            {prefix}
+          </span>
+          <input
+            type="text"
+            value={item.name || ""}
+            placeholder={labels.sectionTitlePlaceholder}
+            onChange={(e) => updateItem(item.id, "name", e.target.value)}
+            className={cn(QUOTE_INPUT_CLASS, "font-display text-sm font-semibold")}
+            aria-label={labels.sectionTitleLabel}
+          />
+        </div>
+        <button
+          type="button"
+          onClick={() => removeItem(item.id)}
+          className="shrink-0 rounded-md p-1.5 text-muted-foreground/50 transition-colors hover:bg-rose-500/10 hover:text-rose-500"
+          title="刪除"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
       </div>
     </div>
   );
@@ -1218,7 +1309,7 @@ function createBlankProductItem(): QuotationItem {
 
 /** Rows created via 新建欄位 may have category/material but no product name — still export to PDF. */
 function hasQuoteItemContent(item: QuotationItem): boolean {
-  if (item.isCustomTerm) {
+  if (item.isSectionTitle || item.isCustomTerm) {
     return Boolean((item.name || "").trim());
   }
   return Boolean(
@@ -1312,6 +1403,7 @@ function mapInputToQuotationItem(item: BwfQuoteItemInput): QuotationItem {
     factoryFromCatalog: item.factoryFromCatalog ?? false,
     isCustomTerm: item.isCustomTerm,
     isOptional: item.isOptional ?? false,
+    isSectionTitle: item.isSectionTitle ?? false,
   };
 }
 
@@ -1578,6 +1670,26 @@ export function QuotationDraftEditor({
     setItems((prev) => [...prev, createBlankProductItem()]);
   };
 
+  /** Insert a blank section title at the top of 報價內容 (above first product). */
+  const addSectionTitle = () => {
+    itemsUserEditedRef.current = true;
+    setItems((prev) => [
+      {
+        id: generateId(),
+        image: "",
+        name: "",
+        costPrice: null,
+        exchangeRate: null,
+        hkdCostPrice: null,
+        unitPrice: 0,
+        quantity: 0,
+        unit: "",
+        isSectionTitle: true,
+      },
+      ...prev,
+    ]);
+  };
+
   const addCustomTerm = () => {
     itemsUserEditedRef.current = true;
     setItems((prev) => [
@@ -1727,6 +1839,7 @@ export function QuotationDraftEditor({
     itemsUserEditedRef.current = true;
     setItems((prev) =>
       prev.map((item) => {
+        if (item.isSectionTitle || item.isCustomTerm) return item;
         const base =
           item.hkdCostPrice != null && item.hkdCostPrice > 0
             ? Math.ceil(item.hkdCostPrice)
@@ -1904,6 +2017,7 @@ export function QuotationDraftEditor({
                 factoryFromCatalog: Boolean(item.factoryFromCatalog),
                 isCustomTerm: item.isCustomTerm as boolean | undefined,
                 isOptional: Boolean(item.isOptional),
+                isSectionTitle: Boolean(item.isSectionTitle),
               };
             }),
           );
@@ -2174,6 +2288,7 @@ export function QuotationDraftEditor({
             deliveryTermName: item.deliveryTermName,
             isCustomTerm: item.isCustomTerm,
             isOptional: item.isOptional,
+            isSectionTitle: item.isSectionTitle,
             unit: item.unit,
           })),
         subtotal,
@@ -2241,6 +2356,7 @@ export function QuotationDraftEditor({
         deliveryTermName: item.deliveryTermName,
         isCustomTerm: item.isCustomTerm,
         isOptional: item.isOptional,
+        isSectionTitle: item.isSectionTitle,
         unit: item.unit,
       })),
     subtotal,
@@ -2563,6 +2679,14 @@ export function QuotationDraftEditor({
                   <div className="flex items-center gap-2">
                     <button
                       type="button"
+                      onClick={addSectionTitle}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-sky-500/50 px-3 py-1.5 font-body text-sm font-medium text-sky-700 transition-colors hover:bg-sky-500/5 dark:text-sky-400"
+                    >
+                      <Plus className="h-3.5 w-3.5" />
+                      {t.addSectionTitle}
+                    </button>
+                    <button
+                      type="button"
                       onClick={addItem}
                       className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-border px-3 py-1.5 font-body text-sm font-medium text-foreground/80 transition-colors hover:bg-muted/50"
                     >
@@ -2600,11 +2724,28 @@ export function QuotationDraftEditor({
                   }}
                 >
                   {items.map((item, index) =>
-                    item.isCustomTerm ? (
+                    item.isSectionTitle ? (
+                      <QuoteSectionTitleCard
+                        key={item.id}
+                        item={item}
+                        index={index}
+                        items={items}
+                        draggingItemId={draggingItemId}
+                        dropInsertIndex={dropInsertIndex}
+                        onDragOver={handleQuoteRowDragOver}
+                        onDrop={handleQuoteRowDrop}
+                        onDragStart={setDraggingItemId}
+                        onDragEnd={clearQuoteRowDrag}
+                        updateItem={updateItem}
+                        removeItem={removeItem}
+                        labels={t}
+                      />
+                    ) : item.isCustomTerm ? (
                       <QuoteCustomTermCard
                         key={item.id}
                         item={item}
                         index={index}
+                        serialNumber={productSerialAt(items, index)}
                         draggingItemId={draggingItemId}
                         dropInsertIndex={dropInsertIndex}
                         onDragOver={handleQuoteRowDragOver}
@@ -2620,6 +2761,7 @@ export function QuotationDraftEditor({
                         key={item.id}
                         item={item}
                         index={index}
+                        serialNumber={productSerialAt(items, index)}
                         draggingItemId={draggingItemId}
                         dropInsertIndex={dropInsertIndex}
                         onDragOver={handleQuoteRowDragOver}

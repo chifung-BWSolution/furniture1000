@@ -56,6 +56,8 @@ export interface QuotationPDFData {
     isCustomTerm?: boolean;
     /** Reference-only line — excluded from totals & GP cost; PDF shows 可選產品 + checkbox. */
     isOptional?: boolean;
+    /** Section heading (一、開放區) — full-width title row in PDF. */
+    isSectionTitle?: boolean;
     unit?: string;
   }[];
   subtotal: number;

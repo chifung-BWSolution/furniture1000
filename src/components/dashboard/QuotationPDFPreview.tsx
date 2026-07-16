@@ -7,6 +7,11 @@ import { normalizeQuotationPdfGlyphs, pdfDisplayText } from '@/lib/quotationPdfG
 import { quoteItemLineSubtotal } from '@/lib/quoteItemTotals';
 import { buildQuotationPdfFilename } from '@/lib/quotationPdfFilename';
 import { quotePdf, type QuotePdfLabels } from '@/lib/quotationLocale';
+import {
+  formatSectionTitleLabel,
+  productSerialAt,
+  sectionTitleOrdinalAt,
+} from '@/lib/quoteSectionTitle';
 
 export type { QuotationPDFData } from '@/types/quotation-pdf';
 
@@ -626,16 +631,51 @@ function renderSubtotalPdfCell(
 function renderQuotationTableRow(
   item: QuotationItem,
   idx: number,
+  items: QuotationItem[],
   View: ReactPdfModule['View'],
   Text: ReactPdfModule['Text'],
   Image: ReactPdfModule['Image'],
   labels: QuotePdfLabels,
   locale: 'zh' | 'en',
 ) {
+  if (item?.isSectionTitle) {
+    const label = formatSectionTitleLabel(
+      sectionTitleOrdinalAt(items, idx),
+      item?.name || '',
+    );
+    return (
+      <View style={{ ...styles.tableRow, minHeight: 22, backgroundColor: '#f3f3f3' }} key={idx} wrap={false}>
+        <View
+          style={{
+            width: '100%',
+            paddingLeft: 6,
+            paddingRight: 6,
+            paddingTop: 5,
+            paddingBottom: 5,
+            justifyContent: 'center',
+          }}
+        >
+          <Text
+            style={{
+              fontSize: 9,
+              fontWeight: 700,
+              textAlign: 'left',
+              lineHeight: 1.35,
+            }}
+          >
+            {pdfDisplayText(label)}
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
+  const serial = productSerialAt(items, idx);
+
   if (item?.isCustomTerm) {
     return (
       <View style={{ ...styles.tableRow, minHeight: 28 }} key={idx} wrap={false}>
-        <View style={styles.colIndex}><Text style={styles.tableCellText}>{idx + 1}</Text></View>
+        <View style={styles.colIndex}><Text style={styles.tableCellText}>{serial}</Text></View>
         <View style={{ width: '62%', paddingLeft: 6, paddingRight: 6, paddingTop: 6, paddingBottom: 6, display: 'flex', flexDirection: 'column', justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' }}>
           <Text style={styles.tableCellTextLeft}>{pdfDisplayText(item?.name || '')}</Text>
         </View>
@@ -649,7 +689,7 @@ function renderQuotationTableRow(
 
   return (
     <View style={styles.tableRow} key={idx} wrap={false}>
-      <View style={styles.colIndex}><Text style={styles.tableCellText}>{idx + 1}</Text></View>
+      <View style={styles.colIndex}><Text style={styles.tableCellText}>{serial}</Text></View>
       <View style={{ ...styles.colDesc, width: pdfColWidthPct(locale, 'desc') }}>
         {renderDescriptionPdfContent(item, View, Text, labels, locale)}
       </View>
@@ -1041,6 +1081,7 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
             renderQuotationTableRow(
               item,
               idx,
+              items,
               View,
               Text,
               Image,

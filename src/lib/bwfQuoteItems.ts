@@ -30,6 +30,8 @@ export type BwfQuoteItemInput = QuoteItemImageFields & {
   isCustomTerm?: boolean;
   /** Reference-only line — excluded from quote totals. */
   isOptional?: boolean;
+  /** Section heading row (一、開放區) — not priced. */
+  isSectionTitle?: boolean;
   /** Transient UI field — never persisted. */
   exchangeRateInput?: string;
 };
@@ -61,6 +63,7 @@ export type BwfQuoteItemRow = {
   factory_from_catalog: boolean | null;
   is_custom_term: boolean | null;
   is_optional: boolean | null;
+  is_section_title: boolean | null;
   created_at?: string | null;
   updated_at?: string | null;
 };
@@ -102,6 +105,7 @@ export function mapRowToItem(row: BwfQuoteItemRow): BwfQuoteItemInput {
     factoryFromCatalog: Boolean(row.factory_from_catalog),
     isCustomTerm: Boolean(row.is_custom_term),
     isOptional: Boolean(row.is_optional),
+    isSectionTitle: Boolean(row.is_section_title),
   };
 }
 
@@ -135,6 +139,7 @@ export function mapItemToRow(
     factoryFromCatalog,
     isCustomTerm,
     isOptional,
+    isSectionTitle,
   } = item;
 
   return {
@@ -162,6 +167,7 @@ export function mapItemToRow(
     factory_from_catalog: Boolean(factoryFromCatalog),
     is_custom_term: Boolean(isCustomTerm),
     is_optional: Boolean(isOptional),
+    is_section_title: Boolean(isSectionTitle),
   };
 }
 
