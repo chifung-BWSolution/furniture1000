@@ -68,6 +68,17 @@ import {
 import type { QuoteCopyPayload } from "@/lib/quoteCopy";
 import { bumpQuoteVersion, displayQuoteVersion } from "@/lib/quoteVersions";
 import { isUrgentWorkPeriod } from "@/lib/quoteStockFilter";
+import {
+  type QuoteLocale,
+  type QuoteUiLabels,
+  quoteUi,
+  quotePdf,
+} from "@/lib/quotationLocale";
+import {
+  DEFAULT_QUOTATION_DELIVERY_DETAILS_EN,
+  englishTermsContentForPdf,
+  buildDefaultTermsFullHtmlEn,
+} from "@/lib/quotationDefaultTermsEn";
 
 interface QuoteFormData {
   company: string;
@@ -649,6 +660,7 @@ function QuoteProductItemCard({
   factories,
   factoriesLoading,
   quoteImageScope,
+  labels,
 }: {
   item: QuotationItem;
   index: number;
@@ -666,6 +678,7 @@ function QuoteProductItemCard({
   factoriesLoading: boolean;
   /** Scope for Supabase Storage paths (quote id or draft key). */
   quoteImageScope: string;
+  labels: QuoteUiLabels;
 }) {
   const dimensionMode = item.dimensionMode ?? 'lwh';
   const isDiameterHeight = dimensionMode === 'dh';
@@ -707,7 +720,7 @@ function QuoteProductItemCard({
 
         {/* Row 1 — col 2: 類別 · 尺寸 · 顏色 */}
         <div className="col-start-2 row-start-1 min-w-0 w-full space-y-2">
-          <QuoteFieldBlock label="類別">
+          <QuoteFieldBlock label={labels.category}>
             <textarea
               value={item.category || ""}
               placeholder="—"
@@ -718,7 +731,7 @@ function QuoteProductItemCard({
           </QuoteFieldBlock>
           <div className="min-w-0">
             <div className="mb-1 flex min-h-[22px] flex-wrap items-center gap-1.5 font-body text-xs font-medium text-muted-foreground">
-              <span className="shrink-0 leading-normal">尺寸(mm),</span>
+              <span className="shrink-0 leading-normal">{labels.dimensionsMm}</span>
               <select
                 value={dimensionMode}
                 onChange={(e) =>
@@ -726,8 +739,8 @@ function QuoteProductItemCard({
                 }
                 className="h-[22px] min-w-0 max-w-full cursor-pointer rounded-md border border-border bg-background px-1.5 font-body text-xs leading-normal text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
               >
-                <option value="lwh">長 x 闊 x 高</option>
-                <option value="dh">直徑 x 高</option>
+                <option value="lwh">{labels.dimLwh}</option>
+                <option value="dh">{labels.dimDh}</option>
               </select>
             </div>
             <div className="grid w-full min-w-0 grid-cols-[1fr_auto_1fr_auto_1fr] items-center gap-x-1">
@@ -789,7 +802,7 @@ function QuoteProductItemCard({
               )}
             </div>
           </div>
-          <QuoteFieldBlock label="顏色">
+          <QuoteFieldBlock label={labels.color}>
             <input
               type="text"
               value={item.color || ""}
@@ -803,7 +816,7 @@ function QuoteProductItemCard({
 
         {/* Row 1 — cols 3–4: 材質及明細 */}
         <QuoteFieldBlock
-          label="材質及明細"
+          label={labels.material}
           className={cn("col-span-2 col-start-3 row-start-1 min-w-0", QUOTE_CARD_MEDIA_XL_SHIFT)}
         >
           <textarea
@@ -822,7 +835,7 @@ function QuoteProductItemCard({
             QUOTE_QTY_COST_FIELD_CLASS,
           )}
         >
-          <QuoteFieldBlock label="數量" className="shrink-0">
+          <QuoteFieldBlock label={labels.quantity} className="shrink-0">
             <input
               type="number"
               value={item.quantity || ""}
@@ -835,7 +848,7 @@ function QuoteProductItemCard({
             />
           </QuoteFieldBlock>
           <div className="flex min-h-0 flex-1 items-center">
-            <QuoteFieldBlock label="廠家" className="w-full">
+            <QuoteFieldBlock label={labels.factory} className="w-full">
               <QuoteFactoryField
                 value={item.factoryName || ""}
                 locked={Boolean(item.factoryFromCatalog)}
@@ -854,7 +867,7 @@ function QuoteProductItemCard({
             QUOTE_QTY_COST_FIELD_CLASS,
           )}
         >
-          <QuoteFieldBlock label="CNY¥成本價" className="shrink-0">
+          <QuoteFieldBlock label={labels.cnyCost} className="shrink-0">
             <input
               type="number"
               value={item.costPrice ?? ""}
@@ -871,7 +884,7 @@ function QuoteProductItemCard({
             />
           </QuoteFieldBlock>
           <div className="flex min-h-0 flex-1 items-center py-0.5">
-            <QuoteFieldBlock label="匯率" className="w-full">
+            <QuoteFieldBlock label={labels.exchangeRate} className="w-full">
               <input
                 type="text"
                 inputMode="decimal"
@@ -882,7 +895,7 @@ function QuoteProductItemCard({
               />
             </QuoteFieldBlock>
           </div>
-          <QuoteFieldBlock label="HKD$成本價" className="shrink-0">
+          <QuoteFieldBlock label={labels.hkdCost} className="shrink-0">
             <div className="flex h-[34px] items-center rounded-md border border-border/60 bg-muted/20 px-2">
               <span className="truncate font-mono-data text-xs font-medium text-foreground">
                 {formatHkdCostDisplayCeil(item.hkdCostPrice)}
@@ -893,7 +906,7 @@ function QuoteProductItemCard({
 
         {/* Row 1 — col 6: 單位 (aligned with 單價 below) */}
         <QuoteFieldBlock
-          label="單位"
+          label={labels.unit}
           className={cn("col-start-6 row-start-1", QUOTE_PRICING_FIELD_CLASS)}
         >
           <input
@@ -907,7 +920,7 @@ function QuoteProductItemCard({
         </QuoteFieldBlock>
 
         {/* Row 2 — col 2: 備註 */}
-        <QuoteFieldBlock label="備註" className="col-start-2 row-start-2 min-w-0">
+        <QuoteFieldBlock label={labels.remarks} className="col-start-2 row-start-2 min-w-0">
           <RemarksRichEditor
             key={item.id}
             compact
@@ -920,7 +933,7 @@ function QuoteProductItemCard({
 
         {/* Row 2 — cols 3–4: 圖片 · 參考圖 */}
         <QuoteFieldBlock
-          label="圖片"
+          label={labels.image}
           className={cn("col-start-3 row-start-2 min-w-0", QUOTE_CARD_MEDIA_XL_SHIFT)}
         >
           <ReferenceImageCell
@@ -933,7 +946,7 @@ function QuoteProductItemCard({
           />
         </QuoteFieldBlock>
         <QuoteFieldBlock
-          label="參考圖"
+          label={labels.referenceImage}
           className={cn("col-start-4 row-start-2 min-w-0", QUOTE_CARD_MEDIA_XL_SHIFT)}
         >
           <ReferenceImageCell
@@ -947,7 +960,7 @@ function QuoteProductItemCard({
         </QuoteFieldBlock>
 
         <QuoteFieldBlock
-          label="HKD$單價"
+          label={labels.hkdUnitPrice}
           className={cn("col-start-6 row-start-2", QUOTE_PRICING_FIELD_CLASS)}
         >
           <input
@@ -973,13 +986,13 @@ function QuoteProductItemCard({
               className="border-foreground/60 data-[state=checked]:border-primary"
             />
             <span className="whitespace-nowrap font-body text-xs text-muted-foreground">
-              可選產品
+              {labels.optionalProduct}
             </span>
           </label>
         </div>
 
         {/* Row 2 — col 8: 小計 */}
-        <QuoteFieldBlock label="HKD$小計" className="col-start-8 row-start-2 min-w-0">
+        <QuoteFieldBlock label={labels.hkdSubtotal} className="col-start-8 row-start-2 min-w-0">
           <div className="flex h-[34px] items-center rounded-md border border-border/60 bg-muted/20 px-2">
             <span
               className={cn(
@@ -1020,6 +1033,7 @@ function QuoteCustomTermCard({
   onDragEnd,
   updateItem,
   removeItem,
+  labels,
 }: {
   item: QuotationItem;
   index: number;
@@ -1031,6 +1045,7 @@ function QuoteCustomTermCard({
   onDragEnd: () => void;
   updateItem: (id: string, field: keyof QuotationItem, value: string | number | null) => void;
   removeItem: (id: string) => void;
+  labels: QuoteUiLabels;
 }) {
   return (
     <div
@@ -1054,7 +1069,7 @@ function QuoteCustomTermCard({
           />
         </div>
         <div className="min-w-0 flex-1 space-y-3">
-          <QuoteFieldBlock label="增值服務說明">
+          <QuoteFieldBlock label={labels.valueServiceDesc}>
             <input
               type="text"
               value={item.name || ""}
@@ -1064,7 +1079,7 @@ function QuoteCustomTermCard({
             />
           </QuoteFieldBlock>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-            <QuoteFieldBlock label="數量">
+            <QuoteFieldBlock label={labels.quantity}>
               <input
                 type="number"
                 value={item.quantity || ""}
@@ -1076,7 +1091,7 @@ function QuoteCustomTermCard({
                 className={QUOTE_NUMBER_INPUT_CLASS}
               />
             </QuoteFieldBlock>
-            <QuoteFieldBlock label="單位">
+            <QuoteFieldBlock label={labels.unit}>
               <input
                 type="text"
                 value={item.unit || ""}
@@ -1086,7 +1101,7 @@ function QuoteCustomTermCard({
                 className={QUOTE_INPUT_CLASS}
               />
             </QuoteFieldBlock>
-            <QuoteFieldBlock label="單價">
+            <QuoteFieldBlock label={labels.hkdUnitPrice}>
               <input
                 type="number"
                 value={typeof item.unitPrice === "number" ? item.unitPrice : ""}
@@ -1098,7 +1113,7 @@ function QuoteCustomTermCard({
                 className={QUOTE_NUMBER_INPUT_CLASS}
               />
             </QuoteFieldBlock>
-            <QuoteFieldBlock label="小計">
+            <QuoteFieldBlock label={labels.hkdSubtotal}>
               <div className="flex h-[34px] items-center rounded-md border border-border/60 bg-muted/20 px-2">
                 <span className="font-mono-data text-xs font-medium text-foreground">
                   ${(item.unitPrice * item.quantity).toLocaleString()}
@@ -1461,6 +1476,8 @@ export function QuotationDraftEditor({
     ),
   );
   const [termsEditMode, setTermsEditMode] = useState(false);
+  const [quoteLocale, setQuoteLocale] = useState<QuoteLocale>('zh');
+  const t = quoteUi(quoteLocale);
 
   const finishTermsEdit = () => {
     setTermsEditMode(false);
@@ -2095,6 +2112,63 @@ export function QuotationDraftEditor({
       termsContent.fullHtml,
       quoteMeta.deliveryAddress,
     );
+    const dateLocale = quoteLocale === 'en' ? 'en-GB' : 'zh-HK';
+
+    if (quoteLocale === 'en') {
+      const pdfLabels = quotePdf('en');
+      return {
+        companyInfo,
+        clientInfo,
+        quoteMeta: {
+          ...quoteMeta,
+          projectName: pitchingCode,
+          deliveryAddress,
+          quoteNumber: pitchingCode,
+          version: existingQuote?.version
+            ? displayQuoteVersion(existingQuote.version)
+            : undefined,
+          date: new Date().toLocaleDateString(dateLocale, {
+            year: "numeric",
+            month: "numeric",
+            day: "numeric",
+          }),
+        },
+        locale: 'en',
+        deliveryDetails: DEFAULT_QUOTATION_DELIVERY_DETAILS_EN,
+        termsContent: englishTermsContentForPdf(deliveryAddress),
+        items: items
+          .filter(hasQuoteItemContent)
+          .map((item) => ({
+            image: item.image,
+            referenceImage: item.referenceImage,
+            name: item.name,
+            unitPrice: item.unitPrice,
+            quantity: item.quantity,
+            category: item.category,
+            material: item.material,
+            color: item.color,
+            remarks: item.remarks,
+            remarksImage: item.remarksImage,
+            dimensionLMm: item.dimensionLMm,
+            dimensionWMm: item.dimensionWMm,
+            dimensionHMm: item.dimensionHMm,
+            dimensionMode: item.dimensionMode ?? 'lwh',
+            deliveryTermName: item.deliveryTermName,
+            isCustomTerm: item.isCustomTerm,
+            isOptional: item.isOptional,
+            unit: item.unit,
+          })),
+        subtotal,
+        discountNote,
+        installationFee: {
+          ...installationFee,
+          title: pdfLabels.installTitle,
+          subtitle: pdfLabels.installSubtitle,
+          conditionText: pdfLabels.installCondition,
+        },
+      };
+    }
+
     const fullHtmlForPdf = deliveryAddress
       ? injectDeliveryAddressIntoTermsHtml(termsContent.fullHtml, deliveryAddress)
       : termsContent.fullHtml;
@@ -2111,12 +2185,13 @@ export function QuotationDraftEditor({
       version: existingQuote?.version
         ? displayQuoteVersion(existingQuote.version)
         : undefined,
-      date: new Date().toLocaleDateString("zh-HK", {
+      date: new Date().toLocaleDateString(dateLocale, {
         year: "numeric",
         month: "numeric",
         day: "numeric",
       }),
     },
+    locale: 'zh',
     deliveryDetails,
     termsContent: {
       ...termsContent,
@@ -2425,16 +2500,25 @@ export function QuotationDraftEditor({
                 className="inline-flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-4 py-2 font-body text-sm font-medium text-primary transition-colors hover:bg-primary/10"
               >
                 <Eye className="h-4 w-4" />
-                預覽 PDF
+                {t.previewPdf}
               </button>
-              <button
-                type="button"
-                onClick={handleOpenSubmitReview}
-                className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 font-body text-sm font-semibold text-primary-foreground shadow-md shadow-primary/20 transition-all hover:bg-primary/90 active:scale-[0.98]"
-              >
-                <ShieldCheck className="h-4 w-4" />
-                版本審核
-              </button>
+              <div className="flex flex-col items-stretch gap-2">
+                <button
+                  type="button"
+                  onClick={() => setQuoteLocale((l) => (l === 'zh' ? 'en' : 'zh'))}
+                  className="inline-flex items-center justify-center rounded-lg border border-border bg-background px-4 py-2 font-body text-sm font-medium text-foreground/80 transition-colors hover:bg-muted/50"
+                >
+                  {t.langToggle}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleOpenSubmitReview}
+                  className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 font-body text-sm font-semibold text-primary-foreground shadow-md shadow-primary/20 transition-all hover:bg-primary/90 active:scale-[0.98]"
+                >
+                  <ShieldCheck className="h-4 w-4" />
+                  {t.versionReview}
+                </button>
+              </div>
             </div>
           </div>
 
@@ -2443,7 +2527,7 @@ export function QuotationDraftEditor({
               <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
                 <div className="mb-4 flex items-center justify-between">
                   <h2 className="font-display text-base font-bold text-foreground/80">
-                    報價內容
+                    {t.quoteContent}
                   </h2>
                   <div className="flex items-center gap-2">
                     <button
@@ -2452,7 +2536,7 @@ export function QuotationDraftEditor({
                       className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-border px-3 py-1.5 font-body text-sm font-medium text-foreground/80 transition-colors hover:bg-muted/50"
                     >
                       <Plus className="h-3.5 w-3.5" />
-                      新建欄位
+                      {t.addField}
                     </button>
                     <button
                       type="button"
@@ -2460,7 +2544,7 @@ export function QuotationDraftEditor({
                       className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-amber-500/50 px-3 py-1.5 font-body text-sm font-medium text-amber-600 transition-colors hover:bg-amber-500/5"
                     >
                       <Plus className="h-3.5 w-3.5" />
-                      增值服務
+                      {t.addValueService}
                     </button>
                     <button
                       type="button"
@@ -2471,7 +2555,7 @@ export function QuotationDraftEditor({
                       className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-primary/40 px-3 py-1.5 font-body text-sm font-medium text-primary transition-colors hover:bg-primary/5"
                     >
                       <Plus className="h-3.5 w-3.5" />
-                      新增產品
+                      {t.addProduct}
                     </button>
                   </div>
                 </div>
@@ -2498,6 +2582,7 @@ export function QuotationDraftEditor({
                         onDragEnd={clearQuoteRowDrag}
                         updateItem={updateItem}
                         removeItem={removeItem}
+                        labels={t}
                       />
                     ) : (
                       <QuoteProductItemCard
@@ -2517,6 +2602,7 @@ export function QuotationDraftEditor({
                         factories={factories}
                         factoriesLoading={factoriesLoading}
                         quoteImageScope={quoteImageScope}
+                        labels={t}
                       />
                     ),
                   )}
@@ -2527,7 +2613,7 @@ export function QuotationDraftEditor({
                   {/* 單價規則 - Unit price batch multiplier */}
                   <div className="flex items-center gap-2">
                     <span className="font-body text-xs text-primary font-medium">
-                      單價規則：成本倍率
+                      {t.priceMultiplier}
                     </span>
                     <input
                       type="number"
@@ -2542,7 +2628,7 @@ export function QuotationDraftEditor({
                       onClick={applyPriceMultiplier}
                       className="rounded-md border border-primary/30 bg-primary/5 px-2.5 py-1 font-body text-xs font-medium text-primary transition-colors hover:bg-primary/10"
                     >
-                      套用
+                      {t.apply}
                     </button>
                   </div>
                   {/* GP summary — internal margin calc; not exported to PDF preview */}
@@ -2680,7 +2766,7 @@ export function QuotationDraftEditor({
                     {/* 合計 (after discount) */}
                     <div className="flex items-center">
                       <span className="mr-3 font-body text-xs text-muted-foreground" style={{ width: '80px', textAlign: 'center' }}>
-                        合計:
+                        {t.grandTotal}:
                       </span>
                       <span className="font-mono-data text-base font-bold text-foreground" style={{ width: '120px', textAlign: 'right' }}>
                         HKD ${grandTotal.toLocaleString()}
@@ -2693,11 +2779,19 @@ export function QuotationDraftEditor({
               {/* 訂單確認及交付細節 */}
               <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
                 <h2 className="mb-3 font-display text-sm font-bold text-foreground/80">
-                  訂單確認及交付細節
+                  {t.deliverySection}
                 </h2>
                 <textarea
-                  value={deliveryDetails}
-                  onChange={(e) => setDeliveryDetails(e.target.value)}
+                  value={
+                    quoteLocale === 'en'
+                      ? DEFAULT_QUOTATION_DELIVERY_DETAILS_EN
+                      : deliveryDetails
+                  }
+                  onChange={(e) => {
+                    if (quoteLocale === 'en') return;
+                    setDeliveryDetails(e.target.value);
+                  }}
+                  readOnly={quoteLocale === 'en'}
                   rows={3}
                   className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
                 />
@@ -2707,8 +2801,9 @@ export function QuotationDraftEditor({
               <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
                 <div className="mb-4 flex items-center justify-between">
                   <h2 className="font-display text-sm font-bold text-foreground/80">
-                    條款及付款
+                    {t.termsSection}
                   </h2>
+                  {quoteLocale === 'zh' && (
                   <button
                     type="button"
                     onClick={() =>
@@ -2723,17 +2818,26 @@ export function QuotationDraftEditor({
                     {termsEditMode ? (
                       <>
                         <Check className="h-3.5 w-3.5" />
-                        完成編輯
+                        {t.doneEditTerms}
                       </>
                     ) : (
                       <>
                         <Pencil className="h-3.5 w-3.5" />
-                        編輯條款
+                        {t.editTerms}
                       </>
                     )}
                   </button>
+                  )}
                 </div>
 
+                {quoteLocale === 'en' ? (
+                  <div
+                    className="prose prose-sm max-w-none font-body text-xs leading-relaxed text-foreground/80 [&_p]:mb-1.5"
+                    dangerouslySetInnerHTML={{
+                      __html: buildDefaultTermsFullHtmlEn(quoteMeta.deliveryAddress),
+                    }}
+                  />
+                ) : (
                 <TermsRichEditor
                   value={termsContent.fullHtml}
                   onChange={(html) => {
@@ -2747,6 +2851,7 @@ export function QuotationDraftEditor({
                   }}
                   editable={termsEditMode}
                 />
+                )}
                 <div className="hidden space-y-4 font-body text-xs leading-relaxed text-foreground/80">
                   {/* 運輸及安裝條款 (legacy - kept for PDF compat) */}
                   <div>

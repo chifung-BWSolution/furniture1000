@@ -34,6 +34,8 @@ export interface QuotationPDFData {
     payment?: string;
     fullHtml?: string;
   };
+  /** UI/PDF language for this preview. Product data values are unchanged. */
+  locale?: 'zh' | 'en';
   items: {
     image: string;
     referenceImage?: string;
