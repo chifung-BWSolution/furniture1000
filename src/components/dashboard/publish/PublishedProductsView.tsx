@@ -2,7 +2,7 @@ import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import {
   CheckCheck, Search, ArrowDownToLine, ArrowUpToLine, RotateCcw, ChevronDown,
-  CloudDownload, Loader2, X, Store, RefreshCw, ArrowUp, ArrowDown, GitMerge, FolderTree, Languages,
+  CloudDownload, Loader2, X, Store, RefreshCw, ArrowUp, ArrowDown, GitMerge, FolderTree,
 } from 'lucide-react';
 import {
   Select,
@@ -325,7 +325,6 @@ export function PublishedProductsView() {
 
   const [isSyncing, setIsSyncing] = useState(false);
   const [isRepairingMetafields, setIsRepairingMetafields] = useState(false);
-  const [isConvertingTraditional, setIsConvertingTraditional] = useState(false);
   const [isReconcilingMirror, setIsReconcilingMirror] = useState(false);
   const [mergeProducts, setMergeProducts] = useState<DisplayProduct[]>([]);
   const [showMergeModal, setShowMergeModal] = useState(false);
@@ -622,116 +621,6 @@ export function PublishedProductsView() {
       });
     } finally {
       setIsRepairingMetafields(false);
-    }
-  }, [items, selectedIds, loadProducts]);
-
-  /** Convert simplified Chinese in mirror text fields to HK traditional, then push to Shopify. */
-  const convertTraditionalChinese = useCallback(async () => {
-    const selectedRows = selectedIds.length > 0
-      ? items.filter((p) => selectedIds.includes(p.id))
-      : items.filter((p) => p.state === 'published' && /^\d+$/.test(p.shopify_product_id));
-    if (selectedRows.length === 0) {
-      toast.message('沒有可轉換的已上載產品');
-      return;
-    }
-
-    const shopifyIds = [...new Set(
-      selectedRows
-        .map((p) => p.shopify_product_id)
-        .filter((id) => /^\d+$/.test(id)),
-    )];
-
-    setIsConvertingTraditional(true);
-    const scopeLabel = selectedIds.length > 0 ? `已選 ${shopifyIds.length}` : `全部 ${shopifyIds.length}`;
-    const toastId = toast.loading(`正在檢查簡體字並轉為繁體（${scopeLabel}）…`);
-    let converted = 0;
-    let skipped = 0;
-    let failed = 0;
-    let pushed = 0;
-    let pushFailed = 0;
-    let firstErr: string | undefined;
-
-    const BATCH_SIZE = 8;
-    const batches: string[][] = [];
-    for (let i = 0; i < shopifyIds.length; i += BATCH_SIZE) {
-      batches.push(shopifyIds.slice(i, i + BATCH_SIZE));
-    }
-
-    try {
-      for (let bi = 0; bi < batches.length; bi++) {
-        const batch = batches[bi];
-        toast.loading(
-          `正在轉換繁體並同步 Shopify（批次 ${bi + 1}/${batches.length}，${batch.length} 件）…`,
-          { id: toastId },
-        );
-        const { data, error } = await invokeEdgeFunctionDirect(
-          'supabase-functions-update-shopify-product',
-          {
-            convert_simplified_to_traditional: true,
-            push_to_shopify: true,
-            shopify_product_ids: batch,
-          },
-          { timeoutMs: 5 * 60 * 1000 },
-        );
-        if (error || data?.error) {
-          failed += batch.length;
-          if (!firstErr) firstErr = error?.message || (data?.error as string);
-          continue;
-        }
-        converted += Number(data?.converted ?? 0);
-        skipped += Number(data?.skipped ?? 0);
-        failed += Number(data?.failed ?? 0);
-        pushed += Number(data?.pushed ?? 0);
-        pushFailed += Number(data?.push_failed ?? 0);
-        if (!firstErr && Array.isArray(data?.errors) && data.errors[0]?.error) {
-          firstErr = String((data.errors[0] as { error?: string }).error);
-        }
-        if (bi < batches.length - 1) {
-          await new Promise((r) => setTimeout(r, 1000));
-        }
-      }
-
-      if (converted > 0 || pushed > 0) await loadProducts({ silent: true });
-
-      const parts: string[] = [];
-      if (converted > 0) parts.push(`已轉換 ${converted} 件`);
-      if (pushed > 0) parts.push(`已同步 Shopify ${pushed} 件`);
-      if (skipped > 0) parts.push(`略過 ${skipped} 件（無簡體字）`);
-      if (failed > 0) parts.push(`轉換失敗 ${failed} 件`);
-      if (pushFailed > 0) parts.push(`推送失敗 ${pushFailed} 件`);
-
-      if ((failed > 0 || pushFailed > 0) && (converted > 0 || pushed > 0)) {
-        toast.warning('部分產品轉換或同步失敗', {
-          id: toastId,
-          description: `${parts.join(' · ')}${firstErr ? `\n${firstErr.slice(0, 160)}` : ''}`,
-          duration: 12000,
-        });
-      } else if (failed > 0 || pushFailed > 0) {
-        toast.error('簡體轉繁體失敗', {
-          id: toastId,
-          description: firstErr || '請稍後重試',
-          duration: 10000,
-        });
-      } else if (converted === 0 && pushed === 0) {
-        toast.message('無需轉換', {
-          id: toastId,
-          description: `已檢查 ${shopifyIds.length} 件，均未發現需轉換的簡體字`,
-          duration: 8000,
-        });
-      } else {
-        toast.success('簡體轉繁體完成', {
-          id: toastId,
-          description: parts.join(' · '),
-          duration: 10000,
-        });
-      }
-    } catch (e) {
-      toast.error('簡體轉繁體失敗', {
-        id: toastId,
-        description: e instanceof Error ? e.message : '未知錯誤',
-      });
-    } finally {
-      setIsConvertingTraditional(false);
     }
   }, [items, selectedIds, loadProducts]);
 
@@ -1112,20 +1001,6 @@ export function PublishedProductsView() {
                 : selectedIds.length > 0
                   ? `修復 Metafields (${selectedIds.length})`
                   : '修復 Metafields（全部）'}
-            </button>
-            <button
-              type="button"
-              onClick={() => convertTraditionalChinese()}
-              disabled={isConvertingTraditional || isSyncing || isRepairingMetafields}
-              title="檢查 shopify_products 的標題、描述、材質等欄位，將簡體中文轉為香港繁體，並推送至 Shopify。未勾選時處理全部已發佈產品。"
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-teal-500/40 bg-teal-500/10 px-3 text-xs font-semibold text-teal-800 dark:text-teal-400 hover:bg-teal-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isConvertingTraditional ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Languages className="h-3.5 w-3.5" />}
-              {isConvertingTraditional
-                ? '轉換中...'
-                : selectedIds.length > 0
-                  ? `簡體轉繁體 (${selectedIds.length})`
-                  : '簡體轉繁體（全部）'}
             </button>
             <button
               type="button"
