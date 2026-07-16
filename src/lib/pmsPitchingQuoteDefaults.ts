@@ -1,7 +1,4 @@
-import {
-  applyClientIndustryCatalogOverrides,
-  sanitizeSelectedIndustries,
-} from '@/lib/clientIndustryCatalog';
+import { sortIndustryOptions } from '@/lib/clientIndustrySort';
 import { supabase } from '@/lib/supabase';
 
 export const PMS_INDUSTRY_COLLECTION_ID =
@@ -83,7 +80,7 @@ export async function fetchPmsPitchingQuoteDefaults(options?: {
       budget_min: data.budget_min ?? null,
       budget_max: data.budget_max ?? null,
       industry_options: Array.isArray(data.industry_options)
-        ? applyClientIndustryCatalogOverrides(
+        ? sortIndustryOptions(
             data.industry_options
               .map((o: { id?: string; display?: string }) => ({
                 id: String(o?.id || ''),
@@ -93,11 +90,9 @@ export async function fetchPmsPitchingQuoteDefaults(options?: {
           )
         : [],
       selected_industries: Array.isArray(data.selected_industries)
-        ? sanitizeSelectedIndustries(
-            data.selected_industries
-              .map((s: unknown) => String(s).trim())
-              .filter(Boolean),
-          )
+        ? data.selected_industries
+            .map((s: unknown) => String(s).trim())
+            .filter(Boolean)
         : [],
     };
   } catch (err) {
