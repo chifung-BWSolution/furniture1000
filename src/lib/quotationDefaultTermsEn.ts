@@ -42,7 +42,7 @@ For cheque, bank transfer or credit card payment, the delivery lead time is coun
 6.7 This quotation is valid for 30 days from the date of issue.
 6.8 Limitation of Liability: The Company shall not be liable for any indirect loss, such as business loss caused by delay. The maximum liability shall be limited to the total order amount.
 6.9 Force Majeure: For events beyond control such as epidemics, pandemics, natural disasters or government restrictions, the Company shall be exempted from relevant liabilities but will use its best endeavours to notify the customer and minimise the impact.`,
-} as const satisfies QuotationDefaultTerms;
+} as const satisfies Record<keyof QuotationDefaultTerms, string>;
 
 const BOLD_PAYMENT_LABELS_EN = ['Account Name', 'Bank Name', 'Account No.'] as const;
 
