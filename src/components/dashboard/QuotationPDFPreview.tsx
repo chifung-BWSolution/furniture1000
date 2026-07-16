@@ -6,6 +6,7 @@ import { multiColorToChineseDisplay } from '@/constants/color-map';
 import { normalizeQuotationPdfGlyphs, pdfDisplayText } from '@/lib/quotationPdfGlyphs';
 import { quoteItemLineSubtotal } from '@/lib/quoteItemTotals';
 import { buildQuotationPdfFilename } from '@/lib/quotationPdfFilename';
+import { quotePdf, type QuotePdfLabels } from '@/lib/quotationLocale';
 
 export type { QuotationPDFData } from '@/types/quotation-pdf';
 
@@ -497,6 +498,7 @@ function renderSubtotalPdfCell(
   item: QuotationItem,
   View: ReactPdfModule['View'],
   Text: ReactPdfModule['Text'],
+  labels: QuotePdfLabels,
 ) {
   if (item?.isOptional) {
     return (
@@ -508,7 +510,7 @@ function renderSubtotalPdfCell(
           justifyContent: 'center',
         }}
       >
-        <Text style={{ ...styles.tableCellText, marginRight: 4 }}>可選產品</Text>
+        <Text style={{ ...styles.tableCellText, marginRight: 4 }}>{labels.optionalProduct}</Text>
         <View
           style={{
             width: 10,
@@ -536,6 +538,8 @@ function renderQuotationTableRow(
   View: ReactPdfModule['View'],
   Text: ReactPdfModule['Text'],
   Image: ReactPdfModule['Image'],
+  labels: QuotePdfLabels,
+  locale: 'zh' | 'en',
 ) {
   if (item?.isCustomTerm) {
     return (
@@ -547,7 +551,7 @@ function renderQuotationTableRow(
         <View style={styles.colQty}><Text style={styles.tableCellText}>{item?.quantity || 0}</Text></View>
         <View style={styles.colUnit}><Text style={styles.tableCellText}>{pdfDisplayText(item?.unit || '')}</Text></View>
         <View style={styles.colUnitPrice}><Text style={styles.tableCellText}>HK${(item?.unitPrice || 0).toLocaleString()}</Text></View>
-        {renderSubtotalPdfCell(item, View, Text)}
+        {renderSubtotalPdfCell(item, View, Text, labels)}
       </View>
     );
   }
@@ -556,7 +560,7 @@ function renderQuotationTableRow(
     <View style={styles.tableRow} key={idx} wrap={false}>
       <View style={styles.colIndex}><Text style={styles.tableCellText}>{idx + 1}</Text></View>
       <View style={styles.colDesc}>
-        {renderDescriptionPdfContent(item, View, Text)}
+        {renderDescriptionPdfContent(item, View, Text, labels, locale)}
       </View>
       <View style={styles.colMaterial}>
         {renderMaterialPdfContent(item?.material, View, Text)}
@@ -574,7 +578,7 @@ function renderQuotationTableRow(
       <View style={styles.colQty}><Text style={styles.tableCellText}>{item?.quantity || 0}</Text></View>
       <View style={styles.colUnit}><Text style={styles.tableCellText}>{pdfDisplayText(item?.unit || '')}</Text></View>
       <View style={styles.colUnitPrice}><Text style={styles.tableCellText}>HK${(item?.unitPrice || 0).toLocaleString()}</Text></View>
-      {renderSubtotalPdfCell(item, View, Text)}
+      {renderSubtotalPdfCell(item, View, Text, labels)}
     </View>
   );
 }
@@ -661,17 +665,23 @@ function renderDescriptionPdfContent(
   item: QuotationPDFData['items'][0] | undefined,
   View: ReactPdfModule['View'],
   Text: ReactPdfModule['Text'],
+  labels: QuotePdfLabels,
+  locale: 'zh' | 'en',
 ) {
   const dimText = formatItemDimensions(item);
   const dimSubLabel = dimensionPdfSubLabel(item?.dimensionMode);
+  const colorValue =
+    locale === 'en'
+      ? (item?.color || '')
+      : multiColorToChineseDisplay(item?.color || '');
   const rows: Array<
     | { kind: 'category'; label: string; value: string }
     | { kind: 'simple'; label: string; value: string }
     | { kind: 'dimensions'; label: string; dimText: string; dimSubLabel: string }
   > = [
-    { kind: 'category', label: '\u985E\u5225', value: item?.category || '' },
-    { kind: 'dimensions', label: '\u898F\u683C(mm)', dimText, dimSubLabel },
-    { kind: 'simple', label: '\u984F\u8272', value: multiColorToChineseDisplay(item?.color || '') },
+    { kind: 'category', label: labels.descCategory, value: item?.category || '' },
+    { kind: 'dimensions', label: labels.descDimensions, dimText, dimSubLabel },
+    { kind: 'simple', label: labels.descColor, value: colorValue },
   ];
 
   return (
@@ -806,7 +816,16 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
     );
   }
 
-  const today = data.quoteMeta?.date || new Date().toLocaleDateString('zh-HK', { year: 'numeric', month: 'numeric', day: 'numeric' });
+  const locale = data.locale === 'en' ? 'en' : 'zh';
+  const labels = quotePdf(locale);
+
+  const today =
+    data.quoteMeta?.date ||
+    new Date().toLocaleDateString(locale === 'en' ? 'en-GB' : 'zh-HK', {
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+    });
   const quoteNumber = data.quoteMeta?.quoteNumber || '';
   const discountValue = (() => {
     const raw = data.discountNote;
@@ -823,29 +842,51 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
   const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://26c0258f-253c-4e4e-9027-922d08aab63f.canvases.tempo.build';
   const logoUrl = `${baseUrl}/assets/bwf-logo.png`;
 
+  const fallbackTermsHeadings =
+    locale === 'en'
+      ? {
+          deliveryAddress: '1　Delivery Address: ',
+          deliveryAddressFallback:
+            'Customer must provide an accurate delivery address. This quotation applies to standard areas in Hong Kong.',
+          payment: '2　Payment Terms',
+          transport: '3　Transport & Installation Terms',
+          extraFees: '4　Additional Charges',
+          warranty: '5　Warranty & Maintenance',
+          other: '6　Others',
+        }
+      : {
+          deliveryAddress: '1　交付地址: ',
+          deliveryAddressFallback: '客戶須提供準確交付地址。本報價適用於香港標準地區。',
+          payment: '2　付款條款',
+          transport: '3　運輸及安裝條款',
+          extraFees: '4　額外費用',
+          warranty: '5　保養及維修',
+          other: '6　其他',
+        };
+
   const renderTableHeader = () => (
     <View style={styles.tableHeader}>
-      <View style={styles.colIndex}><Text style={styles.tableHeaderText}>{'\u5E8F\u865F'}</Text></View>
-      <View style={styles.colDesc}><Text style={styles.tableHeaderText}>{'\u8AAA\u660E'}</Text></View>
-      <View style={styles.colMaterial}><Text style={styles.tableHeaderText}>{'\u6750\u8CEA\u53CA\u660E\u7D30'}</Text></View>
-      <View style={styles.colRemarks}><Text style={styles.tableHeaderText}>{'\u5099\u6CE8'}</Text></View>
-      <View style={styles.colImage}><Text style={styles.tableHeaderText}>{'\u5716\u4F8B'}</Text></View>
-      <View style={styles.colQty}><Text style={styles.tableHeaderText}>{'\u6578\u91CF'}</Text></View>
-      <View style={styles.colUnit}><Text style={styles.tableHeaderText}>{'\u55AE\u4F4D'}</Text></View>
-      <View style={styles.colUnitPrice}><Text style={styles.tableHeaderText}>{'\u55AE\u50F9 (HKD)'}</Text></View>
-      <View style={styles.colSubtotal}><Text style={styles.tableHeaderText}>{'\u7E3D\u50F9 (HKD)'}</Text></View>
+      <View style={styles.colIndex}><Text style={styles.tableHeaderText}>{labels.colNo}</Text></View>
+      <View style={styles.colDesc}><Text style={styles.tableHeaderText}>{labels.colDesc}</Text></View>
+      <View style={styles.colMaterial}><Text style={styles.tableHeaderText}>{labels.colMaterial}</Text></View>
+      <View style={styles.colRemarks}><Text style={styles.tableHeaderText}>{labels.colRemarks}</Text></View>
+      <View style={styles.colImage}><Text style={styles.tableHeaderText}>{labels.colImage}</Text></View>
+      <View style={styles.colQty}><Text style={styles.tableHeaderText}>{labels.colQty}</Text></View>
+      <View style={styles.colUnit}><Text style={styles.tableHeaderText}>{labels.colUnit}</Text></View>
+      <View style={styles.colUnitPrice}><Text style={styles.tableHeaderText}>{labels.colUnitPrice}</Text></View>
+      <View style={styles.colSubtotal}><Text style={styles.tableHeaderText}>{labels.colTotal}</Text></View>
     </View>
   );
 
   const renderInstallRow = () => (
     <View style={styles.installRow} wrap={false}>
       <View style={{ width: '57%', padding: 4, justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' }}>
-        <Text style={{ fontSize: 7, fontWeight: 700, lineHeight: 1.4 }}>{pdfDisplayText(data.installationFee?.title || '\u50A2\u4FF1\u5B89\u88DD\u8CBB\u7528')}</Text>
-        <Text style={{ fontSize: 6.5, color: '#666', lineHeight: 1.4 }}>{pdfDisplayText(data.installationFee?.subtitle || '\u5B89\u88DD\u6E05\u55AE\u4E2D\u50A2\u4FF1\u7522\u54C1\u4E26\u6E05\u7406\u5305\u88DD\u5783\u573E')}</Text>
+        <Text style={{ fontSize: 7, fontWeight: 700, lineHeight: 1.4 }}>{pdfDisplayText(data.installationFee?.title || labels.installTitle)}</Text>
+        <Text style={{ fontSize: 6.5, color: '#666', lineHeight: 1.4 }}>{pdfDisplayText(data.installationFee?.subtitle || labels.installSubtitle)}</Text>
       </View>
       <View style={{ width: '20%', padding: 4, justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' }}>
         <Text style={{ fontSize: 6.5, textAlign: 'center', lineHeight: 1.4 }}>
-          {pdfDisplayText(data.installationFee?.conditionText || '\u8A02\u55AE\u7E3D\u91D1\u984D\u6EFF HK$12,000\n\u5C07\u4E0D\u6536\u53D6\u5B89\u88DD\u8CBB\u7528')}
+          {pdfDisplayText(data.installationFee?.conditionText || labels.installCondition)}
         </Text>
       </View>
       <View style={{ width: '10.5%', padding: 4, justifyContent: 'center', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd' }}>
@@ -873,22 +914,22 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
           <View style={styles.headerRow}>
             <Image src={logoUrl} style={styles.logo} />
           </View>
-          <Text style={styles.titleCenter}>{'\u50A2\u4FF1\u5831\u50F9\u55AE'}</Text>
+          <Text style={styles.titleCenter}>{labels.title}</Text>
         </View>
         <View style={styles.infoRow}>
           <View style={styles.infoLeft}>
-            <Text style={styles.infoLine}>{'\u5BA2\u6236\u540D\u7A31'}: {pdfDisplayText(data.clientInfo?.name || '')}</Text>
-            <Text style={styles.infoLine}>{'\u5BA2\u6236\u96FB\u8A71'}: {pdfDisplayText(data.clientInfo?.phone || '')}</Text>
-            <Text style={styles.infoLine}>{'\u5831\u50F9\u55AE\u865F'}: {quoteNumber}</Text>
-            <Text style={styles.infoLine}>{'\u65E5\u3000\u671F'}: {today}</Text>
-            <Text style={styles.infoLine}>{'\u9805\u76EE\u8CA0\u8CAC\u4EBA'}: {pdfDisplayText(data.quoteMeta?.pmName || '')}</Text>
+            <Text style={styles.infoLine}>{labels.customerName}: {pdfDisplayText(data.clientInfo?.name || '')}</Text>
+            <Text style={styles.infoLine}>{labels.customerPhone}: {pdfDisplayText(data.clientInfo?.phone || '')}</Text>
+            <Text style={styles.infoLine}>{labels.quotationNo}: {quoteNumber}</Text>
+            <Text style={styles.infoLine}>{labels.date}: {today}</Text>
+            <Text style={styles.infoLine}>{labels.projectInCharge}: {pdfDisplayText(data.quoteMeta?.pmName || '')}</Text>
           </View>
           <View style={styles.infoRight}>
-            <Text style={styles.infoLine}>{'\u516C\u53F8'}: {pdfDisplayText(data.companyInfo?.name || '')}</Text>
-            <Text style={styles.infoLine}>{'\u5730\u5740'}: {pdfDisplayText(data.companyInfo?.address || '')}</Text>
-            <Text style={styles.infoLine}>{'\u96FB\u8A71'}: {pdfDisplayText(data.companyInfo?.phone || '')}</Text>
-            <Text style={styles.infoLine}>{'\u96FB\u90F5'}: {pdfDisplayText(data.companyInfo?.email || '')}</Text>
-            <Text style={styles.infoLine}>{'\u7DB2\u7AD9'}: {pdfDisplayText(data.companyInfo?.website || '')}</Text>
+            <Text style={styles.infoLine}>{labels.company}: {pdfDisplayText(data.companyInfo?.name || '')}</Text>
+            <Text style={styles.infoLine}>{labels.address}: {pdfDisplayText(data.companyInfo?.address || '')}</Text>
+            <Text style={styles.infoLine}>{labels.tel}: {pdfDisplayText(data.companyInfo?.phone || '')}</Text>
+            <Text style={styles.infoLine}>{labels.email}: {pdfDisplayText(data.companyInfo?.email || '')}</Text>
+            <Text style={styles.infoLine}>{labels.website}: {pdfDisplayText(data.companyInfo?.website || '')}</Text>
           </View>
         </View>
 
@@ -901,6 +942,8 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
               View,
               Text,
               Image,
+              labels,
+              locale,
             ),
           )}
           {renderInstallRow()}
@@ -914,16 +957,16 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
         ) : null}
 
         <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 2, paddingRight: 4, alignItems: 'flex-end' }}>
-          <Text style={{ ...styles.totalLabel, width: 60, textAlign: 'right', marginRight: 8 }}>{'\u7E3D\u91D1\u984D'}:</Text>
+          <Text style={{ ...styles.totalLabel, width: 60, textAlign: 'right', marginRight: 8 }}>{labels.grandTotal}:</Text>
           <View style={{ borderBottomWidth: 1, borderBottomColor: TABLE_BORDER, minWidth: 90, paddingBottom: 1 }}>
             <Text style={{ ...styles.totalValue, width: 90, textAlign: 'right' }}>HK${grandTotal.toLocaleString()}</Text>
           </View>
         </View>
 
-        <Text style={styles.sectionTitle}>{'<\u8A02\u55AE\u78BA\u8A8D\u53CA\u4EA4\u4ED8\u7D30\u7BC0>'}</Text>
+        <Text style={styles.sectionTitle}>{labels.deliveryTitle}</Text>
         <Text style={styles.sectionText}>{pdfDisplayText(data.deliveryDetails || '')}</Text>
 
-        <Text style={styles.termsTitle}>{'\u689D\u6B3E\u53CA\u4ED8\u6B3E'}</Text>
+        <Text style={styles.termsTitle}>{labels.termsTitle}</Text>
 
         {data.termsContent?.fullHtml && (data.termsContent.fullHtml.replace(/<[^>]*>/g, '').replace(/\s/g, '').length > 0 || /<u[^>]*>/i.test(data.termsContent.fullHtml)) ? (
           parseHtmlForPdf(data.termsContent.fullHtml).map((item, i) => {
@@ -972,34 +1015,34 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
         ) : (
           <>
             <Text style={styles.termItem}>
-              <Text style={styles.boldText}>{'1\u3000\u4EA4\u4ED8\u5730\u5740: '}</Text>
-              {pdfDisplayText(data.quoteMeta?.deliveryAddress || '\u5BA2\u6236\u9808\u63D0\u4F9B\u6E96\u78BA\u4EA4\u4ED8\u5730\u5740\u3002\u672C\u5831\u50F9\u9069\u7528\u65BC\u9999\u6E2F\u6A19\u6E96\u5730\u5340\u3002')}
+              <Text style={styles.boldText}>{fallbackTermsHeadings.deliveryAddress}</Text>
+              {pdfDisplayText(data.quoteMeta?.deliveryAddress || fallbackTermsHeadings.deliveryAddressFallback)}
             </Text>
 
-            <Text style={styles.termSubTitle}>{'2\u3000\u4ed8\u6b3e\u689d\u6b3e'}</Text>
+            <Text style={styles.termSubTitle}>{fallbackTermsHeadings.payment}</Text>
             {renderPlainTermLines(data.termsContent?.payment, 'payment', Text, View)}
 
-            <Text style={styles.termSubTitle}>{'3\u3000\u904b\u8f38\u53ca\u5b89\u88dd\u689d\u6b3e'}</Text>
+            <Text style={styles.termSubTitle}>{fallbackTermsHeadings.transport}</Text>
             {renderPlainTermLines(data.termsContent?.transport, 'transport', Text, View)}
 
-            <Text style={styles.termSubTitle}>{'4\u3000\u984d\u5916\u8cbb\u7528'}</Text>
+            <Text style={styles.termSubTitle}>{fallbackTermsHeadings.extraFees}</Text>
             {renderPlainTermLines(data.termsContent?.extraFees, 'extraFees', Text, View)}
 
-            <Text style={styles.termSubTitle}>{'5\u3000\u4fdd\u990a\u53ca\u7dad\u4fee'}</Text>
+            <Text style={styles.termSubTitle}>{fallbackTermsHeadings.warranty}</Text>
             {renderPlainTermLines(data.termsContent?.warranty, 'warranty', Text, View)}
 
-            <Text style={styles.termSubTitle}>{'6\u3000\u5176\u4ed6'}</Text>
+            <Text style={styles.termSubTitle}>{fallbackTermsHeadings.other}</Text>
             {renderPlainTermLines(data.termsContent?.other, 'other', Text, View)}
           </>
         )}
 
         <View style={styles.signatureSection} wrap={false} minPresenceAhead={20}>
           <View style={styles.signatureBlock}>
-            <Text style={styles.signatureTitle}>{'\u5BA2\u6236\u78BA\u8A8D'}</Text>
-            <Text style={styles.signatureLabel}>{'\u5BA2\u6236\u6388\u6B0A\u4EBA\u59D3\u540D\u53CA\u7C3D\u540D'}</Text>
+            <Text style={styles.signatureTitle}>{labels.customerAcceptance}</Text>
+            <Text style={styles.signatureLabel}>{labels.customerSignLabel}</Text>
             <View style={styles.signatureMiddle} />
             <View style={styles.signatureLine} />
-            <Text style={styles.signatureDate}>{'\u7C3D\u7F72\u65E5\u671F:'}</Text>
+            <Text style={styles.signatureDate}>{labels.dateOfSignature}</Text>
           </View>
         </View>
       </Page>
@@ -1023,6 +1066,7 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
   const [renderAttempt, setRenderAttempt] = useState(0);
   const previewUrlRef = useRef<string | null>(null);
   const { mod: pdfMod, loading, error: moduleError } = useReactPdf();
+  const labels = quotePdf(data?.locale === 'en' ? 'en' : 'zh');
 
   const dataKey = useMemo(() => JSON.stringify(data), [data]);
 
@@ -1123,8 +1167,8 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
         {/* Modal Header */}
         <div className="flex items-center justify-between border-b border-border px-6 py-4">
           <div>
-            <h2 className="font-display text-lg font-bold text-foreground">{'\u5831\u50F9\u55AE\u9810\u89BD'}</h2>
-            <p className="font-body text-xs text-muted-foreground">PDF Preview — A4 Format</p>
+            <h2 className="font-display text-lg font-bold text-foreground">{labels.modalTitle}</h2>
+            <p className="font-body text-xs text-muted-foreground">{labels.modalSubtitle}</p>
           </div>
           <div className="flex items-center gap-3">
             <button
@@ -1137,7 +1181,7 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
               ) : (
                 <Download className="h-4 w-4" />
               )}
-              {'\u4E0B\u8F09 PDF'}
+              {labels.downloadPdf}
             </button>
             <button
               onClick={onClose}
@@ -1179,7 +1223,7 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
           )}
           {previewUrl && !combinedError && (
             <iframe
-              title="報價單 PDF 預覽"
+              title={labels.modalTitle}
               src={`${previewUrl}#toolbar=0&navpanes=0`}
               className="h-full w-full rounded-lg border-0 bg-white"
             />
@@ -1197,7 +1241,7 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
                 ) : (
                   <Download className="h-4 w-4" />
                 )}
-                下載
+                {labels.downloadPdf}
               </button>
             </div>
           )}
