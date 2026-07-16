@@ -407,10 +407,12 @@ function renderDescDimensionsValue(
   dimSubLabel: string,
   View: ReactPdfModule['View'],
   Text: ReactPdfModule['Text'],
+  locale: 'zh' | 'en' = 'zh',
 ) {
-  const lines = wrapDimensionsForPdf(dimText);
+  const valuePct = `${PDF_DESC_VALUE_PCT[locale] * 100}%`;
+  const lines = wrapDimensionsForPdf(dimText, descDimMaxChars(locale));
   return (
-    <View style={{ width: '50%', minWidth: 0, paddingHorizontal: 2, paddingVertical: 2 }}>
+    <View style={{ width: valuePct, minWidth: 0, paddingHorizontal: 2, paddingVertical: 2 }}>
       <Text style={styles.descDimLabelText}>{dimSubLabel}</Text>
       {lines.map((line, li) => (
         <Text key={`dim-line-${li}`} wrap={false} style={styles.descDimValueText}>
@@ -429,12 +431,30 @@ const MATERIAL_BLANK_LINE_HEIGHT = 7 * 1.45;
 const PDF_TABLE_WIDTH_PT = 555;
 const REMARKS_COL_WIDTH_PT = PDF_TABLE_WIDTH_PT * 0.09;
 const ILLUSTRATION_COL_WIDTH_PT = PDF_TABLE_WIDTH_PT * 0.114;
-/** 說明欄規格值半寬（12.4% 欄 × 50%）— 保守估算每行字元上限，避免 PDF 再二次折行 */
-const DESC_DIM_VALUE_WIDTH_PT = PDF_TABLE_WIDTH_PT * 0.124 * 0.5;
-const DESC_DIM_MAX_CHARS = Math.max(
-  6,
-  Math.floor(DESC_DIM_VALUE_WIDTH_PT / 3.8),
-);
+
+/**
+ * EN needs a slightly wider Description column so "Dimensions (mm)" fits on one line.
+ * Transfer just enough width from Materials & Details (sum stays 41.6%).
+ */
+const PDF_COL_DESC_PCT = { zh: 0.124, en: 0.195 } as const;
+const PDF_COL_MATERIAL_PCT = { zh: 0.292, en: 0.221 } as const;
+/** Label / value split inside Description — EN labels are longer. */
+const PDF_DESC_LABEL_PCT = { zh: 0.5, en: 0.6 } as const;
+const PDF_DESC_VALUE_PCT = { zh: 0.5, en: 0.4 } as const;
+
+function pdfColWidthPct(locale: 'zh' | 'en', key: 'desc' | 'material'): string {
+  const pct = key === 'desc' ? PDF_COL_DESC_PCT[locale] : PDF_COL_MATERIAL_PCT[locale];
+  return `${(pct * 100).toFixed(1)}%`;
+}
+
+/** 說明欄規格值半寬 — 保守估算每行字元上限，避免 PDF 再二次折行 */
+function descDimMaxChars(locale: 'zh' | 'en' = 'zh'): number {
+  const valueWidthPt =
+    PDF_TABLE_WIDTH_PT * PDF_COL_DESC_PCT[locale] * PDF_DESC_VALUE_PCT[locale];
+  return Math.max(6, Math.floor(valueWidthPt / 3.8));
+}
+
+const DESC_DIM_MAX_CHARS = descDimMaxChars('zh');
 
 /** Preserve user line breaks from the draft editor (single Enter = one line). */
 function normalizeMaterialForPdf(text: string): string {
@@ -559,10 +579,10 @@ function renderQuotationTableRow(
   return (
     <View style={styles.tableRow} key={idx} wrap={false}>
       <View style={styles.colIndex}><Text style={styles.tableCellText}>{idx + 1}</Text></View>
-      <View style={styles.colDesc}>
+      <View style={{ ...styles.colDesc, width: pdfColWidthPct(locale, 'desc') }}>
         {renderDescriptionPdfContent(item, View, Text, labels, locale)}
       </View>
-      <View style={styles.colMaterial}>
+      <View style={{ ...styles.colMaterial, width: pdfColWidthPct(locale, 'material') }}>
         {renderMaterialPdfContent(item?.material, View, Text)}
       </View>
       <View style={styles.colRemarks}>
@@ -674,6 +694,8 @@ function renderDescriptionPdfContent(
     locale === 'en'
       ? (item?.color || '')
       : multiColorToChineseDisplay(item?.color || '');
+  const labelPct = `${PDF_DESC_LABEL_PCT[locale] * 100}%`;
+  const valuePct = `${PDF_DESC_VALUE_PCT[locale] * 100}%`;
   const rows: Array<
     | { kind: 'category'; label: string; value: string }
     | { kind: 'simple'; label: string; value: string }
@@ -702,7 +724,7 @@ function renderDescriptionPdfContent(
         >
           <View
             style={{
-              width: '50%',
+              width: labelPct,
               justifyContent:
                 row.kind === 'category' || row.kind === 'dimensions' ? 'flex-start' : 'center',
               alignItems: 'center',
@@ -713,12 +735,17 @@ function renderDescriptionPdfContent(
               borderColor: '#ddd',
             }}
           >
-            <Text style={styles.tableCellText}>{row.label}</Text>
+            <Text
+              style={styles.tableCellText}
+              wrap={row.kind === 'dimensions' ? false : undefined}
+            >
+              {row.label}
+            </Text>
           </View>
           {row.kind === 'dimensions' ? (
-            renderDescDimensionsValue(row.dimText, row.dimSubLabel, View, Text)
+            renderDescDimensionsValue(row.dimText, row.dimSubLabel, View, Text, locale)
           ) : row.kind === 'category' ? (
-            <View style={{ width: '50%', justifyContent: 'flex-start', paddingHorizontal: 2, paddingVertical: 2 }}>
+            <View style={{ width: valuePct, justifyContent: 'flex-start', paddingHorizontal: 2, paddingVertical: 2 }}>
               <Text
                 style={styles.descCategoryValueText}
                 hyphenationCallback={(word) => Array.from(word)}
@@ -727,7 +754,7 @@ function renderDescriptionPdfContent(
               </Text>
             </View>
           ) : (
-            <View style={{ width: '50%', justifyContent: 'center', paddingHorizontal: 2 }}>
+            <View style={{ width: valuePct, justifyContent: 'center', paddingHorizontal: 2 }}>
               <Text style={styles.descValueText}>{pdfDisplayText(row.value)}</Text>
             </View>
           )}
@@ -867,8 +894,12 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
   const renderTableHeader = () => (
     <View style={styles.tableHeader}>
       <View style={styles.colIndex}><Text style={styles.tableHeaderText}>{labels.colNo}</Text></View>
-      <View style={styles.colDesc}><Text style={styles.tableHeaderText}>{labels.colDesc}</Text></View>
-      <View style={styles.colMaterial}><Text style={styles.tableHeaderText}>{labels.colMaterial}</Text></View>
+      <View style={{ ...styles.colDesc, width: pdfColWidthPct(locale, 'desc') }}>
+        <Text style={styles.tableHeaderText}>{labels.colDesc}</Text>
+      </View>
+      <View style={{ ...styles.colMaterial, width: pdfColWidthPct(locale, 'material') }}>
+        <Text style={styles.tableHeaderText}>{labels.colMaterial}</Text>
+      </View>
       <View style={styles.colRemarks}><Text style={styles.tableHeaderText}>{labels.colRemarks}</Text></View>
       <View style={styles.colImage}><Text style={styles.tableHeaderText}>{labels.colImage}</Text></View>
       <View style={styles.colQty}><Text style={styles.tableHeaderText}>{labels.colQty}</Text></View>
@@ -951,13 +982,34 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
 
         {discountValue > 0 ? (
           <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 4, paddingRight: 4 }}>
-            <Text style={{ fontSize: 8, marginRight: 8, lineHeight: 1.4, width: 60, textAlign: 'right' }}>Discount:</Text>
+            <Text
+              style={{
+                fontSize: 8,
+                marginRight: 8,
+                lineHeight: 1.4,
+                width: locale === 'en' ? 92 : 60,
+                textAlign: 'right',
+              }}
+              wrap={false}
+            >
+              Discount:
+            </Text>
             <Text style={{ fontSize: 8, lineHeight: 1.4, width: 90, textAlign: 'right' }}>HK${discountValue.toLocaleString()}</Text>
           </View>
         ) : null}
 
         <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 2, paddingRight: 4, alignItems: 'flex-end' }}>
-          <Text style={{ ...styles.totalLabel, width: 60, textAlign: 'right', marginRight: 8 }}>{labels.grandTotal}:</Text>
+          <Text
+            style={{
+              ...styles.totalLabel,
+              width: locale === 'en' ? 92 : 60,
+              textAlign: 'right',
+              marginRight: 8,
+            }}
+            wrap={false}
+          >
+            {labels.grandTotal}:
+          </Text>
           <View style={{ borderBottomWidth: 1, borderBottomColor: TABLE_BORDER, minWidth: 90, paddingBottom: 1 }}>
             <Text style={{ ...styles.totalValue, width: 90, textAlign: 'right' }}>HK${grandTotal.toLocaleString()}</Text>
           </View>
