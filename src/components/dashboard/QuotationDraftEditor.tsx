@@ -1073,7 +1073,7 @@ function QuoteCustomTermCard({
             <input
               type="text"
               value={item.name || ""}
-              placeholder="輸入額外增值服務（例如：清拆、拆裝舊家私等）..."
+              placeholder={labels.valueServicePlaceholder}
               onChange={(e) => updateItem(item.id, "name", e.target.value)}
               className={QUOTE_INPUT_CLASS}
             />
@@ -1582,7 +1582,7 @@ export function QuotationDraftEditor({
       {
         id: generateId(),
         image: "",
-        name: "",
+        name: quoteLocale === 'en' ? t.defaultValueServiceName : "",
         costPrice: null,
         exchangeRate: null,
         hkdCostPrice: null,

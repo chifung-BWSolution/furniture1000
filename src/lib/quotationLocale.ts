@@ -30,6 +30,8 @@ export const QUOTE_UI = {
     optionalProduct: '可選產品',
     hkdSubtotal: 'HKD$小計',
     valueServiceDesc: '增值服務說明',
+    valueServicePlaceholder: '輸入額外增值服務（例如：清拆、拆裝舊家私等）...',
+    defaultValueServiceName: '運輸安裝費用 (包含清理傢俬包裝垃圾)',
     priceMultiplier: '單價規則：成本倍率',
     apply: '套用',
     grandTotal: '合計',
@@ -66,6 +68,10 @@ export const QUOTE_UI = {
     optionalProduct: 'Optional Product',
     hkdSubtotal: 'HKD$ Subtotal',
     valueServiceDesc: 'Value-added Service Description',
+    valueServicePlaceholder:
+      'Enter additional value-added services (e.g. dismantling, removal of old furniture)...',
+    defaultValueServiceName:
+      'Furniture Installation (Fee Installation of furniture items listed in the order and disposal of all packaging waste)',
     priceMultiplier: 'Unit Price Rule: Cost Multiplier',
     apply: 'Apply',
     grandTotal: 'Total',
