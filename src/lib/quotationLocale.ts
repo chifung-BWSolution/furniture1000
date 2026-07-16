@@ -2,6 +2,12 @@
 
 export type QuoteLocale = 'zh' | 'en';
 
+/** Branding Works company address defaults by locale. */
+export const DEFAULT_COMPANY_ADDRESS = {
+  zh: '香港荃灣青山公路459-469號華力工業中心5字樓D-G室',
+  en: '5/F, Units D-G, Wah Lik Industrial Centre, 459-469 Castle Peak Road, Tsuen Wan, Hong Kong',
+} as const;
+
 export const QUOTE_UI = {
   zh: {
     previewPdf: '預覽 PDF',

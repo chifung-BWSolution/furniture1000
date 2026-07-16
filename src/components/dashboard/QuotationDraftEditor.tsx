@@ -73,6 +73,7 @@ import {
   type QuoteUiLabels,
   quoteUi,
   quotePdf,
+  DEFAULT_COMPANY_ADDRESS,
 } from "@/lib/quotationLocale";
 import {
   DEFAULT_QUOTATION_DELIVERY_DETAILS_EN,
@@ -1330,6 +1331,7 @@ export function QuotationDraftEditor({
     | {
         name?: string;
         address?: string;
+        addressEn?: string;
         phone?: string;
         email?: string;
         website?: string;
@@ -1378,12 +1380,12 @@ export function QuotationDraftEditor({
   const [collapseClient, setCollapseClient] = useState(true);
   const [collapseQuoteMeta, setCollapseQuoteMeta] = useState(true);
 
-  // Company info (editable)
+  // Company info (editable) — address / addressEn keep separate zh & en defaults;
+  // after the user edits and saves, the saved value becomes the latest for that locale.
   const [companyInfo, setCompanyInfo] = useState({
     name: savedCompanyInfo?.name || formData.company || "Branding Works Design Ltd",
-    address:
-      savedCompanyInfo?.address ||
-      "香港荃灣青山公路459-469號華力工業中心5字樓D-G室",
+    address: savedCompanyInfo?.address || DEFAULT_COMPANY_ADDRESS.zh,
+    addressEn: savedCompanyInfo?.addressEn || DEFAULT_COMPANY_ADDRESS.en,
     phone: savedCompanyInfo?.phone || "51634839/ 97173545",
     email: savedCompanyInfo?.email || "sales@brandingworks-furniture.com",
     website: savedCompanyInfo?.website || "www.brandingworks-furniture.com",
@@ -1807,7 +1809,18 @@ export function QuotationDraftEditor({
         }
         // Hydrate state from the cached draft
         if (cached.companyInfo) {
-          setCompanyInfo(cached.companyInfo as typeof companyInfo);
+          const cachedCompany = cached.companyInfo as Partial<typeof companyInfo>;
+          setCompanyInfo({
+            name:
+              cachedCompany.name ||
+              formData.company ||
+              "Branding Works Design Ltd",
+            address: cachedCompany.address || DEFAULT_COMPANY_ADDRESS.zh,
+            addressEn: cachedCompany.addressEn || DEFAULT_COMPANY_ADDRESS.en,
+            phone: cachedCompany.phone || "51634839/ 97173545",
+            email: cachedCompany.email || "sales@brandingworks-furniture.com",
+            website: cachedCompany.website || "www.brandingworks-furniture.com",
+          });
         }
         if (cached.clientInfo) {
           setClientInfo(cached.clientInfo as typeof clientInfo);
@@ -2117,7 +2130,10 @@ export function QuotationDraftEditor({
     if (quoteLocale === 'en') {
       const pdfLabels = quotePdf('en');
       return {
-        companyInfo,
+        companyInfo: {
+          ...companyInfo,
+          address: companyInfo.addressEn || DEFAULT_COMPANY_ADDRESS.en,
+        },
         clientInfo,
         quoteMeta: {
           ...quoteMeta,
@@ -2175,7 +2191,13 @@ export function QuotationDraftEditor({
 
     return {
     // gpSummary (Contract Sum / Cost / Ship / Installation / GP) is editor-only — excluded here.
-    companyInfo,
+    companyInfo: {
+      name: companyInfo.name,
+      address: companyInfo.address,
+      phone: companyInfo.phone,
+      email: companyInfo.email,
+      website: companyInfo.website,
+    },
     clientInfo,
     quoteMeta: {
       ...quoteMeta,
@@ -2254,12 +2276,17 @@ export function QuotationDraftEditor({
                     地址
                   </label>
                   <textarea
-                    value={companyInfo.address}
+                    value={
+                      quoteLocale === 'en'
+                        ? companyInfo.addressEn
+                        : companyInfo.address
+                    }
                     onChange={(e) =>
-                      setCompanyInfo((p) => ({
-                        ...p,
-                        address: e.target.value,
-                      }))
+                      setCompanyInfo((p) =>
+                        quoteLocale === 'en'
+                          ? { ...p, addressEn: e.target.value }
+                          : { ...p, address: e.target.value },
+                      )
                     }
                     rows={2}
                     className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
