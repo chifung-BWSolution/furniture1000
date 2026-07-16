@@ -522,23 +522,8 @@ function renderSubtotalPdfCell(
 ) {
   if (item?.isOptional) {
     return (
-      <View
-        style={{
-          ...styles.colSubtotal,
-          flexDirection: 'row',
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
-        <Text style={{ ...styles.tableCellText, marginRight: 4 }}>{labels.optionalProduct}</Text>
-        <View
-          style={{
-            width: 10,
-            height: 10,
-            borderWidth: 1.5,
-            borderColor: '#000',
-          }}
-        />
+      <View style={styles.colSubtotal}>
+        <Text style={styles.tableCellText}>{labels.optionalProduct}</Text>
       </View>
     );
   }
