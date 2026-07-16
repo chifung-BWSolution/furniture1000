@@ -32,14 +32,12 @@ ON CONFLICT (id) DO NOTHING;
 
 -- project_invitations
 INSERT INTO project_invitations (id, project_id, channel, email, share_token, status, viewed_at, created_at) VALUES
-  ('cccccccc-0000-0000-0000-000000000001', '11111111-1111-1111-1111-111111111111', 'email', 'chan@hsbc.com', 'tok_a1b2c3', 'viewed', '2026-05-29T11:00:00Z', '2026-05-28T09:00:00Z'),
-  ('cccccccc-0000-0000-0000-000000000002', '11111111-1111-1111-1111-111111111111', 'email', 'project@hsbc.com', 'tok_d4e5f6', 'sent', NULL, '2026-05-30T09:00:00Z'),
   ('cccccccc-0000-0000-0000-000000000003', '11111111-1111-1111-1111-111111111111', 'link', NULL, 'tok_g7h8i9', 'viewed', '2026-06-01T16:30:00Z', '2026-05-31T09:00:00Z')
 ON CONFLICT (id) DO NOTHING;
 
--- client_companies
+-- client_companies (no contact_email — avoids seeding mock users into 用戶管理)
 INSERT INTO client_companies (id, name, contact_person, contact_email, contact_phone, address, created_at, updated_at) VALUES
-  ('dddddddd-0000-0000-0000-000000000001', '匯豐銀行（香港）', '陳大文', 'chan@hsbc.com', '+852 2822 1111', '香港中環皇后大道中 1 號', '2026-01-10T09:00:00Z', '2026-05-20T09:00:00Z')
+  ('dddddddd-0000-0000-0000-000000000001', '匯豐銀行（香港）', '陳大文', NULL, '+852 2822 1111', '香港中環皇后大道中 1 號', '2026-01-10T09:00:00Z', '2026-05-20T09:00:00Z')
 ON CONFLICT (id) DO NOTHING;
 
 -- product_discussions

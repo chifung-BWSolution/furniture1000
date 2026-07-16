@@ -14,6 +14,12 @@ const ADMIN_EMAILS = new Set([
   "chifung.login@gmail.com",
 ]);
 
+/** Seed / demo client emails — never surface in 用戶管理. */
+const EXCLUDED_PLATFORM_EMAILS = new Set([
+  "project@hsbc.com",
+  "chan@hsbc.com",
+]);
+
 type UserRole = "admin" | "uploader" | "pm" | "designer" | "client";
 type LogType = "login" | "logout" | "failed" | "edit" | "publish";
 
@@ -132,6 +138,7 @@ async function syncProfiles(
   const upserts: Record<string, unknown>[] = [];
 
   for (const [email, pms] of pmsUsers) {
+    if (EXCLUDED_PLATFORM_EMAILS.has(email)) continue;
     const prev = existingByEmail.get(email);
     const auth = pms.auth_user_id ? authMeta.get(pms.auth_user_id) : undefined;
     const lastLogin = auth?.last_login_at ?? prev?.last_login_at ?? null;
@@ -151,7 +158,7 @@ async function syncProfiles(
 
   for (const client of clientEmails) {
     const email = normalizeEmail(client.email);
-    if (!email || pmsUsers.has(email)) continue;
+    if (!email || pmsUsers.has(email) || EXCLUDED_PLATFORM_EMAILS.has(email)) continue;
     const prev = existingByEmail.get(email);
     upserts.push({
       email,
@@ -178,7 +185,18 @@ async function syncProfiles(
     .select("*")
     .order("display_name", { ascending: true });
   if (mergedErr) throw new Error(`profiles reload failed: ${mergedErr.message}`);
-  return (merged ?? []) as ProfileRow[];
+
+  // Drop excluded mock emails if they still exist from older syncs.
+  const excludedIds = (merged ?? [])
+    .filter((row) => EXCLUDED_PLATFORM_EMAILS.has(normalizeEmail(row.email) ?? ""))
+    .map((row) => row.id);
+  if (excludedIds.length > 0) {
+    await furnitureAdmin.from("platform_user_profiles").delete().in("id", excludedIds);
+  }
+
+  return ((merged ?? []) as ProfileRow[]).filter(
+    (row) => !EXCLUDED_PLATFORM_EMAILS.has(normalizeEmail(row.email) ?? ""),
+  );
 }
 
 type LoginLog = {
