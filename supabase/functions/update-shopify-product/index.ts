@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { containsSimplifiedChinese, simplifiedToTraditional } from "../_shared/chineseConverter.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -2058,6 +2059,119 @@ async function repairMetafieldsForProducts(
   return { repaired, failed, skipped, errors, results };
 }
 
+const TRADITIONAL_TEXT_MIRROR_COLS = [
+  "shopify_page_description",
+  "shopify_page_title",
+  "body_html",
+  "my_fields.materials",
+] as const;
+
+function convertMirrorTextField(value: unknown): string | null {
+  if (value == null) return null;
+  const text = String(value);
+  if (!text.trim() || !containsSimplifiedChinese(text)) return null;
+  const converted = simplifiedToTraditional(text);
+  return converted !== text ? converted : null;
+}
+
+function buildTraditionalChinesePatch(row: Record<string, unknown>): Record<string, string> {
+  const patch: Record<string, string> = {};
+  for (const col of TRADITIONAL_TEXT_MIRROR_COLS) {
+    const converted = convertMirrorTextField(row[col]);
+    if (converted != null) patch[col] = converted;
+  }
+  return patch;
+}
+
+/** Scan mirror text fields for simplified Chinese, update DB, optionally push to Shopify. */
+async function convertSimplifiedChineseInMirror(
+  supabase: ReturnType<typeof createClient>,
+  shopDomain: string,
+  shopifyToken: string,
+  shopifyProductIds?: string[],
+  options?: { push_to_shopify?: boolean },
+) {
+  let query = supabase.from("shopify_products").select("*").is("configurable", null);
+  if (shopifyProductIds?.length) {
+    const ids = shopifyProductIds.map(String).filter((id) => /^\d+$/.test(id));
+    if (ids.length === 0) {
+      return {
+        converted: 0,
+        skipped: 0,
+        failed: 0,
+        pushed: 0,
+        push_failed: 0,
+        errors: [] as { shopify_product_id: string; error: string }[],
+        results: [] as {
+          shopify_product_id: string;
+          action: "converted" | "skipped" | "failed";
+          fields?: string[];
+          error?: string;
+        }[],
+      };
+    }
+    query = query.in("shopify_product_id", ids);
+  }
+
+  const { data: rows, error: fetchErr } = await query;
+  if (fetchErr) throw new Error(fetchErr.message);
+  const mirrorRows = (rows || []) as Record<string, unknown>[];
+
+  let converted = 0;
+  let skipped = 0;
+  let failed = 0;
+  const errors: { shopify_product_id: string; error: string }[] = [];
+  const results: {
+    shopify_product_id: string;
+    action: "converted" | "skipped" | "failed";
+    fields?: string[];
+    error?: string;
+  }[] = [];
+  const changedRows: Record<string, unknown>[] = [];
+
+  for (const row of mirrorRows) {
+    const sid = String(row.shopify_product_id || "");
+    const patch = buildTraditionalChinesePatch(row);
+    if (Object.keys(patch).length === 0) {
+      skipped++;
+      results.push({ shopify_product_id: sid, action: "skipped" });
+      continue;
+    }
+
+    const { error: updErr } = await supabase
+      .from("shopify_products")
+      .update(patch)
+      .eq("shopify_product_id", sid);
+    if (updErr) {
+      failed++;
+      if (errors.length < 20) errors.push({ shopify_product_id: sid, error: updErr.message });
+      results.push({ shopify_product_id: sid, action: "failed", error: updErr.message });
+      continue;
+    }
+
+    converted++;
+    changedRows.push({ ...row, ...patch });
+    results.push({
+      shopify_product_id: sid,
+      action: "converted",
+      fields: Object.keys(patch),
+    });
+  }
+
+  let pushed = 0;
+  let push_failed = 0;
+  if (options?.push_to_shopify !== false && changedRows.length > 0) {
+    const pushStats = await pushMirrorRows(supabase, shopDomain, shopifyToken, changedRows);
+    pushed = pushStats.pushed;
+    push_failed = pushStats.failed;
+    for (const e of pushStats.errors) {
+      if (errors.length < 20) errors.push(e);
+    }
+  }
+
+  return { converted, skipped, failed, pushed, push_failed, errors, results };
+}
+
 const MIRROR_PUSH_CONCURRENCY = 5;
 
 /** Push mirror rows to Shopify (existing products only — never creates). */
@@ -2122,6 +2236,8 @@ async function pushMirrorRows(
  * Push selected mirror rows: POST { shopify_product_ids: string[] }
  * Batch push all mirror rows: POST { push_all_from_mirror: true }
  * Repair core metafields from source data: POST { repair_metafields: true, shopify_product_ids?: string[] }
+ * Convert simplified Chinese → HK traditional in mirror text fields:
+ *   POST { convert_simplified_to_traditional: true, shopify_product_ids?: string[], push_to_shopify?: boolean }
  */
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
@@ -2149,6 +2265,8 @@ Deno.serve(async (req: Request) => {
       push_all_from_mirror?: boolean;
       push_from_mirror?: boolean;
       repair_metafields?: boolean;
+      convert_simplified_to_traditional?: boolean;
+      push_to_shopify?: boolean;
       shopify_product_ids?: string[];
       shopify_product_id?: string;
       source_product_id?: string;
@@ -2167,6 +2285,25 @@ Deno.serve(async (req: Request) => {
       seo_title?: string;
       seo_description?: string;
     };
+
+    if (body.convert_simplified_to_traditional) {
+      const ids = Array.isArray(body.shopify_product_ids)
+        ? body.shopify_product_ids.map(String).filter((id) => /^\d+$/.test(id))
+        : undefined;
+      const stats = await convertSimplifiedChineseInMirror(
+        supabase,
+        shopDomain,
+        shopifyToken,
+        ids,
+        { push_to_shopify: body.push_to_shopify !== false },
+      );
+      return json({
+        success: stats.failed === 0 && stats.push_failed === 0,
+        mode: "convert_simplified_to_traditional",
+        ...stats,
+        ...(ids ? { requested: ids.length } : { scope: "all_mirror_rows" }),
+      });
+    }
 
     if (body.repair_metafields) {
       const ids = Array.isArray(body.shopify_product_ids)
