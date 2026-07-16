@@ -1158,51 +1158,6 @@ export function QuickQuoteView({
                   <p className="mt-1.5 text-xs text-red-500">{errors.serviceScope}</p>
                 )}
               </div>
-
-              {/* Project Specifications */}
-              <div className="space-y-5 pt-2">
-                <h3 className="font-body text-sm font-semibold text-foreground">專案資料</h3>
-
-                {/* Office Area */}
-                <div>
-                  <label className="mb-1.5 block font-body text-sm font-medium text-foreground">
-                    辦公空間面積 (坪)
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.officeArea}
-                    onChange={(e) => updateField('officeArea', e.target.value)}
-                    placeholder="請輸入辦公空間面積 (坪)"
-                    className={cn(
-                      'w-full rounded-lg border bg-background px-4 py-2.5 font-body text-sm text-foreground placeholder:text-muted-foreground/60 transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20',
-                      errors.officeArea ? 'border-red-500' : 'border-border'
-                    )}
-                  />
-                  {errors.officeArea && (
-                    <p className="mt-1 text-xs text-red-500">{errors.officeArea}</p>
-                  )}
-                </div>
-
-                {/* Headcount */}
-                <div>
-                  <label className="mb-1.5 block font-body text-sm font-medium text-foreground">
-                    使用人數 (人)
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.headcount}
-                    onChange={(e) => updateField('headcount', e.target.value)}
-                    placeholder="請輸入使用人數 (人)"
-                    className={cn(
-                      'w-full rounded-lg border bg-background px-4 py-2.5 font-body text-sm text-foreground placeholder:text-muted-foreground/60 transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20',
-                      errors.headcount ? 'border-red-500' : 'border-border'
-                    )}
-                  />
-                  {errors.headcount && (
-                    <p className="mt-1 text-xs text-red-500">{errors.headcount}</p>
-                  )}
-                </div>
-              </div>
             </div>
           )}
 
@@ -1295,17 +1250,11 @@ export function QuickQuoteView({
                       {formData.clientName || '—'}
                     </span>
                   </div>
-                  <div>
-                    <span className="block font-body text-xs text-white/50">面積</span>
-                    <span className="mt-0.5 block font-mono-data text-sm text-white/90">
-                      {formData.officeArea ? `${formData.officeArea} 坪` : '—'}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="block font-body text-xs text-white/50">服務項目</span>
+                  <div className="col-span-2">
+                    <span className="block font-body text-xs text-white/50">辦公室傢俬類別</span>
                     <span className="mt-0.5 block font-mono-data text-sm text-white/90">
                       {formData.serviceScope.length > 0
-                        ? `${formData.serviceScope.length} 項`
+                        ? formData.serviceScope.join('、')
                         : '—'}
                     </span>
                   </div>
