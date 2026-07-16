@@ -1,36 +1,20 @@
-/** Chinese section ordinals for quotation titles: 一、二、三… */
+/** Section title ordinals for quotation headings: 1. 2. 3. … */
 
-const CN_DIGITS = ['零', '一', '二', '三', '四', '五', '六', '七', '八', '九'] as const;
-
-/** Convert 1-based index to Chinese numeral (supports 1–99). */
-export function toChineseSectionOrdinal(n: number): string {
-  const num = Math.floor(n);
-  if (!Number.isFinite(num) || num < 1) return '';
-  if (num <= 10) {
-    return num === 10 ? '十' : CN_DIGITS[num];
-  }
-  if (num < 20) return `十${CN_DIGITS[num - 10]}`;
-  if (num < 100) {
-    const tens = Math.floor(num / 10);
-    const ones = num % 10;
-    return `${CN_DIGITS[tens]}十${ones === 0 ? '' : CN_DIGITS[ones]}`;
-  }
-  return String(num);
-}
-
-/** Display prefix matching Excel template, e.g. 「一、」. */
+/** Display prefix, e.g. 「1.」. */
 export function sectionTitlePrefix(ordinal1Based: number): string {
-  const cn = toChineseSectionOrdinal(ordinal1Based);
-  return cn ? `${cn}、` : '';
+  const num = Math.floor(ordinal1Based);
+  if (!Number.isFinite(num) || num < 1) return '';
+  return `${num}.`;
 }
 
-/** Full PDF/editor label: 「一、開放區」. */
+/** Full PDF/editor label: 「1.開放區」. */
 export function formatSectionTitleLabel(
   ordinal1Based: number,
   titleText: string,
 ): string {
   const body = titleText.trim();
   const prefix = sectionTitlePrefix(ordinal1Based);
+  if (!prefix) return body;
   return body ? `${prefix}${body}` : prefix;
 }
 

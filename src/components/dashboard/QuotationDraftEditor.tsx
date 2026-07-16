@@ -189,12 +189,14 @@ function QuoteRowDragHandle({
 }) {
   return (
     <div className="flex flex-col items-center gap-0.5">
-      <span
-        className="font-display text-sm font-semibold tabular-nums leading-none text-foreground/75"
-        aria-hidden
-      >
-        {serialLabel ?? serialNumber}
-      </span>
+      {(serialLabel != null && serialLabel !== '') || serialNumber != null ? (
+        <span
+          className="font-display text-sm font-semibold tabular-nums leading-none text-foreground/75"
+          aria-hidden
+        >
+          {serialLabel ?? serialNumber}
+        </span>
+      ) : null}
       <button
         type="button"
         draggable
@@ -1199,7 +1201,6 @@ function QuoteSectionTitleCard({
         <div className="shrink-0">
           <QuoteRowDragHandle
             itemId={item.id}
-            serialLabel={prefix.replace(/、$/, "") || String(ordinal)}
             onDragStart={onDragStart}
             onDragEnd={onDragEnd}
           />
