@@ -21,40 +21,87 @@ let cachedModule: ReactPdfModule | null = null;
 let loadPromise: Promise<ReactPdfModule> | null = null;
 let fontRegistered = false;
 
-// Primary: the FULL Google Noto Sans TC static TTF (~6.8MB each weight).
-// IMPORTANT: do NOT use the fontsource "language subset" builds
-// (…/noto-sans-tc@latest/chinese-traditional-400-normal.ttf or the HK subset) —
-// those subsets are MISSING HK/Cantonese Han glyphs such as 枱 (U+67B1), which then
-// render as a wrong glyph (e.g. ±) in the PDF. The full gstatic TTF below contains
-// 枱 and the complete Traditional Chinese repertoire (verified by cmap inspection).
-const NOTO_SANS_TC_REGULAR = 'https://fonts.gstatic.com/s/notosanstc/v39/-nFuOG829Oofr2wohFbTp9ifNAn722rq0MXz76Cy_Co.ttf';
-const NOTO_SANS_TC_BOLD = 'https://fonts.gstatic.com/s/notosanstc/v39/-nFuOG829Oofr2wohFbTp9ifNAn722rq0MXz70e1_Co.ttf';
-// Noto Sans JP — fallback for JP-variant Han (e.g. 顔 U+9854) missing from TC in react-pdf.
-const NOTO_SANS_JP_REGULAR =
-  'https://fonts.gstatic.com/s/notosansjp/v56/-F6jfjtqLzI2JPCgQBnw7HFyzSD-AsregP8VFBEj75s.ttf';
-const NOTO_SANS_JP_BOLD =
-  'https://fonts.gstatic.com/s/notosansjp/v56/-F6jfjtqLzI2JPCgQBnw7HFyzSD-AsregP8VFPYk75s.ttf';
-// Noto Sans HK — third fallback; HK Traditional coverage similar to local 微軟正黑體 (OFL, embeddable).
-const NOTO_SANS_HK_REGULAR =
-  'https://fonts.gstatic.com/s/notosanshk/v35/nKKF-GM_FYFRJvXzVXaAPe97P1KHynJFP716qHB--oU.ttf';
-const NOTO_SANS_HK_BOLD =
-  'https://fonts.gstatic.com/s/notosanshk/v35/nKKF-GM_FYFRJvXzVXaAPe97P1KHynJFP716qJd5-oU.ttf';
-// Noto Sans SC (gstatic TTF) — fourth fallback; old /ea/… .otf URLs return 404.
-const NOTO_SANS_SC_REGULAR =
-  'https://fonts.gstatic.com/s/notosanssc/v40/k3kCo84MPvpLmixcA63oeAL7Iqp5IZJF9bmaG9_FnYw.ttf';
-const NOTO_SANS_SC_BOLD =
-  'https://fonts.gstatic.com/s/notosanssc/v40/k3kCo84MPvpLmixcA63oeAL7Iqp5IZJF9bmaGzjCnYw.ttf';
-
 /**
- * Per-glyph fallback chain (react-pdf 4+): array form — comma strings are treated as one family name.
+ * Full Noto Sans TC/HK static TTFs (not language-subset builds).
+ * Subsets miss HK glyphs such as 枱 (U+67B1).
+ *
+ * Load order (China / non-Chrome friendly):
+ * 1) Same-origin self-hosted files under /fonts/pdf/ (works if the app itself loads)
+ * 2) jsDelivr npm mirror (often reachable when fonts.gstatic.com is blocked)
+ * 3) Google Fonts gstatic (last resort)
  */
-const PDF_FONT_FAMILY = ['NotoSansTC', 'NotoSansJP', 'NotoSansHK', 'NotoSansSC'] as const;
+type PdfFontFace = {
+  family: 'NotoSansTC' | 'NotoSansHK';
+  weight: 400 | 700;
+  localPath: string;
+  mirrors: string[];
+};
 
-const FONT_FETCH_TIMEOUT_MS = 25_000;
+/** jsDelivr serves the same self-hosted TTFs from GitHub when gstatic is blocked (e.g. CN). */
+const PDF_FONT_CDN_BASE =
+  'https://cdn.jsdelivr.net/gh/chifung-BWSolution/furniture1000@main/public/fonts/pdf';
+
+const PDF_FONT_FACES: PdfFontFace[] = [
+  {
+    family: 'NotoSansTC',
+    weight: 400,
+    localPath: '/fonts/pdf/NotoSansTC-Regular.ttf',
+    mirrors: [
+      `${PDF_FONT_CDN_BASE}/NotoSansTC-Regular.ttf`,
+      'https://fonts.gstatic.com/s/notosanstc/v39/-nFuOG829Oofr2wohFbTp9ifNAn722rq0MXz76Cy_Co.ttf',
+    ],
+  },
+  {
+    family: 'NotoSansTC',
+    weight: 700,
+    localPath: '/fonts/pdf/NotoSansTC-Bold.ttf',
+    mirrors: [
+      `${PDF_FONT_CDN_BASE}/NotoSansTC-Bold.ttf`,
+      'https://fonts.gstatic.com/s/notosanstc/v39/-nFuOG829Oofr2wohFbTp9ifNAn722rq0MXz70e1_Co.ttf',
+    ],
+  },
+  {
+    family: 'NotoSansHK',
+    weight: 400,
+    localPath: '/fonts/pdf/NotoSansHK-Regular.ttf',
+    mirrors: [
+      `${PDF_FONT_CDN_BASE}/NotoSansHK-Regular.ttf`,
+      'https://fonts.gstatic.com/s/notosanshk/v35/nKKF-GM_FYFRJvXzVXaAPe97P1KHynJFP716qHB--oU.ttf',
+    ],
+  },
+  {
+    family: 'NotoSansHK',
+    weight: 700,
+    localPath: '/fonts/pdf/NotoSansHK-Bold.ttf',
+    mirrors: [
+      `${PDF_FONT_CDN_BASE}/NotoSansHK-Bold.ttf`,
+      'https://fonts.gstatic.com/s/notosanshk/v35/nKKF-GM_FYFRJvXzVXaAPe97P1KHynJFP716qJd5-oU.ttf',
+    ],
+  },
+];
+
+/** Per-glyph fallback chain (react-pdf 4+): array form — comma strings are one family name. */
+const PDF_FONT_FAMILY = ['NotoSansTC', 'NotoSansHK'] as const;
+
+const FONT_FETCH_TIMEOUT_MS = 30_000;
 const PDF_RENDER_TIMEOUT_MS = 90_000;
 
-/** Cached blob: URLs for font files — avoids re-downloading ~50MB on every preview. */
+/** Cached blob: URLs for font files — avoids re-downloading on every preview. */
 const fontBlobUrlCache = new Map<string, string>();
+
+function fontErrorMessage(err: unknown): string {
+  const raw = err instanceof Error ? err.message : String(err);
+  if (/abort|timeout|timed out/i.test(raw)) {
+    return 'PDF 字體下載逾時。請檢查網絡後重試（字體已改為優先從本站載入，不依賴 Google）。';
+  }
+  if (/Failed to fetch|NetworkError|load failed|Font HTTP/i.test(raw)) {
+    return '無法載入 PDF 中文字體。請確認可連上本站，或稍後重試。';
+  }
+  if (/Font family not registered/i.test(raw)) {
+    return 'PDF 字體尚未註冊完成，請按「重試」重新載入字體。';
+  }
+  return raw || 'PDF 字體載入失敗';
+}
 
 async function fetchFontBlobUrl(url: string): Promise<string> {
   const cached = fontBlobUrlCache.get(url);
@@ -66,6 +113,7 @@ async function fetchFontBlobUrl(url: string): Promise<string> {
     const res = await fetch(url, { signal: controller.signal });
     if (!res.ok) throw new Error(`Font HTTP ${res.status}`);
     const blob = await res.blob();
+    if (!blob.size) throw new Error('Font file empty');
     const objectUrl = URL.createObjectURL(blob);
     fontBlobUrlCache.set(url, objectUrl);
     return objectUrl;
@@ -74,47 +122,42 @@ async function fetchFontBlobUrl(url: string): Promise<string> {
   }
 }
 
-async function registerPdfFonts(mod: ReactPdfModule): Promise<void> {
-  const [tcRegular, tcBold, jpRegular, jpBold, hkRegular, hkBold, scRegular, scBold] =
-    await Promise.all([
-      fetchFontBlobUrl(NOTO_SANS_TC_REGULAR),
-      fetchFontBlobUrl(NOTO_SANS_TC_BOLD),
-      fetchFontBlobUrl(NOTO_SANS_JP_REGULAR),
-      fetchFontBlobUrl(NOTO_SANS_JP_BOLD),
-      fetchFontBlobUrl(NOTO_SANS_HK_REGULAR),
-      fetchFontBlobUrl(NOTO_SANS_HK_BOLD),
-      fetchFontBlobUrl(NOTO_SANS_SC_REGULAR),
-      fetchFontBlobUrl(NOTO_SANS_SC_BOLD),
-    ]);
+/** Try same-origin first, then mirrors (jsDelivr → gstatic). */
+async function resolveFontBlobUrl(face: PdfFontFace): Promise<string> {
+  const candidates = [face.localPath, ...face.mirrors];
+  let lastError: unknown;
+  for (const url of candidates) {
+    try {
+      return await fetchFontBlobUrl(url);
+    } catch (err) {
+      lastError = err;
+      console.warn(`[PDF font] failed ${url}:`, err);
+    }
+  }
+  throw lastError instanceof Error
+    ? lastError
+    : new Error(`無法載入字型 ${face.family} (${face.weight})`);
+}
 
-  mod.Font.register({
-    family: 'NotoSansTC',
-    fonts: [
-      { src: tcRegular, fontWeight: 400 },
-      { src: tcBold, fontWeight: 700 },
-    ],
-  });
-  mod.Font.register({
-    family: 'NotoSansJP',
-    fonts: [
-      { src: jpRegular, fontWeight: 400 },
-      { src: jpBold, fontWeight: 700 },
-    ],
-  });
-  mod.Font.register({
-    family: 'NotoSansHK',
-    fonts: [
-      { src: hkRegular, fontWeight: 400 },
-      { src: hkBold, fontWeight: 700 },
-    ],
-  });
-  mod.Font.register({
-    family: 'NotoSansSC',
-    fonts: [
-      { src: scRegular, fontWeight: 400 },
-      { src: scBold, fontWeight: 700 },
-    ],
-  });
+async function registerPdfFonts(mod: ReactPdfModule): Promise<void> {
+  const resolved = await Promise.all(
+    PDF_FONT_FACES.map(async (face) => ({
+      face,
+      src: await resolveFontBlobUrl(face),
+    })),
+  );
+
+  const byFamily = new Map<string, { src: string; fontWeight: number }[]>();
+  for (const { face, src } of resolved) {
+    const list = byFamily.get(face.family) ?? [];
+    list.push({ src, fontWeight: face.weight });
+    byFamily.set(face.family, list);
+  }
+
+  for (const [family, fonts] of byFamily) {
+    mod.Font.register({ family, fonts });
+  }
+
   mod.Font.registerHyphenationCallback((word: string) => {
     const cjk = /[\u3000-\u30FF\u3400-\u9FFF\uF900-\uFAFF\uFF00-\uFFEF]/;
     if (!cjk.test(word)) return [word];
@@ -136,46 +179,89 @@ async function registerPdfFonts(mod: ReactPdfModule): Promise<void> {
   });
 }
 
+/** Clear failed/partial state so Retry can re-download and re-register fonts. */
+function resetPdfLoaderState(mod?: ReactPdfModule | null) {
+  try {
+    mod?.Font?.clear?.();
+  } catch {
+    /* ignore */
+  }
+  fontRegistered = false;
+  cachedModule = null;
+  loadPromise = null;
+}
+
 async function loadReactPdfModule(): Promise<ReactPdfModule> {
-  if (cachedModule) return cachedModule;
+  if (cachedModule && fontRegistered) return cachedModule;
   if (loadPromise) return loadPromise;
 
   loadPromise = (async () => {
-    const mod = await import('@react-pdf/renderer');
-    cachedModule = mod;
-    if (!fontRegistered) {
-      try {
+    try {
+      const mod = await import('@react-pdf/renderer');
+      if (!fontRegistered) {
         await registerPdfFonts(mod);
         fontRegistered = true;
         console.log('PDF fonts registered successfully');
-      } catch (e) {
-        console.warn('Failed to register PDF fonts:', e);
-        throw e instanceof Error ? e : new Error('PDF 字體載入失敗');
       }
+      cachedModule = mod;
+      return mod;
+    } catch (e) {
+      // Do not keep a half-ready module cached — Retry must start clean.
+      resetPdfLoaderState(cachedModule);
+      console.warn('Failed to load PDF renderer/fonts:', e);
+      throw new Error(fontErrorMessage(e));
     }
-    return mod;
   })();
 
-  return loadPromise;
+  try {
+    return await loadPromise;
+  } finally {
+    // If this attempt failed, allow the next call to create a new promise.
+    if (!fontRegistered) loadPromise = null;
+  }
 }
 
-function useReactPdf() {
-  const [mod, setMod] = useState<ReactPdfModule | null>(cachedModule);
+function useReactPdf(reloadToken = 0) {
+  const [mod, setMod] = useState<ReactPdfModule | null>(
+    cachedModule && fontRegistered ? cachedModule : null,
+  );
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(!(cachedModule && fontRegistered));
 
   useEffect(() => {
-    if (cachedModule) {
+    let cancelled = false;
+
+    if (cachedModule && fontRegistered) {
       setMod(cachedModule);
+      setError(null);
+      setLoading(false);
       return;
     }
-    let cancelled = false;
-    loadReactPdfModule()
-      .then((m) => { if (!cancelled) setMod(m); })
-      .catch((err) => { if (!cancelled) setError(String(err)); });
-    return () => { cancelled = true; };
-  }, []);
 
-  return { mod, loading: !mod && !error, error };
+    setLoading(true);
+    setError(null);
+    setMod(null);
+
+    loadReactPdfModule()
+      .then((m) => {
+        if (cancelled) return;
+        setMod(m);
+        setError(null);
+        setLoading(false);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setMod(null);
+        setError(fontErrorMessage(err));
+        setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadToken]);
+
+  return { mod, loading, error };
 }
 
 // ─── HTML → PDF text helper ───────────────────────────────────────────────────
@@ -1101,11 +1187,19 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
   const [renderError, setRenderError] = useState<string | null>(null);
   const [rendering, setRendering] = useState(false);
   const [renderAttempt, setRenderAttempt] = useState(0);
+  const [fontReloadToken, setFontReloadToken] = useState(0);
   const previewUrlRef = useRef<string | null>(null);
-  const { mod: pdfMod, loading, error: moduleError } = useReactPdf();
+  const { mod: pdfMod, loading, error: moduleError } = useReactPdf(fontReloadToken);
   const labels = quotePdf(data?.locale === 'en' ? 'en' : 'zh');
 
   const dataKey = useMemo(() => JSON.stringify(data), [data]);
+
+  const handleRetryPreview = useCallback(() => {
+    setRenderError(null);
+    resetPdfLoaderState(cachedModule);
+    setFontReloadToken((n) => n + 1);
+    setRenderAttempt((n) => n + 1);
+  }, []);
 
   const buildPreviewBlob = useCallback(async () => {
     if (!pdfMod || !data) return null;
@@ -1113,7 +1207,7 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
       pdfMod.pdf(<QuotationDocument data={data} pdfMod={pdfMod} />).toBlob(),
       new Promise<never>((_, reject) => {
         window.setTimeout(
-          () => reject(new Error('PDF 生成逾時，請檢查網絡後重試或使用「下載 PDF」')),
+          () => reject(new Error('PDF 生成逾時，請檢查網絡後重試。')),
           PDF_RENDER_TIMEOUT_MS,
         );
       }),
@@ -1140,9 +1234,7 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
         setPreviewUrl(objectUrl);
       } catch (err) {
         if (!cancelled) {
-          const message =
-            err instanceof Error ? err.message : 'PDF 預覽生成失敗';
-          setRenderError(message);
+          setRenderError(fontErrorMessage(err));
         }
       } finally {
         if (!cancelled) setRendering(false);
@@ -1232,9 +1324,12 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
         {/* PDF Viewer — blob iframe (more reliable than react-pdf PDFViewer) */}
         <div className="relative flex-1 overflow-hidden rounded-b-2xl bg-neutral-800 p-4" style={{ minHeight: '800px' }}>
           {loading && (
-            <div className="flex h-full items-center justify-center text-white">
-              <Loader2 className="mr-3 h-6 w-6 animate-spin" />
-              <p>Loading PDF renderer...</p>
+            <div className="flex h-full flex-col items-center justify-center gap-2 text-white">
+              <Loader2 className="h-6 w-6 animate-spin text-indigo-400" />
+              <p className="text-sm">正在載入 PDF 字體與引擎…</p>
+              <p className="max-w-sm text-center text-xs text-neutral-400">
+                字體優先從本站載入，不依賴 Google；首次約需數秒至半分鐘
+              </p>
             </div>
           )}
           {combinedError && !loading && (
@@ -1244,7 +1339,7 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
               <p className="max-w-md text-center text-xs text-neutral-400">{combinedError}</p>
               <button
                 type="button"
-                onClick={() => setRenderAttempt((n) => n + 1)}
+                onClick={handleRetryPreview}
                 className="mt-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
               >
                 重試
@@ -1255,7 +1350,7 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
             <div className="absolute inset-4 z-10 flex flex-col items-center justify-center rounded-lg bg-neutral-800/95 text-white gap-3">
               <Loader2 className="h-8 w-8 animate-spin text-indigo-400" />
               <p className="text-sm font-medium">正在生成 PDF 預覽...</p>
-              <p className="text-xs text-neutral-400">首次載入字體可能需要 10–30 秒</p>
+              <p className="text-xs text-neutral-400">字體已就緒，正在排版文件</p>
             </div>
           )}
           {previewUrl && !combinedError && (

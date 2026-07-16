@@ -7,7 +7,7 @@
     }
   ],
   "rewrites": [
-    { "source": "/((?!assets/).*)", "destination": "/index.html" }
+    { "source": "/((?!assets/|fonts/).*)", "destination": "/index.html" }
   ],
   "headers": [
     {
@@ -16,6 +16,15 @@
         {
           "key": "Permissions-Policy",
           "value": "clipboard-read=(*), clipboard-write=(*)"
+        }
+      ]
+    },
+    {
+      "source": "/fonts/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=31536000, immutable"
         }
       ]
     }
