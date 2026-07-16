@@ -57,7 +57,7 @@ import {
   exchangeRateInputDisplay,
 } from "@/lib/quoteCostExchange";
 import { parseGpSummary } from "@/lib/quoteGpSummary";
-import { quoteBillableSubtotal, quoteItemLineSubtotal } from "@/lib/quoteItemTotals";
+import { quoteBillableProductCost, quoteBillableSubtotal, quoteItemLineSubtotal } from "@/lib/quoteItemTotals";
 import {
   loadQuoteItems,
   itemsFromLegacyProjectData,
@@ -118,7 +118,7 @@ interface QuotationItem {
   factoryName?: string;
   /** True when 廠家 was set from 產品目錄 — shown read-only. */
   factoryFromCatalog?: boolean;
-  /** Reference-only line — excluded from quote totals; PDF shows 可選產品 + checkbox. */
+  /** Reference-only line — excluded from quote 合計 and GP Cost; PDF shows 可選產品 + checkbox. */
   isOptional?: boolean;
   isCustomTerm?: boolean;
 }
@@ -1728,10 +1728,8 @@ export function QuotationDraftEditor({
   const isFreeInstallation = subtotal >= 12000;
   const installationAmount = isFreeInstallation ? 0 : (installationFee.amount ?? 0);
   const grandTotal = Math.max(0, subtotal - discountValue + installationAmount);
-  const totalProductCost = items.reduce((sum, item) => {
-    const hkdCost = item.hkdCostPrice != null ? Math.ceil(item.hkdCostPrice) : 0;
-    return sum + hkdCost * item.quantity;
-  }, 0);
+  // Exclude 可選產品 from GP Cost (same rule as 合計 / quoteBillableSubtotal).
+  const totalProductCost = quoteBillableProductCost(items);
   const gpValue = grandTotal - totalProductCost - gpSummary.ship - gpSummary.installation;
   const gpPercent = grandTotal > 0 ? (gpValue / grandTotal) * 100 : 0;
   const totalCostPrice = totalProductCost;
