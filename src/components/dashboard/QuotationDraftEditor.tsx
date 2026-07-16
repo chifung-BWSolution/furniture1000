@@ -2231,9 +2231,11 @@ export function QuotationDraftEditor({
         {/* Header — span full available width (parent already adds small side
             padding) so 報價內容 stretches left-and-right and needs less scrolling */}
         <div className="mx-auto w-full max-w-none">
-          {/* Info panels + action buttons — above 報價內容 */}
-          <div className="mb-5 flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-            <div className="grid min-w-0 flex-1 grid-cols-2 items-start gap-2 xl:grid-cols-4">
+          {/* Info panels + action buttons — above 報價內容
+              Main row: 公司資訊 / 專案分類 / 客戶資訊 / 報價資訊 / 預覽 PDF / 版本審核
+              ENG sits on the row above 版本審核, centered to that button. */}
+          <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between lg:gap-3">
+            <div className="grid min-w-0 flex-1 grid-cols-2 items-start gap-2 lg:mt-12 lg:grid-cols-4">
               <InfoPanelColumn
                 title="公司資訊"
                 collapsed={collapseCompany}
@@ -2493,16 +2495,16 @@ export function QuotationDraftEditor({
               </InfoPanelColumn>
             </div>
 
-            <div className="flex shrink-0 items-center justify-end gap-3 xl:pt-1">
+            <div className="flex shrink-0 items-start justify-end gap-3">
               <button
                 type="button"
                 onClick={() => onOpenPdfPreview?.(buildPDFData())}
-                className="inline-flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-4 py-2 font-body text-sm font-medium text-primary transition-colors hover:bg-primary/10"
+                className="mt-0 inline-flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-4 py-2 font-body text-sm font-medium text-primary transition-colors hover:bg-primary/10 lg:mt-12"
               >
                 <Eye className="h-4 w-4" />
                 {t.previewPdf}
               </button>
-              <div className="flex flex-col items-stretch gap-2">
+              <div className="flex flex-col items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setQuoteLocale((l) => (l === 'zh' ? 'en' : 'zh'))}
