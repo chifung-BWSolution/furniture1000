@@ -32,8 +32,8 @@ export const unsavedGuard = {
     }
     return ok;
   },
+  /** Clear dirty state only — keep leaveHandler so later edits still clean up drafts. */
   clear() {
     dirty = false;
-    leaveHandler = null;
   },
 };

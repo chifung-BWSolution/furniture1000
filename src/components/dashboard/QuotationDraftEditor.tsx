@@ -41,7 +41,13 @@ import {
   type DraftData,
 } from "@/lib/draftStore";
 import { unsavedGuard } from "@/lib/unsavedGuard";
-import { QUOTE_UNSAVED_LEAVE_MESSAGE, resetQuickQuoteSessionStorage, shouldShowDraftRestoreNotice } from "@/lib/quickQuoteSession";
+import {
+  QUOTE_UNSAVED_LEAVE_MESSAGE,
+  resetQuickQuoteSessionStorage,
+  shouldShowDraftRestoreNotice,
+  writeQuickQuoteCopyFrom,
+  writeQuickQuoteEditingId,
+} from "@/lib/quickQuoteSession";
 import {
   extractDeliveryAddressFromTermsHtml,
   injectDeliveryAddressIntoTermsHtml,
@@ -1616,6 +1622,8 @@ export function QuotationDraftEditor({
   const [itemsLoadedFromDb, setItemsLoadedFromDb] = useState(false);
   /** Prevents async loadQuoteItems from overwriting in-session user edits. */
   const itemsUserEditedRef = useRef(false);
+  /** Tracks which quote uuid already hydrated items in this editor session. */
+  const itemsHydratedForUuidRef = useRef<string | null>(null);
 
   // Load line items from bwf_quote_item (prefer over empty legacy JSON)
   useEffect(() => {
@@ -1626,6 +1634,18 @@ export function QuotationDraftEditor({
     }
     // Prefer items already hydrated from project_data / IndexedDB draft
     if (legacyItems.length > 0) {
+      itemsHydratedForUuidRef.current = quoteUuid;
+      setItemsLoadedFromDb(true);
+      return;
+    }
+    // Same uuid already loaded — keep current rows.
+    if (itemsHydratedForUuidRef.current === quoteUuid) {
+      setItemsLoadedFromDb(true);
+      return;
+    }
+    // After 版本審核 a new uuid appears; never clobber in-session edits / current table.
+    if (itemsUserEditedRef.current || itemsHydratedForUuidRef.current) {
+      itemsHydratedForUuidRef.current = quoteUuid;
       setItemsLoadedFromDb(true);
       return;
     }
@@ -1634,10 +1654,14 @@ export function QuotationDraftEditor({
       try {
         const rows = await loadQuoteItems(quoteUuid);
         if (cancelled) return;
-        if (itemsUserEditedRef.current) return;
+        if (itemsUserEditedRef.current) {
+          itemsHydratedForUuidRef.current = quoteUuid;
+          return;
+        }
         if (rows.length > 0) {
           setItems(rows.map((item) => mapInputToQuotationItem(item)));
         }
+        itemsHydratedForUuidRef.current = quoteUuid;
       } catch (err) {
         console.warn('[QuotationDraftEditor] loadQuoteItems failed', err);
       } finally {
@@ -1902,21 +1926,29 @@ export function QuotationDraftEditor({
   const storageKey = makeDraftKey(userEmail, rawQuoteId);
   const quoteImageScope = existingQuote?.quoteId || rawQuoteId;
 
-  // Reset item-edit guard when switching quotes.
+  // Reset item-edit guard when switching to a different quote.
+  // Do NOT reset when first persist promotes NEW → real quoteId (same editor session).
+  const prevStorageKeyRef = useRef(storageKey);
   useEffect(() => {
+    const prev = prevStorageKeyRef.current;
+    prevStorageKeyRef.current = storageKey;
+    if (prev === storageKey) return;
+    const prevIsNew = prev.endsWith("::NEW");
+    const nextIsNew = storageKey.endsWith("::NEW");
+    if (prevIsNew && !nextIsNew) {
+      // First 版本審核 on a new quote — keep in-memory items / edit guard.
+      return;
+    }
     itemsUserEditedRef.current = false;
+    itemsHydratedForUuidRef.current = null;
   }, [storageKey]);
 
   // 報價內容 is considered "有數據" if any row has a product name.
   const hasQuoteData = items.some(hasQuoteItemContent);
 
-  // Load draft from IndexedDB on mount (NEW quotes only — existing quotes use server data).
+  // Load draft from IndexedDB on mount (NEW + existing). Existing quotes still load
+  // server line items first; a newer local draft restores unsaved work after refresh.
   useEffect(() => {
-    if (existingQuote) {
-      draftHydratedRef.current = storageKey;
-      setDraftLoaded(true);
-      return;
-    }
     if (draftHydratedRef.current === storageKey) {
       setDraftLoaded(true);
       return;
@@ -1995,6 +2027,10 @@ export function QuotationDraftEditor({
           );
         }
         if (cached.items && cached.items.length > 0) {
+          itemsUserEditedRef.current = true;
+          if (existingQuote?.quoteUuid) {
+            itemsHydratedForUuidRef.current = existingQuote.quoteUuid;
+          }
           setItems(
             cached.items.map((item: Record<string, unknown>) => {
               const costPrice = (item.costPrice as number | null) ?? null;
@@ -2048,7 +2084,7 @@ export function QuotationDraftEditor({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [storageKey, existingQuote]);
+  }, [storageKey]);
 
   // Build draft data for auto-save (IndexedDB — survives refresh; cleared on 版本審核 or leave)
   const buildDraftData = useCallback(
@@ -2144,15 +2180,17 @@ export function QuotationDraftEditor({
     return () => window.clearTimeout(timer);
   }, [draftLoaded, existingQuote?.quoteUuid, itemsLoadedFromDb, buildDraftData]);
 
-  // Auto-save draft locally for NEW quotes only (existing quotes persist via 版本審核).
+  // Auto-save draft locally (NEW + existing) only while dirty, so accidental refresh
+  // does not lose work. Cleared after successful 版本審核 or confirmed leave.
+  // Skip when clean to avoid re-creating a draft after submit that could later
+  // overwrite a different version of the same quote_id.
   useEffect(() => {
-    if (existingQuote) return;
-    if (!draftLoaded || !hasQuoteData) return;
+    if (!draftLoaded || !hasQuoteData || !isDirty) return;
     const timer = window.setTimeout(() => {
       saveDraft(buildDraftData()).catch(() => {});
     }, 800);
     return () => window.clearTimeout(timer);
-  }, [existingQuote, draftLoaded, hasQuoteData, buildDraftData]);
+  }, [draftLoaded, hasQuoteData, isDirty, buildDraftData]);
 
   const handleProductSelected = (
     products: {
@@ -3171,7 +3209,11 @@ export function QuotationDraftEditor({
           unsavedGuard.clear();
           deleteDraft(storageKey).catch(() => {});
           deleteDraft(makeDraftKey(userEmail, result.quoteId)).catch(() => {});
-          resetQuickQuoteSessionStorage(userEmail);
+          // Keep session pinned to the submitted quote so refresh reopens it (not empty NEW).
+          writeQuickQuoteEditingId(userEmail, result.quoteId);
+          writeQuickQuoteCopyFrom(userEmail, null);
+          itemsUserEditedRef.current = true;
+          itemsHydratedForUuidRef.current = result.quoteUuid;
           onQuotePersisted?.(result);
         }}
         totalAmount={grandTotal}

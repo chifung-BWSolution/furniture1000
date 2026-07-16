@@ -4,7 +4,7 @@ import { Check, ChevronRight, ChevronLeft, Sparkles, Loader2, Search } from 'luc
 import { QuotationDraftEditor } from '@/components/dashboard/QuotationDraftEditor';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
-import { loadDraft, deleteDraft, makeDraftKey } from '@/lib/draftStore';
+import { deleteDraft, makeDraftKey } from '@/lib/draftStore';
 import { useAuth } from '@/contexts/AuthProvider';
 import type { QuotationPDFData } from '@/types/quotation-pdf';
 import {
@@ -116,6 +116,8 @@ interface QuickQuoteViewProps {
   /** When set, open this specific version row (bwf_quote.id). */
   editingQuoteUuid?: string | null;
   onClearEditingQuote?: () => void;
+  /** Keep AppShell editing ids in sync after 版本審核 (new version row). */
+  onEditingQuotePersisted?: (quoteId: string, quoteUuid: string) => void;
   /** Increment to reset wizard to 建立新報價單 step 1. */
   freshSessionKey?: number;
 }
@@ -200,6 +202,7 @@ export function QuickQuoteView({
   editingQuoteId,
   editingQuoteUuid,
   onClearEditingQuote,
+  onEditingQuotePersisted,
   freshSessionKey = 0,
 }: QuickQuoteViewProps) {
   const { user, loading: authLoading } = useAuth();
@@ -480,15 +483,13 @@ export function QuickQuoteView({
     }
   }, [formData, userEmail]);
 
-  // Load existing quote when editingQuoteId is provided
+  // Load existing quote when editingQuoteId is provided.
+  // Important: do NOT clear loadedQuoteData when editingQuoteId is null — a brand-new
+  // quote may have just been persisted via 版本審核 while AppShell id is still catching up.
+  // Also keep onClearEditingQuote out of deps (parent often passes an inline fn).
   useEffect(() => {
     if (authLoading) return;
-
-    if (!editingQuoteId) {
-      loadedQuoteIdRef.current = null;
-      setLoadedQuoteData(null);
-      return;
-    }
+    if (!editingQuoteId) return;
 
     const loadKey = `${editingQuoteId}::${editingQuoteUuid || 'latest'}`;
     if (loadedQuoteIdRef.current === loadKey) return;
@@ -523,12 +524,8 @@ export function QuickQuoteView({
           String(data.quote_id),
         );
 
-        // Discard any local IndexedDB draft — edits only persist via 版本審核.
-        try {
-          await deleteDraft(makeDraftKey(userEmail, editingQuoteId));
-        } catch {
-          // IndexedDB unavailable — continue with server data
-        }
+        // Keep local IndexedDB drafts — editor may restore unsaved work after refresh.
+        // Drafts are cleared only after successful 版本審核 or confirmed leave.
 
         const serverProjectData = data.project_data as Record<string, unknown>;
         let projectDataToUse = serverProjectData;
@@ -613,7 +610,8 @@ export function QuickQuoteView({
     };
 
     loadQuote();
-  }, [editingQuoteId, editingQuoteUuid, onClearEditingQuote, userEmail, authLoading]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onClearEditingQuote is intentionally unstable from parent
+  }, [editingQuoteId, editingQuoteUuid, userEmail, authLoading]);
 
   const updateField = (field: keyof QuoteFormData, value: string | string[]) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -1342,7 +1340,10 @@ export function QuickQuoteView({
                   pitchingName: prev?.pitchingName ?? formData.pitchingName ?? null,
                   maxVersionInChain: result.version,
                 }));
+                // Mark this version as already loaded so parent id sync does not re-fetch
+                // an older uuid and wipe the just-submitted editor state.
                 loadedQuoteIdRef.current = `${result.quoteId}::${result.quoteUuid}`;
+                onEditingQuotePersisted?.(result.quoteId, result.quoteUuid);
               }}
               existingQuote={loadedQuoteData || undefined}
             />

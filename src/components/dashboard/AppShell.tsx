@@ -199,7 +199,22 @@ export function AppShell() {
       setEditingQuoteUuidRaw(opts?.quoteUuid ?? null);
       store.setCurrentView("quick-quote");
     },
-    [user?.email, store],
+    [user?.email, store, setEditingQuoteId],
+  );
+
+  const clearEditingQuote = useCallback(() => {
+    setEditingQuoteId(null);
+    setEditingQuoteUuidRaw(null);
+    store.setCurrentView("quotation-list");
+  }, [setEditingQuoteId, store]);
+
+  /** After 版本審核, pin AppShell to the new version row so reload effects cannot stale-fetch. */
+  const handleEditingQuotePersisted = useCallback(
+    (quoteId: string, quoteUuid: string) => {
+      setEditingQuoteId(quoteId);
+      setEditingQuoteUuidRaw(quoteUuid);
+    },
+    [setEditingQuoteId],
   );
 
   // Deep links: /quote/quick?... (PMS new quote) and /quote/:quoteId (open existing)
@@ -564,11 +579,8 @@ export function AppShell() {
             editingQuoteId={editingQuoteId}
             editingQuoteUuid={editingQuoteUuid}
             freshSessionKey={quickQuoteFreshKey}
-            onClearEditingQuote={() => {
-              setEditingQuoteId(null);
-              setEditingQuoteUuidRaw(null);
-              store.setCurrentView("quotation-list");
-            }}
+            onClearEditingQuote={clearEditingQuote}
+            onEditingQuotePersisted={handleEditingQuotePersisted}
           />
         );
       case "quotation-list":
