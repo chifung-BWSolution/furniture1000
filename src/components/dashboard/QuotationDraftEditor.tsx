@@ -2129,10 +2129,11 @@ export function QuotationDraftEditor({
 
     if (quoteLocale === 'en') {
       const pdfLabels = quotePdf('en');
+      const { addressEn, address: _zhAddress, ...companyRest } = companyInfo;
       return {
         companyInfo: {
-          ...companyInfo,
-          address: companyInfo.addressEn || DEFAULT_COMPANY_ADDRESS.en,
+          ...companyRest,
+          address: addressEn || DEFAULT_COMPANY_ADDRESS.en,
         },
         clientInfo,
         quoteMeta: {
