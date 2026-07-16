@@ -1671,11 +1671,14 @@ export function QuotationDraftEditor({
     setItems((prev) => [...prev, createBlankProductItem()]);
   };
 
-  /** Insert a blank section title at the top of 報價內容 (above first product). */
+  /**
+   * Insert a blank section title above the first product.
+   * Existing titles keep their content and ordinals (1. stays 1.); the new blank becomes the next number.
+   */
   const addSectionTitle = () => {
     itemsUserEditedRef.current = true;
-    setItems((prev) => [
-      {
+    setItems((prev) => {
+      const blankTitle: QuotationItem = {
         id: generateId(),
         image: "",
         name: "",
@@ -1686,9 +1689,14 @@ export function QuotationDraftEditor({
         quantity: 0,
         unit: "",
         isSectionTitle: true,
-      },
-      ...prev,
-    ]);
+      };
+      // Place after existing leading section titles, still before the first product/service row.
+      let insertAt = 0;
+      while (insertAt < prev.length && prev[insertAt]?.isSectionTitle) {
+        insertAt += 1;
+      }
+      return [...prev.slice(0, insertAt), blankTitle, ...prev.slice(insertAt)];
+    });
   };
 
   const addCustomTerm = () => {
