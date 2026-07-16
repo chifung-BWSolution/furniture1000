@@ -8,6 +8,9 @@ export const DEFAULT_COMPANY_ADDRESS = {
   en: '5/F, Units D-G, Wah Lik Industrial Centre, 459-469 Castle Peak Road, Tsuen Wan, Hong Kong',
 } as const;
 
+/** Default company website for quotation company info (zh & en). */
+export const DEFAULT_COMPANY_WEBSITE = 'https://www.bwoffice.asia/';
+
 export const QUOTE_UI = {
   zh: {
     previewPdf: '預覽 PDF',

@@ -74,6 +74,7 @@ import {
   quoteUi,
   quotePdf,
   DEFAULT_COMPANY_ADDRESS,
+  DEFAULT_COMPANY_WEBSITE,
 } from "@/lib/quotationLocale";
 import {
   DEFAULT_QUOTATION_DELIVERY_DETAILS_EN,
@@ -1388,7 +1389,7 @@ export function QuotationDraftEditor({
     addressEn: savedCompanyInfo?.addressEn || DEFAULT_COMPANY_ADDRESS.en,
     phone: savedCompanyInfo?.phone || "51634839/ 97173545",
     email: savedCompanyInfo?.email || "sales@brandingworks-furniture.com",
-    website: savedCompanyInfo?.website || "www.brandingworks-furniture.com",
+    website: savedCompanyInfo?.website || DEFAULT_COMPANY_WEBSITE,
   });
 
   // Client info (editable, prefilled from steps or saved)
@@ -1819,7 +1820,7 @@ export function QuotationDraftEditor({
             addressEn: cachedCompany.addressEn || DEFAULT_COMPANY_ADDRESS.en,
             phone: cachedCompany.phone || "51634839/ 97173545",
             email: cachedCompany.email || "sales@brandingworks-furniture.com",
-            website: cachedCompany.website || "www.brandingworks-furniture.com",
+            website: cachedCompany.website || DEFAULT_COMPANY_WEBSITE,
           });
         }
         if (cached.clientInfo) {
