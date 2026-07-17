@@ -46,6 +46,8 @@ export const QUOTE_UI = {
     optionalProduct: '可選',
     hkdSubtotal: 'HKD$小計',
     duplicateItem: '複製此列',
+    cutItem: '剪下此列',
+    pasteItem: '貼上',
     valueServiceDesc: '增值服務說明',
     valueServicePlaceholder: '輸入額外增值服務（例如：清拆、拆裝舊家私等）...',
     defaultValueServiceName: '運輸安裝費用 (包含清理傢俬包裝垃圾)',
@@ -92,6 +94,8 @@ export const QUOTE_UI = {
     optionalProduct: 'Optional',
     hkdSubtotal: 'HKD$ Subtotal',
     duplicateItem: 'Duplicate row',
+    cutItem: 'Cut row',
+    pasteItem: 'Paste',
     valueServiceDesc: 'Value-added Service Description',
     valueServicePlaceholder:
       'Enter additional value-added services (e.g. dismantling, removal of old furniture)...',

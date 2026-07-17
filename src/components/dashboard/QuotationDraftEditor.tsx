@@ -4,6 +4,8 @@ import {
   Plus,
   Trash2,
   Copy,
+  Scissors,
+  ClipboardPaste,
   ShieldCheck,
   ImagePlus,
   Eye,
@@ -243,13 +245,68 @@ function quoteRowReorderClass(
   itemId: string,
   draggingItemId: string | null,
   dropInsertIndex: number | null,
+  cutItemId: string | null,
   extra?: string,
 ) {
   return cn(
     extra,
-    draggingItemId === itemId && "opacity-50",
+    (draggingItemId === itemId || cutItemId === itemId) && "opacity-50",
     dropInsertIndex === index && "shadow-[inset_0_2px_0_0_hsl(var(--primary))]",
     dropInsertIndex === index + 1 && "shadow-[inset_0_-2px_0_0_hsl(var(--primary))]",
+  );
+}
+
+function QuoteRowActionButtons({
+  itemId,
+  cutItemId,
+  onCut,
+  onDuplicate,
+  onRemove,
+  labels,
+}: {
+  itemId: string;
+  cutItemId: string | null;
+  onCut: (id: string) => void;
+  onDuplicate: (id: string) => void;
+  onRemove: (id: string) => void;
+  labels: QuoteUiLabels;
+}) {
+  const isCut = cutItemId === itemId;
+  return (
+    <div className="flex h-[34px] items-center gap-0.5">
+      <button
+        type="button"
+        onClick={() => onCut(itemId)}
+        className={cn(
+          "rounded-md p-1.5 transition-colors",
+          isCut
+            ? "bg-primary/15 text-primary"
+            : "text-muted-foreground/50 hover:bg-primary/10 hover:text-primary",
+        )}
+        title={labels.cutItem}
+        aria-label={labels.cutItem}
+        aria-pressed={isCut}
+      >
+        <Scissors className="h-4 w-4" />
+      </button>
+      <button
+        type="button"
+        onClick={() => onDuplicate(itemId)}
+        className="rounded-md p-1.5 text-muted-foreground/50 transition-colors hover:bg-primary/10 hover:text-primary"
+        title={labels.duplicateItem}
+        aria-label={labels.duplicateItem}
+      >
+        <Copy className="h-4 w-4" />
+      </button>
+      <button
+        type="button"
+        onClick={() => onRemove(itemId)}
+        className="rounded-md p-1.5 text-muted-foreground/50 transition-colors hover:bg-rose-500/10 hover:text-rose-500"
+        title="刪除"
+      >
+        <Trash2 className="h-4 w-4" />
+      </button>
+    </div>
   );
 }
 
@@ -709,6 +766,7 @@ function QuoteProductItemCard({
   serialNumber,
   draggingItemId,
   dropInsertIndex,
+  cutItemId,
   onDragOver,
   onDrop,
   onDragStart,
@@ -716,6 +774,7 @@ function QuoteProductItemCard({
   updateItem,
   updateExchangeRate,
   updateDimensionMode,
+  cutItem,
   duplicateItem,
   removeItem,
   factories,
@@ -728,6 +787,7 @@ function QuoteProductItemCard({
   serialNumber: number;
   draggingItemId: string | null;
   dropInsertIndex: number | null;
+  cutItemId: string | null;
   onDragOver: (e: React.DragEvent<HTMLDivElement>, index: number) => void;
   onDrop: (e: React.DragEvent<HTMLDivElement>) => void;
   onDragStart: (id: string) => void;
@@ -735,6 +795,7 @@ function QuoteProductItemCard({
   updateItem: (id: string, field: keyof QuotationItem, value: string | number | null | boolean) => void;
   updateExchangeRate: (id: string, raw: string) => void;
   updateDimensionMode: (id: string, mode: QuotationDimensionMode) => void;
+  cutItem: (id: string) => void;
   duplicateItem: (id: string) => void;
   removeItem: (id: string) => void;
   factories: string[];
@@ -765,6 +826,7 @@ function QuoteProductItemCard({
         item.id,
         draggingItemId,
         dropInsertIndex,
+        cutItemId,
         "rounded-lg border border-border bg-background p-4",
       )}
       onDragOver={(e) => onDragOver(e, index)}
@@ -1068,28 +1130,17 @@ function QuoteProductItemCard({
           </div>
         </QuoteFieldBlock>
 
-        {/* Row 2 — col 9: 複製 / 刪除 */}
+        {/* Row 2 — col 9: 剪下 / 複製 / 刪除 */}
         <div className="col-start-9 row-start-2 shrink-0">
           <div className="mb-1 h-4" aria-hidden="true" />
-          <div className="flex h-[34px] items-center gap-0.5">
-            <button
-              type="button"
-              onClick={() => duplicateItem(item.id)}
-              className="rounded-md p-1.5 text-muted-foreground/50 transition-colors hover:bg-primary/10 hover:text-primary"
-              title={labels.duplicateItem}
-              aria-label={labels.duplicateItem}
-            >
-              <Copy className="h-4 w-4" />
-            </button>
-            <button
-              type="button"
-              onClick={() => removeItem(item.id)}
-              className="rounded-md p-1.5 text-muted-foreground/50 transition-colors hover:bg-rose-500/10 hover:text-rose-500"
-              title="刪除"
-            >
-              <Trash2 className="h-4 w-4" />
-            </button>
-          </div>
+          <QuoteRowActionButtons
+            itemId={item.id}
+            cutItemId={cutItemId}
+            onCut={cutItem}
+            onDuplicate={duplicateItem}
+            onRemove={removeItem}
+            labels={labels}
+          />
         </div>
       </div>
     </div>
@@ -1102,11 +1153,13 @@ function QuoteCustomTermCard({
   serialNumber,
   draggingItemId,
   dropInsertIndex,
+  cutItemId,
   onDragOver,
   onDrop,
   onDragStart,
   onDragEnd,
   updateItem,
+  cutItem,
   duplicateItem,
   removeItem,
   labels,
@@ -1116,11 +1169,13 @@ function QuoteCustomTermCard({
   serialNumber: number;
   draggingItemId: string | null;
   dropInsertIndex: number | null;
+  cutItemId: string | null;
   onDragOver: (e: React.DragEvent<HTMLDivElement>, index: number) => void;
   onDrop: (e: React.DragEvent<HTMLDivElement>) => void;
   onDragStart: (id: string) => void;
   onDragEnd: () => void;
   updateItem: (id: string, field: keyof QuotationItem, value: string | number | null) => void;
+  cutItem: (id: string) => void;
   duplicateItem: (id: string) => void;
   removeItem: (id: string) => void;
   labels: QuoteUiLabels;
@@ -1132,6 +1187,7 @@ function QuoteCustomTermCard({
         item.id,
         draggingItemId,
         dropInsertIndex,
+        cutItemId,
         "rounded-lg border border-amber-500/30 bg-amber-500/5 p-4",
       )}
       onDragOver={(e) => onDragOver(e, index)}
@@ -1198,24 +1254,15 @@ function QuoteCustomTermCard({
                 </span>
               </div>
             </QuoteFieldBlock>
-            <div className="flex items-end justify-end gap-0.5 pb-0.5">
-              <button
-                type="button"
-                onClick={() => duplicateItem(item.id)}
-                className="rounded-md p-1.5 text-muted-foreground/50 transition-colors hover:bg-primary/10 hover:text-primary"
-                title={labels.duplicateItem}
-                aria-label={labels.duplicateItem}
-              >
-                <Copy className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => removeItem(item.id)}
-                className="rounded-md p-1.5 text-muted-foreground/50 transition-colors hover:bg-rose-500/10 hover:text-rose-500"
-                title="刪除"
-              >
-                <Trash2 className="h-4 w-4" />
-              </button>
+            <div className="flex items-end justify-end pb-0.5">
+              <QuoteRowActionButtons
+                itemId={item.id}
+                cutItemId={cutItemId}
+                onCut={cutItem}
+                onDuplicate={duplicateItem}
+                onRemove={removeItem}
+                labels={labels}
+              />
             </div>
           </div>
         </div>
@@ -1230,11 +1277,13 @@ function QuoteSectionTitleCard({
   items,
   draggingItemId,
   dropInsertIndex,
+  cutItemId,
   onDragOver,
   onDrop,
   onDragStart,
   onDragEnd,
   updateItem,
+  cutItem,
   duplicateItem,
   removeItem,
   labels,
@@ -1244,11 +1293,13 @@ function QuoteSectionTitleCard({
   items: QuotationItem[];
   draggingItemId: string | null;
   dropInsertIndex: number | null;
+  cutItemId: string | null;
   onDragOver: (e: React.DragEvent<HTMLDivElement>, index: number) => void;
   onDrop: (e: React.DragEvent<HTMLDivElement>) => void;
   onDragStart: (id: string) => void;
   onDragEnd: () => void;
   updateItem: (id: string, field: keyof QuotationItem, value: string | number | null) => void;
+  cutItem: (id: string) => void;
   duplicateItem: (id: string) => void;
   removeItem: (id: string) => void;
   labels: QuoteUiLabels;
@@ -1263,6 +1314,7 @@ function QuoteSectionTitleCard({
         item.id,
         draggingItemId,
         dropInsertIndex,
+        cutItemId,
         "rounded-lg border border-primary/25 bg-primary/5 p-3",
       )}
       onDragOver={(e) => onDragOver(e, index)}
@@ -1289,24 +1341,15 @@ function QuoteSectionTitleCard({
             aria-label={labels.sectionTitleLabel}
           />
         </div>
-        <div className="flex shrink-0 items-center gap-0.5">
-          <button
-            type="button"
-            onClick={() => duplicateItem(item.id)}
-            className="rounded-md p-1.5 text-muted-foreground/50 transition-colors hover:bg-primary/10 hover:text-primary"
-            title={labels.duplicateItem}
-            aria-label={labels.duplicateItem}
-          >
-            <Copy className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            onClick={() => removeItem(item.id)}
-            className="rounded-md p-1.5 text-muted-foreground/50 transition-colors hover:bg-rose-500/10 hover:text-rose-500"
-            title="刪除"
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
+        <div className="flex shrink-0 items-center">
+          <QuoteRowActionButtons
+            itemId={item.id}
+            cutItemId={cutItemId}
+            onCut={cutItem}
+            onDuplicate={duplicateItem}
+            onRemove={removeItem}
+            labels={labels}
+          />
         </div>
       </div>
     </div>
@@ -1436,6 +1479,8 @@ function QuoteAddRowButtonGroup({
   onAddField,
   onAddCustomTerm,
   onAddProduct,
+  onPaste,
+  showPaste = false,
   compact = false,
 }: {
   labels: QuoteUiLabels;
@@ -1443,6 +1488,8 @@ function QuoteAddRowButtonGroup({
   onAddField: () => void;
   onAddCustomTerm: () => void;
   onAddProduct: () => void;
+  onPaste?: () => void;
+  showPaste?: boolean;
   compact?: boolean;
 }) {
   const btnBase = compact
@@ -1452,6 +1499,19 @@ function QuoteAddRowButtonGroup({
 
   return (
     <div className={cn("flex flex-wrap items-center gap-2", compact && "justify-center")}>
+      {showPaste && onPaste ? (
+        <button
+          type="button"
+          onClick={onPaste}
+          className={cn(
+            btnBase,
+            "border-emerald-500/50 bg-emerald-500/5 text-emerald-700 hover:bg-emerald-500/10 dark:text-emerald-400",
+          )}
+        >
+          <ClipboardPaste className={iconClass} />
+          {labels.pasteItem}
+        </button>
+      ) : null}
       <button
         type="button"
         onClick={onAddSectionTitle}
@@ -1898,10 +1958,45 @@ export function QuotationDraftEditor({
     setShowProductSelector(true);
   };
 
+  const [cutItemId, setCutItemId] = useState<string | null>(null);
+
+  // Drop cut state if the target row was removed by other means.
+  useEffect(() => {
+    if (cutItemId && !items.some((item) => item.id === cutItemId)) {
+      setCutItemId(null);
+    }
+  }, [cutItemId, items]);
+
   const removeItem = (id: string) => {
     itemsUserEditedRef.current = true;
+    if (cutItemId === id) setCutItemId(null);
     setItems((prev) => prev.filter((item) => item.id !== id));
   };
+
+  /** Toggle cut state on a row (dimmed like dragging); paste moves it between rows. */
+  const cutItem = useCallback((id: string) => {
+    setCutItemId((prev) => (prev === id ? null : id));
+  }, []);
+
+  const pasteCutItemAt = useCallback(
+    (at: number) => {
+      if (!cutItemId) return;
+      itemsUserEditedRef.current = true;
+      setItems((prev) => {
+        const fromIndex = prev.findIndex((i) => i.id === cutItemId);
+        if (fromIndex === -1) return prev;
+        let toIndex = Math.max(0, Math.min(at, prev.length));
+        if (fromIndex < toIndex) toIndex -= 1;
+        if (fromIndex === toIndex) return prev;
+        const next = [...prev];
+        const [moved] = next.splice(fromIndex, 1);
+        next.splice(toIndex, 0, moved);
+        return next;
+      });
+      setCutItemId(null);
+    },
+    [cutItemId],
+  );
 
   /** Clone a row (product / value-added / section title) and insert it immediately after the source. */
   const duplicateItem = (id: string) => {
@@ -3134,6 +3229,8 @@ export function QuotationDraftEditor({
                   </h2>
                   <QuoteAddRowButtonGroup
                     labels={t}
+                    showPaste={cutItemId != null}
+                    onPaste={() => pasteCutItemAt(0)}
                     onAddSectionTitle={() => addSectionTitle(0)}
                     onAddField={() => addItem(0)}
                     onAddCustomTerm={() => addCustomTerm(0)}
@@ -3168,11 +3265,13 @@ export function QuotationDraftEditor({
                           items={items}
                           draggingItemId={draggingItemId}
                           dropInsertIndex={dropInsertIndex}
+                          cutItemId={cutItemId}
                           onDragOver={handleQuoteRowDragOver}
                           onDrop={handleQuoteRowDrop}
                           onDragStart={setQuoteDraggingItemId}
                           onDragEnd={clearQuoteRowDrag}
                           updateItem={updateItem}
+                          cutItem={cutItem}
                           duplicateItem={duplicateItem}
                           removeItem={removeItem}
                           labels={t}
@@ -3184,11 +3283,13 @@ export function QuotationDraftEditor({
                           serialNumber={productSerialAt(items, index)}
                           draggingItemId={draggingItemId}
                           dropInsertIndex={dropInsertIndex}
+                          cutItemId={cutItemId}
                           onDragOver={handleQuoteRowDragOver}
                           onDrop={handleQuoteRowDrop}
                           onDragStart={setQuoteDraggingItemId}
                           onDragEnd={clearQuoteRowDrag}
                           updateItem={updateItem}
+                          cutItem={cutItem}
                           duplicateItem={duplicateItem}
                           removeItem={removeItem}
                           labels={t}
@@ -3200,6 +3301,7 @@ export function QuotationDraftEditor({
                           serialNumber={productSerialAt(items, index)}
                           draggingItemId={draggingItemId}
                           dropInsertIndex={dropInsertIndex}
+                          cutItemId={cutItemId}
                           onDragOver={handleQuoteRowDragOver}
                           onDrop={handleQuoteRowDrop}
                           onDragStart={setQuoteDraggingItemId}
@@ -3207,6 +3309,7 @@ export function QuotationDraftEditor({
                           updateItem={updateItem}
                           updateExchangeRate={updateExchangeRate}
                           updateDimensionMode={updateDimensionMode}
+                          cutItem={cutItem}
                           duplicateItem={duplicateItem}
                           removeItem={removeItem}
                           factories={factories}
@@ -3218,6 +3321,8 @@ export function QuotationDraftEditor({
                       <QuoteAddRowButtonGroup
                         labels={t}
                         compact
+                        showPaste={cutItemId != null}
+                        onPaste={() => pasteCutItemAt(index + 1)}
                         onAddSectionTitle={() => addSectionTitle(index + 1)}
                         onAddField={() => addItem(index + 1)}
                         onAddCustomTerm={() => addCustomTerm(index + 1)}
