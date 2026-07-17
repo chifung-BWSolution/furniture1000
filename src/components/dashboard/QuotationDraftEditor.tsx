@@ -2700,8 +2700,14 @@ export function QuotationDraftEditor({
     void _omitQuoteId;
     void _omitPitchingCode;
     void _omitProjectName;
+    // Keep formData client fields aligned with the editable 客戶資訊 panel so
+    // list search / later wizard resume see the same company & contact values.
     const nextFormData = {
       ...formDataRest,
+      clientName: clientInfo.name,
+      clientContactName: clientInfo.contactName || '',
+      clientPhone: clientInfo.phone,
+      clientEmail: clientInfo.email,
       ...(pitchingId ? { pmsPitchingId: pitchingId } : {}),
       ...(projectId ? { pmsProjectId: projectId } : {}),
     };

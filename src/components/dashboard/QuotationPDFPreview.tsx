@@ -1060,19 +1060,40 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
         </View>
         <View style={styles.infoRow}>
           <View style={styles.infoLeft}>
-            <Text style={styles.infoLine}>{labels.customerCompanyName}: {pdfDisplayText(data.clientInfo?.name || '')}</Text>
-            <Text style={styles.infoLine}>{labels.customerName}: {pdfDisplayText(data.clientInfo?.contactName || '')}</Text>
-            <Text style={styles.infoLine}>{labels.customerPhone}: {pdfDisplayText(data.clientInfo?.phone || '')}</Text>
-            <Text style={styles.infoLine}>{labels.quotationNo}: {quoteNumber}</Text>
-            <Text style={styles.infoLine}>{labels.date}: {today}</Text>
-            <Text style={styles.infoLine}>{labels.projectInCharge}: {pdfDisplayText(data.quoteMeta?.pmName || '')}</Text>
+            {(
+              [
+                [labels.customerCompanyName, data.clientInfo?.name],
+                [labels.customerName, data.clientInfo?.contactName],
+                [labels.customerPhone, data.clientInfo?.phone],
+                [labels.customerEmail, data.clientInfo?.email],
+                [labels.quotationNo, quoteNumber],
+                [labels.date, today],
+                [labels.projectInCharge, data.quoteMeta?.pmName],
+              ] as Array<[string, string | undefined | null]>
+            )
+              .filter(([, value]) => Boolean(String(value ?? '').trim()))
+              .map(([label, value]) => (
+                <Text key={label} style={styles.infoLine}>
+                  {label}: {pdfDisplayText(String(value).trim())}
+                </Text>
+              ))}
           </View>
           <View style={styles.infoRight}>
-            <Text style={styles.infoLine}>{labels.company}: {pdfDisplayText(data.companyInfo?.name || '')}</Text>
-            <Text style={styles.infoLine}>{labels.address}: {pdfDisplayText(data.companyInfo?.address || '')}</Text>
-            <Text style={styles.infoLine}>{labels.tel}: {pdfDisplayText(data.companyInfo?.phone || '')}</Text>
-            <Text style={styles.infoLine}>{labels.email}: {pdfDisplayText(data.companyInfo?.email || '')}</Text>
-            <Text style={styles.infoLine}>{labels.website}: {pdfDisplayText(data.companyInfo?.website || '')}</Text>
+            {(
+              [
+                [labels.company, data.companyInfo?.name],
+                [labels.address, data.companyInfo?.address],
+                [labels.tel, data.companyInfo?.phone],
+                [labels.email, data.companyInfo?.email],
+                [labels.website, data.companyInfo?.website],
+              ] as Array<[string, string | undefined | null]>
+            )
+              .filter(([, value]) => Boolean(String(value ?? '').trim()))
+              .map(([label, value]) => (
+                <Text key={label} style={styles.infoLine}>
+                  {label}: {pdfDisplayText(String(value).trim())}
+                </Text>
+              ))}
           </View>
         </View>
 
