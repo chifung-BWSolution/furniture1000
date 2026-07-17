@@ -24,7 +24,8 @@ export function parseQuotePathSegment(segment: string): ParsedQuotePath {
   if (!decoded) return { kind: 'list' };
   if (decoded.toLowerCase() === 'quick') return { kind: 'quick' };
 
-  const versionMatch = decoded.match(/^(Q\d{4}-\d{4}-\d{3})[Vv](\d+)$/);
+  // Version suffix: /quote/BWF-FD26-001V5 or /quote/Q2026-0717-263V2
+  const versionMatch = decoded.match(/^(.+)V(\d+)$/i);
   if (versionMatch) {
     const versionNum = parseInt(versionMatch[2], 10);
     return {

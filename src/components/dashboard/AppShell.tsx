@@ -272,10 +272,20 @@ export function AppShell() {
       return;
     }
 
-    const key = `${location.pathname}${location.search}`;
+    const normalizedPath = location.pathname.replace(/\/+$/, '') || '/';
+    const key = `${normalizedPath}${location.search}`;
     if (deepLinkHandledRef.current === key) return;
+
+    const syncPath = quoteUrlSyncRef.current?.replace(/\/+$/, '') || '';
+    // In-app navigation (list → editor) already set id/uuid — do not wipe uuid here.
+    if (syncPath === normalizedPath && parsed.kind === 'quote') {
+      deepLinkHandledRef.current = key;
+      store.setCurrentView('quick-quote');
+      return;
+    }
+
     deepLinkHandledRef.current = key;
-    quoteUrlSyncRef.current = location.pathname;
+    quoteUrlSyncRef.current = normalizedPath;
 
     if (parsed.kind === 'list') {
       setEditingQuoteId(null);
