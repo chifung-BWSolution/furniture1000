@@ -97,7 +97,7 @@ export function readQuickQuoteStep(email: string | null | undefined): number {
 }
 
 export const QUOTE_UNSAVED_LEAVE_MESSAGE =
-  '您有未儲存的報價修改。離開前請先按「暫存草稿」或「版本審核」，否則未暫存內容可能遺失。';
+  '您有未提交審核的報價修改（本機可能已自動暫存）。離開前如需正式存檔請按「版本審核」，否則伺服器上仍是舊版本。';
 
 /** Resume markers so a post-deploy reload reopens the same quote. */
 export type ResumeQuoteMarker = {

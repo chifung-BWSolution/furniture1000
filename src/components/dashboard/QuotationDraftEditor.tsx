@@ -2123,6 +2123,9 @@ export function QuotationDraftEditor({
   // Version & submission modal state
   const [showSubmitModal, setShowSubmitModal] = useState(false);
   const [isSavingDraft, setIsSavingDraft] = useState(false);
+  const [isAutoSaving, setIsAutoSaving] = useState(false);
+  const [lastLocalSavedAt, setLastLocalSavedAt] = useState<number | null>(null);
+  const [autoSaveFailed, setAutoSaveFailed] = useState(false);
 
   const handleOpenSubmitReview = () => {
     const contentItems = items.filter(hasQuoteItemContent);
@@ -2401,6 +2404,12 @@ export function QuotationDraftEditor({
     }
   }, [userEmail, existingQuote?.quoteId, existingQuote?.quoteUuid, rawQuoteId]);
 
+  // Pin session as soon as editor opens so F5 can return here (even before first edit).
+  useEffect(() => {
+    if (!draftLoaded) return;
+    persistLocalDraftMarkers();
+  }, [draftLoaded, persistLocalDraftMarkers]);
+
   // Flush IndexedDB + resume markers before deploy-reload prompt.
   useEffect(() => {
     unsavedGuard.setDraftFlushHandler(async () => {
@@ -2420,13 +2429,13 @@ export function QuotationDraftEditor({
     try {
       await saveDraft(buildDraftData());
       persistLocalDraftMarkers();
-      baselineSnapshotRef.current = JSON.stringify(buildDraftData());
-      setSnapshotReady(true);
-      unsavedGuard.clear();
+      setLastLocalSavedAt(Date.now());
+      setAutoSaveFailed(false);
       toast.success("草稿已暫存", {
         description: "僅保存在此瀏覽器。完成後請再按「版本審核」正式提交。",
       });
     } catch (err: unknown) {
+      setAutoSaveFailed(true);
       const message =
         err instanceof Error ? err.message : "無法寫入本機草稿，請檢查瀏覽器儲存空間";
       toast.error("暫存失敗", { description: message });
@@ -2467,17 +2476,31 @@ export function QuotationDraftEditor({
     return () => window.clearTimeout(timer);
   }, [draftLoaded, existingQuote?.quoteUuid, itemsLoadedFromDb, buildDraftData]);
 
-  // Auto-save draft locally (NEW + existing) only while dirty, so accidental refresh
-  // does not lose work. Cleared after successful 版本審核 or confirmed leave.
-  // Skip when clean to avoid re-creating a draft after submit that could later
-  // overwrite a different version of the same quote_id.
+  // Auto-save draft locally while dirty (no need to mash「暫存草稿」).
+  // Also refreshes resume / editingId markers so F5 can reopen this editor.
   useEffect(() => {
     if (!draftLoaded || !hasQuoteData || !isDirty) return;
+    setIsAutoSaving(true);
     const timer = window.setTimeout(() => {
-      saveDraft(buildDraftData()).catch(() => {});
+      const draft = buildDraftData();
+      saveDraft(draft)
+        .then(() => {
+          persistLocalDraftMarkers();
+          setLastLocalSavedAt(Date.now());
+          setAutoSaveFailed(false);
+        })
+        .catch(() => {
+          setAutoSaveFailed(true);
+        })
+        .finally(() => {
+          setIsAutoSaving(false);
+        });
     }, 800);
-    return () => window.clearTimeout(timer);
-  }, [draftLoaded, hasQuoteData, isDirty, buildDraftData]);
+    return () => {
+      window.clearTimeout(timer);
+      setIsAutoSaving(false);
+    };
+  }, [draftLoaded, hasQuoteData, isDirty, buildDraftData, persistLocalDraftMarkers]);
 
   const handleProductSelected = (
     products: {
@@ -3001,17 +3024,32 @@ export function QuotationDraftEditor({
                 <button
                   type="button"
                   onClick={() => void handleSaveLocalDraft()}
-                  disabled={isSavingDraft || !hasQuoteData}
+                  disabled={isSavingDraft || isAutoSaving || !hasQuoteData}
                   className="inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-background px-4 py-2 font-body text-sm font-medium text-foreground transition-colors hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-50"
-                  title="暫存至本瀏覽器（不產生新版本）"
+                  title={t.autoSaveHint}
                 >
-                  {isSavingDraft ? (
+                  {isSavingDraft || isAutoSaving ? (
                     <Loader2 className="h-4 w-4 animate-spin" />
                   ) : (
                     <Save className="h-4 w-4" />
                   )}
-                  {t.saveDraft}
+                  {isAutoSaving ? t.autoSaving : t.saveDraft}
                 </button>
+                <p
+                  className={cn(
+                    "max-w-[9.5rem] text-center font-body text-[10px] leading-snug",
+                    autoSaveFailed
+                      ? "text-rose-500"
+                      : "text-muted-foreground",
+                  )}
+                  title={t.autoSaveHint}
+                >
+                  {autoSaveFailed
+                    ? "自動暫存失敗，請按立即暫存"
+                    : lastLocalSavedAt
+                      ? `${t.autoSavedAt} ${new Date(lastLocalSavedAt).toLocaleTimeString("zh-HK", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`
+                      : t.autoSaveHint}
+                </p>
                 <button
                   type="button"
                   onClick={handleOpenSubmitReview}
