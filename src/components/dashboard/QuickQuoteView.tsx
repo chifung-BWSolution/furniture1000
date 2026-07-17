@@ -4,7 +4,7 @@ import { Check, ChevronRight, ChevronLeft, Sparkles, Loader2, Search } from 'luc
 import { QuotationDraftEditor } from '@/components/dashboard/QuotationDraftEditor';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
-import { deleteDraft, makeDraftKey } from '@/lib/draftStore';
+import { deleteDraft, loadDraft, makeDraftKey } from '@/lib/draftStore';
 import { useAuth } from '@/contexts/AuthProvider';
 import type { QuotationPDFData } from '@/types/quotation-pdf';
 import {
@@ -566,7 +566,7 @@ export function QuickQuoteView({
                 const parsed = normalizeQuoteFormData(JSON.parse(raw));
                 setFormData(parsed);
                 if (parsed.pmsPitchingId || parsed.pmsProjectId) {
-                  const label = [parsed.pitchingCode, parsed.clientName]
+                  const label = [parsed.quoteId, parsed.clientName]
                     .filter(Boolean)
                     .join(' · ');
                   setSelectedPitchingLabel(
