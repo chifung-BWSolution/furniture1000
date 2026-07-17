@@ -1498,20 +1498,7 @@ function QuoteAddRowButtonGroup({
   const iconClass = compact ? "h-3 w-3" : "h-3.5 w-3.5";
 
   return (
-    <div className={cn("flex flex-wrap items-center gap-2", compact && "justify-center")}>
-      {showPaste && onPaste ? (
-        <button
-          type="button"
-          onClick={onPaste}
-          className={cn(
-            btnBase,
-            "border-emerald-500/50 bg-emerald-500/5 text-emerald-700 hover:bg-emerald-500/10 dark:text-emerald-400",
-          )}
-        >
-          <ClipboardPaste className={iconClass} />
-          {labels.pasteItem}
-        </button>
-      ) : null}
+    <div className="flex flex-wrap items-center justify-end gap-2">
       <button
         type="button"
         onClick={onAddSectionTitle}
@@ -1553,6 +1540,19 @@ function QuoteAddRowButtonGroup({
         <Plus className={iconClass} />
         {labels.addProduct}
       </button>
+      {showPaste && onPaste ? (
+        <button
+          type="button"
+          onClick={onPaste}
+          className={cn(
+            btnBase,
+            "border-emerald-500/50 bg-emerald-500/5 text-emerald-700 hover:bg-emerald-500/10 dark:text-emerald-400",
+          )}
+        >
+          <ClipboardPaste className={iconClass} />
+          {labels.pasteItem}
+        </button>
+      ) : null}
     </div>
   );
 }
