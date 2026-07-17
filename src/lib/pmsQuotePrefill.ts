@@ -28,7 +28,10 @@ export interface PmsQuotePrefill {
   /** @deprecated Use quoteId */
   pitchingCode?: string;
   projectManager?: string;
+  /** Client company / org (公司名稱). */
   clientName?: string;
+  /** Contact person (客戶名稱). */
+  clientContactName?: string;
   clientPhone?: string;
   clientEmail?: string;
   clientIndustry?: string[];
@@ -97,6 +100,9 @@ export function parsePmsQuotePrefill(params: URLSearchParams): PmsQuotePrefill |
 
   const clientName = firstParam(params, 'clientName');
   if (clientName) prefill.clientName = clientName;
+
+  const clientContactName = firstParam(params, 'clientContactName');
+  if (clientContactName) prefill.clientContactName = clientContactName;
 
   const clientPhone = firstParam(params, 'clientPhone');
   if (clientPhone) prefill.clientPhone = clientPhone;

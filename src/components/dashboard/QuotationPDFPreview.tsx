@@ -1060,7 +1060,8 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
         </View>
         <View style={styles.infoRow}>
           <View style={styles.infoLeft}>
-            <Text style={styles.infoLine}>{labels.customerName}: {pdfDisplayText(data.clientInfo?.name || '')}</Text>
+            <Text style={styles.infoLine}>{labels.customerCompanyName}: {pdfDisplayText(data.clientInfo?.name || '')}</Text>
+            <Text style={styles.infoLine}>{labels.customerName}: {pdfDisplayText(data.clientInfo?.contactName || '')}</Text>
             <Text style={styles.infoLine}>{labels.customerPhone}: {pdfDisplayText(data.clientInfo?.phone || '')}</Text>
             <Text style={styles.infoLine}>{labels.quotationNo}: {quoteNumber}</Text>
             <Text style={styles.infoLine}>{labels.date}: {today}</Text>

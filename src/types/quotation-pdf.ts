@@ -11,7 +11,10 @@ export interface QuotationPDFData {
     website: string;
   };
   clientInfo: {
+    /** Client company / org (公司名稱). */
     name: string;
+    /** Contact person (客戶名稱). */
+    contactName?: string;
     phone: string;
     email: string;
   };

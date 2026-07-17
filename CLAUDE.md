@@ -161,7 +161,8 @@ PMS deep link（`pmsProjectId`／`pmsPitchingId`）會跳過搜尋頁，直接�
 PMS v1 可只做列表；需要時用此 URL 連回編輯。
 
 **PMS 預設值**（edge `supabase-functions-fetch-pms-pitching-quote-defaults`）：
-- 客戶名稱 ← `customers.company_name`（via `bwf_pitchings.customer_id`）
+- 公司名稱 ← `customers.company_name` / `display_name`（via `bwf_pitchings.customer_id`）→ `formData.clientName` / `clientInfo.name`
+- 客戶名稱（聯絡人）← `customers.customer_name` → `formData.clientContactName` / `clientInfo.contactName`
 - 客戶電話 ← `customers.phone_display`（fallback `phone_number_a` → `phone_number_b`）
 - 客戶電郵 ← `customers.email`
 - 客戶產業選項 ← `nos_customer_tags` where `collection_id = 4f5de598-…`

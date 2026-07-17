@@ -211,6 +211,7 @@ Deno.serve(async (req: Request) => {
         project_code: null,
         customer_id: null,
         client_name: null,
+        client_contact_name: null,
         client_phone: null,
         client_email: null,
         estimated_income: null,
@@ -236,6 +237,7 @@ Deno.serve(async (req: Request) => {
         project_code: resolved.projectCode,
         customer_id: null,
         client_name: null,
+        client_contact_name: null,
         client_phone: null,
         client_email: null,
         estimated_income: null,
@@ -264,6 +266,7 @@ Deno.serve(async (req: Request) => {
         project_code: resolved.projectCode,
         customer_id: null,
         client_name: null,
+        client_contact_name: null,
         client_phone: null,
         client_email: null,
         estimated_income: null,
@@ -275,7 +278,10 @@ Deno.serve(async (req: Request) => {
     }
 
     const customerId = (pitching.customer_id as string | null) || null;
+    /** Company / org name for 公司名稱 (formData.clientName / clientInfo.name). */
     let clientName: string | null = null;
+    /** Contact person for 客戶名稱 (formData.clientContactName / clientInfo.contactName). */
+    let clientContactName: string | null = null;
     let clientPhone: string | null = null;
     let clientEmail: string | null = null;
     let selectedIndustries: string[] = [];
@@ -293,11 +299,13 @@ Deno.serve(async (req: Request) => {
         throw new Error(`Customer lookup failed: ${customerError.message}`);
       }
 
+      // Company only — do not fall back to customer_name (that is the contact person).
       clientName =
         (customer?.company_name as string | null)?.trim() ||
         (customer?.display_name as string | null)?.trim() ||
-        (customer?.customer_name as string | null)?.trim() ||
         null;
+      clientContactName =
+        (customer?.customer_name as string | null)?.trim() || null;
 
       clientPhone = firstNonEmpty(
         customer?.phone_display as string | null,
@@ -339,6 +347,7 @@ Deno.serve(async (req: Request) => {
       project_code: resolved.projectCode,
       customer_id: customerId,
       client_name: clientName,
+      client_contact_name: clientContactName,
       client_phone: clientPhone,
       client_email: clientEmail,
       estimated_income: pitching.estimated_income ?? null,

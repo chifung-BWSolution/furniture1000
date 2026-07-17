@@ -16,7 +16,10 @@ export interface PmsPitchingQuoteDefaults {
   pitching_name: string | null;
   project_code: string | null;
   customer_id: string | null;
+  /** Company / org — maps to formData.clientName (公司名稱). */
   client_name: string | null;
+  /** Contact person — maps to formData.clientContactName (客戶名稱). */
+  client_contact_name: string | null;
   client_phone: string | null;
   client_email: string | null;
   estimated_income: number | string | null;
@@ -74,6 +77,7 @@ export async function fetchPmsPitchingQuoteDefaults(options?: {
       project_code: data.project_code ?? null,
       customer_id: data.customer_id ?? null,
       client_name: data.client_name ?? null,
+      client_contact_name: data.client_contact_name ?? null,
       client_phone: data.client_phone ?? null,
       client_email: data.client_email ?? null,
       estimated_income: data.estimated_income ?? null,

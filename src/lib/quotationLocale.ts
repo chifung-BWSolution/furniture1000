@@ -117,6 +117,7 @@ export type QuoteUiLabels = (typeof QUOTE_UI)[QuoteLocale];
 export const QUOTE_PDF = {
   zh: {
     title: '傢俱報價單',
+    customerCompanyName: '公司名稱',
     customerName: '客戶名稱',
     customerPhone: '客戶電話',
     quotationNo: '報價單號',
@@ -155,6 +156,7 @@ export const QUOTE_PDF = {
   },
   en: {
     title: 'Furniture Quotation',
+    customerCompanyName: 'Company Name',
     customerName: 'Customer Name',
     customerPhone: 'Customer Contact No.',
     quotationNo: 'Quotation No.',

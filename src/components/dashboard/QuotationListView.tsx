@@ -63,8 +63,15 @@ interface QuoteRecord {
   project_data: {
     formData?: {
       clientName?: string;
+      clientContactName?: string;
       company?: string;
       projectManager?: string;
+    };
+    clientInfo?: {
+      name?: string;
+      contactName?: string;
+      phone?: string;
+      email?: string;
     };
     [key: string]: unknown;
   };
@@ -266,13 +273,20 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
       const clientName = (
         q.pitching?.customer_name ||
         q.project_data?.formData?.clientName ||
+        q.project_data?.clientInfo?.name ||
         ''
+      ).toLowerCase();
+      const contactName = String(
+        q.project_data?.formData?.clientContactName ||
+          q.project_data?.clientInfo?.contactName ||
+          '',
       ).toLowerCase();
       const pm = staffLabel(q).toLowerCase();
       return (
         code.includes(query) ||
         name.includes(query) ||
         clientName.includes(query) ||
+        contactName.includes(query) ||
         pm.includes(query) ||
         q.submitter.toLowerCase().includes(query) ||
         q.status.toLowerCase().includes(query) ||

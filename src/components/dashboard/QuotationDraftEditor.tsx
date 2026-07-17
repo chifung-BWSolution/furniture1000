@@ -116,7 +116,10 @@ interface QuoteFormData {
   projectName?: string;
   pmsPitchingId?: string;
   pmsProjectId?: string;
+  /** Client company / org (公司名稱). */
   clientName: string;
+  /** Contact person (客戶名稱). */
+  clientContactName?: string;
   clientPhone: string;
   clientEmail: string;
   clientIndustry: string[];
@@ -1684,7 +1687,7 @@ export function QuotationDraftEditor({
       }
     | undefined;
   const savedClientInfo = savedProjectData.clientInfo as
-    | { name?: string; phone?: string; email?: string }
+    | { name?: string; contactName?: string; phone?: string; email?: string }
     | undefined;
   const savedQuoteMeta = savedProjectData.quoteMeta as
     | {
@@ -1735,8 +1738,11 @@ export function QuotationDraftEditor({
   });
 
   // Client info (editable, prefilled from steps or saved)
+  // name = 公司名稱; contactName = 客戶名稱 (contact person)
   const [clientInfo, setClientInfo] = useState({
     name: savedClientInfo?.name || formData.clientName,
+    contactName:
+      savedClientInfo?.contactName || formData.clientContactName || "",
     phone: savedClientInfo?.phone || formData.clientPhone,
     email: savedClientInfo?.email || formData.clientEmail,
   });
@@ -3037,7 +3043,7 @@ export function QuotationDraftEditor({
               >
                 <div>
                   <label className="mb-1 block font-body text-xs text-muted-foreground">
-                    姓名
+                    公司名稱
                   </label>
                   <input
                     type="text"
@@ -3046,6 +3052,23 @@ export function QuotationDraftEditor({
                       setClientInfo((p) => ({ ...p, name: e.target.value }))
                     }
                     className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block font-body text-xs text-muted-foreground">
+                    客戶名稱
+                  </label>
+                  <input
+                    type="text"
+                    value={clientInfo.contactName}
+                    onChange={(e) =>
+                      setClientInfo((p) => ({
+                        ...p,
+                        contactName: e.target.value,
+                      }))
+                    }
+                    placeholder="聯絡人姓名"
+                    className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
                   />
                 </div>
                 <div>

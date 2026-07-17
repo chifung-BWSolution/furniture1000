@@ -71,7 +71,10 @@ interface QuoteFormData {
   pmsPitchingId?: string;
   /** PMS project UUID — persisted to bwf_quote.bwf_project_id on save */
   pmsProjectId?: string;
+  /** Client company / org (公司名稱). */
   clientName: string;
+  /** Contact person (客戶名稱) — from PMS customers.customer_name. */
+  clientContactName: string;
   clientPhone: string;
   clientEmail: string;
   clientIndustry: string[];
@@ -133,6 +136,7 @@ const DEFAULT_FORM_DATA = (): QuoteFormData => ({
   pmsPitchingId: undefined,
   pmsProjectId: undefined,
   clientName: '',
+  clientContactName: '',
   clientPhone: '',
   clientEmail: '',
   clientIndustry: [],
@@ -183,6 +187,7 @@ function readUrlPrefill(): {
       pmsPitchingId: prefill.pmsPitchingId,
       pmsProjectId: prefill.pmsProjectId,
       clientName: prefill.clientName || '',
+      clientContactName: prefill.clientContactName || '',
       clientPhone: prefill.clientPhone || '',
       clientEmail: prefill.clientEmail || '',
       clientIndustry: prefill.clientIndustry || [],
@@ -295,6 +300,7 @@ export function QuickQuoteView({
       pmsPitchingId: prefill.pmsPitchingId,
       pmsProjectId: prefill.pmsProjectId,
       clientName: prefill.clientName || '',
+      clientContactName: prefill.clientContactName || '',
       clientPhone: prefill.clientPhone || '',
       clientEmail: prefill.clientEmail || '',
       clientIndustry: prefill.clientIndustry || [],
@@ -397,6 +403,7 @@ export function QuickQuoteView({
       pmsProjectId: undefined,
       quoteId: item.pitching_code?.trim() || prev.quoteId,
       projectManager: item.main_pm_name?.trim() || prev.projectManager,
+      // Pitching list label is often company display; contact comes from defaults fetch.
       clientName: item.customer_name?.trim() || prev.clientName,
     }));
     setErrors({});
@@ -472,6 +479,8 @@ export function QuickQuoteView({
           defaults.project_code ||
           prev.quoteId,
         clientName: defaults.client_name || prev.clientName,
+        clientContactName:
+          defaults.client_contact_name || prev.clientContactName,
         clientPhone: defaults.client_phone || prev.clientPhone,
         clientEmail: defaults.client_email || prev.clientEmail,
         clientIndustry:
@@ -706,7 +715,7 @@ export function QuickQuoteView({
       newErrors.quoteId = '請先選擇 PMS Pitching（報價單號）';
     }
     if (!formData.clientName.trim()) {
-      newErrors.clientName = '請填寫客戶名稱';
+      newErrors.clientName = '請填寫公司名稱';
     }
     if (!formData.clientPhone.trim()) {
       newErrors.clientPhone = '請填寫客戶電話';
@@ -995,16 +1004,16 @@ export function QuickQuoteView({
                   )}
                 </div>
 
-                {/* Client Name */}
+                {/* Client company */}
                 <div>
                   <label className="mb-1.5 block font-body text-sm font-medium text-foreground">
-                    客戶名稱 <span className="text-red-500">*</span>
+                    公司名稱 <span className="text-red-500">*</span>
                   </label>
                   <input
                     type="text"
                     value={formData.clientName}
                     onChange={(e) => updateField('clientName', e.target.value)}
-                    placeholder="客戶姓名"
+                    placeholder="客戶公司名稱"
                     className={cn(
                       'w-full rounded-lg border bg-background px-4 py-2.5 font-body text-sm text-foreground placeholder:text-muted-foreground/60 transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20',
                       errors.clientName ? 'border-red-500' : 'border-border'
@@ -1014,6 +1023,20 @@ export function QuickQuoteView({
                     <p className="mt-1 text-xs text-red-500">{errors.clientName}</p>
                   )}
                 </div>
+              </div>
+
+              {/* Contact person — defaults from PMS customers.customer_name */}
+              <div>
+                <label className="mb-1.5 block font-body text-sm font-medium text-foreground">
+                  客戶名稱
+                </label>
+                <input
+                  type="text"
+                  value={formData.clientContactName}
+                  onChange={(e) => updateField('clientContactName', e.target.value)}
+                  placeholder="聯絡人姓名"
+                  className="w-full rounded-lg border border-border bg-background px-4 py-2.5 font-body text-sm text-foreground placeholder:text-muted-foreground/60 transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                />
               </div>
 
               {/* Pitching code — read-only 報價單號 from PMS */}
@@ -1298,9 +1321,15 @@ export function QuickQuoteView({
                     </span>
                   </div>
                   <div>
-                    <span className="block font-body text-xs text-white/50">客戶</span>
+                    <span className="block font-body text-xs text-white/50">公司名稱</span>
                     <span className="mt-0.5 block font-mono-data text-sm text-white/90 truncate">
                       {formData.clientName || '—'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="block font-body text-xs text-white/50">客戶名稱</span>
+                    <span className="mt-0.5 block font-mono-data text-sm text-white/90 truncate">
+                      {formData.clientContactName || '—'}
                     </span>
                   </div>
                   <div className="col-span-2">
