@@ -2415,40 +2415,11 @@ export function QuotationDraftEditor({
           if (existingQuote?.quoteUuid) {
             itemsHydratedForUuidRef.current = existingQuote.quoteUuid;
           }
+          // Use shared mapper so fields like `unit` are not dropped on restore.
           setItems(
-            cached.items.map((item: Record<string, unknown>) => {
-              const costPrice = (item.costPrice as number | null) ?? null;
-              const exchangeRate = (item.exchangeRate as number | null) ?? null;
-              return {
-                id: generateId(),
-                image: (item.image as string) || "",
-                name: (item.name as string) || "",
-                costPrice,
-                exchangeRate,
-                hkdCostPrice:
-                  (item.hkdCostPrice as number | null) ??
-                  computeHkdCostPrice(costPrice, exchangeRate),
-                unitPrice: (item.unitPrice as number) || 0,
-                quantity: (item.quantity as number) || 1,
-                category: item.category as string | undefined,
-                material: item.material as string | undefined,
-                color: item.color as string | undefined,
-                remarks: item.remarks as string | undefined,
-                remarksImage: item.remarksImage as string | undefined,
-                referenceImage: item.referenceImage as string | undefined,
-                dimensionLMm: (item.dimensionLMm as number | null) ?? null,
-                dimensionWMm: (item.dimensionWMm as number | null) ?? null,
-                dimensionHMm: (item.dimensionHMm as number | null) ?? null,
-                dimensionMode:
-                  (item.dimensionMode as QuotationDimensionMode | undefined) ?? 'lwh',
-                deliveryTermName: item.deliveryTermName as string | undefined,
-                factoryName: (item.factoryName as string) || "",
-                factoryFromCatalog: Boolean(item.factoryFromCatalog),
-                isCustomTerm: item.isCustomTerm as boolean | undefined,
-                isOptional: Boolean(item.isOptional),
-                isSectionTitle: Boolean(item.isSectionTitle),
-              };
-            }),
+            cached.items.map((item) =>
+              mapInputToQuotationItem(item as BwfQuoteItemInput),
+            ),
           );
         }
         if (
@@ -2681,6 +2652,7 @@ export function QuotationDraftEditor({
         hkdCostPrice: computeHkdCostPrice(costPrice, exchangeRate),
         unitPrice: p.unitPrice || p.costPrice || 0,
         quantity: 1,
+        unit: "",
         category: p.category?.trim() || "",
         material: p.material,
         color: p.color?.trim() || "",
