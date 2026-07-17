@@ -101,7 +101,7 @@ type SortKey =
   | 'staff'
   | 'pitching_stages';
 
-/** Group all version rows; each group sorted newest version first. */
+/** Group by quote_id (= pitching_code); each group sorted newest version first. */
 function groupQuoteVersions(rows: QuoteRecord[]): Map<string, QuoteListRow[]> {
   const map = new Map<string, QuoteListRow[]>();
   for (const row of rows) {

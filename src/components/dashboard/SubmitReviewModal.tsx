@@ -20,6 +20,7 @@ import {
 import {
   nextQuoteVersionFromChain,
 } from '@/lib/quoteVersions';
+import { resolveQuoteChainId } from '@/lib/quoteChainId';
 
 export interface SubmitReviewResult {
   quoteId: string;
@@ -45,20 +46,14 @@ interface SubmitReviewModalProps {
   bwfProjectId?: string | null;
   pitchingCode?: string | null;
   pitchingName?: string | null;
-  /** When set, update the existing row instead of inserting a new quote. */
+  /** Existing chain id (= pitching_code). Legacy Q-format is ignored. */
   existingQuoteId?: string | null;
   existingQuoteUuid?: string | null;
-  /** Skip pitching dedup — always create a new quote row (複製報價單). */
+  /**
+   * 複製報價單: still inserts a new version on the same pitching-code chain
+   * (quote_id = pitching_code). Kept for call-site compat.
+   */
   forceNewQuote?: boolean;
-}
-
-function generateQuoteId(): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  const random = String(Math.floor(Math.random() * 900) + 100);
-  return `Q${year}-${month}${day}-${random}`;
 }
 
 export function SubmitReviewModal({
@@ -75,9 +70,11 @@ export function SubmitReviewModal({
   pitchingCode,
   pitchingName,
   existingQuoteId,
-  existingQuoteUuid,
-  forceNewQuote = false,
+  existingQuoteUuid: _existingQuoteUuid,
+  forceNewQuote: _forceNewQuote = false,
 }: SubmitReviewModalProps) {
+  void _existingQuoteUuid;
+  void _forceNewQuote;
   const { user } = useAuth();
   const staffName = usePmsStaffName(user?.id);
   const [submitter, setSubmitter] = useState('');
@@ -137,37 +134,6 @@ export function SubmitReviewModal({
       extractPmsProjectIdFromProjectData(projectData) ||
       null;
 
-    let isUpdate = !!existingQuoteId?.trim();
-    let quoteId = isUpdate ? existingQuoteId!.trim() : generateQuoteId();
-    let resolvedVersion = version;
-
-    // Same PMS pitching → attach to existing quote_id (new version row, not overwrite).
-    if (!isUpdate && pitchingId && !forceNewQuote) {
-      const { data: existingByPitching } = await supabase
-        .from('bwf_quote')
-        .select('quote_id')
-        .eq('bwf_pitching_id', pitchingId)
-        .order('modified_date', { ascending: false, nullsFirst: false })
-        .limit(1)
-        .maybeSingle();
-      if (existingByPitching?.quote_id) {
-        isUpdate = true;
-        quoteId = existingByPitching.quote_id;
-      }
-    }
-
-    if (isUpdate) {
-      const { data: versionRows, error: versionErr } = await supabase
-        .from('bwf_quote')
-        .select('version')
-        .eq('quote_id', quoteId);
-      if (versionErr) throw versionErr;
-      const chain = (versionRows || []).map((r) => String(r.version || ''));
-      resolvedVersion = existingQuoteId?.trim()
-        ? version
-        : nextQuoteVersionFromChain(chain);
-    }
-
     const formDataRaw =
       (projectData.formData as Record<string, unknown> | undefined) || {};
     const code = resolvePitchingCode({
@@ -179,6 +145,35 @@ export function SubmitReviewModal({
       pitchingName,
       formData: formDataRaw,
     });
+
+    // quote_id = pitching_code (BWF-…). No more QYYYY-MMDD-NNN.
+    const quoteId = resolveQuoteChainId({
+      pitchingCode: code,
+      existingQuoteId,
+    });
+    if (!quoteId) {
+      setError('缺少報價單號（PMS Pitching Code），無法提交');
+      setIsSubmitting(false);
+      return;
+    }
+
+    // Always append a new version row on this pitching-code chain.
+    let resolvedVersion = version;
+    try {
+      const { data: versionRows, error: versionErr } = await supabase
+        .from('bwf_quote')
+        .select('version')
+        .eq('quote_id', quoteId);
+      if (versionErr) throw versionErr;
+      const chain = (versionRows || []).map((r) => String(r.version || ''));
+      resolvedVersion =
+        chain.length > 0 ? nextQuoteVersionFromChain(chain) : version || 'v1';
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      setError(message);
+      setIsSubmitting(false);
+      return;
+    }
 
     // Prefer explicit items prop; fall back to legacy embedded project_data.items
     // (old clients / drafts) so we never drop line items on submit.
@@ -242,9 +237,12 @@ export function SubmitReviewModal({
 
       await replaceQuoteItems(persistedUuid, resolvedItems);
 
-      toast.success(isUpdate ? '報價單新版本已提交審核' : '報價單已提交審核', {
-        description: `${quoteId} · ${code || '—'} · 版本 ${resolvedVersion}`,
-      });
+      toast.success(
+        resolvedVersion === 'v1' ? '報價單已提交審核' : '報價單新版本已提交審核',
+        {
+          description: `${quoteId} · 版本 ${resolvedVersion}`,
+        },
+      );
       onSuccess({
         quoteId,
         quoteUuid: persistedUuid,

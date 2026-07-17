@@ -116,11 +116,13 @@ PMS（bwteam-project.com）BWF pitching 詳情的 Quote tab 會列出本專案 `
 （依 `bwf_pitching_id`），並經 SSO 開新報價。
 
 **Schema（報價識別）**：
-- `bwf_quote.quote_id`（`Q2026-…`）＝內部 URL／版本鍵（`/quote/<quote_id>`），**不是** UI「報價單號」
-- `bwf_quote.pitching_code`＋`formData.pitchingCode`＝PMS `pitching_code`（或 `project_code`），UI／PDF「報價單號」
+- `bwf_quote.quote_id`＝PMS `pitching_code`（`BWF-…`）；版本鏈鍵＋深連結 `/quote/<quote_id>`；與 UI「報價單號」同一值
+- 舊格式 `QYYYY-MMDD-NNN` **已廢棄**（見 migration `20260717_bwf_quote_id_to_pitching_code`）
+- `bwf_quote.pitching_code`＋`formData.pitchingCode`＝同 code，UI／PDF「報價單號」
 - `bwf_quote.pitching_name`＋`formData.pitchingName`＝PMS `pitching_name`，**僅**報價一覽標題／搜尋用（表單與 PDF 不顯示）
 - PDF 標題固定「傢俱報價單」
 - URL query `projectName` 仍＝PMS **code**（handoff 相容）；可選 `pitchingName`
+- **複製報價單**仍掛在同一 pitching-code 版本鏈（新 `vN`），不再開新 Q-id
 
 **Schema（列項目）**：明細在 `bwf_quote_item`（`quote_uuid` → `bwf_quote.id` ON DELETE CASCADE）。
 `project_data` **不再**存 `items`。寫入用 RPC `save_bwf_quote_items`（見 `src/lib/bwfQuoteItems.ts`）。
@@ -155,7 +157,7 @@ Query：`pmsPitchingId`（=`bwf_pitchings.id`）與／或 `pmsProjectId`
 `fetch-pms-pitching-quote-defaults` 帶入客戶／產業／預算（並嘗試補 `project_id`）。
 PMS deep link（`pmsProjectId`／`pmsPitchingId`）會跳過搜尋頁，直接進入預填表單。
 
-**開啟既有報價**：`/quote/<quote_id>`（例 `/quote/Q2026-0708-263`）。
+**開啟既有報價**：`/quote/<quote_id>`（例 `/quote/BWF-FD26-001`，即 pitching_code）。
 PMS v1 可只做列表；需要時用此 URL 連回編輯。
 
 **PMS 預設值**（edge `supabase-functions-fetch-pms-pitching-quote-defaults`）：

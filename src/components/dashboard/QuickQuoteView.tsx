@@ -780,7 +780,9 @@ export function QuickQuoteView({
               {loadedQuoteData && (
                 <p className="ml-6 font-body text-sm text-muted-foreground lg:ml-16">
                   <span className="font-mono-data text-xs tracking-wider text-primary">
-                    {loadedQuoteData.quoteId}
+                    {loadedQuoteData.pitchingCode ||
+                      formData.pitchingCode ||
+                      loadedQuoteData.quoteId}
                   </span>
                   <span className="mx-2 text-border">·</span>
                   目前版本{' '}
@@ -795,14 +797,6 @@ export function QuickQuoteView({
                         loadedQuoteData.version,
                     )}
                   </span>
-                  {(loadedQuoteData.pitchingCode || formData.pitchingCode) && (
-                    <>
-                      <span className="mx-2 text-border">·</span>
-                      <span className="font-mono-data text-xs tracking-wider text-foreground">
-                        {loadedQuoteData.pitchingCode || formData.pitchingCode}
-                      </span>
-                    </>
-                  )}
                 </p>
               )}
             </div>
