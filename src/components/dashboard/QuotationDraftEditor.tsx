@@ -36,6 +36,12 @@ import type { QuotationDimensionMode, QuotationPDFData } from "@/types/quotation
 import { uploadQuoteImageFile } from "@/lib/quoteImageStorage";
 import { isHttpImageUrl } from "@/lib/imageStorage";
 import {
+  beginQuoteDnDDrag,
+  endQuoteDnDDrag,
+  isQuoteDnDDrag,
+  QUOTE_DND_MIME,
+} from "@/lib/quoteDnD";
+import {
   saveDraft,
   loadDraft,
   deleteDraft,
@@ -210,11 +216,13 @@ function QuoteRowDragHandle({
         type="button"
         draggable
         onDragStart={(e) => {
-          e.dataTransfer.effectAllowed = "move";
-          e.dataTransfer.setData("text/plain", itemId);
+          beginQuoteDnDDrag(e.dataTransfer, "quote-row", itemId);
           onDragStart(itemId);
         }}
-        onDragEnd={onDragEnd}
+        onDragEnd={() => {
+          endQuoteDnDDrag();
+          onDragEnd();
+        }}
         className="cursor-grab rounded p-1 text-muted-foreground/45 transition-colors hover:bg-muted hover:text-muted-foreground active:cursor-grabbing"
         title="拖曳調整順序"
         aria-label={`序號 ${serialNumber}，拖曳調整順序`}
@@ -260,7 +268,7 @@ function findVerticalScrollParent(el: HTMLElement | null): HTMLElement | null {
 }
 
 /** Wider than browser default edge bands so DnD can scroll without hugging the rim. */
-const QUOTE_DND_AUTO_SCROLL_EDGE_PX = 112;
+const QUOTE_DND_AUTO_SCROLL_EDGE_PX = 336; // 3× prior 112px band
 const QUOTE_DND_AUTO_SCROLL_MAX_STEP_PX = 28;
 
 // Helper: Convert file to base64 data URL
@@ -1983,6 +1991,7 @@ export function QuotationDraftEditor({
 
   const handleQuoteRowDragOver = useCallback(
     (e: React.DragEvent<HTMLDivElement>, index: number) => {
+      if (!isQuoteDnDDrag(e.dataTransfer, "quote-row")) return;
       e.preventDefault();
       e.dataTransfer.dropEffect = "move";
       trackQuoteDragPointer(e.clientY);
@@ -1994,11 +2003,16 @@ export function QuotationDraftEditor({
 
   const handleQuoteRowDrop = useCallback(
     (e: React.DragEvent<HTMLDivElement>) => {
+      if (!isQuoteDnDDrag(e.dataTransfer, "quote-row")) return;
       e.preventDefault();
-      const fromId = e.dataTransfer.getData("text/plain") || draggingItemId;
+      const fromId =
+        e.dataTransfer.getData(QUOTE_DND_MIME.quoteRow) ||
+        e.dataTransfer.getData("text/plain") ||
+        draggingItemId;
       if (fromId && dropInsertIndex !== null) {
         moveItem(fromId, dropInsertIndex);
       }
+      endQuoteDnDDrag();
       setDraggingItemId(null);
       setDropInsertIndex(null);
     },
@@ -2006,6 +2020,7 @@ export function QuotationDraftEditor({
   );
 
   const clearQuoteRowDrag = useCallback(() => {
+    endQuoteDnDDrag();
     setDraggingItemId(null);
     setDropInsertIndex(null);
   }, []);
@@ -3097,7 +3112,10 @@ export function QuotationDraftEditor({
                   className="space-y-3"
                   onDragOver={(e) => {
                     // Keep pointer Y fresh over gaps between rows (add-row strips).
-                    if (draggingItemId) {
+                    if (
+                      draggingItemId &&
+                      isQuoteDnDDrag(e.dataTransfer, "quote-row")
+                    ) {
                       e.preventDefault();
                       trackQuoteDragPointer(e.clientY);
                     }
