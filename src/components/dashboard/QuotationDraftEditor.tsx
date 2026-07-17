@@ -2751,21 +2751,12 @@ export function QuotationDraftEditor({
             padding) so 報價內容 stretches left-and-right and needs less scrolling */}
         <div className="mx-auto w-full max-w-none">
           {/* Info panels + action buttons — above 報價內容
-              Top row: ENG (above 版本審核) · 預覽 PDF (above 立即暫存)
-              Main row: 公司資訊 / 專案分類 / 客戶資訊 / 報價資訊 / 版本審核 / 立即暫存 */}
+              Top row: 預覽 PDF (above 立即暫存) · ENG (above 版本審核)
+              Main row: 公司資訊 / 專案分類 / 客戶資訊 / 報價資訊 / 立即暫存 / 版本審核 */}
           <div className="mb-5 space-y-2">
-            {/* Top row — ENG above 版本審核, 預覽 PDF above 立即暫存 */}
+            {/* Top row — 預覽 PDF above 立即暫存, ENG above 版本審核 */}
             <div className="grid grid-cols-2 gap-2 lg:grid-cols-6">
               <div className="hidden lg:col-span-4 lg:block" aria-hidden />
-              <div className="flex justify-stretch">
-                <button
-                  type="button"
-                  onClick={() => setQuoteLocale((l) => (l === 'zh' ? 'en' : 'zh'))}
-                  className="inline-flex w-full items-center justify-center rounded-lg border border-border bg-background px-3 py-2 font-body text-sm font-medium text-foreground/80 transition-colors hover:bg-muted/50"
-                >
-                  {t.langToggle}
-                </button>
-              </div>
               <div className="flex justify-stretch">
                 <button
                   type="button"
@@ -2774,6 +2765,15 @@ export function QuotationDraftEditor({
                 >
                   <Eye className="h-4 w-4" />
                   {t.previewPdf}
+                </button>
+              </div>
+              <div className="flex justify-stretch">
+                <button
+                  type="button"
+                  onClick={() => setQuoteLocale((l) => (l === 'zh' ? 'en' : 'zh'))}
+                  className="inline-flex w-full items-center justify-center rounded-lg border border-border bg-background px-3 py-2 font-body text-sm font-medium text-foreground/80 transition-colors hover:bg-muted/50"
+                >
+                  {t.langToggle}
                 </button>
               </div>
             </div>
@@ -3042,20 +3042,7 @@ export function QuotationDraftEditor({
                 </div>
               </InfoPanelColumn>
 
-              {/* Col 5: 版本審核 — vertically under ENG */}
-              <div className="col-span-1 flex flex-col items-stretch gap-1">
-                <button
-                  type="button"
-                  onClick={handleOpenSubmitReview}
-                  className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 font-body text-sm font-semibold text-primary-foreground shadow-md shadow-primary/20 transition-all hover:bg-primary/90 active:scale-[0.98]"
-                  title="提交後會產生新版本快照並送審"
-                >
-                  <ShieldCheck className="h-4 w-4 shrink-0" />
-                  <span className="truncate">{t.versionReview}</span>
-                </button>
-              </div>
-
-              {/* Col 6: 立即暫存 — vertically under 預覽 PDF */}
+              {/* Col 5: 立即暫存 — vertically under 預覽 PDF */}
               <div className="col-span-1 flex flex-col items-stretch gap-1">
                 <button
                   type="button"
@@ -3088,6 +3075,19 @@ export function QuotationDraftEditor({
                       ? `${t.autoSavedAt} ${new Date(lastLocalSavedAt).toLocaleTimeString("zh-HK", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`
                       : t.autoSaveHint}
                 </p>
+              </div>
+
+              {/* Col 6: 版本審核 — vertically under ENG */}
+              <div className="col-span-1 flex flex-col items-stretch gap-1">
+                <button
+                  type="button"
+                  onClick={handleOpenSubmitReview}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 font-body text-sm font-semibold text-primary-foreground shadow-md shadow-primary/20 transition-all hover:bg-primary/90 active:scale-[0.98]"
+                  title="提交後會產生新版本快照並送審"
+                >
+                  <ShieldCheck className="h-4 w-4 shrink-0" />
+                  <span className="truncate">{t.versionReview}</span>
+                </button>
               </div>
             </div>
           </div>
