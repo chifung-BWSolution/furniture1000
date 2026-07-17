@@ -1352,6 +1352,113 @@ function createBlankProductItem(): QuotationItem {
   };
 }
 
+function createBlankSectionTitle(): QuotationItem {
+  return {
+    id: generateId(),
+    image: "",
+    name: "",
+    costPrice: null,
+    exchangeRate: null,
+    hkdCostPrice: null,
+    unitPrice: 0,
+    quantity: 0,
+    unit: "",
+    isSectionTitle: true,
+  };
+}
+
+function createBlankCustomTerm(defaultName = ""): QuotationItem {
+  return {
+    id: generateId(),
+    image: "",
+    name: defaultName,
+    costPrice: null,
+    exchangeRate: null,
+    hkdCostPrice: null,
+    unitPrice: 0,
+    quantity: 1,
+    unit: "",
+    isCustomTerm: true,
+  };
+}
+
+/** Insert `rows` before index `at` (0 = start of list). */
+function insertItemsAt(
+  prev: QuotationItem[],
+  rows: QuotationItem[],
+  at: number,
+): QuotationItem[] {
+  const clamped = Math.max(0, Math.min(at, prev.length));
+  return [...prev.slice(0, clamped), ...rows, ...prev.slice(clamped)];
+}
+
+function QuoteAddRowButtonGroup({
+  labels,
+  onAddSectionTitle,
+  onAddField,
+  onAddCustomTerm,
+  onAddProduct,
+  compact = false,
+}: {
+  labels: QuoteUiLabels;
+  onAddSectionTitle: () => void;
+  onAddField: () => void;
+  onAddCustomTerm: () => void;
+  onAddProduct: () => void;
+  compact?: boolean;
+}) {
+  const btnBase = compact
+    ? "inline-flex items-center gap-1 rounded-md border border-dashed px-2 py-1 font-body text-xs font-medium transition-colors"
+    : "inline-flex items-center gap-1.5 rounded-lg border border-dashed px-3 py-1.5 font-body text-sm font-medium transition-colors";
+  const iconClass = compact ? "h-3 w-3" : "h-3.5 w-3.5";
+
+  return (
+    <div className={cn("flex flex-wrap items-center gap-2", compact && "justify-center")}>
+      <button
+        type="button"
+        onClick={onAddSectionTitle}
+        className={cn(
+          btnBase,
+          "border-sky-500/50 text-sky-700 hover:bg-sky-500/5 dark:text-sky-400",
+        )}
+      >
+        <Plus className={iconClass} />
+        {labels.addSectionTitle}
+      </button>
+      <button
+        type="button"
+        onClick={onAddField}
+        className={cn(btnBase, "border-border text-foreground/80 hover:bg-muted/50")}
+      >
+        <Plus className={iconClass} />
+        {labels.addField}
+      </button>
+      <button
+        type="button"
+        onClick={onAddCustomTerm}
+        className={cn(
+          btnBase,
+          "border-amber-500/50 text-amber-600 hover:bg-amber-500/5",
+        )}
+      >
+        <Plus className={iconClass} />
+        {labels.addValueService}
+      </button>
+      <button
+        type="button"
+        onClick={onAddProduct}
+        className={cn(
+          btnBase,
+          "border-primary/40 text-primary hover:bg-primary/5",
+        )}
+      >
+        <Plus className={iconClass} />
+        {labels.addProduct}
+      </button>
+    </div>
+  );
+}
+
 /** Rows created via 新建欄位 may have category/material but no product name — still export to PDF. */
 function hasQuoteItemContent(item: QuotationItem): boolean {
   if (item.isSectionTitle || item.isCustomTerm) {
@@ -1729,56 +1836,32 @@ export function QuotationDraftEditor({
     };
   }, []);
 
-  const addItem = () => {
+  /** Insert a blank product field at `at` (default: start of list). */
+  const addItem = (at = 0) => {
     itemsUserEditedRef.current = true;
-    setItems((prev) => [...prev, createBlankProductItem()]);
+    setItems((prev) => insertItemsAt(prev, [createBlankProductItem()], at));
   };
 
-  /**
-   * Insert a blank section title above the first product.
-   * Existing titles keep their content and ordinals (1. stays 1.); the new blank becomes the next number.
-   */
-  const addSectionTitle = () => {
+  /** Insert a blank section title at `at` (default: start of list). */
+  const addSectionTitle = (at = 0) => {
     itemsUserEditedRef.current = true;
-    setItems((prev) => {
-      const blankTitle: QuotationItem = {
-        id: generateId(),
-        image: "",
-        name: "",
-        costPrice: null,
-        exchangeRate: null,
-        hkdCostPrice: null,
-        unitPrice: 0,
-        quantity: 0,
-        unit: "",
-        isSectionTitle: true,
-      };
-      // Place after existing leading section titles, still before the first product/service row.
-      let insertAt = 0;
-      while (insertAt < prev.length && prev[insertAt]?.isSectionTitle) {
-        insertAt += 1;
-      }
-      return [...prev.slice(0, insertAt), blankTitle, ...prev.slice(insertAt)];
-    });
+    setItems((prev) => insertItemsAt(prev, [createBlankSectionTitle()], at));
   };
 
-  const addCustomTerm = () => {
+  /** Insert a value-added service row at `at` (default: start of list). */
+  const addCustomTerm = (at = 0) => {
     itemsUserEditedRef.current = true;
-    setItems((prev) => [
-      ...prev,
-      {
-        id: generateId(),
-        image: "",
-        name: quoteLocale === 'en' ? t.defaultValueServiceName : "",
-        costPrice: null,
-        exchangeRate: null,
-        hkdCostPrice: null,
-        unitPrice: 0,
-        quantity: 1,
-        unit: "",
-        isCustomTerm: true,
-      },
-    ]);
+    const defaultName = quoteLocale === "en" ? t.defaultValueServiceName : "";
+    setItems((prev) =>
+      insertItemsAt(prev, [createBlankCustomTerm(defaultName)], at),
+    );
+  };
+
+  /** Open product picker; selected products insert at `at` (default: start of list). */
+  const openProductSelector = (at = 0) => {
+    productInsertAtRef.current = at;
+    setActiveItemId(null);
+    setShowProductSelector(true);
   };
 
   const removeItem = (id: string) => {
@@ -1969,6 +2052,8 @@ export function QuotationDraftEditor({
   // Product selector modal state
   const [showProductSelector, setShowProductSelector] = useState(false);
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
+  /** Index where products from the selector should be inserted (0 = start). */
+  const productInsertAtRef = useRef(0);
 
   // Draft state — baseline snapshot detects unsaved edits vs loaded content.
   const [draftLoaded, setDraftLoaded] = useState(false);
@@ -2268,7 +2353,7 @@ export function QuotationDraftEditor({
       return;
     }
 
-    // Always append selected products as new rows (no deduplication)
+    // Insert selected products as new rows at the requested index (no deduplication)
     itemsUserEditedRef.current = true;
     const newRows = products.map((p) => {
       const costPrice = p.costPrice ?? null;
@@ -2296,9 +2381,9 @@ export function QuotationDraftEditor({
       };
     });
 
-    // Remove empty placeholder rows and append new ones
-    const nonEmptyItems = items.filter(hasQuoteItemContent);
-    setItems([...nonEmptyItems, ...newRows]);
+    const insertAt = productInsertAtRef.current;
+    setItems((prev) => insertItemsAt(prev, newRows, insertAt));
+    productInsertAtRef.current = 0;
     setActiveItemId(null);
   };
 
@@ -2779,47 +2864,17 @@ export function QuotationDraftEditor({
           <div className="space-y-5">
               {/* 報價內容表格 */}
               <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
-                <div className="mb-4 flex items-center justify-between">
+                <div className="mb-4 flex items-center justify-between gap-3">
                   <h2 className="font-display text-base font-bold text-foreground/80">
                     {t.quoteContent}
                   </h2>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={addSectionTitle}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-sky-500/50 px-3 py-1.5 font-body text-sm font-medium text-sky-700 transition-colors hover:bg-sky-500/5 dark:text-sky-400"
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                      {t.addSectionTitle}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={addItem}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-border px-3 py-1.5 font-body text-sm font-medium text-foreground/80 transition-colors hover:bg-muted/50"
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                      {t.addField}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={addCustomTerm}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-amber-500/50 px-3 py-1.5 font-body text-sm font-medium text-amber-600 transition-colors hover:bg-amber-500/5"
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                      {t.addValueService}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setActiveItemId(null);
-                        setShowProductSelector(true);
-                      }}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-dashed border-primary/40 px-3 py-1.5 font-body text-sm font-medium text-primary transition-colors hover:bg-primary/5"
-                    >
-                      <Plus className="h-3.5 w-3.5" />
-                      {t.addProduct}
-                    </button>
-                  </div>
+                  <QuoteAddRowButtonGroup
+                    labels={t}
+                    onAddSectionTitle={() => addSectionTitle(0)}
+                    onAddField={() => addItem(0)}
+                    onAddCustomTerm={() => addCustomTerm(0)}
+                    onAddProduct={() => openProductSelector(0)}
+                  />
                 </div>
 
                 <div
@@ -2830,65 +2885,72 @@ export function QuotationDraftEditor({
                     }
                   }}
                 >
-                  {items.map((item, index) =>
-                    item.isSectionTitle ? (
-                      <QuoteSectionTitleCard
-                        key={item.id}
-                        item={item}
-                        index={index}
-                        items={items}
-                        draggingItemId={draggingItemId}
-                        dropInsertIndex={dropInsertIndex}
-                        onDragOver={handleQuoteRowDragOver}
-                        onDrop={handleQuoteRowDrop}
-                        onDragStart={setDraggingItemId}
-                        onDragEnd={clearQuoteRowDrag}
-                        updateItem={updateItem}
-                        duplicateItem={duplicateItem}
-                        removeItem={removeItem}
+                  {items.map((item, index) => (
+                    <div key={item.id} className="space-y-3">
+                      {item.isSectionTitle ? (
+                        <QuoteSectionTitleCard
+                          item={item}
+                          index={index}
+                          items={items}
+                          draggingItemId={draggingItemId}
+                          dropInsertIndex={dropInsertIndex}
+                          onDragOver={handleQuoteRowDragOver}
+                          onDrop={handleQuoteRowDrop}
+                          onDragStart={setDraggingItemId}
+                          onDragEnd={clearQuoteRowDrag}
+                          updateItem={updateItem}
+                          duplicateItem={duplicateItem}
+                          removeItem={removeItem}
+                          labels={t}
+                        />
+                      ) : item.isCustomTerm ? (
+                        <QuoteCustomTermCard
+                          item={item}
+                          index={index}
+                          serialNumber={productSerialAt(items, index)}
+                          draggingItemId={draggingItemId}
+                          dropInsertIndex={dropInsertIndex}
+                          onDragOver={handleQuoteRowDragOver}
+                          onDrop={handleQuoteRowDrop}
+                          onDragStart={setDraggingItemId}
+                          onDragEnd={clearQuoteRowDrag}
+                          updateItem={updateItem}
+                          duplicateItem={duplicateItem}
+                          removeItem={removeItem}
+                          labels={t}
+                        />
+                      ) : (
+                        <QuoteProductItemCard
+                          item={item}
+                          index={index}
+                          serialNumber={productSerialAt(items, index)}
+                          draggingItemId={draggingItemId}
+                          dropInsertIndex={dropInsertIndex}
+                          onDragOver={handleQuoteRowDragOver}
+                          onDrop={handleQuoteRowDrop}
+                          onDragStart={setDraggingItemId}
+                          onDragEnd={clearQuoteRowDrag}
+                          updateItem={updateItem}
+                          updateExchangeRate={updateExchangeRate}
+                          updateDimensionMode={updateDimensionMode}
+                          duplicateItem={duplicateItem}
+                          removeItem={removeItem}
+                          factories={factories}
+                          factoriesLoading={factoriesLoading}
+                          quoteImageScope={quoteImageScope}
+                          labels={t}
+                        />
+                      )}
+                      <QuoteAddRowButtonGroup
                         labels={t}
+                        compact
+                        onAddSectionTitle={() => addSectionTitle(index + 1)}
+                        onAddField={() => addItem(index + 1)}
+                        onAddCustomTerm={() => addCustomTerm(index + 1)}
+                        onAddProduct={() => openProductSelector(index + 1)}
                       />
-                    ) : item.isCustomTerm ? (
-                      <QuoteCustomTermCard
-                        key={item.id}
-                        item={item}
-                        index={index}
-                        serialNumber={productSerialAt(items, index)}
-                        draggingItemId={draggingItemId}
-                        dropInsertIndex={dropInsertIndex}
-                        onDragOver={handleQuoteRowDragOver}
-                        onDrop={handleQuoteRowDrop}
-                        onDragStart={setDraggingItemId}
-                        onDragEnd={clearQuoteRowDrag}
-                        updateItem={updateItem}
-                        duplicateItem={duplicateItem}
-                        removeItem={removeItem}
-                        labels={t}
-                      />
-                    ) : (
-                      <QuoteProductItemCard
-                        key={item.id}
-                        item={item}
-                        index={index}
-                        serialNumber={productSerialAt(items, index)}
-                        draggingItemId={draggingItemId}
-                        dropInsertIndex={dropInsertIndex}
-                        onDragOver={handleQuoteRowDragOver}
-                        onDrop={handleQuoteRowDrop}
-                        onDragStart={setDraggingItemId}
-                        onDragEnd={clearQuoteRowDrag}
-                        updateItem={updateItem}
-                        updateExchangeRate={updateExchangeRate}
-                        updateDimensionMode={updateDimensionMode}
-                        duplicateItem={duplicateItem}
-                        removeItem={removeItem}
-                        factories={factories}
-                        factoriesLoading={factoriesLoading}
-                        quoteImageScope={quoteImageScope}
-                        labels={t}
-                      />
-                    ),
-                  )}
+                    </div>
+                  ))}
                 </div>
 
                 {/* Price Multiplier, GP Summary & Subtotal */}
