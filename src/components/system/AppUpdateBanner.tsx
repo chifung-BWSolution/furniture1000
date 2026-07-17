@@ -47,12 +47,12 @@ export function AppUpdateBanner() {
         <RefreshCw className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" />
         <div className="min-w-0 flex-1">
           <p className="font-display text-sm font-bold text-foreground">
-            網站已更新
+            系統有新版本
           </p>
           <p className="mt-1 font-body text-xs leading-relaxed text-muted-foreground">
-            偵測到新版本（可能因系統剛部署）。為避免報價資料異常，請重新整理頁面。
+            偵測到新部署。請重新整理以載入最新程式；不會自動重整，避免報價草稿中斷。
             {dirty
-              ? ' 系統已嘗試暫存你的草稿；重新整理後可自動恢復。'
+              ? ' 已嘗試把「報價單草稿編輯」內容寫入本機暫存，重整後可自動恢復。'
               : ' 重新整理後會載入最新版本。'}
           </p>
           <div className="mt-3 flex flex-wrap items-center gap-2">
