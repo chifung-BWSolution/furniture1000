@@ -2736,10 +2736,34 @@ export function QuotationDraftEditor({
             padding) so 報價內容 stretches left-and-right and needs less scrolling */}
         <div className="mx-auto w-full max-w-none">
           {/* Info panels + action buttons — above 報價內容
-              Main row: 公司資訊 / 專案分類 / 客戶資訊 / 報價資訊 / 預覽 PDF / 版本審核
-              ENG sits on the row above 版本審核, centered to that button. */}
-          <div className="mb-5 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between lg:gap-3">
-            <div className="grid min-w-0 flex-1 grid-cols-2 items-start gap-2 lg:mt-12 lg:grid-cols-4">
+              Top row: ENG (above 版本審核) · 預覽 PDF (above 立即暫存)
+              Main row: 公司資訊 / 專案分類 / 客戶資訊 / 報價資訊 / 版本審核 / 立即暫存 */}
+          <div className="mb-5 space-y-2">
+            {/* Top row — ENG above 版本審核, 預覽 PDF above 立即暫存 */}
+            <div className="grid grid-cols-2 gap-2 lg:grid-cols-6">
+              <div className="hidden lg:col-span-4 lg:block" aria-hidden />
+              <div className="flex justify-stretch">
+                <button
+                  type="button"
+                  onClick={() => setQuoteLocale((l) => (l === 'zh' ? 'en' : 'zh'))}
+                  className="inline-flex w-full items-center justify-center rounded-lg border border-border bg-background px-3 py-2 font-body text-sm font-medium text-foreground/80 transition-colors hover:bg-muted/50"
+                >
+                  {t.langToggle}
+                </button>
+              </div>
+              <div className="flex justify-stretch">
+                <button
+                  type="button"
+                  onClick={() => onOpenPdfPreview?.(buildPDFData())}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 font-body text-sm font-medium text-primary transition-colors hover:bg-primary/10"
+                >
+                  <Eye className="h-4 w-4" />
+                  {t.previewPdf}
+                </button>
+              </div>
+            </div>
+
+            <div className="grid min-w-0 grid-cols-2 items-start gap-2 lg:grid-cols-6">
               <InfoPanelColumn
                 title="公司資訊"
                 collapsed={collapseCompany}
@@ -3002,42 +3026,41 @@ export function QuotationDraftEditor({
                   />
                 </div>
               </InfoPanelColumn>
-            </div>
 
-            <div className="flex shrink-0 items-start justify-end gap-3">
-              <button
-                type="button"
-                onClick={() => onOpenPdfPreview?.(buildPDFData())}
-                className="mt-0 inline-flex items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-4 py-2 font-body text-sm font-medium text-primary transition-colors hover:bg-primary/10 lg:mt-12"
-              >
-                <Eye className="h-4 w-4" />
-                {t.previewPdf}
-              </button>
-              <div className="flex flex-col items-stretch gap-2">
+              {/* Col 5: 版本審核 — vertically under ENG */}
+              <div className="col-span-1 flex flex-col items-stretch gap-1">
                 <button
                   type="button"
-                  onClick={() => setQuoteLocale((l) => (l === 'zh' ? 'en' : 'zh'))}
-                  className="inline-flex items-center justify-center rounded-lg border border-border bg-background px-4 py-2 font-body text-sm font-medium text-foreground/80 transition-colors hover:bg-muted/50"
+                  onClick={handleOpenSubmitReview}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 font-body text-sm font-semibold text-primary-foreground shadow-md shadow-primary/20 transition-all hover:bg-primary/90 active:scale-[0.98]"
+                  title="提交後會產生新版本快照並送審"
                 >
-                  {t.langToggle}
+                  <ShieldCheck className="h-4 w-4 shrink-0" />
+                  <span className="truncate">{t.versionReview}</span>
                 </button>
+              </div>
+
+              {/* Col 6: 立即暫存 — vertically under 預覽 PDF */}
+              <div className="col-span-1 flex flex-col items-stretch gap-1">
                 <button
                   type="button"
                   onClick={() => void handleSaveLocalDraft()}
                   disabled={isSavingDraft || isAutoSaving || !hasQuoteData}
-                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-background px-4 py-2 font-body text-sm font-medium text-foreground transition-colors hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-background px-3 py-2 font-body text-sm font-medium text-foreground transition-colors hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-50"
                   title={t.autoSaveHint}
                 >
                   {isSavingDraft || isAutoSaving ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
                   ) : (
-                    <Save className="h-4 w-4" />
+                    <Save className="h-4 w-4 shrink-0" />
                   )}
-                  {isAutoSaving ? t.autoSaving : t.saveDraft}
+                  <span className="truncate">
+                    {isAutoSaving ? t.autoSaving : t.saveDraft}
+                  </span>
                 </button>
                 <p
                   className={cn(
-                    "max-w-[9.5rem] text-center font-body text-[10px] leading-snug",
+                    "text-center font-body text-[10px] leading-snug",
                     autoSaveFailed
                       ? "text-rose-500"
                       : "text-muted-foreground",
@@ -3050,15 +3073,6 @@ export function QuotationDraftEditor({
                       ? `${t.autoSavedAt} ${new Date(lastLocalSavedAt).toLocaleTimeString("zh-HK", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`
                       : t.autoSaveHint}
                 </p>
-                <button
-                  type="button"
-                  onClick={handleOpenSubmitReview}
-                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 font-body text-sm font-semibold text-primary-foreground shadow-md shadow-primary/20 transition-all hover:bg-primary/90 active:scale-[0.98]"
-                  title="提交後會產生新版本快照並送審"
-                >
-                  <ShieldCheck className="h-4 w-4" />
-                  {t.versionReview}
-                </button>
               </div>
             </div>
           </div>
