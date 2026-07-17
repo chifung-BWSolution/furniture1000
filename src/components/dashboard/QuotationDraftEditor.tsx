@@ -240,6 +240,29 @@ function quoteRowReorderClass(
   );
 }
 
+/** Nearest ancestor that can actually scroll vertically (incl. documentElement). */
+function findVerticalScrollParent(el: HTMLElement | null): HTMLElement | null {
+  let node: HTMLElement | null = el;
+  while (node) {
+    const { overflowY } = getComputedStyle(node);
+    const canScroll =
+      overflowY === "auto" || overflowY === "scroll" || overflowY === "overlay";
+    if (canScroll && node.scrollHeight > node.clientHeight + 1) {
+      return node;
+    }
+    node = node.parentElement;
+  }
+  const root = document.scrollingElement;
+  if (root instanceof HTMLElement && root.scrollHeight > root.clientHeight + 1) {
+    return root;
+  }
+  return null;
+}
+
+/** Wider than browser default edge bands so DnD can scroll without hugging the rim. */
+const QUOTE_DND_AUTO_SCROLL_EDGE_PX = 112;
+const QUOTE_DND_AUTO_SCROLL_MAX_STEP_PX = 28;
+
 // Helper: Convert file to base64 data URL
 const fileToDataUrl = (file: File): Promise<string> =>
   new Promise((resolve, reject) => {
@@ -1934,6 +1957,14 @@ export function QuotationDraftEditor({
 
   const [draggingItemId, setDraggingItemId] = useState<string | null>(null);
   const [dropInsertIndex, setDropInsertIndex] = useState<number | null>(null);
+  /** Editor root — used to resolve which ancestor actually scrolls during DnD. */
+  const editorScrollRootRef = useRef<HTMLDivElement | null>(null);
+  const dragPointerYRef = useRef<number | null>(null);
+  const autoScrollRafRef = useRef<number | null>(null);
+
+  const trackQuoteDragPointer = useCallback((clientY: number) => {
+    dragPointerYRef.current = clientY;
+  }, []);
 
   const moveItem = useCallback((fromId: string, insertIndex: number) => {
     itemsUserEditedRef.current = true;
@@ -1954,10 +1985,11 @@ export function QuotationDraftEditor({
     (e: React.DragEvent<HTMLDivElement>, index: number) => {
       e.preventDefault();
       e.dataTransfer.dropEffect = "move";
+      trackQuoteDragPointer(e.clientY);
       const rect = e.currentTarget.getBoundingClientRect();
       setDropInsertIndex(e.clientY < rect.top + rect.height / 2 ? index : index + 1);
     },
-    [],
+    [trackQuoteDragPointer],
   );
 
   const handleQuoteRowDrop = useCallback(
@@ -1977,6 +2009,59 @@ export function QuotationDraftEditor({
     setDraggingItemId(null);
     setDropInsertIndex(null);
   }, []);
+
+  // While reordering rows, auto-scroll the nearest scroll parent when the
+  // pointer enters a wide top/bottom edge band (browser default bands are too thin).
+  useEffect(() => {
+    if (!draggingItemId) {
+      dragPointerYRef.current = null;
+      if (autoScrollRafRef.current != null) {
+        cancelAnimationFrame(autoScrollRafRef.current);
+        autoScrollRafRef.current = null;
+      }
+      return;
+    }
+
+    const onDragOver = (e: DragEvent) => {
+      trackQuoteDragPointer(e.clientY);
+    };
+    document.addEventListener("dragover", onDragOver);
+
+    const tick = () => {
+      const clientY = dragPointerYRef.current;
+      const root = editorScrollRootRef.current;
+      if (clientY != null && root) {
+        const scroller = findVerticalScrollParent(root);
+        if (scroller) {
+          const rect = scroller.getBoundingClientRect();
+          const edge = QUOTE_DND_AUTO_SCROLL_EDGE_PX;
+          const maxStep = QUOTE_DND_AUTO_SCROLL_MAX_STEP_PX;
+          let delta = 0;
+          if (clientY < rect.top + edge) {
+            const intensity = Math.min(1, (rect.top + edge - clientY) / edge);
+            delta = -Math.ceil(maxStep * intensity);
+          } else if (clientY > rect.bottom - edge) {
+            const intensity = Math.min(1, (clientY - (rect.bottom - edge)) / edge);
+            delta = Math.ceil(maxStep * intensity);
+          }
+          if (delta !== 0) {
+            scroller.scrollTop += delta;
+          }
+        }
+      }
+      autoScrollRafRef.current = requestAnimationFrame(tick);
+    };
+    autoScrollRafRef.current = requestAnimationFrame(tick);
+
+    return () => {
+      document.removeEventListener("dragover", onDragOver);
+      if (autoScrollRafRef.current != null) {
+        cancelAnimationFrame(autoScrollRafRef.current);
+        autoScrollRafRef.current = null;
+      }
+      dragPointerYRef.current = null;
+    };
+  }, [draggingItemId, trackQuoteDragPointer]);
 
   // Unit price multiplier (cost-based) — persisted in project_data after 版本審核.
   const savedPriceMultiplier = (() => {
@@ -2623,7 +2708,7 @@ export function QuotationDraftEditor({
 
   return (
     <>
-      <div className="h-full overflow-y-auto bg-background">
+      <div ref={editorScrollRootRef} className="h-full overflow-y-auto bg-background">
         {/* Header — span full available width (parent already adds small side
             padding) so 報價內容 stretches left-and-right and needs less scrolling */}
         <div className="mx-auto w-full max-w-none">
@@ -2958,9 +3043,19 @@ export function QuotationDraftEditor({
 
                 <div
                   className="space-y-3"
+                  onDragOver={(e) => {
+                    // Keep pointer Y fresh over gaps between rows (add-row strips).
+                    if (draggingItemId) {
+                      e.preventDefault();
+                      trackQuoteDragPointer(e.clientY);
+                    }
+                  }}
                   onDragLeave={(e) => {
+                    // Only clear the insert marker — keep draggingItemId so edge
+                    // auto-scroll still runs when the pointer leaves the list
+                    // (e.g. into the top/bottom scroll bands over chrome).
                     if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                      clearQuoteRowDrag();
+                      setDropInsertIndex(null);
                     }
                   }}
                 >
