@@ -187,6 +187,8 @@ interface QuotationDraftEditorProps {
   initialCopyPayload?: QuoteCopyPayload | null;
   /** Always insert a new bwf_quote row (skip pitching dedup) — used for 複製報價單. */
   forceNewQuote?: boolean;
+  /** Pre-assigned quote id for new drafts (step 4 URL persistence). */
+  draftQuoteId?: string | null;
 }
 
 const generateId = () => Math.random().toString(36).substring(2, 12);
@@ -1666,6 +1668,7 @@ export function QuotationDraftEditor({
   existingQuote,
   initialCopyPayload,
   forceNewQuote = false,
+  draftQuoteId = null,
 }: QuotationDraftEditorProps) {
   // Determine initial values from existingQuote or defaults
   const savedProjectData = existingQuote?.projectData || {};
@@ -2306,7 +2309,7 @@ export function QuotationDraftEditor({
   const baselineSnapshotRef = useRef<string | null>(null);
   const [snapshotReady, setSnapshotReady] = useState(false);
 
-  const rawQuoteId = existingQuote?.quoteId || "NEW";
+  const rawQuoteId = existingQuote?.quoteId || draftQuoteId || "NEW";
   const storageKey = makeDraftKey(userEmail, rawQuoteId);
   const quoteImageScope = existingQuote?.quoteId || rawQuoteId;
 

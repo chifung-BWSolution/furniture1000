@@ -20,6 +20,7 @@ import {
   nextQuoteVersionFromChain,
 } from '@/lib/quoteVersions';
 import { resolveQuoteChainId } from '@/lib/quoteChainId';
+import { generateQuoteId } from '@/lib/quoteRoutes';
 
 export interface SubmitReviewResult {
   quoteId: string;

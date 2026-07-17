@@ -1,10 +1,11 @@
 import { useState, useCallback, useEffect, useRef, lazy, Suspense } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useAppStore } from "@/hooks/use-app-store";
 import { unsavedGuard } from "@/lib/unsavedGuard";
 import {
   resetQuickQuoteSessionStorage,
   readQuickQuoteEditingId,
+  readQuickQuoteStep,
   writeQuickQuoteEditingId,
   writeQuickQuoteCopyFrom,
   quickQuoteStepKey,
@@ -18,6 +19,12 @@ import {
 let resumeQuoteAppliedThisPageLoad = false;
 import { deleteDraft, makeDraftKey } from "@/lib/draftStore";
 import { useAuth } from "@/contexts/AuthProvider";
+import {
+  buildQuoteEditorPath,
+  parseQuotePathname,
+  QUOTE_LIST_PATH,
+  QUOTE_QUICK_PATH,
+} from "@/lib/quoteRoutes";
 import { SidebarNav } from "./SidebarNav";
 import { PrimaryTopNav } from "./PrimaryTopNav";
 import { TopBar } from "./TopBar";
@@ -187,76 +194,133 @@ export function AppShell() {
   const store = useAppStore();
   const { user } = useAuth();
   const location = useLocation();
+  const navigate = useNavigate();
   const [showPublishModal, setShowPublishModal] = useState(false);
   const [publishModalProducts, setPublishModalProducts] = useState<Product[]>([]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [editingQuoteId, setEditingQuoteIdRaw] = useState<string | null>(null);
   const [editingQuoteUuid, setEditingQuoteUuidRaw] = useState<string | null>(null);
+  const [editingQuoteVersion, setEditingQuoteVersionRaw] = useState<string | null>(null);
   const [quickQuoteFreshKey, setQuickQuoteFreshKey] = useState(0);
   const deepLinkHandledRef = useRef<string | null>(null);
+  const quoteUrlSyncRef = useRef<string | null>(null);
 
   const setEditingQuoteId = useCallback(
     (id: string | null) => {
       setEditingQuoteIdRaw(id);
       writeQuickQuoteEditingId(user?.email, id);
-      if (!id) setEditingQuoteUuidRaw(null);
+      if (!id) {
+        setEditingQuoteUuidRaw(null);
+        setEditingQuoteVersionRaw(null);
+      }
     },
     [user?.email],
   );
 
+  const goToQuoteList = useCallback(() => {
+    quoteUrlSyncRef.current = QUOTE_LIST_PATH;
+    navigate(QUOTE_LIST_PATH, { replace: true });
+    setEditingQuoteId(null);
+    store.setCurrentView("quotation-list");
+  }, [navigate, setEditingQuoteId, store]);
+
   const openQuoteForEdit = useCallback(
-    (quoteId: string, opts?: { quoteUuid?: string }) => {
+    (quoteId: string, opts?: { quoteUuid?: string; version?: string }) => {
       if (!unsavedGuard.confirmLeave()) return;
       writeQuickQuoteCopyFrom(user?.email, null);
       setEditingQuoteId(quoteId);
       setEditingQuoteUuidRaw(opts?.quoteUuid ?? null);
+      setEditingQuoteVersionRaw(opts?.version ?? null);
+      const target = buildQuoteEditorPath(quoteId, opts?.version ?? null);
+      quoteUrlSyncRef.current = target;
+      navigate(target, { replace: true });
       store.setCurrentView("quick-quote");
     },
-    [user?.email, store, setEditingQuoteId],
+    [navigate, user?.email, store, setEditingQuoteId],
   );
-
-  const clearEditingQuote = useCallback(() => {
-    setEditingQuoteId(null);
-    setEditingQuoteUuidRaw(null);
-    store.setCurrentView("quotation-list");
-  }, [setEditingQuoteId, store]);
 
   /** After 版本審核, pin AppShell to the new version row so reload effects cannot stale-fetch. */
   const handleEditingQuotePersisted = useCallback(
-    (quoteId: string, quoteUuid: string) => {
+    (quoteId: string, quoteUuid: string, version?: string) => {
       setEditingQuoteId(quoteId);
       setEditingQuoteUuidRaw(quoteUuid);
+      if (version) setEditingQuoteVersionRaw(version);
+      const target = buildQuoteEditorPath(quoteId, version ?? null);
+      quoteUrlSyncRef.current = target;
+      navigate(target, { replace: true });
     },
-    [setEditingQuoteId],
+    [navigate, setEditingQuoteId],
   );
 
-  // Deep links: /quote/quick?... (PMS new quote) and /quote/:quoteId (open existing)
+  const assignEditingQuoteId = useCallback(
+    (quoteId: string) => {
+      setEditingQuoteId(quoteId);
+      const target = buildQuoteEditorPath(quoteId);
+      quoteUrlSyncRef.current = target;
+      navigate(target, { replace: true });
+    },
+    [navigate, setEditingQuoteId],
+  );
+
+  // Deep links: /quote, /quote/quick, /quote/:quoteId(Vn)
   useEffect(() => {
-    const path = location.pathname;
-    const key = `${path}${location.search}`;
-    if (deepLinkHandledRef.current === key) return;
-
-    const quoteMatch = path.match(/^\/quote\/([^/]+)\/?$/);
-    if (!quoteMatch) return;
-
-    deepLinkHandledRef.current = key;
-    const segment = decodeURIComponent(quoteMatch[1]);
-
-    if (segment === "quick") {
-      resetQuickQuoteSessionStorage(user?.email);
-      void deleteDraft(makeDraftKey(user?.email, "NEW"));
-      setEditingQuoteId(null);
-      if (hasPmsQuotePrefillParams(new URLSearchParams(location.search))) {
-        setQuickQuoteFreshKey((k) => k + 1);
-      }
-      store.setCurrentView("quick-quote");
+    const parsed = parseQuotePathname(location.pathname);
+    if (parsed.kind === 'list' && location.pathname.replace(/\/+$/, '') !== QUOTE_LIST_PATH) {
+      return;
+    }
+    if (parsed.kind !== 'list' && !location.pathname.startsWith('/quote/')) {
       return;
     }
 
-    // Stable open-existing URL: /quote/<quote_id> e.g. /quote/BWF-FD26-001
-    setEditingQuoteId(segment);
-    store.setCurrentView("quick-quote");
-  }, [location.pathname, location.search, store, user?.email, setEditingQuoteId]);
+    const key = `${location.pathname}${location.search}`;
+    if (deepLinkHandledRef.current === key) return;
+    deepLinkHandledRef.current = key;
+    quoteUrlSyncRef.current = location.pathname;
+
+    if (parsed.kind === 'list') {
+      setEditingQuoteId(null);
+      store.setCurrentView('quotation-list');
+      return;
+    }
+
+    if (parsed.kind === 'quick') {
+      const savedEditingId = readQuickQuoteEditingId(user?.email);
+      const savedStep = readQuickQuoteStep(user?.email);
+      const hasPrefill = hasPmsQuotePrefillParams(new URLSearchParams(location.search));
+
+      if (savedEditingId && savedStep === 4) {
+        setEditingQuoteId(savedEditingId);
+        store.setCurrentView('quick-quote');
+        const target = buildQuoteEditorPath(savedEditingId);
+        quoteUrlSyncRef.current = target;
+        navigate(target, { replace: true });
+        return;
+      }
+
+      if (hasPrefill) {
+        resetQuickQuoteSessionStorage(user?.email);
+        void deleteDraft(makeDraftKey(user?.email, 'NEW'));
+        setEditingQuoteId(null);
+        setQuickQuoteFreshKey((k) => k + 1);
+      } else if (savedEditingId || savedStep > 1) {
+        if (savedEditingId) setEditingQuoteIdRaw(savedEditingId);
+      } else {
+        resetQuickQuoteSessionStorage(user?.email);
+        void deleteDraft(makeDraftKey(user?.email, 'NEW'));
+        setEditingQuoteId(null);
+      }
+
+      store.setCurrentView('quick-quote');
+      return;
+    }
+
+    if (parsed.kind === 'quote' && parsed.quoteId) {
+      setEditingQuoteId(parsed.quoteId);
+      setEditingQuoteUuidRaw(null);
+      setEditingQuoteVersionRaw(parsed.version ?? null);
+      store.setCurrentView('quick-quote');
+    }
+  }, [location.pathname, location.search, navigate, store, user?.email, setEditingQuoteId]);
 
   // After deploy reload: restore editing quote id/uuid from resume marker or session.
   useEffect(() => {
@@ -270,6 +334,9 @@ export function AppShell() {
         setEditingQuoteIdRaw(resume.quoteId);
         if (resume.quoteUuid) setEditingQuoteUuidRaw(resume.quoteUuid);
         store.setCurrentView("quick-quote");
+        const target = buildQuoteEditorPath(resume.quoteId);
+        quoteUrlSyncRef.current = target;
+        navigate(target, { replace: true });
         return;
       }
     }
@@ -277,7 +344,37 @@ export function AppShell() {
     if (store.currentView !== "quick-quote") return;
     const saved = readQuickQuoteEditingId(user?.email);
     if (saved) setEditingQuoteIdRaw(saved);
-  }, [user?.email, store.currentView, location.pathname, store]);
+  }, [user?.email, store.currentView, location.pathname, navigate, store]);
+
+  // Keep browser URL aligned with quote views (without fighting deep-link handler).
+  useEffect(() => {
+    let target: string | null = null;
+
+    if (store.currentView === 'quotation-list') {
+      target = QUOTE_LIST_PATH;
+    } else if (store.currentView === 'quick-quote') {
+      if (editingQuoteId) {
+        target = buildQuoteEditorPath(editingQuoteId, editingQuoteVersion);
+      } else {
+        target = `${QUOTE_QUICK_PATH}${location.search || ''}`;
+      }
+    } else if (location.pathname.startsWith('/quote')) {
+      target = '/';
+    }
+
+    if (!target) return;
+    const current = `${location.pathname}${location.search}`;
+    if (current === target || quoteUrlSyncRef.current === target) return;
+    quoteUrlSyncRef.current = target;
+    navigate(target, { replace: true });
+  }, [
+    store.currentView,
+    editingQuoteId,
+    editingQuoteVersion,
+    location.pathname,
+    location.search,
+    navigate,
+  ]);
   // 方案 D: Supabase health monitoring
   const [dbUnhealthy, setDbUnhealthy] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
@@ -604,8 +701,10 @@ export function AppShell() {
             key={`quick-quote-${quickQuoteFreshKey}`}
             editingQuoteId={editingQuoteId}
             editingQuoteUuid={editingQuoteUuid}
+            editingQuoteVersion={editingQuoteVersion}
             freshSessionKey={quickQuoteFreshKey}
-            onClearEditingQuote={clearEditingQuote}
+            onAssignEditingQuoteId={assignEditingQuoteId}
+            onClearEditingQuote={goToQuoteList}
             onEditingQuotePersisted={handleEditingQuotePersisted}
           />
         );
@@ -623,7 +722,11 @@ export function AppShell() {
               }
               void deleteDraft(makeDraftKey(user?.email, "NEW"));
               setEditingQuoteId(null);
+              setEditingQuoteUuidRaw(null);
+              setEditingQuoteVersionRaw(null);
               setQuickQuoteFreshKey((k) => k + 1);
+              quoteUrlSyncRef.current = QUOTE_QUICK_PATH;
+              navigate(QUOTE_QUICK_PATH, { replace: true });
               store.setCurrentView("quick-quote");
             }}
           />
@@ -647,9 +750,24 @@ export function AppShell() {
       void deleteDraft(makeDraftKey(user?.email, "NEW"));
       setEditingQuoteId(null);
       setEditingQuoteUuidRaw(null);
+      setEditingQuoteVersionRaw(null);
       setQuickQuoteFreshKey((k) => k + 1);
+      quoteUrlSyncRef.current = QUOTE_QUICK_PATH;
+      navigate(QUOTE_QUICK_PATH, { replace: true });
       store.setCurrentView("quick-quote");
       store.setFilterProductId(null);
+      return;
+    }
+
+    if (view === "quotation-list") {
+      if (view !== store.currentView && unsavedGuard.isDirty && !unsavedGuard.confirmLeave()) {
+        return;
+      }
+      quoteUrlSyncRef.current = QUOTE_LIST_PATH;
+      navigate(QUOTE_LIST_PATH, { replace: true });
+      store.setCurrentView("quotation-list");
+      store.setFilterProductId(null);
+      setEditingQuoteId(null);
       return;
     }
 
@@ -658,6 +776,10 @@ export function AppShell() {
     }
     if (store.currentView === 'category-management' && view !== 'category-management') {
       store.reloadProducts();
+    }
+    if (location.pathname.startsWith('/quote')) {
+      quoteUrlSyncRef.current = '/';
+      navigate('/', { replace: true });
     }
     store.setCurrentView(view);
     store.setFilterProductId(null);

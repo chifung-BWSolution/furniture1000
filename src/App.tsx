@@ -106,6 +106,7 @@ function App() {
             {/* Stable deep links for PMS Quote tab / SSO redirect_to */}
             <Route path="/quote/quick" element={<Home />} />
             <Route path="/quote/:quoteId" element={<Home />} />
+            <Route path="/quote" element={<Home />} />
             <Route path="/*" element={<Home />} />
           </Routes>
         </Suspense>

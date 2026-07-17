@@ -77,7 +77,7 @@ type QuoteListRow = QuoteRecord & {
 };
 
 interface QuotationListViewProps {
-  onOpenQuote?: (quoteId: string, opts?: { quoteUuid?: string }) => void;
+  onOpenQuote?: (quoteId: string, opts?: { quoteUuid?: string; version?: string }) => void;
   onCopyQuote?: (quoteUuid: string) => void;
 }
 
@@ -505,7 +505,10 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
                 const versionDate = quote.modified_date || quote.created_at;
 
                 const openQuote = () =>
-                  onOpenQuote?.(quote.quote_id, { quoteUuid: quote.id });
+                  onOpenQuote?.(quote.quote_id, {
+                    quoteUuid: quote.id,
+                    version: quote.version,
+                  });
 
                 return (
                   <tr

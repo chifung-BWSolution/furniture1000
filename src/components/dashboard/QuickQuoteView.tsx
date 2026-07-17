@@ -14,6 +14,7 @@ import {
   readQuickQuoteStep,
   resetQuickQuoteSessionStorage,
   writeQuickQuoteCopyFrom,
+  writeQuickQuoteEditingId,
 } from '@/lib/quickQuoteSession';
 import { loadQuoteCopyPayload, type QuoteCopyPayload } from '@/lib/quoteCopy';
 import {
@@ -40,6 +41,7 @@ import { sortIndustryLabels } from '@/lib/clientIndustrySort';
 import { filterIndustriesBySearch } from '@/lib/clientIndustryCatalog';
 import { PmsPitchingGate } from '@/components/dashboard/PmsPitchingGate';
 import { fetchLevel1CategoryOptions } from '@/lib/productCategoryOptions';
+import { generateQuoteId } from '@/lib/quoteRoutes';
 
 const LazyQuotationPDFPreviewModal = lazy(() =>
   import('@/components/dashboard/QuotationPDFPreview').then((mod) => ({
@@ -113,9 +115,13 @@ interface QuickQuoteViewProps {
   editingQuoteId?: string | null;
   /** When set, open this specific version row (bwf_quote.id). */
   editingQuoteUuid?: string | null;
+  /** When set without uuid, open this version (e.g. v2 from /quote/Q…V2). */
+  editingQuoteVersion?: string | null;
   onClearEditingQuote?: () => void;
   /** Keep AppShell editing ids in sync after 版本審核 (new version row). */
-  onEditingQuotePersisted?: (quoteId: string, quoteUuid: string) => void;
+  onEditingQuotePersisted?: (quoteId: string, quoteUuid: string, version?: string) => void;
+  /** Assign a quote id when entering step 4 for a new draft (updates URL + session). */
+  onAssignEditingQuoteId?: (quoteId: string) => void;
   /** Increment to reset wizard to 建立新報價單 step 1. */
   freshSessionKey?: number;
 }
@@ -197,8 +203,10 @@ function readUrlPrefill(): {
 export function QuickQuoteView({
   editingQuoteId,
   editingQuoteUuid,
+  editingQuoteVersion,
   onClearEditingQuote,
   onEditingQuotePersisted,
+  onAssignEditingQuoteId,
   freshSessionKey = 0,
 }: QuickQuoteViewProps) {
   const { user, loading: authLoading } = useAuth();
@@ -233,6 +241,30 @@ export function QuickQuoteView({
   const [pdfPreviewData, setPdfPreviewData] = useState<QuotationPDFData | null>(null);
   const [copyPayload, setCopyPayload] = useState<QuoteCopyPayload | null>(null);
   const [isLoadingCopy, setIsLoadingCopy] = useState(false);
+  const assignedDraftQuoteIdRef = useRef<string | null>(null);
+
+  const enterStep4 = useCallback(
+    (opts?: { quoteId?: string }) => {
+      setIsQuotationReady(true);
+      setCurrentStep(4);
+      if (typeof window !== 'undefined') {
+        sessionStorage.setItem(quickQuoteStepKey(userEmail), '4');
+      }
+
+      const nextQuoteId =
+        opts?.quoteId ||
+        editingQuoteId ||
+        assignedDraftQuoteIdRef.current ||
+        generateQuoteId();
+
+      if (!editingQuoteId && !loadedQuoteData) {
+        assignedDraftQuoteIdRef.current = nextQuoteId;
+        writeQuickQuoteEditingId(userEmail, nextQuoteId);
+        onAssignEditingQuoteId?.(nextQuoteId);
+      }
+    },
+    [editingQuoteId, loadedQuoteData, onAssignEditingQuoteId, userEmail],
+  );
   const copyFromUuid = readQuickQuoteCopyFrom(userEmail);
   const [errors, setErrors] = useState<Partial<Record<keyof QuoteFormData, string>>>({});
   const [industryOptions, setIndustryOptions] = useState<string[]>(FALLBACK_INDUSTRIES);
@@ -482,7 +514,7 @@ export function QuickQuoteView({
     if (authLoading) return;
     if (!editingQuoteId) return;
 
-    const loadKey = `${editingQuoteId}::${editingQuoteUuid || 'latest'}`;
+    const loadKey = `${editingQuoteId}::${editingQuoteUuid || editingQuoteVersion || 'latest'}`;
     if (loadedQuoteIdRef.current === loadKey) return;
 
     const loadQuote = async () => {
@@ -498,6 +530,15 @@ export function QuickQuoteView({
             .maybeSingle();
           if (error) throw error;
           data = row;
+        } else if (editingQuoteVersion) {
+          const { data: row, error } = await supabase
+            .from('bwf_quote')
+            .select('*')
+            .eq('quote_id', editingQuoteId)
+            .eq('version', editingQuoteVersion)
+            .maybeSingle();
+          if (error) throw error;
+          data = row;
         } else {
           const { data: rows, error } = await supabase
             .from('bwf_quote')
@@ -509,7 +550,41 @@ export function QuickQuoteView({
           data = rows?.[0] ?? null;
         }
 
-        if (!data) throw new Error('報價單不存在');
+        if (!data) {
+          const savedStep = readQuickQuoteStep(userEmail);
+          const draftKey = makeDraftKey(userEmail, editingQuoteId);
+          let hasLocalDraft = false;
+          try {
+            hasLocalDraft = Boolean(await loadDraft(draftKey));
+          } catch {
+            hasLocalDraft = false;
+          }
+          if (savedStep === 4 && hasLocalDraft) {
+            try {
+              const raw = sessionStorage.getItem(quickQuoteFormKey(userEmail));
+              if (raw) {
+                const parsed = normalizeQuoteFormData(JSON.parse(raw));
+                setFormData(parsed);
+                if (parsed.pmsPitchingId || parsed.pmsProjectId) {
+                  const label = [parsed.pitchingCode, parsed.clientName]
+                    .filter(Boolean)
+                    .join(' · ');
+                  setSelectedPitchingLabel(
+                    label || parsed.pmsPitchingId || parsed.pmsProjectId || null,
+                  );
+                }
+              }
+            } catch {
+              // ignore
+            }
+            assignedDraftQuoteIdRef.current = editingQuoteId;
+            loadedQuoteIdRef.current = loadKey;
+            setIsQuotationReady(true);
+            setCurrentStep(4);
+            return;
+          }
+          throw new Error('報價單不存在');
+        }
 
         const maxVersionInChain = await fetchMaxVersionForQuote(
           String(data.quote_id),
@@ -599,7 +674,7 @@ export function QuickQuoteView({
 
     loadQuote();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- onClearEditingQuote is intentionally unstable from parent
-  }, [editingQuoteId, editingQuoteUuid, userEmail, authLoading]);
+  }, [editingQuoteId, editingQuoteUuid, editingQuoteVersion, userEmail, authLoading]);
 
   const updateField = (field: keyof QuoteFormData, value: string | string[]) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
@@ -687,8 +762,7 @@ export function QuickQuoteView({
         try {
           const payload = await loadQuoteCopyPayload(sourceUuid);
           setCopyPayload(payload);
-          setIsQuotationReady(true);
-          setCurrentStep(4);
+          enterStep4();
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : '無法載入來源報價內容';
           toast.error('複製失敗', { description: message });
@@ -697,8 +771,7 @@ export function QuickQuoteView({
         }
       } else {
         setCopyPayload(null);
-        setIsQuotationReady(true);
-        setCurrentStep(4);
+        enterStep4();
       }
     }
   };
@@ -1323,9 +1396,10 @@ export function QuickQuoteView({
                 // Mark this version as already loaded so parent id sync does not re-fetch
                 // an older uuid and wipe the just-submitted editor state.
                 loadedQuoteIdRef.current = `${result.quoteId}::${result.quoteUuid}`;
-                onEditingQuotePersisted?.(result.quoteId, result.quoteUuid);
+                onEditingQuotePersisted?.(result.quoteId, result.quoteUuid, result.version);
               }}
               existingQuote={loadedQuoteData || undefined}
+              draftQuoteId={loadedQuoteData ? null : editingQuoteId}
             />
           </div>
         )}
