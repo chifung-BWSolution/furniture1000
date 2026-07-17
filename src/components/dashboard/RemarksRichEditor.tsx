@@ -9,6 +9,12 @@ import {
   serializeRemarksContent,
   type RemarksBlock,
 } from "@/lib/remarksContent";
+import {
+  beginQuoteDnDDrag,
+  endQuoteDnDDrag,
+  isQuoteDnDDrag,
+  QUOTE_DND_MIME,
+} from "@/lib/quoteDnD";
 
 const fileToDataUrl = (file: File): Promise<string> =>
   new Promise((resolve, reject) => {
@@ -32,11 +38,14 @@ function BlockDragHandle({
       type="button"
       draggable
       onDragStart={(e) => {
-        e.dataTransfer.effectAllowed = "move";
-        e.dataTransfer.setData("text/plain", blockId);
+        e.stopPropagation();
+        beginQuoteDnDDrag(e.dataTransfer, "remarks-block", blockId);
         onDragStart(blockId);
       }}
-      onDragEnd={onDragEnd}
+      onDragEnd={() => {
+        endQuoteDnDDrag();
+        onDragEnd();
+      }}
       className="mt-1 shrink-0 cursor-grab rounded p-0.5 text-muted-foreground/40 transition-colors hover:bg-muted hover:text-muted-foreground active:cursor-grabbing"
       title="拖曳調整順序"
       aria-label="拖曳調整順序"
@@ -113,13 +122,17 @@ export function RemarksRichEditor({
   );
 
   const clearDrag = useCallback(() => {
+    endQuoteDnDDrag();
     setDraggingBlockId(null);
     setDropInsertIndex(null);
   }, []);
 
   const handleBlockDragOver = useCallback(
     (e: React.DragEvent<HTMLDivElement>, index: number) => {
+      // Ignore quote-row (and other) drags so nested 備註 drop lines don't light up.
+      if (!isQuoteDnDDrag(e.dataTransfer, "remarks-block")) return;
       e.preventDefault();
+      e.stopPropagation();
       e.dataTransfer.dropEffect = "move";
       const rect = e.currentTarget.getBoundingClientRect();
       setDropInsertIndex(
@@ -131,8 +144,13 @@ export function RemarksRichEditor({
 
   const handleBlockDrop = useCallback(
     (e: React.DragEvent<HTMLDivElement>) => {
+      if (!isQuoteDnDDrag(e.dataTransfer, "remarks-block")) return;
       e.preventDefault();
-      const fromId = e.dataTransfer.getData("text/plain") || draggingBlockId;
+      e.stopPropagation();
+      const fromId =
+        e.dataTransfer.getData(QUOTE_DND_MIME.remarksBlock) ||
+        e.dataTransfer.getData("text/plain") ||
+        draggingBlockId;
       if (fromId && dropInsertIndex !== null) {
         moveBlock(fromId, dropInsertIndex);
       }
@@ -227,8 +245,10 @@ export function RemarksRichEditor({
         compact ? "min-w-0 max-w-full" : "min-w-[220px]",
       )}
       onDragLeave={(e) => {
+        // Only clear insert marker while a remarks block is being dragged.
+        if (!draggingBlockId) return;
         if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-          clearDrag();
+          setDropInsertIndex(null);
         }
       }}
     >
