@@ -280,13 +280,3 @@ export function resolvePitchingCode(opts: {
     ''
   ).trim();
 }
-
-export function resolvePitchingName(opts: {
-  pitchingName?: string | null;
-  formData?: Record<string, unknown> | null;
-}): string {
-  const fromForm =
-    (typeof opts.formData?.pitchingName === 'string' && opts.formData.pitchingName) ||
-    '';
-  return (opts.pitchingName || fromForm || '').trim();
-}

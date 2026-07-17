@@ -65,7 +65,6 @@ export type Database = {
           hkd_cost_price: number | null
           id: string
           modified_date: string | null
-          pitching_name: string | null
           project_data: Json
           quote_id: string
           status: string
@@ -86,7 +85,6 @@ export type Database = {
           hkd_cost_price?: number | null
           id?: string
           modified_date?: string | null
-          pitching_name?: string | null
           project_data?: Json
           quote_id: string
           status?: string
@@ -107,7 +105,6 @@ export type Database = {
           hkd_cost_price?: number | null
           id?: string
           modified_date?: string | null
-          pitching_name?: string | null
           project_data?: Json
           quote_id?: string
           status?: string

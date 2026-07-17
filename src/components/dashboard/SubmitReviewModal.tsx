@@ -14,7 +14,6 @@ import {
   resolveItemImagesToStorage,
   stripItemsFromProjectData,
   resolvePitchingCode,
-  resolvePitchingName,
   type BwfQuoteItemInput,
 } from '@/lib/bwfQuoteItems';
 import {
@@ -48,7 +47,6 @@ interface SubmitReviewModalProps {
   quoteId?: string | null;
   /** @deprecated Use quoteId */
   pitchingCode?: string | null;
-  pitchingName?: string | null;
   /** Existing chain id (= quote_id). Legacy Q-format is ignored. */
   existingQuoteId?: string | null;
   existingQuoteUuid?: string | null;
@@ -72,7 +70,6 @@ export function SubmitReviewModal({
   bwfProjectId,
   quoteId: quoteIdProp,
   pitchingCode,
-  pitchingName,
   existingQuoteId,
   existingQuoteUuid: _existingQuoteUuid,
   forceNewQuote: _forceNewQuote = false,
@@ -146,12 +143,8 @@ export function SubmitReviewModal({
       formData: formDataRaw,
       quoteMeta: projectData.quoteMeta as Record<string, unknown> | undefined,
     });
-    const name = resolvePitchingName({
-      pitchingName,
-      formData: formDataRaw,
-    });
 
-    // Sole persisted code: bwf_quote.quote_id (no pitching_code column / JSON mirror).
+    // Sole persisted code: bwf_quote.quote_id (no pitching_code / pitching_name columns).
     const quoteId = resolveQuoteChainId({
       code,
       existingQuoteId,
@@ -187,19 +180,20 @@ export function SubmitReviewModal({
       : [];
     const sourceItems = items.length > 0 ? items : embeddedItems;
 
-    // Persist name + PMS ids in formData; never mirror code into JSON (use quote_id).
+    // Persist PMS ids only; never mirror code/name into JSON (title = live PMS).
     const {
       quoteId: _dropFormQuoteId,
       pitchingCode: _dropPitchingCode,
       projectName: _dropProjectName,
+      pitchingName: _dropPitchingName,
       ...formDataRest
     } = formDataRaw;
     void _dropFormQuoteId;
     void _dropPitchingCode;
     void _dropProjectName;
+    void _dropPitchingName;
     const formData = {
       ...formDataRest,
-      pitchingName: name,
       ...(pitchingId ? { pmsPitchingId: pitchingId } : {}),
       ...(projectId ? { pmsProjectId: projectId } : {}),
     };
@@ -229,7 +223,6 @@ export function SubmitReviewModal({
         cost_price: totalCostPrice ?? null,
         submitter: submitter.trim(),
         project_data: payloadProjectData,
-        pitching_name: name || null,
         ...(pitchingId ? { bwf_pitching_id: pitchingId } : {}),
         ...(projectId ? { bwf_project_id: projectId } : {}),
       };

@@ -13,7 +13,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { resolvePitchingName } from '@/lib/bwfQuoteItems';
 import {
   fetchPmsPitchings,
   pitchingDisplayTitle,
@@ -60,11 +59,9 @@ interface QuoteRecord {
   total_amount: number;
   cost_price: number | null;
   submitter: string;
-  pitching_name: string | null;
   bwf_pitching_id: string | null;
   project_data: {
     formData?: {
-      pitchingName?: string;
       clientName?: string;
       company?: string;
       projectManager?: string;
@@ -85,7 +82,7 @@ interface QuotationListViewProps {
 }
 
 const LIST_SELECT =
-  'id, quote_id, version, status, total_amount, cost_price, submitter, pitching_name, bwf_pitching_id, created_at, modified_date, project_data';
+  'id, quote_id, version, status, total_amount, cost_price, submitter, bwf_pitching_id, created_at, modified_date, project_data';
 
 type SortKey =
   | 'enquiry_date'
@@ -117,14 +114,11 @@ function latestQuoteInGroup(versions: QuoteListRow[]): QuoteListRow {
   return versions[0];
 }
 
+/** 提案顯示名稱 = live PMS pitching only (not stored on bwf_quote). */
 function quoteDisplayName(q: QuoteListRow): string {
   if (q.pitching) return pitchingDisplayTitle(q.pitching);
-  const name = resolvePitchingName({
-    pitchingName: q.pitching_name,
-    formData: q.project_data?.formData as Record<string, unknown> | undefined,
-  });
   const client = q.project_data?.formData?.clientName?.trim() || '';
-  return name || client || '未命名專案';
+  return client || q.quote_id?.trim() || '未命名專案';
 }
 
 /** 報價單號 = bwf_quote.quote_id (PMS code only as enrichment fallback). */

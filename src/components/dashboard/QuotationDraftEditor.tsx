@@ -74,7 +74,6 @@ import {
   loadQuoteItems,
   itemsFromLegacyProjectData,
   resolvePitchingCode,
-  resolvePitchingName,
   type BwfQuoteItemInput,
 } from "@/lib/bwfQuoteItems";
 import type { QuoteCopyPayload } from "@/lib/quoteCopy";
@@ -99,7 +98,6 @@ interface QuoteFormData {
   projectManager: string;
   /** In-memory 報價單號; becomes bwf_quote.quote_id on submit. */
   quoteId?: string;
-  pitchingName?: string;
   /** @deprecated Use quoteId */
   pitchingCode?: string;
   /** @deprecated Use quoteId */
@@ -170,7 +168,6 @@ interface QuotationDraftEditorProps {
     bwfPitchingId?: string | null;
     bwfProjectId?: string | null;
     quoteUuid?: string;
-    pitchingName?: string | null;
     /** Highest version string in the quote_id chain — used to compute next submit version. */
     maxVersionInChain?: string;
   };
@@ -1607,10 +1604,6 @@ export function QuotationDraftEditor({
     formData: formData as unknown as Record<string, unknown>,
     quoteMeta: savedQuoteMeta as unknown as Record<string, unknown>,
   });
-  const pitchingNameStored = resolvePitchingName({
-    pitchingName: existingQuote?.pitchingName,
-    formData: formData as unknown as Record<string, unknown>,
-  });
   const savedTermsContent = savedProjectData.termsContent as
     | {
         transport: string;
@@ -2409,7 +2402,6 @@ export function QuotationDraftEditor({
     void _omitProjectName;
     const nextFormData = {
       ...formDataRest,
-      pitchingName: pitchingNameStored || formData.pitchingName || "",
       ...(pitchingId ? { pmsPitchingId: pitchingId } : {}),
       ...(projectId ? { pmsProjectId: projectId } : {}),
     };
@@ -3353,7 +3345,6 @@ export function QuotationDraftEditor({
         bwfPitchingId={formData.pmsPitchingId || existingQuote?.bwfPitchingId || null}
         bwfProjectId={formData.pmsProjectId || existingQuote?.bwfProjectId || null}
         quoteId={quoteId}
-        pitchingName={pitchingNameStored || formData.pitchingName || ""}
         existingQuoteId={existingQuote?.quoteId ?? null}
         existingQuoteUuid={existingQuote?.quoteUuid ?? null}
         forceNewQuote={forceNewQuote}

@@ -65,8 +65,6 @@ interface QuoteFormData {
   projectManager: string;
   /** In-memory 報價單號 from PMS; becomes bwf_quote.quote_id on submit (not persisted in JSON). */
   quoteId: string;
-  /** PMS pitching_name — list/search only, not shown on form */
-  pitchingName: string;
   /** PMS pitching UUID — persisted to bwf_quote.bwf_pitching_id on save */
   pmsPitchingId?: string;
   /** PMS project UUID — persisted to bwf_quote.bwf_project_id on save */
@@ -126,7 +124,6 @@ const DEFAULT_FORM_DATA = (): QuoteFormData => ({
   company: 'Branding Works Design Ltd',
   projectManager: '',
   quoteId: '',
-  pitchingName: '',
   pmsPitchingId: undefined,
   pmsProjectId: undefined,
   clientName: '',
@@ -150,12 +147,10 @@ function normalizeQuoteFormData(
   const base = DEFAULT_FORM_DATA();
   const quoteId =
     (raw.quoteId || raw.pitchingCode || raw.projectName || '').trim() || base.quoteId;
-  const pitchingName = (raw.pitchingName || '').trim();
   return {
     ...base,
     ...raw,
     quoteId,
-    pitchingName,
   };
 }
 
@@ -179,7 +174,6 @@ function readUrlPrefill(): {
       company: prefill.company || 'Branding Works Design Ltd',
       projectManager: prefill.projectManager || '',
       quoteId: prefill.quoteId || prefill.projectName || '',
-      pitchingName: prefill.pitchingName || '',
       pmsPitchingId: prefill.pmsPitchingId,
       pmsProjectId: prefill.pmsProjectId,
       clientName: prefill.clientName || '',
@@ -231,7 +225,6 @@ export function QuickQuoteView({
     bwfPitchingId?: string | null;
     bwfProjectId?: string | null;
     quoteUuid?: string;
-    pitchingName?: string | null;
     maxVersionInChain?: string;
   } | null>(null);
   const [formData, setFormData] = useState<QuoteFormData>(
@@ -267,7 +260,6 @@ export function QuickQuoteView({
       company: prefill.company || 'Branding Works Design Ltd',
       projectManager: prefill.projectManager || '',
       quoteId: prefill.quoteId || prefill.projectName || '',
-      pitchingName: prefill.pitchingName || '',
       pmsPitchingId: prefill.pmsPitchingId,
       pmsProjectId: prefill.pmsProjectId,
       clientName: prefill.clientName || '',
@@ -372,7 +364,6 @@ export function QuickQuoteView({
       // Related project_id is resolved by defaults fetch (may stay empty).
       pmsProjectId: undefined,
       quoteId: item.pitching_code?.trim() || prev.quoteId,
-      pitchingName: item.pitching_name?.trim() || prev.pitchingName,
       projectManager: item.main_pm_name?.trim() || prev.projectManager,
       clientName: item.customer_name?.trim() || prev.clientName,
     }));
@@ -448,7 +439,6 @@ export function QuickQuoteView({
           defaults.pitching_code ||
           defaults.project_code ||
           prev.quoteId,
-        pitchingName: defaults.pitching_name || prev.pitchingName,
         clientName: defaults.client_name || prev.clientName,
         clientPhone: defaults.client_phone || prev.clientPhone,
         clientEmail: defaults.client_email || prev.clientEmail,
@@ -556,8 +546,6 @@ export function QuickQuoteView({
             (typeof data.bwf_project_id === 'string' ? data.bwf_project_id : undefined);
           const quoteIdCode =
             typeof data.quote_id === 'string' ? data.quote_id.trim() : '';
-          const columnName =
-            typeof data.pitching_name === 'string' ? data.pitching_name : '';
           const normalized = normalizeQuoteFormData({
             ...savedFormData,
             // In-memory 報價單號 from quote_id only (column/JSON code dropped).
@@ -567,7 +555,6 @@ export function QuickQuoteView({
               savedFormData.pitchingCode ||
               savedFormData.projectName ||
               '',
-            pitchingName: savedFormData.pitchingName || columnName || '',
             pmsPitchingId: pitchingId,
             pmsProjectId: projectId,
           });
@@ -592,7 +579,6 @@ export function QuickQuoteView({
           bwfPitchingId: (data.bwf_pitching_id as string | null) ?? null,
           bwfProjectId: (data.bwf_project_id as string | null) ?? null,
           quoteUuid: data.id as string,
-          pitchingName: (data.pitching_name as string | null) ?? null,
           maxVersionInChain,
         });
         loadedQuoteIdRef.current = loadKey;
@@ -1332,7 +1318,6 @@ export function QuickQuoteView({
                   projectData: result.projectData,
                   bwfPitchingId: prev?.bwfPitchingId ?? formData.pmsPitchingId ?? null,
                   bwfProjectId: prev?.bwfProjectId ?? formData.pmsProjectId ?? null,
-                  pitchingName: prev?.pitchingName ?? formData.pitchingName ?? null,
                   maxVersionInChain: result.version,
                 }));
                 // Mark this version as already loaded so parent id sync does not re-fetch

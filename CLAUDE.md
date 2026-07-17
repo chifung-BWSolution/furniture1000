@@ -117,10 +117,10 @@ PMS（bwteam-project.com）BWF pitching 詳情的 Quote tab 會列出本專案 `
 
 **Schema（報價識別）**：
 - `bwf_quote.quote_id`＝**唯一**報價單號／版本鏈鍵／深連結（值＝PMS `pitching_code`，如 `BWF-…`）
-- 已廢棄：`QYYYY-MMDD-NNN`、`bwf_quote.pitching_code` 欄、`project_data.formData.pitchingCode`（見 `20260717_bwf_quote_id_to_pitching_code`、`20260717_drop_bwf_quote_pitching_code`）
-- `bwf_quote.pitching_name`＋`formData.pitchingName`＝PMS `pitching_name`，**僅**報價一覽標題／搜尋用（表單與 PDF 不顯示）
+- 已廢棄：`QYYYY-MMDD-NNN`、`bwf_quote.pitching_code`、`bwf_quote.pitching_name`、`formData.pitchingCode`／`pitchingName`（見 `20260717_*` migrations）
+- **提案顯示名稱**（報價一覽）＝每次從 PMS live join（`bwf_pitching_id` → `bwf_pitchings.pitching_name`），**不**存 Furniture DB
 - PDF「報價單號」＝`quote_id`（經 `quoteMeta.quoteNumber` 傳入）
-- URL query `projectName` 仍＝PMS **code**（handoff 相容，寫入前變成 `quote_id`）；可選 `pitchingName`
+- URL query `projectName` 仍＝PMS **code**（handoff 相容，寫入前變成 `quote_id`）
 - **複製報價單**仍掛在同一 `quote_id` 版本鏈（新 `vN`）
 - Wizard 記憶體欄位 `formData.quoteId` 僅 UI 暫存（PMS code）；submit 時寫入 `bwf_quote.quote_id`；**不**寫入 `project_data` JSON
 
@@ -131,7 +131,7 @@ DB 觸發器 `trg_bwf_quote_extract_embedded_items`：若舊前端仍把 `items`
 `bwf_quote_item` 並從 `project_data` 刪除（僅在該 quote 尚無 item 列時 seed）。
 
 **列表查詢**：`QuotationListView` 禁止 `.select('*')`；只選 header 欄位
-（含 `quote_id`／`pitching_name`），不要帶 item 圖片。
+（含 `quote_id`／`bwf_pitching_id`），再 batch fetch PMS pitching 補標題；不要帶 item 圖片。
 
 存檔時同時寫 `bwf_pitching_id`／`bwf_project_id` 與 `formData.pmsPitchingId`／`pmsProjectId`。
 
@@ -143,7 +143,7 @@ Furniture `/auth/pms/callback` 交換 session 後必須導向 `redirect_to`（�
 **快速報價 deep link**：`/quote/quick?...` 預填 Step 1（見 `src/lib/pmsQuotePrefill.ts`）。
 Query：`pmsPitchingId`（=`bwf_pitchings.id`）與／或 `pmsProjectId`
 （=`bwf_projects.id`，**不是** pitching alias）、`projectName`（＝code）、
-`pitchingName`（可選）、`projectManager`, `clientName`, `clientPhone`, `clientEmail`,
+`projectManager`, `clientName`, `clientPhone`, `clientEmail`,
 `clientIndustry`, `quotationType`, `company`（可選）。
 
 **ID 解析**（edge `fetch-pms-pitching-quote-defaults`）：
