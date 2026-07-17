@@ -3,6 +3,7 @@ import {
   ChevronDown,
   Plus,
   Trash2,
+  Copy,
   ShieldCheck,
   ImagePlus,
   Eye,
@@ -677,6 +678,7 @@ function QuoteProductItemCard({
   updateItem,
   updateExchangeRate,
   updateDimensionMode,
+  duplicateItem,
   removeItem,
   factories,
   factoriesLoading,
@@ -695,6 +697,7 @@ function QuoteProductItemCard({
   updateItem: (id: string, field: keyof QuotationItem, value: string | number | null | boolean) => void;
   updateExchangeRate: (id: string, raw: string) => void;
   updateDimensionMode: (id: string, mode: QuotationDimensionMode) => void;
+  duplicateItem: (id: string) => void;
   removeItem: (id: string) => void;
   factories: string[];
   factoriesLoading: boolean;
@@ -1027,17 +1030,28 @@ function QuoteProductItemCard({
           </div>
         </QuoteFieldBlock>
 
-        {/* Row 2 — col 9: 刪除 */}
+        {/* Row 2 — col 9: 複製 / 刪除 */}
         <div className="col-start-9 row-start-2 shrink-0">
           <div className="mb-1 h-4" aria-hidden="true" />
-          <button
-            type="button"
-            onClick={() => removeItem(item.id)}
-            className="flex h-[34px] items-center rounded-md p-1.5 text-muted-foreground/50 transition-colors hover:bg-rose-500/10 hover:text-rose-500"
-            title="刪除"
-          >
-            <Trash2 className="h-4 w-4" />
-          </button>
+          <div className="flex h-[34px] items-center gap-0.5">
+            <button
+              type="button"
+              onClick={() => duplicateItem(item.id)}
+              className="rounded-md p-1.5 text-muted-foreground/50 transition-colors hover:bg-primary/10 hover:text-primary"
+              title={labels.duplicateItem}
+              aria-label={labels.duplicateItem}
+            >
+              <Copy className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={() => removeItem(item.id)}
+              className="rounded-md p-1.5 text-muted-foreground/50 transition-colors hover:bg-rose-500/10 hover:text-rose-500"
+              title="刪除"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -1055,6 +1069,7 @@ function QuoteCustomTermCard({
   onDragStart,
   onDragEnd,
   updateItem,
+  duplicateItem,
   removeItem,
   labels,
 }: {
@@ -1068,6 +1083,7 @@ function QuoteCustomTermCard({
   onDragStart: (id: string) => void;
   onDragEnd: () => void;
   updateItem: (id: string, field: keyof QuotationItem, value: string | number | null) => void;
+  duplicateItem: (id: string) => void;
   removeItem: (id: string) => void;
   labels: QuoteUiLabels;
 }) {
@@ -1144,7 +1160,16 @@ function QuoteCustomTermCard({
                 </span>
               </div>
             </QuoteFieldBlock>
-            <div className="flex items-end justify-end pb-0.5">
+            <div className="flex items-end justify-end gap-0.5 pb-0.5">
+              <button
+                type="button"
+                onClick={() => duplicateItem(item.id)}
+                className="rounded-md p-1.5 text-muted-foreground/50 transition-colors hover:bg-primary/10 hover:text-primary"
+                title={labels.duplicateItem}
+                aria-label={labels.duplicateItem}
+              >
+                <Copy className="h-4 w-4" />
+              </button>
               <button
                 type="button"
                 onClick={() => removeItem(item.id)}
@@ -1172,6 +1197,7 @@ function QuoteSectionTitleCard({
   onDragStart,
   onDragEnd,
   updateItem,
+  duplicateItem,
   removeItem,
   labels,
 }: {
@@ -1185,6 +1211,7 @@ function QuoteSectionTitleCard({
   onDragStart: (id: string) => void;
   onDragEnd: () => void;
   updateItem: (id: string, field: keyof QuotationItem, value: string | number | null) => void;
+  duplicateItem: (id: string) => void;
   removeItem: (id: string) => void;
   labels: QuoteUiLabels;
 }) {
@@ -1224,14 +1251,25 @@ function QuoteSectionTitleCard({
             aria-label={labels.sectionTitleLabel}
           />
         </div>
-        <button
-          type="button"
-          onClick={() => removeItem(item.id)}
-          className="shrink-0 rounded-md p-1.5 text-muted-foreground/50 transition-colors hover:bg-rose-500/10 hover:text-rose-500"
-          title="刪除"
-        >
-          <Trash2 className="h-4 w-4" />
-        </button>
+        <div className="flex shrink-0 items-center gap-0.5">
+          <button
+            type="button"
+            onClick={() => duplicateItem(item.id)}
+            className="rounded-md p-1.5 text-muted-foreground/50 transition-colors hover:bg-primary/10 hover:text-primary"
+            title={labels.duplicateItem}
+            aria-label={labels.duplicateItem}
+          >
+            <Copy className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => removeItem(item.id)}
+            className="rounded-md p-1.5 text-muted-foreground/50 transition-colors hover:bg-rose-500/10 hover:text-rose-500"
+            title="刪除"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -1745,6 +1783,21 @@ export function QuotationDraftEditor({
   const removeItem = (id: string) => {
     itemsUserEditedRef.current = true;
     setItems((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  /** Clone a row (product / value-added / section title) and insert it immediately after the source. */
+  const duplicateItem = (id: string) => {
+    itemsUserEditedRef.current = true;
+    setItems((prev) => {
+      const index = prev.findIndex((item) => item.id === id);
+      if (index < 0) return prev;
+      const source = prev[index];
+      const clone: QuotationItem = {
+        ...source,
+        id: generateId(),
+      };
+      return [...prev.slice(0, index + 1), clone, ...prev.slice(index + 1)];
+    });
   };
 
   const updateItem = (
@@ -2784,6 +2837,7 @@ export function QuotationDraftEditor({
                         onDragStart={setDraggingItemId}
                         onDragEnd={clearQuoteRowDrag}
                         updateItem={updateItem}
+                        duplicateItem={duplicateItem}
                         removeItem={removeItem}
                         labels={t}
                       />
@@ -2800,6 +2854,7 @@ export function QuotationDraftEditor({
                         onDragStart={setDraggingItemId}
                         onDragEnd={clearQuoteRowDrag}
                         updateItem={updateItem}
+                        duplicateItem={duplicateItem}
                         removeItem={removeItem}
                         labels={t}
                       />
@@ -2818,6 +2873,7 @@ export function QuotationDraftEditor({
                         updateItem={updateItem}
                         updateExchangeRate={updateExchangeRate}
                         updateDimensionMode={updateDimensionMode}
+                        duplicateItem={duplicateItem}
                         removeItem={removeItem}
                         factories={factories}
                         factoriesLoading={factoriesLoading}
