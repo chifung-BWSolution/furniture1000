@@ -19,14 +19,16 @@ export interface PmsQuotePrefill {
   /** PMS bwf_projects.id — distinct from pitching */
   pmsProjectId?: string;
   /**
-   * PMS pitching/project code (BWF-…).
-   * URL query still uses `projectName` for handoff compat — maps to pitchingCode.
+   * Quote number / chain id (BWF-…) — becomes bwf_quote.quote_id on submit.
+   * URL query still uses `projectName` (or `pitchingCode`) for PMS handoff compat.
    */
-  pitchingCode?: string;
+  quoteId?: string;
   /** PMS pitching_name (optional URL `pitchingName`). */
   pitchingName?: string;
-  /** @deprecated Use pitchingCode — kept for callers that still read projectName. */
+  /** @deprecated Use quoteId — URL/legacy alias for the same BWF code. */
   projectName?: string;
+  /** @deprecated Use quoteId */
+  pitchingCode?: string;
   projectManager?: string;
   clientName?: string;
   clientPhone?: string;
@@ -81,12 +83,15 @@ export function parsePmsQuotePrefill(params: URLSearchParams): PmsQuotePrefill |
   const projectId = asUuid(firstParam(params, 'pmsProjectId'));
   if (projectId) prefill.pmsProjectId = projectId;
 
-  // URL `projectName` = PMS code (legacy param name); optional `pitchingName` for display name.
-  const pitchingCode =
-    firstParam(params, 'pitchingCode') || firstParam(params, 'projectName');
-  if (pitchingCode) {
-    prefill.pitchingCode = pitchingCode;
-    prefill.projectName = pitchingCode; // back-compat alias
+  // URL `projectName` / `pitchingCode` / `quoteId` = BWF code; optional `pitchingName` for title.
+  const quoteId =
+    firstParam(params, 'quoteId') ||
+    firstParam(params, 'pitchingCode') ||
+    firstParam(params, 'projectName');
+  if (quoteId) {
+    prefill.quoteId = quoteId;
+    prefill.projectName = quoteId; // back-compat alias
+    prefill.pitchingCode = quoteId; // back-compat alias
   }
   const pitchingName = firstParam(params, 'pitchingName');
   if (pitchingName) prefill.pitchingName = pitchingName;

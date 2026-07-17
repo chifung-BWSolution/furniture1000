@@ -122,7 +122,7 @@ PMS（bwteam-project.com）BWF pitching 詳情的 Quote tab 會列出本專案 `
 - PDF「報價單號」＝`quote_id`（經 `quoteMeta.quoteNumber` 傳入）
 - URL query `projectName` 仍＝PMS **code**（handoff 相容，寫入前變成 `quote_id`）；可選 `pitchingName`
 - **複製報價單**仍掛在同一 `quote_id` 版本鏈（新 `vN`）
-- Wizard 記憶體欄位 `formData.pitchingCode` 僅 UI 暫存；**不**寫入 DB
+- Wizard 記憶體欄位 `formData.quoteId` 僅 UI 暫存（PMS code）；submit 時寫入 `bwf_quote.quote_id`；**不**寫入 `project_data` JSON
 
 **Schema（列項目）**：明細在 `bwf_quote_item`（`quote_uuid` → `bwf_quote.id` ON DELETE CASCADE）。
 `project_data` **不再**存 `items`。寫入用 RPC `save_bwf_quote_items`（見 `src/lib/bwfQuoteItems.ts`）。

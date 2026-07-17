@@ -253,22 +253,24 @@ export function stripItemsFromProjectData(
 
 /**
  * Resolve 報價單號 / chain code.
- * Prefer `quoteId` (`bwf_quote.quote_id`). Legacy pitchingCode / form JSON are read-only fallbacks.
+ * Prefer `quoteId` (`bwf_quote.quote_id` / wizard formData.quoteId).
+ * Legacy pitchingCode / form JSON are read-only fallbacks.
  */
 export function resolvePitchingCode(opts: {
   quoteId?: string | null;
-  /** @deprecated Use quoteId — kept for call-site transition. */
+  /** @deprecated Use quoteId */
   pitchingCode?: string | null;
   formData?: Record<string, unknown> | null;
   quoteMeta?: Record<string, unknown> | null;
 }): string {
   const fromForm =
+    (typeof opts.formData?.quoteId === 'string' && opts.formData.quoteId) ||
     (typeof opts.formData?.pitchingCode === 'string' && opts.formData.pitchingCode) ||
     (typeof opts.formData?.projectName === 'string' && opts.formData.projectName) ||
     '';
   const fromMeta =
-    (typeof opts.quoteMeta?.projectName === 'string' && opts.quoteMeta.projectName) ||
     (typeof opts.quoteMeta?.quoteNumber === 'string' && opts.quoteMeta.quoteNumber) ||
+    (typeof opts.quoteMeta?.projectName === 'string' && opts.quoteMeta.projectName) ||
     '';
   return (
     opts.quoteId ||

@@ -44,6 +44,9 @@ interface SubmitReviewModalProps {
   bwfPitchingId?: string | null;
   /** Explicit PMS project uuid (preferred over digging into projectData). */
   bwfProjectId?: string | null;
+  /** Wizard 報價單號 — written to bwf_quote.quote_id */
+  quoteId?: string | null;
+  /** @deprecated Use quoteId */
   pitchingCode?: string | null;
   pitchingName?: string | null;
   /** Existing chain id (= quote_id). Legacy Q-format is ignored. */
@@ -67,6 +70,7 @@ export function SubmitReviewModal({
   items = [],
   bwfPitchingId,
   bwfProjectId,
+  quoteId: quoteIdProp,
   pitchingCode,
   pitchingName,
   existingQuoteId,
@@ -137,7 +141,7 @@ export function SubmitReviewModal({
     const formDataRaw =
       (projectData.formData as Record<string, unknown> | undefined) || {};
     const code = resolvePitchingCode({
-      quoteId: existingQuoteId,
+      quoteId: quoteIdProp || existingQuoteId,
       pitchingCode,
       formData: formDataRaw,
       quoteMeta: projectData.quoteMeta as Record<string, unknown> | undefined,
@@ -185,10 +189,12 @@ export function SubmitReviewModal({
 
     // Persist name + PMS ids in formData; never mirror code into JSON (use quote_id).
     const {
+      quoteId: _dropFormQuoteId,
       pitchingCode: _dropPitchingCode,
       projectName: _dropProjectName,
       ...formDataRest
     } = formDataRaw;
+    void _dropFormQuoteId;
     void _dropPitchingCode;
     void _dropProjectName;
     const formData = {

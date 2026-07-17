@@ -97,9 +97,12 @@ import {
 interface QuoteFormData {
   company: string;
   projectManager: string;
-  pitchingCode?: string;
+  /** In-memory 報價單號; becomes bwf_quote.quote_id on submit. */
+  quoteId?: string;
   pitchingName?: string;
-  /** @deprecated legacy — treated as pitchingCode when loading */
+  /** @deprecated Use quoteId */
+  pitchingCode?: string;
+  /** @deprecated Use quoteId */
   projectName?: string;
   pmsPitchingId?: string;
   pmsProjectId?: string;
@@ -167,7 +170,6 @@ interface QuotationDraftEditorProps {
     bwfPitchingId?: string | null;
     bwfProjectId?: string | null;
     quoteUuid?: string;
-    pitchingCode?: string | null;
     pitchingName?: string | null;
     /** Highest version string in the quote_id chain — used to compute next submit version. */
     maxVersionInChain?: string;
@@ -1599,9 +1601,9 @@ export function QuotationDraftEditor({
   const legacyItems = itemsFromLegacyProjectData(
     savedProjectData as Record<string, unknown>,
   );
-  const pitchingCodeDisplay = resolvePitchingCode({
-    quoteId: existingQuote?.quoteId,
-    pitchingCode: existingQuote?.pitchingCode,
+  const quoteIdDisplay = resolvePitchingCode({
+    quoteId: existingQuote?.quoteId || formData.quoteId,
+    pitchingCode: formData.pitchingCode,
     formData: formData as unknown as Record<string, unknown>,
     quoteMeta: savedQuoteMeta as unknown as Record<string, unknown>,
   });
@@ -1650,7 +1652,7 @@ export function QuotationDraftEditor({
     validity: savedQuoteMeta?.validity || formData.validityDays || "30",
     deliveryAddress: savedQuoteMeta?.deliveryAddress || "",
   });
-  const [pitchingCode] = useState(pitchingCodeDisplay);
+  const [quoteId] = useState(quoteIdDisplay);
 
   // Delivery details (editable)
   const [deliveryDetails, setDeliveryDetails] = useState(
@@ -2397,10 +2399,12 @@ export function QuotationDraftEditor({
       existingQuote?.bwfProjectId ||
       null;
     const {
+      quoteId: _omitQuoteId,
       pitchingCode: _omitPitchingCode,
       projectName: _omitProjectName,
       ...formDataRest
-    } = formData as QuoteFormData & { projectName?: string };
+    } = formData as QuoteFormData;
+    void _omitQuoteId;
     void _omitPitchingCode;
     void _omitProjectName;
     const nextFormData = {
@@ -2445,9 +2449,9 @@ export function QuotationDraftEditor({
         clientInfo,
         quoteMeta: {
           ...quoteMeta,
-          projectName: pitchingCode,
+          projectName: quoteId,
           deliveryAddress,
-          quoteNumber: pitchingCode,
+          quoteNumber: quoteId,
           version: existingQuote?.version
             ? displayQuoteVersion(existingQuote.version)
             : undefined,
@@ -2510,9 +2514,9 @@ export function QuotationDraftEditor({
     clientInfo,
     quoteMeta: {
       ...quoteMeta,
-      projectName: pitchingCode,
+      projectName: quoteId,
       deliveryAddress,
-      quoteNumber: pitchingCode,
+      quoteNumber: quoteId,
       version: existingQuote?.version
         ? displayQuoteVersion(existingQuote.version)
         : undefined,
@@ -2772,7 +2776,7 @@ export function QuotationDraftEditor({
                     報價單號
                   </label>
                   <div className="rounded-md border border-border/50 bg-muted/30 px-3 py-2 font-mono-data text-xs text-foreground/80">
-                    {pitchingCode || "—"}
+                    {quoteId || "—"}
                   </div>
                 </div>
                 <div>
@@ -3348,7 +3352,7 @@ export function QuotationDraftEditor({
         items={items.filter(hasQuoteItemContent)}
         bwfPitchingId={formData.pmsPitchingId || existingQuote?.bwfPitchingId || null}
         bwfProjectId={formData.pmsProjectId || existingQuote?.bwfProjectId || null}
-        pitchingCode={pitchingCode}
+        quoteId={quoteId}
         pitchingName={pitchingNameStored || formData.pitchingName || ""}
         existingQuoteId={existingQuote?.quoteId ?? null}
         existingQuoteUuid={existingQuote?.quoteUuid ?? null}
