@@ -38,32 +38,34 @@ export function SidebarNav({
     <TooltipProvider delayDuration={0}>
       <aside
         className={cn(
-          'flex h-full shrink-0 flex-col border-r border-border bg-sidebar transition-all duration-300',
-          isCollapsed ? 'w-[72px]' : 'w-[260px]'
+          'flex h-full shrink-0 flex-col border-r border-shell-border bg-shell text-shell-foreground transition-all duration-300',
+          isCollapsed ? 'w-[72px]' : 'w-[260px]',
         )}
       >
         {/* Section header */}
-        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border/60 px-4 py-4">
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-shell-border px-4 py-4">
           {!isCollapsed ? (
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10">
-                <SectionIcon className="h-[18px] w-[18px] text-primary" />
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-shell-primary/20">
+                <SectionIcon className="h-[18px] w-[18px] text-shell-primary" />
               </div>
               <div className="min-w-0 leading-tight">
-                <div className="font-mono-data text-[10px] font-semibold uppercase tracking-[0.18em] text-primary">
+                <div className="font-mono-data text-[10px] font-semibold uppercase tracking-[0.18em] text-shell-primary">
                   {section.id}
                 </div>
-                <div className="truncate font-display text-[14px] font-bold">{section.label}</div>
+                <div className="truncate font-display text-[14px] font-bold text-shell-foreground">
+                  {section.label}
+                </div>
               </div>
             </div>
           ) : (
-            <div className="mx-auto flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
-              <SectionIcon className="h-[18px] w-[18px] text-primary" />
+            <div className="mx-auto flex h-9 w-9 items-center justify-center rounded-lg bg-shell-primary/20">
+              <SectionIcon className="h-[18px] w-[18px] text-shell-primary" />
             </div>
           )}
           <button
             onClick={() => setIsCollapsed(!isCollapsed)}
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-shell-muted hover:bg-shell-accent hover:text-shell-accent-foreground"
           >
             {isCollapsed ? <PanelLeft className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
           </button>
@@ -83,8 +85,8 @@ export function SidebarNav({
                         className={cn(
                           'flex w-full items-center justify-center rounded-lg p-2.5 transition-colors',
                           isActive
-                            ? 'bg-primary text-primary-foreground shadow-sm'
-                            : 'text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
+                            ? 'bg-shell-primary text-shell-primary-foreground shadow-sm'
+                            : 'text-shell-muted hover:bg-shell-accent hover:text-shell-accent-foreground',
                         )}
                       >
                         <Icon className="h-[18px] w-[18px]" />
@@ -103,8 +105,8 @@ export function SidebarNav({
                   className={cn(
                     'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-[13.5px] font-medium transition-colors',
                     isActive
-                      ? 'bg-primary text-primary-foreground shadow-sm'
-                      : 'text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground'
+                      ? 'bg-shell-primary text-shell-primary-foreground shadow-sm'
+                      : 'text-shell-muted hover:bg-shell-accent hover:text-shell-accent-foreground',
                   )}
                 >
                   <Icon className="h-[18px] w-[18px] shrink-0" />
@@ -116,13 +118,13 @@ export function SidebarNav({
         </nav>
 
         {/* Footer */}
-        <div className="shrink-0 border-t border-border px-3 py-3">
+        <div className="shrink-0 border-t border-shell-border px-3 py-3">
           {isCollapsed ? (
             <Tooltip>
               <TooltipTrigger asChild>
                 <button
                   onClick={onToggleDarkMode}
-                  className="flex w-full items-center justify-center rounded-md p-2 text-muted-foreground hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+                  className="flex w-full items-center justify-center rounded-md p-2 text-shell-muted hover:bg-shell-accent hover:text-shell-accent-foreground"
                 >
                   {isDarkMode ? <Moon className="h-4 w-4" /> : <Sun className="h-4 w-4" />}
                 </button>
@@ -133,7 +135,7 @@ export function SidebarNav({
             </Tooltip>
           ) : (
             <div className="flex items-center justify-between px-1">
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
+              <div className="flex items-center gap-2 text-xs text-shell-muted">
                 {isDarkMode ? <Moon className="h-3.5 w-3.5" /> : <Sun className="h-3.5 w-3.5" />}
                 <span className="font-body text-[12px]">{isDarkMode ? '深色模式' : '淺色模式'}</span>
               </div>

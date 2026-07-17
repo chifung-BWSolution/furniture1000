@@ -63,6 +63,16 @@ module.exports = {
   				border: 'hsl(var(--sidebar-border))',
   				ring: 'hsl(var(--sidebar-ring))'
   			},
+			shell: {
+  				DEFAULT: 'hsl(var(--shell-background))',
+  				foreground: 'hsl(var(--shell-foreground))',
+  				muted: 'hsl(var(--shell-muted))',
+  				accent: 'hsl(var(--shell-accent))',
+  				'accent-foreground': 'hsl(var(--shell-accent-foreground))',
+  				border: 'hsl(var(--shell-border))',
+  				primary: 'hsl(var(--shell-primary))',
+  				'primary-foreground': 'hsl(var(--shell-primary-foreground))',
+  			},
   			indigo: {
   				DEFAULT: '#6366F1',
   				50: '#ECEFFE',

@@ -40,7 +40,7 @@
 
     --radius: 0.625rem;
 
-    /* Soft indigo sidebar, distinct from page canvas */
+    /* Soft indigo sidebar panels (content asides — not app chrome) */
     --sidebar-background: 239 35% 97%;
     --sidebar-foreground: 230 20% 28%;
     --sidebar-primary: 239 84% 67%;
@@ -49,6 +49,20 @@
     --sidebar-accent-foreground: 239 45% 28%;
     --sidebar-border: 239 22% 90%;
     --sidebar-ring: 239 84% 67%;
+
+    /*
+     * App chrome (top nav + left nav) — solid indigo-navy.
+     * Inspired by dense enterprise shells, but tinted to our primary indigo
+     * (not a flat charcoal like #1d212d). Approx #1c2238.
+     */
+    --shell-background: 233 32% 16%;
+    --shell-foreground: 220 28% 94%;
+    --shell-muted: 230 18% 68%;
+    --shell-accent: 233 26% 22%;
+    --shell-accent-foreground: 220 28% 96%;
+    --shell-border: 233 22% 24%;
+    --shell-primary: 239 84% 67%;
+    --shell-primary-foreground: 0 0% 100%;
 
     /* Shell helpers — very light primary washes */
     --page-tint: 239 60% 97%;
@@ -93,6 +107,16 @@
     --sidebar-accent-foreground: 220 20% 90%;
     --sidebar-border: 239 18% 16%;
     --sidebar-ring: 239 84% 67%;
+
+    /* Slightly deeper solid chrome in dark mode */
+    --shell-background: 233 30% 10%;
+    --shell-foreground: 220 25% 94%;
+    --shell-muted: 230 14% 64%;
+    --shell-accent: 233 24% 16%;
+    --shell-accent-foreground: 220 25% 96%;
+    --shell-border: 233 18% 18%;
+    --shell-primary: 239 84% 67%;
+    --shell-primary-foreground: 0 0% 100%;
 
     --page-tint: 239 28% 11%;
     --surface-tint: 239 26% 13%;
