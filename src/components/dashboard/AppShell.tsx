@@ -2,7 +2,20 @@ import { useState, useCallback, useEffect, useRef, lazy, Suspense } from "react"
 import { useLocation } from "react-router-dom";
 import { useAppStore } from "@/hooks/use-app-store";
 import { unsavedGuard } from "@/lib/unsavedGuard";
-import { resetQuickQuoteSessionStorage, readQuickQuoteEditingId, writeQuickQuoteEditingId, writeQuickQuoteCopyFrom, quickQuoteStepKey, quickQuoteFormKey, quickQuoteEditingIdKey } from "@/lib/quickQuoteSession";
+import {
+  resetQuickQuoteSessionStorage,
+  readQuickQuoteEditingId,
+  writeQuickQuoteEditingId,
+  writeQuickQuoteCopyFrom,
+  quickQuoteStepKey,
+  quickQuoteFormKey,
+  quickQuoteEditingIdKey,
+  readResumeQuote,
+  clearResumeQuote,
+} from "@/lib/quickQuoteSession";
+
+/** Survive React StrictMode double-mount so deploy-reload resume is only applied once. */
+let resumeQuoteAppliedThisPageLoad = false;
 import { deleteDraft, makeDraftKey } from "@/lib/draftStore";
 import { useAuth } from "@/contexts/AuthProvider";
 import { SidebarNav } from "./SidebarNav";
@@ -245,13 +258,26 @@ export function AppShell() {
     store.setCurrentView("quick-quote");
   }, [location.pathname, location.search, store, user?.email, setEditingQuoteId]);
 
+  // After deploy reload: restore editing quote id/uuid from resume marker or session.
   useEffect(() => {
-    if (store.currentView !== "quick-quote") return;
-    // Prefer deep-link quote id over stale session editing id
     if (location.pathname.startsWith("/quote/")) return;
+
+    if (!resumeQuoteAppliedThisPageLoad) {
+      const resume = readResumeQuote(user?.email);
+      if (resume?.quoteId && resume.quoteId !== "NEW") {
+        resumeQuoteAppliedThisPageLoad = true;
+        clearResumeQuote(user?.email);
+        setEditingQuoteIdRaw(resume.quoteId);
+        if (resume.quoteUuid) setEditingQuoteUuidRaw(resume.quoteUuid);
+        store.setCurrentView("quick-quote");
+        return;
+      }
+    }
+
+    if (store.currentView !== "quick-quote") return;
     const saved = readQuickQuoteEditingId(user?.email);
     if (saved) setEditingQuoteIdRaw(saved);
-  }, [user?.email, store.currentView, location.pathname]);
+  }, [user?.email, store.currentView, location.pathname, store]);
   // 方案 D: Supabase health monitoring
   const [dbUnhealthy, setDbUnhealthy] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);

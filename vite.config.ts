@@ -1,6 +1,43 @@
+import fs from "fs";
 import path from "path";
-import { defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import react from "@vitejs/plugin-react-swc";
+
+const appBuildId =
+  process.env.VERCEL_GIT_COMMIT_SHA ||
+  process.env.CF_PAGES_COMMIT_SHA ||
+  process.env.VITE_APP_BUILD_ID ||
+  `dev-${Date.now()}`;
+
+/** Emit public/version.json so clients can detect redeploys without forced reload. */
+function versionJsonPlugin(buildId: string): Plugin {
+  const write = (outDir: string) => {
+    const payload = JSON.stringify(
+      { buildId, builtAt: new Date().toISOString() },
+      null,
+      2,
+    );
+    fs.mkdirSync(outDir, { recursive: true });
+    fs.writeFileSync(path.join(outDir, "version.json"), payload);
+  };
+
+  return {
+    name: "bwf-version-json",
+    config() {
+      return {
+        define: {
+          "import.meta.env.VITE_APP_BUILD_ID": JSON.stringify(buildId),
+        },
+      };
+    },
+    buildStart() {
+      write(path.resolve(__dirname, "public"));
+    },
+    closeBundle() {
+      write(path.resolve(__dirname, "dist"));
+    },
+  };
+}
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -23,7 +60,7 @@ export default defineConfig({
     ],
     exclude: ["framer-motion"],
   },
-  plugins: [react()],
+  plugins: [react(), versionJsonPlugin(appBuildId)],
   resolve: {
     preserveSymlinks: true,
     alias: {

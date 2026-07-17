@@ -118,94 +118,118 @@ export function SubmitReviewModal({
 
   if (!open) return null;
 
+  const embeddedItems = Array.isArray(projectData.items)
+    ? (projectData.items as BwfQuoteItemInput[])
+    : [];
+  const previewItems = items.length > 0 ? items : embeddedItems;
+  const hasSubmitContent = previewItems.some(
+    (item) =>
+      !item.isSectionTitle &&
+      Boolean(String(item.name || '').trim() || (item.unitPrice ?? 0) > 0),
+  );
+  const emptyStateBlocked = !hasSubmitContent || totalAmount <= 0;
+
+  const formatSubmitError = (err: unknown): string => {
+    if (err && typeof err === 'object' && 'message' in err) {
+      const msg = String((err as { message?: string }).message || '').trim();
+      if (msg) return msg;
+    }
+    if (err instanceof Error && err.message.trim()) return err.message;
+    return '提交失敗，請稍後再試。畫面資料未清除，本機草稿亦保留。';
+  };
+
   const handleSubmit = async () => {
     if (!submitter.trim()) {
       setError('請輸入您的姓名');
       return;
     }
-    setError('');
-    setIsSubmitting(true);
-
-    const pitchingId =
-      bwfPitchingId ||
-      extractPmsPitchingIdFromProjectData(projectData) ||
-      null;
-    const projectId =
-      bwfProjectId ||
-      extractPmsProjectIdFromProjectData(projectData) ||
-      null;
-
-    const formDataRaw =
-      (projectData.formData as Record<string, unknown> | undefined) || {};
-    const code = resolvePitchingCode({
-      quoteId: quoteIdProp || existingQuoteId,
-      pitchingCode,
-      formData: formDataRaw,
-      quoteMeta: projectData.quoteMeta as Record<string, unknown> | undefined,
-    });
-
-    // Sole persisted code: bwf_quote.quote_id (no pitching_code / pitching_name columns).
-    const quoteId = resolveQuoteChainId({
-      code,
-      existingQuoteId,
-    });
-    if (!quoteId) {
-      setError('缺少報價單號（PMS Pitching Code），無法提交');
-      setIsSubmitting(false);
+    if (emptyStateBlocked) {
+      const msg =
+        '目前沒有有效報價內容或總額為 HK$0。頁面狀態可能已過期：請關閉此視窗，按「暫存草稿」或重新整理以恢復草稿後再提交。';
+      setError(msg);
+      toast.error('無法提交審核', { description: msg });
       return;
     }
 
-    // Always append a new version row on this quote_id chain.
-    let resolvedVersion = version;
+    setError('');
+    setIsSubmitting(true);
+
     try {
+      const pitchingId =
+        bwfPitchingId ||
+        extractPmsPitchingIdFromProjectData(projectData) ||
+        null;
+      const projectId =
+        bwfProjectId ||
+        extractPmsProjectIdFromProjectData(projectData) ||
+        null;
+
+      const formDataRaw =
+        (projectData.formData as Record<string, unknown> | undefined) || {};
+      const code = resolvePitchingCode({
+        quoteId: quoteIdProp || existingQuoteId,
+        pitchingCode,
+        formData: formDataRaw,
+        quoteMeta: projectData.quoteMeta as Record<string, unknown> | undefined,
+      });
+
+      // Sole persisted code: bwf_quote.quote_id (no pitching_code / pitching_name columns).
+      const quoteId = resolveQuoteChainId({
+        code,
+        existingQuoteId,
+      });
+      if (!quoteId) {
+        throw new Error('缺少報價單號（PMS Pitching Code），無法提交');
+      }
+
+      // Always append a new version row on this quote_id chain.
       const { data: versionRows, error: versionErr } = await supabase
         .from('bwf_quote')
         .select('version')
         .eq('quote_id', quoteId);
       if (versionErr) throw versionErr;
       const chain = (versionRows || []).map((r) => String(r.version || ''));
-      resolvedVersion =
+      const resolvedVersion =
         chain.length > 0 ? nextQuoteVersionFromChain(chain) : version || 'v1';
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message);
-      setIsSubmitting(false);
-      return;
-    }
 
-    // Prefer explicit items prop; fall back to legacy embedded project_data.items
-    // (old clients / drafts) so we never drop line items on submit.
-    const embeddedItems = Array.isArray(projectData.items)
-      ? (projectData.items as BwfQuoteItemInput[])
-      : [];
-    const sourceItems = items.length > 0 ? items : embeddedItems;
+      const sourceItems = previewItems;
+      if (
+        !sourceItems.some(
+          (item) =>
+            !item.isSectionTitle &&
+            Boolean(String(item.name || '').trim() || (item.unitPrice ?? 0) > 0),
+        )
+      ) {
+        throw new Error(
+          '沒有可提交的報價品項。請關閉視窗並重新整理以恢復草稿。',
+        );
+      }
 
-    // Persist PMS ids only; never mirror code/name into JSON (title = live PMS).
-    const {
-      quoteId: _dropFormQuoteId,
-      pitchingCode: _dropPitchingCode,
-      projectName: _dropProjectName,
-      pitchingName: _dropPitchingName,
-      ...formDataRest
-    } = formDataRaw;
-    void _dropFormQuoteId;
-    void _dropPitchingCode;
-    void _dropProjectName;
-    void _dropPitchingName;
-    const formData = {
-      ...formDataRest,
-      ...(pitchingId ? { pmsPitchingId: pitchingId } : {}),
-      ...(projectId ? { pmsProjectId: projectId } : {}),
-    };
-    const payloadProjectData = stripItemsFromProjectData({
-      ...projectData,
-      formData,
-    });
-    if ('items' in payloadProjectData) {
-      delete payloadProjectData.items;
-    }
+      // Persist PMS ids only; never mirror code/name into JSON (title = live PMS).
+      const {
+        quoteId: _dropFormQuoteId,
+        pitchingCode: _dropPitchingCode,
+        projectName: _dropProjectName,
+        pitchingName: _dropPitchingName,
+        ...formDataRest
+      } = formDataRaw;
+      void _dropFormQuoteId;
+      void _dropPitchingCode;
+      void _dropProjectName;
+      void _dropPitchingName;
+      const formData = {
+        ...formDataRest,
+        ...(pitchingId ? { pmsPitchingId: pitchingId } : {}),
+        ...(projectId ? { pmsProjectId: projectId } : {}),
+      };
+      const payloadProjectData = stripItemsFromProjectData({
+        ...projectData,
+        formData,
+      });
+      if ('items' in payloadProjectData) {
+        delete payloadProjectData.items;
+      }
 
-    try {
       const resolvedItems = await resolveItemImagesToStorage(sourceItems, quoteId);
       if (resolvedItems.some((item) => quoteItemHasBase64Images(item))) {
         throw new Error('部分圖片未能上傳至 Storage，請檢查網絡後重試');
@@ -256,8 +280,12 @@ export function SubmitReviewModal({
       setSubmitter('');
       onClose();
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : '提交失敗，請稍後再試';
-      toast.error('提交失敗', { description: message });
+      // Failure must NOT clear editor state or IndexedDB drafts (handled only on success).
+      const message = formatSubmitError(err);
+      setError(message);
+      toast.error('提交失敗', {
+        description: `${message}（畫面上的資料與本機草稿仍保留）`,
+      });
     } finally {
       setIsSubmitting(false);
     }
@@ -294,6 +322,7 @@ export function SubmitReviewModal({
             提交後將產生版本快照{' '}
             <span className="font-semibold text-foreground">{version}</span>
             ，此版本內容將無法修改。如需修改，須建立新版本重新提交審核。
+            編輯中請用「暫存草稿」，完成後再提交審核。
           </p>
         </div>
 
@@ -305,6 +334,11 @@ export function SubmitReviewModal({
           <div className="mt-1 font-display text-2xl font-bold text-foreground">
             HK$ {totalAmount.toLocaleString()}
           </div>
+          {emptyStateBlocked && (
+            <p className="mt-2 font-body text-xs leading-relaxed text-rose-500">
+              總額為 HK$0 或沒有品項，無法提交。若你剛填過資料，頁面狀態可能已過期——請關閉、重新整理並恢復草稿後再試。
+            </p>
+          )}
         </div>
 
         {/* Submitter Input */}
@@ -344,8 +378,8 @@ export function SubmitReviewModal({
           </button>
           <button
             type="button"
-            onClick={handleSubmit}
-            disabled={isSubmitting}
+            onClick={() => void handleSubmit()}
+            disabled={isSubmitting || emptyStateBlocked}
             className="rounded-lg bg-amber-500 px-5 py-2.5 font-body text-sm font-semibold text-white shadow-md shadow-amber-500/20 transition-all hover:bg-amber-600 active:scale-[0.98] disabled:opacity-60 disabled:cursor-not-allowed"
           >
             {isSubmitting ? (

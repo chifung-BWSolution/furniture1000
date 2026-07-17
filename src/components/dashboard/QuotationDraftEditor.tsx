@@ -13,6 +13,7 @@ import {
   X,
   GripVertical,
   Loader2,
+  Save,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TermsRichEditor } from "@/components/dashboard/TermsRichEditor";
@@ -44,10 +45,12 @@ import {
 import { unsavedGuard } from "@/lib/unsavedGuard";
 import {
   QUOTE_UNSAVED_LEAVE_MESSAGE,
+  quickQuoteStepKey,
   resetQuickQuoteSessionStorage,
   shouldShowDraftRestoreNotice,
   writeQuickQuoteCopyFrom,
   writeQuickQuoteEditingId,
+  writeResumeQuote,
 } from "@/lib/quickQuoteSession";
 import {
   extractDeliveryAddressFromTermsHtml,
@@ -2034,8 +2037,24 @@ export function QuotationDraftEditor({
 
   // Version & submission modal state
   const [showSubmitModal, setShowSubmitModal] = useState(false);
+  const [isSavingDraft, setIsSavingDraft] = useState(false);
 
   const handleOpenSubmitReview = () => {
+    const contentItems = items.filter(hasQuoteItemContent);
+    if (contentItems.length === 0) {
+      toast.error("無法提交審核", {
+        description:
+          "目前沒有報價內容（總額可能為 HK$0）。若剛才頁面曾異常，請先按「暫存草稿」或重新整理以恢復草稿。",
+      });
+      return;
+    }
+    if (grandTotal <= 0) {
+      toast.error("無法提交審核", {
+        description:
+          "報價總金額為 HK$0。請確認品項單價／數量後再提交；若資料異常消失，請重新整理以恢復草稿。",
+      });
+      return;
+    }
     setShowSubmitModal(true);
   };
   const currentVersion = useMemo(() => {
@@ -2281,6 +2300,55 @@ export function QuotationDraftEditor({
     });
     return () => unsavedGuard.setLeaveHandler(null);
   }, [storageKey, userEmail]);
+
+  const persistLocalDraftMarkers = useCallback(() => {
+    const quoteId = existingQuote?.quoteId || rawQuoteId;
+    writeResumeQuote(userEmail, {
+      quoteId,
+      quoteUuid: existingQuote?.quoteUuid ?? null,
+    });
+    if (existingQuote?.quoteId) {
+      writeQuickQuoteEditingId(userEmail, existingQuote.quoteId);
+    }
+    // NEW quotes have no editing id — keep wizard on step 4 after reload.
+    if (typeof window !== "undefined") {
+      sessionStorage.setItem(quickQuoteStepKey(userEmail), "4");
+    }
+  }, [userEmail, existingQuote?.quoteId, existingQuote?.quoteUuid, rawQuoteId]);
+
+  // Flush IndexedDB + resume markers before deploy-reload prompt.
+  useEffect(() => {
+    unsavedGuard.setDraftFlushHandler(async () => {
+      if (!hasQuoteData) return;
+      await saveDraft(buildDraftData());
+      persistLocalDraftMarkers();
+    });
+    return () => unsavedGuard.setDraftFlushHandler(null);
+  }, [hasQuoteData, buildDraftData, persistLocalDraftMarkers]);
+
+  const handleSaveLocalDraft = async () => {
+    if (!hasQuoteData) {
+      toast.error("尚無報價內容可暫存");
+      return;
+    }
+    setIsSavingDraft(true);
+    try {
+      await saveDraft(buildDraftData());
+      persistLocalDraftMarkers();
+      baselineSnapshotRef.current = JSON.stringify(buildDraftData());
+      setSnapshotReady(true);
+      unsavedGuard.clear();
+      toast.success("草稿已暫存", {
+        description: "僅保存在此瀏覽器。完成後請再按「版本審核」正式提交。",
+      });
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : "無法寫入本機草稿，請檢查瀏覽器儲存空間";
+      toast.error("暫存失敗", { description: message });
+    } finally {
+      setIsSavingDraft(false);
+    }
+  };
 
   // Warn on browser tab close / refresh while dirty.
   useEffect(() => {
@@ -2837,7 +2905,7 @@ export function QuotationDraftEditor({
                 <Eye className="h-4 w-4" />
                 {t.previewPdf}
               </button>
-              <div className="flex flex-col items-center gap-2">
+              <div className="flex flex-col items-stretch gap-2">
                 <button
                   type="button"
                   onClick={() => setQuoteLocale((l) => (l === 'zh' ? 'en' : 'zh'))}
@@ -2847,8 +2915,23 @@ export function QuotationDraftEditor({
                 </button>
                 <button
                   type="button"
+                  onClick={() => void handleSaveLocalDraft()}
+                  disabled={isSavingDraft || !hasQuoteData}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-background px-4 py-2 font-body text-sm font-medium text-foreground transition-colors hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-50"
+                  title="暫存至本瀏覽器（不產生新版本）"
+                >
+                  {isSavingDraft ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Save className="h-4 w-4" />
+                  )}
+                  {t.saveDraft}
+                </button>
+                <button
+                  type="button"
                   onClick={handleOpenSubmitReview}
-                  className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 font-body text-sm font-semibold text-primary-foreground shadow-md shadow-primary/20 transition-all hover:bg-primary/90 active:scale-[0.98]"
+                  className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2 font-body text-sm font-semibold text-primary-foreground shadow-md shadow-primary/20 transition-all hover:bg-primary/90 active:scale-[0.98]"
+                  title="提交後會產生新版本快照並送審"
                 >
                   <ShieldCheck className="h-4 w-4" />
                   {t.versionReview}

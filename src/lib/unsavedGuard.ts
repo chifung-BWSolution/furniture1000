@@ -6,6 +6,7 @@ import { QUOTE_UNSAVED_LEAVE_MESSAGE } from '@/lib/quickQuoteSession';
 let dirty = false;
 let message = QUOTE_UNSAVED_LEAVE_MESSAGE;
 let leaveHandler: (() => void) | null = null;
+let draftFlushHandler: (() => Promise<void>) | null = null;
 
 export const unsavedGuard = {
   get isDirty() {
@@ -21,6 +22,14 @@ export const unsavedGuard = {
   setLeaveHandler(handler: (() => void) | null) {
     leaveHandler = handler;
   },
+  /** Register async IndexedDB flush (called before voluntary reload / update banner). */
+  setDraftFlushHandler(handler: (() => Promise<void>) | null) {
+    draftFlushHandler = handler;
+  },
+  async flushDraft(): Promise<void> {
+    if (!draftFlushHandler) return;
+    await draftFlushHandler();
+  },
   /** Returns true if navigation may proceed. */
   confirmLeave(): boolean {
     if (!dirty) return true;
@@ -32,7 +41,7 @@ export const unsavedGuard = {
     }
     return ok;
   },
-  /** Clear dirty state only — keep leaveHandler so later edits still clean up drafts. */
+  /** Clear dirty state only — keep leaveHandler / flushHandler for later edits. */
   clear() {
     dirty = false;
   },

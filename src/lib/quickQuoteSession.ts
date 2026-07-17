@@ -35,6 +35,10 @@ export function writeQuickQuoteCopyFrom(
   else sessionStorage.removeItem(key);
 }
 
+function resumeQuoteKey(email: string | null | undefined): string {
+  return `bwf:quickQuote:${normalizeEmail(email)}:resume`;
+}
+
 export function resetQuickQuoteSessionStorage(
   email: string | null | undefined,
   opts?: { keepCopyFrom?: boolean },
@@ -45,6 +49,7 @@ export function resetQuickQuoteSessionStorage(
   sessionStorage.removeItem(quickQuoteFormKey(email));
   sessionStorage.removeItem(quickQuoteEditingIdKey(email));
   sessionStorage.removeItem(quickQuoteCopyFromKey(email));
+  sessionStorage.removeItem(resumeQuoteKey(email));
   if (copyFrom) writeQuickQuoteCopyFrom(email, copyFrom);
 }
 
@@ -92,4 +97,60 @@ export function readQuickQuoteStep(email: string | null | undefined): number {
 }
 
 export const QUOTE_UNSAVED_LEAVE_MESSAGE =
-  '您有未儲存的報價修改。離開前請先按「版本審核」提交，否則內容將會遺失。';
+  '您有未儲存的報價修改。離開前請先按「暫存草稿」或「版本審核」，否則未暫存內容可能遺失。';
+
+/** Resume markers so a post-deploy reload reopens the same quote. */
+export type ResumeQuoteMarker = {
+  quoteId: string;
+  quoteUuid?: string | null;
+  savedAt: number;
+};
+
+export function writeResumeQuote(
+  email: string | null | undefined,
+  marker: { quoteId: string; quoteUuid?: string | null },
+): void {
+  if (typeof window === 'undefined') return;
+  const quoteId = marker.quoteId?.trim();
+  if (!quoteId) return;
+  const payload: ResumeQuoteMarker = {
+    quoteId,
+    quoteUuid: marker.quoteUuid ?? null,
+    savedAt: Date.now(),
+  };
+  sessionStorage.setItem(resumeQuoteKey(email), JSON.stringify(payload));
+  // Keep editing id in sync so AppShell can reopen after reload.
+  if (quoteId !== 'NEW') {
+    writeQuickQuoteEditingId(email, quoteId);
+  }
+}
+
+export function readResumeQuote(
+  email: string | null | undefined,
+): ResumeQuoteMarker | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = sessionStorage.getItem(resumeQuoteKey(email));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as ResumeQuoteMarker;
+    if (!parsed?.quoteId?.trim()) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+/** Clear resume marker without reading. */
+export function clearResumeQuote(email: string | null | undefined): void {
+  if (typeof window === 'undefined') return;
+  sessionStorage.removeItem(resumeQuoteKey(email));
+}
+
+/** Read and clear resume marker (call once on app shell mount). */
+export function consumeResumeQuote(
+  email: string | null | undefined,
+): ResumeQuoteMarker | null {
+  const marker = readResumeQuote(email);
+  clearResumeQuote(email);
+  return marker;
+}

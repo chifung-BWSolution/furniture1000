@@ -14,6 +14,7 @@ export const DEFAULT_COMPANY_WEBSITE = 'https://www.bwoffice.asia/';
 export const QUOTE_UI = {
   zh: {
     previewPdf: '預覽 PDF',
+    saveDraft: '暫存草稿',
     versionReview: '版本審核',
     langToggle: 'ENG',
     quoteContent: '報價內容',
@@ -56,6 +57,7 @@ export const QUOTE_UI = {
   },
   en: {
     previewPdf: 'Preview PDF',
+    saveDraft: 'Save Draft',
     versionReview: 'Version Review',
     langToggle: '中',
     quoteContent: 'Quotation Content',

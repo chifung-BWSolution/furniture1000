@@ -3,6 +3,8 @@ import { Routes, Route } from "react-router-dom";
 import { Toaster } from "sonner";
 import { AuthProvider } from "@/contexts/AuthProvider";
 import { RequireAuth } from "@/components/auth/RequireAuth";
+import { AppUpdateBanner } from "@/components/system/AppUpdateBanner";
+import { isStaleAssetErrorMessage, notifyAppUpdate } from "@/lib/appUpdateGuard";
 import Home from "./components/home";
 
 const ShopifyCallback = lazy(() =>
@@ -26,35 +28,23 @@ const FactoryDetailPage = lazy(() =>
 // Error boundary to catch rendering errors gracefully
 class ErrorBoundary extends Component<
   { children: ReactNode },
-  { hasError: boolean; error: Error | null }
+  { hasError: boolean; error: Error | null; staleAssets: boolean }
 > {
   constructor(props: { children: ReactNode }) {
     super(props);
-    this.state = { hasError: false, error: null };
+    this.state = { hasError: false, error: null, staleAssets: false };
   }
 
   static getDerivedStateFromError(error: Error) {
-    return { hasError: true, error };
+    const stale = isStaleAssetErrorMessage(error?.message || "");
+    return { hasError: true, error, staleAssets: stale };
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     console.error("[ErrorBoundary] Caught error:", error, errorInfo);
-    const msg = error?.message || "";
-    if (
-      msg.includes("Failed to fetch dynamically imported module") ||
-      msg.includes("Importing a module script failed") ||
-      msg.includes("error loading dynamically imported module")
-    ) {
-      try {
-        const KEY = "__stale_chunk_reload_ts";
-        const last = Number(sessionStorage.getItem(KEY) || "0");
-        if (Date.now() - last >= 10_000) {
-          sessionStorage.setItem(KEY, String(Date.now()));
-          window.location.reload();
-        }
-      } catch {
-        window.location.reload();
-      }
+    if (isStaleAssetErrorMessage(error?.message || "")) {
+      // Prompt instead of forced reload — preserves chance to flush drafts.
+      void notifyAppUpdate("error-boundary");
     }
   }
 
@@ -64,19 +54,21 @@ class ErrorBoundary extends Component<
         <div className="flex h-screen w-screen items-center justify-center bg-background">
           <div className="max-w-md space-y-4 rounded-xl border border-border bg-card p-8 text-center">
             <h2 className="text-lg font-bold text-foreground">
-              Something went wrong
+              {this.state.staleAssets ? "網站已更新" : "Something went wrong"}
             </h2>
             <p className="text-sm text-muted-foreground">
-              {this.state.error?.message || "An unexpected error occurred."}
+              {this.state.staleAssets
+                ? "偵測到新版本資源。請重新整理頁面；若正在編輯報價，草稿應已暫存，重整後可恢復。"
+                : this.state.error?.message || "An unexpected error occurred."}
             </p>
             <button
               onClick={() => {
-                this.setState({ hasError: false, error: null });
+                this.setState({ hasError: false, error: null, staleAssets: false });
                 window.location.reload();
               }}
               className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
             >
-              Reload Page
+              重新整理頁面
             </button>
           </div>
         </div>
@@ -91,6 +83,7 @@ function App() {
   return (
     <ErrorBoundary>
       <AuthProvider>
+        <AppUpdateBanner />
         <Toaster position="top-right" richColors closeButton />
         <Suspense
           fallback={
