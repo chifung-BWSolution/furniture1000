@@ -63,7 +63,7 @@ async function fetchMaxVersionForQuote(quoteId: string): Promise<string> {
 interface QuoteFormData {
   company: string;
   projectManager: string;
-  /** PMS pitching_code (BWF-…) — displayed as 報價單號 */
+  /** In-memory 報價單號 from PMS; becomes bwf_quote.quote_id on submit (not persisted in JSON). */
   pitchingCode: string;
   /** PMS pitching_name — list/search only, not shown on form */
   pitchingName: string;
@@ -553,16 +553,17 @@ export function QuickQuoteView({
           const projectId =
             savedFormData.pmsProjectId ||
             (typeof data.bwf_project_id === 'string' ? data.bwf_project_id : undefined);
-          const columnCode =
-            typeof data.pitching_code === 'string' ? data.pitching_code : '';
+          const quoteIdCode =
+            typeof data.quote_id === 'string' ? data.quote_id.trim() : '';
           const columnName =
             typeof data.pitching_name === 'string' ? data.pitching_name : '';
           const normalized = normalizeQuoteFormData({
             ...savedFormData,
+            // In-memory 報價單號 from quote_id only (column/JSON code dropped).
             pitchingCode:
+              quoteIdCode ||
               savedFormData.pitchingCode ||
               savedFormData.projectName ||
-              columnCode ||
               '',
             pitchingName: savedFormData.pitchingName || columnName || '',
             pmsPitchingId: pitchingId,
@@ -589,7 +590,7 @@ export function QuickQuoteView({
           bwfPitchingId: (data.bwf_pitching_id as string | null) ?? null,
           bwfProjectId: (data.bwf_project_id as string | null) ?? null,
           quoteUuid: data.id as string,
-          pitchingCode: (data.pitching_code as string | null) ?? null,
+          pitchingCode: (data.quote_id as string | null) ?? null,
           pitchingName: (data.pitching_name as string | null) ?? null,
           maxVersionInChain,
         });
@@ -780,9 +781,9 @@ export function QuickQuoteView({
               {loadedQuoteData && (
                 <p className="ml-6 font-body text-sm text-muted-foreground lg:ml-16">
                   <span className="font-mono-data text-xs tracking-wider text-primary">
-                    {loadedQuoteData.pitchingCode ||
+                    {loadedQuoteData.quoteId ||
                       formData.pitchingCode ||
-                      loadedQuoteData.quoteId}
+                      '—'}
                   </span>
                   <span className="mx-2 text-border">·</span>
                   目前版本{' '}
@@ -1330,7 +1331,7 @@ export function QuickQuoteView({
                   projectData: result.projectData,
                   bwfPitchingId: prev?.bwfPitchingId ?? formData.pmsPitchingId ?? null,
                   bwfProjectId: prev?.bwfProjectId ?? formData.pmsProjectId ?? null,
-                  pitchingCode: prev?.pitchingCode ?? formData.pitchingCode ?? null,
+                  pitchingCode: result.quoteId,
                   pitchingName: prev?.pitchingName ?? formData.pitchingName ?? null,
                   maxVersionInChain: result.version,
                 }));

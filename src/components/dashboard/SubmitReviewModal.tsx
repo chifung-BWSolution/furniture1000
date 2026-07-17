@@ -46,12 +46,12 @@ interface SubmitReviewModalProps {
   bwfProjectId?: string | null;
   pitchingCode?: string | null;
   pitchingName?: string | null;
-  /** Existing chain id (= pitching_code). Legacy Q-format is ignored. */
+  /** Existing chain id (= quote_id). Legacy Q-format is ignored. */
   existingQuoteId?: string | null;
   existingQuoteUuid?: string | null;
   /**
-   * 複製報價單: still inserts a new version on the same pitching-code chain
-   * (quote_id = pitching_code). Kept for call-site compat.
+   * 複製報價單: still inserts a new version on the same quote_id chain.
+   * Kept for call-site compat.
    */
   forceNewQuote?: boolean;
 }
@@ -137,6 +137,7 @@ export function SubmitReviewModal({
     const formDataRaw =
       (projectData.formData as Record<string, unknown> | undefined) || {};
     const code = resolvePitchingCode({
+      quoteId: existingQuoteId,
       pitchingCode,
       formData: formDataRaw,
       quoteMeta: projectData.quoteMeta as Record<string, unknown> | undefined,
@@ -146,9 +147,9 @@ export function SubmitReviewModal({
       formData: formDataRaw,
     });
 
-    // quote_id = pitching_code (BWF-…). No more QYYYY-MMDD-NNN.
+    // Sole persisted code: bwf_quote.quote_id (no pitching_code column / JSON mirror).
     const quoteId = resolveQuoteChainId({
-      pitchingCode: code,
+      code,
       existingQuoteId,
     });
     if (!quoteId) {
@@ -157,7 +158,7 @@ export function SubmitReviewModal({
       return;
     }
 
-    // Always append a new version row on this pitching-code chain.
+    // Always append a new version row on this quote_id chain.
     let resolvedVersion = version;
     try {
       const { data: versionRows, error: versionErr } = await supabase
@@ -182,13 +183,17 @@ export function SubmitReviewModal({
       : [];
     const sourceItems = items.length > 0 ? items : embeddedItems;
 
-    // Keep formData ids + pitching fields in sync for PMS list joins / reopen.
+    // Persist name + PMS ids in formData; never mirror code into JSON (use quote_id).
+    const {
+      pitchingCode: _dropPitchingCode,
+      projectName: _dropProjectName,
+      ...formDataRest
+    } = formDataRaw;
+    void _dropPitchingCode;
+    void _dropProjectName;
     const formData = {
-      ...formDataRaw,
-      pitchingCode: code,
+      ...formDataRest,
       pitchingName: name,
-      // Clear legacy overloaded field so it cannot be mistaken for a title
-      projectName: undefined,
       ...(pitchingId ? { pmsPitchingId: pitchingId } : {}),
       ...(projectId ? { pmsProjectId: projectId } : {}),
     };
@@ -218,7 +223,6 @@ export function SubmitReviewModal({
         cost_price: totalCostPrice ?? null,
         submitter: submitter.trim(),
         project_data: payloadProjectData,
-        pitching_code: code || null,
         pitching_name: name || null,
         ...(pitchingId ? { bwf_pitching_id: pitchingId } : {}),
         ...(projectId ? { bwf_project_id: projectId } : {}),

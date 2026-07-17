@@ -240,7 +240,7 @@ export function AppShell() {
       return;
     }
 
-    // Stable open-existing URL: /quote/<pitching_code> e.g. /quote/BWF-FD26-001
+    // Stable open-existing URL: /quote/<quote_id> e.g. /quote/BWF-FD26-001
     setEditingQuoteId(segment);
     store.setCurrentView("quick-quote");
   }, [location.pathname, location.search, store, user?.email, setEditingQuoteId]);

@@ -251,8 +251,13 @@ export function stripItemsFromProjectData(
   return rest;
 }
 
-/** Resolve pitching code from columns or legacy formData.projectName. */
+/**
+ * Resolve 報價單號 / chain code.
+ * Prefer `quoteId` (`bwf_quote.quote_id`). Legacy pitchingCode / form JSON are read-only fallbacks.
+ */
 export function resolvePitchingCode(opts: {
+  quoteId?: string | null;
+  /** @deprecated Use quoteId — kept for call-site transition. */
   pitchingCode?: string | null;
   formData?: Record<string, unknown> | null;
   quoteMeta?: Record<string, unknown> | null;
@@ -263,8 +268,15 @@ export function resolvePitchingCode(opts: {
     '';
   const fromMeta =
     (typeof opts.quoteMeta?.projectName === 'string' && opts.quoteMeta.projectName) ||
+    (typeof opts.quoteMeta?.quoteNumber === 'string' && opts.quoteMeta.quoteNumber) ||
     '';
-  return (opts.pitchingCode || fromForm || fromMeta || '').trim();
+  return (
+    opts.quoteId ||
+    opts.pitchingCode ||
+    fromForm ||
+    fromMeta ||
+    ''
+  ).trim();
 }
 
 export function resolvePitchingName(opts: {

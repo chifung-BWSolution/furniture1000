@@ -13,7 +13,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { resolvePitchingCode, resolvePitchingName } from '@/lib/bwfQuoteItems';
+import { resolvePitchingName } from '@/lib/bwfQuoteItems';
 import {
   fetchPmsPitchings,
   pitchingDisplayTitle,
@@ -60,14 +60,11 @@ interface QuoteRecord {
   total_amount: number;
   cost_price: number | null;
   submitter: string;
-  pitching_code: string | null;
   pitching_name: string | null;
   bwf_pitching_id: string | null;
   project_data: {
     formData?: {
-      pitchingCode?: string;
       pitchingName?: string;
-      projectName?: string;
       clientName?: string;
       company?: string;
       projectManager?: string;
@@ -88,7 +85,7 @@ interface QuotationListViewProps {
 }
 
 const LIST_SELECT =
-  'id, quote_id, version, status, total_amount, cost_price, submitter, pitching_code, pitching_name, bwf_pitching_id, created_at, modified_date, project_data';
+  'id, quote_id, version, status, total_amount, cost_price, submitter, pitching_name, bwf_pitching_id, created_at, modified_date, project_data';
 
 type SortKey =
   | 'enquiry_date'
@@ -101,7 +98,7 @@ type SortKey =
   | 'staff'
   | 'pitching_stages';
 
-/** Group by quote_id (= pitching_code); each group sorted newest version first. */
+/** Group by quote_id; each group sorted newest version first. */
 function groupQuoteVersions(rows: QuoteRecord[]): Map<string, QuoteListRow[]> {
   const map = new Map<string, QuoteListRow[]>();
   for (const row of rows) {
@@ -120,13 +117,6 @@ function latestQuoteInGroup(versions: QuoteListRow[]): QuoteListRow {
   return versions[0];
 }
 
-function quoteDisplayCode(q: QuoteRecord): string {
-  return resolvePitchingCode({
-    pitchingCode: q.pitching_code,
-    formData: q.project_data?.formData as Record<string, unknown> | undefined,
-  });
-}
-
 function quoteDisplayName(q: QuoteListRow): string {
   if (q.pitching) return pitchingDisplayTitle(q.pitching);
   const name = resolvePitchingName({
@@ -137,10 +127,11 @@ function quoteDisplayName(q: QuoteListRow): string {
   return name || client || '未命名專案';
 }
 
+/** 報價單號 = bwf_quote.quote_id (PMS code only as enrichment fallback). */
 function quoteCode(q: QuoteListRow): string {
   return (
+    (q.quote_id || '').trim() ||
     q.pitching?.pitching_code?.trim() ||
-    quoteDisplayCode(q) ||
     '—'
   );
 }

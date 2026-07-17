@@ -1493,6 +1493,7 @@ export function QuotationDraftEditor({
     savedProjectData as Record<string, unknown>,
   );
   const pitchingCodeDisplay = resolvePitchingCode({
+    quoteId: existingQuote?.quoteId,
     pitchingCode: existingQuote?.pitchingCode,
     formData: formData as unknown as Record<string, unknown>,
     quoteMeta: savedQuoteMeta as unknown as Record<string, unknown>,
@@ -2310,9 +2311,15 @@ export function QuotationDraftEditor({
       formData.pmsProjectId ||
       existingQuote?.bwfProjectId ||
       null;
+    const {
+      pitchingCode: _omitPitchingCode,
+      projectName: _omitProjectName,
+      ...formDataRest
+    } = formData as QuoteFormData & { projectName?: string };
+    void _omitPitchingCode;
+    void _omitProjectName;
     const nextFormData = {
-      ...formData,
-      pitchingCode,
+      ...formDataRest,
       pitchingName: pitchingNameStored || formData.pitchingName || "",
       ...(pitchingId ? { pmsPitchingId: pitchingId } : {}),
       ...(projectId ? { pmsProjectId: projectId } : {}),
