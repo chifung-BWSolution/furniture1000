@@ -38,8 +38,9 @@ import { isHttpImageUrl } from "@/lib/imageStorage";
 import {
   beginQuoteDnDDrag,
   endQuoteDnDDrag,
-  isQuoteDnDDrag,
-  QUOTE_DND_MIME,
+  getActiveQuoteDnDKind,
+  isForeignQuoteDnDKind,
+  readQuoteDnDId,
 } from "@/lib/quoteDnD";
 import {
   saveDraft,
@@ -220,8 +221,12 @@ function QuoteRowDragHandle({
           onDragStart(itemId);
         }}
         onDragEnd={() => {
-          endQuoteDnDDrag();
-          onDragEnd();
+          // Defer cleanup: some browsers fire dragend before drop; drop needs
+          // the drag id / insert index refs to still be set.
+          queueMicrotask(() => {
+            endQuoteDnDDrag();
+            onDragEnd();
+          });
         }}
         className="cursor-grab rounded p-1 text-muted-foreground/45 transition-colors hover:bg-muted hover:text-muted-foreground active:cursor-grabbing"
         title="拖曳調整順序"
@@ -1965,6 +1970,9 @@ export function QuotationDraftEditor({
 
   const [draggingItemId, setDraggingItemId] = useState<string | null>(null);
   const [dropInsertIndex, setDropInsertIndex] = useState<number | null>(null);
+  /** Refs so drop always sees the latest values (state can be stale in the handler). */
+  const draggingItemIdRef = useRef<string | null>(null);
+  const dropInsertIndexRef = useRef<number | null>(null);
   /** Editor root — used to resolve which ancestor actually scrolls during DnD. */
   const editorScrollRootRef = useRef<HTMLDivElement | null>(null);
   const dragPointerYRef = useRef<number | null>(null);
@@ -1972,6 +1980,16 @@ export function QuotationDraftEditor({
 
   const trackQuoteDragPointer = useCallback((clientY: number) => {
     dragPointerYRef.current = clientY;
+  }, []);
+
+  const setQuoteDraggingItemId = useCallback((id: string | null) => {
+    draggingItemIdRef.current = id;
+    setDraggingItemId(id);
+  }, []);
+
+  const setQuoteDropInsertIndex = useCallback((index: number | null) => {
+    dropInsertIndexRef.current = index;
+    setDropInsertIndex(index);
   }, []);
 
   const moveItem = useCallback((fromId: string, insertIndex: number) => {
@@ -1989,38 +2007,53 @@ export function QuotationDraftEditor({
     });
   }, []);
 
+  const isQuoteRowDragActive = useCallback(() => {
+    if (isForeignQuoteDnDKind("quote-row")) return false;
+    return (
+      draggingItemIdRef.current != null ||
+      getActiveQuoteDnDKind() === "quote-row"
+    );
+  }, []);
+
   const handleQuoteRowDragOver = useCallback(
     (e: React.DragEvent<HTMLDivElement>, index: number) => {
-      if (!isQuoteDnDDrag(e.dataTransfer, "quote-row")) return;
+      if (!isQuoteRowDragActive()) return;
       e.preventDefault();
       e.dataTransfer.dropEffect = "move";
       trackQuoteDragPointer(e.clientY);
       const rect = e.currentTarget.getBoundingClientRect();
-      setDropInsertIndex(e.clientY < rect.top + rect.height / 2 ? index : index + 1);
+      setQuoteDropInsertIndex(
+        e.clientY < rect.top + rect.height / 2 ? index : index + 1,
+      );
     },
-    [trackQuoteDragPointer],
+    [isQuoteRowDragActive, setQuoteDropInsertIndex, trackQuoteDragPointer],
   );
 
   const handleQuoteRowDrop = useCallback(
     (e: React.DragEvent<HTMLDivElement>) => {
-      if (!isQuoteDnDDrag(e.dataTransfer, "quote-row")) return;
-      e.preventDefault();
+      if (isForeignQuoteDnDKind("quote-row")) return;
       const fromId =
-        e.dataTransfer.getData(QUOTE_DND_MIME.quoteRow) ||
-        e.dataTransfer.getData("text/plain") ||
-        draggingItemId;
-      if (fromId && dropInsertIndex !== null) {
-        moveItem(fromId, dropInsertIndex);
+        draggingItemIdRef.current ||
+        readQuoteDnDId(e.dataTransfer, "quote-row");
+      if (!fromId) return;
+      e.preventDefault();
+      const insertAt = dropInsertIndexRef.current;
+      if (insertAt !== null) {
+        moveItem(fromId, insertAt);
       }
       endQuoteDnDDrag();
+      draggingItemIdRef.current = null;
+      dropInsertIndexRef.current = null;
       setDraggingItemId(null);
       setDropInsertIndex(null);
     },
-    [draggingItemId, dropInsertIndex, moveItem],
+    [moveItem],
   );
 
   const clearQuoteRowDrag = useCallback(() => {
     endQuoteDnDDrag();
+    draggingItemIdRef.current = null;
+    dropInsertIndexRef.current = null;
     setDraggingItemId(null);
     setDropInsertIndex(null);
   }, []);
@@ -3112,10 +3145,7 @@ export function QuotationDraftEditor({
                   className="space-y-3"
                   onDragOver={(e) => {
                     // Keep pointer Y fresh over gaps between rows (add-row strips).
-                    if (
-                      draggingItemId &&
-                      isQuoteDnDDrag(e.dataTransfer, "quote-row")
-                    ) {
+                    if (isQuoteRowDragActive()) {
                       e.preventDefault();
                       trackQuoteDragPointer(e.clientY);
                     }
@@ -3125,7 +3155,7 @@ export function QuotationDraftEditor({
                     // auto-scroll still runs when the pointer leaves the list
                     // (e.g. into the top/bottom scroll bands over chrome).
                     if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-                      setDropInsertIndex(null);
+                      setQuoteDropInsertIndex(null);
                     }
                   }}
                 >
@@ -3140,7 +3170,7 @@ export function QuotationDraftEditor({
                           dropInsertIndex={dropInsertIndex}
                           onDragOver={handleQuoteRowDragOver}
                           onDrop={handleQuoteRowDrop}
-                          onDragStart={setDraggingItemId}
+                          onDragStart={setQuoteDraggingItemId}
                           onDragEnd={clearQuoteRowDrag}
                           updateItem={updateItem}
                           duplicateItem={duplicateItem}
@@ -3156,7 +3186,7 @@ export function QuotationDraftEditor({
                           dropInsertIndex={dropInsertIndex}
                           onDragOver={handleQuoteRowDragOver}
                           onDrop={handleQuoteRowDrop}
-                          onDragStart={setDraggingItemId}
+                          onDragStart={setQuoteDraggingItemId}
                           onDragEnd={clearQuoteRowDrag}
                           updateItem={updateItem}
                           duplicateItem={duplicateItem}
@@ -3172,7 +3202,7 @@ export function QuotationDraftEditor({
                           dropInsertIndex={dropInsertIndex}
                           onDragOver={handleQuoteRowDragOver}
                           onDrop={handleQuoteRowDrop}
-                          onDragStart={setDraggingItemId}
+                          onDragStart={setQuoteDraggingItemId}
                           onDragEnd={clearQuoteRowDrag}
                           updateItem={updateItem}
                           updateExchangeRate={updateExchangeRate}

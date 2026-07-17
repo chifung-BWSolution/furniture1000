@@ -12,8 +12,9 @@ import {
 import {
   beginQuoteDnDDrag,
   endQuoteDnDDrag,
-  isQuoteDnDDrag,
-  QUOTE_DND_MIME,
+  getActiveQuoteDnDKind,
+  isForeignQuoteDnDKind,
+  readQuoteDnDId,
 } from "@/lib/quoteDnD";
 
 const fileToDataUrl = (file: File): Promise<string> =>
@@ -43,8 +44,11 @@ function BlockDragHandle({
         onDragStart(blockId);
       }}
       onDragEnd={() => {
-        endQuoteDnDDrag();
-        onDragEnd();
+        // Defer cleanup: some browsers fire dragend before drop.
+        queueMicrotask(() => {
+          endQuoteDnDDrag();
+          onDragEnd();
+        });
       }}
       className="mt-1 shrink-0 cursor-grab rounded p-0.5 text-muted-foreground/40 transition-colors hover:bg-muted hover:text-muted-foreground active:cursor-grabbing"
       title="拖曳調整順序"
@@ -91,7 +95,19 @@ export function RemarksRichEditor({
   );
   const [draggingBlockId, setDraggingBlockId] = useState<string | null>(null);
   const [dropInsertIndex, setDropInsertIndex] = useState<number | null>(null);
+  const draggingBlockIdRef = useRef<string | null>(null);
+  const dropInsertIndexRef = useRef<number | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const setDraggingId = useCallback((id: string | null) => {
+    draggingBlockIdRef.current = id;
+    setDraggingBlockId(id);
+  }, []);
+
+  const setDropIndex = useCallback((index: number | null) => {
+    dropInsertIndexRef.current = index;
+    setDropInsertIndex(index);
+  }, []);
 
   const emitChange = useCallback(
     (next: RemarksBlock[]) => {
@@ -123,40 +139,51 @@ export function RemarksRichEditor({
 
   const clearDrag = useCallback(() => {
     endQuoteDnDDrag();
+    draggingBlockIdRef.current = null;
+    dropInsertIndexRef.current = null;
     setDraggingBlockId(null);
     setDropInsertIndex(null);
+  }, []);
+
+  const isRemarksDragActive = useCallback(() => {
+    if (isForeignQuoteDnDKind("remarks-block")) return false;
+    return (
+      draggingBlockIdRef.current != null ||
+      getActiveQuoteDnDKind() === "remarks-block"
+    );
   }, []);
 
   const handleBlockDragOver = useCallback(
     (e: React.DragEvent<HTMLDivElement>, index: number) => {
       // Ignore quote-row (and other) drags so nested 備註 drop lines don't light up.
-      if (!isQuoteDnDDrag(e.dataTransfer, "remarks-block")) return;
+      if (!isRemarksDragActive()) return;
       e.preventDefault();
       e.stopPropagation();
       e.dataTransfer.dropEffect = "move";
       const rect = e.currentTarget.getBoundingClientRect();
-      setDropInsertIndex(
+      setDropIndex(
         e.clientY < rect.top + rect.height / 2 ? index : index + 1,
       );
     },
-    [],
+    [isRemarksDragActive, setDropIndex],
   );
 
   const handleBlockDrop = useCallback(
     (e: React.DragEvent<HTMLDivElement>) => {
-      if (!isQuoteDnDDrag(e.dataTransfer, "remarks-block")) return;
+      if (isForeignQuoteDnDKind("remarks-block")) return;
+      const fromId =
+        draggingBlockIdRef.current ||
+        readQuoteDnDId(e.dataTransfer, "remarks-block");
+      if (!fromId) return;
       e.preventDefault();
       e.stopPropagation();
-      const fromId =
-        e.dataTransfer.getData(QUOTE_DND_MIME.remarksBlock) ||
-        e.dataTransfer.getData("text/plain") ||
-        draggingBlockId;
-      if (fromId && dropInsertIndex !== null) {
-        moveBlock(fromId, dropInsertIndex);
+      const insertAt = dropInsertIndexRef.current;
+      if (insertAt !== null) {
+        moveBlock(fromId, insertAt);
       }
       clearDrag();
     },
-    [clearDrag, draggingBlockId, dropInsertIndex, moveBlock],
+    [clearDrag, moveBlock],
   );
 
   const addTextBlock = () => {
@@ -246,9 +273,9 @@ export function RemarksRichEditor({
       )}
       onDragLeave={(e) => {
         // Only clear insert marker while a remarks block is being dragged.
-        if (!draggingBlockId) return;
+        if (!draggingBlockIdRef.current) return;
         if (!e.currentTarget.contains(e.relatedTarget as Node)) {
-          setDropInsertIndex(null);
+          setDropIndex(null);
         }
       }}
     >
@@ -261,7 +288,7 @@ export function RemarksRichEditor({
         >
           <BlockDragHandle
             blockId={block.id}
-            onDragStart={setDraggingBlockId}
+            onDragStart={setDraggingId}
             onDragEnd={clearDrag}
           />
           {block.type === "text" ? (

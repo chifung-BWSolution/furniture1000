@@ -2,8 +2,9 @@
  * Isolates nested HTML5 DnD in the quote editor:
  * quote line items vs remarks blocks inside a line item.
  *
- * Prefer the active-kind registry during dragover (custom MIME types are not
- * always readable via getData until drop; types lists vary by browser).
+ * Use the active-kind registry to ignore the other system's dragover/drop.
+ * Prefer React drag state / refs for actually performing the drop — custom
+ * MIME `types` are unreliable across browsers at drop time.
  */
 
 export type QuoteDnDKind = "quote-row" | "remarks-block";
@@ -15,38 +16,18 @@ export const QUOTE_DND_MIME = {
 
 let activeKind: QuoteDnDKind | null = null;
 
-export function setActiveQuoteDnDKind(kind: QuoteDnDKind | null) {
-  activeKind = kind;
-}
-
 export function getActiveQuoteDnDKind(): QuoteDnDKind | null {
   return activeKind;
 }
 
+/** True when a drag of this kind is in progress (registry). */
 export function isActiveQuoteDnDKind(kind: QuoteDnDKind): boolean {
   return activeKind === kind;
 }
 
-export function dataTransferHasQuoteDnDKind(
-  dt: DataTransfer,
-  kind: QuoteDnDKind,
-): boolean {
-  const mime =
-    kind === "quote-row"
-      ? QUOTE_DND_MIME.quoteRow
-      : QUOTE_DND_MIME.remarksBlock;
-  return Array.from(dt.types).some(
-    (t) => t === mime || t.toLowerCase() === mime.toLowerCase(),
-  );
-}
-
-/** True if this drag belongs to `kind` (registry first, then MIME types). */
-export function isQuoteDnDDrag(
-  dt: DataTransfer,
-  kind: QuoteDnDKind,
-): boolean {
-  if (activeKind != null) return activeKind === kind;
-  return dataTransferHasQuoteDnDKind(dt, kind);
+/** True when the other nested DnD system owns the current drag. */
+export function isForeignQuoteDnDKind(kind: QuoteDnDKind): boolean {
+  return activeKind != null && activeKind !== kind;
 }
 
 export function beginQuoteDnDDrag(
@@ -54,21 +35,41 @@ export function beginQuoteDnDDrag(
   kind: QuoteDnDKind,
   id: string,
 ) {
-  const dt = dataTransfer;
   activeKind = kind;
-  dt.effectAllowed = "move";
+  dataTransfer.effectAllowed = "move";
   const mime =
     kind === "quote-row"
       ? QUOTE_DND_MIME.quoteRow
       : QUOTE_DND_MIME.remarksBlock;
   try {
-    dt.setData(mime, id);
+    dataTransfer.setData(mime, id);
   } catch {
     // Some browsers reject custom MIME types; text/plain below still carries the id.
   }
-  dt.setData("text/plain", id);
+  dataTransfer.setData("text/plain", id);
 }
 
 export function endQuoteDnDDrag() {
   activeKind = null;
+}
+
+export function readQuoteDnDId(
+  dataTransfer: DataTransfer,
+  kind: QuoteDnDKind,
+): string {
+  const mime =
+    kind === "quote-row"
+      ? QUOTE_DND_MIME.quoteRow
+      : QUOTE_DND_MIME.remarksBlock;
+  try {
+    const typed = dataTransfer.getData(mime);
+    if (typed) return typed;
+  } catch {
+    // ignore
+  }
+  try {
+    return dataTransfer.getData("text/plain") || "";
+  } catch {
+    return "";
+  }
 }
