@@ -51,18 +51,18 @@
     --sidebar-ring: 239 84% 67%;
 
     /*
-     * App chrome (top nav + left nav) — solid plum + amber.
-     * Distinct from PMS charcoal-navy: deep purple field (~#2b1a3d)
-     * with warm yellow active accents (~#f5c542).
+     * App chrome (top nav + left nav) — solid indigo-navy.
+     * Inspired by dense enterprise shells, but tinted to our primary indigo
+     * (not a flat charcoal like #1d212d). Approx #1c2238.
      */
-    --shell-background: 278 38% 17%;
-    --shell-foreground: 280 25% 96%;
-    --shell-muted: 280 14% 72%;
-    --shell-accent: 278 30% 24%;
-    --shell-accent-foreground: 280 25% 97%;
-    --shell-border: 278 24% 26%;
-    --shell-primary: 44 90% 58%;
-    --shell-primary-foreground: 278 45% 14%;
+    --shell-background: 233 32% 16%;
+    --shell-foreground: 220 28% 94%;
+    --shell-muted: 230 18% 68%;
+    --shell-accent: 233 26% 22%;
+    --shell-accent-foreground: 220 28% 96%;
+    --shell-border: 233 22% 24%;
+    --shell-primary: 239 84% 67%;
+    --shell-primary-foreground: 0 0% 100%;
 
     /* Shell helpers — very light primary washes */
     --page-tint: 239 60% 97%;
@@ -108,15 +108,15 @@
     --sidebar-border: 239 18% 16%;
     --sidebar-ring: 239 84% 67%;
 
-    /* Deeper plum chrome in dark mode; amber active stays warm */
-    --shell-background: 278 34% 11%;
-    --shell-foreground: 280 22% 96%;
-    --shell-muted: 280 12% 68%;
-    --shell-accent: 278 28% 17%;
-    --shell-accent-foreground: 280 22% 97%;
-    --shell-border: 278 20% 20%;
-    --shell-primary: 44 90% 58%;
-    --shell-primary-foreground: 278 45% 12%;
+    /* Slightly deeper solid chrome in dark mode */
+    --shell-background: 233 30% 10%;
+    --shell-foreground: 220 25% 94%;
+    --shell-muted: 230 14% 64%;
+    --shell-accent: 233 24% 16%;
+    --shell-accent-foreground: 220 25% 96%;
+    --shell-border: 233 18% 18%;
+    --shell-primary: 239 84% 67%;
+    --shell-primary-foreground: 0 0% 100%;
 
     --page-tint: 239 28% 11%;
     --surface-tint: 239 26% 13%;
