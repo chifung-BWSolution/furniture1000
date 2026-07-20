@@ -258,13 +258,19 @@ function extractDecoratedAddressFromParagraph(p: Element): string {
   return extractAddressTextAfterLabel(p.textContent || "");
 }
 
-/** Read user input from the underline blank on section 1 送貨地址. */
+/** Section-1 address label in ZH or EN terms HTML. */
+function paragraphHasDeliveryAddressLabel(text: string | null | undefined): boolean {
+  const t = text || "";
+  return t.includes("送貨地址") || /Delivery\s*Address/i.test(t);
+}
+
+/** Read user input from the underline blank on section 1 送貨地址 / Delivery Address. */
 export function extractDeliveryAddressFromTermsHtml(html: string): string {
   if (!html) return "";
   if (typeof DOMParser !== "undefined") {
     const doc = new DOMParser().parseFromString(html, "text/html");
     for (const p of doc.querySelectorAll("p")) {
-      if (!p.textContent?.includes("送貨地址")) continue;
+      if (!paragraphHasDeliveryAddressLabel(p.textContent)) continue;
       const fromParagraph = extractDecoratedAddressFromParagraph(p);
       if (fromParagraph) return fromParagraph;
     }
@@ -275,7 +281,7 @@ export function extractDeliveryAddressFromTermsHtml(html: string): string {
     }
   }
   const labeledMatch = html.match(
-    /送貨地址[\s\S]*?<\/(?:strong|b)>\s*(?:&nbsp;|\s)*([^<]+)/i,
+    /(?:送貨地址|Delivery\s*Address)[\s\S]*?<\/(?:strong|b)>\s*(?:&nbsp;|\s)*([^<]+)/i,
   );
   if (labeledMatch) {
     const fromLabeled = normalizeUnderlineText(labeledMatch[1]);
@@ -298,7 +304,7 @@ export function injectDeliveryAddressIntoTermsHtml(
   if (typeof DOMParser !== "undefined") {
     const doc = new DOMParser().parseFromString(html, "text/html");
     for (const p of doc.querySelectorAll("p")) {
-      if (!p.textContent?.includes("送貨地址")) continue;
+      if (!paragraphHasDeliveryAddressLabel(p.textContent)) continue;
       const underline = p.querySelector("u");
       if (underline) {
         underline.innerHTML = escaped;

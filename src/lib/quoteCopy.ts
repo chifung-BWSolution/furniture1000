@@ -26,7 +26,9 @@ export type QuoteCopyInstallationFee = {
 export type QuoteCopyPayload = {
   items: BwfQuoteItemInput[];
   deliveryDetails: string;
+  deliveryDetailsEn?: string;
   termsContent: SavedTermsContent;
+  termsContentEn?: SavedTermsContent;
   discountNote: string;
   installationFee: QuoteCopyInstallationFee;
   gpSummary: ReturnType<typeof parseGpSummary>;
@@ -77,13 +79,24 @@ export async function loadQuoteCopyPayload(
     quoteMeta?.deliveryAddress,
   );
 
+  const termsContentEnRaw = projectData.termsContentEn as
+    | SavedTermsContent
+    | undefined;
+
   return {
     items: remapCopyItems(items),
     deliveryDetails:
       typeof projectData.deliveryDetails === 'string'
         ? projectData.deliveryDetails
         : '',
+    deliveryDetailsEn:
+      typeof projectData.deliveryDetailsEn === 'string'
+        ? projectData.deliveryDetailsEn
+        : undefined,
     termsContent,
+    termsContentEn: termsContentEnRaw?.fullHtml
+      ? termsContentEnRaw
+      : undefined,
     discountNote: discountRaw == null ? '' : String(discountRaw),
     installationFee: {
       title: savedInstallationFee?.title,

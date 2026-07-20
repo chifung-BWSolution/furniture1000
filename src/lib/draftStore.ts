@@ -28,7 +28,11 @@ export interface DraftData {
   clientInfo: Record<string, unknown>;
   quoteMeta: Record<string, unknown>;
   deliveryDetails: string;
+  /** English 「Order Confirmation and Delivery Details」 (locale toggle). */
+  deliveryDetailsEn?: string;
   termsContent: Record<string, unknown>;
+  /** English TERMS AND CONDITIONS (locale toggle). */
+  termsContentEn?: Record<string, unknown>;
   items: Record<string, unknown>[];
   subtotal: number;
   discountNote?: string;

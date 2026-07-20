@@ -1720,6 +1720,9 @@ export function QuotationDraftEditor({
   const savedDeliveryDetails = savedProjectData.deliveryDetails as
     | string
     | undefined;
+  const savedDeliveryDetailsEn = savedProjectData.deliveryDetailsEn as
+    | string
+    | undefined;
   const legacyItems = itemsFromLegacyProjectData(
     savedProjectData as Record<string, unknown>,
   );
@@ -1738,6 +1741,9 @@ export function QuotationDraftEditor({
         payment: string;
         fullHtml?: string;
       }
+    | undefined;
+  const savedTermsContentEn = savedProjectData.termsContentEn as
+    | SavedTermsContent
     | undefined;
 
   // Info panel section collapse states (all collapsed by default)
@@ -1775,11 +1781,16 @@ export function QuotationDraftEditor({
   });
   const [quoteId] = useState(quoteIdDisplay);
 
-  // Delivery details (editable)
+  // Delivery details (editable) — zh / en kept separately (like company address).
   const [deliveryDetails, setDeliveryDetails] = useState(
     copyPayload?.deliveryDetails ??
       savedDeliveryDetails ??
       "訂單生產時間自收到訂金起計算，預計3-4 週完成。交付及安裝將分兩日進行：交付後1-2 個工作日內完成安裝。",
+  );
+  const [deliveryDetailsEn, setDeliveryDetailsEn] = useState(
+    copyPayload?.deliveryDetailsEn ??
+      savedDeliveryDetailsEn ??
+      DEFAULT_QUOTATION_DELIVERY_DETAILS_EN,
   );
 
   // Discount (numeric value) — initialized from existing quote's project_data
@@ -1846,6 +1857,20 @@ export function QuotationDraftEditor({
       savedQuoteMeta?.deliveryAddress,
     ),
   );
+  const [termsContentEn, setTermsContentEn] = useState(() => {
+    const saved =
+      (copyPayload?.termsContentEn as SavedTermsContent | undefined) ??
+      savedTermsContentEn;
+    const defaults = englishTermsContentForPdf(savedQuoteMeta?.deliveryAddress);
+    if (saved?.fullHtml?.trim()) {
+      return {
+        ...defaults,
+        ...saved,
+        fullHtml: saved.fullHtml,
+      };
+    }
+    return defaults;
+  });
   const [termsEditMode, setTermsEditMode] = useState(false);
   const [quoteLocale, setQuoteLocale] = useState<QuoteLocale>('zh');
   const t = quoteUi(quoteLocale);
@@ -2454,6 +2479,9 @@ export function QuotationDraftEditor({
           setDeliveryDetails(cached.deliveryDetails);
         }
         const cachedRecord = cached as unknown as Record<string, unknown>;
+        if (typeof cached.deliveryDetailsEn === "string" && cached.deliveryDetailsEn) {
+          setDeliveryDetailsEn(cached.deliveryDetailsEn);
+        }
         if (cachedRecord.installationFee) {
           setInstallationFee(
             cachedRecord.installationFee as typeof installationFee,
@@ -2481,6 +2509,16 @@ export function QuotationDraftEditor({
               cached.termsContent as SavedTermsContent,
               cachedMeta?.deliveryAddress,
             ),
+          );
+        }
+        if (cached.termsContentEn) {
+          const cachedMeta = cached.quoteMeta as { deliveryAddress?: string } | undefined;
+          const defaults = englishTermsContentForPdf(cachedMeta?.deliveryAddress);
+          const savedEn = cached.termsContentEn as SavedTermsContent;
+          setTermsContentEn(
+            savedEn.fullHtml?.trim()
+              ? { ...defaults, ...savedEn, fullHtml: savedEn.fullHtml }
+              : defaults,
           );
         }
         if (cached.items && cached.items.length > 0) {
@@ -2524,7 +2562,9 @@ export function QuotationDraftEditor({
       clientInfo: clientInfo as unknown as Record<string, unknown>,
       quoteMeta: quoteMeta as unknown as Record<string, unknown>,
       deliveryDetails,
+      deliveryDetailsEn,
       termsContent: termsContent as unknown as Record<string, unknown>,
+      termsContentEn: termsContentEn as unknown as Record<string, unknown>,
       items: items.map(
         ({ id, exchangeRateInput: _exchangeRateInput, ...rest }) =>
           rest as unknown as Record<string, unknown>,
@@ -2542,7 +2582,9 @@ export function QuotationDraftEditor({
       clientInfo,
       quoteMeta,
       deliveryDetails,
+      deliveryDetailsEn,
       termsContent,
+      termsContentEn,
       items,
       subtotal,
       discountNote,
@@ -2792,7 +2834,9 @@ export function QuotationDraftEditor({
       clientInfo,
       quoteMeta,
       deliveryDetails,
+      deliveryDetailsEn,
       termsContent,
+      termsContentEn,
       subtotal,
       discountNote,
       discountValue,
@@ -2804,8 +2848,12 @@ export function QuotationDraftEditor({
   };
 
   const buildPDFData = (): QuotationPDFData => {
+    const activeTermsHtml =
+      quoteLocale === 'en'
+        ? termsContentEn.fullHtml || ''
+        : termsContent.fullHtml || '';
     const deliveryAddress = resolveDeliveryAddress(
-      termsContent.fullHtml,
+      activeTermsHtml,
       quoteMeta.deliveryAddress,
     );
     const dateLocale = quoteLocale === 'en' ? 'en-GB' : 'zh-HK';
@@ -2813,6 +2861,12 @@ export function QuotationDraftEditor({
     if (quoteLocale === 'en') {
       const pdfLabels = quotePdf('en');
       const { addressEn, address: _zhAddress, ...companyRest } = companyInfo;
+      const enFullHtml = deliveryAddress
+        ? injectDeliveryAddressIntoTermsHtml(
+            termsContentEn.fullHtml || buildDefaultTermsFullHtmlEn(deliveryAddress),
+            deliveryAddress,
+          )
+        : termsContentEn.fullHtml || buildDefaultTermsFullHtmlEn();
       return {
         companyInfo: {
           ...companyRest,
@@ -2834,8 +2888,11 @@ export function QuotationDraftEditor({
           }),
         },
         locale: 'en',
-        deliveryDetails: DEFAULT_QUOTATION_DELIVERY_DETAILS_EN,
-        termsContent: englishTermsContentForPdf(deliveryAddress),
+        deliveryDetails: deliveryDetailsEn,
+        termsContent: {
+          ...termsContentEn,
+          fullHtml: enFullHtml,
+        },
         items: items
           .filter(hasQuoteItemContent)
           .map((item) => ({
@@ -2959,7 +3016,10 @@ export function QuotationDraftEditor({
               <div className="flex justify-stretch">
                 <button
                   type="button"
-                  onClick={() => setQuoteLocale((l) => (l === 'zh' ? 'en' : 'zh'))}
+                  onClick={() => {
+                    setTermsEditMode(false);
+                    setQuoteLocale((l) => (l === 'zh' ? 'en' : 'zh'));
+                  }}
                   className="inline-flex w-full items-center justify-center rounded-lg border border-border bg-background px-3 py-2 font-body text-sm font-medium text-foreground/80 transition-colors hover:bg-muted/50"
                 >
                   {t.langToggle}
@@ -3585,34 +3645,33 @@ export function QuotationDraftEditor({
                 </div>
               </section>
 
-              {/* 訂單確認及交付細節 */}
+              {/* 訂單確認及交付細節 / Order Confirmation and Delivery Details */}
               <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
                 <h2 className="mb-3 font-display text-sm font-bold text-foreground/80">
                   {t.deliverySection}
                 </h2>
                 <textarea
                   value={
-                    quoteLocale === 'en'
-                      ? DEFAULT_QUOTATION_DELIVERY_DETAILS_EN
-                      : deliveryDetails
+                    quoteLocale === 'en' ? deliveryDetailsEn : deliveryDetails
                   }
                   onChange={(e) => {
-                    if (quoteLocale === 'en') return;
+                    if (quoteLocale === 'en') {
+                      setDeliveryDetailsEn(e.target.value);
+                      return;
+                    }
                     setDeliveryDetails(e.target.value);
                   }}
-                  readOnly={quoteLocale === 'en'}
                   rows={3}
                   className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs leading-relaxed text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
                 />
               </section>
 
-              {/* 條款及付款 */}
+              {/* 條款及付款 / TERMS AND CONDITIONS */}
               <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
                 <div className="mb-4 flex items-center justify-between">
                   <h2 className="font-display text-sm font-bold text-foreground/80">
                     {t.termsSection}
                   </h2>
-                  {quoteLocale === 'zh' && (
                   <button
                     type="button"
                     onClick={() =>
@@ -3636,18 +3695,27 @@ export function QuotationDraftEditor({
                       </>
                     )}
                   </button>
-                  )}
                 </div>
 
                 {quoteLocale === 'en' ? (
-                  <div
-                    className="prose prose-sm max-w-none font-body text-xs leading-relaxed text-foreground/80 [&_p]:mb-1.5"
-                    dangerouslySetInnerHTML={{
-                      __html: buildDefaultTermsFullHtmlEn(quoteMeta.deliveryAddress),
+                  <TermsRichEditor
+                    key="terms-en"
+                    value={termsContentEn.fullHtml || ''}
+                    onChange={(html) => {
+                      setTermsContentEn((prev) => ({ ...prev, fullHtml: html }));
+                      const deliveryAddress =
+                        extractDeliveryAddressFromTermsHtml(html);
+                      setQuoteMeta((prev) =>
+                        prev.deliveryAddress === deliveryAddress
+                          ? prev
+                          : { ...prev, deliveryAddress },
+                      );
                     }}
+                    editable={termsEditMode}
                   />
                 ) : (
                 <TermsRichEditor
+                  key="terms-zh"
                   value={termsContent.fullHtml}
                   onChange={(html) => {
                     setTermsContent((prev) => ({ ...prev, fullHtml: html }));
