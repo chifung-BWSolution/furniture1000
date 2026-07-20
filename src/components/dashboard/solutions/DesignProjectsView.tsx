@@ -11,6 +11,11 @@ import {
   createZone, updateZone, deleteZone,
 } from '@/lib/solutionsApi';
 import { generateFloorPlanDataUrl, defaultZoneSeeds, isGeneratedFloorPlan } from '@/lib/floorPlanGenerator';
+import {
+  consumeSolutionFocusProjectId,
+  writeSolutionFocusProjectId,
+} from '@/lib/solutionProjectFocus';
+import { useAppStore } from '@/hooks/use-app-store';
 import { toast } from 'sonner';
 import {
   ZONE_PRODUCT_STATUS_META, type ZoneProductStatus, type SchemeLabel,
@@ -20,6 +25,7 @@ import {
 const STATUS_OPTIONS: ZoneProductStatus[] = ['confirmed', 'discussing', 'pending'];
 
 export function DesignProjectsView() {
+  const store = useAppStore();
   const [projects, setProjects] = useState<DesignProject[]>([]);
   const [activeProjectId, setActiveProjectId] = useState<string>('');
   const [scheme, setScheme] = useState<SchemeLabel>('A');
@@ -35,11 +41,16 @@ export function DesignProjectsView() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const draggingIdRef = useRef<string | null>(null);
 
-  // Load project list once
+  // Load project list once — honour focus id from 方案列表
   useEffect(() => {
+    const focusId = consumeSolutionFocusProjectId();
     fetchProjects().then((rows) => {
       setProjects(rows);
-      if (rows.length > 0) setActiveProjectId((cur) => cur || rows[0].id);
+      if (focusId && rows.some((r) => r.id === focusId)) {
+        setActiveProjectId(focusId);
+      } else if (rows.length > 0) {
+        setActiveProjectId((cur) => cur || rows[0].id);
+      }
     }).finally(() => setProjectsLoaded(true));
   }, []);
 
@@ -292,6 +303,17 @@ export function DesignProjectsView() {
           >
             {isGenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
             AI 建議分區與產品組合
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (activeProjectId) writeSolutionFocusProjectId(activeProjectId);
+              store.setCurrentView('invite-clients');
+            }}
+            disabled={!activeProjectId}
+            className="flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 px-3.5 py-2 text-xs font-semibold text-primary transition-colors hover:bg-primary/15 disabled:opacity-50"
+          >
+            產生邀請連結
           </button>
           <button
             onClick={handleCreateProject}

@@ -8,6 +8,7 @@ import {
   fetchProjects, fetchInvitations,
   createInvitation, updateInvitationStatus,
 } from '@/lib/solutionsApi';
+import { consumeSolutionFocusProjectId } from '@/lib/solutionProjectFocus';
 import { toast } from 'sonner';
 import { INVITATION_STATUS_META, type DesignProject, type ProjectInvitation } from '@/types/solutions';
 
@@ -23,12 +24,19 @@ export function InviteClientsView() {
   const [email, setEmail] = useState('');
   const [copied, setCopied] = useState(false);
   const [invitations, setInvitations] = useState<ProjectInvitation[]>([]);
-  const shareUrl = `https://fds.app/share/${projectId}/tok_a1b2c3`;
+  const shareUrl = projectId
+    ? `${typeof window !== 'undefined' ? window.location.origin : 'https://fds.app'}/portal/${projectId}`
+    : '';
 
   useEffect(() => {
+    const focusId = consumeSolutionFocusProjectId();
     fetchProjects().then((rows) => {
       setProjects(rows);
-      if (rows.length > 0) setProjectId((cur) => cur || rows[0].id);
+      if (focusId && rows.some((r) => r.id === focusId)) {
+        setProjectId(focusId);
+      } else if (rows.length > 0) {
+        setProjectId((cur) => cur || rows[0].id);
+      }
     });
   }, []);
 

@@ -3,9 +3,11 @@ import {
   LayoutDashboard, Search, UserPlus, CheckCircle2,
   Building2, Zap, ClipboardList,
   FileUp, FolderTree, BookOpen, Boxes,
-  FileText, ShieldCheck, UploadCloud, CheckCheck, Sofa,
+  FileText, UploadCloud, CheckCheck, Sofa,
   Building, BarChart2, TrendingUp,
   UserCog, History,
+  Map, PenTool, Truck, PackageCheck,
+  Film, Briefcase, Phone, Landmark, Activity, PanelTop,
   type LucideIcon,
 } from 'lucide-react';
 import { type PrimarySection, type ViewType } from '@/types/product';
@@ -37,10 +39,13 @@ export const NAV_CONFIG: PrimaryItem[] = [
     label: '傢俬方案',
     icon: Layers,
     children: [
+      { view: 'solution-project-list', label: '方案列表', icon: Map },
       { view: 'design-projects', label: '設計專案', icon: LayoutDashboard },
       { view: 'product-search', label: '產品搜尋', icon: Search },
       { view: 'invite-clients', label: '邀請客戶', icon: UserPlus },
       { view: 'confirmed-projects', label: '已確定方案', icon: CheckCircle2 },
+      { view: 'solution-client-activity', label: '客戶互動', icon: Activity },
+      { view: 'solution-portal-content', label: 'Portal 內容', icon: PanelTop },
     ],
   },
   {
@@ -48,10 +53,16 @@ export const NAV_CONFIG: PrimaryItem[] = [
     label: '客戶專區',
     icon: Users,
     children: [
-      { view: 'customer-design-projects', label: '設計專案', icon: LayoutDashboard },
+      { view: 'customer-quote-schemes', label: '報價方案', icon: FileText },
       { view: 'customer-product-search', label: '產品搜尋', icon: Search },
-      { view: 'customer-confirmed-products', label: '確定產品', icon: CheckCircle2 },
+      { view: 'customer-custom-furniture', label: '傢俬訂製', icon: PenTool },
+      { view: 'customer-payment-delivery', label: '付款+送貨', icon: Truck },
+      { view: 'customer-order-status', label: '訂單狀況', icon: PackageCheck },
+      { view: 'customer-case-studies', label: '成功案例', icon: Film },
+      { view: 'customer-services', label: '服務一覽', icon: Briefcase },
       { view: 'customer-company-info', label: '公司資料', icon: Building2 },
+      { view: 'customer-contact', label: '聯絡我們', icon: Phone },
+      { view: 'customer-org-account', label: '機構採購帳號', icon: Landmark },
     ],
   },
   {
@@ -115,6 +126,12 @@ export function findSection(view: ViewType): PrimarySection {
   for (const p of NAV_CONFIG) {
     if (p.children.some((c) => c.view === view)) return p.id;
   }
+  if (
+    view === 'customer-design-projects' ||
+    view === 'customer-confirmed-products'
+  ) {
+    return 'customers';
+  }
   return 'home';
 }
 
@@ -126,6 +143,12 @@ export function getViewMeta(view: ViewType): { sectionLabel: string; viewLabel: 
   for (const p of NAV_CONFIG) {
     const child = p.children.find((c) => c.view === view);
     if (child) return { sectionLabel: p.label, viewLabel: child.label };
+  }
+  if (view === 'customer-design-projects') {
+    return { sectionLabel: '客戶專區', viewLabel: '設計專案' };
+  }
+  if (view === 'customer-confirmed-products') {
+    return { sectionLabel: '客戶專區', viewLabel: '確定產品' };
   }
   return { sectionLabel: '', viewLabel: view };
 }

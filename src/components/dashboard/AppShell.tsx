@@ -106,6 +106,9 @@ const UploadProductLogView = lazy(() =>
   import("./admin/UploadProductLogView").then((mod) => ({ default: mod.UploadProductLogView }))
 );
 // 傢俬方案 (Furniture Scheme)
+const SolutionProjectListView = lazy(() =>
+  import("./solutions/SolutionProjectListView").then((mod) => ({ default: mod.SolutionProjectListView }))
+);
 const DesignProjectsView = lazy(() =>
   import("./solutions/DesignProjectsView").then((mod) => ({ default: mod.DesignProjectsView }))
 );
@@ -118,9 +121,24 @@ const InviteClientsView = lazy(() =>
 const ConfirmedProjectsView = lazy(() =>
   import("./solutions/ConfirmedProjectsView").then((mod) => ({ default: mod.ConfirmedProjectsView }))
 );
-// 客戶專區 (Client Zone)
+const SolutionClientActivityView = lazy(() =>
+  import("./solutions/SolutionClientActivityView").then((mod) => ({
+    default: mod.SolutionClientActivityView,
+  }))
+);
+const SolutionPortalContentView = lazy(() =>
+  import("./solutions/SolutionPortalContentView").then((mod) => ({
+    default: mod.SolutionPortalContentView,
+  }))
+);
+// 客戶專區 (Client Portal)
 const CustomerDesignProjectsView = lazy(() =>
   import("./customers/CustomerDesignProjectsView").then((mod) => ({ default: mod.CustomerDesignProjectsView }))
+);
+const CustomerQuoteSchemesView = lazy(() =>
+  import("./customers/CustomerQuoteSchemesView").then((mod) => ({
+    default: mod.CustomerQuoteSchemesView,
+  }))
 );
 const CustomerProductSearchView = lazy(() =>
   import("./customers/CustomerProductSearchView").then((mod) => ({ default: mod.CustomerProductSearchView }))
@@ -130,6 +148,41 @@ const CustomerConfirmedProductsView = lazy(() =>
 );
 const CustomerCompanyInfoView = lazy(() =>
   import("./customers/CustomerCompanyInfoView").then((mod) => ({ default: mod.CustomerCompanyInfoView }))
+);
+const CustomerCustomFurnitureView = lazy(() =>
+  import("./customers/CustomerPortalExtraViews").then((mod) => ({
+    default: mod.CustomerCustomFurnitureView,
+  }))
+);
+const CustomerPaymentDeliveryView = lazy(() =>
+  import("./customers/CustomerPortalExtraViews").then((mod) => ({
+    default: mod.CustomerPaymentDeliveryView,
+  }))
+);
+const CustomerOrderStatusView = lazy(() =>
+  import("./customers/CustomerPortalExtraViews").then((mod) => ({
+    default: mod.CustomerOrderStatusView,
+  }))
+);
+const CustomerCaseStudiesView = lazy(() =>
+  import("./customers/CustomerPortalExtraViews").then((mod) => ({
+    default: mod.CustomerCaseStudiesView,
+  }))
+);
+const CustomerServicesView = lazy(() =>
+  import("./customers/CustomerPortalExtraViews").then((mod) => ({
+    default: mod.CustomerServicesView,
+  }))
+);
+const CustomerContactView = lazy(() =>
+  import("./customers/CustomerPortalExtraViews").then((mod) => ({
+    default: mod.CustomerContactView,
+  }))
+);
+const CustomerOrgAccountView = lazy(() =>
+  import("./customers/CustomerPortalExtraViews").then((mod) => ({
+    default: mod.CustomerOrgAccountView,
+  }))
 );
 
 // Views that fetch their own data independently of the app store's product
@@ -143,14 +196,25 @@ const SELF_LOADING_VIEWS = new Set<ViewType>([
   "category-management",
   "category-registry",
   "quotation-list",
+  "solution-project-list",
   "design-projects",
   "product-search",
   "invite-clients",
   "confirmed-projects",
+  "solution-client-activity",
+  "solution-portal-content",
   "customer-design-projects",
+  "customer-quote-schemes",
   "customer-product-search",
+  "customer-custom-furniture",
+  "customer-payment-delivery",
+  "customer-order-status",
+  "customer-case-studies",
+  "customer-services",
   "customer-confirmed-products",
   "customer-company-info",
+  "customer-contact",
+  "customer-org-account",
   "publish-copywriting",
   "publish-product-info",
   "publish-precheck",
@@ -647,6 +711,8 @@ export function AppShell() {
             onBack={() => store.setCurrentView("manufacturer-catalog")}
           />
         ) : null;
+      case "solution-project-list":
+        return <SolutionProjectListView />;
       case "design-projects":
         return <DesignProjectsView />;
       case "product-search":
@@ -655,13 +721,29 @@ export function AppShell() {
         return <InviteClientsView />;
       case "confirmed-projects":
         return <ConfirmedProjectsView />;
+      case "solution-client-activity":
+        return <SolutionClientActivityView />;
+      case "solution-portal-content":
+        return <SolutionPortalContentView />;
 
       case "customer-design-projects":
         return (
           <CustomerDesignProjectsView initialProjectId={customerFocusProjectId} />
         );
+      case "customer-quote-schemes":
+        return <CustomerQuoteSchemesView />;
       case "customer-product-search":
         return <CustomerProductSearchView />;
+      case "customer-custom-furniture":
+        return <CustomerCustomFurnitureView />;
+      case "customer-payment-delivery":
+        return <CustomerPaymentDeliveryView />;
+      case "customer-order-status":
+        return <CustomerOrderStatusView />;
+      case "customer-case-studies":
+        return <CustomerCaseStudiesView />;
+      case "customer-services":
+        return <CustomerServicesView />;
       case "customer-confirmed-products":
         return <CustomerConfirmedProductsView />;
       case "customer-company-info":
@@ -673,6 +755,10 @@ export function AppShell() {
             }}
           />
         );
+      case "customer-contact":
+        return <CustomerContactView />;
+      case "customer-org-account":
+        return <CustomerOrgAccountView />;
       case "publish-copywriting":
         return <PublishCopywritingView focusProductId={focusProductId} onFocusHandled={() => setFocusProductId(null)} />;
       case "publish-product-info":

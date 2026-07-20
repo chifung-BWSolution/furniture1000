@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { submitCompanyChanges } from '@/lib/solutionsApi';
 import { useClientZoneContext } from '@/hooks/use-client-zone-context';
+import { readPortalContentDraft } from '@/components/dashboard/solutions/SolutionPortalContentView';
 import { toast } from 'sonner';
 import type { DesignProject } from '@/types/solutions';
 
@@ -90,8 +91,35 @@ export function CustomerCompanyInfoView({ onOpenProject }: CustomerCompanyInfoVi
       <div className="mx-auto max-w-3xl space-y-6">
         <div>
           <h1 className="font-display text-2xl font-bold tracking-tight">公司資料</h1>
-          <p className="mt-1 font-body text-sm text-muted-foreground">管理您的公司聯絡資訊與查看歷史專案</p>
+          <p className="mt-1 font-body text-sm text-muted-foreground">
+            公司介紹、資質與聯絡資訊 — 建立信任背書的 Client Portal 首頁區塊
+          </p>
         </div>
+
+        {(() => {
+          const portal = readPortalContentDraft();
+          return (
+            <div className="rounded-xl border border-border bg-card p-5 shadow-sm space-y-3">
+              <h2 className="font-display text-sm font-bold">關於我們</h2>
+              <p className="font-body text-sm leading-relaxed text-foreground/90 whitespace-pre-wrap">
+                {portal.companyIntro}
+              </p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-lg bg-muted/30 p-3">
+                  <p className="text-[11px] font-medium text-muted-foreground">資質</p>
+                  <p className="mt-1 text-xs leading-relaxed">{portal.credentials}</p>
+                </div>
+                <div className="rounded-lg bg-muted/30 p-3">
+                  <p className="text-[11px] font-medium text-muted-foreground">工廠／品質</p>
+                  <p className="mt-1 text-xs leading-relaxed">{portal.factory}</p>
+                </div>
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                得獎紀錄：{portal.awards}
+              </p>
+            </div>
+          );
+        })()}
 
         <div className="flex items-start gap-2.5 rounded-xl border border-amber-500/20 bg-amber-500/5 p-3.5">
           <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />

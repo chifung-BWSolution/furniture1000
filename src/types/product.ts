@@ -108,15 +108,26 @@ export type ViewType =
   | 'product-catalog'
   | 'category-management'
   // 傢俬方案
+  | 'solution-project-list'
   | 'design-projects'
   | 'product-search'
   | 'invite-clients'
   | 'confirmed-projects'
-  // 客戶專區
-  | 'customer-design-projects'
+  | 'solution-client-activity'
+  | 'solution-portal-content'
+  // 客戶專區（Client Portal 微型網站）
+  | 'customer-design-projects' // legacy — kept for deep-links
+  | 'customer-quote-schemes'
   | 'customer-product-search'
-  | 'customer-confirmed-products'
+  | 'customer-custom-furniture'
+  | 'customer-payment-delivery'
+  | 'customer-order-status'
+  | 'customer-case-studies'
+  | 'customer-services'
+  | 'customer-confirmed-products' // legacy
   | 'customer-company-info'
+  | 'customer-contact'
+  | 'customer-org-account'
   // 傢俬報價
   | 'quick-quote'
   | 'quotation-list'

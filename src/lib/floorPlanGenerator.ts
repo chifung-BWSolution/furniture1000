@@ -14,10 +14,11 @@ const WALL = 14; // outer wall thickness
 /** Default AI-suggested zones for a project that has none yet. */
 export function defaultZoneSeeds(): { code: string; name: string; bounds: ZoneBounds }[] {
   return [
-    { code: 'R1', name: '接待區', bounds: { x: 6, y: 8, w: 40, h: 40 } },
-    { code: 'R2', name: '洽談區', bounds: { x: 52, y: 8, w: 42, h: 40 } },
-    { code: 'R3', name: '休閒區', bounds: { x: 6, y: 54, w: 40, h: 38 } },
-    { code: 'R4', name: '展示區', bounds: { x: 52, y: 54, w: 42, h: 38 } },
+    { code: 'B1', name: '老闆區', bounds: { x: 6, y: 8, w: 28, h: 40 } },
+    { code: 'M1', name: '會議室', bounds: { x: 38, y: 8, w: 28, h: 40 } },
+    { code: 'O1', name: '開放辦公區', bounds: { x: 70, y: 8, w: 24, h: 40 } },
+    { code: 'R1', name: '接待區', bounds: { x: 6, y: 54, w: 44, h: 38 } },
+    { code: 'P1', name: '茶水／打印區', bounds: { x: 54, y: 54, w: 40, h: 38 } },
   ];
 }
 

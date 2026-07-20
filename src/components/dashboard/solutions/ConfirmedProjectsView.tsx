@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { fetchProjects, fetchZones, fetchZoneProducts } from '@/lib/solutionsApi';
 import type { DesignProject, ProjectZone, ZoneProduct } from '@/types/solutions';
+import { toast } from 'sonner';
 
 const VERSIONS = [
   { id: 'v3', label: 'v1.3', date: '2026-06-01T14:20:00Z', note: '客戶確認最終版', current: true },
@@ -86,10 +87,26 @@ export function ConfirmedProjectsView() {
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <button className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3.5 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
+            <button
+              type="button"
+              onClick={() =>
+                toast.message('匯出至 PMS（前端示意）', {
+                  description: '不修改 Supabase／PMS；後續可接上真實匯出 API',
+                })
+              }
+              className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3.5 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            >
               <Database className="h-3.5 w-3.5" /> 匯出至 PMS
             </button>
-            <button className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-primary to-primary/80 px-3.5 py-2 text-xs font-semibold text-primary-foreground shadow-sm transition-opacity hover:opacity-90">
+            <button
+              type="button"
+              onClick={() =>
+                toast.success('已準備方案 PDF（前端示意）', {
+                  description: `${project?.name || ''} · ${confirmed.length} 件已確認產品`,
+                })
+              }
+              className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-primary to-primary/80 px-3.5 py-2 text-xs font-semibold text-primary-foreground shadow-sm transition-opacity hover:opacity-90"
+            >
               <FileDown className="h-3.5 w-3.5" /> 生成方案 PDF
             </button>
           </div>
