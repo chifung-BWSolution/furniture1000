@@ -13,6 +13,7 @@ import {
   readQuickQuoteCopyFrom,
   readQuickQuoteStep,
   resetQuickQuoteSessionStorage,
+  shouldUseLocalQuoteDraft,
   writeQuickQuoteCopyFrom,
   writeQuickQuoteEditingId,
 } from '@/lib/quickQuoteSession';
@@ -599,8 +600,15 @@ export function QuickQuoteView({
           String(data.quote_id),
         );
 
-        // Keep local IndexedDB drafts — editor may restore unsaved work after refresh.
-        // Drafts are cleared only after successful 版本審核 or confirmed leave.
+        // Prefer Supabase snapshot when not recovering mid-edit (F5).
+        // Local draft restore is gated in QuotationDraftEditor via shouldUseLocalQuoteDraft.
+        try {
+          if (!shouldUseLocalQuoteDraft(userEmail, editingQuoteId)) {
+            await deleteDraft(makeDraftKey(userEmail, editingQuoteId));
+          }
+        } catch {
+          // IndexedDB unavailable — continue with server data
+        }
 
         const serverProjectData = data.project_data as Record<string, unknown>;
         let projectDataToUse = serverProjectData;

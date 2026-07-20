@@ -54,9 +54,12 @@ import {
 import { unsavedGuard } from "@/lib/unsavedGuard";
 import {
   QUOTE_UNSAVED_LEAVE_MESSAGE,
+  clearUseLocalQuoteDraft,
+  markUseLocalQuoteDraft,
   quickQuoteStepKey,
   resetQuickQuoteSessionStorage,
   shouldShowDraftRestoreNotice,
+  shouldUseLocalQuoteDraft,
   writeQuickQuoteCopyFrom,
   writeQuickQuoteEditingId,
   writeResumeQuote,
@@ -2339,8 +2342,10 @@ export function QuotationDraftEditor({
   // 報價內容 is considered "有數據" if any row has a product name.
   const hasQuoteData = items.some(hasQuoteItemContent);
 
-  // Load draft from IndexedDB on mount (NEW + existing). Existing quotes still load
-  // server line items first; a newer local draft restores unsaved work after refresh.
+  // Load draft from IndexedDB on mount.
+  // NEW quotes: always allow local draft.
+  // Existing quotes: only when markUseLocalQuoteDraft was set (autosave / F5).
+  // Opening from 報價一覽 clears that mark so Supabase 版本審核 data wins.
   useEffect(() => {
     if (draftHydratedRef.current === storageKey) {
       setDraftLoaded(true);
@@ -2350,6 +2355,14 @@ export function QuotationDraftEditor({
     let cancelled = false;
     (async () => {
       try {
+        const allowLocalDraft =
+          !existingQuote?.quoteId ||
+          shouldUseLocalQuoteDraft(userEmail, existingQuote.quoteId) ||
+          shouldUseLocalQuoteDraft(userEmail, rawQuoteId);
+        if (!allowLocalDraft) {
+          setDraftLoaded(true);
+          return;
+        }
         const cached = await loadDraft(storageKey);
         if (cancelled || !cached) {
           setDraftLoaded(true);
@@ -2507,12 +2520,13 @@ export function QuotationDraftEditor({
   useEffect(() => {
     unsavedGuard.setLeaveHandler(() => {
       deleteDraft(storageKey).catch(() => {});
+      clearUseLocalQuoteDraft(userEmail);
       resetQuickQuoteSessionStorage(userEmail);
     });
     return () => unsavedGuard.setLeaveHandler(null);
   }, [storageKey, userEmail]);
 
-  const persistLocalDraftMarkers = useCallback(() => {
+  const pinSessionForReload = useCallback(() => {
     const quoteId = existingQuote?.quoteId || rawQuoteId;
     writeResumeQuote(userEmail, {
       quoteId,
@@ -2527,11 +2541,20 @@ export function QuotationDraftEditor({
     }
   }, [userEmail, existingQuote?.quoteId, existingQuote?.quoteUuid, rawQuoteId]);
 
-  // Pin session as soon as editor opens so F5 can return here (even before first edit).
+  /** Call only after writing IndexedDB — enables local draft on next F5. */
+  const persistLocalDraftMarkers = useCallback(() => {
+    const quoteId = existingQuote?.quoteId || rawQuoteId;
+    pinSessionForReload();
+    markUseLocalQuoteDraft(userEmail, quoteId);
+  }, [pinSessionForReload, userEmail, existingQuote?.quoteId, rawQuoteId]);
+
+  // Pin URL/session as soon as editor opens so F5 can return here.
+  // Do NOT markUseLocal here — that would let stale IndexedDB override 版本審核 data
+  // when reopening from 報價一覽.
   useEffect(() => {
     if (!draftLoaded) return;
-    persistLocalDraftMarkers();
-  }, [draftLoaded, persistLocalDraftMarkers]);
+    pinSessionForReload();
+  }, [draftLoaded, pinSessionForReload]);
 
   // Flush IndexedDB + resume markers before deploy-reload prompt.
   useEffect(() => {
@@ -3717,9 +3740,15 @@ export function QuotationDraftEditor({
           unsavedGuard.clear();
           deleteDraft(storageKey).catch(() => {});
           deleteDraft(makeDraftKey(userEmail, result.quoteId)).catch(() => {});
+          // Submitted snapshot is now in Supabase — do not let IndexedDB override on reopen.
+          clearUseLocalQuoteDraft(userEmail);
           // Keep session pinned to the submitted quote so refresh reopens it (not empty NEW).
           writeQuickQuoteEditingId(userEmail, result.quoteId);
           writeQuickQuoteCopyFrom(userEmail, null);
+          writeResumeQuote(userEmail, {
+            quoteId: result.quoteId,
+            quoteUuid: result.quoteUuid,
+          });
           itemsUserEditedRef.current = true;
           itemsHydratedForUuidRef.current = result.quoteUuid;
           onQuotePersisted?.(result);

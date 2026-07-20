@@ -39,6 +39,10 @@ function resumeQuoteKey(email: string | null | undefined): string {
   return `bwf:quickQuote:${normalizeEmail(email)}:resume`;
 }
 
+function useLocalDraftKey(email: string | null | undefined): string {
+  return `bwf:quickQuote:${normalizeEmail(email)}:useLocalDraft`;
+}
+
 export function resetQuickQuoteSessionStorage(
   email: string | null | undefined,
   opts?: { keepCopyFrom?: boolean },
@@ -50,6 +54,7 @@ export function resetQuickQuoteSessionStorage(
   sessionStorage.removeItem(quickQuoteEditingIdKey(email));
   sessionStorage.removeItem(quickQuoteCopyFromKey(email));
   sessionStorage.removeItem(resumeQuoteKey(email));
+  sessionStorage.removeItem(useLocalDraftKey(email));
   if (copyFrom) writeQuickQuoteCopyFrom(email, copyFrom);
 }
 
@@ -153,4 +158,36 @@ export function consumeResumeQuote(
   const marker = readResumeQuote(email);
   clearResumeQuote(email);
   return marker;
+}
+
+/**
+ * Prefer IndexedDB draft over Supabase only after in-tab editing (autosave / F5).
+ * Opening a quote from 報價一覽 must clear this so server (版本審核) data wins.
+ */
+export function markUseLocalQuoteDraft(
+  email: string | null | undefined,
+  quoteId: string,
+): void {
+  if (typeof window === 'undefined') return;
+  const id = quoteId?.trim();
+  if (!id) return;
+  sessionStorage.setItem(useLocalDraftKey(email), id);
+}
+
+export function clearUseLocalQuoteDraft(
+  email: string | null | undefined,
+): void {
+  if (typeof window === 'undefined') return;
+  sessionStorage.removeItem(useLocalDraftKey(email));
+}
+
+/** True when local draft may override server for this quoteId (same-tab recovery). */
+export function shouldUseLocalQuoteDraft(
+  email: string | null | undefined,
+  quoteId: string,
+): boolean {
+  if (typeof window === 'undefined') return false;
+  const id = quoteId?.trim();
+  if (!id) return false;
+  return sessionStorage.getItem(useLocalDraftKey(email)) === id;
 }

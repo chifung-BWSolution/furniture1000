@@ -13,6 +13,7 @@ import {
   quickQuoteEditingIdKey,
   readResumeQuote,
   clearResumeQuote,
+  clearUseLocalQuoteDraft,
 } from "@/lib/quickQuoteSession";
 
 /** Survive React StrictMode double-mount so deploy-reload resume is only applied once. */
@@ -228,6 +229,10 @@ export function AppShell() {
     (quoteId: string, opts?: { quoteUuid?: string; version?: string }) => {
       if (!unsavedGuard.confirmLeave()) return;
       writeQuickQuoteCopyFrom(user?.email, null);
+      // Opening from 報價一覽: always prefer Supabase 版本審核 snapshot, not IndexedDB.
+      clearUseLocalQuoteDraft(user?.email);
+      clearResumeQuote(user?.email);
+      void deleteDraft(makeDraftKey(user?.email, quoteId));
       setEditingQuoteId(quoteId);
       setEditingQuoteUuidRaw(opts?.quoteUuid ?? null);
       setEditingQuoteVersionRaw(opts?.version ?? null);
