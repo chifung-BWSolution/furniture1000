@@ -284,6 +284,13 @@ export function QuickQuoteView({
   const sessionRestoredRef = useRef(initialUrlPrefillRef.current.applied);
   const loadedQuoteIdRef = useRef<string | null>(null);
   const pmsDefaultsLoadedForRef = useRef<string | null>(null);
+  /** True while fetching pitching/project defaults that will overwrite step-1 fields. */
+  const [isLoadingPmsDefaults, setIsLoadingPmsDefaults] = useState(() =>
+    Boolean(
+      initialUrlPrefillRef.current.form.pmsPitchingId ||
+        initialUrlPrefillRef.current.form.pmsProjectId,
+    ),
+  );
 
   // PMS SSO / deep-link prefill: /quote/quick?pmsPitchingId=... and/or pmsProjectId=...
   const applyPmsPrefillFromUrl = useCallback(() => {
@@ -395,6 +402,7 @@ export function QuickQuoteView({
   const handleSelectPitching = useCallback((item: PmsPitchingListItem) => {
     setSelectedPitchingLabel(formatPmsPitchingLabel(item));
     pmsDefaultsLoadedForRef.current = null;
+    setIsLoadingPmsDefaults(true);
     setCurrentStep(1);
     setIsQuotationReady(false);
     setFormData((prev) => ({
@@ -435,15 +443,21 @@ export function QuickQuoteView({
 
   // Load PMS industry catalog always; resolve project↔pitching + enrich defaults
   useEffect(() => {
-    if (editingQuoteId) return;
+    if (editingQuoteId) {
+      setIsLoadingPmsDefaults(false);
+      return;
+    }
     const pitchingId = formData.pmsPitchingId?.trim() || '';
     const projectId = formData.pmsProjectId?.trim() || '';
-    const cacheKey = pitchingId || projectId ? `${pitchingId}|${projectId}` : '__catalog__';
-    if (pmsDefaultsLoadedForRef.current === cacheKey) return;
+    const needsPitchingDefaults = Boolean(pitchingId || projectId);
+    const cacheKey = needsPitchingDefaults ? `${pitchingId}|${projectId}` : '__catalog__';
+    if (pmsDefaultsLoadedForRef.current === cacheKey) {
+      if (needsPitchingDefaults) setIsLoadingPmsDefaults(false);
+      return;
+    }
     // If we already loaded full pitching defaults, don't re-fetch catalog-only
     if (
-      !pitchingId &&
-      !projectId &&
+      !needsPitchingDefaults &&
       pmsDefaultsLoadedForRef.current &&
       pmsDefaultsLoadedForRef.current !== '__catalog__'
     ) {
@@ -452,53 +466,67 @@ export function QuickQuoteView({
 
     let cancelled = false;
     pmsDefaultsLoadedForRef.current = cacheKey;
+    if (needsPitchingDefaults) setIsLoadingPmsDefaults(true);
 
     (async () => {
-      const defaults = await fetchPmsPitchingQuoteDefaults(
-        pitchingId || projectId
-          ? { pitchingId: pitchingId || null, projectId: projectId || null }
-          : null,
-      );
-      if (cancelled || !defaults) return;
-
-      if (defaults.industry_options.length > 0) {
-        setPmsIndustryCatalog(defaults.industry_options);
-        setIndustryOptions(
-          sortIndustryLabels(defaults.industry_options.map((o) => o.display)),
+      try {
+        const defaults = await fetchPmsPitchingQuoteDefaults(
+          needsPitchingDefaults
+            ? { pitchingId: pitchingId || null, projectId: projectId || null }
+            : null,
         );
-      }
+        if (cancelled || !defaults) return;
 
-      if (!pitchingId && !projectId) return;
+        if (defaults.industry_options.length > 0) {
+          setPmsIndustryCatalog(defaults.industry_options);
+          setIndustryOptions(
+            sortIndustryLabels(defaults.industry_options.map((o) => o.display)),
+          );
+        }
 
-      setFormData((prev) => ({
-        ...prev,
-        // Persist resolved cross-link ids (project → pitching always; pitching → project if any)
-        pmsPitchingId: defaults.pitching_id || prev.pmsPitchingId,
-        pmsProjectId: defaults.project_id || prev.pmsProjectId || undefined,
-        quoteId:
-          defaults.pitching_code ||
-          defaults.project_code ||
-          prev.quoteId,
-        clientName: defaults.client_name || prev.clientName,
-        clientContactName:
-          defaults.client_contact_name || prev.clientContactName,
-        clientPhone: defaults.client_phone || prev.clientPhone,
-        clientEmail: defaults.client_email || prev.clientEmail,
-        clientIndustry:
-          defaults.selected_industries.length > 0
-            ? defaults.selected_industries
-            : prev.clientIndustry,
-      }));
+        if (!needsPitchingDefaults) return;
 
-      if (defaults.pitching_code || defaults.project_code || defaults.client_name) {
-        setSelectedPitchingLabel(
-          [
-            defaults.pitching_code || defaults.project_code,
-            defaults.client_name,
-          ]
-            .filter(Boolean)
-            .join(' · ') || null,
-        );
+        setFormData((prev) => {
+          const nextPitchingId = defaults.pitching_id || prev.pmsPitchingId;
+          const nextProjectId =
+            defaults.project_id || prev.pmsProjectId || undefined;
+          // Avoid a second fetch/lock flash when project↔pitching ids are resolved.
+          pmsDefaultsLoadedForRef.current = `${(nextPitchingId || '').trim()}|${(nextProjectId || '').trim()}`;
+          return {
+            ...prev,
+            // Persist resolved cross-link ids (project → pitching always; pitching → project if any)
+            pmsPitchingId: nextPitchingId,
+            pmsProjectId: nextProjectId,
+            quoteId:
+              defaults.pitching_code ||
+              defaults.project_code ||
+              prev.quoteId,
+            clientName: defaults.client_name || prev.clientName,
+            clientContactName:
+              defaults.client_contact_name || prev.clientContactName,
+            clientPhone: defaults.client_phone || prev.clientPhone,
+            clientEmail: defaults.client_email || prev.clientEmail,
+            clientIndustry:
+              defaults.selected_industries.length > 0
+                ? defaults.selected_industries
+                : prev.clientIndustry,
+          };
+        });
+
+        if (defaults.pitching_code || defaults.project_code || defaults.client_name) {
+          setSelectedPitchingLabel(
+            [
+              defaults.pitching_code || defaults.project_code,
+              defaults.client_name,
+            ]
+              .filter(Boolean)
+              .join(' · ') || null,
+          );
+        }
+      } finally {
+        if (!cancelled && needsPitchingDefaults) {
+          setIsLoadingPmsDefaults(false);
+        }
       }
     })();
 
@@ -955,7 +983,13 @@ export function QuickQuoteView({
         {currentStep < 4 && (
         <div className="rounded-2xl border border-border bg-card p-6 shadow-sm md:p-8">
           {currentStep === 1 && (
-            <div className="space-y-6">
+            <div
+              className={cn(
+                'space-y-6',
+                isLoadingPmsDefaults && 'pointer-events-none select-none',
+              )}
+              aria-busy={isLoadingPmsDefaults}
+            >
               {/* Selected PMS Pitching (chosen on gate / deep-link) */}
               <div className="flex items-start justify-between gap-3 rounded-xl border border-primary/20 bg-primary/5 px-4 py-3">
                 <div className="min-w-0">
@@ -973,12 +1007,25 @@ export function QuickQuoteView({
                   <button
                     type="button"
                     onClick={handleChangePitching}
-                    className="shrink-0 font-body text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+                    disabled={isLoadingPmsDefaults}
+                    className="shrink-0 font-body text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline disabled:cursor-not-allowed disabled:opacity-50 disabled:no-underline"
                   >
                     更換
                   </button>
                 ) : null}
               </div>
+
+              {isLoadingPmsDefaults && (
+                <div className="pointer-events-auto flex items-center gap-2 rounded-xl border border-primary/25 bg-primary/5 px-4 py-3 text-primary">
+                  <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
+                  <span className="font-body text-sm font-medium">
+                    正在載入 PMS 資料…
+                  </span>
+                  <span className="font-body text-xs text-muted-foreground">
+                    完成前欄位暫鎖定，以免被自動覆寫
+                  </span>
+                </div>
+              )}
 
               {/* Company (fixed) */}
               <div>
@@ -1002,8 +1049,9 @@ export function QuickQuoteView({
                     value={formData.projectManager}
                     onChange={(e) => updateField('projectManager', e.target.value)}
                     placeholder="您的姓名"
+                    disabled={isLoadingPmsDefaults}
                     className={cn(
-                      'w-full rounded-lg border bg-background px-4 py-2.5 font-body text-sm text-foreground placeholder:text-muted-foreground/60 transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20',
+                      'w-full rounded-lg border bg-background px-4 py-2.5 font-body text-sm text-foreground placeholder:text-muted-foreground/60 transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-60',
                       errors.projectManager ? 'border-red-500' : 'border-border'
                     )}
                   />
@@ -1022,8 +1070,9 @@ export function QuickQuoteView({
                     value={formData.clientName}
                     onChange={(e) => updateField('clientName', e.target.value)}
                     placeholder="客戶公司名稱"
+                    disabled={isLoadingPmsDefaults}
                     className={cn(
-                      'w-full rounded-lg border bg-background px-4 py-2.5 font-body text-sm text-foreground placeholder:text-muted-foreground/60 transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20',
+                      'w-full rounded-lg border bg-background px-4 py-2.5 font-body text-sm text-foreground placeholder:text-muted-foreground/60 transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-60',
                       errors.clientName ? 'border-red-500' : 'border-border'
                     )}
                   />
@@ -1043,7 +1092,8 @@ export function QuickQuoteView({
                   value={formData.clientContactName}
                   onChange={(e) => updateField('clientContactName', e.target.value)}
                   placeholder="聯絡人姓名"
-                  className="w-full rounded-lg border border-border bg-background px-4 py-2.5 font-body text-sm text-foreground placeholder:text-muted-foreground/60 transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  disabled={isLoadingPmsDefaults}
+                  className="w-full rounded-lg border border-border bg-background px-4 py-2.5 font-body text-sm text-foreground placeholder:text-muted-foreground/60 transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-60"
                 />
               </div>
 
@@ -1056,6 +1106,7 @@ export function QuickQuoteView({
                   className={cn(
                     'w-full rounded-lg border bg-muted/40 px-4 py-2.5 font-mono-data text-sm text-foreground',
                     errors.quoteId ? 'border-red-500' : 'border-border',
+                    isLoadingPmsDefaults && 'opacity-60',
                   )}
                 >
                   {formData.quoteId || '—'}
@@ -1080,8 +1131,9 @@ export function QuickQuoteView({
                       updateField('clientPhone', val);
                     }}
                     placeholder="+852 XXXX XXXX"
+                    disabled={isLoadingPmsDefaults}
                     className={cn(
-                      'w-full rounded-lg border bg-background px-4 py-2.5 font-body text-sm text-foreground placeholder:text-muted-foreground/60 transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20',
+                      'w-full rounded-lg border bg-background px-4 py-2.5 font-body text-sm text-foreground placeholder:text-muted-foreground/60 transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-60',
                       errors.clientPhone ? 'border-red-500' : 'border-border'
                     )}
                   />
@@ -1099,8 +1151,9 @@ export function QuickQuoteView({
                     value={formData.clientEmail}
                     onChange={(e) => updateField('clientEmail', e.target.value)}
                     placeholder="client@example.com"
+                    disabled={isLoadingPmsDefaults}
                     className={cn(
-                      'w-full rounded-lg border bg-background px-4 py-2.5 font-body text-sm text-foreground placeholder:text-muted-foreground/60 transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20',
+                      'w-full rounded-lg border bg-background px-4 py-2.5 font-body text-sm text-foreground placeholder:text-muted-foreground/60 transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-60',
                       errors.clientEmail ? 'border-red-500' : 'border-border'
                     )}
                   />
@@ -1124,7 +1177,8 @@ export function QuickQuoteView({
                       onChange={(e) => setIndustrySearchQuery(e.target.value)}
                       placeholder="搜尋產業（中 / 英）"
                       aria-label="搜尋客戶產業"
-                      className="w-full rounded-lg border border-border bg-background py-2 pl-9 pr-3 font-body text-sm text-foreground placeholder:text-muted-foreground/60 transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20"
+                      disabled={isLoadingPmsDefaults}
+                      className="w-full rounded-lg border border-border bg-background py-2 pl-9 pr-3 font-body text-sm text-foreground placeholder:text-muted-foreground/60 transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:cursor-not-allowed disabled:opacity-60"
                     />
                   </div>
                 </div>
@@ -1139,8 +1193,9 @@ export function QuickQuoteView({
                       key={industry}
                       type="button"
                       onClick={() => toggleTag('clientIndustry', industry)}
+                      disabled={isLoadingPmsDefaults}
                       className={cn(
-                        'rounded-md border px-3 py-1.5 font-body text-sm font-medium transition-all',
+                        'rounded-md border px-3 py-1.5 font-body text-sm font-medium transition-all disabled:cursor-not-allowed disabled:opacity-60',
                         formData.clientIndustry.includes(industry)
                           ? 'border-primary bg-primary/10 text-primary shadow-sm'
                           : 'border-border bg-card text-muted-foreground hover:border-primary/50 hover:text-foreground'
@@ -1157,7 +1212,8 @@ export function QuickQuoteView({
                       value={formData.clientIndustryOther}
                       onChange={(e) => updateField('clientIndustryOther', e.target.value)}
                       placeholder="請填寫產業"
-                      className="border-b border-border bg-transparent px-1 py-1 font-body text-sm text-foreground placeholder:text-muted-foreground/60 focus:border-primary focus:outline-none w-32"
+                      disabled={isLoadingPmsDefaults}
+                      className="border-b border-border bg-transparent px-1 py-1 font-body text-sm text-foreground placeholder:text-muted-foreground/60 focus:border-primary focus:outline-none w-32 disabled:cursor-not-allowed disabled:opacity-60"
                     />
                   )}
                 </div>
@@ -1177,8 +1233,9 @@ export function QuickQuoteView({
                       key={type}
                       type="button"
                       onClick={() => toggleTag('quotationType', type)}
+                      disabled={isLoadingPmsDefaults}
                       className={cn(
-                        'rounded-full border px-4 py-1.5 font-body text-sm font-medium transition-all',
+                        'rounded-full border px-4 py-1.5 font-body text-sm font-medium transition-all disabled:cursor-not-allowed disabled:opacity-60',
                         formData.quotationType.includes(type)
                           ? 'border-primary bg-primary/10 text-primary shadow-sm'
                           : 'border-border bg-card text-muted-foreground hover:border-primary/50 hover:text-foreground'
@@ -1377,10 +1434,20 @@ export function QuickQuoteView({
               <button
                 type="button"
                 onClick={handleNext}
-                className="inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 font-body text-sm font-medium text-primary-foreground shadow-md shadow-primary/20 transition-all hover:bg-primary/90 hover:shadow-lg hover:shadow-primary/30 active:scale-[0.98]"
+                disabled={currentStep === 1 && isLoadingPmsDefaults}
+                className="inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 font-body text-sm font-medium text-primary-foreground shadow-md shadow-primary/20 transition-all hover:bg-primary/90 hover:shadow-lg hover:shadow-primary/30 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-primary disabled:active:scale-100"
               >
-                下一步
-                <ChevronRight className="h-4 w-4" />
+                {currentStep === 1 && isLoadingPmsDefaults ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    載入 PMS 中…
+                  </>
+                ) : (
+                  <>
+                    下一步
+                    <ChevronRight className="h-4 w-4" />
+                  </>
+                )}
               </button>
             ) : (
               <button
