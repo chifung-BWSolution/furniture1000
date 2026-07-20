@@ -782,6 +782,8 @@ function QuoteProductItemCard({
   updateItem,
   updateExchangeRate,
   updateDimensionMode,
+  unifyExchangeRatesFromFirst,
+  showUnifyExchangeRate,
   cutItem,
   duplicateItem,
   removeItem,
@@ -803,6 +805,9 @@ function QuoteProductItemCard({
   updateItem: (id: string, field: keyof QuotationItem, value: string | number | null | boolean) => void;
   updateExchangeRate: (id: string, raw: string) => void;
   updateDimensionMode: (id: string, mode: QuotationDimensionMode) => void;
+  unifyExchangeRatesFromFirst: () => void;
+  /** True only for the first product row (moves with reorder). */
+  showUnifyExchangeRate: boolean;
   cutItem: (id: string) => void;
   duplicateItem: (id: string) => void;
   removeItem: (id: string) => void;
@@ -1018,14 +1023,26 @@ function QuoteProductItemCard({
           </QuoteFieldBlock>
           <div className="flex min-h-0 flex-1 items-center py-0.5">
             <QuoteFieldBlock label={labels.exchangeRate} className="w-full">
-              <input
-                type="text"
-                inputMode="decimal"
-                value={exchangeRateInputDisplay(item.exchangeRateInput, item.exchangeRate)}
-                placeholder="—"
-                onChange={(e) => updateExchangeRate(item.id, e.target.value)}
-                className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
-              />
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={exchangeRateInputDisplay(item.exchangeRateInput, item.exchangeRate)}
+                  placeholder="—"
+                  onChange={(e) => updateExchangeRate(item.id, e.target.value)}
+                  className={cn(QUOTE_COMPACT_NUMBER_INPUT_CLASS, "min-w-0 flex-1")}
+                />
+                {showUnifyExchangeRate ? (
+                  <button
+                    type="button"
+                    onClick={unifyExchangeRatesFromFirst}
+                    title={labels.unifyExchangeRate}
+                    className="shrink-0 rounded-md border border-primary/40 bg-primary/10 px-1.5 py-1 font-body text-[10px] font-medium leading-tight text-primary transition-colors hover:bg-primary/15"
+                  >
+                    {labels.unifyExchangeRate}
+                  </button>
+                ) : null}
+              </div>
             </QuoteFieldBlock>
           </div>
           <QuoteFieldBlock label={labels.hkdCost} className="shrink-0">
@@ -2074,6 +2091,40 @@ export function QuotationDraftEditor({
       }),
     );
   };
+
+  /** Copy the first product row's 匯率 onto every product row on the page. */
+  const unifyExchangeRatesFromFirst = useCallback(() => {
+    itemsUserEditedRef.current = true;
+    setItems((prev) => {
+      const firstProduct = prev.find(
+        (item) => !item.isSectionTitle && !item.isCustomTerm,
+      );
+      if (!firstProduct) return prev;
+      const rate = firstProduct.exchangeRate ?? null;
+      const rateInput =
+        firstProduct.exchangeRateInput !== undefined
+          ? firstProduct.exchangeRateInput
+          : rate == null
+            ? ""
+            : String(rate);
+      return prev.map((item) => {
+        if (item.isSectionTitle || item.isCustomTerm) return item;
+        if (
+          item.id === firstProduct.id &&
+          item.exchangeRate === rate &&
+          item.exchangeRateInput === rateInput
+        ) {
+          return item;
+        }
+        return {
+          ...item,
+          exchangeRateInput: rateInput,
+          exchangeRate: rate,
+          hkdCostPrice: computeHkdCostPrice(item.costPrice, rate),
+        };
+      });
+    });
+  }, []);
 
   const [draggingItemId, setDraggingItemId] = useState<string | null>(null);
   const [dropInsertIndex, setDropInsertIndex] = useState<number | null>(null);
@@ -3283,7 +3334,11 @@ export function QuotationDraftEditor({
                     }
                   }}
                 >
-                  {items.map((item, index) => (
+                  {(() => {
+                    const firstProductIndex = items.findIndex(
+                      (row) => !row.isSectionTitle && !row.isCustomTerm,
+                    );
+                    return items.map((item, index) => (
                     <div key={item.id} className="space-y-3">
                       {item.isSectionTitle ? (
                         <QuoteSectionTitleCard
@@ -3336,6 +3391,8 @@ export function QuotationDraftEditor({
                           updateItem={updateItem}
                           updateExchangeRate={updateExchangeRate}
                           updateDimensionMode={updateDimensionMode}
+                          unifyExchangeRatesFromFirst={unifyExchangeRatesFromFirst}
+                          showUnifyExchangeRate={index === firstProductIndex}
                           cutItem={cutItem}
                           duplicateItem={duplicateItem}
                           removeItem={removeItem}
@@ -3356,7 +3413,8 @@ export function QuotationDraftEditor({
                         onAddProduct={() => openProductSelector(index + 1)}
                       />
                     </div>
-                  ))}
+                    ));
+                  })()}
                 </div>
 
                 {/* Price Multiplier, GP Summary & Subtotal */}
