@@ -115,8 +115,15 @@ export interface SearchProduct {
   imageUrl: string;
   salePrice: number;
   category: string;
+  /** 產品目錄一級分類（products.level1_category） */
+  level1Category?: string;
+  /** 產品目錄二級分類（products.level2_category） */
+  level2Category?: string;
   color: string;
   material: string;
+  dimensionLMm?: number | null;
+  dimensionWMm?: number | null;
+  dimensionHMm?: number | null;
   tier: ProductTier;
   inStock: boolean;
   deliveryDays: number;

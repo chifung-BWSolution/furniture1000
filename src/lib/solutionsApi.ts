@@ -116,27 +116,46 @@ function stripHtml(html: string): string {
   return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
+function numOrNullDim(v: unknown): number | null {
+  if (v == null || v === '') return null;
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 function mapSearchProduct(r: any, descLimit = 80): SearchProduct {
   const sale = Number(r.sale_price ?? r.price ?? 0);
-  const img = (Array.isArray(r.images) && r.images[0]?.src) || r.image_url || '';
+  const img =
+    (typeof r.image_url === 'string' && r.image_url) ||
+    (Array.isArray(r.images) && r.images[0]?.src) ||
+    '';
   const rawDesc = r.description ?? r.body_html ?? '';
   const description = (typeof rawDesc === 'string' && rawDesc.includes('<')
     ? stripHtml(rawDesc)
     : String(rawDesc ?? '')).slice(0, descLimit);
+  const level1 = String(r.level1_category ?? '').trim();
+  const level2 = String(r.level2_category ?? '').trim();
   return {
     id: r.id,
     title: r.title ?? '',
     description,
     imageUrl: img,
     salePrice: sale,
-    category: r.category ?? r.collection ?? r.product_type ?? '其他',
+    category: level2 || level1 || r.category || r.collection || r.product_type || '其他',
+    level1Category: level1 || undefined,
+    level2Category: level2 || undefined,
     color: r.color ?? '—',
-    material: r.material ?? '—',
+    material: (r.material && String(r.material).trim()) || '—',
+    dimensionLMm: numOrNullDim(r.dimension_l_mm),
+    dimensionWMm: numOrNullDim(r.dimension_w_mm),
+    dimensionHMm: numOrNullDim(r.dimension_h_mm),
     tier: deriveTier(sale),
     inStock: (r.delivery_term_name ?? '').includes('現貨') || (r.total_lead_time ?? 99) <= 7,
     deliveryDays: r.total_lead_time ?? r.shipping_days ?? 14,
   };
 }
+
+const PORTAL_PRODUCT_SELECT =
+  'id,title,description,price,sale_price,image_url,collection,category,color,material,level1_category,level2_category,dimension_l_mm,dimension_w_mm,dimension_h_mm,total_lead_time,shipping_days,delivery_term_name';
 
 /** 依分區內已分配產品的確認狀態計算專案進度 0–100。 */
 export function computeProjectProgress(products: ZoneProduct[]): number {
@@ -241,13 +260,34 @@ export async function fetchSearchProducts(limit = 60): Promise<SearchProduct[]> 
   try {
     const { data, error } = await supabase
       .from('products')
-      .select('id,title,description,price,sale_price,image_url,images,collection,category,color,total_lead_time,shipping_days,delivery_term_name')
+      .select(PORTAL_PRODUCT_SELECT)
       .order('created_at', { ascending: false })
       .limit(limit);
     if (error || !data) return [];
-    return data.map(mapSearchProduct);
+    return data.map((r) => mapSearchProduct(r));
   } catch {
     return [];
+  }
+}
+
+/**
+ * 客戶專區產品搜尋：唯讀載入產品目錄（in_catalog）＋分類／材質／尺寸欄位。
+ * 不上傳、不修改 schema。優先 in_catalog；若為空則回退一般產品列表。
+ */
+export async function fetchPortalBrowseProducts(limit = 600): Promise<SearchProduct[]> {
+  try {
+    const { data, error } = await supabase
+      .from('products')
+      .select(PORTAL_PRODUCT_SELECT)
+      .eq('in_catalog', true)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (!error && data && data.length > 0) {
+      return data.map((r) => mapSearchProduct(r));
+    }
+    return fetchSearchProducts(Math.min(limit, 400));
+  } catch {
+    return fetchSearchProducts(Math.min(limit, 400));
   }
 }
 
@@ -341,7 +381,7 @@ export async function fetchClientSearchProducts(projectIds: string[]): Promise<S
       if (linkedIds.length > 0) {
         const { data: prods } = await supabase
           .from('products')
-          .select('id,title,description,price,sale_price,image_url,images,collection,category,color,material,total_lead_time,shipping_days,delivery_term_name')
+          .select(PORTAL_PRODUCT_SELECT)
           .in('id', linkedIds);
         for (const p of prods ?? []) {
           detailById[p.id] = mapSearchProduct(p, 60);
@@ -388,7 +428,7 @@ export async function fetchClientSearchProducts(projectIds: string[]): Promise<S
     if (sourceIds.length > 0) {
       const { data: prods } = await supabase
         .from('products')
-        .select('id,title,description,price,sale_price,image_url,images,collection,category,color,material,total_lead_time,shipping_days,delivery_term_name')
+        .select(PORTAL_PRODUCT_SELECT)
         .in('id', sourceIds);
       for (const p of prods ?? []) {
         productMeta[p.id] = mapSearchProduct(p, 60);
