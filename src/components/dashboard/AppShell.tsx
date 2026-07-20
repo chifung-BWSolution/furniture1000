@@ -152,7 +152,7 @@ const CustomerCustomFurnitureView = lazy(() =>
   }))
 );
 const CustomerPaymentDeliveryView = lazy(() =>
-  import("./customers/CustomerPortalExtraViews").then((mod) => ({
+  import("./customers/CustomerPaymentDeliveryView").then((mod) => ({
     default: mod.CustomerPaymentDeliveryView,
   }))
 );

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import {
-  Upload, Send, CreditCard, Truck, PackageCheck, PenLine, Film, Briefcase,
+  Upload, Send, CreditCard, PackageCheck, PenLine, Film, Briefcase,
   Phone, Landmark, UserPlus, CheckCircle2, Clock, MapPin, ExternalLink,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -146,44 +146,7 @@ export function CustomerCustomFurnitureView() {
   );
 }
 
-export function CustomerPaymentDeliveryView() {
-  return (
-    <PortalPageShell
-      title="付款 + 送貨"
-      badge="Client Portal"
-      subtitle="透明展示付款條款、銀行資料與送貨政策（售價可見、成本隱藏）。"
-    >
-      <div className="grid gap-4 md:grid-cols-2">
-        <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-          <h2 className="mb-3 flex items-center gap-2 font-display text-sm font-bold">
-            <CreditCard className="h-4 w-4 text-primary" /> 付款條款
-          </h2>
-          <ul className="space-y-2 font-body text-sm text-foreground/90">
-            <li>· 生產前支付 70% 訂金，交付前支付餘下 30%</li>
-            <li>· 政府／NGO 可確認訂單後生產，貨到後 30 天結清</li>
-            <li>· 支票／轉帳／信用卡；貨期以款項到帳日起計</li>
-          </ul>
-          <div className="mt-4 rounded-xl bg-muted/40 p-3 font-mono-data text-xs leading-relaxed">
-            Account Name: Branding Works Design Ltd
-            <br />
-            Bank: HSBC · 747-058683-001
-          </div>
-        </section>
-        <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-          <h2 className="mb-3 flex items-center gap-2 font-display text-sm font-bold">
-            <Truck className="h-4 w-4 text-primary" /> 送貨與安裝
-          </h2>
-          <ul className="space-y-2 font-body text-sm text-foreground/90">
-            <li>· 標準範圍：香港一般地區，一址一次送貨安裝</li>
-            <li>· 訂單滿 HK$12,000 可免標準安裝費（另有條款）</li>
-            <li>· 服務時間：星期一至六 09:00–18:00</li>
-            <li>· 離島／特殊場地需另行安排</li>
-          </ul>
-        </section>
-      </div>
-    </PortalPageShell>
-  );
-}
+export { CustomerPaymentDeliveryView } from '@/components/dashboard/customers/CustomerPaymentDeliveryView';
 
 export function CustomerOrderStatusView() {
   const [signed, setSigned] = useState(false);
