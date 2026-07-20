@@ -110,8 +110,8 @@ const WORK_PERIODS = [
 
 const STEPS = [
   { id: 1, label: '基本資訊' },
-  { id: 2, label: '空間與工程' },
-  { id: 3, label: '時間與預算' },
+  { id: 2, label: '傢俬類別' },
+  { id: 3, label: '工期時間' },
   { id: 4, label: '生成報價單' },
 ];
 
