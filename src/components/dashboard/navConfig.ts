@@ -7,7 +7,7 @@ import {
   Building, BarChart2, TrendingUp,
   UserCog, History,
   Map, PenTool, Truck, PackageCheck,
-  Film, Briefcase, Phone, Landmark, Activity, PanelTop,
+  Film, Briefcase, Phone, Landmark,
   type LucideIcon,
 } from 'lucide-react';
 import { type PrimarySection, type ViewType } from '@/types/product';
@@ -43,8 +43,6 @@ export const NAV_CONFIG: PrimaryItem[] = [
       { view: 'design-projects', label: '設計專案', icon: LayoutDashboard },
       { view: 'invite-clients', label: '邀請客戶', icon: UserPlus },
       { view: 'confirmed-projects', label: '已確定方案', icon: CheckCircle2 },
-      { view: 'solution-client-activity', label: '客戶互動', icon: Activity },
-      { view: 'solution-portal-content', label: 'Portal 內容', icon: PanelTop },
     ],
   },
   {
@@ -131,6 +129,14 @@ export function findSection(view: ViewType): PrimarySection {
   ) {
     return 'customers';
   }
+  // Removed 傢俬方案 pages — keep deep-links under solutions
+  if (
+    view === 'solution-client-activity' ||
+    view === 'solution-portal-content' ||
+    view === 'product-search'
+  ) {
+    return 'solutions';
+  }
   return 'home';
 }
 
@@ -148,6 +154,13 @@ export function getViewMeta(view: ViewType): { sectionLabel: string; viewLabel: 
   }
   if (view === 'customer-confirmed-products') {
     return { sectionLabel: '客戶專區', viewLabel: '確定產品' };
+  }
+  if (
+    view === 'solution-client-activity' ||
+    view === 'solution-portal-content' ||
+    view === 'product-search'
+  ) {
+    return { sectionLabel: '傢俬方案', viewLabel: '方案列表' };
   }
   return { sectionLabel: '', viewLabel: view };
 }

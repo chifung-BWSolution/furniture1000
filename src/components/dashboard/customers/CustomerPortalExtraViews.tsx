@@ -41,7 +41,7 @@ export function CustomerCustomFurnitureView() {
     const next = [row, ...list].slice(0, 20);
     setList(next);
     localStorage.setItem(CUSTOM_STORAGE, JSON.stringify(next));
-    toast.success('已送出訂製查詢', { description: '前端暫存；PM 可於客戶互動查看示意' });
+    toast.success('已送出訂製查詢', { description: '前端暫存（未寫入資料庫）' });
     setReq({ title: '', description: '', qty: '1', budget: '' });
     setImagePreview(null);
   };

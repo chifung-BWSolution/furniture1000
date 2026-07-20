@@ -118,16 +118,6 @@ const InviteClientsView = lazy(() =>
 const ConfirmedProjectsView = lazy(() =>
   import("./solutions/ConfirmedProjectsView").then((mod) => ({ default: mod.ConfirmedProjectsView }))
 );
-const SolutionClientActivityView = lazy(() =>
-  import("./solutions/SolutionClientActivityView").then((mod) => ({
-    default: mod.SolutionClientActivityView,
-  }))
-);
-const SolutionPortalContentView = lazy(() =>
-  import("./solutions/SolutionPortalContentView").then((mod) => ({
-    default: mod.SolutionPortalContentView,
-  }))
-);
 // 客戶專區 (Client Portal)
 const CustomerDesignProjectsView = lazy(() =>
   import("./customers/CustomerDesignProjectsView").then((mod) => ({ default: mod.CustomerDesignProjectsView }))
@@ -197,8 +187,6 @@ const SELF_LOADING_VIEWS = new Set<ViewType>([
   "design-projects",
   "invite-clients",
   "confirmed-projects",
-  "solution-client-activity",
-  "solution-portal-content",
   "customer-design-projects",
   "customer-quote-schemes",
   "customer-product-search",
@@ -719,9 +707,9 @@ export function AppShell() {
       case "confirmed-projects":
         return <ConfirmedProjectsView />;
       case "solution-client-activity":
-        return <SolutionClientActivityView />;
       case "solution-portal-content":
-        return <SolutionPortalContentView />;
+        // 已自傢俬方案側欄移除 — 舊 deep-link 導向方案列表
+        return <SolutionProjectListView />;
 
       case "customer-design-projects":
         return (
