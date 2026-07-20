@@ -10,6 +10,11 @@ import { loadQuoteItems, type BwfQuoteItemInput } from '@/lib/bwfQuoteItems';
 import { compareQuoteVersion, displayQuoteVersion } from '@/lib/quoteVersions';
 import { quoteStatusBadgeClass } from '@/lib/listTableUtils';
 import { quoteItemLineSubtotal } from '@/lib/quoteItemTotals';
+import {
+  fetchPmsPitchings,
+  pitchingDisplayTitle,
+  type PmsPitchingListItem,
+} from '@/lib/pmsPitchings';
 import { PortalPageShell } from '@/components/dashboard/customers/PortalPageShell';
 
 /** Shared with 產品搜尋 / 付款+送貨 (local only). */
@@ -23,6 +28,7 @@ type QuoteRecord = {
   total_amount: number;
   created_at: string;
   modified_date?: string | null;
+  bwf_pitching_id?: string | null;
   project_data: {
     formData?: {
       clientName?: string;
@@ -32,12 +38,13 @@ type QuoteRecord = {
     clientInfo?: { name?: string; contactName?: string };
     [key: string]: unknown;
   };
+  pitching?: PmsPitchingListItem | null;
 };
 
 type Decision = 'pending' | 'approved' | 'rejected' | 'change_requested';
 
 const LIST_SELECT =
-  'id, quote_id, version, status, total_amount, created_at, modified_date, project_data';
+  'id, quote_id, version, status, total_amount, created_at, modified_date, project_data, bwf_pitching_id';
 
 function fmtMoney(n: number) {
   return `HK$ ${Math.round(n || 0).toLocaleString()}`;
@@ -57,6 +64,13 @@ function clientNameOf(q: QuoteRecord) {
     q.project_data?.formData?.clientContactName?.trim() ||
     '—'
   );
+}
+
+/** Same rule as 報價單一覽: live PMS pitching title, else client name. */
+function quoteDisplayName(q: QuoteRecord) {
+  if (q.pitching) return pitchingDisplayTitle(q.pitching);
+  const client = q.project_data?.formData?.clientName?.trim() || '';
+  return client || q.quote_id?.trim() || '未命名專案';
 }
 
 function groupByQuoteId(rows: QuoteRecord[]): Map<string, QuoteRecord[]> {
@@ -97,8 +111,31 @@ export function CustomerQuoteSchemesView() {
         .limit(120);
       if (error) throw error;
       const rows = (data as QuoteRecord[]) || [];
-      setQuotes(rows);
-      if (rows[0] && !activeId) setActiveId(rows[0].id);
+
+      const pitchingIds = [
+        ...new Set(
+          rows
+            .map((q) => q.bwf_pitching_id)
+            .filter((id): id is string => Boolean(id)),
+        ),
+      ];
+      let pitchingById = new Map<string, PmsPitchingListItem>();
+      if (pitchingIds.length > 0) {
+        const pitchings = await fetchPmsPitchings({
+          ids: pitchingIds,
+          limit: pitchingIds.length,
+        });
+        pitchingById = new Map(pitchings.map((p) => [p.id, p]));
+      }
+
+      const enriched = rows.map((q) => ({
+        ...q,
+        pitching: q.bwf_pitching_id
+          ? pitchingById.get(q.bwf_pitching_id) || null
+          : null,
+      }));
+      setQuotes(enriched);
+      if (enriched[0] && !activeId) setActiveId(enriched[0].id);
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : '無法載入報價';
       toast.error('載入失敗', { description: message });
@@ -144,6 +181,7 @@ export function CustomerQuoteSchemesView() {
       if (!q) return true;
       return (
         row.quote_id.toLowerCase().includes(q) ||
+        quoteDisplayName(row).toLowerCase().includes(q) ||
         clientNameOf(row).toLowerCase().includes(q) ||
         displayQuoteVersion(row.version).toLowerCase().includes(q) ||
         (row.status || '').toLowerCase().includes(q)
@@ -264,7 +302,7 @@ export function CustomerQuoteSchemesView() {
           <input
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="搜尋報價單號／客戶名稱／版本…"
+            placeholder="搜尋提案顯示名稱／報價單號／版本…"
             className="w-full rounded-xl border border-border bg-card py-2.5 pl-10 pr-4 font-body text-sm focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
           />
         </div>
@@ -302,7 +340,7 @@ export function CustomerQuoteSchemesView() {
                 <thead className="sticky top-0 bg-muted/60 text-[11px] text-muted-foreground">
                   <tr className="border-b border-border">
                     <th className="px-3 py-2 font-medium">日期</th>
-                    <th className="px-3 py-2 font-medium">報價／客戶</th>
+                    <th className="px-3 py-2 font-medium">提案顯示名稱</th>
                     <th className="px-3 py-2 font-medium">狀態</th>
                     <th className="px-3 py-2 font-medium text-right">金額</th>
                   </tr>
@@ -315,6 +353,8 @@ export function CustomerQuoteSchemesView() {
                     return rowsToShow.map((row, idx) => {
                       const isLatest = idx === 0;
                       const selected = row.id === activeId;
+                      const title = quoteDisplayName(row);
+                      const client = clientNameOf(row);
                       return (
                         <tr
                           key={row.id}
@@ -337,7 +377,7 @@ export function CustomerQuoteSchemesView() {
                                     e.stopPropagation();
                                     toggleExpand(latest.quote_id);
                                   }}
-                                  className="mt-0.5 rounded p-0.5 hover:bg-muted"
+                                  className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-border/60 text-muted-foreground hover:bg-accent hover:text-foreground"
                                   aria-label="展開版本"
                                 >
                                   {expanded ? (
@@ -347,23 +387,42 @@ export function CustomerQuoteSchemesView() {
                                   )}
                                 </button>
                               ) : (
-                                <span className="w-4" />
+                                <span className="inline-block w-6 shrink-0" />
                               )}
                               <div className="min-w-0">
-                                <p className="truncate font-mono-data text-xs font-semibold">
-                                  {row.quote_id}{' '}
-                                  <span className="text-primary">
-                                    {displayQuoteVersion(row.version)}
-                                  </span>
-                                  {isLatest && versions.length > 1 ? (
-                                    <span className="ml-1 text-[10px] font-normal text-muted-foreground">
-                                      · {versions.length} 版
+                                {!isLatest ? (
+                                  <div className="flex items-center gap-2">
+                                    <span className="shrink-0 rounded border border-border/80 bg-muted/50 px-2 py-0.5 font-body text-[10px] font-semibold text-muted-foreground">
+                                      舊版
                                     </span>
-                                  ) : null}
-                                </p>
-                                <p className="truncate font-body text-[11px] text-muted-foreground">
-                                  {clientNameOf(row)}
-                                </p>
+                                    <span className="truncate font-mono-data text-[11px] text-muted-foreground/80">
+                                      {displayQuoteVersion(row.version)}
+                                    </span>
+                                  </div>
+                                ) : (
+                                  <>
+                                    <div className="flex items-center gap-2">
+                                      <p className="truncate font-body text-sm font-semibold text-primary">
+                                        {title}
+                                      </p>
+                                      {versions.length > 1 ? (
+                                        <span className="shrink-0 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 font-body text-[10px] font-semibold text-primary">
+                                          {versions.length} 版
+                                        </span>
+                                      ) : null}
+                                    </div>
+                                    <p className="mt-0.5 truncate font-mono-data text-[11px] text-muted-foreground">
+                                      {row.quote_id}
+                                      {client && client !== '—' && client !== title
+                                        ? ` · ${client}`
+                                        : ''}
+                                      <span className="text-primary/80">
+                                        {' '}
+                                        {displayQuoteVersion(row.version)}
+                                      </span>
+                                    </p>
+                                  </>
+                                )}
                               </div>
                             </div>
                           </td>
@@ -400,11 +459,12 @@ export function CustomerQuoteSchemesView() {
             <div className="space-y-4">
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>
-                  <h2 className="font-display text-lg font-bold">
-                    {active.quote_id} · {displayQuoteVersion(active.version)}
+                  <h2 className="font-display text-lg font-bold text-primary">
+                    {quoteDisplayName(active)}
                   </h2>
-                  <p className="mt-1 font-body text-sm text-muted-foreground">
-                    {clientNameOf(active)} · {fmtMoney(active.total_amount)}
+                  <p className="mt-1 font-mono-data text-sm text-muted-foreground">
+                    {active.quote_id} · {displayQuoteVersion(active.version)} ·{' '}
+                    {fmtMoney(active.total_amount)}
                   </p>
                 </div>
                 <select
