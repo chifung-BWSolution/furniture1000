@@ -4,10 +4,11 @@ import { Check, ChevronRight, ChevronLeft, Sparkles, Loader2, Search } from 'luc
 import { QuotationDraftEditor } from '@/components/dashboard/QuotationDraftEditor';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
-import { deleteDraft, loadDraft, makeDraftKey } from '@/lib/draftStore';
+import { deleteDraft, makeDraftKey } from '@/lib/draftStore';
 import { useAuth } from '@/contexts/AuthProvider';
 import type { QuotationPDFData } from '@/types/quotation-pdf';
 import {
+  markUseLocalQuoteDraft,
   quickQuoteFormKey,
   quickQuoteStepKey,
   readQuickQuoteCopyFrom,
@@ -266,6 +267,8 @@ export function QuickQuoteView({
       if (!editingQuoteId && !loadedQuoteData) {
         assignedDraftQuoteIdRef.current = nextQuoteId;
         writeQuickQuoteEditingId(userEmail, nextQuoteId);
+        // Prefer local draft after AI 產生報價 — Supabase row only exists after 版本審核.
+        markUseLocalQuoteDraft(userEmail, nextQuoteId);
         onAssignEditingQuoteId?.(nextQuoteId);
       }
     },
@@ -589,39 +592,47 @@ export function QuickQuoteView({
         }
 
         if (!data) {
+          // From 報價一覽 we always pass uuid/version — missing row is a real error.
+          // AI 產生報價 assigns a synthetic /quote/<id> BEFORE 版本審核 writes bwf_quote.
+          // That first navigation must open the local step-4 editor, not toast「報價單不存在」.
+          const openedAsExisting =
+            Boolean(editingQuoteUuid) || Boolean(editingQuoteVersion);
           const savedStep = readQuickQuoteStep(userEmail);
-          const draftKey = makeDraftKey(userEmail, editingQuoteId);
-          let hasLocalDraft = false;
+          const isAssignedDraft =
+            assignedDraftQuoteIdRef.current === editingQuoteId ||
+            shouldUseLocalQuoteDraft(userEmail, editingQuoteId);
+          const isLegacyDraftId = /^Q\d{4}-\d{4}-\d{3}$/.test(editingQuoteId);
+          const canOpenLocalDraft =
+            !openedAsExisting &&
+            (savedStep === 4 || isAssignedDraft || isLegacyDraftId);
+
+          if (!canOpenLocalDraft) {
+            throw new Error('報價單不存在');
+          }
+
           try {
-            hasLocalDraft = Boolean(await loadDraft(draftKey));
-          } catch {
-            hasLocalDraft = false;
-          }
-          if (savedStep === 4 && hasLocalDraft) {
-            try {
-              const raw = sessionStorage.getItem(quickQuoteFormKey(userEmail));
-              if (raw) {
-                const parsed = normalizeQuoteFormData(JSON.parse(raw));
-                setFormData(parsed);
-                if (parsed.pmsPitchingId || parsed.pmsProjectId) {
-                  const label = [parsed.quoteId, parsed.clientName]
-                    .filter(Boolean)
-                    .join(' · ');
-                  setSelectedPitchingLabel(
-                    label || parsed.pmsPitchingId || parsed.pmsProjectId || null,
-                  );
-                }
+            const raw = sessionStorage.getItem(quickQuoteFormKey(userEmail));
+            if (raw) {
+              const parsed = normalizeQuoteFormData(JSON.parse(raw));
+              setFormData(parsed);
+              if (parsed.pmsPitchingId || parsed.pmsProjectId) {
+                const label = [parsed.quoteId, parsed.clientName]
+                  .filter(Boolean)
+                  .join(' · ');
+                setSelectedPitchingLabel(
+                  label || parsed.pmsPitchingId || parsed.pmsProjectId || null,
+                );
               }
-            } catch {
-              // ignore
             }
-            assignedDraftQuoteIdRef.current = editingQuoteId;
-            loadedQuoteIdRef.current = loadKey;
-            setIsQuotationReady(true);
-            setCurrentStep(4);
-            return;
+          } catch {
+            // ignore
           }
-          throw new Error('報價單不存在');
+          assignedDraftQuoteIdRef.current = editingQuoteId;
+          markUseLocalQuoteDraft(userEmail, editingQuoteId);
+          loadedQuoteIdRef.current = loadKey;
+          setIsQuotationReady(true);
+          setCurrentStep(4);
+          return;
         }
 
         const maxVersionInChain = await fetchMaxVersionForQuote(
