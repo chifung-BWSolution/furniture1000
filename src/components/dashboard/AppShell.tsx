@@ -112,9 +112,6 @@ const SolutionProjectListView = lazy(() =>
 const DesignProjectsView = lazy(() =>
   import("./solutions/DesignProjectsView").then((mod) => ({ default: mod.DesignProjectsView }))
 );
-const ProductSearchView = lazy(() =>
-  import("./solutions/ProductSearchView").then((mod) => ({ default: mod.ProductSearchView }))
-);
 const InviteClientsView = lazy(() =>
   import("./solutions/InviteClientsView").then((mod) => ({ default: mod.InviteClientsView }))
 );
@@ -198,7 +195,6 @@ const SELF_LOADING_VIEWS = new Set<ViewType>([
   "quotation-list",
   "solution-project-list",
   "design-projects",
-  "product-search",
   "invite-clients",
   "confirmed-projects",
   "solution-client-activity",
@@ -716,7 +712,8 @@ export function AppShell() {
       case "design-projects":
         return <DesignProjectsView />;
       case "product-search":
-        return <ProductSearchView />;
+        // 產品搜尋已併入「設計專案」右上角「選擇產品」
+        return <DesignProjectsView />;
       case "invite-clients":
         return <InviteClientsView />;
       case "confirmed-projects":

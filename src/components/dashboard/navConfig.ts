@@ -41,7 +41,6 @@ export const NAV_CONFIG: PrimaryItem[] = [
     children: [
       { view: 'solution-project-list', label: '方案列表', icon: Map },
       { view: 'design-projects', label: '設計專案', icon: LayoutDashboard },
-      { view: 'product-search', label: '產品搜尋', icon: Search },
       { view: 'invite-clients', label: '邀請客戶', icon: UserPlus },
       { view: 'confirmed-projects', label: '已確定方案', icon: CheckCircle2 },
       { view: 'solution-client-activity', label: '客戶互動', icon: Activity },

@@ -1,231 +1,272 @@
-import { useState, useEffect, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import {
-  Plus, Upload, Sparkles, GripVertical, Save, Trash2, Pencil,
-  LayoutGrid, ImageIcon, ChevronDown, Check, Loader2, X, CornerUpLeft, Wand2,
+  Plus, Minus, DoorOpen, ChevronDown, ChevronUp, Loader2, Search,
+  PackagePlus, Check, X, LayoutGrid, Sparkles,
 } from 'lucide-react';
 import {
-  fetchProjects, fetchZones, fetchZoneProducts,
-  createProject, saveProject, updateZoneProductStatus, bulkUpdateZoneProductStatus,
-  assignZoneProductToZone, unassignZoneProduct, updateProjectFloorPlan,
-  createZone, updateZone, deleteZone,
+  fetchProjects, fetchZones, fetchZoneProducts, fetchSearchProducts,
+  createZone, deleteZone, createZoneProduct, updateZoneProductStatus,
+  saveProject, updateProjectFloorPlan,
 } from '@/lib/solutionsApi';
-import { generateFloorPlanDataUrl, defaultZoneSeeds, isGeneratedFloorPlan } from '@/lib/floorPlanGenerator';
+import { generateFloorPlanDataUrl } from '@/lib/floorPlanGenerator';
+import { consumeSolutionFocusProjectId } from '@/lib/solutionProjectFocus';
 import {
-  consumeSolutionFocusProjectId,
-  writeSolutionFocusProjectId,
-} from '@/lib/solutionProjectFocus';
-import { useAppStore } from '@/hooks/use-app-store';
+  EXISTING_PARTITION_OPTIONS,
+  PROJECT_TYPE_OPTIONS,
+  defaultRoomCounts,
+  inferProjectType,
+  projectTypeLabel,
+  roomsForProjectType,
+  zoneSeedsFromRoomCounts,
+  type ExistingPartitionMode,
+  type ProjectEngineeringType,
+} from '@/lib/projectPartitionTemplates';
+import { PRODUCT_CATEGORIES } from '@/constants/solutions-mock';
 import { toast } from 'sonner';
 import {
-  ZONE_PRODUCT_STATUS_META, type ZoneProductStatus, type SchemeLabel,
-  type DesignProject, type ProjectZone, type ZoneProduct,
+  ZONE_PRODUCT_STATUS_META,
+  type DesignProject,
+  type ProjectZone,
+  type ZoneProduct,
+  type SearchProduct,
+  type ZoneProductStatus,
 } from '@/types/solutions';
 
-const STATUS_OPTIONS: ZoneProductStatus[] = ['confirmed', 'discussing', 'pending'];
+function countRoomsFromZones(
+  type: ProjectEngineeringType,
+  zones: ProjectZone[],
+): Record<string, number> {
+  const rooms = roomsForProjectType(type);
+  const counts = defaultRoomCounts(type);
+  for (const r of rooms) counts[r.key] = 0;
+  for (const z of zones) {
+    const match = rooms.find(
+      (r) => z.name === r.label || z.name.startsWith(`${r.label} `) || z.code?.startsWith(r.codePrefix),
+    );
+    if (match) counts[match.key] = (counts[match.key] || 0) + 1;
+  }
+  return counts;
+}
 
 export function DesignProjectsView() {
-  const store = useAppStore();
   const [projects, setProjects] = useState<DesignProject[]>([]);
-  const [activeProjectId, setActiveProjectId] = useState<string>('');
-  const [scheme, setScheme] = useState<SchemeLabel>('A');
-  const [allZones, setAllZones] = useState<ProjectZone[]>([]);
-  const [allZoneProducts, setAllZoneProducts] = useState<ZoneProduct[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [activeProjectId, setActiveProjectId] = useState('');
+  const [zones, setZones] = useState<ProjectZone[]>([]);
+  const [zoneProducts, setZoneProducts] = useState<ZoneProduct[]>([]);
   const [projectsLoaded, setProjectsLoaded] = useState(false);
-  const [isSaving, setIsSaving] = useState(false);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [floorPlan, setFloorPlan] = useState<string | null>(null);
-  const [dragOverZoneId, setDragOverZoneId] = useState<string | null>(null);
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const draggingIdRef = useRef<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [partitionOpen, setPartitionOpen] = useState(true);
+  const [floorOpen, setFloorOpen] = useState(false);
+  const [syncingRooms, setSyncingRooms] = useState(false);
 
-  // Load project list once — honour focus id from 方案列表
+  const [projectType, setProjectType] = useState<ProjectEngineeringType>('office');
+  const [existingPartition, setExistingPartition] =
+    useState<ExistingPartitionMode>('none');
+  const [roomCounts, setRoomCounts] = useState<Record<string, number>>({});
+
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerZoneId, setPickerZoneId] = useState<string | null>(null);
+  const [products, setProducts] = useState<SearchProduct[]>([]);
+  const [productsLoading, setProductsLoading] = useState(false);
+  const [keyword, setKeyword] = useState('');
+  const [category, setCategory] = useState('全部');
+
   useEffect(() => {
     const focusId = consumeSolutionFocusProjectId();
-    fetchProjects().then((rows) => {
-      setProjects(rows);
-      if (focusId && rows.some((r) => r.id === focusId)) {
-        setActiveProjectId(focusId);
-      } else if (rows.length > 0) {
-        setActiveProjectId((cur) => cur || rows[0].id);
-      }
-    }).finally(() => setProjectsLoaded(true));
+    fetchProjects()
+      .then((rows) => {
+        setProjects(rows);
+        if (focusId && rows.some((r) => r.id === focusId)) {
+          setActiveProjectId(focusId);
+        } else if (rows.length > 0) {
+          setActiveProjectId((cur) => cur || rows[0].id);
+        }
+      })
+      .finally(() => setProjectsLoaded(true));
   }, []);
 
-  // --- write handlers ---
-  const handleCreateProject = async () => {
-    const name = window.prompt('輸入新專案名稱：');
-    if (!name?.trim()) return;
-    const res = await createProject({ name: name.trim() });
-    if (res.ok && res.data) {
-      setProjects((prev) => [res.data!, ...prev]);
-      setActiveProjectId(res.data.id);
-      toast.success('已建立專案', { description: res.data.name });
-    } else {
-      toast.error('建立失敗', { description: res.error });
+  const reloadZones = useCallback(async (projectId: string) => {
+    setLoading(true);
+    const [z, zp] = await Promise.all([
+      fetchZones(projectId),
+      fetchZoneProducts(projectId),
+    ]);
+    setZones(z);
+    setZoneProducts(zp);
+    setLoading(false);
+    return z;
+  }, []);
+
+  useEffect(() => {
+    if (!activeProjectId) return;
+    const project = projects.find((p) => p.id === activeProjectId);
+    const type =
+      project?.meta?.projectType ||
+      inferProjectType(project?.name || '', project?.clientCompany);
+    setProjectType(type);
+    setExistingPartition(project?.meta?.existingPartition || 'none');
+
+    reloadZones(activeProjectId).then((z) => {
+      const fromMeta = project?.meta?.roomCounts;
+      if (fromMeta && Object.keys(fromMeta).length > 0) {
+        setRoomCounts({ ...defaultRoomCounts(type), ...fromMeta });
+      } else if (z.length > 0) {
+        setRoomCounts(countRoomsFromZones(type, z));
+      } else {
+        setRoomCounts(defaultRoomCounts(type));
+      }
+    });
+  }, [activeProjectId, projects, reloadZones]);
+
+  const project = projects.find((p) => p.id === activeProjectId) || null;
+  const roomTemplates = useMemo(() => roomsForProjectType(projectType), [projectType]);
+
+  const persistMeta = async (next: {
+    projectType?: ProjectEngineeringType;
+    existingPartition?: ExistingPartitionMode;
+    roomCounts?: Record<string, number>;
+  }) => {
+    if (!project) return;
+    const meta = {
+      ...project.meta,
+      projectType: next.projectType ?? projectType,
+      existingPartition: next.existingPartition ?? existingPartition,
+      roomCounts: next.roomCounts ?? roomCounts,
+    };
+    const res = await saveProject(project.id, { meta });
+    if (res.ok) {
+      setProjects((prev) =>
+        prev.map((p) => (p.id === project.id ? { ...p, meta } : p)),
+      );
     }
   };
 
-  const handleSaveVersion = async () => {
-    setIsSaving(true);
-    const res = await saveProject(activeProjectId, { activeScheme: scheme });
-    setIsSaving(false);
-    res.ok
-      ? toast.success('已儲存版本', { description: `方案 ${scheme}` })
-      : toast.error('儲存失敗', { description: res.error });
+  const syncZonesToCounts = async (
+    type: ProjectEngineeringType,
+    counts: Record<string, number>,
+  ) => {
+    if (!activeProjectId || syncingRooms) return;
+    setSyncingRooms(true);
+    try {
+      const desired = zoneSeedsFromRoomCounts(type, counts);
+      // Replace zones that have no products; keep zones with products when possible
+      const emptyZones = zones.filter(
+        (z) => !zoneProducts.some((zp) => zp.zoneId === z.id),
+      );
+      for (const z of emptyZones) {
+        await deleteZone(z.id);
+      }
+      const kept = zones.filter((z) =>
+        zoneProducts.some((zp) => zp.zoneId === z.id),
+      );
+      const created: ProjectZone[] = [...kept];
+      for (let i = 0; i < desired.length; i++) {
+        const seed = desired[i];
+        const already = kept.find(
+          (z) => z.name === seed.name || z.code === seed.code,
+        );
+        if (already) continue;
+        const res = await createZone({
+          projectId: activeProjectId,
+          name: seed.name,
+          code: seed.code,
+          bounds: seed.bounds,
+          aiSuggested: true,
+          sortOrder: i,
+        });
+        if (res.ok && res.data) created.push(res.data);
+      }
+      setZones(created);
+      const dataUrl = generateFloorPlanDataUrl(created, project?.name);
+      await updateProjectFloorPlan(activeProjectId, dataUrl, 'image/svg+xml');
+      setProjects((prev) =>
+        prev.map((p) =>
+          p.id === activeProjectId
+            ? { ...p, floorPlanUrl: dataUrl, floorPlanType: 'image/svg+xml' }
+            : p,
+        ),
+      );
+      await persistMeta({ projectType: type, roomCounts: counts });
+    } finally {
+      setSyncingRooms(false);
+    }
   };
 
-  const handleSetProductStatus = async (zoneProductId: string, status: ZoneProductStatus) => {
-    // optimistic update
-    setAllZoneProducts((prev) => prev.map((zp) => zp.id === zoneProductId ? { ...zp, status } : zp));
-    const res = await updateZoneProductStatus(zoneProductId, status);
+  const changeRoomQty = async (key: string, delta: number) => {
+    const next = {
+      ...roomCounts,
+      [key]: Math.max(0, Math.min(20, (roomCounts[key] || 0) + delta)),
+    };
+    setRoomCounts(next);
+    await syncZonesToCounts(projectType, next);
+  };
+
+  const changeProjectType = async (type: ProjectEngineeringType) => {
+    setProjectType(type);
+    const counts = defaultRoomCounts(type);
+    setRoomCounts(counts);
+    await syncZonesToCounts(type, counts);
+    toast.success(`已切換為${projectTypeLabel(type)}間隔模板`);
+  };
+
+  const openPicker = async (zoneId?: string | null) => {
+    setPickerZoneId(zoneId ?? null);
+    setPickerOpen(true);
+    if (products.length === 0) {
+      setProductsLoading(true);
+      fetchSearchProducts(80)
+        .then(setProducts)
+        .finally(() => setProductsLoading(false));
+    }
+  };
+
+  const addProductToZone = async (product: SearchProduct) => {
+    if (!activeProjectId) return;
+    const zoneId = pickerZoneId || zones[0]?.id || null;
+    if (!zoneId) {
+      toast.error('請先設定間隔數量');
+      return;
+    }
+    const res = await createZoneProduct({
+      projectId: activeProjectId,
+      zoneId,
+      productId: product.id,
+      productTitle: product.title,
+      productImageUrl: product.imageUrl,
+      salePrice: product.salePrice,
+      scheme: project?.activeScheme || 'A',
+      quantity: 1,
+      status: 'pending',
+    });
+    if (res.ok && res.data) {
+      setZoneProducts((prev) => [...prev, res.data!]);
+      toast.success('已加入間隔', {
+        description: `${product.title} → ${zones.find((z) => z.id === zoneId)?.name || '間隔'}`,
+      });
+    } else {
+      toast.error('加入失敗', { description: res.error });
+    }
+  };
+
+  const setStatus = async (id: string, status: ZoneProductStatus) => {
+    setZoneProducts((prev) =>
+      prev.map((zp) => (zp.id === id ? { ...zp, status } : zp)),
+    );
+    const res = await updateZoneProductStatus(id, status);
     if (!res.ok) toast.error('更新失敗', { description: res.error });
   };
 
-  // --- generate a floor plan from the project's zones (seeding zones if none) ---
-  const handleGenerateFloorPlan = async () => {
-    if (!activeProjectId || isGenerating) return;
-    setIsGenerating(true);
-    try {
-      let zonesForPlan = allZones;
-
-      // No zones yet → create the default AI-suggested set first.
-      if (zonesForPlan.length === 0) {
-        const seeds = defaultZoneSeeds();
-        const created: ProjectZone[] = [];
-        for (let i = 0; i < seeds.length; i++) {
-          const s = seeds[i];
-          const res = await createZone({
-            projectId: activeProjectId,
-            name: s.name,
-            code: s.code,
-            bounds: s.bounds,
-            aiSuggested: true,
-            sortOrder: i,
-          });
-          if (!res.ok || !res.data) throw new Error(res.error || '建立分區失敗');
-          created.push(res.data);
-        }
-        zonesForPlan = created;
-        setAllZones(created);
+  const filteredProducts = useMemo(() => {
+    const q = keyword.trim().toLowerCase();
+    return products.filter((p) => {
+      if (q && !p.title.toLowerCase().includes(q) && !p.description.toLowerCase().includes(q)) {
+        return false;
       }
-
-      const dataUrl = generateFloorPlanDataUrl(zonesForPlan, project?.name);
-      setFloorPlan(dataUrl);
-      const res = await updateProjectFloorPlan(activeProjectId, dataUrl, 'image/svg+xml');
-      if (res.ok) {
-        setProjects((prev) => prev.map((p) =>
-          p.id === activeProjectId ? { ...p, floorPlanUrl: dataUrl, floorPlanType: 'image/svg+xml' } : p));
-        toast.success('已生成平面圖', { description: `${zonesForPlan.length} 個分區` });
-      } else {
-        toast.message('平面圖已顯示，但未寫入資料庫', { description: res.error });
-      }
-    } catch (e) {
-      toast.error('生成平面圖失敗', { description: e instanceof Error ? e.message : '請稍後再試' });
-    } finally {
-      setIsGenerating(false);
-    }
-  };
-
-  // --- zone rename / delete ---
-  const handleRenameZone = async (zone: ProjectZone) => {
-    const name = window.prompt('分區名稱：', zone.name);
-    if (name === null) return;
-    const trimmed = name.trim();
-    if (!trimmed || trimmed === zone.name) return;
-    setAllZones((prev) => prev.map((z) => z.id === zone.id ? { ...z, name: trimmed } : z));
-    const res = await updateZone(zone.id, { name: trimmed });
-    if (!res.ok) toast.error('重新命名失敗', { description: res.error });
-  };
-
-  const handleDeleteZone = async (zone: ProjectZone) => {
-    if (!window.confirm(`確定刪除分區「${zone.name}」？該區產品會移回設計籃。`)) return;
-    setAllZones((prev) => prev.filter((z) => z.id !== zone.id));
-    setAllZoneProducts((prev) => prev.map((zp) => zp.zoneId === zone.id ? { ...zp, zoneId: null } : zp));
-    const res = await deleteZone(zone.id);
-    res.ok ? toast.success('已刪除分區') : toast.error('刪除失敗', { description: res.error });
-  };
-
-  // --- floor plan upload ---
-  const handleFloorPlanFile = async (file: File) => {
-    const okType = /\.(pdf|jpe?g|png)$/i.test(file.name);
-    if (!okType) { toast.error('檔案格式不支援', { description: '請上傳 PDF / JPG / PNG' }); return; }
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const dataUrl = reader.result as string;
-      setFloorPlan(dataUrl);
-      toast.success('平面圖已上傳', { description: file.name });
-      if (activeProjectId) {
-        // persist (data URL kept short for demo; large files may exceed column — best-effort)
-        const res = await updateProjectFloorPlan(activeProjectId, dataUrl, file.type || 'image');
-        if (!res.ok) toast.message('平面圖已顯示，但未寫入資料庫', { description: res.error });
-      }
-    };
-    reader.readAsDataURL(file);
-  };
-
-  // --- drag & drop: basket → zone ---
-  const handleDropOnZone = async (zoneId: string) => {
-    const id = draggingIdRef.current;
-    draggingIdRef.current = null;
-    setDragOverZoneId(null);
-    if (!id) return;
-    // assign to zone under the currently active scheme so it shows in the table
-    setAllZoneProducts((prev) => prev.map((zp) => zp.id === id ? { ...zp, zoneId, scheme } : zp));
-    const res = await assignZoneProductToZone(id, zoneId, scheme);
-    res.ok
-      ? toast.success('已分配到分區')
-      : toast.message('已分配（畫面）', { description: res.error });
-  };
-
-  const handleMoveToBasket = async (zoneProductId: string) => {
-    setAllZoneProducts((prev) => prev.map((zp) => zp.id === zoneProductId ? { ...zp, zoneId: null } : zp));
-    const res = await unassignZoneProduct(zoneProductId);
-    if (!res.ok) toast.message('已移回設計籃（畫面）', { description: res.error });
-  };
-
-  const toggleSelect = (id: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
+      if (category !== '全部' && p.category !== category) return false;
+      return true;
     });
-  };
-
-  const handleBulkConfirm = async () => {
-    const ids = Array.from(selectedIds);
-    if (ids.length === 0) { toast.message('請先勾選產品'); return; }
-    setAllZoneProducts((prev) => prev.map((zp) => ids.includes(zp.id) ? { ...zp, status: 'confirmed' } : zp));
-    setSelectedIds(new Set());
-    const res = await bulkUpdateZoneProductStatus(ids, 'confirmed');
-    res.ok
-      ? toast.success(`已將 ${ids.length} 件標為已確定`)
-      : toast.error('批量更新失敗', { description: res.error });
-  };
-
-  // Load zones + products when active project changes
-  useEffect(() => {
-    if (!activeProjectId) return;
-    setIsLoading(true);
-    setSelectedIds(new Set());
-    Promise.all([fetchZones(activeProjectId), fetchZoneProducts(activeProjectId)])
-      .then(([z, zp]) => { setAllZones(z); setAllZoneProducts(zp); })
-      .finally(() => setIsLoading(false));
-  }, [activeProjectId]);
-
-  // reflect the active project's stored floor plan
-  useEffect(() => {
-    const p = projects.find((x) => x.id === activeProjectId);
-    setFloorPlan(p?.floorPlanUrl ?? null);
-  }, [activeProjectId, projects]);
-
-  const project = projects.find((p) => p.id === activeProjectId);
-  const zones = allZones;
-  // zone_id NULL = 設計籃；其餘為已分配到分區的產品
-  const zoneProducts = allZoneProducts.filter((zp) => zp.zoneId && zp.scheme === scheme);
-  const basket = allZoneProducts.filter((zp) => !zp.zoneId);
+  }, [products, keyword, category]);
 
   if (!project) {
     if (!projectsLoaded) {
@@ -236,387 +277,392 @@ export function DesignProjectsView() {
       );
     }
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-4 bg-background p-8 text-center">
-        <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary/10">
-          <LayoutGrid className="h-8 w-8 text-primary" />
-        </div>
-        <div>
-          <h2 className="font-display text-lg font-bold">尚無設計專案</h2>
-          <p className="mt-1 font-body text-sm text-muted-foreground">建立第一個專案以開始規劃分區與產品方案</p>
-        </div>
-        <button
-          onClick={handleCreateProject}
-          className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground shadow-sm transition-opacity hover:opacity-90"
-        >
-          <Plus className="h-3.5 w-3.5" /> 建立新專案
-        </button>
+      <div className="flex h-full flex-col items-center justify-center gap-3 bg-background p-8 text-center">
+        <LayoutGrid className="h-10 w-10 text-muted-foreground/40" />
+        <h2 className="font-display text-lg font-bold">尚無設計專案</h2>
+        <p className="text-sm text-muted-foreground">請先到「方案列表」建立專案並上傳平面圖</p>
       </div>
     );
   }
 
   return (
-    <div className="flex h-full flex-col overflow-y-auto bg-background">
-      {/* Toolbar */}
-      <div className="sticky top-0 z-20 flex shrink-0 items-center justify-between gap-3 border-b border-border bg-muted/30 px-6 py-3 backdrop-blur">
-        <div className="flex items-center gap-3">
-          {/* Project switcher */}
-          <div className="relative">
-            <select
-              value={activeProjectId}
-              onChange={(e) => setActiveProjectId(e.target.value)}
-              className="h-9 appearance-none rounded-lg border border-border bg-card pl-3 pr-9 font-display text-sm font-semibold text-foreground focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
-            >
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
-            <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          </div>
-          {/* Scheme tabs */}
-          <div className="flex items-center gap-1 rounded-lg border border-border bg-card p-0.5">
-            {(['A', 'B'] as SchemeLabel[]).map((s) => (
+    <div className="h-full overflow-y-auto bg-background">
+      {/* Header */}
+      <div className="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/40 px-5 py-3 backdrop-blur">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <select
+            value={activeProjectId}
+            onChange={(e) => setActiveProjectId(e.target.value)}
+            className="h-9 max-w-[260px] truncate rounded-lg border border-border bg-card px-3 font-display text-sm font-semibold"
+          >
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+          <span className="rounded-full bg-primary/10 px-2.5 py-1 font-body text-[11px] font-medium text-primary">
+            {projectTypeLabel(projectType)}
+          </span>
+          <span className="hidden font-body text-xs text-muted-foreground sm:inline">
+            {[project.clientCompany, project.clientName].filter(Boolean).join(' · ') || '未填客戶'}
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={() => openPicker(null)}
+          className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 font-body text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90"
+        >
+          <PackagePlus className="h-4 w-4" />
+          選擇產品
+        </button>
+      </div>
+
+      <div className="mx-auto max-w-5xl space-y-4 p-5 md:p-6">
+        {/* Engineering type */}
+        <section className="rounded-xl border border-border bg-card p-4 shadow-sm">
+          <p className="mb-2 font-body text-xs font-medium text-muted-foreground">
+            工程類型（決定可見間隔）
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {PROJECT_TYPE_OPTIONS.map((opt) => (
               <button
-                key={s}
-                onClick={() => setScheme(s)}
+                key={opt.id}
+                type="button"
+                onClick={() => changeProjectType(opt.id)}
                 className={cn(
-                  'rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
-                  scheme === s ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+                  'rounded-full border px-3 py-1.5 font-body text-xs font-medium transition-colors',
+                  projectType === opt.id
+                    ? 'border-primary bg-primary/10 text-primary'
+                    : 'border-border text-muted-foreground hover:text-foreground',
                 )}
+                title={opt.hint}
               >
-                方案 {s}
+                {opt.label}
               </button>
             ))}
           </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={handleSaveVersion}
-            disabled={isSaving}
-            className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
-          >
-            {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />} 儲存版本
-          </button>
-          <button
-            onClick={handleGenerateFloorPlan}
-            disabled={isGenerating}
-            className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-primary to-primary/80 px-3.5 py-2 text-xs font-semibold text-primary-foreground shadow-sm transition-opacity hover:opacity-90 disabled:opacity-50"
-          >
-            {isGenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
-            AI 建議分區與產品組合
-          </button>
+        </section>
+
+        {/* 間隔 / 功能房間 */}
+        <section className="rounded-xl border border-border bg-card shadow-sm">
           <button
             type="button"
-            onClick={() => {
-              if (activeProjectId) writeSolutionFocusProjectId(activeProjectId);
-              store.setCurrentView('invite-clients');
-            }}
-            disabled={!activeProjectId}
-            className="flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 px-3.5 py-2 text-xs font-semibold text-primary transition-colors hover:bg-primary/15 disabled:opacity-50"
+            onClick={() => setPartitionOpen((v) => !v)}
+            className="flex w-full items-center justify-between px-4 py-3"
           >
-            產生邀請連結
-          </button>
-          <button
-            onClick={handleCreateProject}
-            className="flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-xs font-semibold text-primary-foreground shadow-sm transition-opacity hover:opacity-90"
-          >
-            <Plus className="h-3.5 w-3.5" /> 建立新專案
-          </button>
-        </div>
-      </div>
-
-      {/* Main split: floor plan (left) + design basket (right).
-          Fixed, generous height so both columns are tall regardless of the
-          page's outer layout — the whole floor plan is visible without
-          scrolling and the basket shows several products at once. */}
-      <div className="flex h-[560px] shrink-0 overflow-hidden">
-        {/* Floor plan area */}
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden p-6">
-          <div className="mb-3 flex items-center gap-2">
-            <LayoutGrid className="h-4 w-4 text-primary" />
-            <h2 className="font-display text-sm font-bold">平面圖分區</h2>
-            <span className="font-mono-data text-[11px] text-muted-foreground">
-              {zones.length} 個分區 · AI 自動建議
+            <span className="inline-flex items-center gap-2 font-display text-sm font-bold">
+              <DoorOpen className="h-4 w-4 text-primary" />
+              間隔／功能房間
+              {syncingRooms ? <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" /> : null}
             </span>
-            <button
-              onClick={handleGenerateFloorPlan}
-              disabled={isGenerating}
-              className="ml-auto flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/5 px-2.5 py-1.5 text-[11px] font-semibold text-primary transition-colors hover:bg-primary/10 disabled:opacity-50"
-            >
-              {isGenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}
-              {zones.length === 0 ? '生成平面圖與分區' : '生成平面圖'}
-            </button>
-          </div>
-
-          {/* hidden file input for floor plan upload */}
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".pdf,.jpg,.jpeg,.png,image/*"
-            className="hidden"
-            onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFloorPlanFile(f); e.target.value = ''; }}
-          />
-
-          {/* Floor plan canvas with draggable zones — fills the section height */}
-          <div
-            className="relative min-h-0 w-full flex-1 overflow-hidden rounded-xl border-2 border-dashed border-border bg-muted/20"
-            onDragOver={(e) => { if (!draggingIdRef.current) e.preventDefault(); }}
-            onDrop={(e) => {
-              // file drop for floor plan (only when not dragging a product)
-              if (draggingIdRef.current) return;
-              e.preventDefault();
-              const f = e.dataTransfer.files?.[0];
-              if (f) handleFloorPlanFile(f);
-            }}
-          >
-            {/* uploaded floor plan image */}
-            {floorPlan && !floorPlan.startsWith('data:application/pdf') && (
-              <img
-                src={floorPlan}
-                alt="平面圖"
-                className={cn(
-                  'absolute inset-0 h-full w-full',
-                  // generated SVG stretches to fill so it aligns 1:1 with zone boxes;
-                  // uploaded images keep their aspect ratio
-                  isGeneratedFloorPlan(floorPlan) ? 'object-fill' : 'object-contain'
-                )}
-              />
+            {partitionOpen ? (
+              <ChevronUp className="h-4 w-4 text-muted-foreground" />
+            ) : (
+              <ChevronDown className="h-4 w-4 text-muted-foreground" />
             )}
-            {floorPlan && floorPlan.startsWith('data:application/pdf') && (
-              <div className="absolute inset-0 flex items-center justify-center text-xs text-muted-foreground">
-                已上傳 PDF 平面圖
-              </div>
-            )}
+          </button>
 
-            {/* upload + generate hint overlay — only when no floor plan yet */}
-            {!floorPlan && (
-              <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3">
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  className="flex items-center gap-2 rounded-full border border-border bg-card/90 px-3 py-1.5 shadow-sm backdrop-blur transition-colors hover:border-primary/50 hover:text-primary"
-                >
-                  <Upload className="h-3.5 w-3.5 text-primary" />
-                  <span className="text-[11px] font-medium text-muted-foreground">
-                    點擊或拖拉上傳平面圖（PDF / JPG / PNG）
-                  </span>
-                </button>
-                <div className="flex items-center gap-2 text-[11px] text-muted-foreground/60">
-                  <span className="h-px w-8 bg-border" /> 或 <span className="h-px w-8 bg-border" />
-                </div>
-                <button
-                  onClick={handleGenerateFloorPlan}
-                  disabled={isGenerating}
-                  className="flex items-center gap-2 rounded-full bg-gradient-to-r from-primary to-primary/80 px-4 py-2 text-[11px] font-semibold text-primary-foreground shadow-sm transition-opacity hover:opacity-90 disabled:opacity-50"
-                >
-                  {isGenerating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Wand2 className="h-3.5 w-3.5" />}
-                  {zones.length === 0 ? '生成平面圖與分區' : '依分區生成平面圖'}
-                </button>
-              </div>
-            )}
-            {/* replace button when a floor plan exists */}
-            {floorPlan && (
-              <div className="absolute right-3 top-3 z-10 flex gap-1.5">
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  className="flex items-center gap-1 rounded-full border border-border bg-card/90 px-2.5 py-1 text-[10.5px] font-medium text-muted-foreground shadow-sm backdrop-blur hover:text-primary"
-                >
-                  <Upload className="h-3 w-3" /> 更換
-                </button>
-                <button
-                  onClick={() => { setFloorPlan(null); if (activeProjectId) updateProjectFloorPlan(activeProjectId, '', ''); }}
-                  className="flex items-center gap-1 rounded-full border border-border bg-card/90 px-2.5 py-1 text-[10.5px] font-medium text-rose-500 shadow-sm backdrop-blur hover:bg-rose-500/10"
-                >
-                  <X className="h-3 w-3" /> 移除
-                </button>
-              </div>
-            )}
-
-            {/* zone boxes — drop targets for basket products */}
-            {zones.map((z) => (
-              <div
-                key={z.id}
-                onDragOver={(e) => { if (draggingIdRef.current) { e.preventDefault(); setDragOverZoneId(z.id); } }}
-                onDragLeave={() => setDragOverZoneId((cur) => cur === z.id ? null : cur)}
-                onDrop={(e) => { e.preventDefault(); e.stopPropagation(); handleDropOnZone(z.id); }}
-                className={cn(
-                  'group absolute rounded-lg border-2 transition-colors',
-                  dragOverZoneId === z.id
-                    ? 'border-primary bg-primary/20 ring-2 ring-primary/30'
-                    : 'border-primary/40 bg-primary/5 hover:border-primary hover:bg-primary/10'
-                )}
-                style={{ left: `${z.bounds.x}%`, top: `${z.bounds.y}%`, width: `${z.bounds.w}%`, height: `${z.bounds.h}%` }}
-              >
-                <div className="flex items-center justify-between gap-1 px-2 py-1">
-                  <span className="flex items-center gap-1.5 truncate font-display text-[11px] font-bold text-primary">
-                    {z.code && <span className="rounded bg-primary/15 px-1 py-0.5 font-mono-data text-[9px]">{z.code}</span>}
-                    {z.name}
-                  </span>
-                  <span className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+          {partitionOpen ? (
+            <div className="space-y-5 border-t border-border px-4 py-4">
+              <div>
+                <p className="mb-2 font-body text-xs font-medium text-muted-foreground">現有間隔</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {EXISTING_PARTITION_OPTIONS.map((opt) => (
                     <button
-                      onClick={(e) => { e.stopPropagation(); handleRenameZone(z); }}
-                      className="rounded p-0.5 text-primary/70 hover:bg-primary/15 hover:text-primary"
-                    ><Pencil className="h-3 w-3" /></button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleDeleteZone(z); }}
-                      className="rounded p-0.5 text-rose-400/70 hover:bg-rose-500/15 hover:text-rose-500"
-                    ><Trash2 className="h-3 w-3" /></button>
-                  </span>
-                </div>
-                {/* products assigned to this zone (current scheme) */}
-                <div className="flex flex-wrap gap-1 px-2">
-                  {zoneProducts.filter((zp) => zp.zoneId === z.id).map((zp) => (
-                    <span key={zp.id} className="flex items-center gap-1 rounded bg-card/80 px-1.5 py-0.5 text-[9.5px] font-medium text-foreground shadow-sm">
-                      {zp.productTitle}
-                    </span>
+                      key={opt.id}
+                      type="button"
+                      onClick={() => {
+                        setExistingPartition(opt.id);
+                        void persistMeta({ existingPartition: opt.id });
+                      }}
+                      className={cn(
+                        'rounded-full border px-3 py-1.5 font-body text-xs font-medium transition-colors',
+                        existingPartition === opt.id
+                          ? 'border-primary bg-primary/10 text-primary'
+                          : 'border-border text-muted-foreground hover:text-foreground',
+                      )}
+                    >
+                      {opt.label}
+                    </button>
                   ))}
                 </div>
-                {z.aiSuggested && (
-                  <span className="absolute bottom-1 right-1 flex items-center gap-0.5 rounded bg-primary/15 px-1 py-0.5 text-[8px] font-medium text-primary">
-                    <Sparkles className="h-2.5 w-2.5" /> AI
-                  </span>
-                )}
               </div>
-            ))}
-          </div>
-          <p className="mt-2 text-center text-[11px] text-muted-foreground/70">
-            上傳平面圖後 AI 自動建議分區，支援拖拉調整範圍、重新命名、刪除。將右側設計籃產品拖入分區即可分配。
-          </p>
-        </div>
 
-        {/* Design basket */}
-        <aside className="flex w-[300px] shrink-0 flex-col border-l border-border bg-sidebar">
-          <div className="flex items-center justify-between border-b border-border/60 px-4 py-3">
-            <div className="flex items-center gap-2">
-              <ImageIcon className="h-4 w-4 text-primary" />
-              <h3 className="font-display text-sm font-bold">設計籃</h3>
+              <div>
+                <p className="mb-2 font-body text-xs font-medium text-muted-foreground">
+                  新建房間類型（數量）— {projectTypeLabel(projectType)}
+                </p>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {roomTemplates.map((room) => (
+                    <div
+                      key={room.key}
+                      className="flex items-center justify-between gap-3 rounded-lg border border-border/80 px-3 py-2"
+                    >
+                      <span className="font-body text-sm">{room.label}</span>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          disabled={syncingRooms}
+                          onClick={() => changeRoomQty(room.key, -1)}
+                          className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/10 text-primary hover:bg-primary/15 disabled:opacity-40"
+                        >
+                          <Minus className="h-3.5 w-3.5" />
+                        </button>
+                        <span className="w-6 text-center font-mono-data text-sm font-semibold">
+                          {roomCounts[room.key] || 0}
+                        </span>
+                        <button
+                          type="button"
+                          disabled={syncingRooms}
+                          onClick={() => changeRoomQty(room.key, 1)}
+                          className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/10 text-primary hover:bg-primary/15 disabled:opacity-40"
+                        >
+                          <Plus className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-2 flex items-center gap-1 font-body text-[11px] text-muted-foreground">
+                  <Sparkles className="h-3 w-3 text-primary" />
+                  調整數量後會同步文字間隔清單，設計師／PM 可為各間隔配置傢俬
+                </p>
+              </div>
             </div>
-            <span className="rounded-full bg-primary/10 px-2 py-0.5 font-mono-data text-[11px] font-semibold text-primary">
-              {basket.length}
+          ) : null}
+        </section>
+
+        {/* Text zone list + furniture */}
+        <section className="space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <h2 className="font-display text-sm font-bold">間隔清單與傢俬配置</h2>
+            <span className="font-mono-data text-[11px] text-muted-foreground">
+              {zones.length} 個間隔 · {zoneProducts.filter((z) => z.zoneId).length} 件產品
             </span>
           </div>
-          <div className="flex-1 space-y-2 overflow-y-auto p-3">
-            {basket.map((item) => (
-              <div
-                key={item.id}
-                draggable
-                onDragStart={() => { draggingIdRef.current = item.id; }}
-                onDragEnd={() => { draggingIdRef.current = null; setDragOverZoneId(null); }}
-                className="group flex cursor-grab items-center gap-2.5 rounded-lg border border-border bg-card p-2 transition-shadow hover:shadow-sm active:cursor-grabbing"
-              >
-                <GripVertical className="h-4 w-4 shrink-0 text-muted-foreground/40" />
-                <img src={item.productImageUrl} alt={item.productTitle} loading="lazy" className="h-11 w-11 shrink-0 rounded-md object-cover bg-muted" />
-                <div className="min-w-0 flex-1">
-                  <p className="truncate font-body text-[12.5px] font-medium text-foreground">{item.productTitle}</p>
-                  <p className="font-mono-data text-[11px] text-primary">${item.salePrice.toLocaleString()}</p>
-                </div>
-              </div>
-            ))}
-            {basket.length === 0 && (
-              <p className="py-8 text-center text-[11px] text-muted-foreground/60">
-                設計籃已清空，所有產品皆已分配到分區
-              </p>
-            )}
-          </div>
-          <div className="border-t border-border/60 p-3">
-            <p className="text-center text-[10.5px] text-muted-foreground/70">
-              拖拉產品至左側分區即可分配
-            </p>
-          </div>
-        </aside>
-      </div>
 
-      {/* Product allocation table */}
-      <div className="shrink-0 border-t border-border bg-card">
-        <div className="flex items-center justify-between px-6 py-2.5">
-          <h3 className="font-display text-sm font-bold">產品分配表（方案 {scheme}）</h3>
-          <button
-            onClick={handleBulkConfirm}
-            disabled={selectedIds.size === 0}
-            className="flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
-          >
-            <Check className="h-3.5 w-3.5" /> 批量標為已確定{selectedIds.size > 0 ? `（${selectedIds.size}）` : ''}
-          </button>
-        </div>
-        <div className="max-h-[230px] overflow-auto">
-          <table className="w-full text-sm">
-            <thead className="sticky top-0 bg-muted/50 text-[11px] uppercase tracking-wider text-muted-foreground">
-              <tr>
-                <th className="px-6 py-2 text-left font-medium">
-                  <input
-                    type="checkbox"
-                    className="rounded border-border"
-                    checked={zoneProducts.length > 0 && zoneProducts.every((zp) => selectedIds.has(zp.id))}
-                    onChange={(e) => setSelectedIds(e.target.checked ? new Set(zoneProducts.map((zp) => zp.id)) : new Set())}
-                  />
-                </th>
-                <th className="px-3 py-2 text-left font-medium">產品</th>
-                <th className="px-3 py-2 text-left font-medium">分區</th>
-                <th className="px-3 py-2 text-right font-medium">售價</th>
-                <th className="px-3 py-2 text-center font-medium">數量</th>
-                <th className="px-3 py-2 text-left font-medium">狀態</th>
-                <th className="px-3 py-2 text-center font-medium"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border/60">
-              {zoneProducts.map((zp) => {
-                const zoneName = zones.find((z) => z.id === zp.zoneId)?.name ?? '未分配';
-                return (
-                  <tr key={zp.id} className="hover:bg-muted/30">
-                    <td className="px-6 py-2">
-                      <input
-                        type="checkbox"
-                        className="rounded border-border"
-                        checked={selectedIds.has(zp.id)}
-                        onChange={() => toggleSelect(zp.id)}
-                      />
-                    </td>
-                    <td className="px-3 py-2">
-                      <div className="flex items-center gap-2.5">
-                        <img src={zp.productImageUrl} alt={zp.productTitle} loading="lazy" className="h-8 w-8 rounded object-cover bg-muted" />
-                        <span className="font-body text-[13px] text-foreground">{zp.productTitle}</span>
-                      </div>
-                    </td>
-                    <td className="px-3 py-2 text-muted-foreground">{zoneName}</td>
-                    <td className="px-3 py-2 text-right font-mono-data text-primary">${zp.salePrice.toLocaleString()}</td>
-                    <td className="px-3 py-2 text-center text-muted-foreground">{zp.quantity}</td>
-                    <td className="px-3 py-2">
-                      <div className="flex items-center gap-1">
-                        {STATUS_OPTIONS.map((s) => (
-                          <button
-                            key={s}
-                            onClick={() => handleSetProductStatus(zp.id, s)}
+          {loading ? (
+            <div className="flex justify-center py-10">
+              <Loader2 className="h-5 w-5 animate-spin text-primary" />
+            </div>
+          ) : zones.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">
+              請在上方設定房間數量，以產生間隔
+            </div>
+          ) : (
+            zones.map((zone) => {
+              const items = zoneProducts.filter((zp) => zp.zoneId === zone.id);
+              return (
+                <div
+                  key={zone.id}
+                  className="overflow-hidden rounded-xl border border-border bg-card shadow-sm"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/30 px-4 py-2.5">
+                    <div className="flex items-center gap-2">
+                      {zone.code ? (
+                        <span className="rounded bg-primary/15 px-1.5 py-0.5 font-mono-data text-[10px] text-primary">
+                          {zone.code}
+                        </span>
+                      ) : null}
+                      <h3 className="font-display text-sm font-bold">{zone.name}</h3>
+                      <span className="text-[11px] text-muted-foreground">{items.length} 件傢俬</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => openPicker(zone.id)}
+                      className="inline-flex items-center gap-1 rounded-md border border-primary/40 bg-primary/10 px-2.5 py-1 text-[11px] font-medium text-primary hover:bg-primary/15"
+                    >
+                      <Plus className="h-3 w-3" /> 加入產品
+                    </button>
+                  </div>
+                  {items.length === 0 ? (
+                    <p className="px-4 py-4 text-xs text-muted-foreground">尚未配置傢俬 — 按右上角「選擇產品」或本列「加入產品」</p>
+                  ) : (
+                    <ul className="divide-y divide-border/70">
+                      {items.map((item) => (
+                        <li key={item.id} className="flex items-center gap-3 px-4 py-2.5">
+                          <div className="h-11 w-11 overflow-hidden rounded-md bg-muted">
+                            {item.productImageUrl ? (
+                              <img
+                                src={item.productImageUrl}
+                                alt=""
+                                className="h-full w-full object-cover"
+                              />
+                            ) : null}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="truncate text-sm font-medium">{item.productTitle}</p>
+                            <p className="font-mono-data text-xs text-primary">
+                              ${Number(item.salePrice || 0).toLocaleString()} × {item.quantity}
+                            </p>
+                          </div>
+                          <select
+                            value={item.status}
+                            onChange={(e) =>
+                              setStatus(item.id, e.target.value as ZoneProductStatus)
+                            }
                             className={cn(
-                              'cursor-pointer rounded-full border px-2 py-0.5 text-[10.5px] font-medium transition-all',
-                              s === zp.status ? ZONE_PRODUCT_STATUS_META[s].className : 'border-transparent text-muted-foreground/40 hover:text-muted-foreground'
+                              'rounded-full border px-2 py-1 text-[11px] font-medium',
+                              ZONE_PRODUCT_STATUS_META[item.status]?.className,
                             )}
                           >
-                            {ZONE_PRODUCT_STATUS_META[s].label}
-                          </button>
-                        ))}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2 text-center">
-                      <button
-                        onClick={() => handleMoveToBasket(zp.id)}
-                        title="移回設計籃"
-                        className="rounded p-1 text-muted-foreground/60 hover:bg-muted hover:text-foreground"
-                      >
-                        <CornerUpLeft className="h-3.5 w-3.5" />
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-              {zoneProducts.length === 0 && (
-                <tr>
-                  <td colSpan={7} className="px-6 py-8 text-center text-[12px] text-muted-foreground/60">
-                    方案 {scheme} 尚未分配產品 — 將右側設計籃的產品拖入左側分區
-                  </td>
-                </tr>
+                            <option value="pending">未確定</option>
+                            <option value="discussing">待討論</option>
+                            <option value="confirmed">已確定</option>
+                          </select>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              );
+            })
+          )}
+        </section>
+
+        {/* Optional floor plan preview */}
+        <section className="rounded-xl border border-border bg-card shadow-sm">
+          <button
+            type="button"
+            onClick={() => setFloorOpen((v) => !v)}
+            className="flex w-full items-center justify-between px-4 py-3"
+          >
+            <span className="inline-flex items-center gap-2 font-display text-sm font-bold">
+              <LayoutGrid className="h-4 w-4 text-primary" />
+              平面圖預覽
+            </span>
+            {floorOpen ? (
+              <ChevronUp className="h-4 w-4 text-muted-foreground" />
+            ) : (
+              <ChevronDown className="h-4 w-4 text-muted-foreground" />
+            )}
+          </button>
+          {floorOpen ? (
+            <div className="border-t border-border p-4">
+              {project.floorPlanUrl ? (
+                <img
+                  src={project.floorPlanUrl}
+                  alt="平面圖"
+                  className="max-h-80 w-full rounded-lg border border-border object-contain bg-muted/20"
+                />
+              ) : (
+                <p className="py-8 text-center text-sm text-muted-foreground">
+                  尚未有平面圖 — 可在方案列表上傳，或調整間隔數量後自動產生示意
+                </p>
               )}
-            </tbody>
-          </table>
-        </div>
+            </div>
+          ) : null}
+        </section>
       </div>
+
+      {/* Product picker modal */}
+      {pickerOpen ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-3 sm:items-center">
+          <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-xl">
+            <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
+              <div>
+                <h3 className="font-display text-base font-bold">選擇產品</h3>
+                <p className="text-[11px] text-muted-foreground">
+                  加入至：
+                  {pickerZoneId
+                    ? zones.find((z) => z.id === pickerZoneId)?.name || '指定間隔'
+                    : zones[0]?.name || '第一個間隔'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPickerOpen(false)}
+                className="rounded-md p-1.5 hover:bg-muted"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="space-y-2 border-b border-border px-4 py-3">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <input
+                  value={keyword}
+                  onChange={(e) => setKeyword(e.target.value)}
+                  placeholder="搜尋產品…"
+                  className="w-full rounded-lg border border-border bg-background py-2 pl-9 pr-3 text-sm"
+                />
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                <select
+                  value={pickerZoneId || zones[0]?.id || ''}
+                  onChange={(e) => setPickerZoneId(e.target.value || null)}
+                  className="rounded-lg border border-border bg-background px-2 py-1.5 text-xs"
+                >
+                  {zones.map((z) => (
+                    <option key={z.id} value={z.id}>
+                      {z.code ? `${z.code} · ` : ''}
+                      {z.name}
+                    </option>
+                  ))}
+                </select>
+                {['全部', ...PRODUCT_CATEGORIES.filter((c) => c !== '全部')].slice(0, 8).map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => setCategory(c)}
+                    className={cn(
+                      'rounded-full border px-2.5 py-1 text-[11px]',
+                      category === c
+                        ? 'border-primary bg-primary text-primary-foreground'
+                        : 'border-border text-muted-foreground',
+                    )}
+                  >
+                    {c}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4">
+              {productsLoading ? (
+                <div className="flex justify-center py-16">
+                  <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                  {filteredProducts.map((p) => (
+                    <div
+                      key={p.id}
+                      className="overflow-hidden rounded-xl border border-border bg-background"
+                    >
+                      <div className="aspect-[4/3] bg-muted">
+                        {p.imageUrl ? (
+                          <img src={p.imageUrl} alt="" className="h-full w-full object-cover" />
+                        ) : null}
+                      </div>
+                      <div className="space-y-1.5 p-2.5">
+                        <p className="line-clamp-2 text-xs font-medium">{p.title}</p>
+                        <div className="flex items-center justify-between gap-1">
+                          <span className="font-mono-data text-xs font-bold text-primary">
+                            ${p.salePrice.toLocaleString()}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => addProductToZone(p)}
+                            className="inline-flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-[10px] font-medium text-primary-foreground"
+                          >
+                            <Check className="h-3 w-3" /> 加入
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {!productsLoading && filteredProducts.length === 0 ? (
+                <p className="py-12 text-center text-sm text-muted-foreground">找不到產品</p>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

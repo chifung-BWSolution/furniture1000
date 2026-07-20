@@ -1,0 +1,212 @@
+/**
+ * 工程類型 → 間隔／功能房間模板（前端設定，寫入 design_projects.meta）
+ */
+import type { ZoneBounds } from '@/types/solutions';
+
+export type ProjectEngineeringType = 'office' | 'school' | 'clinic' | 'hotel' | 'other';
+
+export type ExistingPartitionMode =
+  | 'full_demolish'
+  | 'partial_demolish'
+  | 'keep_all'
+  | 'raise_to_ceiling'
+  | 'none';
+
+export interface RoomTypeTemplate {
+  /** Stable key within a project type */
+  key: string;
+  label: string;
+  /** Short code prefix e.g. M / B / R */
+  codePrefix: string;
+}
+
+export const PROJECT_TYPE_OPTIONS: {
+  id: ProjectEngineeringType;
+  label: string;
+  hint: string;
+}[] = [
+  { id: 'office', label: '辦公室', hint: '會議室、經理房、開放式工作區…' },
+  { id: 'school', label: '學校', hint: '禮堂、校長室、教員室、課室…' },
+  { id: 'clinic', label: '醫療診所', hint: '咨詢室、接待大堂、洗手間…' },
+  { id: 'hotel', label: '酒店／接待', hint: '大堂、行政樓層、客房公區…' },
+  { id: 'other', label: '其他工程', hint: '通用間隔清單' },
+];
+
+export const EXISTING_PARTITION_OPTIONS: {
+  id: ExistingPartitionMode;
+  label: string;
+}[] = [
+  { id: 'full_demolish', label: '全部清拆' },
+  { id: 'partial_demolish', label: '部分清拆' },
+  { id: 'keep_all', label: '全部保留' },
+  { id: 'raise_to_ceiling', label: '現有間隔加高到真天花' },
+  { id: 'none', label: '沒有' },
+];
+
+const OFFICE_ROOMS: RoomTypeTemplate[] = [
+  { key: 'meeting', label: '會議室', codePrefix: 'M' },
+  { key: 'manager', label: '經理房', codePrefix: 'G' },
+  { key: 'director', label: '董事房', codePrefix: 'B' },
+  { key: 'pantry', label: '茶水間', codePrefix: 'P' },
+  { key: 'server', label: '伺服器房', codePrefix: 'S' },
+  { key: 'storage', label: '儲物房', codePrefix: 'ST' },
+  { key: 'reception', label: '接待處', codePrefix: 'R' },
+  { key: 'open', label: '開放式工作區', codePrefix: 'O' },
+  { key: 'phone', label: '電話房', codePrefix: 'PH' },
+  { key: 'restroom', label: '洗手間', codePrefix: 'WC' },
+  { key: 'other', label: '其他', codePrefix: 'X' },
+  { key: 'no_partition', label: '沒有間隔', codePrefix: 'NP' },
+];
+
+const SCHOOL_ROOMS: RoomTypeTemplate[] = [
+  { key: 'hall', label: '禮堂', codePrefix: 'H' },
+  { key: 'principal', label: '校長室', codePrefix: 'PR' },
+  { key: 'staff', label: '教員室', codePrefix: 'T' },
+  { key: 'classroom', label: '課室', codePrefix: 'C' },
+  { key: 'library', label: '圖書館', codePrefix: 'L' },
+  { key: 'lab', label: '實驗室', codePrefix: 'LAB' },
+  { key: 'reception', label: '接待處', codePrefix: 'R' },
+  { key: 'restroom', label: '洗手間', codePrefix: 'WC' },
+  { key: 'storage', label: '儲物房', codePrefix: 'ST' },
+  { key: 'other', label: '其他', codePrefix: 'X' },
+];
+
+const CLINIC_ROOMS: RoomTypeTemplate[] = [
+  { key: 'consult', label: '咨詢室', codePrefix: 'CN' },
+  { key: 'lobby', label: '接待大堂', codePrefix: 'R' },
+  { key: 'treatment', label: '醫生房／治療室', codePrefix: 'DR' },
+  { key: 'pharmacy', label: '藥房', codePrefix: 'PH' },
+  { key: 'waiting', label: '候診區', codePrefix: 'W' },
+  { key: 'restroom', label: '洗手間', codePrefix: 'WC' },
+  { key: 'storage', label: '儲物房', codePrefix: 'ST' },
+  { key: 'other', label: '其他', codePrefix: 'X' },
+];
+
+const HOTEL_ROOMS: RoomTypeTemplate[] = [
+  { key: 'lobby', label: '大堂', codePrefix: 'L' },
+  { key: 'lounge', label: '休閒區', codePrefix: 'LZ' },
+  { key: 'meeting', label: '會議室', codePrefix: 'M' },
+  { key: 'admin', label: '後勤／辦公', codePrefix: 'A' },
+  { key: 'pantry', label: '茶水間', codePrefix: 'P' },
+  { key: 'storage', label: '儲物房', codePrefix: 'ST' },
+  { key: 'restroom', label: '洗手間', codePrefix: 'WC' },
+  { key: 'other', label: '其他', codePrefix: 'X' },
+];
+
+const OTHER_ROOMS: RoomTypeTemplate[] = [
+  { key: 'open', label: '開放區', codePrefix: 'O' },
+  { key: 'meeting', label: '會議室', codePrefix: 'M' },
+  { key: 'storage', label: '儲物房', codePrefix: 'ST' },
+  { key: 'reception', label: '接待處', codePrefix: 'R' },
+  { key: 'restroom', label: '洗手間', codePrefix: 'WC' },
+  { key: 'other', label: '其他', codePrefix: 'X' },
+];
+
+export function roomsForProjectType(type: ProjectEngineeringType): RoomTypeTemplate[] {
+  switch (type) {
+    case 'office':
+      return OFFICE_ROOMS;
+    case 'school':
+      return SCHOOL_ROOMS;
+    case 'clinic':
+      return CLINIC_ROOMS;
+    case 'hotel':
+      return HOTEL_ROOMS;
+    default:
+      return OTHER_ROOMS;
+  }
+}
+
+export function projectTypeLabel(type: ProjectEngineeringType | string | null | undefined): string {
+  return PROJECT_TYPE_OPTIONS.find((o) => o.id === type)?.label || '未設定';
+}
+
+/** Guess type from project/client name when meta missing. */
+export function inferProjectType(name: string, clientCompany?: string | null): ProjectEngineeringType {
+  const text = `${name} ${clientCompany || ''}`.toLowerCase();
+  if (/學校|小學|中學|禮堂|課室|school|university|幼稚園/.test(text)) return 'school';
+  if (/診所|醫院|醫療|診所|clinic|hospital|牙科|醫/.test(text)) return 'clinic';
+  if (/酒店|酒店|hotel|大堂|客房/.test(text)) return 'hotel';
+  if (/辦公|辦公室|office|商務|cowork|共享/.test(text)) return 'office';
+  return 'office';
+}
+
+/** Default room counts when creating a new project of this type. */
+export function defaultRoomCounts(type: ProjectEngineeringType): Record<string, number> {
+  const rooms = roomsForProjectType(type);
+  const counts: Record<string, number> = {};
+  for (const r of rooms) counts[r.key] = 0;
+  if (type === 'office') {
+    counts.meeting = 1;
+    counts.manager = 1;
+    counts.reception = 1;
+    counts.open = 1;
+    counts.pantry = 1;
+  } else if (type === 'school') {
+    counts.classroom = 2;
+    counts.principal = 1;
+    counts.staff = 1;
+    counts.hall = 1;
+  } else if (type === 'clinic') {
+    counts.consult = 2;
+    counts.lobby = 1;
+    counts.treatment = 1;
+    counts.restroom = 1;
+  } else if (type === 'hotel') {
+    counts.lobby = 1;
+    counts.lounge = 1;
+    counts.meeting = 1;
+  } else {
+    counts.open = 1;
+    counts.meeting = 1;
+  }
+  return counts;
+}
+
+/** Layout seeds for floor-plan generator from selected room counts. */
+export function zoneSeedsFromRoomCounts(
+  type: ProjectEngineeringType,
+  counts: Record<string, number>,
+): { code: string; name: string; bounds: ZoneBounds; roomKey: string }[] {
+  const rooms = roomsForProjectType(type);
+  const seeds: { code: string; name: string; bounds: ZoneBounds; roomKey: string }[] = [];
+  const active = rooms.filter((r) => (counts[r.key] || 0) > 0 && r.key !== 'no_partition');
+  const total = active.reduce((n, r) => n + (counts[r.key] || 0), 0) || 1;
+  let index = 0;
+  for (const room of active) {
+    const qty = counts[room.key] || 0;
+    for (let i = 0; i < qty; i++) {
+      const col = index % 3;
+      const row = Math.floor(index / 3);
+      seeds.push({
+        code: `${room.codePrefix}${i + 1}`,
+        name: qty > 1 ? `${room.label} ${i + 1}` : room.label,
+        bounds: {
+          x: 6 + col * 31,
+          y: 8 + row * 30,
+          w: 28,
+          h: 26,
+        },
+        roomKey: room.key,
+      });
+      index += 1;
+      if (index >= Math.min(total, 12)) break;
+    }
+    if (index >= 12) break;
+  }
+  if (seeds.length === 0) {
+    seeds.push({
+      code: 'O1',
+      name: '開放區',
+      bounds: { x: 10, y: 10, w: 80, h: 70 },
+      roomKey: 'open',
+    });
+  }
+  return seeds;
+}
+
+export interface ProjectPartitionMeta {
+  projectType?: ProjectEngineeringType;
+  existingPartition?: ExistingPartitionMode;
+  roomCounts?: Record<string, number>;
+}

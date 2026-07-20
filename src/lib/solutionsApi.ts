@@ -16,6 +16,10 @@ import { withInsertAuditFields, withUpdateAuditFields } from '@/lib/pmsAudit';
 // ---------------------------------------------------------------------------
 /* eslint-disable @typescript-eslint/no-explicit-any */
 function mapProject(r: any): DesignProject {
+  const meta =
+    r.meta && typeof r.meta === 'object' && !Array.isArray(r.meta)
+      ? (r.meta as DesignProject['meta'])
+      : {};
   return {
     id: r.id,
     name: r.name,
@@ -29,6 +33,7 @@ function mapProject(r: any): DesignProject {
     createdBy: r.created_by ?? null,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
+    meta,
   };
 }
 
@@ -448,6 +453,7 @@ export async function createProject(input: {
   clientCompany?: string;
   floorPlanUrl?: string | null;
   floorPlanType?: string | null;
+  meta?: DesignProject['meta'];
 }): Promise<WriteResult<DesignProject>> {
   try {
     const insertPayload = await withInsertAuditFields({
@@ -459,6 +465,7 @@ export async function createProject(input: {
       status: 'draft',
       active_scheme: 'A',
       progress: 0,
+      meta: input.meta ?? {},
       created_by: 'CF',
     });
     const { data, error } = await supabase
@@ -476,7 +483,13 @@ export async function createProject(input: {
 /** Update project-level fields (e.g. save a version snapshot, change active scheme/progress). */
 export async function saveProject(
   projectId: string,
-  patch: { activeScheme?: string; progress?: number; status?: string; name?: string },
+  patch: {
+    activeScheme?: string;
+    progress?: number;
+    status?: string;
+    name?: string;
+    meta?: DesignProject['meta'];
+  },
 ): Promise<WriteResult> {
   try {
     const row: Record<string, unknown> = { updated_at: new Date().toISOString() };
@@ -484,12 +497,50 @@ export async function saveProject(
     if (patch.progress !== undefined) row.progress = patch.progress;
     if (patch.status !== undefined) row.status = patch.status;
     if (patch.name !== undefined) row.name = patch.name;
+    if (patch.meta !== undefined) row.meta = patch.meta;
     const updatePayload = await withUpdateAuditFields(row);
     const { error } = await supabase.from('design_projects').update(updatePayload).eq('id', projectId);
     if (error) return { ok: false, error: error.message };
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : '儲存失敗' };
+  }
+}
+
+/** Add a catalog product into a zone (or design basket when zoneId is null). */
+export async function createZoneProduct(input: {
+  projectId: string;
+  zoneId?: string | null;
+  productId?: string | null;
+  productTitle: string;
+  productImageUrl?: string;
+  salePrice?: number;
+  scheme?: string;
+  quantity?: number;
+  status?: string;
+}): Promise<WriteResult<ZoneProduct>> {
+  try {
+    const insertPayload = await withInsertAuditFields({
+      project_id: input.projectId,
+      zone_id: input.zoneId ?? null,
+      product_id: input.productId ?? null,
+      product_title: input.productTitle,
+      product_image_url: input.productImageUrl ?? '',
+      sale_price: input.salePrice ?? 0,
+      scheme: input.scheme ?? 'A',
+      status: input.status ?? 'pending',
+      quantity: input.quantity ?? 1,
+      sort_order: 0,
+    });
+    const { data, error } = await supabase
+      .from('zone_products')
+      .insert(insertPayload)
+      .select()
+      .single();
+    if (error) return { ok: false, error: error.message };
+    return { ok: true, data: mapZoneProduct(data) };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : '加入產品失敗' };
   }
 }
 

@@ -9,7 +9,14 @@ import {
   fetchProjects,
   updateProjectFloorPlan,
 } from '@/lib/solutionsApi';
-import { defaultZoneSeeds, generateFloorPlanDataUrl } from '@/lib/floorPlanGenerator';
+import { generateFloorPlanDataUrl } from '@/lib/floorPlanGenerator';
+import {
+  PROJECT_TYPE_OPTIONS,
+  defaultRoomCounts,
+  projectTypeLabel,
+  zoneSeedsFromRoomCounts,
+  type ProjectEngineeringType,
+} from '@/lib/projectPartitionTemplates';
 import { writeSolutionFocusProjectId } from '@/lib/solutionProjectFocus';
 import { useAppStore } from '@/hooks/use-app-store';
 import { toast } from 'sonner';
@@ -46,6 +53,7 @@ export function SolutionProjectListView() {
     name: '',
     clientCompany: '',
     clientName: '',
+    projectType: 'office' as ProjectEngineeringType,
   });
   const [floorPreview, setFloorPreview] = useState<string | null>(null);
   const [floorType, setFloorType] = useState<string | null>(null);
@@ -96,12 +104,18 @@ export function SolutionProjectListView() {
     }
     setCreating(true);
     try {
+      const roomCounts = defaultRoomCounts(form.projectType);
       const res = await createProject({
         name: form.name.trim(),
         clientName: form.clientName.trim() || undefined,
         clientCompany: form.clientCompany.trim() || undefined,
         floorPlanUrl: floorPreview,
         floorPlanType: floorType,
+        meta: {
+          projectType: form.projectType,
+          existingPartition: 'none',
+          roomCounts,
+        },
       });
       if (!res.ok || !res.data) {
         toast.error('建立失敗', { description: res.error });
@@ -109,8 +123,8 @@ export function SolutionProjectListView() {
       }
       const project = res.data;
 
-      // Auto-suggest zones after floor plan / create
-      const seeds = defaultZoneSeeds();
+      // Auto-suggest zones by engineering type (辦公室／學校／診所…)
+      const seeds = zoneSeedsFromRoomCounts(form.projectType, roomCounts);
       const createdZones = [];
       for (let i = 0; i < seeds.length; i++) {
         const s = seeds[i];
@@ -127,19 +141,24 @@ export function SolutionProjectListView() {
 
       if (!floorPreview && createdZones.length > 0) {
         const generated = generateFloorPlanDataUrl(createdZones);
-        await updateProjectFloorPlan(project.id, generated, 'image/png');
+        await updateProjectFloorPlan(project.id, generated, 'image/svg+xml');
         project.floorPlanUrl = generated;
-        project.floorPlanType = 'image/png';
+        project.floorPlanType = 'image/svg+xml';
       } else if (floorPreview) {
         await updateProjectFloorPlan(project.id, floorPreview, floorType || 'image/jpeg');
       }
 
+      project.meta = {
+        projectType: form.projectType,
+        existingPartition: 'none',
+        roomCounts,
+      };
       setProjects((prev) => [project, ...prev]);
       toast.success('已建立專案並產生分區建議', {
-        description: `${createdZones.map((z) => z.code || z.name).join('、') || project.name}`,
+        description: `${projectTypeLabel(form.projectType)} · ${createdZones.map((z) => z.code || z.name).join('、') || project.name}`,
       });
       setShowCreate(false);
-      setForm({ name: '', clientCompany: '', clientName: '' });
+      setForm({ name: '', clientCompany: '', clientName: '', projectType: 'office' });
       setFloorPreview(null);
       setFloorType(null);
       openProject(project.id);
@@ -155,7 +174,7 @@ export function SolutionProjectListView() {
           <div>
             <h1 className="font-display text-2xl font-bold tracking-tight">方案列表</h1>
             <p className="mt-1 font-body text-sm text-muted-foreground">
-              上傳平面圖建立傢俬方案，系統自動建議分區後進入設計專案
+              依工程類型（辦公室／學校／診所…）建立專案、上傳平面圖，自動建議間隔後進入設計專案配置傢俬
             </p>
           </div>
           <button
@@ -231,6 +250,11 @@ export function SolutionProjectListView() {
                     <span className="rounded-full bg-primary/10 px-2 py-0.5 font-body text-[11px] font-medium text-primary">
                       {statusLabel(p.status || 'draft')}
                     </span>
+                    {p.meta?.projectType ? (
+                      <span className="rounded-full border border-border px-2 py-0.5 font-body text-[11px] text-muted-foreground">
+                        {projectTypeLabel(p.meta.projectType)}
+                      </span>
+                    ) : null}
                   </div>
                   <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 font-body text-xs text-muted-foreground">
                     <span className="inline-flex items-center gap-1">
@@ -279,6 +303,27 @@ export function SolutionProjectListView() {
                   className="w-full rounded-lg border border-border bg-background px-3 py-2 font-body text-sm focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
                 />
               </label>
+              <div>
+                <span className="mb-1 block font-body text-xs font-medium text-muted-foreground">工程類型 *</span>
+                <div className="flex flex-wrap gap-1.5">
+                  {PROJECT_TYPE_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.id}
+                      type="button"
+                      onClick={() => setForm((f) => ({ ...f, projectType: opt.id }))}
+                      className={cn(
+                        'rounded-full border px-3 py-1.5 font-body text-xs font-medium',
+                        form.projectType === opt.id
+                          ? 'border-primary bg-primary/10 text-primary'
+                          : 'border-border text-muted-foreground',
+                      )}
+                      title={opt.hint}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
               <label className="block">
                 <span className="mb-1 block font-body text-xs font-medium text-muted-foreground">客戶公司</span>
                 <input

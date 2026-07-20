@@ -43,6 +43,19 @@ export interface ZoneProduct {
   sortOrder: number;
 }
 
+/** Stored in design_projects.meta (no schema change). */
+export interface DesignProjectMeta {
+  projectType?: 'office' | 'school' | 'clinic' | 'hotel' | 'other';
+  existingPartition?:
+    | 'full_demolish'
+    | 'partial_demolish'
+    | 'keep_all'
+    | 'raise_to_ceiling'
+    | 'none';
+  roomCounts?: Record<string, number>;
+  [key: string]: unknown;
+}
+
 export interface DesignProject {
   id: string;
   name: string;
@@ -56,6 +69,8 @@ export interface DesignProject {
   createdBy: string | null;
   createdAt: string;
   updatedAt: string;
+  /** JSON meta: projectType / roomCounts / existingPartition */
+  meta: DesignProjectMeta;
 }
 
 export interface ProjectInvitation {
