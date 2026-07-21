@@ -11,9 +11,14 @@ interface PrimaryTopNavProps {
   activeSection: PrimarySection;
   onSectionChange: (section: PrimarySection) => void;
   isConnected?: boolean;
+  clientOnly?: boolean;
 }
 
-export function PrimaryTopNav({ activeSection, onSectionChange }: PrimaryTopNavProps) {
+export function PrimaryTopNav({
+  activeSection,
+  onSectionChange,
+  clientOnly = false,
+}: PrimaryTopNavProps) {
   const { user, signOut } = useAuth();
   const staffName = usePmsStaffName(user?.id);
   return (
@@ -42,7 +47,7 @@ export function PrimaryTopNav({ activeSection, onSectionChange }: PrimaryTopNavP
 
       {/* Primary nav */}
       <nav className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
-        {NAV_CONFIG.map((p: PrimaryItem) => {
+        {NAV_CONFIG.filter((p) => !clientOnly || p.id === 'customers').map((p: PrimaryItem) => {
           const Icon = p.icon;
           const active = p.id === activeSection;
           return (

@@ -285,12 +285,12 @@ export function CustomerProductSearchView() {
 
       {filters.level1 && level2Options.length > 0 ? (
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[11px] font-medium text-muted-foreground">二級分類</span>
+          <span className="text-xs font-medium text-muted-foreground">二級分類</span>
           <button
             type="button"
             onClick={() => setFilters((f) => ({ ...f, level2: '' }))}
             className={cn(
-              'rounded-full border px-2.5 py-1 text-[11px] font-medium',
+              'rounded-full border px-2.5 py-1 text-xs font-medium',
               !filters.level2
                 ? 'border-primary/50 bg-primary/10 text-primary'
                 : 'border-border text-muted-foreground',
@@ -309,7 +309,7 @@ export function CustomerProductSearchView() {
                 }))
               }
               className={cn(
-                'rounded-full border px-2.5 py-1 text-[11px] font-medium',
+                'rounded-full border px-2.5 py-1 text-xs font-medium',
                 filters.level2 === l2
                   ? 'border-primary/50 bg-primary/10 text-primary'
                   : 'border-border text-muted-foreground hover:text-foreground',
@@ -334,14 +334,14 @@ export function CustomerProductSearchView() {
               <button
                 type="button"
                 onClick={() => setFilters(EMPTY_FILTERS)}
-                className="inline-flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+                className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
               >
                 <RotateCcw className="h-3 w-3" /> 重設
               </button>
             </div>
 
             <div>
-              <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Materials
               </p>
               {materialOptions.length === 0 ? (
@@ -370,12 +370,12 @@ export function CustomerProductSearchView() {
             </div>
 
             <div>
-              <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 價錢（HK$）
               </p>
               <div className="grid grid-cols-2 gap-2">
                 <label className="block">
-                  <span className="mb-1 block text-[10px] text-muted-foreground">下限</span>
+                  <span className="mb-1 block text-xs text-muted-foreground">下限</span>
                   <input
                     inputMode="numeric"
                     value={filters.priceMin}
@@ -387,7 +387,7 @@ export function CustomerProductSearchView() {
                   />
                 </label>
                 <label className="block">
-                  <span className="mb-1 block text-[10px] text-muted-foreground">上限</span>
+                  <span className="mb-1 block text-xs text-muted-foreground">上限</span>
                   <input
                     inputMode="numeric"
                     value={filters.priceMax}
@@ -399,13 +399,13 @@ export function CustomerProductSearchView() {
                   />
                 </label>
               </div>
-              <p className="mt-1 text-[10px] text-muted-foreground">
+              <p className="mt-1 text-xs text-muted-foreground">
                 例：上限 5000 → 只顯示 HK$5,000 以下
               </p>
             </div>
 
             <div>
-              <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 尺寸（米）· 約 ±15%
               </p>
               <div className="grid grid-cols-3 gap-2">
@@ -417,7 +417,7 @@ export function CustomerProductSearchView() {
                   ] as const
                 ).map(([key, label]) => (
                   <label key={key} className="block">
-                    <span className="mb-1 block text-[10px] text-muted-foreground">
+                    <span className="mb-1 block text-xs text-muted-foreground">
                       {label}
                     </span>
                     <input
@@ -432,7 +432,7 @@ export function CustomerProductSearchView() {
                   </label>
                 ))}
               </div>
-              <p className="mt-1 text-[10px] text-muted-foreground">
+              <p className="mt-1 text-xs text-muted-foreground">
                 例：長 1.5 → 約 1.5 米（1275–1725 mm）的產品
               </p>
             </div>
@@ -475,7 +475,7 @@ export function CustomerProductSearchView() {
                       <div className="p-3">
                         <div className="mb-1 flex flex-wrap gap-1">
                           {p.level1Category ? (
-                            <span className="rounded bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                            <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
                               {p.level1Category}
                               {p.level2Category ? ` / ${p.level2Category}` : ''}
                             </span>
@@ -485,12 +485,12 @@ export function CustomerProductSearchView() {
                           {p.title}
                         </h3>
                         {p.material && p.material !== '—' ? (
-                          <p className="mt-1 truncate font-body text-[11px] text-muted-foreground">
+                          <p className="mt-1 truncate font-body text-xs text-muted-foreground">
                             {p.material}
                           </p>
                         ) : null}
                         {dims ? (
-                          <p className="mt-0.5 font-mono-data text-[11px] text-muted-foreground">
+                          <p className="mt-0.5 font-mono-data text-xs text-muted-foreground">
                             {dims}
                           </p>
                         ) : null}
@@ -501,7 +501,7 @@ export function CustomerProductSearchView() {
                           <button
                             type="button"
                             onClick={() => addToCart(p)}
-                            className="inline-flex items-center gap-1 rounded-md border border-primary/40 bg-primary/10 px-2 py-1 text-[11px] font-medium text-primary hover:bg-primary/15"
+                            className="inline-flex items-center gap-1 rounded-md border border-primary/40 bg-primary/10 px-2 py-1 text-xs font-medium text-primary hover:bg-primary/15"
                           >
                             <Plus className="h-3 w-3" /> 加入
                           </button>

@@ -88,7 +88,7 @@ export function CustomerCompanyInfoView({ onOpenProject }: CustomerCompanyInfoVi
 
   return (
     <div className="h-full overflow-y-auto bg-background p-6 md:p-10">
-      <div className="mx-auto max-w-3xl space-y-6">
+      <div className="mx-auto max-w-5xl space-y-6">
         <div>
           <h1 className="font-display text-2xl font-bold tracking-tight">公司資料</h1>
           <p className="mt-1 font-body text-sm text-muted-foreground">
@@ -106,15 +106,15 @@ export function CustomerCompanyInfoView({ onOpenProject }: CustomerCompanyInfoVi
               </p>
               <div className="grid gap-3 sm:grid-cols-2">
                 <div className="rounded-lg bg-muted/30 p-3">
-                  <p className="text-[11px] font-medium text-muted-foreground">資質</p>
+                  <p className="text-xs font-medium text-muted-foreground">資質</p>
                   <p className="mt-1 text-xs leading-relaxed">{portal.credentials}</p>
                 </div>
                 <div className="rounded-lg bg-muted/30 p-3">
-                  <p className="text-[11px] font-medium text-muted-foreground">工廠／品質</p>
+                  <p className="text-xs font-medium text-muted-foreground">工廠／品質</p>
                   <p className="mt-1 text-xs leading-relaxed">{portal.factory}</p>
                 </div>
               </div>
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-xs text-muted-foreground">
                 得獎紀錄：{portal.awards}
               </p>
             </div>
@@ -172,7 +172,7 @@ export function CustomerCompanyInfoView({ onOpenProject }: CustomerCompanyInfoVi
           <div className="flex items-center gap-2 border-b border-border px-5 py-3">
             <FolderClock className="h-4 w-4 text-primary" />
             <h2 className="font-display text-sm font-bold">歷史專案</h2>
-            <span className="font-mono-data text-[11px] text-muted-foreground">{historyProjects.length} 個受邀專案</span>
+            <span className="font-mono-data text-xs text-muted-foreground">{historyProjects.length} 個受邀專案</span>
           </div>
           <div className="divide-y divide-border/60">
             {historyProjects.map((p) => (
@@ -184,7 +184,7 @@ export function CustomerCompanyInfoView({ onOpenProject }: CustomerCompanyInfoVi
               >
                 <div>
                   <p className="font-display text-[13.5px] font-semibold text-foreground">{p.name}</p>
-                  <p className="font-mono-data text-[11px] text-muted-foreground">
+                  <p className="font-mono-data text-xs text-muted-foreground">
                     {new Date(p.updatedAt).toLocaleDateString('zh-HK')} · {statusLabel(p)} · {p.progress}% 已確認
                   </p>
                 </div>
@@ -213,7 +213,7 @@ function Field({
 }) {
   return (
     <div>
-      <label className="mb-1.5 flex items-center gap-1 font-body text-[11.5px] font-medium text-muted-foreground">
+      <label className="mb-1.5 flex items-center gap-1 font-body text-xs font-medium text-muted-foreground">
         {icon} {label}
       </label>
       <input

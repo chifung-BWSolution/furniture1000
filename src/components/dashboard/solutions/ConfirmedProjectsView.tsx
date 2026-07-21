@@ -72,19 +72,22 @@ export function ConfirmedProjectsView() {
 
   return (
     <div className="h-full overflow-y-auto bg-background p-6 md:p-8">
-      <div className="mx-auto max-w-5xl space-y-6">
+      <div className="mx-auto max-w-7xl space-y-6">
         {/* Header */}
         <div className="flex flex-wrap items-end justify-between gap-3">
-          <div className="flex items-center gap-3">
-            <div className="relative">
-              <select value={projectId} onChange={(e) => setProjectId(e.target.value)} className="h-9 appearance-none rounded-lg border border-border bg-card pl-3 pr-9 font-display text-lg font-bold focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20">
+          <div>
+            <div className="flex items-center gap-3">
+              <h1 className="font-display text-2xl font-bold tracking-tight">已確定方案</h1>
+              <span className="flex items-center gap-1 rounded-full bg-emerald-500/15 px-2.5 py-1 text-xs font-medium text-emerald-600">
+                <CheckCircle2 className="h-3.5 w-3.5" /> 已確認
+              </span>
+            </div>
+            <div className="relative mt-3 max-w-xl">
+              <select value={projectId} onChange={(e) => setProjectId(e.target.value)} className="h-10 w-full appearance-none rounded-lg border border-border bg-card pl-3 pr-9 font-display text-sm font-semibold focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20">
                 {confirmedProjects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
               <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             </div>
-            <span className="flex items-center gap-1 rounded-full bg-emerald-500/15 px-2.5 py-1 text-[11px] font-medium text-emerald-600">
-              <CheckCircle2 className="h-3.5 w-3.5" /> 已確認
-            </span>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -129,7 +132,7 @@ export function ConfirmedProjectsView() {
               <div key={zone.id} className="overflow-hidden rounded-xl border border-border bg-card">
                 <div className="flex items-center justify-between border-b border-border bg-muted/30 px-5 py-2.5">
                   <h3 className="flex items-center gap-2 font-display text-sm font-bold">
-                    {zone.code && <span className="rounded bg-primary/15 px-1.5 py-0.5 font-mono-data text-[10px] text-primary">{zone.code}</span>}
+                    {zone.code && <span className="rounded bg-primary/15 px-1.5 py-0.5 font-mono-data text-xs text-primary">{zone.code}</span>}
                     {zone.name}
                   </h3>
                   <span className="font-mono-data text-[12px] text-muted-foreground">小計 ${zoneTotal.toLocaleString()}</span>
@@ -168,11 +171,11 @@ export function ConfirmedProjectsView() {
                 <div key={v.id} className={cn('flex items-center justify-between rounded-lg border px-3 py-2', v.current ? 'border-primary/30 bg-primary/5' : 'border-border')}>
                   <div className="flex items-center gap-2">
                     <span className="font-mono-data text-[12px] font-bold text-foreground">{v.label}</span>
-                    {v.current && <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-[9px] font-medium text-primary">目前</span>}
-                    <span className="text-[11px] text-muted-foreground">{v.note}</span>
+                    {v.current && <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-xs font-medium text-primary">目前</span>}
+                    <span className="text-xs text-muted-foreground">{v.note}</span>
                   </div>
                   <div className="flex items-center gap-1.5">
-                    <span className="font-mono-data text-[10.5px] text-muted-foreground/70">{fmt(v.date)}</span>
+                    <span className="font-mono-data text-xs text-muted-foreground/70">{fmt(v.date)}</span>
                     {!v.current && (
                       <>
                         <button className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground" title="重新載入"><RotateCcw className="h-3.5 w-3.5" /></button>
@@ -199,7 +202,7 @@ export function ConfirmedProjectsView() {
                   </div>
                   <div className="pb-2">
                     <p className="font-body text-[12.5px] text-foreground"><span className="font-semibold">{log.who}</span> {log.action}</p>
-                    <p className="font-mono-data text-[10.5px] text-muted-foreground/70">{fmt(log.at)}</p>
+                    <p className="font-mono-data text-xs text-muted-foreground/70">{fmt(log.at)}</p>
                   </div>
                 </div>
               ))}
@@ -214,7 +217,7 @@ export function ConfirmedProjectsView() {
 function SummaryCard({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
   return (
     <div className={cn('rounded-xl border bg-card p-4', highlight ? 'border-primary/30' : 'border-border')}>
-      <p className="font-body text-[11.5px] text-muted-foreground">{label}</p>
+      <p className="font-body text-xs text-muted-foreground">{label}</p>
       <p className={cn('mt-1 font-display text-xl font-bold', highlight ? 'text-primary' : 'text-foreground')}>{value}</p>
     </div>
   );

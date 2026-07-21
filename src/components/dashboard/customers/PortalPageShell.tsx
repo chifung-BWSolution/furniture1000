@@ -9,7 +9,7 @@ export function PortalPageShell({
   actions,
   children,
   className,
-  maxWidthClass = 'max-w-5xl',
+  maxWidthClass = 'max-w-7xl',
 }: {
   title: string;
   subtitle?: string;
@@ -27,7 +27,7 @@ export function PortalPageShell({
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="font-display text-2xl font-bold tracking-tight">{title}</h1>
               {badge ? (
-                <span className="rounded-full border border-primary/30 bg-primary/10 px-2.5 py-0.5 font-body text-[11px] font-medium text-primary">
+                <span className="rounded-full border border-primary/30 bg-primary/10 px-2.5 py-0.5 font-body text-xs font-medium text-primary">
                   {badge}
                 </span>
               ) : null}

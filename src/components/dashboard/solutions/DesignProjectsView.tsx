@@ -288,37 +288,47 @@ export function DesignProjectsView() {
   return (
     <div className="h-full overflow-y-auto bg-background">
       {/* Header */}
-      <div className="sticky top-0 z-20 flex flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/40 px-5 py-3 backdrop-blur">
-        <div className="flex min-w-0 flex-wrap items-center gap-2">
-          <select
-            value={activeProjectId}
-            onChange={(e) => setActiveProjectId(e.target.value)}
-            className="h-9 max-w-[260px] truncate rounded-lg border border-border bg-card px-3 font-display text-sm font-semibold"
+      <div className="sticky top-0 z-20 border-b border-border bg-background/95 backdrop-blur">
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-6 py-4 md:px-8">
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+              <h1 className="truncate font-display text-2xl font-bold tracking-tight">
+                設計專案
+              </h1>
+              <span className="rounded-full bg-primary/10 px-2.5 py-1 font-body text-xs font-medium text-primary">
+                {projectTypeLabel(projectType)}
+              </span>
+            </div>
+            <div className="mt-2 flex min-w-0 flex-wrap items-center gap-3">
+              <select
+                value={activeProjectId}
+                onChange={(e) => setActiveProjectId(e.target.value)}
+                className="h-10 min-w-[280px] max-w-xl flex-1 truncate rounded-lg border border-border bg-card px-3 font-display text-sm font-semibold"
+                aria-label="選擇設計專案"
+              >
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+              <span className="font-body text-sm text-muted-foreground">
+                {[project.clientCompany, project.clientName].filter(Boolean).join(' · ') || '未填客戶'}
+              </span>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => openPicker(null)}
+            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 font-body text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90"
           >
-            {projects.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-          <span className="rounded-full bg-primary/10 px-2.5 py-1 font-body text-[11px] font-medium text-primary">
-            {projectTypeLabel(projectType)}
-          </span>
-          <span className="hidden font-body text-xs text-muted-foreground sm:inline">
-            {[project.clientCompany, project.clientName].filter(Boolean).join(' · ') || '未填客戶'}
-          </span>
+            <PackagePlus className="h-4 w-4" />
+            選擇產品
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={() => openPicker(null)}
-          className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 font-body text-sm font-semibold text-primary-foreground shadow-sm hover:bg-primary/90"
-        >
-          <PackagePlus className="h-4 w-4" />
-          選擇產品
-        </button>
       </div>
 
-      <div className="mx-auto max-w-5xl space-y-4 p-5 md:p-6">
+      <div className="mx-auto max-w-7xl space-y-5 p-6 md:p-8">
         {/* Engineering type */}
         <section className="rounded-xl border border-border bg-card p-4 shadow-sm">
           <p className="mb-2 font-body text-xs font-medium text-muted-foreground">
@@ -424,7 +434,7 @@ export function DesignProjectsView() {
                     </div>
                   ))}
                 </div>
-                <p className="mt-2 flex items-center gap-1 font-body text-[11px] text-muted-foreground">
+                <p className="mt-2 flex items-center gap-1 font-body text-xs text-muted-foreground">
                   <Sparkles className="h-3 w-3 text-primary" />
                   調整數量後會同步文字間隔清單，設計師／PM 可為各間隔配置傢俬
                 </p>
@@ -437,7 +447,7 @@ export function DesignProjectsView() {
         <section className="space-y-3">
           <div className="flex items-center justify-between gap-2">
             <h2 className="font-display text-sm font-bold">間隔清單與傢俬配置</h2>
-            <span className="font-mono-data text-[11px] text-muted-foreground">
+            <span className="font-mono-data text-xs text-muted-foreground">
               {zones.length} 個間隔 · {zoneProducts.filter((z) => z.zoneId).length} 件產品
             </span>
           </div>
@@ -451,7 +461,8 @@ export function DesignProjectsView() {
               請在上方設定房間數量，以產生間隔
             </div>
           ) : (
-            zones.map((zone) => {
+            <div className="grid items-start gap-4 xl:grid-cols-2">
+            {zones.map((zone) => {
               const items = zoneProducts.filter((zp) => zp.zoneId === zone.id);
               return (
                 <div
@@ -461,17 +472,17 @@ export function DesignProjectsView() {
                   <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/30 px-4 py-2.5">
                     <div className="flex items-center gap-2">
                       {zone.code ? (
-                        <span className="rounded bg-primary/15 px-1.5 py-0.5 font-mono-data text-[10px] text-primary">
+                        <span className="rounded bg-primary/15 px-1.5 py-0.5 font-mono-data text-xs text-primary">
                           {zone.code}
                         </span>
                       ) : null}
                       <h3 className="font-display text-sm font-bold">{zone.name}</h3>
-                      <span className="text-[11px] text-muted-foreground">{items.length} 件傢俬</span>
+                      <span className="text-xs text-muted-foreground">{items.length} 件傢俬</span>
                     </div>
                     <button
                       type="button"
                       onClick={() => openPicker(zone.id)}
-                      className="inline-flex items-center gap-1 rounded-md border border-primary/40 bg-primary/10 px-2.5 py-1 text-[11px] font-medium text-primary hover:bg-primary/15"
+                      className="inline-flex items-center gap-1 rounded-md border border-primary/40 bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary hover:bg-primary/15"
                     >
                       <Plus className="h-3 w-3" /> 加入產品
                     </button>
@@ -503,7 +514,7 @@ export function DesignProjectsView() {
                               setStatus(item.id, e.target.value as ZoneProductStatus)
                             }
                             className={cn(
-                              'rounded-full border px-2 py-1 text-[11px] font-medium',
+                              'rounded-full border px-2 py-1 text-xs font-medium',
                               ZONE_PRODUCT_STATUS_META[item.status]?.className,
                             )}
                           >
@@ -517,7 +528,8 @@ export function DesignProjectsView() {
                   )}
                 </div>
               );
-            })
+            })}
+            </div>
           )}
         </section>
 
@@ -558,12 +570,12 @@ export function DesignProjectsView() {
 
       {/* Product picker modal */}
       {pickerOpen ? (
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-3 sm:items-center">
-          <div className="flex max-h-[90vh] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-xl">
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4 sm:items-center sm:p-6">
+          <div className="flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-xl">
             <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
               <div>
                 <h3 className="font-display text-base font-bold">選擇產品</h3>
-                <p className="text-[11px] text-muted-foreground">
+                <p className="text-xs text-muted-foreground">
                   加入至：
                   {pickerZoneId
                     ? zones.find((z) => z.id === pickerZoneId)?.name || '指定間隔'
@@ -608,7 +620,7 @@ export function DesignProjectsView() {
                     type="button"
                     onClick={() => setCategory(c)}
                     className={cn(
-                      'rounded-full border px-2.5 py-1 text-[11px]',
+                      'rounded-full border px-2.5 py-1 text-xs',
                       category === c
                         ? 'border-primary bg-primary text-primary-foreground'
                         : 'border-border text-muted-foreground',
@@ -626,7 +638,7 @@ export function DesignProjectsView() {
                   <Loader2 className="h-6 w-6 animate-spin text-primary" />
                 </div>
               ) : (
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
                   {filteredProducts.map((p) => (
                     <div
                       key={p.id}
@@ -646,7 +658,7 @@ export function DesignProjectsView() {
                           <button
                             type="button"
                             onClick={() => addProductToZone(p)}
-                            className="inline-flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-[10px] font-medium text-primary-foreground"
+                            className="inline-flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground"
                           >
                             <Check className="h-3 w-3" /> 加入
                           </button>

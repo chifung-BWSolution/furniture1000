@@ -299,7 +299,7 @@ export function CustomerPaymentDeliveryView() {
                         ) : null}
                       </div>
                       <div className="p-2">
-                        <p className="line-clamp-2 text-[11px] font-medium">{p.title}</p>
+                        <p className="line-clamp-2 text-xs font-medium">{p.title}</p>
                         <p className="mt-1 font-mono-data text-xs font-bold text-primary">
                           {fmtMoney(p.salePrice)}
                         </p>
@@ -465,7 +465,7 @@ export function CustomerPaymentDeliveryView() {
                   請於轉帳備註填寫您的電郵
                 </div>
               )}
-              <p className="flex items-center gap-1 text-[11px] text-muted-foreground">
+              <p className="flex items-center gap-1 text-xs text-muted-foreground">
                 <Lock className="h-3 w-3" /> 示意結帳頁 — 未串接真實支付閘道
               </p>
             </section>

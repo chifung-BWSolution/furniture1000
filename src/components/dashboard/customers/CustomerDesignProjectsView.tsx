@@ -113,10 +113,10 @@ export function CustomerDesignProjectsView({ initialProjectId }: CustomerDesignP
   if (!openProjectId) {
     return (
       <div className="h-full overflow-y-auto bg-background p-6 md:p-10">
-        <div className="mx-auto max-w-3xl">
+        <div className="mx-auto max-w-7xl">
           <h1 className="font-display text-2xl font-bold tracking-tight">我的設計專案</h1>
           <p className="mt-1 font-body text-sm text-muted-foreground">點擊專案查看分區與產品方案</p>
-          <div className="mt-6 space-y-3">
+          <div className="mt-6 grid gap-4 lg:grid-cols-2">
             {projects.map((p) => (
               <button
                 key={p.id}
@@ -131,7 +131,7 @@ export function CustomerDesignProjectsView({ initialProjectId }: CustomerDesignP
                   </p>
                   <div className="mt-2 max-w-xs">
                     <ClientProgressBar progress={p.progress} />
-                    <span className="mt-1 block font-mono-data text-[11px] text-muted-foreground">
+                    <span className="mt-1 block font-mono-data text-xs text-muted-foreground">
                       {p.progress}% 已確認
                     </span>
                   </div>
@@ -206,7 +206,7 @@ export function CustomerDesignProjectsView({ initialProjectId }: CustomerDesignP
                   type="button"
                   onClick={() => setActiveZoneId(null)}
                   className={cn(
-                    'rounded-full border px-3 py-1 text-[11px] font-medium transition-colors',
+                    'rounded-full border px-3 py-1 text-xs font-medium transition-colors',
                     !activeZoneId ? 'border-primary bg-primary text-primary-foreground' : 'border-border text-muted-foreground',
                   )}
                 >
@@ -218,7 +218,7 @@ export function CustomerDesignProjectsView({ initialProjectId }: CustomerDesignP
                     type="button"
                     onClick={() => setActiveZoneId(z.id)}
                     className={cn(
-                      'rounded-full border px-3 py-1 text-[11px] font-medium transition-colors',
+                      'rounded-full border px-3 py-1 text-xs font-medium transition-colors',
                       activeZoneId === z.id ? 'border-primary bg-primary text-primary-foreground' : 'border-border text-muted-foreground',
                     )}
                   >
@@ -240,7 +240,7 @@ export function CustomerDesignProjectsView({ initialProjectId }: CustomerDesignP
                     <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                       <h2 className="flex items-center gap-2 font-display text-base font-bold">
                         {zone.code && (
-                          <span className="rounded bg-primary/15 px-1.5 py-0.5 font-mono-data text-[10px] text-primary">
+                          <span className="rounded bg-primary/15 px-1.5 py-0.5 font-mono-data text-xs text-primary">
                             {zone.code}
                           </span>
                         )}
@@ -253,14 +253,14 @@ export function CustomerDesignProjectsView({ initialProjectId }: CustomerDesignP
                         <button
                           type="button"
                           onClick={() => void handleZoneAction(zone.id, 'confirmed', '確認')}
-                          className="flex items-center gap-1 rounded-lg bg-emerald-500/10 px-2.5 py-1.5 text-[10.5px] font-medium text-emerald-600 hover:bg-emerald-500/20"
+                          className="flex items-center gap-1 rounded-lg bg-emerald-500/10 px-2.5 py-1.5 text-xs font-medium text-emerald-600 hover:bg-emerald-500/20"
                         >
                           <CheckCircle2 className="h-3 w-3" /> 分區確認
                         </button>
                         <button
                           type="button"
                           onClick={() => void handleZoneAction(zone.id, 'discussing', '標記討論')}
-                          className="flex items-center gap-1 rounded-lg bg-amber-500/10 px-2.5 py-1.5 text-[10.5px] font-medium text-amber-600 hover:bg-amber-500/20"
+                          className="flex items-center gap-1 rounded-lg bg-amber-500/10 px-2.5 py-1.5 text-xs font-medium text-amber-600 hover:bg-amber-500/20"
                         >
                           <MessageCircle className="h-3 w-3" /> 分區討論
                         </button>
@@ -285,20 +285,20 @@ export function CustomerDesignProjectsView({ initialProjectId }: CustomerDesignP
                           <div className="p-3">
                             <div className="flex items-start justify-between gap-2">
                               <h3 className="font-display text-[13.5px] font-semibold text-foreground">{zp.productTitle}</h3>
-                              <span className={cn('shrink-0 rounded-full border px-2 py-0.5 text-[9px] font-medium', CLIENT_ZONE_STATUS_META[zp.status].className)}>
+                              <span className={cn('shrink-0 rounded-full border px-2 py-0.5 text-xs font-medium', CLIENT_ZONE_STATUS_META[zp.status].className)}>
                                 {CLIENT_ZONE_STATUS_META[zp.status].label}
                               </span>
                             </div>
                             <p className="mt-1 font-mono-data text-base font-bold text-primary">
                               ${zp.salePrice.toLocaleString()}
                             </p>
-                            <p className="text-[11px] text-muted-foreground">數量 × {zp.quantity} · 方案 {zp.scheme}</p>
+                            <p className="text-xs text-muted-foreground">數量 × {zp.quantity} · 方案 {zp.scheme}</p>
                             <div className="mt-2.5 grid grid-cols-3 gap-1">
                               <button
                                 type="button"
                                 onClick={() => void handleProductAction(zp.id, 'confirmed', '確認')}
                                 className={cn(
-                                  'flex items-center justify-center gap-0.5 rounded-lg px-1 py-1.5 text-[10.5px] font-medium transition-colors',
+                                  'flex items-center justify-center gap-0.5 rounded-lg px-1 py-1.5 text-xs font-medium transition-colors',
                                   zp.status === 'confirmed'
                                     ? 'bg-emerald-500/20 text-emerald-700 ring-1 ring-emerald-500/40'
                                     : 'bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20',
@@ -310,7 +310,7 @@ export function CustomerDesignProjectsView({ initialProjectId }: CustomerDesignP
                                 type="button"
                                 onClick={() => void handleProductAction(zp.id, 'discussing', '提出討論')}
                                 className={cn(
-                                  'flex items-center justify-center gap-0.5 rounded-lg px-1 py-1.5 text-[10.5px] font-medium transition-colors',
+                                  'flex items-center justify-center gap-0.5 rounded-lg px-1 py-1.5 text-xs font-medium transition-colors',
                                   zp.status === 'discussing'
                                     ? 'bg-amber-500/20 text-amber-700 ring-1 ring-amber-500/40'
                                     : 'bg-amber-500/10 text-amber-600 hover:bg-amber-500/20',
@@ -326,7 +326,7 @@ export function CustomerDesignProjectsView({ initialProjectId }: CustomerDesignP
                                   '要求修改',
                                   `客戶要求修改「${zp.productTitle}」@PM @設計師`,
                                 )}
-                                className="flex items-center justify-center gap-0.5 rounded-lg border border-border px-1 py-1.5 text-[10.5px] font-medium text-muted-foreground transition-colors hover:bg-accent"
+                                className="flex items-center justify-center gap-0.5 rounded-lg border border-border px-1 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent"
                               >
                                 <Edit3 className="h-3 w-3" /> 修改
                               </button>

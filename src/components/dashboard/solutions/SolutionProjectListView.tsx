@@ -169,7 +169,7 @@ export function SolutionProjectListView() {
 
   return (
     <div className="h-full overflow-y-auto bg-background p-6 md:p-8">
-      <div className="mx-auto max-w-5xl space-y-6">
+      <div className="mx-auto max-w-7xl space-y-6">
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
             <h1 className="font-display text-2xl font-bold tracking-tight">方案列表</h1>
@@ -247,11 +247,11 @@ export function SolutionProjectListView() {
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
                     <h2 className="truncate font-display text-base font-bold">{p.name}</h2>
-                    <span className="rounded-full bg-primary/10 px-2 py-0.5 font-body text-[11px] font-medium text-primary">
+                    <span className="rounded-full bg-primary/10 px-2 py-0.5 font-body text-xs font-medium text-primary">
                       {statusLabel(p.status || 'draft')}
                     </span>
                     {p.meta?.projectType ? (
-                      <span className="rounded-full border border-border px-2 py-0.5 font-body text-[11px] text-muted-foreground">
+                      <span className="rounded-full border border-border px-2 py-0.5 font-body text-xs text-muted-foreground">
                         {projectTypeLabel(p.meta.projectType)}
                       </span>
                     ) : null}
@@ -273,7 +273,7 @@ export function SolutionProjectListView() {
                         style={{ width: `${Math.min(100, Math.max(0, p.progress || 0))}%` }}
                       />
                     </div>
-                    <span className="font-mono-data text-[11px] text-muted-foreground">
+                    <span className="font-mono-data text-xs text-muted-foreground">
                       {p.progress || 0}% 已確認
                     </span>
                   </div>
@@ -287,13 +287,13 @@ export function SolutionProjectListView() {
 
       {showCreate && (
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4 sm:items-center">
-          <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl border border-border bg-card p-5 shadow-xl">
-            <h3 className="font-display text-lg font-bold">建立新專案</h3>
-            <p className="mt-1 font-body text-xs text-muted-foreground">
+          <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-border bg-card p-6 shadow-xl md:p-8">
+            <h3 className="font-display text-xl font-bold">建立新專案</h3>
+            <p className="mt-1 font-body text-sm text-muted-foreground">
               上傳平面圖（PDF/JPG）後，系統會自動產生分區建議（如 B1 老闆區、M1 會議室）
             </p>
 
-            <div className="mt-4 space-y-3">
+            <div className="mt-6 space-y-5">
               <label className="block">
                 <span className="mb-1 block font-body text-xs font-medium text-muted-foreground">專案名稱 *</span>
                 <input
@@ -324,24 +324,26 @@ export function SolutionProjectListView() {
                   ))}
                 </div>
               </div>
-              <label className="block">
-                <span className="mb-1 block font-body text-xs font-medium text-muted-foreground">客戶公司</span>
-                <input
-                  value={form.clientCompany}
-                  onChange={(e) => setForm((f) => ({ ...f, clientCompany: e.target.value }))}
-                  placeholder="公司名稱"
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2 font-body text-sm focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
-                />
-              </label>
-              <label className="block">
-                <span className="mb-1 block font-body text-xs font-medium text-muted-foreground">聯絡人</span>
-                <input
-                  value={form.clientName}
-                  onChange={(e) => setForm((f) => ({ ...f, clientName: e.target.value }))}
-                  placeholder="客戶聯絡人"
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2 font-body text-sm focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
-                />
-              </label>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="block">
+                  <span className="mb-1 block font-body text-xs font-medium text-muted-foreground">客戶公司</span>
+                  <input
+                    value={form.clientCompany}
+                    onChange={(e) => setForm((f) => ({ ...f, clientCompany: e.target.value }))}
+                    placeholder="公司名稱"
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2.5 font-body text-sm focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block font-body text-xs font-medium text-muted-foreground">聯絡人</span>
+                  <input
+                    value={form.clientName}
+                    onChange={(e) => setForm((f) => ({ ...f, clientName: e.target.value }))}
+                    placeholder="客戶聯絡人"
+                    className="w-full rounded-lg border border-border bg-background px-3 py-2.5 font-body text-sm focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  />
+                </label>
+              </div>
 
               <div>
                 <span className="mb-1 block font-body text-xs font-medium text-muted-foreground">平面圖（選填）</span>
@@ -355,7 +357,7 @@ export function SolutionProjectListView() {
                 <button
                   type="button"
                   onClick={() => fileRef.current?.click()}
-                  className="flex w-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-muted/20 px-4 py-6 text-center hover:border-primary/40"
+                  className="flex w-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-muted/20 px-4 py-10 text-center hover:border-primary/40"
                 >
                   {floorPreview && floorType?.startsWith('image/') ? (
                     <img src={floorPreview} alt="平面圖預覽" className="max-h-40 rounded-lg object-contain" />
@@ -368,7 +370,7 @@ export function SolutionProjectListView() {
                     </>
                   )}
                 </button>
-                <p className="mt-1.5 flex items-center gap-1 font-body text-[11px] text-muted-foreground">
+                <p className="mt-1.5 flex items-center gap-1 font-body text-xs text-muted-foreground">
                   <Sparkles className="h-3 w-3 text-primary" />
                   未上傳時亦會以 AI 建議分區並產生示意平面圖
                 </p>

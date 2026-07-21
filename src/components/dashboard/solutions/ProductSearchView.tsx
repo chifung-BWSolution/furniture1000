@@ -55,11 +55,11 @@ export function ProductSearchView() {
         <div className="flex items-center gap-2">
           <Search className="h-4 w-4 text-primary" />
           <h2 className="font-display text-sm font-bold">產品搜尋</h2>
-          <span className="font-mono-data text-[11px] text-muted-foreground">{results.length} 筆結果</span>
+          <span className="font-mono-data text-xs text-muted-foreground">{results.length} 筆結果</span>
         </div>
         <div className="flex items-center gap-2">
           {selected.size > 0 && (
-            <span className="rounded-full bg-primary/10 px-2.5 py-1 text-[11px] font-medium text-primary">
+            <span className="rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
               已選 {selected.size} 件
             </span>
           )}
@@ -81,7 +81,7 @@ export function ProductSearchView() {
           />
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <span className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
+          <span className="flex items-center gap-1 text-xs font-medium text-muted-foreground">
             <SlidersHorizontal className="h-3.5 w-3.5" /> 進階篩選
           </span>
           <FilterSelect value={category} onChange={setCategory} options={PRODUCT_CATEGORIES} label="分類" />
@@ -94,7 +94,7 @@ export function ProductSearchView() {
                 key={t}
                 onClick={() => setTierFilter(t)}
                 className={cn(
-                  'rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors',
+                  'rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
                   tierFilter === t ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'
                 )}
               >
@@ -133,24 +133,24 @@ export function ProductSearchView() {
                 <div key={p.id} className={cn('group flex flex-col overflow-hidden rounded-xl border bg-card transition-all hover:shadow-md', isSel ? 'border-primary ring-2 ring-primary/20' : 'border-border')}>
                   <div className="relative aspect-[4/3] bg-muted">
                     <img src={p.imageUrl} alt={p.title} loading="lazy" className="h-full w-full object-cover" />
-                    <span className={cn('absolute left-2 top-2 rounded-full border px-2 py-0.5 text-[10px] font-bold', TIER_META[p.tier].className)}>{TIER_META[p.tier].label}</span>
+                    <span className={cn('absolute left-2 top-2 rounded-full border px-2 py-0.5 text-xs font-bold', TIER_META[p.tier].className)}>{TIER_META[p.tier].label}</span>
                     <button onClick={() => toggle(p.id)} className={cn('absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full border transition-colors', isSel ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card/80 text-muted-foreground hover:text-foreground')}>
                       <Check className="h-3.5 w-3.5" />
                     </button>
                   </div>
                   <div className="flex flex-1 flex-col p-3">
                     <h3 className="font-display text-[13.5px] font-semibold text-foreground">{p.title}</h3>
-                    <p className="mt-1 line-clamp-2 font-body text-[11.5px] leading-relaxed text-muted-foreground">{p.description}</p>
-                    <div className="mt-2 flex items-center gap-2 text-[10.5px] text-muted-foreground">
+                    <p className="mt-1 line-clamp-2 font-body text-xs leading-relaxed text-muted-foreground">{p.description}</p>
+                    <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
                       <span className="flex items-center gap-0.5"><Package className="h-3 w-3" />{p.inStock ? '現貨' : '訂製'}</span>
                       <span className="flex items-center gap-0.5"><Truck className="h-3 w-3" />{p.deliveryDays} 天</span>
                     </div>
                     <p className="mt-2 font-mono-data text-base font-bold text-primary">${p.salePrice.toLocaleString()}</p>
                     <div className="mt-2.5 flex gap-1.5">
-                      <button className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-primary/10 px-2 py-1.5 text-[11px] font-medium text-primary transition-colors hover:bg-primary/20">
+                      <button className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-primary/10 px-2 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/20">
                         <FolderPlus className="h-3.5 w-3.5" /> 加入專案
                       </button>
-                      <button className="flex flex-1 items-center justify-center gap-1 rounded-lg border border-border px-2 py-1.5 text-[11px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
+                      <button className="flex flex-1 items-center justify-center gap-1 rounded-lg border border-border px-2 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
                         <FileText className="h-3.5 w-3.5" /> 加入報價
                       </button>
                     </div>
@@ -162,7 +162,7 @@ export function ProductSearchView() {
         ) : (
           <div className="overflow-hidden rounded-xl border border-border bg-card">
             <table className="w-full text-sm">
-              <thead className="bg-muted/50 text-[11px] uppercase tracking-wider text-muted-foreground">
+              <thead className="bg-muted/50 text-xs uppercase tracking-wider text-muted-foreground">
                 <tr>
                   <th className="w-10 px-4 py-2.5"></th>
                   <th className="px-3 py-2.5 text-left font-medium">產品</th>
@@ -181,17 +181,17 @@ export function ProductSearchView() {
                         <img src={p.imageUrl} alt={p.title} loading="lazy" className="h-10 w-10 rounded-md object-cover bg-muted" />
                         <div>
                           <p className="font-body text-[13px] font-medium text-foreground">{p.title}</p>
-                          <p className="line-clamp-1 text-[11px] text-muted-foreground">{p.description}</p>
+                          <p className="line-clamp-1 text-xs text-muted-foreground">{p.description}</p>
                         </div>
                       </div>
                     </td>
-                    <td className="px-3 py-2.5"><span className={cn('rounded-full border px-2 py-0.5 text-[10px] font-bold', TIER_META[p.tier].className)}>{TIER_META[p.tier].label}</span></td>
+                    <td className="px-3 py-2.5"><span className={cn('rounded-full border px-2 py-0.5 text-xs font-bold', TIER_META[p.tier].className)}>{TIER_META[p.tier].label}</span></td>
                     <td className="px-3 py-2.5 text-right font-mono-data text-primary">${p.salePrice.toLocaleString()}</td>
                     <td className="px-3 py-2.5 text-center text-muted-foreground">{p.deliveryDays} 天</td>
                     <td className="px-3 py-2.5">
                       <div className="flex justify-end gap-1.5">
-                        <button className="rounded-lg bg-primary/10 px-2 py-1 text-[11px] font-medium text-primary hover:bg-primary/20">加入專案</button>
-                        <button className="rounded-lg border border-border px-2 py-1 text-[11px] font-medium text-muted-foreground hover:bg-accent">加入報價</button>
+                        <button className="rounded-lg bg-primary/10 px-2 py-1 text-xs font-medium text-primary hover:bg-primary/20">加入專案</button>
+                        <button className="rounded-lg border border-border px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-accent">加入報價</button>
                       </div>
                     </td>
                   </tr>
@@ -217,7 +217,7 @@ function FilterSelect({ value, onChange, options, label }: { value: string; onCh
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="h-8 appearance-none rounded-lg border border-border bg-background pl-2.5 pr-7 text-[11.5px] text-foreground focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
+        className="h-8 appearance-none rounded-lg border border-border bg-background pl-2.5 pr-7 text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
         aria-label={label}
       >
         {options.map((o) => <option key={o} value={o}>{o === '全部' ? `${label}：全部` : o}</option>)}

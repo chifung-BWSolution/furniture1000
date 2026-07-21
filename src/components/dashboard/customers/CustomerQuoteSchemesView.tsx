@@ -16,6 +16,8 @@ import {
   type PmsPitchingListItem,
 } from '@/lib/pmsPitchings';
 import { PortalPageShell } from '@/components/dashboard/customers/PortalPageShell';
+import { useClientZoneContext } from '@/hooks/use-client-zone-context';
+import { usePlatformRole } from '@/hooks/use-platform-role';
 
 /** Shared with 產品搜尋 / 付款+送貨 (local only). */
 const PORTAL_CART_KEY = 'fds-portal-inquiry-cart';
@@ -88,6 +90,12 @@ function groupByQuoteId(rows: QuoteRecord[]): Map<string, QuoteRecord[]> {
 }
 
 export function CustomerQuoteSchemesView() {
+  const { projects: clientProjects } = useClientZoneContext();
+  const { role: platformRole } = usePlatformRole();
+  const hasPortalToken =
+    typeof window !== 'undefined' &&
+    Boolean(localStorage.getItem('fds-client-portal-token'));
+  const clientOnly = platformRole === 'client' || hasPortalToken;
   const [quotes, setQuotes] = useState<QuoteRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -176,7 +184,30 @@ export function CustomerQuoteSchemesView() {
 
   const latestRows = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
-    const list = [...groups.values()].map((versions) => versions[0]);
+    const allowedTerms = new Set(
+      clientProjects
+        .flatMap((p) => [p.name, p.clientName, p.clientCompany])
+        .map((v) => v?.trim().toLowerCase())
+        .filter((v): v is string => Boolean(v)),
+    );
+    const list = [...groups.values()]
+      .map((versions) => versions[0])
+      .filter((row) => {
+        if (!clientOnly) return true;
+        if (allowedTerms.size === 0) return false;
+        const values = [
+          quoteDisplayName(row),
+          clientNameOf(row),
+          row.project_data?.formData?.clientName || '',
+        ]
+          .map((v) => v.trim().toLowerCase())
+          .filter(Boolean);
+        return values.some((value) =>
+          [...allowedTerms].some(
+            (term) => value.includes(term) || term.includes(value),
+          ),
+        );
+      });
     return list.filter((row) => {
       if (!q) return true;
       return (
@@ -187,7 +218,7 @@ export function CustomerQuoteSchemesView() {
         (row.status || '').toLowerCase().includes(q)
       );
     });
-  }, [groups, searchQuery]);
+  }, [groups, searchQuery, clientOnly, clientProjects]);
 
   const active = useMemo(
     () => quotes.find((q) => q.id === activeId) || null,
@@ -290,7 +321,7 @@ export function CustomerQuoteSchemesView() {
       badge="Client Portal"
       subtitle="參考報價一覽：讀取真實報價與產品明細（僅售價，隱藏成本）。可逐件提出更改或確認整張報價。"
       actions={
-        <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2.5 py-1 font-body text-[11px] text-muted-foreground">
+        <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2.5 py-1 font-body text-xs text-muted-foreground">
           <Shield className="h-3 w-3" /> 僅顯示售價
         </span>
       }
@@ -321,7 +352,7 @@ export function CustomerQuoteSchemesView() {
         <section className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
           <div className="border-b border-border bg-muted/40 px-4 py-2.5">
             <h2 className="font-display text-sm font-bold">報價一覽</h2>
-            <p className="font-mono-data text-[11px] text-muted-foreground">
+            <p className="font-mono-data text-xs text-muted-foreground">
               {loading ? '載入中…' : `共 ${latestRows.length} 張報價 · ${quotes.length} 個版本`}
             </p>
           </div>
@@ -337,7 +368,7 @@ export function CustomerQuoteSchemesView() {
           ) : (
             <div className="max-h-[70vh] overflow-y-auto">
               <table className="w-full text-left">
-                <thead className="sticky top-0 bg-muted/60 text-[11px] text-muted-foreground">
+                <thead className="sticky top-0 bg-muted/60 text-xs text-muted-foreground">
                   <tr className="border-b border-border">
                     <th className="px-3 py-2 font-medium">日期</th>
                     <th className="px-3 py-2 font-medium">提案顯示名稱</th>
@@ -365,7 +396,7 @@ export function CustomerQuoteSchemesView() {
                             !isLatest && 'bg-muted/15',
                           )}
                         >
-                          <td className="whitespace-nowrap px-3 py-2.5 font-mono-data text-[11px] text-muted-foreground">
+                          <td className="whitespace-nowrap px-3 py-2.5 font-mono-data text-xs text-muted-foreground">
                             {fmtDate(row.modified_date || row.created_at)}
                           </td>
                           <td className="px-3 py-2.5">
@@ -392,10 +423,10 @@ export function CustomerQuoteSchemesView() {
                               <div className="min-w-0">
                                 {!isLatest ? (
                                   <div className="flex items-center gap-2">
-                                    <span className="shrink-0 rounded border border-border/80 bg-muted/50 px-2 py-0.5 font-body text-[10px] font-semibold text-muted-foreground">
+                                    <span className="shrink-0 rounded border border-border/80 bg-muted/50 px-2 py-0.5 font-body text-xs font-semibold text-muted-foreground">
                                       舊版
                                     </span>
-                                    <span className="truncate font-mono-data text-[11px] text-muted-foreground/80">
+                                    <span className="truncate font-mono-data text-xs text-muted-foreground/80">
                                       {displayQuoteVersion(row.version)}
                                     </span>
                                   </div>
@@ -406,12 +437,12 @@ export function CustomerQuoteSchemesView() {
                                         {title}
                                       </p>
                                       {versions.length > 1 ? (
-                                        <span className="shrink-0 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 font-body text-[10px] font-semibold text-primary">
+                                        <span className="shrink-0 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 font-body text-xs font-semibold text-primary">
                                           {versions.length} 版
                                         </span>
                                       ) : null}
                                     </div>
-                                    <p className="mt-0.5 truncate font-mono-data text-[11px] text-muted-foreground">
+                                    <p className="mt-0.5 truncate font-mono-data text-xs text-muted-foreground">
                                       {row.quote_id}
                                       {client && client !== '—' && client !== title
                                         ? ` · ${client}`
@@ -429,7 +460,7 @@ export function CustomerQuoteSchemesView() {
                           <td className="px-3 py-2.5">
                             <span
                               className={cn(
-                                'inline-flex rounded-full border px-2 py-0.5 text-[10px] font-medium',
+                                'inline-flex rounded-full border px-2 py-0.5 text-xs font-medium',
                                 quoteStatusBadgeClass(row.status),
                               )}
                             >
@@ -521,7 +552,7 @@ export function CustomerQuoteSchemesView() {
                           </div>
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-sm font-medium">{it.name || '—'}</p>
-                            <p className="font-mono-data text-[11px] text-muted-foreground">
+                            <p className="font-mono-data text-xs text-muted-foreground">
                               ${Number(it.unitPrice || 0).toLocaleString()} × {it.quantity || 1}
                               {it.unit ? ` ${it.unit}` : ''}
                               {it.isOptional ? ' · 可選' : ''}
@@ -540,7 +571,7 @@ export function CustomerQuoteSchemesView() {
                                     [key]: e.target.value as 'ok' | 'change' | 'reject',
                                   }))
                                 }
-                                className="mt-1 rounded border border-border bg-background px-1 py-0.5 text-[10px]"
+                                className="mt-1 rounded border border-border bg-background px-1 py-0.5 text-xs"
                               >
                                 <option value="ok">接受</option>
                                 <option value="change">要求改</option>

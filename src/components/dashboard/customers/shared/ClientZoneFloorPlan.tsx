@@ -46,7 +46,7 @@ export function ClientZoneFloorPlan({
               height: `${z.bounds.h}%`,
             }}
           >
-            <span className="flex items-center gap-1 font-display text-[11px] font-bold text-primary">
+            <span className="flex items-center gap-1 font-display text-xs font-bold text-primary">
               <MapPin className="h-3 w-3 shrink-0" />
               {z.code ? `${z.code} · ` : ''}{z.name}
             </span>

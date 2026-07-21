@@ -18,7 +18,7 @@ import {
 } from '@/types/solutions';
 
 export function CustomerConfirmedProductsView() {
-  const { loading: ctxLoading, authorName, clientEmail } = useClientZoneContext();
+  const { loading: ctxLoading, authorName, clientEmail, shareToken } = useClientZoneContext();
   const [projects, setProjects] = useState<DesignProject[]>([]);
   const [productsByProject, setProductsByProject] = useState<Record<string, ZoneProduct[]>>({});
   const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
@@ -29,7 +29,7 @@ export function CustomerConfirmedProductsView() {
 
   useEffect(() => {
     if (ctxLoading) return;
-    fetchInvitedProjectsWithProducts(clientEmail).then(({ projects: ps, productsByProject: map }) => {
+    fetchInvitedProjectsWithProducts(clientEmail, shareToken).then(({ projects: ps, productsByProject: map }) => {
       setProjects(ps);
       setProductsByProject(map);
       const withProducts = ps.find((p) => (map[p.id]?.length ?? 0) > 0);
@@ -41,7 +41,7 @@ export function CustomerConfirmedProductsView() {
       }
       setLoaded(true);
     });
-  }, [ctxLoading, clientEmail]);
+  }, [ctxLoading, clientEmail, shareToken]);
 
   const project = projects.find((p) => p.id === activeProjectId) ?? null;
   const products = activeProjectId ? (productsByProject[activeProjectId] ?? []) : [];
@@ -152,7 +152,7 @@ export function CustomerConfirmedProductsView() {
 
   return (
     <div className="h-full overflow-y-auto bg-background p-6 md:p-10">
-      <div className="mx-auto max-w-3xl">
+      <div className="mx-auto max-w-7xl">
         <h1 className="font-display text-2xl font-bold tracking-tight">確定產品</h1>
         <p className="mt-1 font-body text-sm text-muted-foreground">批量確認產品狀態，並與 PM / 設計師討論</p>
 
@@ -184,7 +184,7 @@ export function CustomerConfirmedProductsView() {
 
         <div className="mt-4 rounded-xl border border-border bg-card p-4">
           <ClientProgressBar progress={progress} label="整體確認進度" />
-          <div className="mt-3 flex flex-wrap gap-3 text-[11px]">
+          <div className="mt-3 flex flex-wrap gap-3 text-xs">
             <span className={cn('rounded-full border px-2 py-0.5', CLIENT_ZONE_STATUS_META.confirmed.className)}>
               已確認 {confirmedCount}
             </span>
@@ -195,7 +195,7 @@ export function CustomerConfirmedProductsView() {
               待確認 {pendingCount}
             </span>
           </div>
-          <p className="mt-1.5 text-[11px] text-muted-foreground">
+          <p className="mt-1.5 text-xs text-muted-foreground">
             {confirmedCount} / {products.length} 件已確認
           </p>
         </div>
@@ -204,7 +204,7 @@ export function CustomerConfirmedProductsView() {
           <button
             type="button"
             onClick={selectAll}
-            className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-[11px] font-medium text-muted-foreground hover:text-foreground"
+            className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
           >
             {selected.size === products.length ? <CheckSquare className="h-3.5 w-3.5" /> : <Square className="h-3.5 w-3.5" />}
             {selected.size > 0 ? `已選 ${selected.size} 件` : '全選'}
@@ -212,14 +212,14 @@ export function CustomerConfirmedProductsView() {
           <button
             type="button"
             onClick={() => void bulkSetStatus('confirmed', '確認')}
-            className="flex items-center gap-1 rounded-lg bg-emerald-500/10 px-3 py-1.5 text-[11px] font-medium text-emerald-600 hover:bg-emerald-500/20"
+            className="flex items-center gap-1 rounded-lg bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-600 hover:bg-emerald-500/20"
           >
             <CheckCircle2 className="h-3.5 w-3.5" /> 批量已確定
           </button>
           <button
             type="button"
             onClick={() => void bulkSetStatus('discussing', '標記待討論')}
-            className="flex items-center gap-1 rounded-lg bg-amber-500/10 px-3 py-1.5 text-[11px] font-medium text-amber-600 hover:bg-amber-500/20"
+            className="flex items-center gap-1 rounded-lg bg-amber-500/10 px-3 py-1.5 text-xs font-medium text-amber-600 hover:bg-amber-500/20"
           >
             <MessageSquare className="h-3.5 w-3.5" /> 批量待討論
           </button>
@@ -254,7 +254,7 @@ export function CustomerConfirmedProductsView() {
                       className="h-14 w-14 shrink-0 rounded-lg object-cover bg-muted"
                     />
                   ) : (
-                    <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-muted text-[10px] text-muted-foreground">
+                    <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-muted text-xs text-muted-foreground">
                       無圖
                     </div>
                   )}
@@ -264,7 +264,7 @@ export function CustomerConfirmedProductsView() {
                       ${p.salePrice.toLocaleString()} · 數量 × {p.quantity}
                     </p>
                   </div>
-                  <span className={cn('shrink-0 rounded-full border px-2 py-0.5 text-[10px] font-medium', CLIENT_ZONE_STATUS_META[status].className)}>
+                  <span className={cn('shrink-0 rounded-full border px-2 py-0.5 text-xs font-medium', CLIENT_ZONE_STATUS_META[status].className)}>
                     {CLIENT_ZONE_STATUS_META[status].label}
                   </span>
                   <div className="flex items-center gap-1">
@@ -272,7 +272,7 @@ export function CustomerConfirmedProductsView() {
                       type="button"
                       onClick={() => void setStatus(p.id, 'confirmed')}
                       className={cn(
-                        'flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium transition-all',
+                        'flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-all',
                         status === 'confirmed' ? CLIENT_ZONE_STATUS_META.confirmed.className : 'border-border text-muted-foreground hover:text-foreground',
                       )}
                     >
@@ -282,7 +282,7 @@ export function CustomerConfirmedProductsView() {
                       type="button"
                       onClick={() => void setStatus(p.id, 'discussing')}
                       className={cn(
-                        'flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-[11px] font-medium transition-all',
+                        'flex items-center gap-1 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-all',
                         status === 'discussing' ? CLIENT_ZONE_STATUS_META.discussing.className : 'border-border text-muted-foreground hover:text-foreground',
                       )}
                     >

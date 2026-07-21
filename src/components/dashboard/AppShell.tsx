@@ -20,6 +20,7 @@ import {
 let resumeQuoteAppliedThisPageLoad = false;
 import { deleteDraft, makeDraftKey } from "@/lib/draftStore";
 import { useAuth } from "@/contexts/AuthProvider";
+import { usePlatformRole } from "@/hooks/use-platform-role";
 import {
   buildQuoteEditorPath,
   parseQuotePathname,
@@ -242,6 +243,7 @@ function PlaceholderView({
 export function AppShell() {
   const store = useAppStore();
   const { user } = useAuth();
+  const { role: platformRole } = usePlatformRole();
   const location = useLocation();
   const navigate = useNavigate();
   const [showPublishModal, setShowPublishModal] = useState(false);
@@ -253,6 +255,22 @@ export function AppShell() {
   const [quickQuoteFreshKey, setQuickQuoteFreshKey] = useState(0);
   const deepLinkHandledRef = useRef<string | null>(null);
   const quoteUrlSyncRef = useRef<string | null>(null);
+  const portalToken = new URLSearchParams(location.search).get('portal_token');
+  const storedPortalToken =
+    typeof window !== 'undefined'
+      ? localStorage.getItem('fds-client-portal-token')
+      : null;
+  const clientOnly =
+    platformRole === 'client' || Boolean(portalToken || storedPortalToken);
+
+  useEffect(() => {
+    if (portalToken) {
+      localStorage.setItem('fds-client-portal-token', portalToken);
+    }
+    if (clientOnly && findSection(store.currentView) !== 'customers') {
+      store.setCurrentView('customer-quote-schemes');
+    }
+  }, [clientOnly, portalToken, store.currentView, store]);
 
   const setEditingQuoteId = useCallback(
     (id: string | null) => {
@@ -887,6 +905,7 @@ export function AppShell() {
         activeSection={activeSection}
         onSectionChange={handleSectionChange}
         isConnected={store.settings.isConnected}
+        clientOnly={clientOnly}
       />
 
       <div className="flex flex-1 min-h-0 overflow-hidden">

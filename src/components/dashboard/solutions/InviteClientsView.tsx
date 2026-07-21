@@ -1,211 +1,464 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import {
-  Link2, Mail, Copy, ShieldCheck, Eye, EyeOff, RefreshCw, XCircle,
-  Send, Check, ChevronDown,
+  Building2,
+  Check,
+  ChevronDown,
+  Copy,
+  Eye,
+  EyeOff,
+  Link2,
+  Loader2,
+  Mail,
+  RefreshCw,
+  Send,
+  ShieldCheck,
+  UserRound,
+  XCircle,
 } from 'lucide-react';
 import {
-  fetchProjects, fetchInvitations,
-  createInvitation, updateInvitationStatus,
+  createInvitation,
+  fetchInvitations,
+  fetchProjects,
+  updateInvitationStatus,
 } from '@/lib/solutionsApi';
 import { consumeSolutionFocusProjectId } from '@/lib/solutionProjectFocus';
 import { toast } from 'sonner';
-import { INVITATION_STATUS_META, type DesignProject, type ProjectInvitation } from '@/types/solutions';
+import {
+  INVITATION_STATUS_META,
+  type DesignProject,
+  type ProjectInvitation,
+} from '@/types/solutions';
 
 function formatDateTime(dateStr: string | null) {
-  if (!dateStr) return '—';
+  if (!dateStr) return '尚未查看';
   const d = new Date(dateStr);
   return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+function invitationUrl(token: string) {
+  const origin =
+    typeof window !== 'undefined' ? window.location.origin : 'https://fds.app';
+  return `${origin}/?portal_token=${encodeURIComponent(token)}`;
+}
+
+async function copyText(value: string) {
+  await navigator.clipboard.writeText(value);
 }
 
 export function InviteClientsView() {
   const [projects, setProjects] = useState<DesignProject[]>([]);
   const [projectId, setProjectId] = useState('');
   const [email, setEmail] = useState('');
-  const [copied, setCopied] = useState(false);
   const [invitations, setInvitations] = useState<ProjectInvitation[]>([]);
-  const shareUrl = projectId
-    ? `${typeof window !== 'undefined' ? window.location.origin : 'https://fds.app'}/portal/${projectId}`
-    : '';
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState<'link' | 'email' | null>(null);
+  const [copiedId, setCopiedId] = useState('');
 
   useEffect(() => {
     const focusId = consumeSolutionFocusProjectId();
-    fetchProjects().then((rows) => {
-      setProjects(rows);
-      if (focusId && rows.some((r) => r.id === focusId)) {
-        setProjectId(focusId);
-      } else if (rows.length > 0) {
-        setProjectId((cur) => cur || rows[0].id);
-      }
-    });
+    fetchProjects()
+      .then((rows) => {
+        setProjects(rows);
+        if (focusId && rows.some((r) => r.id === focusId)) {
+          setProjectId(focusId);
+        } else if (rows.length > 0) {
+          setProjectId((cur) => cur || rows[0].id);
+        }
+      })
+      .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => {
-    if (!projectId) return;
-    fetchInvitations(projectId).then(setInvitations);
+    if (!projectId) {
+      setInvitations([]);
+      return;
+    }
+    void fetchInvitations(projectId).then(setInvitations);
   }, [projectId]);
+
+  const project = useMemo(
+    () => projects.find((p) => p.id === projectId) || null,
+    [projects, projectId],
+  );
+  const activeInvitations = invitations.filter((i) => i.status !== 'revoked');
 
   const reload = () => fetchInvitations(projectId).then(setInvitations);
 
-  const handleSendEmail = async () => {
-    if (!email.trim()) { toast.error('請輸入電郵地址'); return; }
-    const res = await createInvitation({ projectId, channel: 'email', email: email.trim() });
-    if (res.ok) {
-      toast.success('已發送邀請', { description: email.trim() });
-      setEmail('');
-      reload();
-    } else {
-      toast.error('發送失敗', { description: res.error });
-    }
+  const markCopied = (id: string) => {
+    setCopiedId(id);
+    window.setTimeout(() => setCopiedId(''), 1600);
   };
 
   const handleCreateLink = async () => {
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-    const res = await createInvitation({ projectId, channel: 'link', email: null });
-    if (res.ok) { toast.success('已產生分享連結'); reload(); }
-    else toast.error('產生失敗', { description: res.error });
+    if (!projectId) return;
+    setSubmitting('link');
+    const res = await createInvitation({
+      projectId,
+      channel: 'link',
+      email: null,
+    });
+    setSubmitting(null);
+    if (!res.ok || !res.data) {
+      toast.error('產生失敗', { description: res.error });
+      return;
+    }
+    const url = invitationUrl(res.data.shareToken);
+    try {
+      await copyText(url);
+      markCopied(res.data.id);
+      toast.success('Portal 連結已建立並複製');
+    } catch {
+      toast.success('Portal 連結已建立');
+    }
+    await reload();
   };
 
-  const handleResend = async (id: string) => {
-    const res = await updateInvitationStatus(id, 'sent');
-    if (res.ok) { toast.success('已重新發送'); reload(); }
-    else toast.error('操作失敗', { description: res.error });
+  const handleSendEmail = async () => {
+    const address = email.trim().toLowerCase();
+    if (!projectId || !address) {
+      toast.error('請輸入客戶登入電郵');
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) {
+      toast.error('電郵格式不正確');
+      return;
+    }
+    setSubmitting('email');
+    const res = await createInvitation({
+      projectId,
+      channel: 'email',
+      email: address,
+    });
+    setSubmitting(null);
+    if (!res.ok || !res.data) {
+      toast.error('建立邀請失敗', { description: res.error });
+      return;
+    }
+    const url = invitationUrl(res.data.shareToken);
+    const subject = encodeURIComponent(`BWF 客戶專區邀請：${project?.name || '傢俬方案'}`);
+    const body = encodeURIComponent(
+      `您好，\n\nBWF 已為您建立專屬客戶專區。請使用 ${address} 登入後查看屬於您的方案、報價及產品：\n${url}\n\n此連結不會顯示任何成本資料。`,
+    );
+    window.location.href = `mailto:${encodeURIComponent(address)}?subject=${subject}&body=${body}`;
+    toast.success('已建立個人邀請並開啟電郵程式', {
+      description: '請在電郵程式確認內容後發送',
+    });
+    setEmail('');
+    await reload();
+  };
+
+  const handleCopy = async (inv: ProjectInvitation) => {
+    try {
+      await copyText(invitationUrl(inv.shareToken));
+      markCopied(inv.id);
+      toast.success('已複製 Portal 連結');
+    } catch {
+      toast.error('瀏覽器未允許複製，請重試');
+    }
+  };
+
+  const handleResend = async (inv: ProjectInvitation) => {
+    const res = await updateInvitationStatus(inv.id, 'sent');
+    if (!res.ok) {
+      toast.error('操作失敗', { description: res.error });
+      return;
+    }
+    if (inv.channel === 'email' && inv.email) {
+      const subject = encodeURIComponent(`BWF 客戶專區邀請：${project?.name || '傢俬方案'}`);
+      const body = encodeURIComponent(
+        `您好，\n\n再次附上您的 BWF 客戶專區連結：\n${invitationUrl(inv.shareToken)}\n\n請使用 ${inv.email} 登入。`,
+      );
+      window.location.href = `mailto:${encodeURIComponent(inv.email)}?subject=${subject}&body=${body}`;
+    } else {
+      await handleCopy(inv);
+    }
+    toast.success(inv.channel === 'email' ? '已開啟重發電郵' : '連結已重新複製');
+    await reload();
   };
 
   const handleRevoke = async (id: string) => {
-    setInvitations((prev) => prev.map((i) => i.id === id ? { ...i, status: 'revoked' } : i));
+    setInvitations((prev) =>
+      prev.map((i) => (i.id === id ? { ...i, status: 'revoked' } : i)),
+    );
     const res = await updateInvitationStatus(id, 'revoked');
-    if (res.ok) toast.success('已撤銷邀請');
-    else { toast.error('撤銷失敗', { description: res.error }); reload(); }
+    if (res.ok) {
+      toast.success('已撤銷邀請，該連結不再列入客戶可見專案');
+    } else {
+      toast.error('撤銷失敗', { description: res.error });
+      await reload();
+    }
   };
 
   return (
     <div className="h-full overflow-y-auto bg-background p-6 md:p-8">
-      <div className="mx-auto max-w-4xl space-y-6">
-        {/* Header */}
-        <div className="flex items-end justify-between">
+      <div className="mx-auto max-w-7xl space-y-6">
+        <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <h1 className="font-display text-2xl font-bold tracking-tight">邀請客戶</h1>
-            <p className="mt-1 font-body text-sm text-muted-foreground">向客戶發送邀請，讓他們以純連結模式查看與確認方案</p>
+            <p className="mt-1 max-w-3xl font-body text-sm text-muted-foreground">
+              為 BW 客戶建立專屬 Portal 連結或個人 Email 邀請；可複製、重發及撤銷。客戶登入後只會進入客戶專區，成本資料一律隱藏。
+            </p>
           </div>
-          <div className="relative">
-            <select value={projectId} onChange={(e) => setProjectId(e.target.value)} className="h-9 appearance-none rounded-lg border border-border bg-card pl-3 pr-9 font-display text-sm font-semibold focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20">
-              {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+          <div className="relative min-w-[280px]">
+            <select
+              value={projectId}
+              onChange={(e) => setProjectId(e.target.value)}
+              className="h-11 w-full appearance-none rounded-lg border border-border bg-card pl-3 pr-9 font-display text-sm font-semibold focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
+              aria-label="選擇專案"
+            >
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name} · {p.clientCompany || p.clientName || '未填客戶'}
+                </option>
+              ))}
             </select>
             <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           </div>
         </div>
 
-        {/* Two main actions */}
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          {/* Share link */}
-          <div className="rounded-xl border border-border bg-card p-5">
-            <div className="mb-3 flex items-center gap-2">
-              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10"><Link2 className="h-4.5 w-4.5 text-primary" /></div>
+        {loading ? (
+          <div className="flex justify-center py-20">
+            <Loader2 className="h-6 w-6 animate-spin text-primary" />
+          </div>
+        ) : !project ? (
+          <div className="rounded-2xl border border-dashed border-border p-12 text-center text-sm text-muted-foreground">
+            請先在「方案列表」建立專案
+          </div>
+        ) : (
+          <>
+            <section className="grid gap-4 rounded-2xl border border-border bg-card p-5 shadow-sm md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
               <div>
-                <h3 className="font-display text-sm font-bold">產生分享連結</h3>
-                <p className="text-[11px] text-muted-foreground">無需註冊，客戶點擊即可查看</p>
+                <p className="text-xs font-semibold uppercase tracking-wide text-primary">目前專案</p>
+                <h2 className="mt-1 font-display text-xl font-bold">{project.name}</h2>
+                <div className="mt-2 flex flex-wrap gap-x-5 gap-y-2 text-sm text-muted-foreground">
+                  <span className="inline-flex items-center gap-1.5">
+                    <Building2 className="h-4 w-4" />
+                    {project.clientCompany || '未填客戶公司'}
+                  </span>
+                  <span className="inline-flex items-center gap-1.5">
+                    <UserRound className="h-4 w-4" />
+                    {project.clientName || '未填聯絡人'}
+                  </span>
+                  <span>{activeInvitations.length} 個有效邀請</span>
+                </div>
               </div>
-            </div>
-            <div className="flex items-center gap-2 rounded-lg border border-border bg-background px-3 py-2">
-              <span className="flex-1 truncate font-mono-data text-[11.5px] text-muted-foreground">{shareUrl}</span>
-              <button
-                onClick={handleCreateLink}
-                className={cn('flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-medium transition-colors', copied ? 'bg-emerald-500/15 text-emerald-600' : 'bg-primary/10 text-primary hover:bg-primary/20')}
-              >
-                {copied ? <><Check className="h-3.5 w-3.5" /> 已複製</> : <><Copy className="h-3.5 w-3.5" /> 複製</>}
-              </button>
-            </div>
-          </div>
-
-          {/* Email invite */}
-          <div className="rounded-xl border border-border bg-card p-5">
-            <div className="mb-3 flex items-center gap-2">
-              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10"><Mail className="h-4.5 w-4.5 text-primary" /></div>
-              <div>
-                <h3 className="font-display text-sm font-bold">發送 Email 邀請</h3>
-                <p className="text-[11px] text-muted-foreground">直接寄送邀請連結至客戶信箱</p>
+              <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-xs text-muted-foreground">
+                <p className="font-semibold text-primary">邀請流程</p>
+                <p className="mt-1">1 選專案 → 2 建立邀請 → 3 客戶登入 Portal</p>
               </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <input
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                type="email"
-                placeholder="client@example.com"
-                className="flex-1 rounded-lg border border-border bg-background px-3 py-2 font-body text-sm placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
-              />
-              <button onClick={handleSendEmail} className="flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-xs font-semibold text-primary-foreground shadow-sm transition-opacity hover:opacity-90">
-                <Send className="h-3.5 w-3.5" /> 發送
-              </button>
-            </div>
-          </div>
-        </div>
+            </section>
 
-        {/* Permission notice */}
-        <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
-          <div className="flex items-center gap-2">
-            <ShieldCheck className="h-4 w-4 text-primary" />
-            <h3 className="font-display text-sm font-bold text-primary">客戶權限說明</h3>
-          </div>
-          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <PermRow allowed icon={<Eye className="h-3.5 w-3.5" />} text="查看售價與產品規格" />
-            <PermRow allowed icon={<Eye className="h-3.5 w-3.5" />} text="參與討論與確認方案" />
-            <PermRow icon={<EyeOff className="h-3.5 w-3.5" />} text="無法查看成本價" />
-            <PermRow icon={<EyeOff className="h-3.5 w-3.5" />} text="無法修改資料或上傳檔案" />
-          </div>
-        </div>
+            <div className="grid gap-5 lg:grid-cols-2">
+              <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+                    <Link2 className="h-5 w-5 text-primary" />
+                  </div>
+                  <div>
+                    <h2 className="font-display text-base font-bold">建立可轉寄 Portal 連結</h2>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      適合即時訊息或由 BW 員工自行轉寄；客戶仍需登入系統。
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  disabled={submitting !== null}
+                  onClick={() => void handleCreateLink()}
+                  className="mt-5 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-60"
+                >
+                  {submitting === 'link' ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Copy className="h-4 w-4" />
+                  )}
+                  建立並複製連結
+                </button>
+              </section>
 
-        {/* Sent invitations list */}
-        <div className="overflow-hidden rounded-xl border border-border bg-card">
-          <div className="border-b border-border px-5 py-3">
-            <h3 className="font-display text-sm font-bold">已發送邀請</h3>
-          </div>
-          <table className="w-full text-sm">
-            <thead className="bg-muted/50 text-[11px] uppercase tracking-wider text-muted-foreground">
-              <tr>
-                <th className="px-5 py-2.5 text-left font-medium">收件人 / 方式</th>
-                <th className="px-3 py-2.5 text-left font-medium">狀態</th>
-                <th className="px-3 py-2.5 text-left font-medium">查看時間</th>
-                <th className="px-3 py-2.5 text-right font-medium">操作</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border/60">
-              {invitations.map((inv) => {
-                const meta = INVITATION_STATUS_META[inv.status];
-                return (
-                  <tr key={inv.id} className="hover:bg-muted/30">
-                    <td className="px-5 py-3">
-                      <div className="flex items-center gap-2">
-                        {inv.channel === 'email' ? <Mail className="h-4 w-4 text-muted-foreground" /> : <Link2 className="h-4 w-4 text-muted-foreground" />}
-                        <span className="font-body text-[13px] text-foreground">{inv.email ?? '純連結分享'}</span>
-                      </div>
-                    </td>
-                    <td className="px-3 py-3"><span className={cn('rounded-full border px-2 py-0.5 text-[10.5px] font-medium', meta.className)}>{meta.label}</span></td>
-                    <td className="px-3 py-3 font-mono-data text-[11.5px] text-muted-foreground">{formatDateTime(inv.viewedAt)}</td>
-                    <td className="px-3 py-3">
-                      <div className="flex justify-end gap-1.5">
-                        <button onClick={() => handleResend(inv.id)} className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"><RefreshCw className="h-3 w-3" /> 重發</button>
-                        <button onClick={() => handleRevoke(inv.id)} className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-rose-500 hover:bg-rose-500/10"><XCircle className="h-3 w-3" /> 撤銷</button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+              <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+                    <Mail className="h-5 w-5 text-primary" />
+                  </div>
+                  <div>
+                    <h2 className="font-display text-base font-bold">建立個人 Email 邀請</h2>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      以客戶登入電郵綁定專案，建立後會開啟您的電郵程式。
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-5 flex flex-col gap-2 sm:flex-row">
+                  <input
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    type="email"
+                    placeholder="客戶登入電郵，例如 client@example.com"
+                    className="min-w-0 flex-1 rounded-lg border border-border bg-background px-3 py-2.5 font-body text-sm focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  />
+                  <button
+                    type="button"
+                    disabled={submitting !== null}
+                    onClick={() => void handleSendEmail()}
+                    className="inline-flex items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground disabled:opacity-60"
+                  >
+                    {submitting === 'email' ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Send className="h-4 w-4" />
+                    )}
+                    建立邀請
+                  </button>
+                </div>
+              </section>
+            </div>
+
+            <section className="rounded-2xl border border-primary/20 bg-primary/5 p-5">
+              <div className="flex items-center gap-2">
+                <ShieldCheck className="h-5 w-5 text-primary" />
+                <h2 className="font-display text-base font-bold text-primary">客戶 Portal 權限</h2>
+              </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <PermRow allowed icon={<Eye className="h-4 w-4" />} text="只看自己的專案內容" />
+                <PermRow allowed icon={<Eye className="h-4 w-4" />} text="查看售價、產品與報價" />
+                <PermRow icon={<EyeOff className="h-4 w-4" />} text="不顯示任何成本價" />
+                <PermRow icon={<EyeOff className="h-4 w-4" />} text="不能進入 BW 內部功能" />
+              </div>
+            </section>
+
+            <section className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+              <div className="flex items-center justify-between border-b border-border px-5 py-4">
+                <div>
+                  <h2 className="font-display text-base font-bold">邀請管理</h2>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    每個邀請都有獨立 Token；撤銷後不再列入該客戶可見專案。
+                  </p>
+                </div>
+                <span className="text-xs text-muted-foreground">{invitations.length} 個紀錄</span>
+              </div>
+              {invitations.length === 0 ? (
+                <p className="px-5 py-12 text-center text-sm text-muted-foreground">
+                  尚未建立邀請
+                </p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[760px] text-sm">
+                    <thead className="bg-muted/50 text-xs uppercase tracking-wider text-muted-foreground">
+                      <tr>
+                        <th className="px-5 py-3 text-left font-medium">收件人／方式</th>
+                        <th className="px-3 py-3 text-left font-medium">狀態</th>
+                        <th className="px-3 py-3 text-left font-medium">建立／查看</th>
+                        <th className="px-5 py-3 text-right font-medium">操作</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/60">
+                      {invitations.map((inv) => {
+                        const meta = INVITATION_STATUS_META[inv.status];
+                        return (
+                          <tr key={inv.id} className="hover:bg-muted/30">
+                            <td className="px-5 py-3">
+                              <div className="flex items-center gap-2">
+                                {inv.channel === 'email' ? (
+                                  <Mail className="h-4 w-4 text-muted-foreground" />
+                                ) : (
+                                  <Link2 className="h-4 w-4 text-muted-foreground" />
+                                )}
+                                <div>
+                                  <p className="font-medium">
+                                    {inv.email ?? '可轉寄 Portal 連結'}
+                                  </p>
+                                  <p className="mt-0.5 font-mono-data text-xs text-muted-foreground">
+                                    {inv.shareToken.slice(0, 18)}…
+                                  </p>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="px-3 py-3">
+                              <span
+                                className={cn(
+                                  'rounded-full border px-2.5 py-1 text-xs font-medium',
+                                  meta.className,
+                                )}
+                              >
+                                {meta.label}
+                              </span>
+                            </td>
+                            <td className="px-3 py-3 font-mono-data text-xs text-muted-foreground">
+                              <p>{formatDateTime(inv.createdAt)}</p>
+                              {inv.viewedAt ? <p className="mt-1">查看：{formatDateTime(inv.viewedAt)}</p> : null}
+                            </td>
+                            <td className="px-5 py-3">
+                              <div className="flex justify-end gap-2">
+                                <button
+                                  type="button"
+                                  disabled={inv.status === 'revoked'}
+                                  onClick={() => void handleCopy(inv)}
+                                  className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-accent disabled:opacity-40"
+                                >
+                                  {copiedId === inv.id ? (
+                                    <Check className="h-3.5 w-3.5 text-emerald-600" />
+                                  ) : (
+                                    <Copy className="h-3.5 w-3.5" />
+                                  )}
+                                  複製
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={inv.status === 'revoked'}
+                                  onClick={() => void handleResend(inv)}
+                                  className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs text-muted-foreground hover:bg-accent disabled:opacity-40"
+                                >
+                                  <RefreshCw className="h-3.5 w-3.5" /> 重發
+                                </button>
+                                {inv.status !== 'revoked' ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => void handleRevoke(inv.id)}
+                                    className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1.5 text-xs text-rose-500 hover:bg-rose-500/10"
+                                  >
+                                    <XCircle className="h-3.5 w-3.5" /> 撤銷
+                                  </button>
+                                ) : null}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          </>
+        )}
       </div>
     </div>
   );
 }
 
-function PermRow({ allowed, icon, text }: { allowed?: boolean; icon: React.ReactNode; text: string }) {
+function PermRow({
+  allowed,
+  icon,
+  text,
+}: {
+  allowed?: boolean;
+  icon: React.ReactNode;
+  text: string;
+}) {
   return (
-    <div className="flex items-center gap-2">
-      <span className={cn('flex h-5 w-5 items-center justify-center rounded-full', allowed ? 'bg-emerald-500/15 text-emerald-600' : 'bg-rose-500/15 text-rose-500')}>{icon}</span>
-      <span className="font-body text-[12.5px] text-foreground">{text}</span>
+    <div className="flex items-center gap-2 text-xs">
+      <span
+        className={cn(
+          'flex h-6 w-6 shrink-0 items-center justify-center rounded-full',
+          allowed
+            ? 'bg-emerald-500/15 text-emerald-600'
+            : 'bg-rose-500/15 text-rose-500',
+        )}
+      >
+        {icon}
+      </span>
+      <span className="font-body text-foreground">{text}</span>
     </div>
   );
 }

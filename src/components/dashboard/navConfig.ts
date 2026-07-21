@@ -51,6 +51,8 @@ export const NAV_CONFIG: PrimaryItem[] = [
     icon: Users,
     children: [
       { view: 'customer-quote-schemes', label: '報價方案', icon: FileText },
+      { view: 'customer-design-projects', label: '我的設計方案', icon: LayoutDashboard },
+      { view: 'customer-confirmed-products', label: '確定產品', icon: CheckCheck },
       { view: 'customer-product-search', label: '產品搜尋', icon: Search },
       { view: 'customer-custom-furniture', label: '傢俬訂製', icon: PenTool },
       { view: 'customer-payment-delivery', label: '付款+送貨', icon: Truck },

@@ -295,21 +295,37 @@ export async function fetchPortalBrowseProducts(limit = 600): Promise<SearchProd
  * 客戶專區：取得受邀專案（有非撤銷邀請的專案）。
  * 若提供 clientEmail，僅顯示 email 相符或純連結邀請的專案。
  */
-export async function fetchInvitedProjects(clientEmail?: string | null): Promise<DesignProject[]> {
+export async function fetchInvitedProjects(
+  clientEmail?: string | null,
+  shareToken?: string | null,
+): Promise<DesignProject[]> {
   try {
-    const { data: invs, error: invErr } = await supabase
+    const email = clientEmail?.trim().toLowerCase() ?? null;
+    const token = shareToken?.trim() || null;
+    if (!email && !token) return [];
+
+    let invitationQuery = supabase
       .from('project_invitations')
-      .select('project_id, email, channel')
+      .select('project_id, email, channel, share_token')
       .neq('status', 'revoked');
+    if (email && token) {
+      invitationQuery = invitationQuery.or(
+        `email.ilike.${email},share_token.eq.${token}`,
+      );
+    } else if (token) {
+      invitationQuery = invitationQuery.eq('share_token', token);
+    } else if (email) {
+      invitationQuery = invitationQuery.ilike('email', email);
+    }
+    const { data: invs, error: invErr } = await invitationQuery;
     if (invErr || !invs?.length) return [];
 
-    const email = clientEmail?.trim().toLowerCase() ?? null;
     const projectIds = [...new Set(
       invs
         .filter((inv) => {
-          if (!email) return true;
-          if (inv.channel === 'link' || !inv.email) return true;
-          return String(inv.email).toLowerCase() === email;
+          if (token && inv.share_token === token) return true;
+          if (!email || !inv.email) return false;
+          return String(inv.email).trim().toLowerCase() === email;
         })
         .map((inv) => inv.project_id as string),
     )];
@@ -328,7 +344,7 @@ export async function fetchInvitedProjects(clientEmail?: string | null): Promise
 }
 
 /**
- * 客戶公司資料：優先以聯絡電郵配對，否則取第一筆。
+ * 客戶公司資料：只以登入電郵配對，避免錯誤顯示其他客戶資料。
  */
 export async function fetchClientCompany(clientEmail?: string | null): Promise<ClientCompany | null> {
   try {
@@ -341,7 +357,7 @@ export async function fetchClientCompany(clientEmail?: string | null): Promise<C
         .maybeSingle();
       if (!error && data) return mapCompany(data);
     }
-    return fetchCompany();
+    return null;
   } catch {
     return null;
   }
@@ -464,11 +480,14 @@ export async function fetchClientSearchProducts(projectIds: string[]): Promise<S
 /**
  * 客戶「確定產品」：受邀專案中，有分區產品的專案與產品清單。
  */
-export async function fetchInvitedProjectsWithProducts(clientEmail?: string | null): Promise<{
+export async function fetchInvitedProjectsWithProducts(
+  clientEmail?: string | null,
+  shareToken?: string | null,
+): Promise<{
   projects: DesignProject[];
   productsByProject: Record<string, ZoneProduct[]>;
 }> {
-  const projects = await fetchInvitedProjects(clientEmail);
+  const projects = await fetchInvitedProjects(clientEmail, shareToken);
   const productsByProject: Record<string, ZoneProduct[]> = {};
   await Promise.all(projects.map(async (p) => {
     const zps = await fetchZoneProducts(p.id);

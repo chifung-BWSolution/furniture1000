@@ -47,7 +47,7 @@ export function DiscussionPanel({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center justify-between border-t border-border/60 bg-muted/20 px-3 py-2 text-[11.5px] text-muted-foreground hover:bg-muted/40"
+        className="flex w-full items-center justify-between border-t border-border/60 bg-muted/20 px-3 py-2 text-xs text-muted-foreground hover:bg-muted/40"
       >
         <span className="flex items-center gap-1.5">
           <MessageSquare className="h-3.5 w-3.5" />
@@ -63,24 +63,24 @@ export function DiscussionPanel({
               <div key={d.id} className="flex gap-2">
                 <div
                   className={cn(
-                    'flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] font-bold',
+                    'flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold',
                     d.authorRole === 'client' ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground',
                   )}
                 >
                   {d.author.slice(0, 1)}
                 </div>
                 <div className="min-w-0 flex-1">
-                  <p className="text-[11.5px]">
+                  <p className="text-xs">
                     <span className="font-semibold text-foreground">{d.author}</span>
                     {' '}
-                    <span className="font-mono-data text-[10px] text-muted-foreground/60">{fmt(d.createdAt)}</span>
+                    <span className="font-mono-data text-xs text-muted-foreground/60">{fmt(d.createdAt)}</span>
                   </p>
                   <p className="font-body text-[12.5px] text-muted-foreground">{d.body}</p>
                 </div>
               </div>
             ))}
             {discussions.length === 0 && (
-              <p className="text-center text-[11px] text-muted-foreground/60">
+              <p className="text-center text-xs text-muted-foreground/60">
                 尚無討論，留言即時通知 PM / 設計師
               </p>
             )}
@@ -90,7 +90,7 @@ export function DiscussionPanel({
               <button
                 type="button"
                 onClick={() => insertMention('PM')}
-                className="rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-primary"
+                className="rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-muted hover:text-primary"
                 title="提及 PM"
               >
                 <AtSign className="inline h-3 w-3" /> PM
@@ -98,7 +98,7 @@ export function DiscussionPanel({
               <button
                 type="button"
                 onClick={() => insertMention('設計師')}
-                className="rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-primary"
+                className="rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-muted hover:text-primary"
                 title="提及設計師"
               >
                 <AtSign className="inline h-3 w-3" /> 設計師
@@ -115,7 +115,7 @@ export function DiscussionPanel({
               type="button"
               onClick={() => void handleSend()}
               disabled={sending || !draft.trim()}
-              className="flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-[11px] font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
+              className="flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-xs font-medium text-primary-foreground hover:opacity-90 disabled:opacity-50"
             >
               <Send className="h-3 w-3" /> 送出
             </button>

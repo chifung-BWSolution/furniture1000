@@ -13,12 +13,22 @@ export interface ClientZoneContext {
   company: ClientCompany | null;
   authorName: string;
   clientEmail: string | null;
+  shareToken: string | null;
   refresh: () => void;
 }
 
 export function useClientZoneContext(): ClientZoneContext {
   const { user } = useAuth();
   const clientEmail = user?.email ?? null;
+  const queryToken =
+    typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search).get('portal_token')
+      : null;
+  const shareToken =
+    queryToken ||
+    (typeof window !== 'undefined'
+      ? localStorage.getItem('fds-client-portal-token')
+      : null);
   const [loading, setLoading] = useState(true);
   const [projects, setProjects] = useState<DesignProject[]>([]);
   const [company, setCompany] = useState<ClientCompany | null>(null);
@@ -28,7 +38,7 @@ export function useClientZoneContext(): ClientZoneContext {
     let cancelled = false;
     setLoading(true);
     Promise.all([
-      fetchInvitedProjects(clientEmail),
+      fetchInvitedProjects(clientEmail, shareToken),
       fetchClientCompany(clientEmail),
     ]).then(([projs, co]) => {
       if (cancelled) return;
@@ -37,7 +47,7 @@ export function useClientZoneContext(): ClientZoneContext {
       setLoading(false);
     });
     return () => { cancelled = true; };
-  }, [clientEmail, tick]);
+  }, [clientEmail, shareToken, tick]);
 
   return {
     loading,
@@ -45,6 +55,7 @@ export function useClientZoneContext(): ClientZoneContext {
     company,
     authorName: getClientAuthorName(company),
     clientEmail,
+    shareToken,
     refresh: () => setTick((t) => t + 1),
   };
 }
