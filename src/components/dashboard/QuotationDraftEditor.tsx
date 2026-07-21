@@ -1726,12 +1726,6 @@ export function QuotationDraftEditor({
   const legacyItems = itemsFromLegacyProjectData(
     savedProjectData as Record<string, unknown>,
   );
-  const quoteIdDisplay = resolvePitchingCode({
-    quoteId: existingQuote?.quoteId || formData.quoteId,
-    pitchingCode: formData.pitchingCode,
-    formData: formData as unknown as Record<string, unknown>,
-    quoteMeta: savedQuoteMeta as unknown as Record<string, unknown>,
-  });
   const savedTermsContent = savedProjectData.termsContent as
     | {
         transport: string;
@@ -1779,7 +1773,23 @@ export function QuotationDraftEditor({
     validity: savedQuoteMeta?.validity || formData.validityDays || "30",
     deliveryAddress: savedQuoteMeta?.deliveryAddress || "",
   });
-  const [quoteId] = useState(quoteIdDisplay);
+  const resolveEditorQuoteId = useCallback(
+    (meta?: Record<string, unknown> | null) =>
+      resolvePitchingCode({
+        quoteId: existingQuote?.quoteId || formData.quoteId,
+        pitchingCode: formData.pitchingCode,
+        formData: formData as unknown as Record<string, unknown>,
+        quoteMeta: (meta ?? quoteMeta) as unknown as Record<string, unknown>,
+      }),
+    [
+      existingQuote?.quoteId,
+      formData.quoteId,
+      formData.pitchingCode,
+      formData,
+      quoteMeta,
+    ],
+  );
+  const quoteId = useMemo(() => resolveEditorQuoteId(), [resolveEditorQuoteId]);
 
   // Delivery details (editable) — zh / en kept separately (like company address).
   const [deliveryDetails, setDeliveryDetails] = useState(
@@ -2832,7 +2842,10 @@ export function QuotationDraftEditor({
       formData: nextFormData,
       companyInfo,
       clientInfo,
-      quoteMeta,
+      quoteMeta: {
+        ...quoteMeta,
+        quoteNumber: resolveEditorQuoteId(),
+      },
       deliveryDetails,
       deliveryDetailsEn,
       termsContent,
@@ -3887,6 +3900,7 @@ export function QuotationDraftEditor({
         bwfPitchingId={formData.pmsPitchingId || existingQuote?.bwfPitchingId || null}
         bwfProjectId={formData.pmsProjectId || existingQuote?.bwfProjectId || null}
         quoteId={quoteId}
+        pitchingCode={formData.pitchingCode ?? formData.projectName ?? null}
         existingQuoteId={existingQuote?.quoteId ?? null}
         existingQuoteUuid={existingQuote?.quoteUuid ?? null}
         forceNewQuote={forceNewQuote}

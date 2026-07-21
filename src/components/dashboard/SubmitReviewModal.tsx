@@ -20,7 +20,7 @@ import {
   nextQuoteVersionFromChain,
 } from '@/lib/quoteVersions';
 import { resolveQuoteChainId } from '@/lib/quoteChainId';
-import { generateQuoteId } from '@/lib/quoteRoutes';
+import { fetchPmsPitchingQuoteDefaults } from '@/lib/pmsPitchingQuoteDefaults';
 
 export interface SubmitReviewResult {
   quoteId: string;
@@ -167,12 +167,23 @@ export function SubmitReviewModal({
 
       const formDataRaw =
         (projectData.formData as Record<string, unknown> | undefined) || {};
-      const code = resolvePitchingCode({
+      let code = resolvePitchingCode({
         quoteId: quoteIdProp || existingQuoteId,
         pitchingCode,
         formData: formDataRaw,
         quoteMeta: projectData.quoteMeta as Record<string, unknown> | undefined,
       });
+
+      if (!code && pitchingId) {
+        const defaults = await fetchPmsPitchingQuoteDefaults({
+          pitchingId,
+          projectId,
+        });
+        code =
+          defaults?.pitching_code?.trim() ||
+          defaults?.project_code?.trim() ||
+          '';
+      }
 
       // Sole persisted code: bwf_quote.quote_id (no pitching_code / pitching_name columns).
       const quoteId = resolveQuoteChainId({
