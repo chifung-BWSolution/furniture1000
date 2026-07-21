@@ -80,6 +80,49 @@ function bounds(values: Array<number | null | undefined>): { min: number; max: n
   return { min: Math.min(...valid), max: Math.max(...valid) };
 }
 
+const MATERIAL_TAG_RULES = [
+  '玻纖背架',
+  '玻璃纖維',
+  '不鏽鋼',
+  '鋁合金',
+  '防火板',
+  '實木',
+  '木皮',
+  '網布',
+  '尼龍',
+  '玻纖',
+  '皮革',
+  '真皮',
+  '仿皮',
+  '布藝',
+  '海綿',
+  '塑膠',
+  '玻璃',
+  '鋼材',
+  '金屬',
+  'MFC',
+  'HPL',
+  'PP',
+  'PU',
+] as const;
+
+function materialTags(raw: string): string[] {
+  const value = raw.trim();
+  if (!value || value === '—') return [];
+  const tags: string[] = [];
+  for (const rule of MATERIAL_TAG_RULES) {
+    if (!value.toLowerCase().includes(rule.toLowerCase())) continue;
+    if (rule === '玻纖' && tags.includes('玻纖背架')) continue;
+    tags.push(rule);
+  }
+  if (tags.length > 0) return [...new Set(tags)];
+  return value
+    .split(/[·•,，、/;+；｜|]+/)
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .slice(0, 4);
+}
+
 function fmtDimMm(mm: number | null | undefined): string | null {
   if (mm == null || !Number.isFinite(mm) || mm <= 0) return null;
   if (mm >= 1000) return `${(mm / 1000).toFixed(mm % 100 === 0 ? 1 : 2)}m`;
@@ -268,8 +311,7 @@ export function CustomerProductSearchView() {
   const materialOptions = useMemo(() => {
     const set = new Set<string>();
     for (const p of all) {
-      const m = (p.material || '').trim();
-      if (m && m !== '—') set.add(m);
+      for (const tag of materialTags(p.material || '')) set.add(tag);
     }
     return [...set].sort((a, b) => a.localeCompare(b, 'zh-Hant'));
   }, [all]);
@@ -345,7 +387,8 @@ export function CustomerProductSearchView() {
       if (filters.level1 && p.level1Category !== filters.level1) return false;
       if (filters.level2 && p.level2Category !== filters.level2) return false;
       if (filters.materials.length > 0) {
-        if (!filters.materials.includes(p.material)) return false;
+        const tags = materialTags(p.material || '');
+        if (!filters.materials.some((tag) => tags.includes(tag))) return false;
       }
       if (priceMin != null && p.salePrice < priceMin) return false;
       if (priceMax != null && p.salePrice > priceMax) return false;
@@ -501,7 +544,7 @@ export function CustomerProductSearchView() {
         )}
       >
         {showFilters ? (
-          <aside className="h-fit space-y-4 rounded-2xl border border-border bg-card p-4 shadow-sm lg:sticky lg:top-4">
+          <aside className="h-fit space-y-5 rounded-2xl border border-border bg-card p-4 shadow-sm">
             <div className="flex items-center justify-between gap-2">
               <h2 className="font-display text-sm font-bold">進階篩選</h2>
               <button
@@ -520,22 +563,23 @@ export function CustomerProductSearchView() {
               {materialOptions.length === 0 ? (
                 <p className="text-xs text-muted-foreground">暫無材質資料</p>
               ) : (
-                <div className="max-h-40 space-y-1 overflow-y-auto pr-1">
+                <div className="flex max-h-44 flex-wrap gap-2 overflow-y-auto pr-1">
                   {materialOptions.map((m) => {
                     const checked = filters.materials.includes(m);
                     return (
-                      <label
+                      <button
                         key={m}
-                        className="flex cursor-pointer items-center gap-2 rounded-md px-1 py-1 text-xs hover:bg-muted/60"
+                        type="button"
+                        onClick={() => toggleMaterial(m)}
+                        className={cn(
+                          'rounded-full border px-3 py-1.5 text-xs font-medium transition-colors',
+                          checked
+                            ? 'border-primary/50 bg-primary/10 text-primary'
+                            : 'border-border bg-background text-muted-foreground hover:text-foreground',
+                        )}
                       >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => toggleMaterial(m)}
-                          className="rounded border-border"
-                        />
-                        <span className="truncate">{m}</span>
-                      </label>
+                        {m}
+                      </button>
                     );
                   })}
                 </div>
