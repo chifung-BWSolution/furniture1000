@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import {
-  Plus, Loader2, Search, Check, X, LayoutGrid, UserRound, Tag,
+  Plus, Loader2, Search, Check, CheckCircle2, X, LayoutGrid, UserRound, Tag,
 } from 'lucide-react';
 import {
   fetchProjects, fetchZones, fetchZoneProducts, fetchActiveShopifyProducts,
-  createZoneProduct, updateZoneProductStatus,
+  createZoneProduct, updateZoneProductStatus, saveProject,
 } from '@/lib/solutionsApi';
+import { useAppStore } from '@/hooks/use-app-store';
 import { consumeSolutionFocusProjectId } from '@/lib/solutionProjectFocus';
 import { resolveDesignProjectPmLabels } from '@/lib/solutionProjectPm';
 import {
@@ -38,6 +39,7 @@ function zoneBaseName(name: string): string {
 }
 
 export function DesignProjectsView() {
+  const appStore = useAppStore();
   const [projects, setProjects] = useState<DesignProject[]>([]);
   const [activeProjectId, setActiveProjectId] = useState('');
   const [zones, setZones] = useState<ProjectZone[]>([]);
@@ -53,6 +55,7 @@ export function DesignProjectsView() {
   const [keyword, setKeyword] = useState('');
   const [productLevel1, setProductLevel1] = useState('');
   const [productLevel2, setProductLevel2] = useState('');
+  const [confirmingProject, setConfirmingProject] = useState(false);
 
   useEffect(() => {
     const focusId = consumeSolutionFocusProjectId();
@@ -153,6 +156,36 @@ export function DesignProjectsView() {
     if (!res.ok) toast.error('更新失敗', { description: res.error });
   };
 
+  const confirmProject = async () => {
+    if (!project || confirmingProject) return;
+    const selectedProducts = zoneProducts.filter((product) => product.zoneId);
+    if (zones.length === 0 || selectedProducts.length === 0) {
+      toast.error('請先設定間隔並加入產品');
+      return;
+    }
+    setConfirmingProject(true);
+    const result = await saveProject(project.id, {
+      status: 'confirmed',
+      progress: 100,
+    });
+    setConfirmingProject(false);
+    if (!result.ok) {
+      toast.error('確定方案失敗', { description: result.error });
+      return;
+    }
+    setProjects((current) =>
+      current.map((row) =>
+        row.id === project.id
+          ? { ...row, status: 'confirmed', progress: 100 }
+          : row,
+      ),
+    );
+    toast.success('方案已確定', {
+      description: `${zones.length} 個間隔 · ${selectedProducts.length} 件產品`,
+    });
+    appStore.setCurrentView('confirmed-projects');
+  };
+
   const filteredProducts = useMemo(() => {
     const q = keyword.trim().toLowerCase();
     return products.filter((p) => {
@@ -247,6 +280,19 @@ export function DesignProjectsView() {
                 {pmNames[project.id] || '正在讀取…'}
               </span>
             </div>
+            <button
+              type="button"
+              onClick={() => void confirmProject()}
+              disabled={confirmingProject}
+              className="mt-1 inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-[15px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+            >
+              {confirmingProject ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <CheckCircle2 className="h-4 w-4" />
+              )}
+              確定方案
+            </button>
           </div>
         </div>
       </div>

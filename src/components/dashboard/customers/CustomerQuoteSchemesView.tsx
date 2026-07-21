@@ -118,17 +118,18 @@ function groupVersions(rows: QuoteRecord[]) {
 
 function groupQuoteItems(items: BwfQuoteItemInput[]): QuoteItemGroup[] {
   const groups: QuoteItemGroup[] = [];
-  let current: QuoteItemGroup = { title: '報價產品', items: [] };
+  let current: QuoteItemGroup | null = null;
   for (const item of items) {
     if (item.isSectionTitle) {
-      if (current.items.length > 0) groups.push(current);
+      if (current) groups.push(current);
       current = { title: item.name?.trim() || '其他區域', items: [] };
       continue;
     }
     if (item.isCustomTerm) continue;
+    if (!current) current = { title: '報價產品', items: [] };
     current.items.push(item);
   }
-  if (current.items.length > 0) groups.push(current);
+  if (current) groups.push(current);
   return groups;
 }
 
@@ -219,7 +220,7 @@ export function CustomerQuoteSchemesView() {
         confirmed.map(async (project) => {
           const products = await fetchZoneProducts(project.id);
           const total = products
-            .filter((product) => product.status === 'confirmed')
+            .filter((product) => product.zoneId)
             .reduce(
               (sum, product) =>
                 sum + product.salePrice * product.quantity,
@@ -281,18 +282,10 @@ export function CustomerQuoteSchemesView() {
           .filter((item) => !item.isSectionTitle && item.id)
           .map((item) => item.id as string),
       );
-      const hasMappedQuoteItems = Object.keys(quoteInfo).length > 0;
-      const safeQuoteItems = quoteItems
-        .filter(
-          (item) =>
-            item.isSectionTitle ||
-            !hasMappedQuoteItems ||
-            Boolean(item.id && quoteInfo[item.id]),
-        )
-        .map((item) => ({
+      const safeQuoteItems = quoteItems.map((item) => ({
           ...item,
           sku: item.id ? quoteInfo[item.id]?.sku : undefined,
-        }));
+      }));
       const linkedProject = syntheticProjectId
         ? confirmedProjects.find((project) => project.id === syntheticProjectId)
         : activeQuote
@@ -306,25 +299,17 @@ export function CustomerQuoteSchemesView() {
         fetchZones(linkedProject.id),
         fetchZoneProducts(linkedProject.id),
       ]);
-      const confirmedProducts = zoneProducts.filter(
-        (product) => product.status === 'confirmed' && product.zoneId,
-      );
+      const selectedProducts = zoneProducts.filter((product) => product.zoneId);
       const mainInfo = await fetchActiveMainProductInfo(
-        confirmedProducts
+        selectedProducts
           .map((product) => product.productId)
           .filter((id): id is string => Boolean(id)),
       );
-      const mainProducts = confirmedProducts.filter(
-        (product) => product.productId && mainInfo[product.productId],
-      );
-      if (mainProducts.length === 0) return safeQuoteItems;
-
       const grouped: BwfQuoteItemInput[] = [];
       for (const zone of zones) {
-        const products = mainProducts.filter(
+        const products = selectedProducts.filter(
           (product) => product.zoneId === zone.id,
         );
-        if (products.length === 0) continue;
         grouped.push({
           id: `zone-${zone.id}`,
           name: `${zone.code ? `${zone.code} · ` : ''}${zone.name}`,
@@ -760,6 +745,11 @@ export function CustomerQuoteSchemesView() {
                   </span>
                 </div>
                 <div className="divide-y divide-border/70">
+                  {group.items.length === 0 ? (
+                    <p className="px-5 py-6 text-sm text-muted-foreground">
+                      此區域暫未選擇產品
+                    </p>
+                  ) : null}
                   {group.items.map((item, index) => {
                     const key = itemKey(item, index);
                     const review = itemReviews[key];

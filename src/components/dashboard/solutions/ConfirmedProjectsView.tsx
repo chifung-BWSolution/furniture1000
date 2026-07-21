@@ -60,11 +60,7 @@ export function ConfirmedProjectsView() {
 
   const confirmedProjects = projects;
   const project = projects.find((p) => p.id === projectId);
-  const confirmed = zoneProducts.filter(
-    (zp) =>
-      zp.status === 'confirmed' &&
-      Boolean(zp.productId && skuByProductId[zp.productId]),
-  );
+  const confirmed = zoneProducts.filter((product) => product.zoneId);
   const total = confirmed.reduce((sum, zp) => sum + zp.salePrice * zp.quantity, 0);
 
   if (!project) {
@@ -112,7 +108,7 @@ export function ConfirmedProjectsView() {
 
         {/* Summary bar */}
         <div className="grid grid-cols-3 gap-4">
-          <SummaryCard label="已確認產品" value={`${confirmed.length} 件`} />
+          <SummaryCard label="已選產品" value={`${confirmed.length} 件`} />
           <SummaryCard label="分區數" value={`${zones.length} 區`} />
           <SummaryCard label="方案總價" value={`$${total.toLocaleString()}`} highlight />
         </div>
@@ -121,7 +117,6 @@ export function ConfirmedProjectsView() {
         <div className="space-y-4">
           {zones.map((zone) => {
             const items = confirmed.filter((zp) => zp.zoneId === zone.id);
-            if (items.length === 0) return null;
             const zoneTotal = items.reduce((s, zp) => s + zp.salePrice * zp.quantity, 0);
             return (
               <div key={zone.id} className="overflow-hidden rounded-xl border border-border bg-card">
@@ -134,6 +129,16 @@ export function ConfirmedProjectsView() {
                 </div>
                 <table className="w-full text-sm">
                   <tbody className="divide-y divide-border/60">
+                    {items.length === 0 ? (
+                      <tr>
+                        <td
+                          colSpan={4}
+                          className="px-5 py-5 text-sm text-muted-foreground"
+                        >
+                          此區域暫未選擇產品
+                        </td>
+                      </tr>
+                    ) : null}
                     {items.map((zp) => (
                       <tr key={zp.id} className="hover:bg-muted/20">
                         <td className="py-2.5 pl-5 pr-3">
