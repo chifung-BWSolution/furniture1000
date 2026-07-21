@@ -39,7 +39,11 @@ import {
   fetchZones,
   fetchZoneProducts,
 } from '@/lib/solutionsApi';
-import type { DesignProject } from '@/types/solutions';
+import type {
+  DesignProject,
+  ProjectZone,
+  ZoneProduct,
+} from '@/types/solutions';
 
 type QuoteRecord = {
   id: string;
@@ -168,6 +172,9 @@ export function CustomerQuoteSchemesView() {
   const [confirmedTotals, setConfirmedTotals] = useState<Record<string, number>>(
     {},
   );
+  const [confirmedProjectData, setConfirmedProjectData] = useState<
+    Record<string, { zones: ProjectZone[]; products: ZoneProduct[] }>
+  >({});
   const [syntheticQuotes, setSyntheticQuotes] = useState<QuoteRecord[]>([]);
   const [activeId, setActiveId] = useState('');
   const [items, setItems] = useState<BwfQuoteItemInput[]>([]);
@@ -222,10 +229,12 @@ export function CustomerQuoteSchemesView() {
     void fetchQuotes();
     void fetchProjects().then(async (rows) => {
       const confirmed = rows.filter((project) => project.status === 'confirmed');
-      setConfirmedProjects(confirmed);
-      const totals = await Promise.all(
+      const loaded = await Promise.all(
         confirmed.map(async (project) => {
-          const products = await fetchZoneProducts(project.id);
+          const [zones, products] = await Promise.all([
+            fetchZones(project.id),
+            fetchZoneProducts(project.id),
+          ]);
           const total = products
             .filter((product) => product.zoneId)
             .reduce(
@@ -233,10 +242,24 @@ export function CustomerQuoteSchemesView() {
                 sum + product.salePrice * product.quantity,
               0,
             );
-          return [project.id, total] as const;
+          return { projectId: project.id, zones, products, total };
         }),
       );
-      setConfirmedTotals(Object.fromEntries(totals));
+      setConfirmedProjectData(
+        Object.fromEntries(
+          loaded.map((entry) => [
+            entry.projectId,
+            { zones: entry.zones, products: entry.products },
+          ]),
+        ),
+      );
+      setConfirmedTotals(
+        Object.fromEntries(
+          loaded.map((entry) => [entry.projectId, entry.total]),
+        ),
+      );
+      // Publish confirmed projects only after their detail cache is ready.
+      setConfirmedProjects(confirmed);
     });
   }, [fetchQuotes]);
 
@@ -302,10 +325,13 @@ export function CustomerQuoteSchemesView() {
         return { rows: quoteItems, skuTargets: quoteTargets };
       }
 
-      const [zones, zoneProducts] = await Promise.all([
-        fetchZones(linkedProject.id),
-        fetchZoneProducts(linkedProject.id),
-      ]);
+      const cached = confirmedProjectData[linkedProject.id];
+      const [zones, zoneProducts] = cached
+        ? [cached.zones, cached.products]
+        : await Promise.all([
+            fetchZones(linkedProject.id),
+            fetchZoneProducts(linkedProject.id),
+          ]);
       const selectedProducts = zoneProducts.filter((product) => product.zoneId);
       const skuTargets = selectedProducts.map((product) => ({
         key: product.id,
@@ -364,7 +390,13 @@ export function CustomerQuoteSchemesView() {
     return () => {
       cancelled = true;
     };
-  }, [activeId, confirmedProjects, quotes, syntheticQuotes]);
+  }, [
+    activeId,
+    confirmedProjectData,
+    confirmedProjects,
+    quotes,
+    syntheticQuotes,
+  ]);
 
   const allQuoteRows = useMemo(
     () => [...quotes, ...syntheticQuotes],
@@ -611,8 +643,6 @@ export function CustomerQuoteSchemesView() {
                   onClick={() => {
                     setActiveId(quote.id);
                     setShowDetail(true);
-                    setItems([]);
-                    setItemsLoading(true);
                     setItemReviews({});
                     setItemNotes({});
                     setQuoteDecision('pending');
