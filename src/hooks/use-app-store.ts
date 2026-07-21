@@ -1024,7 +1024,7 @@ export function useAppStore() {
     // finalised title, body_html, price, image_url, images, variants.
     const { data: rtsRows, error: rtsErr } = await supabase
       .from('ready_to_shopify')
-      .select('id,product_id,title,body_html,vendor,price,image_url,image_url_2,image_url_3,images,variants,product_type,tags,shopify_url,shopify_page_title,shopify_page_description,dimension_l_mm,dimension_w_mm,dimension_h_mm,material,"my_fields.materials",customize,sku,products(dimension_l_mm,dimension_w_mm,dimension_h_mm,material,customize,image_url,image_url_2,image_url_3,lifestyle_image_url)')
+      .select('id,product_id,title,body_html,vendor,price,image_url,image_url_2,image_url_3,images,variants,product_type,tags,shopify_url,shopify_page_title,shopify_page_description,dimension_l_mm,dimension_w_mm,dimension_h_mm,material,"my_fields.materials",customize,sku,products(dimension_l_mm,dimension_w_mm,dimension_h_mm,material,customize)')
       .in('product_id', productIdsToPublish);
     if (rtsErr) {
       console.warn('[publishToShopify] ready_to_shopify fetch error:', rtsErr.message);
@@ -1044,24 +1044,9 @@ export function useAppStore() {
       const productTags: string[] = Array.isArray(p.tags) ? p.tags : [];
       const mergedTags = Array.from(new Set([...productTags, ...rtsTags]));
 
-      // Ordered gallery: RTS image_url primary, else products.image_url; images[] = extras.
-      const catalogProd = rts?.products as {
-        image_url?: string | null;
-        image_url_2?: string | null;
-        image_url_3?: string | null;
-        lifestyle_image_url?: string | null;
-      } | null;
-      const catalogPrimary =
-        (typeof catalogProd?.image_url === 'string' ? catalogProd.image_url : '') ||
-        p.imageUrl ||
-        '';
-      const galleryUrls: string[] = buildPublishGalleryUrls(rts, catalogPrimary, {
-        image_url: catalogPrimary,
-        image_url_2: catalogProd?.image_url_2 ?? (p as { imageUrl2?: string | null }).imageUrl2 ?? null,
-        image_url_3: catalogProd?.image_url_3 ?? (p as { imageUrl3?: string | null }).imageUrl3 ?? null,
-        lifestyle_image_url: catalogProd?.lifestyle_image_url ?? p.lifestyleImageUrl ?? null,
-      });
-      const primaryUrl: string = galleryUrls[0] || rts?.image_url || catalogPrimary || '';
+      // Ordered gallery from ready_to_shopify only (準備上載 source of truth).
+      const galleryUrls: string[] = buildPublishGalleryUrls(rts);
+      const primaryUrl: string = galleryUrls[0] || rts?.image_url || '';
       const additionalImages: { src: string }[] = galleryUrls.slice(1).map((src) => ({ src }));
 
       // ── Build metafields from ready_to_shopify fields (variant-less mapping) ──
@@ -1346,7 +1331,7 @@ export function useAppStore() {
     // Fetch the ready_to_shopify row for this product to get finalised content
     const { data: rtsRetryRows } = await supabase
       .from('ready_to_shopify')
-      .select('id,product_id,title,body_html,price,image_url,images,variants,product_type,tags,shopify_url,shopify_page_title,shopify_page_description,sku,vendor')
+      .select('id,product_id,title,body_html,price,image_url,image_url_2,image_url_3,images,variants,product_type,tags,shopify_url,shopify_page_title,shopify_page_description,sku,vendor')
       .eq('product_id', id)
       .maybeSingle();
     const rts = rtsRetryRows as any;
@@ -1354,18 +1339,8 @@ export function useAppStore() {
     const productTags: string[] = Array.isArray(product.tags) ? product.tags : [];
     const mergedTags = Array.from(new Set([...productTags, ...rtsTags]));
 
-    const { data: catalogRow } = await supabase
-      .from('products')
-      .select('image_url,image_url_2,image_url_3,lifestyle_image_url')
-      .eq('id', id)
-      .maybeSingle();
-    const galleryUrls = buildPublishGalleryUrls(rts, catalogRow?.image_url || product.imageUrl, {
-      image_url: catalogRow?.image_url || product.imageUrl,
-      image_url_2: catalogRow?.image_url_2 ?? null,
-      image_url_3: catalogRow?.image_url_3 ?? null,
-      lifestyle_image_url: catalogRow?.lifestyle_image_url ?? product.lifestyleImageUrl ?? null,
-    });
-    const primaryUrl = galleryUrls[0] || rts?.image_url || product.imageUrl || '';
+    const galleryUrls = buildPublishGalleryUrls(rts);
+    const primaryUrl = galleryUrls[0] || rts?.image_url || '';
     const additionalImages = galleryUrls.slice(1).map((src) => ({ src }));
 
     const payload = [{

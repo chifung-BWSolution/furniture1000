@@ -1108,31 +1108,30 @@ Deno.serve(async (req: Request) => {
           return variant;
         });
 
-        // Merge full catalog gallery (incl. lifestyle_image_url) so 4th image is not dropped.
-        const { data: catalogRow } = await supabase
-          .from("products")
-          .select("image_url,image_url_2,image_url_3,lifestyle_image_url,images")
-          .eq("id", product.id)
+        // Enrich gallery from ready_to_shopify when client payload is incomplete.
+        const { data: rtsRow } = await supabase
+          .from("ready_to_shopify")
+          .select("image_url, image_url_2, image_url_3, images")
+          .eq("product_id", product.id)
           .maybeSingle();
-        if (catalogRow) {
-          const catalogUrls: string[] = [];
-          const pushCatalog = (src: unknown) => {
-            if (isHttpUrl(src)) catalogUrls.push(String(src).trim());
+        if (rtsRow) {
+          const rtsUrls: string[] = [];
+          const pushRts = (src: unknown) => {
+            if (isHttpUrl(src)) rtsUrls.push(String(src).trim());
           };
-          pushCatalog(catalogRow.image_url);
-          pushCatalog(catalogRow.image_url_2);
-          pushCatalog(catalogRow.image_url_3);
-          if (Array.isArray(catalogRow.images)) {
-            for (const im of catalogRow.images as { src?: string; url?: string }[]) {
-              pushCatalog(im?.src || im?.url);
+          pushRts(rtsRow.image_url);
+          pushRts(rtsRow.image_url_2);
+          pushRts(rtsRow.image_url_3);
+          if (Array.isArray(rtsRow.images)) {
+            for (const im of rtsRow.images as { src?: string; url?: string }[]) {
+              pushRts(im?.src || im?.url);
             }
           }
-          pushCatalog(catalogRow.lifestyle_image_url);
 
-          const catalogPrimaryUrl = (catalogRow.image_url || "").trim();
-          if (catalogPrimaryUrl.startsWith("http")) {
-            if (!product.image_url?.trim()) product.image_url = catalogPrimaryUrl;
-            if (!product.primary_image_src?.trim()) product.primary_image_src = catalogPrimaryUrl;
+          const rtsPrimary = (rtsRow.image_url || "").trim();
+          if (rtsPrimary.startsWith("http")) {
+            if (!product.image_url?.trim()) product.image_url = rtsPrimary;
+            if (!product.primary_image_src?.trim()) product.primary_image_src = rtsPrimary;
           }
 
           const mergedGallery: string[] = [];
@@ -1143,7 +1142,7 @@ Deno.serve(async (req: Request) => {
             seenGallery.add(key);
             mergedGallery.push(src);
           };
-          if (catalogPrimaryUrl.startsWith("http")) addGallery(catalogPrimaryUrl);
+          if (rtsPrimary.startsWith("http")) addGallery(rtsPrimary);
           if (Array.isArray(product.gallery_urls)) {
             for (const url of product.gallery_urls) addGallery(url);
           } else if (Array.isArray(product.images)) {
@@ -1152,12 +1151,12 @@ Deno.serve(async (req: Request) => {
               if (isHttpUrl(src)) addGallery(src);
             }
           }
-          for (const url of catalogUrls) addGallery(url);
+          for (const url of rtsUrls) addGallery(url);
 
           if (mergedGallery.length > 0) {
             product.gallery_urls = mergedGallery;
             console.log(
-              `[publish-to-shopify] 📎 Catalog gallery merge for "${product.title}": ${mergedGallery.length} image(s)`,
+              `[publish-to-shopify] 📎 ready_to_shopify gallery merge for "${product.title}": ${mergedGallery.length} image(s)`,
             );
           }
         }

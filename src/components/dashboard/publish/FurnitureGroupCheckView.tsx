@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { uploadImageSourceToStorage, stripBase64ForDb, isHttpImageUrl } from '@/lib/imageStorage';
-import { parseRtsGalleryUrls } from '@/lib/rtsImages';
+import { parseRtsImageUrls } from '@/lib/rtsImages';
 import { syncRtsWorkflowToProduct } from '@/lib/rtsProductSync';
 import { dedupeFactoryNames, normalizeFactoryDisplayName } from '@/lib/factoryNames';
 import { getPublishTimestampHk } from '@/lib/publishTimestamps';
@@ -341,7 +341,7 @@ export function FGProductDetailModal({
       setData(r);
 
       // Gallery from ready_to_shopify only: image_url = primary, images[] = extras.
-      const imgs = parseRtsGalleryUrls(r).filter((src) => isHttpImageUrl(src));
+      const imgs = parseRtsImageUrls(r).filter((src) => isHttpImageUrl(src));
 
       setSelectedImg(imgs[0] || r.image_url || null);
       setEditImages(imgs);

@@ -409,6 +409,8 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
     handle: handle || slugify(name),
     status: 'draft',
     image_url: resolvedPrimary || null,
+    image_url_2: imagesJson[0]?.src || null,
+    image_url_3: imagesJson[1]?.src || null,
     images: imagesJson.length > 0 ? imagesJson : null,
     tags: item.tags.length > 0 ? item.tags : null,
     price: item.salePrice ?? item.price ?? null,
