@@ -2,7 +2,6 @@ import { supabase } from '@/lib/supabase';
 import { fetchPmsPitchings, type PmsPitchingListItem } from '@/lib/pmsPitchings';
 import { resolvePmsStaffByIds } from '@/lib/pmsStaff';
 import { staffDisplayLabel } from '@/lib/staffDisplay';
-import { SOLUTION_DEMO_PROJECT_CUSTOMERS } from '@/constants/solution-demo-customers';
 import type { DesignProject } from '@/types/solutions';
 
 function quoteChainIdFromProject(project: DesignProject): string {
@@ -97,10 +96,6 @@ export async function resolveDesignProjectPmLabels(
         ? staffById.get(project.editorStaffId)
         : null;
       label = staffDisplayLabel([creator?.name, editor?.name]);
-    }
-
-    if (!label) {
-      label = SOLUTION_DEMO_PROJECT_CUSTOMERS[project.id]?.pmLabel || '';
     }
 
     labels[project.id] = label || '未指定項目經理';

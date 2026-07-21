@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import {
-  Search, ShoppingCart, Plus, Trash2, Loader2, Send, SlidersHorizontal, RotateCcw,
+  Search, ShoppingCart, Plus, Trash2, Loader2, SlidersHorizontal, RotateCcw,
 } from 'lucide-react';
 import { fetchPortalBrowseProducts } from '@/lib/solutionsApi';
 import {
@@ -573,19 +573,9 @@ export function CustomerProductSearchView() {
               )}
             </div>
             {cart.length > 0 ? (
-              <button
-                type="button"
-                onClick={() => {
-                  toast.success('已送出查詢車', {
-                    description: `${cartCount} 件產品將轉交 PM 跟進報價（前端示意）`,
-                  });
-                  persistCart([]);
-                  setShowCart(false);
-                }}
-                className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-medium text-primary-foreground"
-              >
-                <Send className="h-4 w-4" /> 送出查詢給 PM
-              </button>
+              <p className="mt-4 rounded-lg bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                查詢車只保留本機選擇；未有 Supabase 查詢紀錄前不會顯示「已送出」狀態。
+              </p>
             ) : null}
           </div>
         </div>

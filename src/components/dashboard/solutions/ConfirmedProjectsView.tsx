@@ -1,23 +1,20 @@
 import { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import {
-  FileDown, Database, History, CheckCircle2, MessageSquare, ChevronDown,
-  Clock, RotateCcw, GitCompare, Loader2,
+  CheckCircle2, MessageSquare, ChevronDown, Clock, Loader2,
 } from 'lucide-react';
-import { fetchProjects, fetchZones, fetchZoneProducts } from '@/lib/solutionsApi';
-import type { DesignProject, ProjectZone, ZoneProduct } from '@/types/solutions';
-import { toast } from 'sonner';
-
-const VERSIONS = [
-  { id: 'v3', label: 'v1.3', date: '2026-06-01T14:20:00Z', note: '客戶確認最終版', current: true },
-  { id: 'v2', label: 'v1.2', date: '2026-05-28T10:00:00Z', note: '調整會議室座椅' },
-  { id: 'v1', label: 'v1.1', date: '2026-05-20T09:00:00Z', note: '初版方案' },
-];
-
-const CONFIRM_LOG = [
-  { who: '陳大文（客戶）', action: '確認方案 A 全部產品', at: '2026-06-01T14:18:00Z' },
-  { who: 'Amy（設計師）', action: '提交最終方案供確認', at: '2026-06-01T09:00:00Z' },
-];
+import {
+  fetchDiscussions,
+  fetchProjects,
+  fetchZones,
+  fetchZoneProducts,
+} from '@/lib/solutionsApi';
+import type {
+  DesignProject,
+  ProductDiscussion,
+  ProjectZone,
+  ZoneProduct,
+} from '@/types/solutions';
 
 function fmt(d: string) {
   const x = new Date(d);
@@ -29,12 +26,12 @@ export function ConfirmedProjectsView() {
   const [projectId, setProjectId] = useState('');
   const [zones, setZones] = useState<ProjectZone[]>([]);
   const [zoneProducts, setZoneProducts] = useState<ZoneProduct[]>([]);
+  const [discussions, setDiscussions] = useState<ProductDiscussion[]>([]);
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     fetchProjects().then((rows) => {
-      const eligible = rows.filter((p) => p.status === 'confirmed' || p.progress >= 60);
-      const list = eligible.length > 0 ? eligible : rows;
+      const list = rows.filter((p) => p.status === 'confirmed');
       setProjects(list);
       if (list.length > 0) setProjectId((cur) => cur || list[0].id);
     }).finally(() => setLoaded(true));
@@ -42,8 +39,15 @@ export function ConfirmedProjectsView() {
 
   useEffect(() => {
     if (!projectId) return;
-    Promise.all([fetchZones(projectId), fetchZoneProducts(projectId)])
-      .then(([z, zp]) => { setZones(z); setZoneProducts(zp); });
+    Promise.all([
+      fetchZones(projectId),
+      fetchZoneProducts(projectId),
+      fetchDiscussions(projectId),
+    ]).then(([z, zp, records]) => {
+      setZones(z);
+      setZoneProducts(zp);
+      setDiscussions(records);
+    });
   }, [projectId]);
 
   const confirmedProjects = projects;
@@ -88,30 +92,6 @@ export function ConfirmedProjectsView() {
               </select>
               <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             </div>
-          </div>
-          <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={() =>
-                toast.message('匯出至 PMS（前端示意）', {
-                  description: '不修改 Supabase／PMS；後續可接上真實匯出 API',
-                })
-              }
-              className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3.5 py-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-            >
-              <Database className="h-3.5 w-3.5" /> 匯出至 PMS
-            </button>
-            <button
-              type="button"
-              onClick={() =>
-                toast.success('已準備方案 PDF（前端示意）', {
-                  description: `${project?.name || ''} · ${confirmed.length} 件已確認產品`,
-                })
-              }
-              className="flex items-center gap-1.5 rounded-lg bg-gradient-to-r from-primary to-primary/80 px-3.5 py-2 text-xs font-semibold text-primary-foreground shadow-sm transition-opacity hover:opacity-90"
-            >
-              <FileDown className="h-3.5 w-3.5" /> 生成方案 PDF
-            </button>
           </div>
         </div>
 
@@ -159,56 +139,33 @@ export function ConfirmedProjectsView() {
           })}
         </div>
 
-        {/* History versions + confirmation log */}
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <div className="rounded-xl border border-border bg-card p-4">
-            <div className="mb-3 flex items-center gap-2">
-              <History className="h-4 w-4 text-primary" />
-              <h3 className="font-display text-sm font-bold">歷史版本</h3>
-            </div>
-            <div className="space-y-2">
-              {VERSIONS.map((v) => (
-                <div key={v.id} className={cn('flex items-center justify-between rounded-lg border px-3 py-2', v.current ? 'border-primary/30 bg-primary/5' : 'border-border')}>
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono-data text-[12px] font-bold text-foreground">{v.label}</span>
-                    {v.current && <span className="rounded-full bg-primary/15 px-1.5 py-0.5 text-xs font-medium text-primary">目前</span>}
-                    <span className="text-xs text-muted-foreground">{v.note}</span>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-mono-data text-xs text-muted-foreground/70">{fmt(v.date)}</span>
-                    {!v.current && (
-                      <>
-                        <button className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground" title="重新載入"><RotateCcw className="h-3.5 w-3.5" /></button>
-                        <button className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground" title="比對"><GitCompare className="h-3.5 w-3.5" /></button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="rounded-xl border border-border bg-card p-4">
+        {/* Real project discussion records from Supabase */}
+        <div className="rounded-xl border border-border bg-card p-4">
             <div className="mb-3 flex items-center gap-2">
               <MessageSquare className="h-4 w-4 text-primary" />
-              <h3 className="font-display text-sm font-bold">確認紀錄</h3>
+              <h3 className="font-display text-sm font-bold">專案互動紀錄</h3>
             </div>
-            <div className="space-y-3">
-              {CONFIRM_LOG.map((log, i) => (
-                <div key={i} className="flex gap-2.5">
+            {discussions.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Supabase 暫無互動紀錄</p>
+            ) : (
+              <div className="space-y-3">
+              {discussions.map((record, i) => (
+                <div key={record.id} className="flex gap-2.5">
                   <div className="flex flex-col items-center">
                     <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary/10"><Clock className="h-3 w-3 text-primary" /></span>
-                    {i < CONFIRM_LOG.length - 1 && <span className="mt-1 h-full w-px bg-border" />}
+                    {i < discussions.length - 1 && <span className="mt-1 h-full w-px bg-border" />}
                   </div>
                   <div className="pb-2">
-                    <p className="font-body text-[12.5px] text-foreground"><span className="font-semibold">{log.who}</span> {log.action}</p>
-                    <p className="font-mono-data text-xs text-muted-foreground/70">{fmt(log.at)}</p>
+                    <p className="font-body text-[12.5px] text-foreground">
+                      <span className="font-semibold">{record.author}</span> {record.body}
+                    </p>
+                    <p className="font-mono-data text-xs text-muted-foreground/70">{fmt(record.createdAt)}</p>
                   </div>
                 </div>
               ))}
+              </div>
+            )}
             </div>
-          </div>
-        </div>
       </div>
     </div>
   );

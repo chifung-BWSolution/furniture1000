@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import {
-  Check, X, MessageSquare, FileText, Loader2, ChevronDown, ChevronUp,
+  FileText, Loader2, ChevronDown, ChevronUp,
   Shield, Clock, Search, RefreshCw,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
@@ -18,9 +18,6 @@ import {
 import { PortalPageShell } from '@/components/dashboard/customers/PortalPageShell';
 import { useClientZoneContext } from '@/hooks/use-client-zone-context';
 import { usePlatformRole } from '@/hooks/use-platform-role';
-
-/** Shared with 產品搜尋 / 付款+送貨 (local only). */
-const PORTAL_CART_KEY = 'fds-portal-inquiry-cart';
 
 type QuoteRecord = {
   id: string;
@@ -42,8 +39,6 @@ type QuoteRecord = {
   };
   pitching?: PmsPitchingListItem | null;
 };
-
-type Decision = 'pending' | 'approved' | 'rejected' | 'change_requested';
 
 const LIST_SELECT =
   'id, quote_id, version, status, total_amount, created_at, modified_date, project_data, bwf_pitching_id';
@@ -103,11 +98,6 @@ export function CustomerQuoteSchemesView() {
   const [activeId, setActiveId] = useState('');
   const [items, setItems] = useState<BwfQuoteItemInput[]>([]);
   const [itemsLoading, setItemsLoading] = useState(false);
-  const [decisions, setDecisions] = useState<Record<string, Decision>>({});
-  const [notes, setNotes] = useState<Record<string, string>>({});
-  const [itemDecisions, setItemDecisions] = useState<
-    Record<string, 'ok' | 'change' | 'reject'>
-  >({});
 
   const fetchQuotes = useCallback(async () => {
     setLoading(true);
@@ -225,8 +215,6 @@ export function CustomerQuoteSchemesView() {
     [quotes, activeId],
   );
   const activeVersions = active ? groups.get(active.quote_id) || [active] : [];
-  const decision = active ? decisions[active.id] || 'pending' : 'pending';
-
   const billableItems = useMemo(
     () =>
       items.filter(
@@ -238,73 +226,6 @@ export function CustomerQuoteSchemesView() {
     () => billableItems.reduce((sum, it) => sum + quoteItemLineSubtotal(it), 0),
     [billableItems],
   );
-
-  const pushAcceptedItemsToCheckoutCart = () => {
-    const accepted = billableItems.filter((it) => {
-      const key = it.id || '';
-      const d = key ? itemDecisions[key] || 'ok' : 'ok';
-      return d === 'ok';
-    });
-    if (accepted.length === 0) return 0;
-    type CartItem = {
-      id: string;
-      title: string;
-      salePrice: number;
-      imageUrl?: string;
-      qty: number;
-    };
-    let existing: CartItem[] = [];
-    try {
-      const raw = localStorage.getItem(PORTAL_CART_KEY);
-      if (raw) existing = JSON.parse(raw) as CartItem[];
-    } catch {
-      existing = [];
-    }
-    const map = new Map(existing.map((c) => [c.id, { ...c }]));
-    for (const it of accepted) {
-      const id = it.id || `quote-item-${it.name || 'item'}`;
-      const qty = Math.max(1, Number(it.quantity) || 1);
-      const hit = map.get(id);
-      if (hit) {
-        hit.qty += qty;
-      } else {
-        map.set(id, {
-          id,
-          title: it.name || '產品',
-          salePrice: Number(it.unitPrice) || 0,
-          imageUrl: it.image || undefined,
-          qty,
-        });
-      }
-    }
-    const next = [...map.values()];
-    localStorage.setItem(PORTAL_CART_KEY, JSON.stringify(next));
-    return accepted.length;
-  };
-
-  const setDecision = (next: Decision) => {
-    if (!active) return;
-    setDecisions((prev) => ({ ...prev, [active.id]: next }));
-    if (next === 'approved') {
-      const n = pushAcceptedItemsToCheckoutCart();
-      toast.success('已確認整張報價', {
-        description:
-          n > 0
-            ? `已將 ${n} 項產品加入「付款+送貨」購物車（僅本機，未寫入資料庫）`
-            : '前端示意狀態（未寫入資料庫）',
-      });
-      return;
-    }
-    const label =
-      next === 'rejected'
-        ? '已拒絕報價'
-        : next === 'change_requested'
-          ? '已送出更改要求'
-          : '';
-    if (label) {
-      toast.success(label, { description: '前端示意狀態（未寫入資料庫）' });
-    }
-  };
 
   const toggleExpand = (quoteId: string) => {
     setExpandedIds((prev) => {
@@ -319,7 +240,7 @@ export function CustomerQuoteSchemesView() {
     <PortalPageShell
       title="報價方案"
       badge="Client Portal"
-      subtitle="參考報價一覽：讀取真實報價與產品明細（僅售價，隱藏成本）。可逐件提出更改或確認整張報價。"
+      subtitle="唯讀載入 Supabase 真實報價與產品明細（僅售價，隱藏成本）。"
       actions={
         <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2.5 py-1 font-body text-xs text-muted-foreground">
           <Shield className="h-3 w-3" /> 僅顯示售價
@@ -512,9 +433,9 @@ export function CustomerQuoteSchemesView() {
               </div>
 
               <div className="rounded-xl border border-border/80 bg-muted/20 px-3 py-2.5 text-xs text-foreground/85">
-                真實產品明細來自 bwf_quote_item（唯讀）。成本價已隱藏。目前狀態：
+                真實產品明細來自 bwf_quote_item（唯讀）。成本價已隱藏。報價狀態：
                 <span className="ml-1 font-medium">
-                  {decision === 'pending' ? '待客戶決定' : decision}
+                  {active.status || '—'}
                 </span>
               </div>
 
@@ -542,7 +463,6 @@ export function CustomerQuoteSchemesView() {
                       }
                       const key = it.id || `item-${idx}`;
                       const line = quoteItemLineSubtotal(it);
-                      const d = itemDecisions[key] || 'ok';
                       return (
                         <li key={key} className="flex items-center gap-3 px-3 py-2.5">
                           <div className="h-12 w-12 overflow-hidden rounded-md bg-muted">
@@ -562,22 +482,6 @@ export function CustomerQuoteSchemesView() {
                             <p className="font-mono-data text-xs font-semibold">
                               {it.isOptional ? '—' : fmtMoney(line)}
                             </p>
-                            {!it.isCustomTerm && !it.isOptional ? (
-                              <select
-                                value={d}
-                                onChange={(e) =>
-                                  setItemDecisions((prev) => ({
-                                    ...prev,
-                                    [key]: e.target.value as 'ok' | 'change' | 'reject',
-                                  }))
-                                }
-                                className="mt-1 rounded border border-border bg-background px-1 py-0.5 text-xs"
-                              >
-                                <option value="ok">接受</option>
-                                <option value="change">要求改</option>
-                                <option value="reject">不要</option>
-                              </select>
-                            ) : null}
                           </div>
                         </li>
                       );
@@ -596,44 +500,6 @@ export function CustomerQuoteSchemesView() {
                 </span>
               </div>
 
-              <label className="block">
-                <span className="mb-1 block text-xs font-medium text-muted-foreground">
-                  更改要求／留言
-                </span>
-                <textarea
-                  value={notes[active.id] || ''}
-                  onChange={(e) =>
-                    setNotes((prev) => ({ ...prev, [active.id]: e.target.value }))
-                  }
-                  rows={2}
-                  placeholder="例如：會議室椅改為藍色、數量改 12…"
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
-                />
-              </label>
-
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={() => setDecision('approved')}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 px-3 py-2 text-xs font-medium text-white hover:bg-emerald-700"
-                >
-                  <Check className="h-3.5 w-3.5" /> 確認整張報價
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDecision('change_requested')}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-xs font-medium text-primary"
-                >
-                  <MessageSquare className="h-3.5 w-3.5" /> 要求修改
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDecision('rejected')}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-medium text-muted-foreground"
-                >
-                  <X className="h-3.5 w-3.5" /> 拒絕
-                </button>
-              </div>
             </div>
           )}
         </section>

@@ -1,12 +1,9 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useMemo } from 'react';
 import {
-  Building2, User, Mail, Phone, MapPin, ShieldAlert, Save, ArrowRight,
-  CheckCircle2, FolderClock, Loader2,
+  Building2, User, Mail, Phone, MapPin, ArrowRight,
+  FolderClock, Loader2,
 } from 'lucide-react';
-import { submitCompanyChanges } from '@/lib/solutionsApi';
 import { useClientZoneContext } from '@/hooks/use-client-zone-context';
-import { readPortalContentDraft } from '@/components/dashboard/solutions/SolutionPortalContentView';
-import { toast } from 'sonner';
 import type { DesignProject } from '@/types/solutions';
 
 interface CustomerCompanyInfoViewProps {
@@ -15,26 +12,6 @@ interface CustomerCompanyInfoViewProps {
 
 export function CustomerCompanyInfoView({ onOpenProject }: CustomerCompanyInfoViewProps) {
   const { loading, company, projects } = useClientZoneContext();
-  const [form, setForm] = useState({
-    name: '',
-    contactPerson: '',
-    contactEmail: '',
-    contactPhone: '',
-    address: '',
-  });
-  const [submitted, setSubmitted] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-
-  useEffect(() => {
-    if (!company) return;
-    setForm({
-      name: company.name,
-      contactPerson: company.contactPerson ?? '',
-      contactEmail: company.contactEmail ?? '',
-      contactPhone: company.contactPhone ?? '',
-      address: company.address ?? '',
-    });
-  }, [company]);
 
   const historyProjects = useMemo(() => {
     return [...projects].sort((a, b) => {
@@ -44,32 +21,6 @@ export function CustomerCompanyInfoView({ onOpenProject }: CustomerCompanyInfoVi
       return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
     });
   }, [projects]);
-
-  const pendingFields = company?.pendingChanges ?? {};
-  const hasPending = Object.keys(pendingFields).length > 0;
-
-  const handleSubmit = async () => {
-    if (!company?.id) {
-      toast.error('找不到公司資料');
-      return;
-    }
-    setIsSubmitting(true);
-    const res = await submitCompanyChanges(company.id, {
-      name: form.name,
-      contact_person: form.contactPerson,
-      contact_email: form.contactEmail,
-      contact_phone: form.contactPhone,
-      address: form.address,
-    });
-    setIsSubmitting(false);
-    if (res.ok) {
-      setSubmitted(true);
-      setTimeout(() => setSubmitted(false), 2500);
-      toast.success('已提交修改，待 PM 審核');
-    } else {
-      toast.error('提交失敗', { description: res.error });
-    }
-  };
 
   const statusLabel = (p: DesignProject) => {
     if (p.status === 'confirmed') return '已確認';
@@ -92,40 +43,7 @@ export function CustomerCompanyInfoView({ onOpenProject }: CustomerCompanyInfoVi
         <div>
           <h1 className="font-display text-2xl font-bold tracking-tight">公司資料</h1>
           <p className="mt-1 font-body text-sm text-muted-foreground">
-            公司介紹、資質與聯絡資訊 — 建立信任背書的 Client Portal 首頁區塊
-          </p>
-        </div>
-
-        {(() => {
-          const portal = readPortalContentDraft();
-          return (
-            <div className="rounded-xl border border-border bg-card p-5 shadow-sm space-y-3">
-              <h2 className="font-display text-sm font-bold">關於我們</h2>
-              <p className="font-body text-sm leading-relaxed text-foreground/90 whitespace-pre-wrap">
-                {portal.companyIntro}
-              </p>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="rounded-lg bg-muted/30 p-3">
-                  <p className="text-xs font-medium text-muted-foreground">資質</p>
-                  <p className="mt-1 text-xs leading-relaxed">{portal.credentials}</p>
-                </div>
-                <div className="rounded-lg bg-muted/30 p-3">
-                  <p className="text-xs font-medium text-muted-foreground">工廠／品質</p>
-                  <p className="mt-1 text-xs leading-relaxed">{portal.factory}</p>
-                </div>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                得獎紀錄：{portal.awards}
-              </p>
-            </div>
-          );
-        })()}
-
-        <div className="flex items-start gap-2.5 rounded-xl border border-amber-500/20 bg-amber-500/5 p-3.5">
-          <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
-          <p className="font-body text-[12.5px] text-amber-700 dark:text-amber-400">
-            修改聯絡資訊後需經 PM 審核才會生效，審核期間仍顯示原有資料。
-            {hasPending && ' 您有修改正在等待審核。'}
+            唯讀顯示此登入客戶在 Supabase 的公司及聯絡資料
           </p>
         </div>
 
@@ -142,28 +60,13 @@ export function CustomerCompanyInfoView({ onOpenProject }: CustomerCompanyInfoVi
               <h2 className="font-display text-sm font-bold">公司與聯絡資料</h2>
             </div>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              <Field icon={<Building2 className="h-3.5 w-3.5" />} label="公司名稱" value={form.name} onChange={(v) => setForm({ ...form, name: v })} />
-              <Field icon={<User className="h-3.5 w-3.5" />} label="聯絡人" value={form.contactPerson} onChange={(v) => setForm({ ...form, contactPerson: v })} />
-              <Field icon={<Mail className="h-3.5 w-3.5" />} label="電郵" value={form.contactEmail} onChange={(v) => setForm({ ...form, contactEmail: v })} />
-              <Field icon={<Phone className="h-3.5 w-3.5" />} label="電話" value={form.contactPhone} onChange={(v) => setForm({ ...form, contactPhone: v })} />
+              <Field icon={<Building2 className="h-3.5 w-3.5" />} label="公司名稱" value={company.name} />
+              <Field icon={<User className="h-3.5 w-3.5" />} label="聯絡人" value={company.contactPerson ?? ''} />
+              <Field icon={<Mail className="h-3.5 w-3.5" />} label="電郵" value={company.contactEmail ?? ''} />
+              <Field icon={<Phone className="h-3.5 w-3.5" />} label="電話" value={company.contactPhone ?? ''} />
               <div className="sm:col-span-2">
-                <Field icon={<MapPin className="h-3.5 w-3.5" />} label="地址" value={form.address} onChange={(v) => setForm({ ...form, address: v })} />
+                <Field icon={<MapPin className="h-3.5 w-3.5" />} label="地址" value={company.address ?? ''} />
               </div>
-            </div>
-            <div className="mt-5 flex items-center justify-end gap-2">
-              {submitted && (
-                <span className="flex items-center gap-1 text-[12px] font-medium text-emerald-600">
-                  <CheckCircle2 className="h-3.5 w-3.5" /> 已提交，待 PM 審核
-                </span>
-              )}
-              <button
-                type="button"
-                onClick={() => void handleSubmit()}
-                disabled={isSubmitting}
-                className="flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-xs font-semibold text-primary-foreground shadow-sm transition-opacity hover:opacity-90 disabled:opacity-50"
-              >
-                <Save className="h-3.5 w-3.5" /> 提交修改（需審核）
-              </button>
             </div>
           </div>
         )}
@@ -203,13 +106,10 @@ export function CustomerCompanyInfoView({ onOpenProject }: CustomerCompanyInfoVi
   );
 }
 
-function Field({
-  icon, label, value, onChange,
-}: {
+function Field({ icon, label, value }: {
   icon: React.ReactNode;
   label: string;
   value: string;
-  onChange: (v: string) => void;
 }) {
   return (
     <div>
@@ -218,8 +118,8 @@ function Field({
       </label>
       <input
         value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-lg border border-border bg-background px-3 py-2 font-body text-sm text-foreground focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
+        readOnly
+        className="w-full rounded-lg border border-border bg-muted/20 px-3 py-2 font-body text-sm text-foreground"
       />
     </div>
   );

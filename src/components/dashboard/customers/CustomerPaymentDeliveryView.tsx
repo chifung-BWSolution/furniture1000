@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import {
-  CreditCard, Truck, ShoppingBag, Trash2, Loader2, Lock, MapPin, CheckCircle2,
+  CreditCard, Truck, ShoppingBag, Trash2, Loader2, Lock, MapPin,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { fetchSearchProducts } from '@/lib/solutionsApi';
@@ -63,8 +63,7 @@ export function CustomerPaymentDeliveryView() {
   const [catalog, setCatalog] = useState<SearchProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState<CheckoutForm>(DEFAULT_FORM);
-  const [step, setStep] = useState<'cart' | 'shipping' | 'pay' | 'done'>('cart');
-  const [paying, setPaying] = useState(false);
+  const [step, setStep] = useState<'cart' | 'shipping' | 'pay'>('cart');
 
   useEffect(() => {
     const existing = loadCart();
@@ -79,18 +78,6 @@ export function CustomerPaymentDeliveryView() {
     fetchSearchProducts(24)
       .then((rows) => {
         setCatalog(rows);
-        // Seed demo cart from real products when empty (Shopify-like first visit)
-        if (existing.length === 0 && rows.length > 0) {
-          const seed = rows.slice(0, 2).map((p) => ({
-            id: p.id,
-            title: p.title,
-            salePrice: p.salePrice,
-            imageUrl: p.imageUrl,
-            qty: 1,
-          }));
-          setCart(seed);
-          saveCart(seed);
-        }
       })
       .finally(() => setLoading(false));
   }, []);
@@ -145,42 +132,16 @@ export function CustomerPaymentDeliveryView() {
       toast.error('購物車是空的');
       return;
     }
-    setPaying(true);
-    await new Promise((r) => setTimeout(r, 900));
-    setPaying(false);
-    setStep('done');
-    persistCart([]);
-    toast.success('付款成功（前端示意）', {
-      description: `${fmtMoney(total)} · 未寫入 Supabase／未串接真實金流`,
+    toast.error('尚未能進行付款', {
+      description: 'Supabase 暫無真實訂單／付款紀錄，未有支付閘道時不會模擬付款成功。',
     });
   };
-
-  if (step === 'done') {
-    return (
-      <PortalPageShell title="付款 + 送貨" badge="Checkout">
-        <div className="mx-auto max-w-md rounded-2xl border border-emerald-500/30 bg-card p-8 text-center shadow-sm">
-          <CheckCircle2 className="mx-auto h-12 w-12 text-emerald-600" />
-          <h2 className="mt-3 font-display text-xl font-bold">感謝您的訂單</h2>
-          <p className="mt-2 text-sm text-muted-foreground">
-            已收到付款指示（示意）。PM 會以電郵確認出廠與送貨時間。
-          </p>
-          <button
-            type="button"
-            onClick={() => setStep('cart')}
-            className="mt-5 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
-          >
-            繼續選購
-          </button>
-        </div>
-      </PortalPageShell>
-    );
-  }
 
   return (
     <PortalPageShell
       title="付款 + 送貨"
       badge="Shopify-style"
-      subtitle="查看產品後可直接結帳付款（售價可見、成本隱藏）。金流為前端示意，不修改資料庫。"
+      subtitle="唯讀載入 Supabase 產品售價；未有真實訂單及支付閘道前不會產生付款紀錄。"
       maxWidthClass="max-w-6xl"
     >
       {/* Steps */}
@@ -421,7 +382,7 @@ export function CustomerPaymentDeliveryView() {
               <div className="grid gap-2">
                 {(
                   [
-                    ['card', '信用卡／Debit（示意）'],
+                    ['card', '信用卡／Debit'],
                     ['fps', '轉數快 FPS'],
                     ['transfer', '銀行轉帳'],
                   ] as const
@@ -458,15 +419,11 @@ export function CustomerPaymentDeliveryView() {
                 </div>
               ) : (
                 <div className="rounded-xl bg-muted/30 p-3 font-mono-data text-xs leading-relaxed">
-                  Account Name: Branding Works Design Ltd
-                  <br />
-                  HSBC · 747-058683-001
-                  <br />
-                  請於轉帳備註填寫您的電郵
+                  Supabase 暫無此訂單的轉帳收款資料。
                 </div>
               )}
               <p className="flex items-center gap-1 text-xs text-muted-foreground">
-                <Lock className="h-3 w-3" /> 示意結帳頁 — 未串接真實支付閘道
+                <Lock className="h-3 w-3" /> 尚未串接真實支付閘道，不會建立付款紀錄
               </p>
             </section>
           ) : null}
@@ -515,12 +472,12 @@ export function CustomerPaymentDeliveryView() {
             {step === 'pay' ? (
               <button
                 type="button"
-                disabled={paying}
+                disabled
                 onClick={() => void payNow()}
                 className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
               >
-                {paying ? <Loader2 className="h-4 w-4 animate-spin" /> : <Lock className="h-4 w-4" />}
-                立即付款 {fmtMoney(total)}
+                <Lock className="h-4 w-4" />
+                尚未接通付款
               </button>
             ) : null}
           </div>
