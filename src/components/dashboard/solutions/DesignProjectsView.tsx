@@ -185,7 +185,7 @@ export function DesignProjectsView() {
     <div className="h-full overflow-y-auto bg-background">
       {/* Header */}
       <div className="sticky top-0 z-20 border-b border-border bg-background/95 backdrop-blur">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-6 py-4 md:px-8">
+        <div className="mx-auto flex max-w-[1440px] flex-wrap items-center justify-between gap-4 px-7 py-4 md:px-10">
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 flex-wrap items-center gap-2">
               <h1 className="truncate font-display text-2xl font-bold tracking-tight">
@@ -217,7 +217,7 @@ export function DesignProjectsView() {
         </div>
       </div>
 
-      <div className="mx-auto max-w-[1600px] space-y-6 p-7 md:p-10">
+      <div className="mx-auto max-w-[1440px] space-y-6 px-7 py-8 md:px-10 md:py-10">
         {/* Text zone list + furniture */}
         <section className="space-y-3">
           <div className="flex items-center justify-between gap-2">
@@ -240,7 +240,7 @@ export function DesignProjectsView() {
             {zoneGroups.map((group) => (
               <section key={group.key} className="space-y-3">
                 <div className="flex items-center gap-3 border-b border-border pb-2.5">
-                  <span className="flex h-9 min-w-9 items-center justify-center rounded-lg bg-primary text-sm font-bold text-primary-foreground">
+                  <span className="flex h-9 min-w-9 items-center justify-center rounded-lg border border-primary/30 bg-primary/10 text-sm font-bold text-primary">
                     {group.prefix}
                   </span>
                   <div>
@@ -383,7 +383,7 @@ export function DesignProjectsView() {
                     className={cn(
                       'rounded-full border px-2.5 py-1 text-[13px]',
                       category === c
-                        ? 'border-primary bg-primary text-primary-foreground'
+                        ? 'border-primary/50 bg-primary/10 text-primary'
                         : 'border-border text-muted-foreground',
                     )}
                   >
@@ -419,7 +419,7 @@ export function DesignProjectsView() {
                           <button
                             type="button"
                             onClick={() => addProductToZone(p)}
-                            className="inline-flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-[13px] font-medium text-primary-foreground"
+                            className="inline-flex items-center gap-1 rounded-md border border-primary/40 bg-primary/10 px-2 py-1 text-[13px] font-medium text-primary hover:bg-primary/15"
                           >
                             <Check className="h-3 w-3" /> 加入
                           </button>
