@@ -60,7 +60,10 @@ function setState(patch: Partial<AppUpdateState>) {
 }
 
 export function isStaleAssetErrorMessage(msg: string): boolean {
-  return STALE_MSG_MARKERS.some((m) => msg.includes(m));
+  return (
+    STALE_MSG_MARKERS.some((m) => msg.includes(m)) ||
+    /Cannot read properties of undefined \(reading '[A-Za-z0-9_]+View'\)/.test(msg)
+  );
 }
 
 export function getAppUpdateState(): AppUpdateState {
@@ -160,7 +163,9 @@ export function startAppUpdateGuard(): void {
     null;
 
   window.addEventListener('vite:preloadError', (e) => {
-    e.preventDefault();
+    // Do not preventDefault here. Vite must reject the lazy import; otherwise
+    // its promise resolves as undefined and `.then(mod => mod.SomeView)`
+    // crashes with a misleading "reading SomeView" TypeError.
     void notifyAppUpdate('vite-preload-error');
   });
 
