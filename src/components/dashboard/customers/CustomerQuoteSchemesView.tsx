@@ -157,6 +157,10 @@ export function CustomerQuoteSchemesView() {
 
   const [quotes, setQuotes] = useState<QuoteRecord[]>([]);
   const [confirmedProjects, setConfirmedProjects] = useState<DesignProject[]>([]);
+  const [confirmedTotals, setConfirmedTotals] = useState<Record<string, number>>(
+    {},
+  );
+  const [syntheticQuotes, setSyntheticQuotes] = useState<QuoteRecord[]>([]);
   const [activeId, setActiveId] = useState('');
   const [items, setItems] = useState<BwfQuoteItemInput[]>([]);
   const [loading, setLoading] = useState(true);
@@ -208,10 +212,52 @@ export function CustomerQuoteSchemesView() {
 
   useEffect(() => {
     void fetchQuotes();
-    void fetchProjects().then((rows) =>
-      setConfirmedProjects(rows.filter((project) => project.status === 'confirmed')),
-    );
+    void fetchProjects().then(async (rows) => {
+      const confirmed = rows.filter((project) => project.status === 'confirmed');
+      setConfirmedProjects(confirmed);
+      const totals = await Promise.all(
+        confirmed.map(async (project) => {
+          const products = await fetchZoneProducts(project.id);
+          const total = products
+            .filter((product) => product.status === 'confirmed')
+            .reduce(
+              (sum, product) =>
+                sum + product.salePrice * product.quantity,
+              0,
+            );
+          return [project.id, total] as const;
+        }),
+      );
+      setConfirmedTotals(Object.fromEntries(totals));
+    });
   }, [fetchQuotes]);
+
+  useEffect(() => {
+    const actualQuoteIds = new Set(quotes.map((quote) => quote.quote_id));
+    setSyntheticQuotes(
+      confirmedProjects
+        .filter((project) => {
+          const quoteId = projectQuoteId(project);
+          return quoteId && !actualQuoteIds.has(quoteId);
+        })
+        .map((project) => ({
+          id: `confirmed-project:${project.id}`,
+          quote_id: projectQuoteId(project),
+          version: 'v1',
+          status: '已確認',
+          total_amount: confirmedTotals[project.id] || 0,
+          created_at: project.createdAt,
+          modified_date: project.updatedAt,
+          project_data: {
+            formData: {
+              clientName: project.clientCompany || project.name,
+              clientContactName: project.clientName || undefined,
+            },
+          },
+          pitching: null,
+        })),
+    );
+  }, [confirmedProjects, confirmedTotals, quotes]);
 
   useEffect(() => {
     if (!activeId) {
@@ -221,7 +267,15 @@ export function CustomerQuoteSchemesView() {
     let cancelled = false;
     setItemsLoading(true);
     const loadItems = async () => {
-      const quoteItems = await loadClientQuoteItems(activeId);
+      const activeQuote = [...quotes, ...syntheticQuotes].find(
+        (quote) => quote.id === activeId,
+      );
+      const syntheticProjectId = activeId.startsWith('confirmed-project:')
+        ? activeId.replace('confirmed-project:', '')
+        : '';
+      const quoteItems = syntheticProjectId
+        ? []
+        : await loadClientQuoteItems(activeId);
       const quoteInfo = await fetchActiveMainProductInfo(
         quoteItems
           .filter((item) => !item.isSectionTitle && item.id)
@@ -239,12 +293,13 @@ export function CustomerQuoteSchemesView() {
           ...item,
           sku: item.id ? quoteInfo[item.id]?.sku : undefined,
         }));
-      const activeQuote = quotes.find((quote) => quote.id === activeId);
-      const linkedProject = activeQuote
-        ? confirmedProjects.find(
+      const linkedProject = syntheticProjectId
+        ? confirmedProjects.find((project) => project.id === syntheticProjectId)
+        : activeQuote
+          ? confirmedProjects.find(
             (project) => projectQuoteId(project) === activeQuote.quote_id,
           )
-        : null;
+          : null;
       if (!linkedProject) return safeQuoteItems;
 
       const [zones, zoneProducts] = await Promise.all([
@@ -306,9 +361,16 @@ export function CustomerQuoteSchemesView() {
     return () => {
       cancelled = true;
     };
-  }, [activeId, confirmedProjects, quotes]);
+  }, [activeId, confirmedProjects, quotes, syntheticQuotes]);
 
-  const versionsByQuote = useMemo(() => groupVersions(quotes), [quotes]);
+  const allQuoteRows = useMemo(
+    () => [...quotes, ...syntheticQuotes],
+    [quotes, syntheticQuotes],
+  );
+  const versionsByQuote = useMemo(
+    () => groupVersions(allQuoteRows),
+    [allQuoteRows],
+  );
   const availableQuotes = useMemo(() => {
     const allowedTerms = new Set(
       clientProjects
@@ -339,10 +401,15 @@ export function CustomerQuoteSchemesView() {
         .map(projectQuoteId)
         .filter(Boolean),
     );
-    const linked = visible.filter((quote) =>
-      confirmedQuoteIds.has(quote.quote_id),
-    );
-    return linked.length > 0 ? linked : visible;
+    return [...visible].sort((a, b) => {
+      const aConfirmed = confirmedQuoteIds.has(a.quote_id) ? 1 : 0;
+      const bConfirmed = confirmedQuoteIds.has(b.quote_id) ? 1 : 0;
+      if (aConfirmed !== bConfirmed) return bConfirmed - aConfirmed;
+      return (
+        new Date(b.modified_date || b.created_at).getTime() -
+        new Date(a.modified_date || a.created_at).getTime()
+      );
+    });
   }, [
     clientOnly,
     clientProjects,
@@ -352,15 +419,16 @@ export function CustomerQuoteSchemesView() {
 
   useEffect(() => {
     if (availableQuotes.length === 0) return;
-    const activeVisible = quotes.some(
+    const activeVisible = allQuoteRows.some(
       (quote) =>
         quote.id === activeId &&
         availableQuotes.some((latest) => latest.quote_id === quote.quote_id),
     );
     if (!activeVisible) setActiveId(availableQuotes[0].id);
-  }, [activeId, availableQuotes, quotes]);
+  }, [activeId, allQuoteRows, availableQuotes]);
 
-  const active = quotes.find((quote) => quote.id === activeId) || null;
+  const active =
+    allQuoteRows.find((quote) => quote.id === activeId) || null;
   const activeVersions = active
     ? versionsByQuote.get(active.quote_id) || [active]
     : [];
@@ -561,10 +629,12 @@ export function CustomerQuoteSchemesView() {
                     <span
                       className={cn(
                         'rounded-full border px-2.5 py-1 text-xs font-medium',
-                        quoteStatusBadgeClass(quote.status),
+                        linkedConfirmedProject
+                          ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                          : quoteStatusBadgeClass(quote.status),
                       )}
                     >
-                      {quote.status || '—'}
+                      {linkedConfirmedProject ? '已確認' : quote.status || '—'}
                     </span>
                   </div>
                   <h3 className="mt-4 line-clamp-2 font-display text-lg font-bold">
