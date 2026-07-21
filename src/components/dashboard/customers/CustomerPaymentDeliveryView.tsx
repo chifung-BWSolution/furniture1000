@@ -110,8 +110,8 @@ export function CustomerPaymentDeliveryView() {
   return (
     <PortalPageShell
       title="付款 + 送貨"
-      badge="Shopify A類"
-      subtitle="唯讀載入目前已上 Shopify 的 A類產品、圖片及現時售價；此頁不儲存購物車或結帳資料。"
+      badge="網上選購"
+      subtitle="瀏覽目前可供選購的產品、圖片及現時售價；此頁不儲存購物車或結帳資料。"
       maxWidthClass="max-w-6xl"
     >
       {/* Steps */}
@@ -153,7 +153,7 @@ export function CustomerPaymentDeliveryView() {
                   </div>
                 ) : cart.length === 0 ? (
                   <p className="py-8 text-center text-sm text-muted-foreground">
-                    購物車是空的 — 可從下方目前已上 Shopify 的 A類產品加入
+                    購物車是空的 — 可從下方產品加入
                   </p>
                 ) : (
                   <ul className="divide-y divide-border/70">
@@ -216,11 +216,11 @@ export function CustomerPaymentDeliveryView() {
 
               <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
                 <h2 className="mb-3 font-display text-sm font-bold">
-                  Shopify A類產品（目前 active）
+                  可供選購產品
                 </h2>
                 {!loading && catalog.length === 0 ? (
                   <p className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
-                    暫無目前已上架的 Shopify A類產品
+                    暫無可供選購產品
                   </p>
                 ) : (
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -237,9 +237,6 @@ export function CustomerPaymentDeliveryView() {
                         ) : null}
                       </div>
                       <div className="p-2">
-                        <span className="mb-1 inline-flex rounded border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
-                          A類 · Shopify
-                        </span>
                         <p className="line-clamp-2 text-xs font-medium">{p.title}</p>
                         <p className="mt-1 font-mono-data text-xs font-bold text-primary">
                           {fmtMoney(p.salePrice)}

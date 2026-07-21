@@ -333,7 +333,9 @@ export function CustomerProductSearchView() {
 
   const materialOptions = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const p of all.filter((product) => product.salePrice > 0)) {
+    for (const p of all.filter(
+      (product) => product.isOnShopify && product.salePrice > 0,
+    )) {
       for (const tag of new Set(materialTags(p.material || ''))) {
         counts.set(tag, (counts.get(tag) || 0) + 1);
       }
@@ -345,8 +347,7 @@ export function CustomerProductSearchView() {
   }, [all]);
 
   const productRanges = useMemo(() => {
-    const shopifyProducts = all.filter((product) => product.isOnShopify);
-    const source = shopifyProducts.length > 0 ? shopifyProducts : all;
+    const source = all.filter((product) => product.isOnShopify);
     const price = bounds(source.map((product) => product.salePrice));
     const lengthMm = bounds(source.map((product) => product.dimensionLMm));
     const widthMm = bounds(source.map((product) => product.dimensionWMm));
@@ -408,6 +409,7 @@ export function CustomerProductSearchView() {
     const dimHMax = parseOptionalNumber(filters.dimHMax);
 
     return all.filter((p) => {
+      if (!p.isOnShopify) return false;
       if (!Number.isFinite(p.salePrice) || p.salePrice <= 0) return false;
       if (q) {
         const hay = `${p.title} ${p.description} ${p.material} ${p.level1Category || ''} ${p.level2Category || ''}`.toLowerCase();
@@ -425,15 +427,15 @@ export function CustomerProductSearchView() {
       if (!rangeMatches(p.dimensionWMm, dimWMin == null ? null : dimWMin * 1000, dimWMax == null ? null : dimWMax * 1000)) return false;
       if (!rangeMatches(p.dimensionHMm, dimHMin == null ? null : dimHMin * 1000, dimHMax == null ? null : dimHMax * 1000)) return false;
       return true;
-    }).sort(
-      (a, b) =>
-        Number(Boolean(b.isOnShopify)) - Number(Boolean(a.isOnShopify)),
-    );
+    });
   }, [keyword, filters, all]);
 
   const cartCount = cart.reduce((n, c) => n + c.qty, 0);
   const displayableProductCount = all.filter(
-    (product) => Number.isFinite(product.salePrice) && product.salePrice > 0,
+    (product) =>
+      product.isOnShopify &&
+      Number.isFinite(product.salePrice) &&
+      product.salePrice > 0,
   ).length;
   const activeFilterCount =
     (filters.level1 ? 1 : 0) +
@@ -461,7 +463,7 @@ export function CustomerProductSearchView() {
     <PortalPageShell
       title="產品搜尋"
       badge="查詢車"
-      subtitle="A類（目前已上 Shopify）產品優先；可按一級／二級分類、材質、真實售價及長闊高範圍篩選。"
+      subtitle="瀏覽目前可供選購的產品；可按一級／二級分類、材質、售價及長闊高範圍篩選。"
       actions={
         <div className="flex flex-wrap items-center gap-2">
           <button
@@ -730,11 +732,6 @@ export function CustomerProductSearchView() {
                       </div>
                       <div className="p-3">
                         <div className="mb-1 flex flex-wrap gap-1">
-                          {p.isOnShopify ? (
-                            <span className="rounded border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
-                              A類 · Shopify
-                            </span>
-                          ) : null}
                           {p.level1Category ? (
                             <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
                               {p.level1Category}
