@@ -51,8 +51,6 @@ export const NAV_CONFIG: PrimaryItem[] = [
     icon: Users,
     children: [
       { view: 'customer-quote-schemes', label: '報價方案', icon: FileText },
-      { view: 'customer-design-projects', label: '我的設計方案', icon: LayoutDashboard },
-      { view: 'customer-confirmed-products', label: '確定產品', icon: CheckCheck },
       { view: 'customer-product-search', label: '產品搜尋', icon: Search },
       { view: 'customer-custom-furniture', label: '傢俬訂製', icon: PenTool },
       { view: 'customer-payment-delivery', label: '付款+送貨', icon: Truck },
@@ -125,13 +123,13 @@ export function findSection(view: ViewType): PrimarySection {
   for (const p of NAV_CONFIG) {
     if (p.children.some((c) => c.view === view)) return p.id;
   }
+  // Removed 客戶專區 / 傢俬方案 pages — keep deep-links under customers / solutions
   if (
     view === 'customer-design-projects' ||
     view === 'customer-confirmed-products'
   ) {
     return 'customers';
   }
-  // Removed 傢俬方案 pages — keep deep-links under solutions
   if (
     view === 'solution-client-activity' ||
     view === 'solution-portal-content' ||
@@ -151,11 +149,11 @@ export function getViewMeta(view: ViewType): { sectionLabel: string; viewLabel: 
     const child = p.children.find((c) => c.view === view);
     if (child) return { sectionLabel: p.label, viewLabel: child.label };
   }
-  if (view === 'customer-design-projects') {
-    return { sectionLabel: '客戶專區', viewLabel: '設計專案' };
-  }
-  if (view === 'customer-confirmed-products') {
-    return { sectionLabel: '客戶專區', viewLabel: '確定產品' };
+  if (
+    view === 'customer-design-projects' ||
+    view === 'customer-confirmed-products'
+  ) {
+    return { sectionLabel: '客戶專區', viewLabel: '報價方案' };
   }
   if (
     view === 'solution-client-activity' ||

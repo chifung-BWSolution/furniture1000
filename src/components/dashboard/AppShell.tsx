@@ -120,9 +120,6 @@ const ConfirmedProjectsView = lazy(() =>
   import("./solutions/ConfirmedProjectsView").then((mod) => ({ default: mod.ConfirmedProjectsView }))
 );
 // 客戶專區 (Client Portal)
-const CustomerDesignProjectsView = lazy(() =>
-  import("./customers/CustomerDesignProjectsView").then((mod) => ({ default: mod.CustomerDesignProjectsView }))
-);
 const CustomerQuoteSchemesView = lazy(() =>
   import("./customers/CustomerQuoteSchemesView").then((mod) => ({
     default: mod.CustomerQuoteSchemesView,
@@ -130,9 +127,6 @@ const CustomerQuoteSchemesView = lazy(() =>
 );
 const CustomerProductSearchView = lazy(() =>
   import("./customers/CustomerProductSearchView").then((mod) => ({ default: mod.CustomerProductSearchView }))
-);
-const CustomerConfirmedProductsView = lazy(() =>
-  import("./customers/CustomerConfirmedProductsView").then((mod) => ({ default: mod.CustomerConfirmedProductsView }))
 );
 const CustomerCompanyInfoView = lazy(() =>
   import("./customers/CustomerCompanyInfoView").then((mod) => ({ default: mod.CustomerCompanyInfoView }))
@@ -188,7 +182,6 @@ const SELF_LOADING_VIEWS = new Set<ViewType>([
   "design-projects",
   "invite-clients",
   "confirmed-projects",
-  "customer-design-projects",
   "customer-quote-schemes",
   "customer-product-search",
   "customer-custom-furniture",
@@ -196,7 +189,6 @@ const SELF_LOADING_VIEWS = new Set<ViewType>([
   "customer-order-status",
   "customer-case-studies",
   "customer-services",
-  "customer-confirmed-products",
   "customer-company-info",
   "customer-contact",
   "customer-org-account",
@@ -268,6 +260,12 @@ export function AppShell() {
       localStorage.setItem('fds-client-portal-token', portalToken);
     }
     if (clientOnly && findSection(store.currentView) !== 'customers') {
+      store.setCurrentView('customer-quote-schemes');
+    }
+    if (
+      store.currentView === 'customer-design-projects' ||
+      store.currentView === 'customer-confirmed-products'
+    ) {
       store.setCurrentView('customer-quote-schemes');
     }
   }, [clientOnly, portalToken, store.currentView, store]);
@@ -513,7 +511,6 @@ export function AppShell() {
   }, [store]);
   // Product to scroll-into-view when navigating from 發佈前檢查
   const [focusProductId, setFocusProductId] = useState<string | null>(null);
-  const [customerFocusProjectId, setCustomerFocusProjectId] = useState<string | null>(null);
   const rtpReloadRef = useRef<(() => void) | null>(null);
   const [rtpTotalCount, setRtpTotalCount] = useState(0);
   // Real total/selected counts reported up from ListedProductsView (所有產品)
@@ -729,10 +726,6 @@ export function AppShell() {
         // 已自傢俬方案側欄移除 — 舊 deep-link 導向方案列表
         return <SolutionProjectListView />;
 
-      case "customer-design-projects":
-        return (
-          <CustomerDesignProjectsView initialProjectId={customerFocusProjectId} />
-        );
       case "customer-quote-schemes":
         return <CustomerQuoteSchemesView />;
       case "customer-product-search":
@@ -747,17 +740,8 @@ export function AppShell() {
         return <CustomerCaseStudiesView />;
       case "customer-services":
         return <CustomerServicesView />;
-      case "customer-confirmed-products":
-        return <CustomerConfirmedProductsView />;
       case "customer-company-info":
-        return (
-          <CustomerCompanyInfoView
-            onOpenProject={(projectId) => {
-              setCustomerFocusProjectId(projectId);
-              store.setCurrentView('customer-design-projects');
-            }}
-          />
-        );
+        return <CustomerCompanyInfoView />;
       case "customer-contact":
         return <CustomerContactView />;
       case "customer-org-account":
@@ -888,9 +872,6 @@ export function AppShell() {
     store.setCurrentView(view);
     store.setFilterProductId(null);
     setEditingQuoteId(null);
-    if (view !== 'customer-design-projects') {
-      setCustomerFocusProjectId(null);
-    }
   };
 
   const handleSectionChange = (section: PrimarySection) => {

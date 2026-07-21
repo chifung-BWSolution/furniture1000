@@ -1,16 +1,17 @@
 import { useMemo } from 'react';
 import {
+<<<<<<< HEAD
   Building2, User, Mail, Phone, MapPin, ArrowRight,
   FolderClock, Loader2,
+=======
+  Building2, User, Mail, Phone, MapPin, ShieldAlert, Save,
+  CheckCircle2, FolderClock, Loader2,
+>>>>>>> 395b226 (refactor: remove empty customer portal design and confirmed pages)
 } from 'lucide-react';
 import { useClientZoneContext } from '@/hooks/use-client-zone-context';
 import type { DesignProject } from '@/types/solutions';
 
-interface CustomerCompanyInfoViewProps {
-  onOpenProject?: (projectId: string) => void;
-}
-
-export function CustomerCompanyInfoView({ onOpenProject }: CustomerCompanyInfoViewProps) {
+export function CustomerCompanyInfoView() {
   const { loading, company, projects } = useClientZoneContext();
 
   const historyProjects = useMemo(() => {
@@ -79,11 +80,9 @@ export function CustomerCompanyInfoView({ onOpenProject }: CustomerCompanyInfoVi
           </div>
           <div className="divide-y divide-border/60">
             {historyProjects.map((p) => (
-              <button
+              <div
                 key={p.id}
-                type="button"
-                onClick={() => onOpenProject?.(p.id)}
-                className="flex w-full items-center justify-between px-5 py-3.5 text-left transition-colors hover:bg-muted/30"
+                className="flex w-full items-center justify-between px-5 py-3.5 text-left"
               >
                 <div>
                   <p className="font-display text-[15px] font-semibold text-foreground">{p.name}</p>
@@ -91,10 +90,14 @@ export function CustomerCompanyInfoView({ onOpenProject }: CustomerCompanyInfoVi
                     {new Date(p.updatedAt).toLocaleDateString('zh-HK')} · {statusLabel(p)} · {p.progress}% 已確認
                   </p>
                 </div>
+<<<<<<< HEAD
                 <span className="flex items-center gap-1 text-[13px] font-medium text-primary">
                   查看方案 <ArrowRight className="h-3.5 w-3.5" />
                 </span>
               </button>
+=======
+              </div>
+>>>>>>> 395b226 (refactor: remove empty customer portal design and confirmed pages)
             ))}
             {historyProjects.length === 0 && (
               <p className="px-5 py-8 text-center text-[15px] text-muted-foreground">尚無受邀專案紀錄</p>
