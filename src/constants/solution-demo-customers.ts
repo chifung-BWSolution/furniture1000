@@ -8,6 +8,8 @@ export type SolutionDemoCustomerPatch = {
   name: string;
   clientCompany: string;
   clientName: string;
+  /** Fallback when live PMS lookup is unavailable. */
+  pmLabel?: string;
   meta?: DesignProjectMeta;
 };
 
@@ -16,6 +18,7 @@ export const SOLUTION_DEMO_PROJECT_CUSTOMERS: Record<string, SolutionDemoCustome
     name: '伊利沙伯中學舊生會中學 課室及辦公傢俬',
     clientCompany: '伊利沙伯中學舊生會中學',
     clientName: '黃智穎',
+    pmLabel: 'Michael Lee',
     meta: {
       projectType: 'school',
       pitchingCode: 'BWF-SH26-060',
@@ -26,6 +29,7 @@ export const SOLUTION_DEMO_PROJECT_CUSTOMERS: Record<string, SolutionDemoCustome
     name: 'HK PolyU Charlene Zhou 傢俬方案',
     clientCompany: 'HK PolyU Charlene Zhou',
     clientName: 'Charlene Zhou',
+    pmLabel: 'Michael Lee',
     meta: {
       projectType: 'school',
       pitchingCode: 'BWF-SH26-061',
@@ -36,6 +40,7 @@ export const SOLUTION_DEMO_PROJECT_CUSTOMERS: Record<string, SolutionDemoCustome
     name: '仁濟醫院 診所傢俬配置',
     clientCompany: '仁濟醫院',
     clientName: 'Yan Chai Hospital',
+    pmLabel: 'Rachel Zhu',
     meta: {
       projectType: 'clinic',
       pitchingCode: 'BWF-SH26-058',

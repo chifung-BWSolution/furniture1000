@@ -81,8 +81,8 @@ export function SolutionProjectListView() {
     });
   }, [projects, keyword, status]);
 
-  const openProject = (id: string) => {
-    writeSolutionFocusProjectId(id);
+  const enterDesignProject = (project: DesignProject) => {
+    writeSolutionFocusProjectId(project.id);
     store.setCurrentView('design-projects');
   };
 
@@ -311,7 +311,7 @@ export function SolutionProjectListView() {
                     <div className="flex justify-end border-t border-border bg-card px-5 py-4">
                       <button
                         type="button"
-                        onClick={() => openProject(p.id)}
+                        onClick={() => enterDesignProject(p)}
                         className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground"
                       >
                         <Sofa className="h-4 w-4" />

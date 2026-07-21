@@ -8,13 +8,12 @@ import {
   createZoneProduct, updateZoneProductStatus,
 } from '@/lib/solutionsApi';
 import { consumeSolutionFocusProjectId } from '@/lib/solutionProjectFocus';
+import { resolveDesignProjectPmLabels } from '@/lib/solutionProjectPm';
 import {
   inferProjectType,
   projectTypeLabel,
 } from '@/lib/projectPartitionTemplates';
 import { PRODUCT_CATEGORIES } from '@/constants/solutions-mock';
-import { resolvePmsStaffByIds } from '@/lib/pmsStaff';
-import { canonicalStaffName } from '@/lib/staffDisplay';
 import { toast } from 'sonner';
 import {
   ZONE_PRODUCT_STATUS_META,
@@ -46,34 +45,7 @@ export function DesignProjectsView() {
     fetchProjects()
       .then(async (rows) => {
         setProjects(rows);
-        const staffIds = [
-          ...new Set(
-            rows
-              .flatMap((row) => [
-                row.creatorStaffId,
-                row.editorStaffId,
-              ])
-              .filter((id): id is string => Boolean(id)),
-          ),
-        ];
-        const staffById = await resolvePmsStaffByIds(staffIds);
-        setPmNames(
-          Object.fromEntries(
-            rows.map((row) => {
-              const creator = row.creatorStaffId
-                ? staffById.get(row.creatorStaffId)
-                : null;
-              const editor = row.editorStaffId
-                ? staffById.get(row.editorStaffId)
-                : null;
-              return [
-                row.id,
-                canonicalStaffName(creator?.name || editor?.name || '') ||
-                  '未指定項目經理',
-              ];
-            }),
-          ),
-        );
+        setPmNames(await resolveDesignProjectPmLabels(rows));
         if (focusId && rows.some((r) => r.id === focusId)) {
           setActiveProjectId(focusId);
         } else if (rows.length > 0) {
