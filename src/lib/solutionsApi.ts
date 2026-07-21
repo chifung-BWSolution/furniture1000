@@ -150,6 +150,9 @@ function mapSearchProduct(r: any, descLimit = 80): SearchProduct {
     dimensionLMm: numOrNullDim(r.dimension_l_mm),
     dimensionWMm: numOrNullDim(r.dimension_w_mm),
     dimensionHMm: numOrNullDim(r.dimension_h_mm),
+    shopifyProductId: r.shopify_product_id
+      ? String(r.shopify_product_id)
+      : null,
     tier: deriveTier(sale),
     inStock: (r.delivery_term_name ?? '').includes('現貨') || (r.total_lead_time ?? 99) <= 7,
     deliveryDays: r.total_lead_time ?? r.shipping_days ?? 14,
@@ -157,7 +160,7 @@ function mapSearchProduct(r: any, descLimit = 80): SearchProduct {
 }
 
 const PORTAL_PRODUCT_SELECT =
-  'id,title,description,price,sale_price,image_url,collection,category,color,material,level1_category,level2_category,dimension_l_mm,dimension_w_mm,dimension_h_mm,total_lead_time,shipping_days,delivery_term_name';
+  'id,title,description,price,sale_price,image_url,collection,category,color,material,level1_category,level2_category,dimension_l_mm,dimension_w_mm,dimension_h_mm,total_lead_time,shipping_days,delivery_term_name,shopify_product_id';
 
 /** 依分區內已分配產品的確認狀態計算專案進度 0–100。 */
 export function computeProjectProgress(products: ZoneProduct[]): number {
@@ -272,6 +275,76 @@ export async function fetchSearchProducts(limit = 60): Promise<SearchProduct[]> 
   }
 }
 
+async function prioritizeActiveShopifyProducts(
+  products: SearchProduct[],
+): Promise<SearchProduct[]> {
+  if (products.length === 0) return products;
+  const activeBySourceId = new Map<string, string | null>();
+  const activeShopifyIds = new Set<string>();
+  const ids = products.map((product) => product.id);
+  for (let i = 0; i < ids.length; i += 150) {
+    const chunk = ids.slice(i, i + 150);
+    const { data, error } = await supabase
+      .from('shopify_products')
+      .select('source_product_id, shopify_product_id')
+      .in('source_product_id', chunk)
+      .eq('status', 'active')
+      .is('configurable', null);
+    if (error) continue;
+    for (const row of data ?? []) {
+      const sourceId = String(row.source_product_id || '').trim();
+      if (!sourceId) continue;
+      activeBySourceId.set(
+        sourceId,
+        row.shopify_product_id ? String(row.shopify_product_id) : null,
+      );
+      if (row.shopify_product_id) {
+        activeShopifyIds.add(String(row.shopify_product_id));
+      }
+    }
+  }
+  const fallbackIds = [
+    ...new Set(
+      products
+        .filter((product) => !activeBySourceId.has(product.id))
+        .map((product) => product.shopifyProductId)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ];
+  for (let i = 0; i < fallbackIds.length; i += 150) {
+    const { data, error } = await supabase
+      .from('shopify_products')
+      .select('shopify_product_id')
+      .in('shopify_product_id', fallbackIds.slice(i, i + 150))
+      .eq('status', 'active')
+      .is('configurable', null);
+    if (error) continue;
+    for (const row of data ?? []) {
+      if (row.shopify_product_id) {
+        activeShopifyIds.add(String(row.shopify_product_id));
+      }
+    }
+  }
+  return products
+    .map((product) => {
+      const linkedShopifyId =
+        activeBySourceId.get(product.id) ?? product.shopifyProductId ?? null;
+      return {
+        ...product,
+        isOnShopify:
+          activeBySourceId.has(product.id) ||
+          Boolean(
+            product.shopifyProductId &&
+              activeShopifyIds.has(product.shopifyProductId),
+          ),
+        shopifyProductId: linkedShopifyId,
+      };
+    })
+    .sort(
+      (a, b) => Number(Boolean(b.isOnShopify)) - Number(Boolean(a.isOnShopify)),
+    );
+}
+
 /**
  * 客戶專區產品搜尋：唯讀載入產品目錄（in_catalog）＋分類／材質／尺寸欄位。
  * 不上傳、不修改 schema。優先 in_catalog；若為空則回退一般產品列表。
@@ -285,11 +358,17 @@ export async function fetchPortalBrowseProducts(limit = 600): Promise<SearchProd
       .order('created_at', { ascending: false })
       .limit(limit);
     if (!error && data && data.length > 0) {
-      return data.map((r) => mapSearchProduct(r));
+      return prioritizeActiveShopifyProducts(
+        data.map((r) => mapSearchProduct(r)),
+      );
     }
-    return fetchSearchProducts(Math.min(limit, 400));
+    return prioritizeActiveShopifyProducts(
+      await fetchSearchProducts(Math.min(limit, 400)),
+    );
   } catch {
-    return fetchSearchProducts(Math.min(limit, 400));
+    return prioritizeActiveShopifyProducts(
+      await fetchSearchProducts(Math.min(limit, 400)),
+    );
   }
 }
 

@@ -13,9 +13,6 @@ import { toast } from 'sonner';
 import { PortalPageShell } from '@/components/dashboard/customers/PortalPageShell';
 
 const CART_KEY = 'fds-portal-inquiry-cart';
-/** Match "約 1.5 米" with ±15% on the corresponding mm dimension. */
-const DIM_TOLERANCE = 0.15;
-
 type CartItem = { id: string; title: string; salePrice: number; imageUrl?: string; qty: number };
 
 type Filters = {
@@ -24,9 +21,12 @@ type Filters = {
   materials: string[];
   priceMin: string;
   priceMax: string;
-  dimLM: string;
-  dimWM: string;
-  dimHM: string;
+  dimLMin: string;
+  dimLMax: string;
+  dimWMin: string;
+  dimWMax: string;
+  dimHMin: string;
+  dimHMax: string;
 };
 
 const EMPTY_FILTERS: Filters = {
@@ -35,9 +35,12 @@ const EMPTY_FILTERS: Filters = {
   materials: [],
   priceMin: '',
   priceMax: '',
-  dimLM: '',
-  dimWM: '',
-  dimHM: '',
+  dimLMin: '',
+  dimLMax: '',
+  dimWMin: '',
+  dimWMax: '',
+  dimHMin: '',
+  dimHMax: '',
 };
 
 function loadCart(): CartItem[] {
@@ -56,14 +59,25 @@ function parseOptionalNumber(raw: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-/** Target meters → product mm matches within tolerance. */
-function dimMatches(mm: number | null | undefined, targetMeters: number | null): boolean {
-  if (targetMeters == null) return true;
-  if (mm == null || !Number.isFinite(mm) || mm <= 0) return false;
-  const targetMm = targetMeters * 1000;
-  const lo = targetMm * (1 - DIM_TOLERANCE);
-  const hi = targetMm * (1 + DIM_TOLERANCE);
-  return mm >= lo && mm <= hi;
+function rangeMatches(
+  value: number | null | undefined,
+  min: number | null,
+  max: number | null,
+): boolean {
+  if (min == null && max == null) return true;
+  if (value == null || !Number.isFinite(value) || value <= 0) return false;
+  if (min != null && value < min) return false;
+  if (max != null && value > max) return false;
+  return true;
+}
+
+function bounds(values: Array<number | null | undefined>): { min: number; max: number } {
+  const valid = values.filter(
+    (value): value is number =>
+      typeof value === 'number' && Number.isFinite(value) && value > 0,
+  );
+  if (valid.length === 0) return { min: 0, max: 0 };
+  return { min: Math.min(...valid), max: Math.max(...valid) };
 }
 
 function fmtDimMm(mm: number | null | undefined): string | null {
@@ -77,6 +91,133 @@ function fmtDims(p: SearchProduct): string {
     .map(fmtDimMm)
     .filter(Boolean);
   return parts.length ? parts.join(' × ') : '';
+}
+
+function RangeFilter({
+  title,
+  min,
+  max,
+  step,
+  minValue,
+  maxValue,
+  onMinChange,
+  onMaxChange,
+  formatValue,
+  inputStep,
+}: {
+  title: string;
+  min: number;
+  max: number;
+  step: number;
+  minValue: string;
+  maxValue: string;
+  onMinChange: (value: string) => void;
+  onMaxChange: (value: string) => void;
+  formatValue: (value: number) => string;
+  inputStep?: string;
+}) {
+  const [active, setActive] = useState<'min' | 'max' | null>(null);
+  const available = max > min;
+  const parsedMin = parseOptionalNumber(minValue);
+  const parsedMax = parseOptionalNumber(maxValue);
+  const currentMin = Math.min(max, Math.max(min, parsedMin ?? min));
+  const currentMax = Math.max(min, Math.min(max, parsedMax ?? max));
+  const safeMin = Math.min(currentMin, currentMax);
+  const safeMax = Math.max(currentMin, currentMax);
+  const span = Math.max(1, max - min);
+  const minPercent = ((safeMin - min) / span) * 100;
+  const maxPercent = ((safeMax - min) / span) * 100;
+
+  const updateMin = (next: number) => {
+    onMinChange(String(Math.min(next, safeMax)));
+  };
+  const updateMax = (next: number) => {
+    onMaxChange(String(Math.max(next, safeMin)));
+  };
+
+  return (
+    <div>
+      <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        {title}
+      </p>
+      <div className="grid grid-cols-2 gap-2">
+        <label>
+          <span className="mb-1 block text-xs text-muted-foreground">下限</span>
+          <input
+            type="number"
+            inputMode="decimal"
+            step={inputStep || String(step)}
+            value={minValue}
+            onChange={(event) => onMinChange(event.target.value)}
+            placeholder={formatValue(min)}
+            className="w-full rounded-lg border border-border bg-background px-2 py-1.5 font-mono-data text-xs"
+          />
+        </label>
+        <label>
+          <span className="mb-1 block text-xs text-muted-foreground">上限</span>
+          <input
+            type="number"
+            inputMode="decimal"
+            step={inputStep || String(step)}
+            value={maxValue}
+            onChange={(event) => onMaxChange(event.target.value)}
+            placeholder={formatValue(max)}
+            className="w-full rounded-lg border border-border bg-background px-2 py-1.5 font-mono-data text-xs"
+          />
+        </label>
+      </div>
+
+      <div className="relative mt-5 h-9">
+        <div className="absolute left-1 right-1 top-3 h-1.5 rounded-full bg-muted" />
+        <div
+          className="absolute top-3 h-1.5 rounded-full bg-primary/70"
+          style={{ left: `${minPercent}%`, right: `${100 - maxPercent}%` }}
+        />
+        {active ? (
+          <span
+            className="pointer-events-none absolute top-[-18px] z-20 -translate-x-1/2 whitespace-nowrap rounded-md bg-foreground px-2 py-1 text-xs font-semibold text-background shadow-md"
+            style={{ left: `${active === 'min' ? minPercent : maxPercent}%` }}
+          >
+            {formatValue(active === 'min' ? safeMin : safeMax)}
+          </span>
+        ) : null}
+        <input
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          value={safeMin}
+          disabled={!available}
+          onChange={(event) => updateMin(Number(event.target.value))}
+          onPointerDown={() => setActive('min')}
+          onPointerUp={() => setActive(null)}
+          onFocus={() => setActive('min')}
+          onBlur={() => setActive(null)}
+          className="pointer-events-none absolute inset-x-0 top-1 h-6 w-full appearance-none bg-transparent accent-primary disabled:opacity-40 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-primary [&::-moz-range-thumb]:pointer-events-auto [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:w-4 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4"
+          aria-label={`${title}下限`}
+        />
+        <input
+          type="range"
+          min={min}
+          max={max}
+          step={step}
+          value={safeMax}
+          disabled={!available}
+          onChange={(event) => updateMax(Number(event.target.value))}
+          onPointerDown={() => setActive('max')}
+          onPointerUp={() => setActive(null)}
+          onFocus={() => setActive('max')}
+          onBlur={() => setActive(null)}
+          className="pointer-events-none absolute inset-x-0 top-1 h-6 w-full appearance-none bg-transparent accent-primary disabled:opacity-40 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-primary [&::-moz-range-thumb]:pointer-events-auto [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:w-4 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4"
+          aria-label={`${title}上限`}
+        />
+      </div>
+      <div className="flex justify-between font-mono-data text-xs text-muted-foreground">
+        <span>{formatValue(min)}</span>
+        <span>{formatValue(max)}</span>
+      </div>
+    </div>
+  );
 }
 
 export function CustomerProductSearchView() {
@@ -133,6 +274,32 @@ export function CustomerProductSearchView() {
     return [...set].sort((a, b) => a.localeCompare(b, 'zh-Hant'));
   }, [all]);
 
+  const productRanges = useMemo(() => {
+    const shopifyProducts = all.filter((product) => product.isOnShopify);
+    const source = shopifyProducts.length > 0 ? shopifyProducts : all;
+    const price = bounds(source.map((product) => product.salePrice));
+    const lengthMm = bounds(source.map((product) => product.dimensionLMm));
+    const widthMm = bounds(source.map((product) => product.dimensionWMm));
+    const heightMm = bounds(source.map((product) => product.dimensionHMm));
+    const toMeters = (range: { min: number; max: number }) => ({
+      min: Number((range.min / 1000).toFixed(2)),
+      max: Number((range.max / 1000).toFixed(2)),
+    });
+    return {
+      price,
+      length: toMeters(lengthMm),
+      width: toMeters(widthMm),
+      height: toMeters(heightMm),
+    };
+  }, [all]);
+
+  const priceStep = useMemo(() => {
+    const span = productRanges.price.max - productRanges.price.min;
+    if (span <= 1000) return 10;
+    if (span <= 10000) return 100;
+    return 500;
+  }, [productRanges.price]);
+
   const persistCart = (next: CartItem[]) => {
     setCart(next);
     localStorage.setItem(CART_KEY, JSON.stringify(next));
@@ -163,9 +330,12 @@ export function CustomerProductSearchView() {
     const q = keyword.trim().toLowerCase();
     const priceMin = parseOptionalNumber(filters.priceMin);
     const priceMax = parseOptionalNumber(filters.priceMax);
-    const dimL = parseOptionalNumber(filters.dimLM);
-    const dimW = parseOptionalNumber(filters.dimWM);
-    const dimH = parseOptionalNumber(filters.dimHM);
+    const dimLMin = parseOptionalNumber(filters.dimLMin);
+    const dimLMax = parseOptionalNumber(filters.dimLMax);
+    const dimWMin = parseOptionalNumber(filters.dimWMin);
+    const dimWMax = parseOptionalNumber(filters.dimWMax);
+    const dimHMin = parseOptionalNumber(filters.dimHMin);
+    const dimHMax = parseOptionalNumber(filters.dimHMax);
 
     return all.filter((p) => {
       if (q) {
@@ -179,11 +349,14 @@ export function CustomerProductSearchView() {
       }
       if (priceMin != null && p.salePrice < priceMin) return false;
       if (priceMax != null && p.salePrice > priceMax) return false;
-      if (!dimMatches(p.dimensionLMm, dimL)) return false;
-      if (!dimMatches(p.dimensionWMm, dimW)) return false;
-      if (!dimMatches(p.dimensionHMm, dimH)) return false;
+      if (!rangeMatches(p.dimensionLMm, dimLMin == null ? null : dimLMin * 1000, dimLMax == null ? null : dimLMax * 1000)) return false;
+      if (!rangeMatches(p.dimensionWMm, dimWMin == null ? null : dimWMin * 1000, dimWMax == null ? null : dimWMax * 1000)) return false;
+      if (!rangeMatches(p.dimensionHMm, dimHMin == null ? null : dimHMin * 1000, dimHMax == null ? null : dimHMax * 1000)) return false;
       return true;
-    });
+    }).sort(
+      (a, b) =>
+        Number(Boolean(b.isOnShopify)) - Number(Boolean(a.isOnShopify)),
+    );
   }, [keyword, filters, all]);
 
   const cartCount = cart.reduce((n, c) => n + c.qty, 0);
@@ -193,9 +366,9 @@ export function CustomerProductSearchView() {
     filters.materials.length +
     (filters.priceMin.trim() ? 1 : 0) +
     (filters.priceMax.trim() ? 1 : 0) +
-    (filters.dimLM.trim() ? 1 : 0) +
-    (filters.dimWM.trim() ? 1 : 0) +
-    (filters.dimHM.trim() ? 1 : 0);
+    (filters.dimLMin.trim() || filters.dimLMax.trim() ? 1 : 0) +
+    (filters.dimWMin.trim() || filters.dimWMax.trim() ? 1 : 0) +
+    (filters.dimHMin.trim() || filters.dimHMax.trim() ? 1 : 0);
 
   const toggleMaterial = (m: string) => {
     setFilters((prev) => {
@@ -213,7 +386,7 @@ export function CustomerProductSearchView() {
     <PortalPageShell
       title="產品搜尋"
       badge="查詢車"
-      subtitle="類似產品目錄：以一級／二級分類瀏覽，並可按 MATERIALS、價錢、長闊高（米）篩選。僅顯示售價。"
+      subtitle="A類（目前已上 Shopify）產品優先；可按一級／二級分類、MATERIALS、真實售價及長闊高範圍篩選。"
       actions={
         <div className="flex flex-wrap items-center gap-2">
           <button
@@ -324,7 +497,7 @@ export function CustomerProductSearchView() {
       <div
         className={cn(
           'grid gap-4',
-          showFilters ? 'lg:grid-cols-[260px_minmax(0,1fr)]' : '',
+          showFilters ? 'lg:grid-cols-[320px_minmax(0,1fr)]' : '',
         )}
       >
         {showFilters ? (
@@ -369,72 +542,76 @@ export function CustomerProductSearchView() {
               )}
             </div>
 
-            <div>
-              <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                價錢（HK$）
-              </p>
-              <div className="grid grid-cols-2 gap-2">
-                <label className="block">
-                  <span className="mb-1 block text-xs text-muted-foreground">下限</span>
-                  <input
-                    inputMode="numeric"
-                    value={filters.priceMin}
-                    onChange={(e) =>
-                      setFilters((f) => ({ ...f, priceMin: e.target.value }))
-                    }
-                    placeholder="0"
-                    className="w-full rounded-lg border border-border bg-background px-2 py-1.5 font-mono-data text-xs"
-                  />
-                </label>
-                <label className="block">
-                  <span className="mb-1 block text-xs text-muted-foreground">上限</span>
-                  <input
-                    inputMode="numeric"
-                    value={filters.priceMax}
-                    onChange={(e) =>
-                      setFilters((f) => ({ ...f, priceMax: e.target.value }))
-                    }
-                    placeholder="如 5000"
-                    className="w-full rounded-lg border border-border bg-background px-2 py-1.5 font-mono-data text-xs"
-                  />
-                </label>
-              </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                例：上限 5000 → 只顯示 HK$5,000 以下
-              </p>
-            </div>
+            <RangeFilter
+              title="價錢（HK$）"
+              min={productRanges.price.min}
+              max={productRanges.price.max}
+              step={priceStep}
+              minValue={filters.priceMin}
+              maxValue={filters.priceMax}
+              onMinChange={(value) =>
+                setFilters((current) => ({ ...current, priceMin: value }))
+              }
+              onMaxChange={(value) =>
+                setFilters((current) => ({ ...current, priceMax: value }))
+              }
+              formatValue={(value) => `HK$${Math.round(value).toLocaleString()}`}
+            />
 
-            <div>
-              <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                尺寸（米）· 約 ±15%
+            <div className="border-t border-border pt-4">
+              <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                尺寸範圍（米）
               </p>
-              <div className="grid grid-cols-3 gap-2">
-                {(
-                  [
-                    ['dimLM', '長'],
-                    ['dimWM', '闊'],
-                    ['dimHM', '高'],
-                  ] as const
-                ).map(([key, label]) => (
-                  <label key={key} className="block">
-                    <span className="mb-1 block text-xs text-muted-foreground">
-                      {label}
-                    </span>
-                    <input
-                      inputMode="decimal"
-                      value={filters[key]}
-                      onChange={(e) =>
-                        setFilters((f) => ({ ...f, [key]: e.target.value }))
-                      }
-                      placeholder="1.5"
-                      className="w-full rounded-lg border border-border bg-background px-2 py-1.5 font-mono-data text-xs"
-                    />
-                  </label>
-                ))}
+              <div className="space-y-5">
+                <RangeFilter
+                  title="長"
+                  min={productRanges.length.min}
+                  max={productRanges.length.max}
+                  step={0.01}
+                  inputStep="0.01"
+                  minValue={filters.dimLMin}
+                  maxValue={filters.dimLMax}
+                  onMinChange={(value) =>
+                    setFilters((current) => ({ ...current, dimLMin: value }))
+                  }
+                  onMaxChange={(value) =>
+                    setFilters((current) => ({ ...current, dimLMax: value }))
+                  }
+                  formatValue={(value) => `${Number(value.toFixed(2))}m`}
+                />
+                <RangeFilter
+                  title="闊"
+                  min={productRanges.width.min}
+                  max={productRanges.width.max}
+                  step={0.01}
+                  inputStep="0.01"
+                  minValue={filters.dimWMin}
+                  maxValue={filters.dimWMax}
+                  onMinChange={(value) =>
+                    setFilters((current) => ({ ...current, dimWMin: value }))
+                  }
+                  onMaxChange={(value) =>
+                    setFilters((current) => ({ ...current, dimWMax: value }))
+                  }
+                  formatValue={(value) => `${Number(value.toFixed(2))}m`}
+                />
+                <RangeFilter
+                  title="高"
+                  min={productRanges.height.min}
+                  max={productRanges.height.max}
+                  step={0.01}
+                  inputStep="0.01"
+                  minValue={filters.dimHMin}
+                  maxValue={filters.dimHMax}
+                  onMinChange={(value) =>
+                    setFilters((current) => ({ ...current, dimHMin: value }))
+                  }
+                  onMaxChange={(value) =>
+                    setFilters((current) => ({ ...current, dimHMax: value }))
+                  }
+                  formatValue={(value) => `${Number(value.toFixed(2))}m`}
+                />
               </div>
-              <p className="mt-1 text-xs text-muted-foreground">
-                例：長 1.5 → 約 1.5 米（1275–1725 mm）的產品
-              </p>
             </div>
           </aside>
         ) : null}
@@ -474,6 +651,11 @@ export function CustomerProductSearchView() {
                       </div>
                       <div className="p-3">
                         <div className="mb-1 flex flex-wrap gap-1">
+                          {p.isOnShopify ? (
+                            <span className="rounded border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+                              A類 · Shopify
+                            </span>
+                          ) : null}
                           {p.level1Category ? (
                             <span className="rounded bg-muted px-1.5 py-0.5 text-xs text-muted-foreground">
                               {p.level1Category}
