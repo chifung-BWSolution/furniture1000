@@ -33,6 +33,12 @@ import { PortalPageShell } from '@/components/dashboard/customers/PortalPageShel
 import { useClientZoneContext } from '@/hooks/use-client-zone-context';
 import { usePlatformRole } from '@/hooks/use-platform-role';
 import { BW_COMPANY } from '@/content/bwCorporate';
+import {
+  fetchProjects,
+  fetchZones,
+  fetchZoneProducts,
+} from '@/lib/solutionsApi';
+import type { DesignProject } from '@/types/solutions';
 
 type QuoteRecord = {
   id: string;
@@ -90,6 +96,12 @@ function quoteDisplayName(quote: QuoteRecord) {
   );
 }
 
+function projectQuoteId(project: DesignProject): string {
+  return String(
+    project.meta?.quoteId || project.meta?.pitchingCode || '',
+  ).trim();
+}
+
 function groupVersions(rows: QuoteRecord[]) {
   const map = new Map<string, QuoteRecord[]>();
   for (const row of rows) {
@@ -143,6 +155,7 @@ export function CustomerQuoteSchemesView() {
   const clientOnly = platformRole === 'client' || hasPortalToken;
 
   const [quotes, setQuotes] = useState<QuoteRecord[]>([]);
+  const [confirmedProjects, setConfirmedProjects] = useState<DesignProject[]>([]);
   const [activeId, setActiveId] = useState('');
   const [items, setItems] = useState<BwfQuoteItemInput[]>([]);
   const [loading, setLoading] = useState(true);
@@ -194,6 +207,9 @@ export function CustomerQuoteSchemesView() {
 
   useEffect(() => {
     void fetchQuotes();
+    void fetchProjects().then((rows) =>
+      setConfirmedProjects(rows.filter((project) => project.status === 'confirmed')),
+    );
   }, [fetchQuotes]);
 
   useEffect(() => {
@@ -203,7 +219,52 @@ export function CustomerQuoteSchemesView() {
     }
     let cancelled = false;
     setItemsLoading(true);
-    loadClientQuoteItems(activeId)
+    const loadItems = async () => {
+      const quoteItems = await loadClientQuoteItems(activeId);
+      const activeQuote = quotes.find((quote) => quote.id === activeId);
+      const linkedProject = activeQuote
+        ? confirmedProjects.find(
+            (project) => projectQuoteId(project) === activeQuote.quote_id,
+          )
+        : null;
+      if (!linkedProject) return quoteItems;
+
+      const [zones, zoneProducts] = await Promise.all([
+        fetchZones(linkedProject.id),
+        fetchZoneProducts(linkedProject.id),
+      ]);
+      const confirmedProducts = zoneProducts.filter(
+        (product) => product.status === 'confirmed' && product.zoneId,
+      );
+      if (confirmedProducts.length === 0) return quoteItems;
+
+      const grouped: BwfQuoteItemInput[] = [];
+      for (const zone of zones) {
+        const products = confirmedProducts.filter(
+          (product) => product.zoneId === zone.id,
+        );
+        if (products.length === 0) continue;
+        grouped.push({
+          id: `zone-${zone.id}`,
+          name: `${zone.code ? `${zone.code} · ` : ''}${zone.name}`,
+          isSectionTitle: true,
+          image: '',
+        });
+        for (const product of products) {
+          grouped.push({
+            id: product.id,
+            name: product.productTitle,
+            image: product.productImageUrl,
+            unitPrice: product.salePrice,
+            quantity: product.quantity,
+            unit: '件',
+          });
+        }
+      }
+      return grouped.length > 0 ? grouped : quoteItems;
+    };
+
+    loadItems()
       .then((rows) => {
         if (!cancelled) setItems(rows);
       })
@@ -216,7 +277,7 @@ export function CustomerQuoteSchemesView() {
     return () => {
       cancelled = true;
     };
-  }, [activeId]);
+  }, [activeId, confirmedProjects, quotes]);
 
   const versionsByQuote = useMemo(() => groupVersions(quotes), [quotes]);
   const availableQuotes = useMemo(() => {
@@ -226,7 +287,7 @@ export function CustomerQuoteSchemesView() {
         .map((value) => value?.trim().toLowerCase())
         .filter((value): value is string => Boolean(value)),
     );
-    return [...versionsByQuote.values()]
+    const visible = [...versionsByQuote.values()]
       .map((versions) => versions[0])
       .filter((quote) => {
         if (!clientOnly) return true;
@@ -240,7 +301,25 @@ export function CustomerQuoteSchemesView() {
           ),
         );
       });
-  }, [clientOnly, clientProjects, versionsByQuote]);
+    const clientProjectIds = new Set(clientProjects.map((project) => project.id));
+    const confirmedQuoteIds = new Set(
+      confirmedProjects
+        .filter(
+          (project) => !clientOnly || clientProjectIds.has(project.id),
+        )
+        .map(projectQuoteId)
+        .filter(Boolean),
+    );
+    const linked = visible.filter((quote) =>
+      confirmedQuoteIds.has(quote.quote_id),
+    );
+    return linked.length > 0 ? linked : visible;
+  }, [
+    clientOnly,
+    clientProjects,
+    confirmedProjects,
+    versionsByQuote,
+  ]);
 
   useEffect(() => {
     if (availableQuotes.length === 0) return;
@@ -421,6 +500,9 @@ export function CustomerQuoteSchemesView() {
             {availableQuotes.map((quote) => {
               const selected = active?.quote_id === quote.quote_id;
               const versions = versionsByQuote.get(quote.quote_id) || [quote];
+              const linkedConfirmedProject = confirmedProjects.some(
+                (project) => projectQuoteId(project) === quote.quote_id,
+              );
               return (
                 <button
                   key={quote.quote_id}
@@ -461,6 +543,11 @@ export function CustomerQuoteSchemesView() {
                   <p className="mt-1 text-sm text-muted-foreground">
                     {clientNameOf(quote)} · {versions.length} 個版本
                   </p>
+                  {linkedConfirmedProject ? (
+                    <p className="mt-2 inline-flex rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:text-emerald-300">
+                      已劃分工程區域
+                    </p>
+                  ) : null}
                   <div className="mt-4 flex items-end justify-between gap-3 border-t border-border pt-4">
                     <span className="text-xs text-muted-foreground">
                       {fmtDate(quote.modified_date || quote.created_at)}
