@@ -11,6 +11,7 @@ import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { uploadFileToStorage, uploadImageSourceToStorage, isHttpImageUrl } from '@/lib/imageStorage';
 import { excludeAlreadyPublishedRts } from '@/lib/publishPipeline';
+import { collectProductGalleryUrls } from '@/lib/productGallery';
 import { syncRtsContentToProduct, syncRtsWorkflowToProduct } from '@/lib/rtsProductSync';
 import { writeUploadLog } from '@/lib/uploadLog';
 import { getPublishTimestampHk } from '@/lib/publishTimestamps';
@@ -282,7 +283,7 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
     // Lazily fetch the heavy image columns for THIS product only (not loaded in list)
     const { data: prod } = await supabase
       .from('products')
-      .select('image_url,images,image_url_2,image_url_3')
+      .select('image_url,images,image_url_2,image_url_3,lifestyle_image_url')
       .eq('id', p.id)
       .maybeSingle();
 
@@ -290,14 +291,9 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
     let finalExtras: string[] = [];
 
     if (prod) {
-      const primaryImg = (Array.isArray(prod.images) && prod.images[0]?.src) || prod.image_url || p.imageUrl || '';
-      const extraImgs = [prod.image_url_2, prod.image_url_3].filter(Boolean) as string[];
-      if (Array.isArray(prod.images)) {
-        prod.images.slice(1).forEach((img: any) => {
-          const src = img?.src || img;
-          if (src && typeof src === 'string' && !extraImgs.includes(src)) extraImgs.push(src);
-        });
-      }
+      const gallery = collectProductGalleryUrls(prod);
+      const primaryImg = gallery[0] || p.imageUrl || '';
+      const extraImgs = gallery.slice(1);
       if (primaryImg) { setPrimaryImg(primaryImg); finalPrimary = primaryImg; }
       setExtraImgs(extraImgs); finalExtras = extraImgs;
     }
