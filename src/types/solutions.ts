@@ -67,6 +67,8 @@ export interface DesignProject {
   activeScheme: SchemeLabel;
   progress: number;
   createdBy: string | null;
+  creatorStaffId: string | null;
+  editorStaffId: string | null;
   createdAt: string;
   updatedAt: string;
   /** JSON meta: projectType / roomCounts / existingPartition */

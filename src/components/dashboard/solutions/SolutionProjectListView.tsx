@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import {
-  Plus, Upload, Search, Map, ChevronRight, Loader2, Sparkles, Building2, Calendar,
+  Plus, Upload, Search, Map, ChevronRight, ChevronDown, ChevronUp,
+  Loader2, Sparkles, Building2, Calendar, Sofa,
 } from 'lucide-react';
 import {
   createProject,
@@ -21,6 +22,7 @@ import { writeSolutionFocusProjectId } from '@/lib/solutionProjectFocus';
 import { useAppStore } from '@/hooks/use-app-store';
 import { toast } from 'sonner';
 import type { DesignProject } from '@/types/solutions';
+import { ProjectPartitionPanel } from './ProjectPartitionPanel';
 
 const STATUS_FILTERS = [
   { id: 'all', label: '全部狀態' },
@@ -48,6 +50,7 @@ export function SolutionProjectListView() {
   const [keyword, setKeyword] = useState('');
   const [status, setStatus] = useState<(typeof STATUS_FILTERS)[number]['id']>('all');
   const [showCreate, setShowCreate] = useState(false);
+  const [expandedProjectId, setExpandedProjectId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState({
     name: '',
@@ -161,7 +164,7 @@ export function SolutionProjectListView() {
       setForm({ name: '', clientCompany: '', clientName: '', projectType: 'office' });
       setFloorPreview(null);
       setFloorType(null);
-      openProject(project.id);
+      setExpandedProjectId(project.id);
     } finally {
       setCreating(false);
     }
@@ -174,7 +177,7 @@ export function SolutionProjectListView() {
           <div>
             <h1 className="font-display text-2xl font-bold tracking-tight">方案列表</h1>
             <p className="mt-1 font-body text-sm text-muted-foreground">
-              依工程類型（辦公室／學校／診所…）建立專案、上傳平面圖，自動建議間隔後進入設計專案配置傢俬
+              依工程類型建立專案；展開每個方案設定「間隔／功能房間」，再進入設計專案配置傢俬
             </p>
           </div>
           <button
@@ -230,57 +233,96 @@ export function SolutionProjectListView() {
           </div>
         ) : (
           <div className="space-y-3">
-            {filtered.map((p) => (
-              <button
+            {filtered.map((p) => {
+              const expanded = expandedProjectId === p.id;
+              return (
+              <article
                 key={p.id}
-                type="button"
-                onClick={() => openProject(p.id)}
-                className="flex w-full items-center gap-4 rounded-2xl border border-border bg-card p-4 text-left shadow-sm transition-all hover:border-primary/40 hover:shadow-md"
+                className={cn(
+                  'overflow-hidden rounded-2xl border bg-card shadow-sm transition-all',
+                  expanded ? 'border-primary/40 shadow-md' : 'border-border',
+                )}
               >
-                <div className="flex h-16 w-20 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-border bg-muted/40">
-                  {p.floorPlanUrl ? (
-                    <img src={p.floorPlanUrl} alt="" className="h-full w-full object-cover" />
-                  ) : (
-                    <Map className="h-6 w-6 text-muted-foreground/50" />
-                  )}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="truncate font-display text-base font-bold">{p.name}</h2>
-                    <span className="rounded-full bg-primary/10 px-2 py-0.5 font-body text-xs font-medium text-primary">
-                      {statusLabel(p.status || 'draft')}
-                    </span>
-                    {p.meta?.projectType ? (
-                      <span className="rounded-full border border-border px-2 py-0.5 font-body text-xs text-muted-foreground">
-                        {projectTypeLabel(p.meta.projectType)}
+                <button
+                  type="button"
+                  onClick={() => setExpandedProjectId(expanded ? null : p.id)}
+                  className="flex w-full items-center gap-4 p-4 text-left hover:bg-muted/20"
+                  aria-expanded={expanded}
+                >
+                  <div className="flex h-16 w-20 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-border bg-muted/40">
+                    {p.floorPlanUrl ? (
+                      <img src={p.floorPlanUrl} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                      <Map className="h-6 w-6 text-muted-foreground/50" />
+                    )}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h2 className="truncate font-display text-base font-bold">{p.name}</h2>
+                      <span className="rounded-full bg-primary/10 px-2 py-0.5 font-body text-xs font-medium text-primary">
+                        {statusLabel(p.status || 'draft')}
                       </span>
-                    ) : null}
-                  </div>
-                  <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 font-body text-xs text-muted-foreground">
-                    <span className="inline-flex items-center gap-1">
-                      <Building2 className="h-3 w-3" />
-                      {[p.clientCompany, p.clientName].filter(Boolean).join(' · ') || '未填客戶'}
-                    </span>
-                    <span className="inline-flex items-center gap-1">
-                      <Calendar className="h-3 w-3" />
-                      {fmtDate(p.updatedAt || p.createdAt)}
-                    </span>
-                  </p>
-                  <div className="mt-2 flex items-center gap-2">
-                    <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
-                      <div
-                        className="h-full rounded-full bg-primary/70"
-                        style={{ width: `${Math.min(100, Math.max(0, p.progress || 0))}%` }}
-                      />
+                      {p.meta?.projectType ? (
+                        <span className="rounded-full border border-border px-2 py-0.5 font-body text-xs text-muted-foreground">
+                          {projectTypeLabel(p.meta.projectType)}
+                        </span>
+                      ) : null}
                     </div>
-                    <span className="font-mono-data text-xs text-muted-foreground">
-                      {p.progress || 0}% 已確認
-                    </span>
+                    <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 font-body text-xs text-muted-foreground">
+                      <span className="inline-flex items-center gap-1">
+                        <Building2 className="h-3 w-3" />
+                        {[p.clientCompany, p.clientName].filter(Boolean).join(' · ') || '未填客戶'}
+                      </span>
+                      <span className="inline-flex items-center gap-1">
+                        <Calendar className="h-3 w-3" />
+                        {fmtDate(p.updatedAt || p.createdAt)}
+                      </span>
+                    </p>
+                    <div className="mt-2 flex items-center gap-2">
+                      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+                        <div
+                          className="h-full rounded-full bg-primary/70"
+                          style={{ width: `${Math.min(100, Math.max(0, p.progress || 0))}%` }}
+                        />
+                      </div>
+                      <span className="font-mono-data text-xs text-muted-foreground">
+                        {p.progress || 0}% 已確認
+                      </span>
+                    </div>
                   </div>
-                </div>
-                <ChevronRight className="h-5 w-5 shrink-0 text-muted-foreground" />
-              </button>
-            ))}
+                  {expanded ? (
+                    <ChevronUp className="h-5 w-5 shrink-0 text-primary" />
+                  ) : (
+                    <ChevronDown className="h-5 w-5 shrink-0 text-muted-foreground" />
+                  )}
+                </button>
+                {expanded ? (
+                  <>
+                    <ProjectPartitionPanel
+                      project={p}
+                      onProjectMetaChange={(projectId, meta) =>
+                        setProjects((prev) =>
+                          prev.map((row) =>
+                            row.id === projectId ? { ...row, meta } : row,
+                          ),
+                        )
+                      }
+                    />
+                    <div className="flex justify-end border-t border-border bg-card px-5 py-4">
+                      <button
+                        type="button"
+                        onClick={() => openProject(p.id)}
+                        className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground"
+                      >
+                        <Sofa className="h-4 w-4" />
+                        進入設計專案配置產品
+                        <ChevronRight className="h-4 w-4" />
+                      </button>
+                    </div>
+                  </>
+                ) : null}
+              </article>
+            );})}
           </div>
         )}
       </div>

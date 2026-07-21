@@ -31,6 +31,8 @@ function mapProject(r: any): DesignProject {
     activeScheme: (r.active_scheme ?? 'A') as DesignProject['activeScheme'],
     progress: r.progress ?? 0,
     createdBy: r.created_by ?? null,
+    creatorStaffId: r.creator_staff_id ?? null,
+    editorStaffId: r.editor_staff_id ?? null,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     meta,
