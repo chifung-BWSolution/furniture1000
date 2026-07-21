@@ -88,6 +88,7 @@ interface ListedProduct {
   imageUrl: string;
   imageUrl2?: string | null;
   imageUrl3?: string | null;
+  lifestyleImageUrl?: string | null;
   images?: { id?: number; src: string; alt?: string }[];
   shopifyProductId: string | null;
   source: string;
