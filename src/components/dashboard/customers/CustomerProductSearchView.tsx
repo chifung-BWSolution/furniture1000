@@ -333,7 +333,7 @@ export function CustomerProductSearchView() {
 
   const materialOptions = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const p of all) {
+    for (const p of all.filter((product) => product.salePrice > 0)) {
       for (const tag of new Set(materialTags(p.material || ''))) {
         counts.set(tag, (counts.get(tag) || 0) + 1);
       }
@@ -408,6 +408,7 @@ export function CustomerProductSearchView() {
     const dimHMax = parseOptionalNumber(filters.dimHMax);
 
     return all.filter((p) => {
+      if (!Number.isFinite(p.salePrice) || p.salePrice <= 0) return false;
       if (q) {
         const hay = `${p.title} ${p.description} ${p.material} ${p.level1Category || ''} ${p.level2Category || ''}`.toLowerCase();
         if (!hay.includes(q)) return false;
@@ -431,6 +432,9 @@ export function CustomerProductSearchView() {
   }, [keyword, filters, all]);
 
   const cartCount = cart.reduce((n, c) => n + c.qty, 0);
+  const displayableProductCount = all.filter(
+    (product) => Number.isFinite(product.salePrice) && product.salePrice > 0,
+  ).length;
   const activeFilterCount =
     (filters.level1 ? 1 : 0) +
     (filters.level2 ? 1 : 0) +
@@ -691,7 +695,9 @@ export function CustomerProductSearchView() {
 
         <div className="min-w-0 space-y-3">
           <p className="font-mono-data text-xs text-muted-foreground">
-            {isLoading ? '載入中…' : `顯示 ${results.length} / ${all.length} 件產品`}
+            {isLoading
+              ? '載入中…'
+              : `顯示 ${results.length} / ${displayableProductCount} 件有售價產品`}
           </p>
 
           {isLoading ? (

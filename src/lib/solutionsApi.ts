@@ -279,14 +279,32 @@ async function prioritizeActiveShopifyProducts(
   products: SearchProduct[],
 ): Promise<SearchProduct[]> {
   if (products.length === 0) return products;
-  const activeBySourceId = new Map<string, string | null>();
-  const activeShopifyIds = new Set<string>();
+  type ActiveShopifyMeta = {
+    shopifyProductId: string | null;
+    title: string;
+    imageUrl: string;
+    salePrice: number;
+    productType: string;
+  };
+  const toMeta = (row: Record<string, unknown>): ActiveShopifyMeta => ({
+    shopifyProductId: row.shopify_product_id
+      ? String(row.shopify_product_id)
+      : null,
+    title: String(row.title || '').trim(),
+    imageUrl: String(row.image_url || '').trim(),
+    salePrice: Number(row.price || 0),
+    productType: String(row.product_type || '').trim(),
+  });
+  const activeBySourceId = new Map<string, ActiveShopifyMeta>();
+  const activeByShopifyId = new Map<string, ActiveShopifyMeta>();
   const ids = products.map((product) => product.id);
   for (let i = 0; i < ids.length; i += 150) {
     const chunk = ids.slice(i, i + 150);
     const { data, error } = await supabase
       .from('shopify_products')
-      .select('source_product_id, shopify_product_id')
+      .select(
+        'source_product_id,shopify_product_id,title,image_url,price,product_type',
+      )
       .in('source_product_id', chunk)
       .eq('status', 'active')
       .is('configurable', null);
@@ -294,12 +312,10 @@ async function prioritizeActiveShopifyProducts(
     for (const row of data ?? []) {
       const sourceId = String(row.source_product_id || '').trim();
       if (!sourceId) continue;
-      activeBySourceId.set(
-        sourceId,
-        row.shopify_product_id ? String(row.shopify_product_id) : null,
-      );
+      const meta = toMeta(row);
+      activeBySourceId.set(sourceId, meta);
       if (row.shopify_product_id) {
-        activeShopifyIds.add(String(row.shopify_product_id));
+        activeByShopifyId.set(String(row.shopify_product_id), meta);
       }
     }
   }
@@ -314,30 +330,36 @@ async function prioritizeActiveShopifyProducts(
   for (let i = 0; i < fallbackIds.length; i += 150) {
     const { data, error } = await supabase
       .from('shopify_products')
-      .select('shopify_product_id')
+      .select('shopify_product_id,title,image_url,price,product_type')
       .in('shopify_product_id', fallbackIds.slice(i, i + 150))
       .eq('status', 'active')
       .is('configurable', null);
     if (error) continue;
     for (const row of data ?? []) {
       if (row.shopify_product_id) {
-        activeShopifyIds.add(String(row.shopify_product_id));
+        activeByShopifyId.set(String(row.shopify_product_id), toMeta(row));
       }
     }
   }
   return products
     .map((product) => {
-      const linkedShopifyId =
-        activeBySourceId.get(product.id) ?? product.shopifyProductId ?? null;
+      const activeMeta =
+        activeBySourceId.get(product.id) ||
+        (product.shopifyProductId
+          ? activeByShopifyId.get(product.shopifyProductId)
+          : undefined);
       return {
         ...product,
-        isOnShopify:
-          activeBySourceId.has(product.id) ||
-          Boolean(
-            product.shopifyProductId &&
-              activeShopifyIds.has(product.shopifyProductId),
-          ),
-        shopifyProductId: linkedShopifyId,
+        title: activeMeta?.title || product.title,
+        imageUrl: activeMeta?.imageUrl || product.imageUrl,
+        salePrice:
+          activeMeta && activeMeta.salePrice > 0
+            ? activeMeta.salePrice
+            : product.salePrice,
+        category: product.category || activeMeta?.productType || '其他',
+        isOnShopify: Boolean(activeMeta),
+        shopifyProductId:
+          activeMeta?.shopifyProductId ?? product.shopifyProductId ?? null,
       };
     })
     .sort(
@@ -358,8 +380,23 @@ export async function fetchPortalBrowseProducts(limit = 600): Promise<SearchProd
       .order('created_at', { ascending: false })
       .limit(limit);
     if (!error && data && data.length > 0) {
-      return prioritizeActiveShopifyProducts(
+      const catalog = await prioritizeActiveShopifyProducts(
         data.map((r) => mapSearchProduct(r)),
+      );
+      const active = await fetchActiveShopifyProducts(limit);
+      const knownShopifyIds = new Set(
+        catalog.map((product) => product.shopifyProductId).filter(Boolean),
+      );
+      return [
+        ...catalog,
+        ...active.filter(
+          (product) =>
+            !product.shopifyProductId ||
+            !knownShopifyIds.has(product.shopifyProductId),
+        ),
+      ].sort(
+        (a, b) =>
+          Number(Boolean(b.isOnShopify)) - Number(Boolean(a.isOnShopify)),
       );
     }
     return prioritizeActiveShopifyProducts(
