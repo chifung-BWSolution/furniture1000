@@ -38,7 +38,7 @@ import {
   BW_SERVICE_MODULES,
 } from '@/content/bwCorporate';
 
-function NoSupabaseRecords({
+function NoRecords({
   icon: Icon,
   title,
   description,
@@ -324,7 +324,7 @@ export function CustomerCustomFurnitureView() {
               </p>
               {suggestions.length === 0 ? (
                 <p className="mt-4 rounded-xl bg-muted/30 px-3 py-4 text-sm text-muted-foreground">
-                  現有 Supabase 產品目錄未找到相近結果，建議保留圖片及詳細需求由 PM 跟進訂製。
+                  現有產品目錄未找到相近結果，建議保留圖片及詳細需求由 PM 跟進訂製。
                 </p>
               ) : (
                 <div className="mt-4 space-y-3">
@@ -406,12 +406,12 @@ export function CustomerOrderStatusView() {
     <PortalPageShell
       title="訂單狀況"
       badge="Client Portal"
-      subtitle="唯讀顯示現有 Supabase 訂單與送貨紀錄。"
+      subtitle="唯讀顯示現有訂單與送貨紀錄。"
     >
-      <NoSupabaseRecords
+      <NoRecords
         icon={PackageCheck}
         title="暫無訂單紀錄"
-        description="目前沒有可與此登入客戶配對的 Supabase 訂單資料；不再顯示預設完成進度或前端模擬狀態。"
+        description="目前沒有可與此登入客戶配對的訂單資料。"
       />
     </PortalPageShell>
   );
@@ -431,7 +431,7 @@ export function CustomerCaseStudiesView() {
     <PortalPageShell
       title="成功案例"
       badge="Client Portal"
-      subtitle="公開工程案例、服務客戶 Logo 牆、公司 YouTube 及 Supabase 真實產品圖。"
+      subtitle="公開工程案例、服務客戶 Logo 牆、公司 YouTube 及真實產品圖。"
     >
       <section className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
         <div className="p-6 lg:p-8">
@@ -496,7 +496,7 @@ export function CustomerCaseStudiesView() {
 
       <CorporateSection
         title="真實產品圖"
-        subtitle="以下產品由 Supabase 產品目錄即時讀取。"
+        subtitle="以下產品由現有產品目錄即時讀取。"
         icon={<Briefcase className="h-5 w-5 text-primary" />}
       >
         {loading ? (
@@ -504,10 +504,10 @@ export function CustomerCaseStudiesView() {
             <Loader2 className="h-6 w-6 animate-spin text-primary" />
           </div>
         ) : products.length === 0 ? (
-          <NoSupabaseRecords
+          <NoRecords
             icon={Film}
             title="暫無案例產品"
-            description="Supabase 產品目錄目前沒有可展示的資料。"
+            description="產品目錄目前沒有可展示的資料。"
           />
         ) : (
           <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
@@ -783,10 +783,10 @@ export function CustomerOrgAccountView() {
           <Loader2 className="h-6 w-6 animate-spin text-primary" />
         </div>
       ) : !company ? (
-        <NoSupabaseRecords
+        <NoRecords
           icon={Landmark}
           title="機構帳戶尚未開通"
-          description="Supabase 暫未有與目前登入電郵配對的機構資料，請聯絡 BW 由公司人員建立及分派權限。"
+          description="暫未有與目前登入電郵配對的機構資料，請聯絡 BW 由公司人員建立及分派權限。"
         />
       ) : (
         <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
@@ -803,7 +803,7 @@ export function CustomerOrgAccountView() {
           </div>
           <div className="mt-4 flex items-center gap-2 rounded-xl bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-300">
             <CheckCircle2 className="h-4 w-4" />
-            已找到 Supabase 機構資料
+            已找到機構資料
           </div>
         </section>
       )}

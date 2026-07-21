@@ -506,7 +506,7 @@ export function AppShell() {
       store.reloadProducts();
     } else {
       setIsRetrying(false);
-      toast.error('仍然無法連接', { description: 'Supabase 尚未恢復，請稍後再試' });
+      toast.error('仍然無法連接', { description: '資料庫尚未恢復，請稍後再試' });
     }
   }, [store]);
   // Product to scroll-into-view when navigating from 發佈前檢查
@@ -914,7 +914,7 @@ export function AppShell() {
         {dbUnhealthy && (
           <div className="flex items-center gap-2 bg-destructive/10 border-b border-destructive/20 px-4 py-2 text-sm text-destructive">
             <WifiOff className="h-4 w-4 shrink-0" />
-            <span className="flex-1">資料庫連接異常 — Supabase 暫時無法讀取，正在等待恢復...</span>
+            <span className="flex-1">資料庫連接異常 — 系統暫時無法讀取資料，正在等待恢復...</span>
             <button
               onClick={handleManualRetry}
               disabled={isRetrying}

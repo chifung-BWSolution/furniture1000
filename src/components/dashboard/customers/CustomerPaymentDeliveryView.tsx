@@ -103,7 +103,7 @@ export function CustomerPaymentDeliveryView() {
       return;
     }
     toast.error('尚未能進行付款', {
-      description: 'Supabase 暫無真實訂單／付款紀錄，未有支付閘道時不會模擬付款成功。',
+      description: '暫無真實訂單／付款紀錄，未有支付閘道時不會建立付款。',
     });
   };
 
@@ -111,7 +111,7 @@ export function CustomerPaymentDeliveryView() {
     <PortalPageShell
       title="付款 + 送貨"
       badge="Shopify A類"
-      subtitle="唯讀載入 Supabase shopify_products 中目前 active 的 A類產品、圖片及現時售價；此頁不儲存購物車或結帳資料。"
+      subtitle="唯讀載入目前已上 Shopify 的 A類產品、圖片及現時售價；此頁不儲存購物車或結帳資料。"
       maxWidthClass="max-w-6xl"
     >
       {/* Steps */}
@@ -220,7 +220,7 @@ export function CustomerPaymentDeliveryView() {
                 </h2>
                 {!loading && catalog.length === 0 ? (
                   <p className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
-                    Supabase 暫無目前 active 的 Shopify A類產品
+                    暫無目前已上架的 Shopify A類產品
                   </p>
                 ) : (
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
@@ -400,7 +400,7 @@ export function CustomerPaymentDeliveryView() {
                 </div>
               ) : (
                 <div className="rounded-xl bg-muted/30 p-3 font-mono-data text-xs leading-relaxed">
-                  Supabase 暫無此訂單的轉帳收款資料。
+                  暫無此訂單的轉帳收款資料。
                 </div>
               )}
               <p className="flex items-center gap-1 text-xs text-muted-foreground">

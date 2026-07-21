@@ -139,14 +139,14 @@ export function ConfirmedProjectsView() {
           })}
         </div>
 
-        {/* Real project discussion records from Supabase */}
+        {/* Real project discussion records */}
         <div className="rounded-xl border border-border bg-card p-4">
             <div className="mb-3 flex items-center gap-2">
               <MessageSquare className="h-4 w-4 text-primary" />
               <h3 className="font-display text-sm font-bold">專案互動紀錄</h3>
             </div>
             {discussions.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Supabase 暫無互動紀錄</p>
+              <p className="text-sm text-muted-foreground">暫無互動紀錄</p>
             ) : (
               <div className="space-y-3">
               {discussions.map((record, i) => (

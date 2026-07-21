@@ -756,7 +756,7 @@ export function CustomerProductSearchView() {
             </div>
             {cart.length > 0 ? (
               <p className="mt-4 rounded-lg bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
-                查詢車只保留本機選擇；未有 Supabase 查詢紀錄前不會顯示「已送出」狀態。
+                查詢車只保留本機選擇；未有正式查詢紀錄前不會顯示「已送出」狀態。
               </p>
             ) : null}
           </div>
