@@ -118,6 +118,20 @@ function stripHtml(html: string): string {
   return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
+function parseShopifyProductType(value: unknown): {
+  level1: string;
+  level2: string;
+} {
+  const parts = String(value || '')
+    .split('/')
+    .map((part) => part.trim())
+    .filter(Boolean);
+  if (parts.length >= 2) {
+    return { level1: parts[0], level2: parts[parts.length - 1] };
+  }
+  return { level1: parts[0] || '其他', level2: '' };
+}
+
 function numOrNullDim(v: unknown): number | null {
   if (v == null || v === '') return null;
   const n = typeof v === 'number' ? v : Number(v);
@@ -424,18 +438,50 @@ export async function fetchActiveShopifyProducts(
       .order('published_at', { ascending: false, nullsFirst: false })
       .limit(limit);
     if (error || !data) return [];
+    const sourceIds = [
+      ...new Set(
+        data
+          .map((row) => String(row.source_product_id || '').trim())
+          .filter(Boolean),
+      ),
+    ];
+    const sourceById = new Map<string, SearchProduct>();
+    for (let i = 0; i < sourceIds.length; i += 150) {
+      const { data: sourceRows } = await supabase
+        .from('products')
+        .select(PORTAL_PRODUCT_SELECT)
+        .in('id', sourceIds.slice(i, i + 150));
+      for (const row of sourceRows ?? []) {
+        sourceById.set(String(row.id), mapSearchProduct(row));
+      }
+    }
     return data
-      .map((row) => ({
-        ...mapSearchProduct({
+      .map((row) => {
+        const sourceId = String(row.source_product_id || '').trim();
+        const source = sourceById.get(sourceId);
+        const shopify = mapSearchProduct({
           ...row,
-          id: row.source_product_id || row.shopify_product_id,
+          id: sourceId || row.shopify_product_id,
           category: row.product_type,
-        }),
-        isOnShopify: true,
-        shopifyProductId: row.shopify_product_id
-          ? String(row.shopify_product_id)
-          : null,
-      }))
+        });
+        const categories = parseShopifyProductType(row.product_type);
+        return {
+          ...source,
+          ...shopify,
+          material: source?.material || '—',
+          color: source?.color || '—',
+          dimensionLMm: source?.dimensionLMm ?? null,
+          dimensionWMm: source?.dimensionWMm ?? null,
+          dimensionHMm: source?.dimensionHMm ?? null,
+          category: categories.level2 || categories.level1,
+          level1Category: categories.level1,
+          level2Category: categories.level2 || undefined,
+          isOnShopify: true,
+          shopifyProductId: row.shopify_product_id
+            ? String(row.shopify_product_id)
+            : null,
+        };
+      })
       .filter((product) => product.salePrice > 0);
   } catch {
     return [];

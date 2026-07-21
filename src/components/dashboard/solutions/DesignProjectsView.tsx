@@ -13,7 +13,6 @@ import {
   inferProjectType,
   projectTypeLabel,
 } from '@/lib/projectPartitionTemplates';
-import { PRODUCT_CATEGORIES } from '@/constants/solutions-mock';
 import { toast } from 'sonner';
 import {
   ZONE_PRODUCT_STATUS_META,
@@ -52,7 +51,8 @@ export function DesignProjectsView() {
   const [products, setProducts] = useState<SearchProduct[]>([]);
   const [productsLoading, setProductsLoading] = useState(false);
   const [keyword, setKeyword] = useState('');
-  const [category, setCategory] = useState('全部');
+  const [productLevel1, setProductLevel1] = useState('');
+  const [productLevel2, setProductLevel2] = useState('');
 
   useEffect(() => {
     const focusId = consumeSolutionFocusProjectId();
@@ -111,7 +111,7 @@ export function DesignProjectsView() {
     setPickerOpen(true);
     if (products.length === 0) {
       setProductsLoading(true);
-      fetchActiveShopifyProducts(300)
+      fetchActiveShopifyProducts(1000)
         .then(setProducts)
         .finally(() => setProductsLoading(false));
     }
@@ -159,10 +159,32 @@ export function DesignProjectsView() {
       if (q && !p.title.toLowerCase().includes(q) && !p.description.toLowerCase().includes(q)) {
         return false;
       }
-      if (category !== '全部' && p.category !== category) return false;
+      if (productLevel1 && p.level1Category !== productLevel1) return false;
+      if (productLevel2 && p.level2Category !== productLevel2) return false;
       return true;
     });
-  }, [products, keyword, category]);
+  }, [products, keyword, productLevel1, productLevel2]);
+
+  const productLevel1Options = useMemo(
+    () =>
+      [...new Set(products.map((product) => product.level1Category).filter(Boolean))] as string[],
+    [products],
+  );
+  const productLevel2Options = useMemo(
+    () =>
+      [
+        ...new Set(
+          products
+            .filter(
+              (product) =>
+                product.level1Category === productLevel1 &&
+                product.level2Category,
+            )
+            .map((product) => product.level2Category as string),
+        ),
+      ],
+    [productLevel1, products],
+  );
 
   if (!project) {
     if (!projectsLoaded) {
@@ -405,22 +427,79 @@ export function DesignProjectsView() {
                     </option>
                   ))}
                 </select>
-                {['全部', ...PRODUCT_CATEGORIES.filter((c) => c !== '全部')].slice(0, 8).map((c) => (
+              </div>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className="mr-1 text-[13px] font-semibold text-muted-foreground">
+                  一級分類
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setProductLevel1('');
+                    setProductLevel2('');
+                  }}
+                  className={cn(
+                    'rounded-full border px-2.5 py-1 text-[15px]',
+                    !productLevel1
+                      ? 'border-primary/50 bg-primary/10 text-primary'
+                      : 'border-border text-muted-foreground',
+                  )}
+                >
+                  全部
+                </button>
+                {productLevel1Options.map((category) => (
                   <button
-                    key={c}
+                    key={category}
                     type="button"
-                    onClick={() => setCategory(c)}
+                    onClick={() => {
+                      setProductLevel1(category);
+                      setProductLevel2('');
+                    }}
                     className={cn(
                       'rounded-full border px-2.5 py-1 text-[15px]',
-                      category === c
+                      productLevel1 === category
                         ? 'border-primary/50 bg-primary/10 text-primary'
                         : 'border-border text-muted-foreground',
                     )}
                   >
-                    {c}
+                    {category}
                   </button>
                 ))}
               </div>
+              {productLevel1 ? (
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <span className="mr-1 text-[13px] font-semibold text-muted-foreground">
+                    二級分類
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setProductLevel2('')}
+                    className={cn(
+                      'rounded-full border px-2.5 py-1 text-[15px]',
+                      !productLevel2
+                        ? 'border-primary/50 bg-primary/10 text-primary'
+                        : 'border-border text-muted-foreground',
+                    )}
+                  >
+                    全部
+                  </button>
+                  {productLevel2Options.map((category) => (
+                    <button
+                      key={category}
+                      type="button"
+                      onClick={() => setProductLevel2(category)}
+                      className={cn(
+                        'rounded-full border px-2.5 py-1 text-[15px]',
+                        productLevel2 === category
+                          ? 'border-primary/50 bg-primary/10 text-primary'
+                          : 'border-border text-muted-foreground',
+                      )}
+                    >
+                      {category}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
             </div>
 
             <div className="flex-1 overflow-y-auto p-4">

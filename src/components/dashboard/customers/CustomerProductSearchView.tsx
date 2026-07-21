@@ -3,11 +3,7 @@ import { cn } from '@/lib/utils';
 import {
   Search, ShoppingCart, Plus, Trash2, Loader2, SlidersHorizontal, RotateCcw,
 } from 'lucide-react';
-import { fetchPortalBrowseProducts } from '@/lib/solutionsApi';
-import {
-  fetchProductCategoryPairs,
-  type ProductCategoryPair,
-} from '@/lib/productCategoryOptions';
+import { fetchActiveShopifyProducts } from '@/lib/solutionsApi';
 import type { SearchProduct } from '@/types/solutions';
 import { toast } from 'sonner';
 import { PortalPageShell } from '@/components/dashboard/customers/PortalPageShell';
@@ -289,7 +285,6 @@ function RangeFilter({
 export function CustomerProductSearchView() {
   const [keyword, setKeyword] = useState('');
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
-  const [categoryPairs, setCategoryPairs] = useState<ProductCategoryPair[]>([]);
   const [all, setAll] = useState<SearchProduct[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [cart, setCart] = useState<CartItem[]>(() => loadCart());
@@ -298,30 +293,17 @@ export function CustomerProductSearchView() {
 
   useEffect(() => {
     setIsLoading(true);
-    Promise.all([fetchPortalBrowseProducts(600), fetchProductCategoryPairs()])
-      .then(([products, pairs]) => {
-        setAll(products);
-        setCategoryPairs(pairs);
-      })
+    fetchActiveShopifyProducts(1000)
+      .then(setAll)
       .finally(() => setIsLoading(false));
   }, []);
 
   const level1Options = useMemo(() => {
-    const fromRegistry = [...new Set(categoryPairs.map((p) => p.level1))];
-    if (fromRegistry.length > 0) return fromRegistry;
     return [...new Set(all.map((p) => p.level1Category).filter(Boolean))] as string[];
-  }, [categoryPairs, all]);
+  }, [all]);
 
   const level2Options = useMemo(() => {
     if (!filters.level1) return [] as string[];
-    const fromRegistry = [
-      ...new Set(
-        categoryPairs
-          .filter((p) => p.level1 === filters.level1 && p.level2)
-          .map((p) => p.level2),
-      ),
-    ];
-    if (fromRegistry.length > 0) return fromRegistry;
     return [
       ...new Set(
         all
@@ -329,7 +311,7 @@ export function CustomerProductSearchView() {
           .map((p) => p.level2Category as string),
       ),
     ];
-  }, [categoryPairs, filters.level1, all]);
+  }, [filters.level1, all]);
 
   const materialOptions = useMemo(() => {
     const counts = new Map<string, number>();
