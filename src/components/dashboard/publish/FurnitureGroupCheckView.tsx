@@ -7,7 +7,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { uploadImageSourceToStorage, stripBase64ForDb, isHttpImageUrl } from '@/lib/imageStorage';
-import { parseRtsImageUrls } from '@/lib/rtsImages';
+import { buildRtsImagesJson, parseRtsGalleryUrls } from '@/lib/rtsImages';
 import { syncRtsContentToProduct, syncRtsWorkflowToProduct } from '@/lib/rtsProductSync';
 import { dedupeFactoryNames, normalizeFactoryDisplayName } from '@/lib/factoryNames';
 import { getPublishTimestampHk } from '@/lib/publishTimestamps';
@@ -341,7 +341,7 @@ export function FGProductDetailModal({
       setData(r);
 
       // Gallery from ready_to_shopify only: image_url = primary, images[] = extras.
-      const imgs = parseRtsImageUrls(r).filter((src) => isHttpImageUrl(src));
+      const imgs = parseRtsGalleryUrls(r).filter((src) => isHttpImageUrl(src));
 
       setSelectedImg(imgs[0] || r.image_url || null);
       setEditImages(imgs);
@@ -462,7 +462,7 @@ export function FGProductDetailModal({
       };
       if (imagesChanged) {
         rtsUpdate.image_url = primaryImageUrl;
-        rtsUpdate.images = imagesArr;
+        rtsUpdate.images = buildRtsImagesJson(resolvedImages.slice(1));
       }
 
       const { error } = await supabase
@@ -509,9 +509,7 @@ export function FGProductDetailModal({
           ...(imagesChanged
             ? {
                 image_url: primaryImageUrl,
-                image_url_2: resolvedImages[1] || null,
-                image_url_3: resolvedImages[2] || null,
-                images: imagesArr,
+                images: buildRtsImagesJson(resolvedImages.slice(1)),
               }
             : {}),
         });

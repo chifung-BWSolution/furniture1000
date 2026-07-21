@@ -1130,9 +1130,6 @@ export function ListedProductsView({
         dimension_w_mm: p.dimensionWMm ?? null,
         dimension_h_mm: p.dimensionHMm ?? null,
         material: p.material ?? null,
-        // Persist extras on RTS columns + images[] (publish reads ready_to_shopify only).
-        image_url_2: extras[0] || null,
-        image_url_3: extras[1] || null,
         in_stock: p.inStock ?? null,
         production_time: p.productionTime ?? null,
         status: 'draft',

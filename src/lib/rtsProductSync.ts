@@ -2,14 +2,12 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { isHttpImageUrl } from '@/lib/imageStorage';
 import { stripBase64ForDb } from '@/lib/imageStorage';
 import { withUpdateAuditFields } from '@/lib/pmsAudit';
-import { parseRtsImageUrls } from '@/lib/rtsImages';
+import { parseRtsGalleryUrls, buildRtsImagesJson } from '@/lib/rtsImages';
 
 export type MirrorRowForProductSync = {
   title?: string | null;
   body_html?: string | null;
   image_url?: string | null;
-  image_url_2?: string | null;
-  image_url_3?: string | null;
   images?: unknown;
   tags?: string[] | string | null;
   sku?: string | null;
@@ -24,7 +22,7 @@ export type MirrorRowForProductSync = {
 
 /** Map ready_to_shopify or shopify_products row → products content patch. */
 export function mirrorRowToRtsContentPatch(row: MirrorRowForProductSync) {
-  const gallery = parseRtsImageUrls(row);
+  const gallery = parseRtsGalleryUrls(row);
   const ptParts = String(row.product_type ?? '').split(' / ');
   const tags = Array.isArray(row.tags)
     ? row.tags
@@ -38,9 +36,7 @@ export function mirrorRowToRtsContentPatch(row: MirrorRowForProductSync) {
     image_url: gallery[0] || row.image_url || null,
     image_url_2: gallery[1] || null,
     image_url_3: gallery[2] || null,
-    images: gallery.length > 1
-      ? gallery.slice(1).map((src, i) => ({ src, position: i + 1 }))
-      : null,
+    images: buildRtsImagesJson(gallery.slice(1)),
     tags,
     sku: row.sku ?? undefined,
     price: row.price ?? undefined,

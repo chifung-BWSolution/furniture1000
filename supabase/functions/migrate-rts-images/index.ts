@@ -68,13 +68,9 @@ async function uploadBase64(
 
 function rowNeedsMigration(row: {
   image_url: string | null;
-  image_url_2?: string | null;
-  image_url_3?: string | null;
   images: any;
 }): boolean {
   if (isBase64(row.image_url)) return true;
-  if (isBase64(row.image_url_2)) return true;
-  if (isBase64(row.image_url_3)) return true;
   if (Array.isArray(row.images)) {
     return row.images.some((img: any) => {
       const src: string = img?.src || img?.url || (typeof img === "string" ? img : "");
@@ -211,7 +207,7 @@ Deno.serve(async (req: Request) => {
       // RPC may omit heavy images JSONB — load full image columns for this row.
       const { data: fullRow, error: loadErr } = await supabase
         .from("ready_to_shopify")
-        .select("image_url, image_url_2, image_url_3, images")
+        .select("image_url, images")
         .eq("product_id", pid)
         .maybeSingle();
       if (loadErr) {
@@ -236,30 +232,6 @@ Deno.serve(async (req: Request) => {
           console.log(`[migrate] ✅ Primary → ${url.slice(0, 80)}`);
         } else {
           console.warn(`[migrate] ⚠️ Primary upload failed for ${pid}`);
-          skipped++;
-        }
-      }
-
-      // Convert image_url_2 / image_url_3
-      if (isBase64(r.image_url_2)) {
-        console.log(`[migrate] Converting image_url_2 for ${pid}...`);
-        const url = await uploadBase64(supabase, r.image_url_2, pid, "extra0");
-        if (url) {
-          updates.image_url_2 = url;
-          console.log(`[migrate] ✅ image_url_2 → ${url.slice(0, 80)}`);
-        } else {
-          console.warn(`[migrate] ⚠️ image_url_2 upload failed for ${pid}`);
-          skipped++;
-        }
-      }
-      if (isBase64(r.image_url_3)) {
-        console.log(`[migrate] Converting image_url_3 for ${pid}...`);
-        const url = await uploadBase64(supabase, r.image_url_3, pid, "extra1");
-        if (url) {
-          updates.image_url_3 = url;
-          console.log(`[migrate] ✅ image_url_3 → ${url.slice(0, 80)}`);
-        } else {
-          console.warn(`[migrate] ⚠️ image_url_3 upload failed for ${pid}`);
           skipped++;
         }
       }

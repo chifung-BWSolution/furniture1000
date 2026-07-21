@@ -1024,7 +1024,7 @@ export function useAppStore() {
     // finalised title, body_html, price, image_url, images, variants.
     const { data: rtsRows, error: rtsErr } = await supabase
       .from('ready_to_shopify')
-      .select('id,product_id,title,body_html,vendor,price,image_url,image_url_2,image_url_3,images,variants,product_type,tags,shopify_url,shopify_page_title,shopify_page_description,dimension_l_mm,dimension_w_mm,dimension_h_mm,material,"my_fields.materials",customize,sku,products(dimension_l_mm,dimension_w_mm,dimension_h_mm,material,customize)')
+      .select('id,product_id,title,body_html,vendor,price,image_url,images,variants,product_type,tags,shopify_url,shopify_page_title,shopify_page_description,dimension_l_mm,dimension_w_mm,dimension_h_mm,material,"my_fields.materials",customize,sku,products(dimension_l_mm,dimension_w_mm,dimension_h_mm,material,customize)')
       .in('product_id', productIdsToPublish);
     if (rtsErr) {
       console.warn('[publishToShopify] ready_to_shopify fetch error:', rtsErr.message);
@@ -1331,7 +1331,7 @@ export function useAppStore() {
     // Fetch the ready_to_shopify row for this product to get finalised content
     const { data: rtsRetryRows } = await supabase
       .from('ready_to_shopify')
-      .select('id,product_id,title,body_html,price,image_url,image_url_2,image_url_3,images,variants,product_type,tags,shopify_url,shopify_page_title,shopify_page_description,sku,vendor')
+      .select('id,product_id,title,body_html,price,image_url,images,variants,product_type,tags,shopify_url,shopify_page_title,shopify_page_description,sku,vendor')
       .eq('product_id', id)
       .maybeSingle();
     const rts = rtsRetryRows as any;

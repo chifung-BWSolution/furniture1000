@@ -14,32 +14,23 @@ function normalizeImagesField(images: unknown): unknown[] {
   return [];
 }
 
-/** Collect unique image URLs from ready_to_shopify image columns. */
-export function parseRtsImageUrls(row: {
-  image_url?: string | null;
-  image_url_2?: string | null;
-  image_url_3?: string | null;
-  images?: unknown;
-}): string[] {
-  return dedupeImageUrlsPreserveOrder([
-    ...(row.image_url ? [row.image_url] : []),
-    ...(row.image_url_2 ? [row.image_url_2] : []),
-    ...(row.image_url_3 ? [row.image_url_3] : []),
-    ...normalizeImagesField(row.images).flatMap((img) => {
-      if (typeof img === 'string') return [img];
-      if (img && typeof img === 'object') {
-        const rec = img as Record<string, unknown>;
-        const src =
-          typeof rec.src === 'string'
-            ? rec.src
-            : typeof rec.url === 'string'
-              ? rec.url
-              : '';
-        return src ? [src] : [];
-      }
-      return [];
-    }),
-  ]);
+function srcFromImageEntry(img: unknown): string {
+  if (typeof img === 'string') return img.trim();
+  if (img && typeof img === 'object') {
+    const rec = img as Record<string, unknown>;
+    if (typeof rec.src === 'string') return rec.src.trim();
+    if (typeof rec.url === 'string') return rec.url.trim();
+  }
+  return '';
+}
+
+/** Extra image URLs from images[] only (excludes primary). */
+export function rtsExtraImageUrls(images: unknown): string[] {
+  return dedupeImageUrlsPreserveOrder(
+    normalizeImagesField(images)
+      .map(srcFromImageEntry)
+      .filter((src) => src.startsWith('http')),
+  );
 }
 
 /**
@@ -50,37 +41,36 @@ export function parseRtsGalleryUrls(row: {
   image_url?: string | null;
   images?: unknown;
 }): string[] {
-  return dedupeImageUrlsPreserveOrder([
-    ...(row.image_url ? [row.image_url] : []),
-    ...normalizeImagesField(row.images).flatMap((img) => {
-      if (typeof img === 'string') return [img];
-      if (img && typeof img === 'object') {
-        const rec = img as Record<string, unknown>;
-        const src =
-          typeof rec.src === 'string'
-            ? rec.src
-            : typeof rec.url === 'string'
-              ? rec.url
-              : '';
-        return src ? [src] : [];
-      }
-      return [];
-    }),
-  ]);
+  const primary = (row.image_url || '').trim();
+  const extras = rtsExtraImageUrls(row.images);
+  if (!primary.startsWith('http')) return extras;
+  return dedupeImageUrlsPreserveOrder([primary, ...extras]);
+}
+
+/** @deprecated ready_to_shopify uses image_url + images[] only — alias of parseRtsGalleryUrls. */
+export function parseRtsImageUrls(row: {
+  image_url?: string | null;
+  images?: unknown;
+}): string[] {
+  return parseRtsGalleryUrls(row);
+}
+
+/** Build ready_to_shopify images[] JSON from ordered extra URLs (position 1-based). */
+export function buildRtsImagesJson(
+  extraUrls: string[],
+): { src: string; position: number }[] | null {
+  const deduped = dedupeImageUrlsPreserveOrder(extraUrls.filter((u) => u.startsWith('http')));
+  if (deduped.length === 0) return null;
+  return deduped.map((src, i) => ({ src, position: i + 1 }));
 }
 
 /**
  * Build publish gallery from ready_to_shopify only (準備上載 → Shopify).
- * Primary = image_url; extras from image_url_2/3 and images[].
+ * Primary = image_url; extras = images[].
  */
 export function buildPublishGalleryUrls(
-  rts: {
-    image_url?: string | null;
-    image_url_2?: string | null;
-    image_url_3?: string | null;
-    images?: unknown;
-  } | null | undefined,
+  rts: { image_url?: string | null; images?: unknown } | null | undefined,
 ): string[] {
   if (!rts) return [];
-  return parseRtsImageUrls(rts);
+  return parseRtsGalleryUrls(rts);
 }

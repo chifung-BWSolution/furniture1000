@@ -1111,7 +1111,7 @@ Deno.serve(async (req: Request) => {
         // Enrich gallery from ready_to_shopify when client payload is incomplete.
         const { data: rtsRow } = await supabase
           .from("ready_to_shopify")
-          .select("image_url, image_url_2, image_url_3, images")
+          .select("image_url, images")
           .eq("product_id", product.id)
           .maybeSingle();
         if (rtsRow) {
@@ -1120,8 +1120,6 @@ Deno.serve(async (req: Request) => {
             if (isHttpUrl(src)) rtsUrls.push(String(src).trim());
           };
           pushRts(rtsRow.image_url);
-          pushRts(rtsRow.image_url_2);
-          pushRts(rtsRow.image_url_3);
           if (Array.isArray(rtsRow.images)) {
             for (const im of rtsRow.images as { src?: string; url?: string }[]) {
               pushRts(im?.src || im?.url);

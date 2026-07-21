@@ -19,6 +19,7 @@ import {
   isHttpUrl,
 } from '@/lib/productMergeImages';
 import { syncRtsContentToProduct } from '@/lib/rtsProductSync';
+import { buildRtsImagesJson, parseRtsGalleryUrls } from '@/lib/rtsImages';
 
 interface RtsVariant {
   id?: string;
@@ -35,8 +36,6 @@ interface RtsProductRow {
   title: string | null;
   vendor: string | null;
   image_url: string | null;
-  image_url_2?: string | null;
-  image_url_3?: string | null;
   images?: { src?: string }[] | null;
   variants?: RtsVariant[] | null;
   price: number | null;
@@ -62,7 +61,11 @@ const PICKER_PAGE_SIZE = 25;
 const ROW_DRAG_MIME = 'application/x-rts-merge-row-key';
 
 const RTS_SELECT =
-  'id, product_id, title, vendor, image_url, image_url_2, image_url_3, images, variants, price, sku, dimension_l_mm, dimension_w_mm, dimension_h_mm';
+  'id, product_id, title, vendor, image_url, images, variants, price, sku, dimension_l_mm, dimension_w_mm, dimension_h_mm';
+
+function collectRtsImageUrls(row: RtsProductRow): string[] {
+  return parseRtsGalleryUrls(row);
+}
 
 function resolveSize(row: RtsProductRow, variant?: RtsVariant): string {
   const dims = [row.dimension_l_mm, row.dimension_w_mm, row.dimension_h_mm]
@@ -111,23 +114,6 @@ function isPickableRtsProduct(
 ): boolean {
   if (row.id === hostRtsId) return false;
   return pickableRowsFromRtsProduct(row, addedVariantKeys).length > 0;
-}
-
-function collectRtsImageUrls(row: RtsProductRow): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  const add = (url: string | null | undefined) => {
-    if (!isHttpUrl(url)) return;
-    const key = imageDedupeKey(url);
-    if (seen.has(key)) return;
-    seen.add(key);
-    out.push(url);
-  };
-  add(row.image_url);
-  add(row.image_url_2);
-  add(row.image_url_3);
-  for (const im of row.images ?? []) add(im?.src);
-  return out;
 }
 
 function resolveRtsVariantImageSrc(row: RtsProductRow, variant?: RtsVariant): string | null {
@@ -660,11 +646,7 @@ export function ReadyToPublishMergeModal({
           sku: parentSku,
           price: minPrice,
           image_url: primary,
-          image_url_2: dedupedGallery[1] || null,
-          image_url_3: dedupedGallery[2] || null,
-          images: dedupedGallery.length > 0
-            ? dedupedGallery.map((src, i) => ({ src, position: i + 1 }))
-            : null,
+          images: buildRtsImagesJson(dedupedGallery.slice(1)),
           configurable: null,
         })
         .eq('product_id', hostProductId);
@@ -676,11 +658,7 @@ export function ReadyToPublishMergeModal({
 
       await syncRtsContentToProduct(supabase, hostProductId, {
         image_url: primary,
-        image_url_2: dedupedGallery[1] || null,
-        image_url_3: dedupedGallery[2] || null,
-        images: dedupedGallery.length > 0
-          ? dedupedGallery.map((src, i) => ({ src, position: i + 1 }))
-          : null,
+        images: buildRtsImagesJson(dedupedGallery.slice(1)),
         sku: parentSku,
         price: minPrice,
         sale_price: minPrice,
