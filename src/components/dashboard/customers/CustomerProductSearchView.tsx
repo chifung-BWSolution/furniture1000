@@ -81,61 +81,69 @@ function bounds(values: Array<number | null | undefined>): { min: number; max: n
 }
 
 const MATERIAL_TAG_RULES = [
-  '玻纖背架',
-  '玻璃纖維',
-  '不鏽鋼',
-  '鋁合金',
-  '防火板',
-  '實木',
-  '木皮',
-  '網布',
-  '尼龍',
-  '西皮',
-  '科技布',
-  '絨布',
-  '麻布',
-  '玻纖',
-  '皮革',
-  '真皮',
-  '仿皮',
-  '布藝',
-  '海綿',
-  '塑膠',
-  '玻璃',
-  '亞克力',
-  '藤材',
-  '竹材',
-  '鋼材',
-  '金屬',
-  'MFC',
-  'HPL',
-  'PP',
-  'PU',
+  { tag: '玻纖背架', terms: ['玻纖背架', '玻璃纖維背架'] },
+  { tag: '不鏽鋼', terms: ['不鏽鋼', '不銹鋼', 'stainless steel'] },
+  { tag: '鋁合金', terms: ['鋁合金', '铝合金', 'aluminium', 'aluminum'] },
+  { tag: '密度板', terms: ['密度板', '中纖板', '中纤板', 'MDF'] },
+  { tag: '刨花板', terms: ['刨花板', 'particle board', 'chipboard'] },
+  { tag: '夾板', terms: ['夾板', '夹板', '膠合板', '胶合板', 'plywood'] },
+  { tag: '防火板', terms: ['防火板'] },
+  { tag: '實木', terms: ['實木', '实木', 'solid wood'] },
+  { tag: '木皮', terms: ['木皮', 'veneer'] },
+  { tag: '橡木', terms: ['橡木', 'oak'] },
+  { tag: '胡桃木', terms: ['胡桃木', 'walnut'] },
+  { tag: '白蠟木', terms: ['白蠟木', '白蜡木', 'ash wood'] },
+  { tag: '網布', terms: ['網布', '网布', 'mesh'] },
+  { tag: '尼龍', terms: ['尼龍', '尼龙', 'nylon'] },
+  { tag: '西皮', terms: ['西皮'] },
+  { tag: '科技布', terms: ['科技布'] },
+  { tag: '絨布', terms: ['絨布', '绒布', 'velvet'] },
+  { tag: '麻布', terms: ['麻布', 'linen'] },
+  { tag: '真皮', terms: ['真皮', 'genuine leather'] },
+  { tag: '仿皮', terms: ['仿皮', 'faux leather', 'synthetic leather'] },
+  { tag: '皮革', terms: ['皮革', 'leather'] },
+  { tag: '布藝', terms: ['布藝', '布艺', 'fabric'] },
+  { tag: '海綿', terms: ['海綿', '海绵', 'foam'] },
+  { tag: '塑膠', terms: ['塑膠', '塑料', 'plastic'] },
+  { tag: '玻璃', terms: ['玻璃', 'glass'] },
+  { tag: '亞克力', terms: ['亞克力', '亚克力', 'acrylic'] },
+  { tag: '藤材', terms: ['藤材', '藤編', '藤编', 'rattan'] },
+  { tag: '竹材', terms: ['竹材', 'bamboo'] },
+  { tag: '鋼材', terms: ['鋼材', '钢材', 'steel'] },
+  { tag: '金屬', terms: ['金屬', '金属', 'metal'] },
+  { tag: 'MFC', terms: ['MFC'] },
+  { tag: 'HPL', terms: ['HPL'] },
+  { tag: 'PP', terms: ['PP'] },
+  { tag: 'PU', terms: ['PU'] },
 ] as const;
-
-function compactMaterialTag(raw: string): string {
-  const value = raw.trim();
-  if (!value) return '';
-  const chinese = value.match(/[\u3400-\u9fff]/g) || [];
-  if (chinese.length > 0) return chinese.slice(0, 4).join('');
-  return value.split(/\s+/).filter(Boolean).slice(0, 4).join(' ');
-}
 
 function materialTags(raw: string): string[] {
   const value = raw.trim();
   if (!value || value === '—') return [];
-  const tags: string[] = [];
+  const lower = value.toLowerCase();
+  let tags: string[] = [];
   for (const rule of MATERIAL_TAG_RULES) {
-    if (!value.toLowerCase().includes(rule.toLowerCase())) continue;
-    if (rule === '玻纖' && tags.includes('玻纖背架')) continue;
-    tags.push(rule);
+    const matched = rule.terms.some((term) => {
+      const normalized = term.toLowerCase();
+      if (/^[a-z]{2,3}$/i.test(term)) {
+        return new RegExp(`(^|[^a-z])${normalized}([^a-z]|$)`, 'i').test(lower);
+      }
+      return lower.includes(normalized);
+    });
+    if (!matched) continue;
+    tags.push(rule.tag);
   }
-  if (tags.length > 0) return [...new Set(tags)];
-  return value
-    .split(/[·•,，、/;+；｜|]+/)
-    .map(compactMaterialTag)
-    .filter(Boolean)
-    .slice(0, 4);
+  tags = [...new Set(tags)];
+  if (tags.some((tag) => ['西皮', '真皮', '仿皮'].includes(tag))) {
+    tags = tags.filter((tag) => tag !== '皮革');
+  }
+  if (tags.some((tag) => ['網布', '科技布', '絨布', '麻布'].includes(tag))) {
+    tags = tags.filter((tag) => tag !== '布藝');
+  }
+  if (tags.some((tag) => ['不鏽鋼', '鋁合金', '鋼材'].includes(tag))) {
+    tags = tags.filter((tag) => tag !== '金屬');
+  }
+  return tags;
 }
 
 function fmtDimMm(mm: number | null | undefined): string | null {
@@ -324,11 +332,16 @@ export function CustomerProductSearchView() {
   }, [categoryPairs, filters.level1, all]);
 
   const materialOptions = useMemo(() => {
-    const set = new Set<string>();
+    const counts = new Map<string, number>();
     for (const p of all) {
-      for (const tag of materialTags(p.material || '')) set.add(tag);
+      for (const tag of new Set(materialTags(p.material || ''))) {
+        counts.set(tag, (counts.get(tag) || 0) + 1);
+      }
     }
-    return [...set].sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+    return [...counts.entries()]
+      .filter(([, count]) => count > 0)
+      .map(([tag, count]) => ({ tag, count }))
+      .sort((a, b) => a.tag.localeCompare(b.tag, 'zh-Hant'));
   }, [all]);
 
   const productRanges = useMemo(() => {
@@ -579,13 +592,13 @@ export function CustomerProductSearchView() {
                 <p className="text-xs text-muted-foreground">暫無材質資料</p>
               ) : (
                 <div className="flex max-h-44 flex-wrap gap-2 overflow-y-auto pr-1">
-                  {materialOptions.map((m) => {
-                    const checked = filters.materials.includes(m);
+                  {materialOptions.map(({ tag, count }) => {
+                    const checked = filters.materials.includes(tag);
                     return (
                       <button
-                        key={m}
+                        key={tag}
                         type="button"
-                        onClick={() => toggleMaterial(m)}
+                        onClick={() => toggleMaterial(tag)}
                         className={cn(
                           'rounded-full border px-3 py-1.5 text-xs font-medium transition-colors',
                           checked
@@ -593,7 +606,8 @@ export function CustomerProductSearchView() {
                             : 'border-border bg-background text-muted-foreground hover:text-foreground',
                         )}
                       >
-                        {m}
+                        {tag}
+                        <span className="ml-1 opacity-60">{count}</span>
                       </button>
                     );
                   })}
