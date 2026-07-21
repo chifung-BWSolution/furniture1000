@@ -209,9 +209,14 @@ export function DesignProjectsView() {
       <div className="sticky top-0 z-20 border-b border-border bg-background/95 backdrop-blur">
         <div className="mx-auto grid max-w-[1440px] gap-4 px-7 py-4 md:grid-cols-[minmax(0,1fr)_320px] md:px-10">
           <div className="min-w-0">
-            <h1 className="truncate font-display text-2xl font-bold tracking-tight">
-              設計專案
-            </h1>
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="truncate font-display text-2xl font-bold tracking-tight">
+                設計專案
+              </h1>
+              <span className="text-sm font-medium text-muted-foreground">
+                （客戶專區 &gt; 報價方案）
+              </span>
+            </div>
             <div className="mt-2 flex min-w-0 flex-wrap items-center gap-3">
               <select
                 value={activeProjectId}

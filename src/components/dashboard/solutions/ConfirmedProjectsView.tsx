@@ -82,6 +82,9 @@ export function ConfirmedProjectsView() {
           <div>
             <div className="flex items-center gap-3">
               <h1 className="font-display text-2xl font-bold tracking-tight">已確定方案</h1>
+              <span className="text-sm font-medium text-muted-foreground">
+                （客戶專區 &gt; 報價方案）
+              </span>
               <span className="flex items-center gap-1 rounded-full bg-emerald-500/15 px-2.5 py-1 text-xs font-medium text-emerald-600">
                 <CheckCircle2 className="h-3.5 w-3.5" /> 已確認
               </span>
