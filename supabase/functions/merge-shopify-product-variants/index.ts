@@ -657,6 +657,14 @@ Deno.serve(async (req: Request) => {
       return row;
     });
 
+    if (existingVariants.length > 1 && shopifyVariants.length < existingVariants.length) {
+      return json({
+        error: `Merge would remove ${existingVariants.length - shopifyVariants.length} existing variant(s) on Shopify `
+          + `(Shopify has ${existingVariants.length}, merge list has ${shopifyVariants.length}). `
+          + "Include every size row before merging.",
+      }, 400);
+    }
+
     const childProductIds = [...new Set(
       specs
         .map((s) => String(s.shopify_product_id))

@@ -1293,6 +1293,15 @@ async function pushProductToShopify(
   }
   const existing = (await getResp.json()).product as Record<string, unknown>;
   const existingVariants = (existing.variants as Record<string, unknown>[]) || [];
+  const mirrorVariantCount = Array.isArray(variants) ? variants.length : 0;
+  if (mirrorVariantCount > 0 && mirrorVariantCount < existingVariants.length) {
+    return {
+      success: false,
+      error: `Mirror has ${mirrorVariantCount} variant(s) but Shopify has ${existingVariants.length}. `
+        + "「與 Shopify 同步」只會推送鏡像資料，無法還原缺少的尺寸；"
+        + "請先從 Shopify 導入或手動補回規格後再同步。",
+    };
+  }
   const liveImages = [...((existing.images as Record<string, unknown>[]) || [])];
 
   const imgsForSync: MirrorImageRef[] = (productImages?.length
