@@ -372,6 +372,37 @@ export async function fetchPortalBrowseProducts(limit = 600): Promise<SearchProd
   }
 }
 
+/** 客戶付款頁：直接唯讀 Shopify active mirror，使用現時圖片與售價。 */
+export async function fetchActiveShopifyProducts(
+  limit = 60,
+): Promise<SearchProduct[]> {
+  try {
+    const { data, error } = await supabase
+      .from('shopify_products')
+      .select(
+        'source_product_id,shopify_product_id,title,body_html,image_url,price,product_type,status,published_at',
+      )
+      .eq('status', 'active')
+      .is('configurable', null)
+      .order('published_at', { ascending: false, nullsFirst: false })
+      .limit(limit);
+    if (error || !data) return [];
+    return data.map((row) => ({
+      ...mapSearchProduct({
+        ...row,
+        id: row.source_product_id || row.shopify_product_id,
+        category: row.product_type,
+      }),
+      isOnShopify: true,
+      shopifyProductId: row.shopify_product_id
+        ? String(row.shopify_product_id)
+        : null,
+    }));
+  } catch {
+    return [];
+  }
+}
+
 /**
  * 客戶專區：取得受邀專案（有非撤銷邀請的專案）。
  * 若提供 clientEmail，僅顯示 email 相符或純連結邀請的專案。

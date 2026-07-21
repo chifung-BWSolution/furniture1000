@@ -4,12 +4,9 @@ import {
   CreditCard, Truck, ShoppingBag, Trash2, Loader2, Lock, MapPin,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { fetchSearchProducts } from '@/lib/solutionsApi';
+import { fetchActiveShopifyProducts } from '@/lib/solutionsApi';
 import type { SearchProduct } from '@/types/solutions';
 import { PortalPageShell } from '@/components/dashboard/customers/PortalPageShell';
-
-const CART_KEY = 'fds-portal-inquiry-cart';
-const CHECKOUT_KEY = 'fds-portal-checkout-draft';
 
 type CartItem = {
   id: string;
@@ -41,19 +38,6 @@ const DEFAULT_FORM: CheckoutForm = {
   shipping: 'standard',
 };
 
-function loadCart(): CartItem[] {
-  try {
-    const raw = localStorage.getItem(CART_KEY);
-    return raw ? (JSON.parse(raw) as CartItem[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveCart(items: CartItem[]) {
-  localStorage.setItem(CART_KEY, JSON.stringify(items));
-}
-
 function fmtMoney(n: number) {
   return `HK$ ${Math.round(n).toLocaleString()}`;
 }
@@ -66,25 +50,15 @@ export function CustomerPaymentDeliveryView() {
   const [step, setStep] = useState<'cart' | 'shipping' | 'pay'>('cart');
 
   useEffect(() => {
-    const existing = loadCart();
-    setCart(existing);
-    try {
-      const raw = localStorage.getItem(CHECKOUT_KEY);
-      if (raw) setForm({ ...DEFAULT_FORM, ...JSON.parse(raw) });
-    } catch {
-      /* ignore */
-    }
-
-    fetchSearchProducts(24)
+    fetchActiveShopifyProducts(24)
       .then((rows) => {
         setCatalog(rows);
       })
       .finally(() => setLoading(false));
   }, []);
 
-  const persistCart = (next: CartItem[]) => {
+  const updateCart = (next: CartItem[]) => {
     setCart(next);
-    saveCart(next);
   };
 
   const subtotal = useMemo(
@@ -96,19 +70,15 @@ export function CustomerPaymentDeliveryView() {
   const total = subtotal + shippingFee;
 
   const updateForm = <K extends keyof CheckoutForm>(key: K, value: CheckoutForm[K]) => {
-    setForm((prev) => {
-      const next = { ...prev, [key]: value };
-      localStorage.setItem(CHECKOUT_KEY, JSON.stringify(next));
-      return next;
-    });
+    setForm((prev) => ({ ...prev, [key]: value }));
   };
 
   const addFromCatalog = (p: SearchProduct) => {
     const hit = cart.find((c) => c.id === p.id);
     if (hit) {
-      persistCart(cart.map((c) => (c.id === p.id ? { ...c, qty: c.qty + 1 } : c)));
+      updateCart(cart.map((c) => (c.id === p.id ? { ...c, qty: c.qty + 1 } : c)));
     } else {
-      persistCart([
+      updateCart([
         ...cart,
         {
           id: p.id,
@@ -140,8 +110,8 @@ export function CustomerPaymentDeliveryView() {
   return (
     <PortalPageShell
       title="付款 + 送貨"
-      badge="Shopify-style"
-      subtitle="唯讀載入 Supabase 產品售價；未有真實訂單及支付閘道前不會產生付款紀錄。"
+      badge="Shopify A類"
+      subtitle="唯讀載入 Supabase shopify_products 中目前 active 的 A類產品、圖片及現時售價；此頁不儲存購物車或結帳資料。"
       maxWidthClass="max-w-6xl"
     >
       {/* Steps */}
@@ -183,7 +153,7 @@ export function CustomerPaymentDeliveryView() {
                   </div>
                 ) : cart.length === 0 ? (
                   <p className="py-8 text-center text-sm text-muted-foreground">
-                    購物車是空的 — 可從下方產品加入，或先到「產品搜尋」加入查詢車
+                    購物車是空的 — 可從下方目前已上 Shopify 的 A類產品加入
                   </p>
                 ) : (
                   <ul className="divide-y divide-border/70">
@@ -205,7 +175,7 @@ export function CustomerPaymentDeliveryView() {
                             type="button"
                             className="h-7 w-7 rounded border border-border text-xs"
                             onClick={() =>
-                              persistCart(
+                              updateCart(
                                 cart
                                   .map((x) =>
                                     x.id === c.id ? { ...x, qty: Math.max(1, x.qty - 1) } : x,
@@ -221,7 +191,7 @@ export function CustomerPaymentDeliveryView() {
                             type="button"
                             className="h-7 w-7 rounded border border-border text-xs"
                             onClick={() =>
-                              persistCart(
+                              updateCart(
                                 cart.map((x) =>
                                   x.id === c.id ? { ...x, qty: x.qty + 1 } : x,
                                 ),
@@ -233,7 +203,7 @@ export function CustomerPaymentDeliveryView() {
                         </div>
                         <button
                           type="button"
-                          onClick={() => persistCart(cart.filter((x) => x.id !== c.id))}
+                          onClick={() => updateCart(cart.filter((x) => x.id !== c.id))}
                           className="rounded p-1.5 text-muted-foreground hover:bg-muted hover:text-destructive"
                         >
                           <Trash2 className="h-4 w-4" />
@@ -245,7 +215,14 @@ export function CustomerPaymentDeliveryView() {
               </section>
 
               <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
-                <h2 className="mb-3 font-display text-sm font-bold">繼續選購（真實產品目錄）</h2>
+                <h2 className="mb-3 font-display text-sm font-bold">
+                  Shopify A類產品（目前 active）
+                </h2>
+                {!loading && catalog.length === 0 ? (
+                  <p className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+                    Supabase 暫無目前 active 的 Shopify A類產品
+                  </p>
+                ) : (
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                   {catalog.slice(0, 9).map((p) => (
                     <button
@@ -260,6 +237,9 @@ export function CustomerPaymentDeliveryView() {
                         ) : null}
                       </div>
                       <div className="p-2">
+                        <span className="mb-1 inline-flex rounded border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+                          A類 · Shopify
+                        </span>
                         <p className="line-clamp-2 text-xs font-medium">{p.title}</p>
                         <p className="mt-1 font-mono-data text-xs font-bold text-primary">
                           {fmtMoney(p.salePrice)}
@@ -268,6 +248,7 @@ export function CustomerPaymentDeliveryView() {
                     </button>
                   ))}
                 </div>
+                )}
               </section>
             </>
           ) : null}
