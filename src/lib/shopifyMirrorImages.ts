@@ -51,15 +51,9 @@ export function resolveMirrorPrimaryImageUrl(row: {
   image_url?: string | null;
   images?: unknown;
 }): string {
-  const direct = (row.image_url || '').trim();
-  if (direct.startsWith('http')) return direct;
-
-  const candidates: string[] = [];
-  for (const im of sortShopifyImages(row.images)) {
-    const src = imageSrc(im);
-    if (src.startsWith('http')) candidates.push(src);
-  }
-  return pickBestPrimaryImageUrl(candidates);
+  const gallery = resolveMirrorGalleryUrlsInSavedOrder(row);
+  if (gallery[0]) return gallery[0];
+  return pickBestPrimaryImageUrl(gallery);
 }
 
 /** Ordered unique gallery URLs [primary, ...extras] — role-based sort for initial import display. */

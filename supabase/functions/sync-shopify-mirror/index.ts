@@ -182,16 +182,18 @@ async function fetchProductsByIds(
 function imageIdentityKey(url: string): string {
   const noQuery = url.split("?")[0];
   const base = noQuery.substring(noQuery.lastIndexOf("/") + 1);
-  return base
+  let stem = base
     .replace(/\.[a-zA-Z0-9]+$/, "")
     .replace(
       /_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
       "",
     )
-    // Only Shopify short re-upload suffixes (_1 / _12), never timestamps.
-    .replace(/_\d{1,2}$/, "")
     .trim()
     .toLowerCase();
+  if (/cdn\.shopify\.com/i.test(url)) {
+    stem = stem.replace(/_\d{1,2}$/, "");
+  }
+  return stem;
 }
 
 function sortLiveImages(images: Record<string, unknown>[]): Record<string, unknown>[] {

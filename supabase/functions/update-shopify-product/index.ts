@@ -334,15 +334,18 @@ const SHOPIFY_IMAGE_UUID_SUFFIX =
 function imageIdentityKey(src: string): string {
   const noQuery = src.split("?")[0];
   const base = noQuery.substring(noQuery.lastIndexOf("/") + 1);
-  return base
+  let stem = base
     .replace(/\.[a-zA-Z0-9]+$/, "")
     .replace(
       /_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
       "",
     )
-    .replace(/_\d{1,2}$/, "")
     .trim()
     .toLowerCase();
+  if (/cdn\.shopify\.com/i.test(src)) {
+    stem = stem.replace(/_\d{1,2}$/, "");
+  }
+  return stem;
 }
 
 /** Prefer stem so Storage URL ≡ CDN URL; fall back to path without UUID suffix. */

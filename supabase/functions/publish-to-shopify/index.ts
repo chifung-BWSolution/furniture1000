@@ -328,15 +328,18 @@ function imageIdentityKey(url: string): string {
   if (!url || typeof url !== "string") return "";
   const noQuery = url.split("?")[0];
   const base = noQuery.substring(noQuery.lastIndexOf("/") + 1);
-  return base
+  let stem = base
     .replace(/\.[a-zA-Z0-9]+$/, "")
     .replace(
       /_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
       "",
     )
-    .replace(/_\d{1,2}$/, "")
     .trim()
     .toLowerCase();
+  if (/cdn\.shopify\.com/i.test(url)) {
+    stem = stem.replace(/_\d{1,2}$/, "");
+  }
+  return stem;
 }
 
 function isHttpUrl(src: unknown): src is string {
@@ -777,50 +780,53 @@ function buildOrderedGalleryUrls(
   return out;
 }
 
-/** Mirror gallery: prefer live Shopify images sorted by position; fall back to RTS URLs. */
+/**
+ * Mirror gallery for shopify_products (已上載產品).
+ * Walk RTS/Storage gallery order first; prefer live Shopify CDN when stem matches.
+ * Backfill missing slots when Shopify upload was partial — do not rely on live-only.
+ */
 function buildMirrorGalleryFields(
   shopifyImages: ShopifyRecord[],
   orderedGallery: string[],
 ): { image_url: string | null; images: ShopifyRecord[] | null } {
-  const sorted = [...shopifyImages]
+  const liveByKey = indexShopifyImagesByDedupe(shopifyImages);
+  const seen = new Set<string>();
+  const merged: ShopifyRecord[] = [];
+
+  const addFromSrc = (src: string) => {
+    if (!isHttpUrl(src)) return;
+    const key = imageDedupeKey(src);
+    if (seen.has(key)) return;
+    seen.add(key);
+    const live = liveByKey.get(key);
+    merged.push(live ?? { src, alt: "", position: merged.length + 1 });
+  };
+
+  for (const src of orderedGallery) addFromSrc(src);
+
+  const sortedLive = [...shopifyImages]
     .filter((im) => isHttpUrl(im.src as string))
     .sort((a, b) => (Number(a.position) || 99) - (Number(b.position) || 99));
+  for (const im of sortedLive) {
+    const src = String(im.src);
+    const key = imageDedupeKey(src);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(im);
+  }
 
-  if (sorted.length > 0) {
-    // Stem-dedupe so create+re-attach duplicates (Storage + CDN / foo + foo_1) collapse.
-    const seen = new Set<string>();
-    const deduped: ShopifyRecord[] = [];
-    for (const im of sorted) {
-      const key = imageDedupeKey(String(im.src));
-      if (seen.has(key)) continue;
-      seen.add(key);
-      deduped.push(im);
-    }
-    const normalized = deduped.map((im, i) => ({
-      id: im.id,
-      src: im.src,
-      alt: im.alt || "",
-      width: im.width,
-      height: im.height,
-      position: i + 1,
-    }));
-    const primary = (normalized[0]?.src as string) || null;
-    return { image_url: primary, images: normalized };
-  }
-  if (orderedGallery.length > 0) {
-    const seen = new Set<string>();
-    const unique: string[] = [];
-    for (const src of orderedGallery) {
-      if (!isHttpUrl(src)) continue;
-      const key = imageDedupeKey(src);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      unique.push(src);
-    }
-    const fallback = unique.map((src, i) => ({ src, position: i + 1 }));
-    return { image_url: unique[0] || null, images: fallback };
-  }
-  return { image_url: null, images: null };
+  if (merged.length === 0) return { image_url: null, images: null };
+
+  const normalized = merged.map((im, i) => ({
+    id: im.id,
+    src: im.src,
+    alt: im.alt || "",
+    width: im.width,
+    height: im.height,
+    position: i + 1,
+  }));
+  const primary = (normalized[0]?.src as string) || null;
+  return { image_url: primary, images: normalized };
 }
 
 function isValidHttpImageUrl(url: string): boolean {
@@ -1586,6 +1592,12 @@ Deno.serve(async (req: Request) => {
         try {
           const spImages = (finalProduct.images as ShopifyRecord[]) || [];
           const mirrorGallery = buildMirrorGalleryFields(spImages, orderedGallery);
+          if (orderedGallery.length > 0 && (mirrorGallery.images?.length ?? 0) < orderedGallery.length) {
+            console.warn(
+              `[publish-to-shopify] ⚠️ Mirror gallery shorter than RTS for "${product.title}": ` +
+              `expected ${orderedGallery.length}, mirror ${mirrorGallery.images?.length ?? 0}`,
+            );
+          }
           const spVariants = (finalProduct.variants as Record<string, unknown>[]) || [];
           const spPrice = spVariants[0]?.price != null ? Number(spVariants[0].price) : (product.price ?? 0);
           const spCompareAt = spVariants[0]?.compare_at_price != null ? Number(spVariants[0].compare_at_price) : null;

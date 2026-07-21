@@ -28,15 +28,19 @@ export function normalizeImageUrl(src: string): string {
 export function imageIdentityKey(src: string): string {
   const noQuery = src.split('?')[0];
   const base = noQuery.substring(noQuery.lastIndexOf('/') + 1);
-  return base
+  let stem = base
     .replace(/\.[a-zA-Z0-9]+$/, '')
     .replace(
       /_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
       '',
     )
-    .replace(/_\d{1,2}$/, '')
     .trim()
     .toLowerCase();
+  // Only collapse Shopify CDN re-upload suffixes (_1 / _12), not Storage timestamps.
+  if (/cdn\.shopify\.com/i.test(src)) {
+    stem = stem.replace(/_\d{1,2}$/, '');
+  }
+  return stem;
 }
 
 /** Lower = preferred as Shopify primary (white-bg product shot before dialog/lifestyle). */
