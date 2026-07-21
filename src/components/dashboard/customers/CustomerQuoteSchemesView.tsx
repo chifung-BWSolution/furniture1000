@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Ban,
+  ArrowLeft,
   Check,
   CheckCircle2,
   Clock,
-  Download,
+  ExternalLink,
   FileText,
   Loader2,
   Mail,
@@ -146,6 +147,7 @@ export function CustomerQuoteSchemesView() {
   const [items, setItems] = useState<BwfQuoteItemInput[]>([]);
   const [loading, setLoading] = useState(true);
   const [itemsLoading, setItemsLoading] = useState(false);
+  const [showDetail, setShowDetail] = useState(false);
   const [itemReviews, setItemReviews] = useState<Record<string, ItemReview>>({});
   const [itemNotes, setItemNotes] = useState<Record<string, string>>({});
   const [quoteDecision, setQuoteDecision] = useState<QuoteDecision>('pending');
@@ -326,15 +328,16 @@ export function CustomerQuoteSchemesView() {
       </body></html>`;
   };
 
-  const downloadHtml = () => {
-    if (!active) return;
-    const blob = new Blob([buildExportHtml()], { type: 'text/html;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `${active.quote_id}-${displayQuoteVersion(active.version)}.html`;
-    link.click();
-    URL.revokeObjectURL(url);
+  const openHtmlQuote = () => {
+    const popup = window.open('', '_blank');
+    if (!popup) {
+      toast.error('瀏覽器已阻擋新視窗');
+      return;
+    }
+    popup.opener = null;
+    popup.document.open();
+    popup.document.write(buildExportHtml());
+    popup.document.close();
   };
 
   const printPdf = () => {
@@ -374,7 +377,7 @@ export function CustomerQuoteSchemesView() {
 
   return (
     <PortalPageShell
-      title="報價方案"
+      title={showDetail && active ? quoteDisplayName(active) : '報價方案'}
       badge="Client Portal"
       subtitle="查看自己的 HTML 報價、切換版本、按工程分區批核產品，並回覆整張報價。"
       maxWidthClass="max-w-6xl"
@@ -385,6 +388,7 @@ export function CustomerQuoteSchemesView() {
         </span>
       }
     >
+      {!showDetail ? (
       <section>
         <div className="flex items-center justify-between gap-3">
           <div>
@@ -423,6 +427,9 @@ export function CustomerQuoteSchemesView() {
                   type="button"
                   onClick={() => {
                     setActiveId(quote.id);
+                    setShowDetail(true);
+                    setItems([]);
+                    setItemsLoading(true);
                     setItemReviews({});
                     setItemNotes({});
                     setQuoteDecision('pending');
@@ -468,9 +475,18 @@ export function CustomerQuoteSchemesView() {
           </div>
         )}
       </section>
+      ) : null}
 
-      {active ? (
+      {showDetail && active ? (
         <section className="space-y-5">
+          <button
+            type="button"
+            onClick={() => setShowDetail(false)}
+            className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium hover:bg-muted"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            返回您的報價
+          </button>
           <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
@@ -505,11 +521,11 @@ export function CustomerQuoteSchemesView() {
                 </select>
                 <button
                   type="button"
-                  onClick={downloadHtml}
+                  onClick={openHtmlQuote}
                   className="inline-flex h-10 items-center gap-2 rounded-lg border border-border px-3 text-sm"
                 >
-                  <Download className="h-4 w-4" />
-                  HTML
+                  <ExternalLink className="h-4 w-4" />
+                  HTML Quote
                 </button>
                 <button
                   type="button"
