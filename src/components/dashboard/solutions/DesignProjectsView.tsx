@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import {
-  Plus, Loader2, Search, Check, X, LayoutGrid, UserRound,
+  Plus, Loader2, Search, Check, X, LayoutGrid, UserRound, Tag,
 } from 'lucide-react';
 import {
   fetchProjects, fetchZones, fetchZoneProducts, fetchSearchProducts,
@@ -185,16 +185,11 @@ export function DesignProjectsView() {
     <div className="h-full overflow-y-auto bg-background">
       {/* Header */}
       <div className="sticky top-0 z-20 border-b border-border bg-background/95 backdrop-blur">
-        <div className="mx-auto flex max-w-[1440px] flex-wrap items-center justify-between gap-4 px-7 py-4 md:px-10">
-          <div className="min-w-0 flex-1">
-            <div className="flex min-w-0 flex-wrap items-center gap-2">
-              <h1 className="truncate font-display text-2xl font-bold tracking-tight">
-                設計專案
-              </h1>
-              <span className="rounded-full bg-primary/10 px-3 py-1.5 font-body text-[13px] font-medium text-primary">
-                {projectTypeLabel(projectType)}
-              </span>
-            </div>
+        <div className="mx-auto grid max-w-[1440px] gap-4 px-7 py-4 md:grid-cols-[minmax(0,1fr)_320px] md:px-10">
+          <div className="min-w-0">
+            <h1 className="truncate font-display text-2xl font-bold tracking-tight">
+              設計專案
+            </h1>
             <div className="mt-2 flex min-w-0 flex-wrap items-center gap-3">
               <select
                 value={activeProjectId}
@@ -208,9 +203,21 @@ export function DesignProjectsView() {
                   </option>
                 ))}
               </select>
-              <span className="inline-flex items-center gap-1.5 font-body text-sm text-muted-foreground">
+            </div>
+          </div>
+          <div className="grid gap-2 rounded-xl border border-border bg-card px-4 py-3">
+            <div className="flex items-center gap-2 text-[13px]">
+              <Tag className="h-4 w-4 shrink-0 text-primary" />
+              <span className="text-muted-foreground">專案分類</span>
+              <span className="ml-auto font-semibold text-foreground">
+                {projectTypeLabel(projectType)}
+              </span>
+            </div>
+            <div className="flex items-center gap-2 border-t border-border/70 pt-2 text-[13px]">
                 <UserRound className="h-4 w-4 text-primary" />
-                項目經理：{pmNames[project.id] || '正在讀取…'}
+              <span className="text-muted-foreground">項目經理</span>
+              <span className="ml-auto font-semibold text-foreground">
+                {pmNames[project.id] || '正在讀取…'}
               </span>
             </div>
           </div>
@@ -226,6 +233,26 @@ export function DesignProjectsView() {
               {zones.length} 個間隔 · {zoneProducts.filter((z) => z.zoneId).length} 件產品
             </span>
           </div>
+          {!loading && zoneGroups.length > 0 ? (
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-4 py-3">
+              <span className="mr-1 text-[13px] font-semibold text-muted-foreground">
+                間隔數量
+              </span>
+              {zoneGroups.map((group) => (
+                <span
+                  key={group.key}
+                  className="inline-flex items-center gap-1 rounded-lg border border-primary/20 bg-primary/5 px-3 py-1.5 text-[13px]"
+                >
+                  <span className="font-semibold text-foreground">
+                    {group.prefix} · {group.label}
+                  </span>
+                  <span className="text-muted-foreground">
+                    ：{group.zones.length}
+                  </span>
+                </span>
+              ))}
+            </div>
+          ) : null}
 
           {loading ? (
             <div className="flex justify-center py-10">
