@@ -90,6 +90,10 @@ const MATERIAL_TAG_RULES = [
   '木皮',
   '網布',
   '尼龍',
+  '西皮',
+  '科技布',
+  '絨布',
+  '麻布',
   '玻纖',
   '皮革',
   '真皮',
@@ -98,6 +102,9 @@ const MATERIAL_TAG_RULES = [
   '海綿',
   '塑膠',
   '玻璃',
+  '亞克力',
+  '藤材',
+  '竹材',
   '鋼材',
   '金屬',
   'MFC',
@@ -105,6 +112,14 @@ const MATERIAL_TAG_RULES = [
   'PP',
   'PU',
 ] as const;
+
+function compactMaterialTag(raw: string): string {
+  const value = raw.trim();
+  if (!value) return '';
+  const chinese = value.match(/[\u3400-\u9fff]/g) || [];
+  if (chinese.length > 0) return chinese.slice(0, 4).join('');
+  return value.split(/\s+/).filter(Boolean).slice(0, 4).join(' ');
+}
 
 function materialTags(raw: string): string[] {
   const value = raw.trim();
@@ -118,7 +133,7 @@ function materialTags(raw: string): string[] {
   if (tags.length > 0) return [...new Set(tags)];
   return value
     .split(/[·•,，、/;+；｜|]+/)
-    .map((part) => part.trim())
+    .map(compactMaterialTag)
     .filter(Boolean)
     .slice(0, 4);
 }
@@ -429,7 +444,7 @@ export function CustomerProductSearchView() {
     <PortalPageShell
       title="產品搜尋"
       badge="查詢車"
-      subtitle="A類（目前已上 Shopify）產品優先；可按一級／二級分類、MATERIALS、真實售價及長闊高範圍篩選。"
+      subtitle="A類（目前已上 Shopify）產品優先；可按一級／二級分類、材質、真實售價及長闊高範圍篩選。"
       actions={
         <div className="flex flex-wrap items-center gap-2">
           <button
@@ -558,7 +573,7 @@ export function CustomerProductSearchView() {
 
             <div>
               <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                Materials
+                材質
               </p>
               {materialOptions.length === 0 ? (
                 <p className="text-xs text-muted-foreground">暫無材質資料</p>
