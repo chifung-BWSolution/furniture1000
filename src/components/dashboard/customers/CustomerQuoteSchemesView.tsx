@@ -103,6 +103,13 @@ function projectQuoteId(project: DesignProject): string {
   ).trim();
 }
 
+function quoteItemDisplayName(item: BwfQuoteItemInput): string {
+  const name = item.name?.trim() || '';
+  if (name && !/^[-—–]+$/.test(name)) return name;
+  const category = item.category?.trim() || '';
+  return category || '產品';
+}
+
 function groupVersions(rows: QuoteRecord[]) {
   const map = new Map<string, QuoteRecord[]>();
   for (const row of rows) {
@@ -282,7 +289,7 @@ export function CustomerQuoteSchemesView() {
         .map((item) => ({
           key: item.id as string,
           productId: item.id,
-          title: item.name,
+          title: quoteItemDisplayName(item),
         }));
       const linkedProject = syntheticProjectId
         ? confirmedProjects.find((project) => project.id === syntheticProjectId)
@@ -438,7 +445,7 @@ export function CustomerQuoteSchemesView() {
   );
 
   const itemKey = (item: BwfQuoteItemInput, index: number) =>
-    item.id || `${item.name || 'item'}-${index}`;
+    item.id || `${quoteItemDisplayName(item)}-${index}`;
 
   const buildExportHtml = () => {
     if (!active) return '';
@@ -460,7 +467,7 @@ export function CustomerQuoteSchemesView() {
                       : ''
                   }
                   <div class="grow">
-                    <div class="name-row"><strong>${escapeHtml(item.name || '—')}</strong><small>SKU ${escapeHtml(item.sku || '—')}</small></div>
+                    <div class="name-row"><strong>${escapeHtml(quoteItemDisplayName(item))}</strong><small>SKU ${escapeHtml(item.sku || '—')}</small></div>
                     <p>${escapeHtml(item.material || '')} ${escapeHtml(item.color || '')}</p>
                     <p>${fmtMoney(Number(item.unitPrice || 0))} × ${escapeHtml(item.quantity || 1)} ${escapeHtml(item.unit || '')}</p>
                     <p class="review">客戶決定：${escapeHtml(review)} ${escapeHtml(itemNotes[key] || '')}</p>
@@ -534,7 +541,7 @@ export function CustomerQuoteSchemesView() {
     }
     const lines = pricedItems.map((item, index) => {
       const key = itemKey(item, index);
-      return `${item.name || '產品'}：${
+      return `${quoteItemDisplayName(item)}：${
         itemReviews[key] ? REVIEW_LABEL[itemReviews[key]] : '尚未決定'
       }${itemNotes[key] ? `（${itemNotes[key]}）` : ''}`;
     });
@@ -771,7 +778,7 @@ export function CustomerQuoteSchemesView() {
                             {item.image ? (
                               <img
                                 src={item.image}
-                                alt={item.name || ''}
+                                alt={quoteItemDisplayName(item)}
                                 className="h-full w-full object-cover"
                               />
                             ) : null}
@@ -779,7 +786,7 @@ export function CustomerQuoteSchemesView() {
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center justify-between gap-3">
                               <h4 className="min-w-0 truncate text-base font-bold">
-                                {item.name || '—'}
+                                {quoteItemDisplayName(item)}
                               </h4>
                               <span className="shrink-0 font-mono-data text-[10px] text-muted-foreground">
                                 SKU {item.sku || '—'}
