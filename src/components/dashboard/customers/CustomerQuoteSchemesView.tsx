@@ -280,7 +280,11 @@ export function CustomerQuoteSchemesView() {
       const quoteInfo = await fetchActiveMainProductInfo(
         quoteItems
           .filter((item) => !item.isSectionTitle && item.id)
-          .map((item) => item.id as string),
+          .map((item) => ({
+            key: item.id as string,
+            productId: item.id,
+            title: item.name,
+          })),
       );
       const safeQuoteItems = quoteItems.map((item) => ({
           ...item,
@@ -301,9 +305,11 @@ export function CustomerQuoteSchemesView() {
       ]);
       const selectedProducts = zoneProducts.filter((product) => product.zoneId);
       const mainInfo = await fetchActiveMainProductInfo(
-        selectedProducts
-          .map((product) => product.productId)
-          .filter((id): id is string => Boolean(id)),
+        selectedProducts.map((product) => ({
+          key: product.id,
+          productId: product.productId,
+          title: product.productTitle,
+        })),
       );
       const grouped: BwfQuoteItemInput[] = [];
       for (const zone of zones) {
@@ -324,9 +330,7 @@ export function CustomerQuoteSchemesView() {
             unitPrice: product.salePrice,
             quantity: product.quantity,
             unit: '件',
-            sku: product.productId
-              ? mainInfo[product.productId]?.sku
-              : undefined,
+            sku: mainInfo[product.id]?.sku,
           });
         }
       }

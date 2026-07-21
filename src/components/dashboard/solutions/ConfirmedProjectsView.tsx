@@ -49,7 +49,11 @@ export function ConfirmedProjectsView() {
       fetchDiscussions(projectId),
     ]).then(async ([z, zp, records]) => {
       const info = await fetchActiveMainProductInfo(
-        zp.map((product) => product.productId).filter((id): id is string => Boolean(id)),
+        zp.map((product) => ({
+          key: product.id,
+          productId: product.productId,
+          title: product.productTitle,
+        })),
       );
       setZones(z);
       setZoneProducts(zp);
@@ -149,7 +153,7 @@ export function ConfirmedProjectsView() {
                                 {zp.productTitle}
                               </span>
                               <span className="shrink-0 font-mono-data text-[10px] text-muted-foreground">
-                                SKU {zp.productId ? skuByProductId[zp.productId]?.sku : '—'}
+                                SKU {skuByProductId[zp.id]?.sku || '—'}
                               </span>
                             </div>
                           </div>

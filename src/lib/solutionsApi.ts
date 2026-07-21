@@ -491,25 +491,90 @@ export async function fetchActiveShopifyProducts(
 
 /** Main active product SKU lookup; configurable child products are excluded. */
 export async function fetchActiveMainProductInfo(
-  productIds: string[],
+  targets: Array<{ key: string; productId?: string | null; title?: string | null }>,
 ): Promise<Record<string, { sku: string }>> {
-  const ids = [...new Set(productIds.map((id) => id.trim()).filter(Boolean))];
+  const cleanTargets = targets.filter((target) => target.key.trim());
+  const ids = [
+    ...new Set(
+      cleanTargets
+        .map((target) => target.productId?.trim())
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ];
   const result: Record<string, { sku: string }> = {};
+  type ShopifyInfoRow = {
+    source_product_id: unknown;
+    shopify_product_id: unknown;
+    title: unknown;
+    sku: unknown;
+  };
+  const rows: ShopifyInfoRow[] = [];
   for (let i = 0; i < ids.length; i += 150) {
     const { data, error } = await supabase
       .from('shopify_products')
-      .select('source_product_id,sku')
+      .select('source_product_id,shopify_product_id,title,sku')
       .in('source_product_id', ids.slice(i, i + 150))
       .eq('status', 'active')
       .is('configurable', null);
     if (error) continue;
-    for (const row of data ?? []) {
-      const sourceId = String(row.source_product_id || '').trim();
-      if (!sourceId) continue;
-      result[sourceId] = {
-        sku: row.sku ? String(row.sku).trim() : '—',
-      };
-    }
+    rows.push(...((data ?? []) as ShopifyInfoRow[]));
+  }
+  const unresolvedIds = ids.filter(
+    (id) =>
+      !rows.some(
+        (row) => String(row.source_product_id || '').trim() === id,
+      ),
+  );
+  for (let i = 0; i < unresolvedIds.length; i += 150) {
+    const { data, error } = await supabase
+      .from('shopify_products')
+      .select('source_product_id,shopify_product_id,title,sku')
+      .in('shopify_product_id', unresolvedIds.slice(i, i + 150))
+      .eq('status', 'active')
+      .is('configurable', null);
+    if (error) continue;
+    rows.push(...((data ?? []) as ShopifyInfoRow[]));
+  }
+  const unresolvedTitles = [
+    ...new Set(
+      cleanTargets
+        .filter((target) => {
+          const id = target.productId?.trim();
+          return !rows.some(
+            (row) =>
+              (id &&
+                (String(row.source_product_id || '').trim() === id ||
+                  String(row.shopify_product_id || '').trim() === id)),
+          );
+        })
+        .map((target) => target.title?.trim())
+        .filter((title): title is string => Boolean(title)),
+    ),
+  ];
+  for (let i = 0; i < unresolvedTitles.length; i += 80) {
+    const { data, error } = await supabase
+      .from('shopify_products')
+      .select('source_product_id,shopify_product_id,title,sku')
+      .in('title', unresolvedTitles.slice(i, i + 80))
+      .eq('status', 'active')
+      .is('configurable', null);
+    if (error) continue;
+    rows.push(...((data ?? []) as ShopifyInfoRow[]));
+  }
+  for (const target of cleanTargets) {
+    const productId = target.productId?.trim() || '';
+    const title = target.title?.trim().toLowerCase() || '';
+    const match = rows.find(
+      (row) =>
+        (productId &&
+          (String(row.source_product_id || '').trim() === productId ||
+            String(row.shopify_product_id || '').trim() === productId)) ||
+        (title && String(row.title || '').trim().toLowerCase() === title),
+    );
+    if (!match) continue;
+    result[target.key] = {
+      sku: match.sku ? String(match.sku).trim() : '—',
+    };
   }
   return result;
 }
