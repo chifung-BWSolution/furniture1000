@@ -2,7 +2,10 @@ import { useEffect, useState } from 'react';
 import {
   Briefcase,
   Building2,
+  CheckCircle2,
+  ExternalLink,
   Film,
+  Globe,
   Landmark,
   Loader2,
   Mail,
@@ -12,6 +15,7 @@ import {
   Search,
   Upload,
   UserRound,
+  Users,
   X,
 } from 'lucide-react';
 import { PortalPageShell } from '@/components/dashboard/customers/PortalPageShell';
@@ -22,6 +26,17 @@ import {
 import { useClientZoneContext } from '@/hooks/use-client-zone-context';
 import type { SearchProduct } from '@/types/solutions';
 import { toast } from 'sonner';
+import {
+  CorporateLogoWall,
+  CorporateSection,
+  CorporateTrustStats,
+  CorporateYouTubeGrid,
+} from '@/components/corporate/CorporateModules';
+import {
+  BW_COMPANY,
+  BW_PUBLIC_CASES,
+  BW_SERVICE_MODULES,
+} from '@/content/bwCorporate';
 
 function NoSupabaseRecords({
   icon: Icon,
@@ -416,13 +431,74 @@ export function CustomerCaseStudiesView() {
     <PortalPageShell
       title="成功案例"
       badge="Client Portal"
-      subtitle="唯讀展示 Supabase 產品資料；不使用前端客戶名單或示意 Logo。"
+      subtitle="公開工程案例、服務客戶 Logo 牆、公司 YouTube 及 Supabase 真實產品圖。"
     >
-      <section>
-        <h2 className="mb-3 flex items-center gap-2 font-display text-base font-bold">
-          <Film className="h-4 w-4 text-primary" />
-          產品案例
-        </h2>
+      <section className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
+        <div className="p-6 lg:p-8">
+          <div>
+            <p className="text-sm font-semibold text-primary">PROJECT SUCCESS STORIES</p>
+            <h2 className="mt-2 font-display text-2xl font-bold">
+              見證 BW 為各行各業打造理想商業空間
+            </h2>
+            <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+              以 16+ 年實務經驗，從空間規劃、產品選配、訂製生產到送貨安裝，為客戶提供一站式落地方案。
+            </p>
+          </div>
+        </div>
+      </section>
+      <CorporateTrustStats />
+
+      <CorporateSection
+        title="公開工程案例"
+        subtitle="內容及圖片參考 B&W Office 公開成功案例頁。"
+        icon={<Film className="h-5 w-5 text-primary" />}
+      >
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {BW_PUBLIC_CASES.map((item) => (
+            <article
+              key={`${item.title}-${item.location}`}
+              className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm"
+            >
+              <div className="aspect-[3/2] overflow-hidden bg-muted">
+                <img
+                  src={item.image}
+                  alt={`${item.title} ${item.location}`}
+                  loading="lazy"
+                  className="h-full w-full object-cover transition-transform hover:scale-105"
+                />
+              </div>
+              <div className="p-4">
+                <h3 className="font-display text-base font-bold">{item.title}</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {item.location} · {item.size}
+                </p>
+              </div>
+            </article>
+          ))}
+        </div>
+      </CorporateSection>
+
+      <CorporateSection
+        title="服務客戶 Logo 牆"
+        subtitle="以公開工程案例名稱呈現，展示跨地區及跨行業的項目經驗。"
+        icon={<Building2 className="h-5 w-5 text-primary" />}
+      >
+        <CorporateLogoWall />
+      </CorporateSection>
+
+      <CorporateSection
+        title="公司 YouTube"
+        subtitle="觀看辦公室設計、工程及安裝案例。"
+        icon={<Film className="h-5 w-5 text-primary" />}
+      >
+        <CorporateYouTubeGrid />
+      </CorporateSection>
+
+      <CorporateSection
+        title="真實產品圖"
+        subtitle="以下產品由 Supabase 產品目錄即時讀取。"
+        icon={<Briefcase className="h-5 w-5 text-primary" />}
+      >
         {loading ? (
           <div className="flex justify-center py-16">
             <Loader2 className="h-6 w-6 animate-spin text-primary" />
@@ -461,7 +537,7 @@ export function CustomerCaseStudiesView() {
             ))}
           </div>
         )}
-      </section>
+      </CorporateSection>
     </PortalPageShell>
   );
 }
@@ -471,37 +547,140 @@ export function CustomerServicesView() {
     <PortalPageShell
       title="服務一覽"
       badge="Client Portal"
-      subtitle="唯讀顯示 Supabase 服務資料。"
+      subtitle="整合 Interior Design & Build 設計工程、傢俬、社區機構、專項工程及商業科技服務。"
     >
-      <NoSupabaseRecords
-        icon={Briefcase}
-        title="暫無服務資料"
-        description="目前 Supabase 沒有服務目錄資料表，因此不顯示硬編碼服務卡片。"
-      />
+      <section className="rounded-2xl border border-primary/20 bg-primary/5 p-6">
+        <p className="text-sm font-semibold text-primary">ONE-STOP PROJECT SERVICES</p>
+        <h2 className="mt-2 font-display text-xl font-bold">
+          從空間規劃、設計施工到傢俬及入伙
+        </h2>
+        <p className="mt-3 max-w-4xl text-sm leading-relaxed text-muted-foreground">
+          BW 服務網絡涵蓋辦公室、商業零售、餐飲、學校、診所、社區及專項工程；客戶可透過 Client Portal 在同一位置了解方案、產品與報價。
+        </p>
+      </section>
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {BW_SERVICE_MODULES.map((service, index) => (
+          <article
+            key={service.title}
+            className="rounded-2xl border border-border bg-card p-5 shadow-sm"
+          >
+            <div className="flex items-start justify-between gap-3">
+              <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 font-display font-bold text-primary">
+                {String(index + 1).padStart(2, '0')}
+              </span>
+              <span className="rounded-full border border-border bg-muted/30 px-2.5 py-1 text-xs text-muted-foreground">
+                {service.category}
+              </span>
+            </div>
+            <h2 className="mt-4 font-display text-base font-bold">
+              {service.title}
+            </h2>
+            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+              {service.description}
+            </p>
+            <ul className="mt-4 space-y-2">
+              {service.scope.map((item) => (
+                <li key={item} className="flex items-center gap-2 text-sm">
+                  <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" />
+                  {item}
+                </li>
+              ))}
+            </ul>
+            <a
+              href={service.href}
+              target="_blank"
+              rel="noreferrer"
+              className="mt-5 inline-flex items-center gap-1 font-semibold text-primary"
+            >
+              了解服務 <ExternalLink className="h-4 w-4" />
+            </a>
+          </article>
+        ))}
+      </div>
     </PortalPageShell>
   );
 }
 
 export function CustomerContactView() {
-  const { loading, company, clientEmail } = useClientZoneContext();
+  const { loading, company } = useClientZoneContext();
   return (
     <PortalPageShell
       title="聯絡我們"
       badge="Client Portal"
-      subtitle="唯讀顯示此登入客戶在 Supabase 的公司聯絡資料。"
+      subtitle="聯絡 BW Furniture 專員，查詢報價、產品、訂製、機構採購及項目安排。"
     >
+      <div className="grid gap-5 lg:grid-cols-[1fr_0.9fr]">
+        <section className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+          <p className="text-sm font-semibold text-primary">BW FURNITURE</p>
+          <h2 className="mt-2 font-display text-xl font-bold">
+            {BW_COMPANY.legalName}
+          </h2>
+          <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+            {BW_COMPANY.intro}
+          </p>
+          <div className="mt-6 grid gap-3 sm:grid-cols-2">
+            <a
+              href={`tel:${BW_COMPANY.phones[0].replace(/\s/g, '')}`}
+              className="rounded-xl border border-border p-4 hover:border-primary/40"
+            >
+              <Phone className="h-5 w-5 text-primary" />
+              <p className="mt-2 text-sm text-muted-foreground">電話</p>
+              <p className="font-semibold">{BW_COMPANY.phones.join(' / ')}</p>
+            </a>
+            <a
+              href={`mailto:${BW_COMPANY.email}`}
+              className="rounded-xl border border-border p-4 hover:border-primary/40"
+            >
+              <Mail className="h-5 w-5 text-primary" />
+              <p className="mt-2 text-sm text-muted-foreground">電郵</p>
+              <p className="break-all font-semibold">{BW_COMPANY.email}</p>
+            </a>
+            <a
+              href={BW_COMPANY.website}
+              target="_blank"
+              rel="noreferrer"
+              className="rounded-xl border border-border p-4 hover:border-primary/40"
+            >
+              <Globe className="h-5 w-5 text-primary" />
+              <p className="mt-2 text-sm text-muted-foreground">網站</p>
+              <p className="inline-flex items-center gap-1 font-semibold">
+                bwoffice.asia <ExternalLink className="h-4 w-4" />
+              </p>
+            </a>
+            <div className="rounded-xl border border-border p-4">
+              <Building2 className="h-5 w-5 text-primary" />
+              <p className="mt-2 text-sm text-muted-foreground">地址</p>
+              <p className="font-semibold">{BW_COMPANY.address}</p>
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-2xl border border-primary/20 bg-primary/5 p-6">
+          <h2 className="font-display text-lg font-bold">
+            一條專屬連結，完成整個報價體驗
+          </h2>
+          <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+            透過 Client Portal 查看報價版本、完整產品、訂製需求、公司實力與服務資料，減少來回傳送 PDF 及版本混亂。
+          </p>
+          <a
+            href={`mailto:${BW_COMPANY.email}?subject=${encodeURIComponent('Client Portal 查詢')}`}
+            className="mt-5 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-3 font-semibold text-primary-foreground"
+          >
+            <Mail className="h-4 w-4" />
+            聯絡專員
+          </a>
+        </section>
+      </div>
+
       {loading ? (
         <div className="flex justify-center py-16">
           <Loader2 className="h-6 w-6 animate-spin text-primary" />
         </div>
-      ) : !company ? (
-        <NoSupabaseRecords
-          icon={Phone}
-          title="找不到聯絡資料"
-          description={`Supabase 沒有與 ${clientEmail || '目前登入帳戶'} 配對的公司資料。`}
-        />
-      ) : (
+      ) : company ? (
         <section className="grid gap-4 rounded-2xl border border-border bg-card p-5 shadow-sm sm:grid-cols-2">
+          <h2 className="sm:col-span-2 font-display text-base font-bold">
+            您的機構聯絡資料
+          </h2>
           <ReadOnlyField icon={Building2} label="公司" value={company.name} />
           <ReadOnlyField
             icon={UserRound}
@@ -519,19 +698,86 @@ export function CustomerContactView() {
             value={company.contactPhone}
           />
         </section>
-      )}
+      ) : null}
     </PortalPageShell>
   );
 }
 
 export function CustomerOrgAccountView() {
   const { loading, company, clientEmail } = useClientZoneContext();
+  const roles = [
+    {
+      name: 'Client Super Admin',
+      description: '瀏覽所有機構成員報價、批核報價及管理成員存取。',
+    },
+    {
+      name: 'Approver',
+      description: '瀏覽及批核獲分派的報價與方案。',
+    },
+    {
+      name: 'Viewer',
+      description: '以電郵認證登入，只查看獲授權的報價及產品。',
+    },
+  ];
   return (
     <PortalPageShell
       title="機構採購帳號"
       badge="Client Portal"
-      subtitle="唯讀顯示 Supabase 現有機構帳戶資料。"
+      subtitle="由 BW 負責建立多用戶機構帳號、電郵認證、角色分派及報價存取權。"
     >
+      <section className="rounded-2xl border border-primary/20 bg-primary/5 p-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="text-sm font-semibold text-primary">ORGANISATION PROCUREMENT</p>
+            <h2 className="mt-2 font-display text-xl font-bold">
+              一個機構，多個獲授權用戶
+            </h2>
+            <p className="mt-3 max-w-3xl text-sm leading-relaxed text-muted-foreground">
+              每位成員使用自己的電郵認證登入。BW 會按機構要求建立帳號、連結所屬專案與報價，並分派 Super Admin、Approver 或 Viewer 權限。
+            </p>
+          </div>
+          <a
+            href={`mailto:${BW_COMPANY.email}?subject=${encodeURIComponent('申請建立機構採購帳號')}`}
+            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-3 font-semibold text-primary-foreground"
+          >
+            <Mail className="h-4 w-4" />
+            聯絡 BW 建立帳號
+          </a>
+        </div>
+      </section>
+
+      <div className="grid gap-4 md:grid-cols-3">
+        {roles.map((role) => (
+          <article
+            key={role.name}
+            className="rounded-2xl border border-border bg-card p-5 shadow-sm"
+          >
+            <Users className="h-5 w-5 text-primary" />
+            <h2 className="mt-3 font-display text-base font-bold">{role.name}</h2>
+            <p className="mt-2 text-sm text-muted-foreground">{role.description}</p>
+          </article>
+        ))}
+      </div>
+
+      <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+        <h2 className="font-display text-base font-bold">BW 開通流程</h2>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {[
+            '確認機構及主要聯絡人',
+            '收集成員電郵及角色',
+            '以電郵認證建立登入',
+            '連結報價並啟用批核權限',
+          ].map((step, index) => (
+            <div key={step} className="rounded-xl bg-muted/30 p-4">
+              <span className="font-mono-data text-sm font-bold text-primary">
+                {String(index + 1).padStart(2, '0')}
+              </span>
+              <p className="mt-2 font-semibold">{step}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
       {loading ? (
         <div className="flex justify-center py-16">
           <Loader2 className="h-6 w-6 animate-spin text-primary" />
@@ -539,8 +785,8 @@ export function CustomerOrgAccountView() {
       ) : !company ? (
         <NoSupabaseRecords
           icon={Landmark}
-          title="暫無機構帳戶"
-          description="Supabase 沒有與目前登入電郵配對的機構資料；不顯示本機暫存成員。"
+          title="機構帳戶尚未開通"
+          description="Supabase 暫未有與目前登入電郵配對的機構資料，請聯絡 BW 由公司人員建立及分派權限。"
         />
       ) : (
         <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
@@ -554,6 +800,10 @@ export function CustomerOrgAccountView() {
                 登入帳戶：{clientEmail || company.contactEmail || '—'}
               </p>
             </div>
+          </div>
+          <div className="mt-4 flex items-center gap-2 rounded-xl bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-300">
+            <CheckCircle2 className="h-4 w-4" />
+            已找到 Supabase 機構資料
           </div>
         </section>
       )}
