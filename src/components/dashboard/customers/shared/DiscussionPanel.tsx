@@ -75,7 +75,7 @@ export function DiscussionPanel({
                     {' '}
                     <span className="font-mono-data text-xs text-muted-foreground/60">{fmt(d.createdAt)}</span>
                   </p>
-                  <p className="font-body text-[12.5px] text-muted-foreground">{d.body}</p>
+                  <p className="font-body text-[14px] text-muted-foreground">{d.body}</p>
                 </div>
               </div>
             ))}
@@ -109,7 +109,7 @@ export function DiscussionPanel({
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter') void handleSend(); }}
               placeholder="輸入留言，使用 @ 提及 PM / 設計師..."
-              className="flex-1 bg-transparent font-body text-[12.5px] text-foreground placeholder:text-muted-foreground/50 focus:outline-none"
+              className="flex-1 bg-transparent font-body text-[14px] text-foreground placeholder:text-muted-foreground/50 focus:outline-none"
             />
             <button
               type="button"

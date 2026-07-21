@@ -22,7 +22,7 @@ export function PrimaryTopNav({
   const { user, signOut } = useAuth();
   const staffName = usePmsStaffName(user?.id);
   return (
-    <header className="sticky top-0 z-40 flex h-[68px] shrink-0 items-center border-b border-shell-border bg-shell px-6 text-shell-foreground">
+    <header className="zone-top-nav sticky top-0 z-40 flex h-[68px] shrink-0 items-center border-b border-shell-border bg-shell px-6 text-shell-foreground">
       {/* Logo */}
       <div className="mr-8 flex shrink-0 items-center gap-3">
         <FdsLogo size="md" />

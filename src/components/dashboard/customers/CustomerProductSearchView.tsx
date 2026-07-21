@@ -252,7 +252,7 @@ export function CustomerProductSearchView() {
           type="button"
           onClick={() => setFilters((f) => ({ ...f, level1: '', level2: '' }))}
           className={cn(
-            'rounded-full border px-3 py-1.5 text-[12px] font-medium transition-colors',
+            'rounded-full border px-3 py-1.5 text-[13px] font-medium transition-colors',
             !filters.level1
               ? 'border-primary bg-primary text-primary-foreground'
               : 'border-border bg-card text-muted-foreground hover:text-foreground',
@@ -272,7 +272,7 @@ export function CustomerProductSearchView() {
               }))
             }
             className={cn(
-              'rounded-full border px-3 py-1.5 text-[12px] font-medium transition-colors',
+              'rounded-full border px-3 py-1.5 text-[13px] font-medium transition-colors',
               filters.level1 === l1
                 ? 'border-primary bg-primary text-primary-foreground'
                 : 'border-border bg-card text-muted-foreground hover:text-foreground',
@@ -481,7 +481,7 @@ export function CustomerProductSearchView() {
                             </span>
                           ) : null}
                         </div>
-                        <h3 className="line-clamp-2 font-display text-[13.5px] font-semibold text-foreground">
+                        <h3 className="line-clamp-2 font-display text-[15px] font-semibold text-foreground">
                           {p.title}
                         </h3>
                         {p.material && p.material !== '—' ? (

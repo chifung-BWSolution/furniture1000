@@ -167,7 +167,7 @@ export function CustomerConfirmedProductsView() {
                   type="button"
                   onClick={() => setActiveProjectId(p.id)}
                   className={cn(
-                    'rounded-lg border px-3 py-1.5 text-[12px] font-medium transition-colors',
+                    'rounded-lg border px-3 py-1.5 text-[13px] font-medium transition-colors',
                     activeProjectId === p.id
                       ? 'border-primary bg-primary text-primary-foreground'
                       : 'border-border text-muted-foreground hover:text-foreground',
@@ -259,8 +259,8 @@ export function CustomerConfirmedProductsView() {
                     </div>
                   )}
                   <div className="min-w-0 flex-1">
-                    <h3 className="font-display text-[13.5px] font-semibold text-foreground">{p.productTitle}</h3>
-                    <p className="font-mono-data text-[12px] text-primary">
+                    <h3 className="font-display text-[15px] font-semibold text-foreground">{p.productTitle}</h3>
+                    <p className="font-mono-data text-[13px] text-primary">
                       ${p.salePrice.toLocaleString()} · 數量 × {p.quantity}
                     </p>
                   </div>

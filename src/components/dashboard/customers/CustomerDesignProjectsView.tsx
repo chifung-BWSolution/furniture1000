@@ -126,7 +126,7 @@ export function CustomerDesignProjectsView({ initialProjectId }: CustomerDesignP
               >
                 <div className="min-w-0 flex-1">
                   <h3 className="font-display text-base font-bold text-foreground">{p.name}</h3>
-                  <p className="mt-0.5 font-body text-[12.5px] text-muted-foreground">
+                  <p className="mt-0.5 font-body text-[14px] text-muted-foreground">
                     {[p.clientCompany, p.clientName].filter(Boolean).join(' · ') || '受邀專案'}
                   </p>
                   <div className="mt-2 max-w-xs">
@@ -145,7 +145,7 @@ export function CustomerDesignProjectsView({ initialProjectId }: CustomerDesignP
                   <MapPin className="h-7 w-7 text-primary" />
                 </div>
                 <h2 className="font-display text-base font-bold">尚未收到專案邀請</h2>
-                <p className="font-body text-[13px] text-muted-foreground">
+                <p className="font-body text-[15px] text-muted-foreground">
                   當設計師團隊邀請您查看方案時，專案會在此顯示
                 </p>
               </div>
@@ -245,7 +245,7 @@ export function CustomerDesignProjectsView({ initialProjectId }: CustomerDesignP
                           </span>
                         )}
                         {zone.name}
-                        <span className="font-body text-[12px] font-normal text-muted-foreground">
+                        <span className="font-body text-[13px] font-normal text-muted-foreground">
                           （{items.length} 件）
                         </span>
                       </h2>
@@ -284,7 +284,7 @@ export function CustomerDesignProjectsView({ initialProjectId }: CustomerDesignP
                           </div>
                           <div className="p-3">
                             <div className="flex items-start justify-between gap-2">
-                              <h3 className="font-display text-[13.5px] font-semibold text-foreground">{zp.productTitle}</h3>
+                              <h3 className="font-display text-[15px] font-semibold text-foreground">{zp.productTitle}</h3>
                               <span className={cn('shrink-0 rounded-full border px-2 py-0.5 text-xs font-medium', CLIENT_ZONE_STATUS_META[zp.status].className)}>
                                 {CLIENT_ZONE_STATUS_META[zp.status].label}
                               </span>

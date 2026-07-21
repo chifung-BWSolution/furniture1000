@@ -900,7 +900,14 @@ export function AppShell() {
   };
 
   return (
-    <div className="flex h-screen w-screen flex-col overflow-hidden">
+    <div
+      className="flex h-screen w-screen flex-col overflow-hidden"
+      data-typography-zone={
+        activeSection === 'solutions' || activeSection === 'customers'
+          ? 'cjk-portal'
+          : undefined
+      }
+    >
       <PrimaryTopNav
         activeSection={activeSection}
         onSectionChange={handleSectionChange}

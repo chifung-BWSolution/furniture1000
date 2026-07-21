@@ -149,6 +149,125 @@
   font-family: 'Manrope', sans-serif;
 }
 
+/*
+ * 傢俬方案 + 客戶專區 typography
+ * Scoped by AppShell so quote/product/admin layouts keep their compact scale.
+ */
+[data-typography-zone='cjk-portal'] {
+  font-family:
+    'Noto Sans HK',
+    'Noto Sans TC',
+    'PingFang HK',
+    'PingFang TC',
+    'Microsoft JhengHei',
+    sans-serif;
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 1.55;
+}
+
+[data-typography-zone='cjk-portal'] .font-display,
+[data-typography-zone='cjk-portal'] .font-body,
+[data-typography-zone='cjk-portal'] .font-mono-data,
+[data-typography-zone='cjk-portal'] input,
+[data-typography-zone='cjk-portal'] textarea,
+[data-typography-zone='cjk-portal'] select,
+[data-typography-zone='cjk-portal'] button {
+  font-family:
+    'Noto Sans HK',
+    'Noto Sans TC',
+    'PingFang HK',
+    'PingFang TC',
+    'Microsoft JhengHei',
+    sans-serif;
+}
+
+/* Scale every standard Tailwind text step proportionally; floor is 13px. */
+[data-typography-zone='cjk-portal'] .text-xs {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+[data-typography-zone='cjk-portal'] .text-sm {
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+[data-typography-zone='cjk-portal'] .text-base {
+  font-size: 17px;
+  line-height: 1.5;
+}
+
+[data-typography-zone='cjk-portal'] .text-lg {
+  font-size: 20px;
+  line-height: 1.4;
+}
+
+[data-typography-zone='cjk-portal'] .text-xl {
+  font-size: 22px;
+  line-height: 1.35;
+}
+
+[data-typography-zone='cjk-portal'] .text-2xl {
+  font-size: 28px;
+  line-height: 1.3;
+}
+
+/* Legacy arbitrary sizes in the shared left navigation. */
+[data-typography-zone='cjk-portal'] .zone-sidebar .text-\[10px\] {
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+[data-typography-zone='cjk-portal'] .zone-sidebar .text-\[12px\] {
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+[data-typography-zone='cjk-portal'] .zone-sidebar .text-\[13\.5px\] {
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+[data-typography-zone='cjk-portal'] .zone-sidebar .text-\[14px\] {
+  font-size: 16px;
+  line-height: 1.5;
+}
+
+[data-typography-zone='cjk-portal'] .zone-top-nav .text-\[13\.5px\] {
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+/* Consistent hierarchy even when legacy components use text-sm on headings. */
+[data-typography-zone='cjk-portal'] h1 {
+  font-size: 28px;
+  line-height: 1.3;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+[data-typography-zone='cjk-portal'] h2 {
+  font-size: 20px;
+  line-height: 1.4;
+  font-weight: 700;
+}
+
+[data-typography-zone='cjk-portal'] h3 {
+  font-size: 17px;
+  line-height: 1.45;
+  font-weight: 600;
+}
+
+[data-typography-zone='cjk-portal'] strong,
+[data-typography-zone='cjk-portal'] .font-semibold {
+  font-weight: 600;
+}
+
+[data-typography-zone='cjk-portal'] .font-bold {
+  font-weight: 700;
+}
+
 @keyframes pulse-glow {
   0%, 100% { 
     box-shadow: 0 0 5px hsl(239 84% 67% / 0.3), 0 0 20px hsl(239 84% 67% / 0.1);

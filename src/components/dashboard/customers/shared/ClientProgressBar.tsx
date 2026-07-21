@@ -9,8 +9,8 @@ export function ClientProgressBar({ progress, label, className = '' }: ClientPro
     <div className={className}>
       {label && (
         <div className="mb-1.5 flex items-center justify-between">
-          <span className="font-body text-[12px] text-muted-foreground">{label}</span>
-          <span className="font-mono-data text-[12px] font-bold text-primary">{progress}%</span>
+          <span className="font-body text-[13px] text-muted-foreground">{label}</span>
+          <span className="font-mono-data text-[13px] font-bold text-primary">{progress}%</span>
         </div>
       )}
       <div className="h-2 w-full overflow-hidden rounded-full bg-muted">

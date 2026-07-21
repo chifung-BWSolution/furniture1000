@@ -206,14 +206,14 @@ export function DesignProjectsView() {
             </div>
           </div>
           <div className="grid gap-2 rounded-xl border border-border bg-card px-4 py-3">
-            <div className="flex items-center gap-2 text-[13px]">
+            <div className="flex items-center gap-2 text-[15px]">
               <Tag className="h-4 w-4 shrink-0 text-primary" />
               <span className="text-muted-foreground">專案分類</span>
               <span className="ml-auto font-semibold text-foreground">
                 {projectTypeLabel(projectType)}
               </span>
             </div>
-            <div className="flex items-center gap-2 border-t border-border/70 pt-2 text-[13px]">
+            <div className="flex items-center gap-2 border-t border-border/70 pt-2 text-[15px]">
                 <UserRound className="h-4 w-4 text-primary" />
               <span className="text-muted-foreground">項目經理</span>
               <span className="ml-auto font-semibold text-foreground">
@@ -229,19 +229,19 @@ export function DesignProjectsView() {
         <section className="space-y-3">
           <div className="flex items-center justify-between gap-2">
             <h2 className="font-display text-lg font-bold">間隔清單與傢俬配置</h2>
-            <span className="font-mono-data text-[13px] text-muted-foreground">
+            <span className="font-mono-data text-[15px] text-muted-foreground">
               {zones.length} 個間隔 · {zoneProducts.filter((z) => z.zoneId).length} 件產品
             </span>
           </div>
           {!loading && zoneGroups.length > 0 ? (
             <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-4 py-3">
-              <span className="mr-1 text-[13px] font-semibold text-muted-foreground">
+              <span className="mr-1 text-[15px] font-semibold text-muted-foreground">
                 間隔數量
               </span>
               {zoneGroups.map((group) => (
                 <span
                   key={group.key}
-                  className="inline-flex items-center gap-1 rounded-lg border border-primary/20 bg-primary/5 px-3 py-1.5 text-[13px]"
+                  className="inline-flex items-center gap-1 rounded-lg border border-primary/20 bg-primary/5 px-3 py-1.5 text-[15px]"
                 >
                   <span className="font-semibold text-foreground">
                     {group.prefix} · {group.label}
@@ -274,7 +274,7 @@ export function DesignProjectsView() {
                     <h3 className="font-display text-lg font-bold">
                       {group.prefix} · {group.label}
                     </h3>
-                    <p className="mt-0.5 text-[13px] text-muted-foreground">
+                    <p className="mt-0.5 text-[15px] text-muted-foreground">
                       {group.zones.length} 個{group.label}
                     </p>
                   </div>
@@ -290,23 +290,23 @@ export function DesignProjectsView() {
                   <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/30 px-5 py-3.5">
                     <div className="flex items-center gap-2">
                       {zone.code ? (
-                        <span className="rounded bg-primary/15 px-2 py-1 font-mono-data text-[13px] text-primary">
+                        <span className="rounded bg-primary/15 px-2 py-1 font-mono-data text-[15px] text-primary">
                           {zone.code}
                         </span>
                       ) : null}
                       <h3 className="font-display text-base font-bold">{zone.name}</h3>
-                      <span className="text-[13px] text-muted-foreground">{items.length} 件傢俬</span>
+                      <span className="text-[15px] text-muted-foreground">{items.length} 件傢俬</span>
                     </div>
                     <button
                       type="button"
                       onClick={() => openPicker(zone.id)}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-[13px] font-medium text-primary hover:bg-primary/15"
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-[15px] font-medium text-primary hover:bg-primary/15"
                     >
                       <Plus className="h-3 w-3" /> 加入產品
                     </button>
                   </div>
                   {items.length === 0 ? (
-                    <p className="px-5 py-6 text-[13px] text-muted-foreground">尚未配置傢俬 — 按本列右上角「加入產品」</p>
+                    <p className="px-5 py-6 text-[15px] text-muted-foreground">尚未配置傢俬 — 按本列右上角「加入產品」</p>
                   ) : (
                     <ul className="divide-y divide-border/70">
                       {items.map((item) => (
@@ -322,7 +322,7 @@ export function DesignProjectsView() {
                           </div>
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-base font-medium">{item.productTitle}</p>
-                            <p className="font-mono-data text-[13px] text-primary">
+                            <p className="font-mono-data text-[15px] text-primary">
                               ${Number(item.salePrice || 0).toLocaleString()} × {item.quantity}
                             </p>
                           </div>
@@ -332,7 +332,7 @@ export function DesignProjectsView() {
                               setStatus(item.id, e.target.value as ZoneProductStatus)
                             }
                             className={cn(
-                              'rounded-full border px-3 py-1.5 text-[13px] font-medium',
+                              'rounded-full border px-3 py-1.5 text-[15px] font-medium',
                               ZONE_PRODUCT_STATUS_META[item.status]?.className,
                             )}
                           >
@@ -363,7 +363,7 @@ export function DesignProjectsView() {
             <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-3">
               <div>
                 <h3 className="font-display text-base font-bold">選擇產品</h3>
-                <p className="text-[13px] text-muted-foreground">
+                <p className="text-[15px] text-muted-foreground">
                   加入至：
                   {pickerZoneId
                     ? zones.find((z) => z.id === pickerZoneId)?.name || '指定間隔'
@@ -393,7 +393,7 @@ export function DesignProjectsView() {
                 <select
                   value={pickerZoneId || zones[0]?.id || ''}
                   onChange={(e) => setPickerZoneId(e.target.value || null)}
-                  className="rounded-lg border border-border bg-background px-2 py-1.5 text-[13px]"
+                  className="rounded-lg border border-border bg-background px-2 py-1.5 text-[15px]"
                 >
                   {zones.map((z) => (
                     <option key={z.id} value={z.id}>
@@ -408,7 +408,7 @@ export function DesignProjectsView() {
                     type="button"
                     onClick={() => setCategory(c)}
                     className={cn(
-                      'rounded-full border px-2.5 py-1 text-[13px]',
+                      'rounded-full border px-2.5 py-1 text-[15px]',
                       category === c
                         ? 'border-primary/50 bg-primary/10 text-primary'
                         : 'border-border text-muted-foreground',
@@ -438,15 +438,15 @@ export function DesignProjectsView() {
                         ) : null}
                       </div>
                       <div className="space-y-1.5 p-2.5">
-                        <p className="line-clamp-2 text-[13px] font-medium">{p.title}</p>
+                        <p className="line-clamp-2 text-[15px] font-medium">{p.title}</p>
                         <div className="flex items-center justify-between gap-1">
-                          <span className="font-mono-data text-[13px] font-bold text-primary">
+                          <span className="font-mono-data text-[15px] font-bold text-primary">
                             ${p.salePrice.toLocaleString()}
                           </span>
                           <button
                             type="button"
                             onClick={() => addProductToZone(p)}
-                            className="inline-flex items-center gap-1 rounded-md border border-primary/40 bg-primary/10 px-2 py-1 text-[13px] font-medium text-primary hover:bg-primary/15"
+                            className="inline-flex items-center gap-1 rounded-md border border-primary/40 bg-primary/10 px-2 py-1 text-[15px] font-medium text-primary hover:bg-primary/15"
                           >
                             <Check className="h-3 w-3" /> 加入
                           </button>

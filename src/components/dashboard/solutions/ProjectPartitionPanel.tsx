@@ -203,12 +203,12 @@ export function ProjectPartitionPanel({
             <DoorOpen className="h-5 w-5 text-primary" />
             間隔／功能房間
           </h3>
-          <p className="mt-1 text-[13px] text-muted-foreground">
+          <p className="mt-1 text-[15px] text-muted-foreground">
             在此設定工程類型及房間數量，再進入「設計專案」為每個間隔加入產品。
           </p>
         </div>
         {syncing ? (
-          <span className="inline-flex items-center gap-2 text-[13px] text-muted-foreground">
+          <span className="inline-flex items-center gap-2 text-[15px] text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
             正在同步
           </span>
@@ -216,7 +216,7 @@ export function ProjectPartitionPanel({
       </div>
 
       <div>
-        <p className="mb-2 text-[13px] font-semibold text-muted-foreground">
+        <p className="mb-2 text-[15px] font-semibold text-muted-foreground">
           工程類型（決定可見房間）
         </p>
         <div className="flex flex-wrap gap-2">
@@ -227,7 +227,7 @@ export function ProjectPartitionPanel({
               disabled={syncing}
               onClick={() => void changeType(option.id)}
               className={cn(
-                'rounded-full border px-3.5 py-2 text-[13px] font-medium transition-colors disabled:opacity-50',
+                'rounded-full border px-3.5 py-2 text-[15px] font-medium transition-colors disabled:opacity-50',
                 projectType === option.id
                   ? 'border-primary bg-primary/10 text-primary'
                   : 'border-border bg-card text-muted-foreground hover:text-foreground',
@@ -240,7 +240,7 @@ export function ProjectPartitionPanel({
       </div>
 
       <div>
-        <p className="mb-2 text-[13px] font-semibold text-muted-foreground">
+        <p className="mb-2 text-[15px] font-semibold text-muted-foreground">
           房間類型及數量 — {projectTypeLabel(projectType)}
         </p>
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -276,7 +276,7 @@ export function ProjectPartitionPanel({
             </div>
           ))}
         </div>
-        <p className="mt-3 flex items-center gap-1.5 text-[13px] text-muted-foreground">
+        <p className="mt-3 flex items-center gap-1.5 text-[15px] text-muted-foreground">
           <Sparkles className="h-4 w-4 text-primary" />
           已配置產品的間隔會保留；調整後會同步更新未配置產品的間隔。
         </p>

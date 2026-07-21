@@ -38,7 +38,7 @@ export function SidebarNav({
     <TooltipProvider delayDuration={0}>
       <aside
         className={cn(
-          'flex h-full shrink-0 flex-col border-r border-shell-border bg-shell text-shell-foreground transition-all duration-300',
+          'zone-sidebar flex h-full shrink-0 flex-col border-r border-shell-border bg-shell text-shell-foreground transition-all duration-300',
           isCollapsed ? 'w-[72px]' : 'w-[260px]',
         )}
       >

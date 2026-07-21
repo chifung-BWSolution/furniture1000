@@ -115,7 +115,7 @@ export function ConfirmedProjectsView() {
                     {zone.code && <span className="rounded bg-primary/15 px-1.5 py-0.5 font-mono-data text-xs text-primary">{zone.code}</span>}
                     {zone.name}
                   </h3>
-                  <span className="font-mono-data text-[12px] text-muted-foreground">小計 ${zoneTotal.toLocaleString()}</span>
+                  <span className="font-mono-data text-[13px] text-muted-foreground">小計 ${zoneTotal.toLocaleString()}</span>
                 </div>
                 <table className="w-full text-sm">
                   <tbody className="divide-y divide-border/60">
@@ -124,7 +124,7 @@ export function ConfirmedProjectsView() {
                         <td className="py-2.5 pl-5 pr-3">
                           <div className="flex items-center gap-3">
                             <img src={zp.productImageUrl} alt={zp.productTitle} loading="lazy" className="h-10 w-10 rounded-md object-cover bg-muted" />
-                            <span className="font-body text-[13px] text-foreground">{zp.productTitle}</span>
+                            <span className="font-body text-[15px] text-foreground">{zp.productTitle}</span>
                           </div>
                         </td>
                         <td className="px-3 py-2.5 text-center text-muted-foreground">× {zp.quantity}</td>
@@ -156,7 +156,7 @@ export function ConfirmedProjectsView() {
                     {i < discussions.length - 1 && <span className="mt-1 h-full w-px bg-border" />}
                   </div>
                   <div className="pb-2">
-                    <p className="font-body text-[12.5px] text-foreground">
+                    <p className="font-body text-[14px] text-foreground">
                       <span className="font-semibold">{record.author}</span> {record.body}
                     </p>
                     <p className="font-mono-data text-xs text-muted-foreground/70">{fmt(record.createdAt)}</p>

@@ -51,7 +51,7 @@ export function CustomerCompanyInfoView({ onOpenProject }: CustomerCompanyInfoVi
           <div className="rounded-xl border border-dashed border-border py-12 text-center">
             <Building2 className="mx-auto h-8 w-8 text-muted-foreground/40" />
             <p className="mt-3 font-display text-sm text-muted-foreground">尚未建立公司資料</p>
-            <p className="mt-1 text-[12px] text-muted-foreground/70">請聯絡 PM 為您建立客戶公司檔案</p>
+            <p className="mt-1 text-[13px] text-muted-foreground/70">請聯絡 PM 為您建立客戶公司檔案</p>
           </div>
         ) : (
           <div className="rounded-xl border border-border bg-card p-5">
@@ -86,18 +86,18 @@ export function CustomerCompanyInfoView({ onOpenProject }: CustomerCompanyInfoVi
                 className="flex w-full items-center justify-between px-5 py-3.5 text-left transition-colors hover:bg-muted/30"
               >
                 <div>
-                  <p className="font-display text-[13.5px] font-semibold text-foreground">{p.name}</p>
+                  <p className="font-display text-[15px] font-semibold text-foreground">{p.name}</p>
                   <p className="font-mono-data text-xs text-muted-foreground">
                     {new Date(p.updatedAt).toLocaleDateString('zh-HK')} · {statusLabel(p)} · {p.progress}% 已確認
                   </p>
                 </div>
-                <span className="flex items-center gap-1 text-[12px] font-medium text-primary">
+                <span className="flex items-center gap-1 text-[13px] font-medium text-primary">
                   查看方案 <ArrowRight className="h-3.5 w-3.5" />
                 </span>
               </button>
             ))}
             {historyProjects.length === 0 && (
-              <p className="px-5 py-8 text-center text-[13px] text-muted-foreground">尚無受邀專案紀錄</p>
+              <p className="px-5 py-8 text-center text-[15px] text-muted-foreground">尚無受邀專案紀錄</p>
             )}
           </div>
         </div>

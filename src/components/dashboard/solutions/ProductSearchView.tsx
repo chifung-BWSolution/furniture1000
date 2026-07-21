@@ -139,7 +139,7 @@ export function ProductSearchView() {
                     </button>
                   </div>
                   <div className="flex flex-1 flex-col p-3">
-                    <h3 className="font-display text-[13.5px] font-semibold text-foreground">{p.title}</h3>
+                    <h3 className="font-display text-[15px] font-semibold text-foreground">{p.title}</h3>
                     <p className="mt-1 line-clamp-2 font-body text-xs leading-relaxed text-muted-foreground">{p.description}</p>
                     <div className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
                       <span className="flex items-center gap-0.5"><Package className="h-3 w-3" />{p.inStock ? '現貨' : '訂製'}</span>
@@ -180,7 +180,7 @@ export function ProductSearchView() {
                       <div className="flex items-center gap-3">
                         <img src={p.imageUrl} alt={p.title} loading="lazy" className="h-10 w-10 rounded-md object-cover bg-muted" />
                         <div>
-                          <p className="font-body text-[13px] font-medium text-foreground">{p.title}</p>
+                          <p className="font-body text-[15px] font-medium text-foreground">{p.title}</p>
                           <p className="line-clamp-1 text-xs text-muted-foreground">{p.description}</p>
                         </div>
                       </div>

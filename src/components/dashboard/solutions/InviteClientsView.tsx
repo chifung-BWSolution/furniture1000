@@ -243,7 +243,7 @@ export function InviteClientsView() {
                   <span>{activeInvitations.length} 個有效邀請</span>
                 </div>
               </div>
-              <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-xs text-muted-foreground">
+              <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-muted-foreground">
                 <p className="font-semibold text-primary">邀請流程</p>
                 <p className="mt-1">1 選專案 → 2 建立邀請 → 3 客戶登入 Portal</p>
               </div>
@@ -257,7 +257,7 @@ export function InviteClientsView() {
                   </div>
                   <div>
                     <h2 className="font-display text-base font-bold">建立可轉寄 Portal 連結</h2>
-                    <p className="mt-1 text-xs text-muted-foreground">
+                    <p className="mt-1 text-sm text-muted-foreground">
                       適合即時訊息或由 BW 員工自行轉寄；客戶仍需登入系統。
                     </p>
                   </div>
@@ -284,7 +284,7 @@ export function InviteClientsView() {
                   </div>
                   <div>
                     <h2 className="font-display text-base font-bold">建立個人 Email 邀請</h2>
-                    <p className="mt-1 text-xs text-muted-foreground">
+                    <p className="mt-1 text-sm text-muted-foreground">
                       以客戶登入電郵綁定專案，建立後會開啟您的電郵程式。
                     </p>
                   </div>
@@ -447,7 +447,7 @@ function PermRow({
   text: string;
 }) {
   return (
-    <div className="flex items-center gap-2 text-xs">
+    <div className="flex items-center gap-2 text-sm">
       <span
         className={cn(
           'flex h-6 w-6 shrink-0 items-center justify-center rounded-full',
