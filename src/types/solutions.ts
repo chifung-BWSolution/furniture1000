@@ -129,6 +129,7 @@ export interface SearchProduct {
   /** True only when a linked shopify_products row is currently active. */
   isOnShopify?: boolean;
   shopifyProductId?: string | null;
+  sku?: string;
   tier: ProductTier;
   inStock: boolean;
   deliveryDays: number;

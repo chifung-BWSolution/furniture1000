@@ -431,7 +431,7 @@ export async function fetchActiveShopifyProducts(
     const { data, error } = await supabase
       .from('shopify_products')
       .select(
-        'source_product_id,shopify_product_id,title,body_html,image_url,price,product_type,status,published_at',
+        'source_product_id,shopify_product_id,title,body_html,image_url,price,product_type,sku,status,published_at',
       )
       .eq('status', 'active')
       .is('configurable', null)
@@ -480,12 +480,38 @@ export async function fetchActiveShopifyProducts(
           shopifyProductId: row.shopify_product_id
             ? String(row.shopify_product_id)
             : null,
+          sku: row.sku ? String(row.sku).trim() : undefined,
         };
       })
       .filter((product) => product.salePrice > 0);
   } catch {
     return [];
   }
+}
+
+/** Main active product SKU lookup; configurable child products are excluded. */
+export async function fetchActiveMainProductInfo(
+  productIds: string[],
+): Promise<Record<string, { sku: string }>> {
+  const ids = [...new Set(productIds.map((id) => id.trim()).filter(Boolean))];
+  const result: Record<string, { sku: string }> = {};
+  for (let i = 0; i < ids.length; i += 150) {
+    const { data, error } = await supabase
+      .from('shopify_products')
+      .select('source_product_id,sku')
+      .in('source_product_id', ids.slice(i, i + 150))
+      .eq('status', 'active')
+      .is('configurable', null);
+    if (error) continue;
+    for (const row of data ?? []) {
+      const sourceId = String(row.source_product_id || '').trim();
+      if (!sourceId) continue;
+      result[sourceId] = {
+        sku: row.sku ? String(row.sku).trim() : '—',
+      };
+    }
+  }
+  return result;
 }
 
 /**

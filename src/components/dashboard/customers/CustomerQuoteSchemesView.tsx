@@ -35,6 +35,7 @@ import { usePlatformRole } from '@/hooks/use-platform-role';
 import { BW_COMPANY } from '@/content/bwCorporate';
 import {
   fetchProjects,
+  fetchActiveMainProductInfo,
   fetchZones,
   fetchZoneProducts,
 } from '@/lib/solutionsApi';
@@ -221,13 +222,30 @@ export function CustomerQuoteSchemesView() {
     setItemsLoading(true);
     const loadItems = async () => {
       const quoteItems = await loadClientQuoteItems(activeId);
+      const quoteInfo = await fetchActiveMainProductInfo(
+        quoteItems
+          .filter((item) => !item.isSectionTitle && item.id)
+          .map((item) => item.id as string),
+      );
+      const hasMappedQuoteItems = Object.keys(quoteInfo).length > 0;
+      const safeQuoteItems = quoteItems
+        .filter(
+          (item) =>
+            item.isSectionTitle ||
+            !hasMappedQuoteItems ||
+            Boolean(item.id && quoteInfo[item.id]),
+        )
+        .map((item) => ({
+          ...item,
+          sku: item.id ? quoteInfo[item.id]?.sku : undefined,
+        }));
       const activeQuote = quotes.find((quote) => quote.id === activeId);
       const linkedProject = activeQuote
         ? confirmedProjects.find(
             (project) => projectQuoteId(project) === activeQuote.quote_id,
           )
         : null;
-      if (!linkedProject) return quoteItems;
+      if (!linkedProject) return safeQuoteItems;
 
       const [zones, zoneProducts] = await Promise.all([
         fetchZones(linkedProject.id),
@@ -236,11 +254,19 @@ export function CustomerQuoteSchemesView() {
       const confirmedProducts = zoneProducts.filter(
         (product) => product.status === 'confirmed' && product.zoneId,
       );
-      if (confirmedProducts.length === 0) return quoteItems;
+      const mainInfo = await fetchActiveMainProductInfo(
+        confirmedProducts
+          .map((product) => product.productId)
+          .filter((id): id is string => Boolean(id)),
+      );
+      const mainProducts = confirmedProducts.filter(
+        (product) => product.productId && mainInfo[product.productId],
+      );
+      if (mainProducts.length === 0) return safeQuoteItems;
 
       const grouped: BwfQuoteItemInput[] = [];
       for (const zone of zones) {
-        const products = confirmedProducts.filter(
+        const products = mainProducts.filter(
           (product) => product.zoneId === zone.id,
         );
         if (products.length === 0) continue;
@@ -258,10 +284,13 @@ export function CustomerQuoteSchemesView() {
             unitPrice: product.salePrice,
             quantity: product.quantity,
             unit: '件',
+            sku: product.productId
+              ? mainInfo[product.productId]?.sku
+              : undefined,
           });
         }
       }
-      return grouped.length > 0 ? grouped : quoteItems;
+      return grouped.length > 0 ? grouped : safeQuoteItems;
     };
 
     loadItems()
@@ -367,7 +396,7 @@ export function CustomerQuoteSchemesView() {
                       : ''
                   }
                   <div class="grow">
-                    <strong>${escapeHtml(item.name || '—')}</strong>
+                    <div class="name-row"><strong>${escapeHtml(item.name || '—')}</strong><small>SKU ${escapeHtml(item.sku || '—')}</small></div>
                     <p>${escapeHtml(item.material || '')} ${escapeHtml(item.color || '')}</p>
                     <p>${fmtMoney(Number(item.unitPrice || 0))} × ${escapeHtml(item.quantity || 1)} ${escapeHtml(item.unit || '')}</p>
                     <p class="review">客戶決定：${escapeHtml(review)} ${escapeHtml(itemNotes[key] || '')}</p>
@@ -394,6 +423,7 @@ export function CustomerQuoteSchemesView() {
         h1{margin:0 0 8px;font-size:28px} h2{font-size:19px;margin-top:28px}
         .meta{color:#62677a}.item{display:flex;gap:16px;align-items:center;border:1px solid #e4e5ef;border-radius:12px;padding:14px;margin:10px 0}
         .item img{width:72px;height:72px;object-fit:cover;border-radius:8px}.grow{flex:1}.item p{margin:4px 0;color:#62677a}
+        .name-row{display:flex;justify-content:space-between;gap:16px}.name-row small{font-size:10px;color:#8a8d99;font-family:monospace}
         .review{color:#4338ca!important}.decision{margin-top:30px;padding:18px;background:#f2f2ff;border-radius:12px}
         @media print{body{padding:0}.item{break-inside:avoid}}
       </style></head><body>
@@ -676,9 +706,14 @@ export function CustomerQuoteSchemesView() {
                             ) : null}
                           </div>
                           <div className="min-w-0 flex-1">
-                            <h4 className="text-base font-bold">
-                              {item.name || '—'}
-                            </h4>
+                            <div className="flex items-center justify-between gap-3">
+                              <h4 className="min-w-0 truncate text-base font-bold">
+                                {item.name || '—'}
+                              </h4>
+                              <span className="shrink-0 font-mono-data text-[10px] text-muted-foreground">
+                                SKU {item.sku || '—'}
+                              </span>
+                            </div>
                             <p className="mt-1 text-sm text-muted-foreground">
                               {[item.material, item.color].filter(Boolean).join(' · ') ||
                                 '產品規格以報價為準'}

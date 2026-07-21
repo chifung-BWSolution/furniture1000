@@ -12,6 +12,8 @@ import {
 export type BwfQuoteItemInput = QuoteItemImageFields & {
   id?: string;
   name?: string;
+  /** Client-only display enrichment from the main published product. */
+  sku?: string;
   unitPrice?: number;
   quantity?: number;
   unit?: string;

@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import {
   fetchDiscussions,
+  fetchActiveMainProductInfo,
   fetchProjects,
   fetchZones,
   fetchZoneProducts,
@@ -27,6 +28,9 @@ export function ConfirmedProjectsView() {
   const [zones, setZones] = useState<ProjectZone[]>([]);
   const [zoneProducts, setZoneProducts] = useState<ZoneProduct[]>([]);
   const [discussions, setDiscussions] = useState<ProductDiscussion[]>([]);
+  const [skuByProductId, setSkuByProductId] = useState<
+    Record<string, { sku: string }>
+  >({});
   const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
@@ -43,16 +47,24 @@ export function ConfirmedProjectsView() {
       fetchZones(projectId),
       fetchZoneProducts(projectId),
       fetchDiscussions(projectId),
-    ]).then(([z, zp, records]) => {
+    ]).then(async ([z, zp, records]) => {
+      const info = await fetchActiveMainProductInfo(
+        zp.map((product) => product.productId).filter((id): id is string => Boolean(id)),
+      );
       setZones(z);
       setZoneProducts(zp);
       setDiscussions(records);
+      setSkuByProductId(info);
     });
   }, [projectId]);
 
   const confirmedProjects = projects;
   const project = projects.find((p) => p.id === projectId);
-  const confirmed = zoneProducts.filter((zp) => zp.status === 'confirmed');
+  const confirmed = zoneProducts.filter(
+    (zp) =>
+      zp.status === 'confirmed' &&
+      Boolean(zp.productId && skuByProductId[zp.productId]),
+  );
   const total = confirmed.reduce((sum, zp) => sum + zp.salePrice * zp.quantity, 0);
 
   if (!project) {
@@ -127,7 +139,14 @@ export function ConfirmedProjectsView() {
                         <td className="py-2.5 pl-5 pr-3">
                           <div className="flex items-center gap-3">
                             <img src={zp.productImageUrl} alt={zp.productTitle} loading="lazy" className="h-10 w-10 rounded-md object-cover bg-muted" />
-                            <span className="font-body text-[15px] text-foreground">{zp.productTitle}</span>
+                            <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
+                              <span className="truncate font-body text-[15px] text-foreground">
+                                {zp.productTitle}
+                              </span>
+                              <span className="shrink-0 font-mono-data text-[10px] text-muted-foreground">
+                                SKU {zp.productId ? skuByProductId[zp.productId]?.sku : '—'}
+                              </span>
+                            </div>
                           </div>
                         </td>
                         <td className="px-3 py-2.5 text-center text-muted-foreground">× {zp.quantity}</td>
