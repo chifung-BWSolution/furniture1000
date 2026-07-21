@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import {
-  Plus, Upload, Search, Map as MapIcon, ChevronRight, ChevronDown, ChevronUp,
+  Plus, Upload, Search, Map, ChevronRight, ChevronDown, ChevronUp,
   Loader2, Sparkles, Building2, Calendar, Sofa,
 } from 'lucide-react';
 import {
@@ -23,33 +23,6 @@ import { useAppStore } from '@/hooks/use-app-store';
 import { toast } from 'sonner';
 import type { DesignProject } from '@/types/solutions';
 import { ProjectPartitionPanel } from './ProjectPartitionPanel';
-import { supabase } from '@/lib/supabase';
-import {
-  fetchPmsPitchings,
-  pitchingDisplayTitle,
-  type PmsPitchingListItem,
-} from '@/lib/pmsPitchings';
-import { compareQuoteVersion } from '@/lib/quoteVersions';
-
-type QuotePreviewRow = {
-  id: string;
-  quote_id: string;
-  version: string;
-  status: string;
-  created_at: string;
-  modified_date?: string | null;
-  bwf_pitching_id?: string | null;
-  project_data?: {
-    formData?: {
-      clientName?: string;
-      clientContactName?: string;
-      company?: string;
-      customerType?: string;
-      projectName?: string;
-    };
-    clientInfo?: { name?: string; contactName?: string };
-  };
-};
 
 const STATUS_FILTERS = [
   { id: 'all', label: '全部狀態' },
@@ -68,125 +41,6 @@ function statusLabel(status: string) {
   if (status === 'confirmed') return '已確認';
   if (status === 'in_progress') return '進行中';
   return '草稿';
-}
-
-function inferQuoteProjectType(text: string): ProjectEngineeringType {
-  const value = text.toLowerCase();
-  if (/學校|小學|中學|大學|幼稚園|school|college|university|education/.test(value)) {
-    return 'school';
-  }
-  if (/醫院|診所|醫療|牙科|clinic|hospital|health/.test(value)) {
-    return 'clinic';
-  }
-  if (/酒店|旅館|會所|接待|hotel|hospitality|lounge/.test(value)) {
-    return 'hotel';
-  }
-  if (/辦公|企業|銀行|金融|office|corporate|company|professional/.test(value)) {
-    return 'office';
-  }
-  return 'other';
-}
-
-async function fetchQuotePreviewProjects(
-  existingProjects: DesignProject[],
-): Promise<DesignProject[]> {
-  const { data, error } = await supabase
-    .from('bwf_quote')
-    .select(
-      'id,quote_id,version,status,created_at,modified_date,project_data,bwf_pitching_id',
-    )
-    .order('created_at', { ascending: false })
-    .limit(80);
-  if (error || !data) return [];
-
-  const latestByQuote = new Map<string, QuotePreviewRow>();
-  for (const row of data as QuotePreviewRow[]) {
-    const current = latestByQuote.get(row.quote_id);
-    if (!current || compareQuoteVersion(row.version, current.version) > 0) {
-      latestByQuote.set(row.quote_id, row);
-    }
-  }
-  const linkedQuoteIds = new Set(
-    existingProjects
-      .map((project) =>
-        String(project.meta?.quoteId || project.meta?.pitchingCode || '').trim(),
-      )
-      .filter(Boolean),
-  );
-  const candidates = [...latestByQuote.values()]
-    .filter((quote) => !linkedQuoteIds.has(quote.quote_id))
-    .slice(0, 8);
-  const pitchingIds = [
-    ...new Set(
-      candidates
-        .map((quote) => quote.bwf_pitching_id)
-        .filter((id): id is string => Boolean(id)),
-    ),
-  ];
-  const pitchings = pitchingIds.length
-    ? await fetchPmsPitchings({ ids: pitchingIds, limit: pitchingIds.length })
-    : [];
-  const pitchingById = new Map<string, PmsPitchingListItem>(
-    pitchings.map((pitching) => [pitching.id, pitching]),
-  );
-
-  return candidates.map((quote) => {
-    const pitching = quote.bwf_pitching_id
-      ? pitchingById.get(quote.bwf_pitching_id)
-      : null;
-    const form = quote.project_data?.formData;
-    const client = quote.project_data?.clientInfo;
-    const displayName =
-      (pitching && pitchingDisplayTitle(pitching)) ||
-      form?.projectName?.trim() ||
-      form?.clientName?.trim() ||
-      client?.name?.trim() ||
-      quote.quote_id;
-    const company =
-      pitching?.customer_name?.trim() ||
-      form?.company?.trim() ||
-      form?.clientName?.trim() ||
-      client?.name?.trim() ||
-      null;
-    const contact =
-      form?.clientContactName?.trim() ||
-      client?.contactName?.trim() ||
-      null;
-    const type = inferQuoteProjectType(
-      [
-        displayName,
-        company,
-        pitching?.customer_type,
-        pitching?.service_type,
-        form?.customerType,
-      ]
-        .filter(Boolean)
-        .join(' '),
-    );
-    return {
-      id: `quote-preview:${quote.id}`,
-      name: `${displayName} 傢俬方案`,
-      clientName: contact,
-      clientCompany: company,
-      floorPlanUrl: null,
-      floorPlanType: null,
-      status: 'in_progress',
-      activeScheme: 'A',
-      progress: 0,
-      createdBy: null,
-      creatorStaffId: null,
-      editorStaffId: null,
-      createdAt: quote.created_at,
-      updatedAt: quote.modified_date || quote.created_at,
-      meta: {
-        projectType: type,
-        roomCounts: defaultRoomCounts(type),
-        quoteId: quote.quote_id,
-        pitchingCode: pitching?.pitching_code || quote.quote_id,
-        source: 'quote-list-readonly',
-      },
-    } satisfies DesignProject;
-  });
 }
 
 export function SolutionProjectListView() {
@@ -210,10 +64,7 @@ export function SolutionProjectListView() {
 
   useEffect(() => {
     fetchProjects()
-      .then(async (rows) => {
-        const quotePreviews = await fetchQuotePreviewProjects(rows);
-        setProjects([...rows, ...quotePreviews]);
-      })
+      .then(setProjects)
       .finally(() => setLoading(false));
   }, []);
 
@@ -374,7 +225,7 @@ export function SolutionProjectListView() {
           </div>
         ) : filtered.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-border bg-card/50 px-6 py-16 text-center">
-            <MapIcon className="mx-auto h-10 w-10 text-muted-foreground/50" />
+            <Map className="mx-auto h-10 w-10 text-muted-foreground/50" />
             <p className="mt-3 font-display text-base font-semibold">尚無傢俬方案</p>
             <p className="mt-1 font-body text-sm text-muted-foreground">
               建立新專案並上傳平面圖，即可開始分區與產品配置
@@ -384,7 +235,6 @@ export function SolutionProjectListView() {
           <div className="space-y-3">
             {filtered.map((p) => {
               const expanded = expandedProjectId === p.id;
-              const quotePreview = p.meta?.source === 'quote-list-readonly';
               return (
               <article
                 key={p.id}
@@ -403,7 +253,7 @@ export function SolutionProjectListView() {
                     {p.floorPlanUrl ? (
                       <img src={p.floorPlanUrl} alt="" className="h-full w-full object-cover" />
                     ) : (
-                      <MapIcon className="h-6 w-6 text-muted-foreground/50" />
+                      <Map className="h-6 w-6 text-muted-foreground/50" />
                     )}
                   </div>
                   <div className="min-w-0 flex-1">
@@ -417,11 +267,6 @@ export function SolutionProjectListView() {
                           {projectTypeLabel(p.meta.projectType)}
                         </span>
                       ) : null}
-                      {quotePreview ? (
-                        <span className="rounded-full border border-sky-500/30 bg-sky-500/10 px-2 py-0.5 font-body text-xs text-sky-700 dark:text-sky-300">
-                          來自報價一覽 · 唯讀
-                        </span>
-                      ) : null}
                     </div>
                     <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 font-body text-xs text-muted-foreground">
                       <span className="inline-flex items-center gap-1">
@@ -433,11 +278,6 @@ export function SolutionProjectListView() {
                         {fmtDate(p.updatedAt || p.createdAt)}
                       </span>
                     </p>
-                    {quotePreview ? (
-                      <p className="mt-2 text-xs text-muted-foreground">
-                        已按客戶及提案類型套用房間建議
-                      </p>
-                    ) : (
                     <div className="mt-2 flex items-center gap-2">
                       <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
                         <div
@@ -449,7 +289,6 @@ export function SolutionProjectListView() {
                         {p.progress || 0}% 已確認
                       </span>
                     </div>
-                    )}
                   </div>
                   {expanded ? (
                     <ChevronUp className="h-5 w-5 shrink-0 text-primary" />
@@ -461,7 +300,6 @@ export function SolutionProjectListView() {
                   <>
                     <ProjectPartitionPanel
                       project={p}
-                      readOnly={quotePreview}
                       onProjectMetaChange={(projectId, meta) =>
                         setProjects((prev) =>
                           prev.map((row) =>
@@ -470,11 +308,6 @@ export function SolutionProjectListView() {
                         )
                       }
                     />
-                    {quotePreview ? (
-                      <div className="border-t border-border bg-card px-5 py-4 text-sm text-muted-foreground">
-                        此方案由報價一覽唯讀產生；不會修改原報價資料。
-                      </div>
-                    ) : (
                     <div className="flex justify-end border-t border-border bg-card px-5 py-4">
                       <button
                         type="button"
@@ -486,7 +319,6 @@ export function SolutionProjectListView() {
                         <ChevronRight className="h-4 w-4" />
                       </button>
                     </div>
-                    )}
                   </>
                 ) : null}
               </article>

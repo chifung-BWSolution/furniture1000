@@ -44,11 +44,9 @@ function countRoomsFromZones(
 export function ProjectPartitionPanel({
   project,
   onProjectMetaChange,
-  readOnly = false,
 }: {
   project: DesignProject;
   onProjectMetaChange?: (projectId: string, meta: DesignProject['meta']) => void;
-  readOnly?: boolean;
 }) {
   const initialType =
     project.meta?.projectType ||
@@ -69,22 +67,6 @@ export function ProjectPartitionPanel({
 
   useEffect(() => {
     let cancelled = false;
-    if (readOnly) {
-      const type =
-        project.meta?.projectType ||
-        inferProjectType(project.name, project.clientCompany);
-      setProjectType(type);
-      setRoomCounts({
-        ...defaultRoomCounts(type),
-        ...(project.meta?.roomCounts || {}),
-      });
-      setZones([]);
-      setZoneProducts([]);
-      setLoading(false);
-      return () => {
-        cancelled = true;
-      };
-    }
     setLoading(true);
     Promise.all([fetchZones(project.id), fetchZoneProducts(project.id)])
       .then(([loadedZones, loadedProducts]) => {
@@ -110,7 +92,7 @@ export function ProjectPartitionPanel({
     return () => {
       cancelled = true;
     };
-  }, [project, readOnly]);
+  }, [project]);
 
   const syncZones = useCallback(
     async (
@@ -184,7 +166,6 @@ export function ProjectPartitionPanel({
   );
 
   const changeType = async (type: ProjectEngineeringType) => {
-    if (readOnly) return;
     const previousType = projectType;
     const previousCounts = roomCounts;
     const counts = defaultRoomCounts(type);
@@ -197,7 +178,6 @@ export function ProjectPartitionPanel({
   };
 
   const changeQty = async (key: string, delta: number) => {
-    if (readOnly) return;
     const previous = roomCounts;
     const next = {
       ...roomCounts,
@@ -224,9 +204,7 @@ export function ProjectPartitionPanel({
             間隔／功能房間
           </h3>
           <p className="mt-1 text-[15px] text-muted-foreground">
-            {readOnly
-              ? '依報價資料推斷的工程類型及建議房間數量（唯讀預覽）。'
-              : '在此設定工程類型及房間數量，再進入「設計專案」為每個間隔加入產品。'}
+            在此設定工程類型及房間數量，再進入「設計專案」為每個間隔加入產品。
           </p>
         </div>
         {syncing ? (
@@ -246,7 +224,7 @@ export function ProjectPartitionPanel({
             <button
               key={option.id}
               type="button"
-              disabled={syncing || readOnly}
+              disabled={syncing}
               onClick={() => void changeType(option.id)}
               className={cn(
                 'rounded-full border px-3.5 py-2 text-[15px] font-medium transition-colors disabled:opacity-50',
@@ -275,7 +253,7 @@ export function ProjectPartitionPanel({
               <div className="flex items-center gap-2">
                 <button
                   type="button"
-                  disabled={syncing || readOnly}
+                  disabled={syncing}
                   onClick={() => void changeQty(room.key, -1)}
                   className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary disabled:opacity-40"
                   aria-label={`減少${room.label}`}
@@ -287,7 +265,7 @@ export function ProjectPartitionPanel({
                 </span>
                 <button
                   type="button"
-                  disabled={syncing || readOnly}
+                  disabled={syncing}
                   onClick={() => void changeQty(room.key, 1)}
                   className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary disabled:opacity-40"
                   aria-label={`增加${room.label}`}
@@ -300,9 +278,7 @@ export function ProjectPartitionPanel({
         </div>
         <p className="mt-3 flex items-center gap-1.5 text-[15px] text-muted-foreground">
           <Sparkles className="h-4 w-4 text-primary" />
-          {readOnly
-            ? '資料來自報價一覽，不會修改原報價或建立分區。'
-            : '已配置產品的間隔會保留；調整後會同步更新未配置產品的間隔。'}
+          已配置產品的間隔會保留；調整後會同步更新未配置產品的間隔。
         </p>
       </div>
     </div>
