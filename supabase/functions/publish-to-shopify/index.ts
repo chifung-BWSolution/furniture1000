@@ -1108,42 +1108,63 @@ Deno.serve(async (req: Request) => {
           return variant;
         });
 
-        // ── IMAGE VALIDATION & RESOLUTION ──────────────────────────────────
-        let resolvedImageUrl: string | null = null;
-        let imageWarning: string | undefined;
+        // Merge full catalog gallery (incl. lifestyle_image_url) so 4th image is not dropped.
+        const { data: catalogRow } = await supabase
+          .from("products")
+          .select("image_url,image_url_2,image_url_3,lifestyle_image_url,images")
+          .eq("id", product.id)
+          .maybeSingle();
+        if (catalogRow) {
+          const catalogUrls: string[] = [];
+          const pushCatalog = (src: unknown) => {
+            if (isHttpUrl(src)) catalogUrls.push(String(src).trim());
+          };
+          pushCatalog(catalogRow.image_url);
+          pushCatalog(catalogRow.image_url_2);
+          pushCatalog(catalogRow.image_url_3);
+          if (Array.isArray(catalogRow.images)) {
+            for (const im of catalogRow.images as { src?: string; url?: string }[]) {
+              pushCatalog(im?.src || im?.url);
+            }
+          }
+          pushCatalog(catalogRow.lifestyle_image_url);
 
-        // When RTS only had images[] extras, client may still send empty image_url.
-        // Fall back to products.image_url from catalog before building the gallery.
-        let catalogPrimaryUrl = "";
-        if (!product.image_url?.trim() || !product.primary_image_src?.trim()) {
-          const { data: prodRow } = await supabase
-            .from("products")
-            .select("image_url")
-            .eq("id", product.id)
-            .maybeSingle();
-          catalogPrimaryUrl = (prodRow?.image_url || "").trim();
+          const catalogPrimaryUrl = (catalogRow.image_url || "").trim();
           if (catalogPrimaryUrl.startsWith("http")) {
             if (!product.image_url?.trim()) product.image_url = catalogPrimaryUrl;
             if (!product.primary_image_src?.trim()) product.primary_image_src = catalogPrimaryUrl;
-            if (!Array.isArray(product.gallery_urls) || product.gallery_urls.length === 0) {
-              const extras = (product.images || [])
-                .map((im) => im?.src || im?.url || "")
-                .filter((s) => typeof s === "string" && s.startsWith("http"));
-              product.gallery_urls = [catalogPrimaryUrl, ...extras];
-            } else if (
-              product.gallery_urls.length > 0 &&
-              imageIdentityKey(product.gallery_urls[0]) !== imageIdentityKey(catalogPrimaryUrl)
-            ) {
-              const rest = product.gallery_urls.filter(
-                (u) => imageIdentityKey(u) !== imageIdentityKey(catalogPrimaryUrl),
-              );
-              product.gallery_urls = [catalogPrimaryUrl, ...rest];
+          }
+
+          const mergedGallery: string[] = [];
+          const seenGallery = new Set<string>();
+          const addGallery = (src: string) => {
+            const key = imageDedupeKey(src);
+            if (seenGallery.has(key)) return;
+            seenGallery.add(key);
+            mergedGallery.push(src);
+          };
+          if (catalogPrimaryUrl.startsWith("http")) addGallery(catalogPrimaryUrl);
+          if (Array.isArray(product.gallery_urls)) {
+            for (const url of product.gallery_urls) addGallery(url);
+          } else if (Array.isArray(product.images)) {
+            for (const im of product.images) {
+              const src = im?.src || im?.url;
+              if (isHttpUrl(src)) addGallery(src);
             }
+          }
+          for (const url of catalogUrls) addGallery(url);
+
+          if (mergedGallery.length > 0) {
+            product.gallery_urls = mergedGallery;
             console.log(
-              `[publish-to-shopify] 📎 Catalog primary fallback for "${product.title}": ${catalogPrimaryUrl.substring(0, 80)}...`,
+              `[publish-to-shopify] 📎 Catalog gallery merge for "${product.title}": ${mergedGallery.length} image(s)`,
             );
           }
         }
+
+        // ── IMAGE VALIDATION & RESOLUTION ──────────────────────────────────
+        let resolvedImageUrl: string | null = null;
+        let imageWarning: string | undefined;
 
         if (product.image_url) {
           console.log(`[publish-to-shopify] 🖼️ Validating primary image for "${product.title}"`);

@@ -1073,24 +1073,36 @@ export function ListedProductsView({
     // The list query no longer loads the heavy image columns (images / image_url_2
     // / image_url_3) to avoid statement timeouts. Lazily fetch them here, only for
     // the handful of products actually being added to Shopify.
-    const heavyById: Record<string, { image_url_2: string | null; image_url_3: string | null; images: { src: string; alt?: string }[] }> = {};
+    const heavyById: Record<string, {
+      image_url_2: string | null;
+      image_url_3: string | null;
+      lifestyle_image_url: string | null;
+      images: { src: string; alt?: string }[];
+    }> = {};
     const { data: heavyRows } = await supabase
       .from('products')
-      .select('id,image_url_2,image_url_3,images')
+      .select('id,image_url_2,image_url_3,lifestyle_image_url,images')
       .in('id', prods.map((p) => p.id));
     for (const r of heavyRows ?? []) {
       heavyById[r.id] = {
         image_url_2: r.image_url_2 || null,
         image_url_3: r.image_url_3 || null,
+        lifestyle_image_url: r.lifestyle_image_url || null,
         images: Array.isArray(r.images) ? r.images : [],
       };
     }
     const rows = await Promise.all(prods.map(async (p) => {
-      const heavy = heavyById[p.id] ?? { image_url_2: p.imageUrl2 ?? null, image_url_3: p.imageUrl3 ?? null, images: p.images ?? [] };
-      // Resolve primary + extra images (image_url_2/3 + the images[] array)
+      const heavy = heavyById[p.id] ?? {
+        image_url_2: p.imageUrl2 ?? null,
+        image_url_3: p.imageUrl3 ?? null,
+        lifestyle_image_url: p.lifestyleImageUrl ?? null,
+        images: p.images ?? [],
+      };
+      // Resolve primary + extra images (image_url_2/3, lifestyle, images[] array)
       const extraInputs: string[] = [
         ...(heavy.image_url_2 ? [heavy.image_url_2] : []),
         ...(heavy.image_url_3 ? [heavy.image_url_3] : []),
+        ...(heavy.lifestyle_image_url ? [heavy.lifestyle_image_url] : []),
         ...(Array.isArray(heavy.images) ? heavy.images.map((img) => img.src).filter(Boolean) : []),
       ];
       const { primary, extras } = await resolveImagesToStorage(p.id, p.imageUrl || null, extraInputs);
