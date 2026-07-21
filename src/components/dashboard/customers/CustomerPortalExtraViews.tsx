@@ -480,7 +480,7 @@ export function CustomerCaseStudiesView() {
 
       <CorporateSection
         title="服務客戶 Logo 牆"
-        subtitle="以公開工程案例名稱呈現，展示跨地區及跨行業的項目經驗。"
+        subtitle="取自 B&W Office 公開首頁，涵蓋教育、金融及專業服務、政府及法定機構、酒店、科技、醫療與社福等分類。"
         icon={<Building2 className="h-5 w-5 text-primary" />}
       >
         <CorporateLogoWall />

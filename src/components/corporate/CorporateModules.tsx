@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { ExternalLink, Play } from 'lucide-react';
 import {
-  BW_PUBLIC_CLIENT_MARKS,
+  BW_CLIENT_LOGO_WALL_IMAGE,
   BW_TRUST_STATS,
   BW_YOUTUBE_VIDEOS,
 } from '@/content/bwCorporate';
@@ -55,20 +55,13 @@ export function CorporateTrustStats() {
 
 export function CorporateLogoWall() {
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-      {BW_PUBLIC_CLIENT_MARKS.map((name) => (
-        <div
-          key={name}
-          className="flex min-h-24 items-center justify-center rounded-2xl border border-border bg-card px-4 py-5 text-center shadow-sm transition-colors hover:border-primary/35"
-        >
-          <div>
-            <div className="mx-auto mb-2 flex h-10 w-10 items-center justify-center rounded-full bg-muted font-display text-sm font-bold text-primary">
-              {name.slice(0, 2)}
-            </div>
-            <p className="font-semibold">{name}</p>
-          </div>
-        </div>
-      ))}
+    <div className="overflow-hidden rounded-2xl border border-border bg-white p-4 shadow-sm sm:p-6">
+      <img
+        src={BW_CLIENT_LOGO_WALL_IMAGE}
+        alt="BW Furniture 客戶 Logo 牆：教育、金融及專業服務、香港政府及法定機構、酒店、科技、醫療及社福機構"
+        loading="lazy"
+        className="mx-auto h-auto w-full max-w-4xl object-contain"
+      />
     </div>
   );
 }

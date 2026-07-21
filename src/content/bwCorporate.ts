@@ -106,6 +106,9 @@ export const BW_PUBLIC_CLIENT_MARKS = [
   '京瑞廣場',
 ] as const;
 
+export const BW_CLIENT_LOGO_WALL_IMAGE =
+  'https://cdn.shopify.com/s/files/1/0614/6070/9575/files/logo___1_0ee55f1b-84b5-44da-b0ef-4c587de2575e.jpg';
+
 export const BW_YOUTUBE_VIDEOS = [
   { id: 'RgqhXyJJ2ak', title: 'BW 商業空間項目案例' },
   { id: '-dahDTPekig', title: '辦公室設計及傢俬配置' },

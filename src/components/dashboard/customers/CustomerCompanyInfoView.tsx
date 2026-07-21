@@ -91,7 +91,7 @@ export function CustomerCompanyInfoView(
 
       <CorporateSection
         title="公開客戶案例"
-        subtitle="以公開成功案例頁列出的項目名稱呈現，不讀取或公開私人 CRM 名單。"
+        subtitle="公開客戶 Logo 牆涵蓋教育、專業服務、政府、酒店、科技、醫療及社福機構。"
         icon={<Users className="h-5 w-5 text-primary" />}
       >
         <CorporateLogoWall />
