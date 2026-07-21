@@ -24,6 +24,20 @@ import {
   type ZoneProductStatus,
 } from '@/types/solutions';
 
+function zoneCodePrefix(code: string | null): string {
+  return code?.trim().match(/^[A-Za-z]+/)?.[0]?.toUpperCase() || '其他';
+}
+
+function zoneBaseName(name: string): string {
+  return (
+    name
+      .trim()
+      .replace(/\s+\d+$/, '')
+      .replace(/[（(]\d+[）)]$/, '')
+      .trim() || '其他間隔'
+  );
+}
+
 export function DesignProjectsView() {
   const [projects, setProjects] = useState<DesignProject[]>([]);
   const [activeProjectId, setActiveProjectId] = useState('');
@@ -76,6 +90,21 @@ export function DesignProjectsView() {
   const projectType =
     project?.meta?.projectType ||
     inferProjectType(project?.name || '', project?.clientCompany);
+  const zoneGroups = useMemo(() => {
+    const groups = new Map<
+      string,
+      { key: string; prefix: string; label: string; zones: ProjectZone[] }
+    >();
+    for (const zone of zones) {
+      const prefix = zoneCodePrefix(zone.code);
+      const label = zoneBaseName(zone.name);
+      const key = `${prefix}:${label}`;
+      const group = groups.get(key) || { key, prefix, label, zones: [] };
+      group.zones.push(zone);
+      groups.set(key, group);
+    }
+    return [...groups.values()];
+  }, [zones]);
 
   const openPicker = async (zoneId?: string | null) => {
     setPickerZoneId(zoneId ?? null);
@@ -207,8 +236,24 @@ export function DesignProjectsView() {
               請到「方案列表」展開此專案並設定間隔／功能房間
             </div>
           ) : (
-            <div className="grid items-start gap-4 xl:grid-cols-2">
-            {zones.map((zone) => {
+            <div className="space-y-7">
+            {zoneGroups.map((group) => (
+              <section key={group.key} className="space-y-3">
+                <div className="flex items-center gap-3 border-b border-border pb-2.5">
+                  <span className="flex h-9 min-w-9 items-center justify-center rounded-lg bg-primary text-sm font-bold text-primary-foreground">
+                    {group.prefix}
+                  </span>
+                  <div>
+                    <h3 className="font-display text-lg font-bold">
+                      {group.prefix} · {group.label}
+                    </h3>
+                    <p className="mt-0.5 text-[13px] text-muted-foreground">
+                      {group.zones.length} 個{group.label}
+                    </p>
+                  </div>
+                </div>
+                <div className="space-y-3">
+                {group.zones.map((zone) => {
               const items = zoneProducts.filter((zp) => zp.zoneId === zone.id);
               return (
                 <div
@@ -274,7 +319,10 @@ export function DesignProjectsView() {
                   )}
                 </div>
               );
-            })}
+                })}
+                </div>
+              </section>
+            ))}
             </div>
           )}
         </section>
