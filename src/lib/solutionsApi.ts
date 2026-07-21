@@ -424,17 +424,19 @@ export async function fetchActiveShopifyProducts(
       .order('published_at', { ascending: false, nullsFirst: false })
       .limit(limit);
     if (error || !data) return [];
-    return data.map((row) => ({
-      ...mapSearchProduct({
-        ...row,
-        id: row.source_product_id || row.shopify_product_id,
-        category: row.product_type,
-      }),
-      isOnShopify: true,
-      shopifyProductId: row.shopify_product_id
-        ? String(row.shopify_product_id)
-        : null,
-    }));
+    return data
+      .map((row) => ({
+        ...mapSearchProduct({
+          ...row,
+          id: row.source_product_id || row.shopify_product_id,
+          category: row.product_type,
+        }),
+        isOnShopify: true,
+        shopifyProductId: row.shopify_product_id
+          ? String(row.shopify_product_id)
+          : null,
+      }))
+      .filter((product) => product.salePrice > 0);
   } catch {
     return [];
   }

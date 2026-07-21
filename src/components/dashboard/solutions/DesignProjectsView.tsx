@@ -4,7 +4,7 @@ import {
   Plus, Loader2, Search, Check, X, LayoutGrid, UserRound, Tag,
 } from 'lucide-react';
 import {
-  fetchProjects, fetchZones, fetchZoneProducts, fetchSearchProducts,
+  fetchProjects, fetchZones, fetchZoneProducts, fetchActiveShopifyProducts,
   createZoneProduct, updateZoneProductStatus,
 } from '@/lib/solutionsApi';
 import { consumeSolutionFocusProjectId } from '@/lib/solutionProjectFocus';
@@ -111,7 +111,7 @@ export function DesignProjectsView() {
     setPickerOpen(true);
     if (products.length === 0) {
       setProductsLoading(true);
-      fetchSearchProducts(80)
+      fetchActiveShopifyProducts(300)
         .then(setProducts)
         .finally(() => setProductsLoading(false));
     }
@@ -368,6 +368,9 @@ export function DesignProjectsView() {
                   {pickerZoneId
                     ? zones.find((z) => z.id === pickerZoneId)?.name || '指定間隔'
                     : zones[0]?.name || '第一個間隔'}
+                </p>
+                <p className="mt-1 text-[13px] text-muted-foreground">
+                  只顯示目前可供選購並已有售價的產品
                 </p>
               </div>
               <button
