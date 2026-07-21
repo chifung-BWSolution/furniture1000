@@ -17,6 +17,7 @@ import { CategoryTagPicker, type BwfCat } from './CategoryTagPicker';
 import { MANUFACTURERS } from '@/constants/manufacturers';
 import { fetchFactoriesWithIds, type FactoryItem } from '@/lib/factorySupabase';
 import { buildMoreImageMetafieldColumns } from '@/lib/shopifyMetafieldImages';
+import { syncShopifyProductToProduct } from '@/lib/rtsProductSync';
 
 interface ShopifyVariant {
   id?: string | number;
@@ -407,6 +408,23 @@ export function PublishedProductDetailModal({
         });
         return;
       }
+
+      if (r.source_product_id) {
+        await syncShopifyProductToProduct(supabase, r.source_product_id, {
+          title: updatePayload.title as string,
+          body_html: updatePayload.body_html as string,
+          vendor: updatePayload.vendor as string,
+          product_type: updatePayload.product_type as string,
+          tags: updatePayload.tags as string[],
+          sku: updatePayload.sku as string,
+          price: priceNum,
+          compare_at_price: compareNum,
+          image_url: updatePayload.image_url as string,
+          images: updatePayload.images,
+          'my_fields.materials': updatePayload['my_fields.materials'] as string,
+        });
+      }
+
       toast.success('已儲存至本地', {
         id: toastId,
         description: '按「與 Shopify 同步」將本地資料推送至 Shopify（圖片 metafield 會使用 Shopify CDN）。',

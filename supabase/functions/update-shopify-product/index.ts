@@ -969,6 +969,71 @@ async function syncProductGalleryCleanup(
   return { kept, deleted };
 }
 
+/** Mirror row → products catalog (ready_to_shopify / shopify_products edits stay aligned). */
+async function syncProductsFromMirrorRow(
+  supabase: ReturnType<typeof createClient>,
+  sourceProductId: string | null | undefined,
+  row: Record<string, unknown>,
+): Promise<void> {
+  const productId = String(sourceProductId || "").trim();
+  if (!productId) return;
+
+  const galleryUrls: string[] = [];
+  const seen = new Set<string>();
+  const pushUrl = (src: unknown) => {
+    if (typeof src !== "string" || !/^https?:\/\//.test(src.trim())) return;
+    const u = src.trim();
+    if (seen.has(u)) return;
+    seen.add(u);
+    galleryUrls.push(u);
+  };
+  pushUrl(row.image_url);
+  pushUrl(row.image_url_2);
+  pushUrl(row.image_url_3);
+  if (Array.isArray(row.images)) {
+    for (const im of row.images as { src?: string }[]) pushUrl(im?.src);
+  }
+
+  const ptParts = String(row.product_type ?? "").split(" / ");
+  const patch: Record<string, unknown> = {};
+  if (row.title != null && String(row.title).trim()) patch.title = String(row.title).trim();
+  if (typeof row.body_html === "string") {
+    patch.description_html = row.body_html;
+    patch.description = row.body_html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+  }
+  if (galleryUrls[0]) patch.image_url = galleryUrls[0];
+  if (galleryUrls[1]) patch.image_url_2 = galleryUrls[1];
+  if (galleryUrls[2]) patch.image_url_3 = galleryUrls[2];
+  if (galleryUrls.length > 1) {
+    patch.images = galleryUrls.slice(1).map((src, i) => ({ src, position: i + 1 }));
+  }
+  if (row.tags !== undefined) {
+    patch.tags = Array.isArray(row.tags)
+      ? row.tags
+      : String(row.tags || "").split(",").map((t) => t.trim()).filter(Boolean);
+  }
+  if (row.sku != null) patch.sku = row.sku;
+  if (row.price != null && !isNaN(Number(row.price))) patch.sale_price = Number(row.price);
+  if (row.compare_at_price != null && !isNaN(Number(row.compare_at_price))) {
+    patch.compare_at_price = Number(row.compare_at_price);
+  }
+  if (row.vendor != null && String(row.vendor).trim()) {
+    patch.factories_display_name = String(row.vendor).trim();
+  }
+  if (ptParts[0]?.trim()) patch.level1_category = ptParts[0].trim();
+  if (ptParts[1]?.trim()) patch.level2_category = ptParts[1].trim();
+  const materials = row["my_fields.materials"];
+  if (materials != null && String(materials).trim()) patch.material = String(materials).trim();
+  const prodTime = row["my_fields.production_time"];
+  if (prodTime != null && String(prodTime).trim()) patch.customize = String(prodTime).trim();
+
+  if (Object.keys(patch).length === 0) return;
+  const { error } = await supabase.from("products").update(patch).eq("id", productId);
+  if (error) {
+    console.warn(`[update-shopify-product] products sync failed for ${productId}:`, error.message);
+  }
+}
+
 async function refreshMirrorAfterShopifyPush(
   supabase: ReturnType<typeof createClient>,
   shopifyId: string,
@@ -1009,6 +1074,17 @@ async function refreshMirrorAfterShopifyPush(
   }
   if (typeof payload.sku === "string") spUpdate.sku = payload.sku;
   await supabase.from("shopify_products").update(spUpdate).eq("shopify_product_id", shopifyId);
+  await syncProductsFromMirrorRow(supabase, payload.source_product_id, {
+    ...spUpdate,
+    title: payload.title,
+    body_html: payload.body_html,
+    vendor: payload.vendor,
+    product_type: payload.product_type,
+    tags: payload.tags,
+    price: payload.price,
+    compare_at_price: payload.compare_at_price,
+    sku: payload.sku,
+  });
 }
 
 function mirrorRowToPayload(row: Record<string, unknown>): PushPayload {
@@ -1580,6 +1656,19 @@ async function pushProductToShopify(
     if (typeof seoTitle === "string") spUpdate.shopify_page_title = seoTitle.trim() || null;
     if (typeof seoDescription === "string") spUpdate.shopify_page_description = seoDescription.trim() || null;
     await supabase.from("shopify_products").update(spUpdate).eq("shopify_product_id", shopifyId);
+    await syncProductsFromMirrorRow(supabase, sourceProductId, {
+      ...spUpdate,
+      title,
+      body_html: bodyHtml,
+      vendor,
+      product_type: productType,
+      tags,
+      price,
+      compare_at_price: compareAtPrice,
+      sku: spUpdate.sku ?? sku,
+      "my_fields.materials": mergedMetafields["my_fields.materials"],
+      "my_fields.production_time": mergedMetafields["my_fields.production_time"],
+    });
   }
 
   const liveHandle = (

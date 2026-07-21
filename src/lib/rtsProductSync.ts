@@ -2,6 +2,69 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import { isHttpImageUrl } from '@/lib/imageStorage';
 import { stripBase64ForDb } from '@/lib/imageStorage';
 import { withUpdateAuditFields } from '@/lib/pmsAudit';
+import { parseRtsImageUrls } from '@/lib/rtsImages';
+
+export type MirrorRowForProductSync = {
+  title?: string | null;
+  body_html?: string | null;
+  image_url?: string | null;
+  image_url_2?: string | null;
+  image_url_3?: string | null;
+  images?: unknown;
+  tags?: string[] | string | null;
+  sku?: string | null;
+  price?: number | null;
+  compare_at_price?: number | null;
+  vendor?: string | null;
+  product_type?: string | null;
+  cost?: number | null;
+  'my_fields.materials'?: string | null;
+  'my_fields.production_time'?: string | null;
+};
+
+/** Map ready_to_shopify or shopify_products row → products content patch. */
+export function mirrorRowToRtsContentPatch(row: MirrorRowForProductSync) {
+  const gallery = parseRtsImageUrls(row);
+  const ptParts = String(row.product_type ?? '').split(' / ');
+  const tags = Array.isArray(row.tags)
+    ? row.tags
+    : typeof row.tags === 'string' && row.tags
+      ? row.tags.split(',').map((t) => t.trim()).filter(Boolean)
+      : undefined;
+
+  return {
+    title: row.title ?? undefined,
+    body_html: row.body_html ?? undefined,
+    image_url: gallery[0] || row.image_url || null,
+    image_url_2: gallery[1] || null,
+    image_url_3: gallery[2] || null,
+    images: gallery.length > 1
+      ? gallery.slice(1).map((src, i) => ({ src, position: i + 1 }))
+      : null,
+    tags,
+    sku: row.sku ?? undefined,
+    price: row.price ?? undefined,
+    sale_price: row.price ?? undefined,
+    compare_at_price: row.compare_at_price ?? undefined,
+    level1_category: ptParts[0]?.trim() || null,
+    level2_category: ptParts[1]?.trim() || null,
+    vendor: row.vendor ?? undefined,
+    'my_fields.materials': row['my_fields.materials'] ?? undefined,
+    customize: row['my_fields.production_time'] ?? undefined,
+    cost_price: row.cost ?? undefined,
+  };
+}
+
+/** Push shopify_products mirror edits → products (same product_id / source_product_id). */
+export async function syncShopifyProductToProduct(
+  supabase: SupabaseClient,
+  sourceProductId: string | null | undefined,
+  mirror: MirrorRowForProductSync,
+): Promise<void> {
+  const productId = (sourceProductId || '').trim();
+  if (!productId) return;
+  await syncRtsContentToProduct(supabase, productId, mirrorRowToRtsContentPatch(mirror));
+}
 
 /** Mirror publish-workflow flags to products (待處理 / 目錄 filters still use products). */
 export async function syncRtsWorkflowToProduct(
@@ -49,6 +112,8 @@ export async function syncRtsContentToProduct(
     material?: string | null;
     'my_fields.materials'?: string | null;
     cost_price?: number | null;
+    vendor?: string | null;
+    compare_at_price?: number | null;
   },
 ): Promise<void> {
   const productsPatch: Record<string, unknown> = {};
@@ -71,6 +136,12 @@ export async function syncRtsContentToProduct(
   if (patch.sku !== undefined) productsPatch.sku = patch.sku;
   if (patch.sale_price != null) productsPatch.sale_price = patch.sale_price;
   else if (patch.price != null) productsPatch.sale_price = patch.price;
+  if (patch.compare_at_price != null && !Number.isNaN(Number(patch.compare_at_price))) {
+    productsPatch.compare_at_price = Number(patch.compare_at_price);
+  }
+  if (patch.vendor != null && String(patch.vendor).trim()) {
+    productsPatch.factories_display_name = String(patch.vendor).trim();
+  }
   if (patch.level1_category !== undefined) productsPatch.level1_category = patch.level1_category;
   if (patch.level2_category !== undefined) productsPatch.level2_category = patch.level2_category;
   if (patch.dimension_l_mm !== undefined) productsPatch.dimension_l_mm = patch.dimension_l_mm;

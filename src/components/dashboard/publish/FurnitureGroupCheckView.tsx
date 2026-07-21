@@ -8,7 +8,7 @@ import {
 import { supabase } from '@/lib/supabase';
 import { uploadImageSourceToStorage, stripBase64ForDb, isHttpImageUrl } from '@/lib/imageStorage';
 import { parseRtsImageUrls } from '@/lib/rtsImages';
-import { syncRtsWorkflowToProduct } from '@/lib/rtsProductSync';
+import { syncRtsContentToProduct, syncRtsWorkflowToProduct } from '@/lib/rtsProductSync';
 import { dedupeFactoryNames, normalizeFactoryDisplayName } from '@/lib/factoryNames';
 import { getPublishTimestampHk } from '@/lib/publishTimestamps';
 import { writeUploadLog, writeUploadLogBatch } from '@/lib/uploadLog';
@@ -490,10 +490,11 @@ export function FGProductDetailModal({
       }
 
       if (data.product_id) {
-        const prodUpdate: Record<string, unknown> = {
+        await syncRtsContentToProduct(supabase, data.product_id, {
           title: editTitle || null,
-          description: editBodyHtml || null,
+          body_html: editBodyHtml || null,
           sku: editSku || null,
+          price: isNaN(priceNum as number) ? null : priceNum,
           sale_price: isNaN(priceNum as number) ? null : priceNum,
           cost_price: isNaN(costNum as number) ? null : costNum,
           tags: editTags.length > 0 ? editTags : null,
@@ -504,18 +505,16 @@ export function FGProductDetailModal({
           dimension_h_mm: dimH,
           in_stock: inStockVal,
           customize: customizeVal,
-        };
-        if (imagesChanged) {
-          prodUpdate.image_url = primaryImageUrl;
-          prodUpdate.image_url_2 = resolvedImages[1] || null;
-          prodUpdate.image_url_3 = resolvedImages[2] || null;
-          prodUpdate.images = imagesArr;
-        }
-        const { error: pErr } = await supabase
-          .from('products')
-          .update(prodUpdate)
-          .eq('id', data.product_id);
-        if (pErr) throw new Error(`products 同步失敗：${pErr.message}`);
+          vendor: editVendor || null,
+          ...(imagesChanged
+            ? {
+                image_url: primaryImageUrl,
+                image_url_2: resolvedImages[1] || null,
+                image_url_3: resolvedImages[2] || null,
+                images: imagesArr,
+              }
+            : {}),
+        });
       }
 
       setData(prev => {

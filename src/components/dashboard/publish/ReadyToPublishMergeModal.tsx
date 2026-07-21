@@ -18,6 +18,7 @@ import {
   imageDedupeKey,
   isHttpUrl,
 } from '@/lib/productMergeImages';
+import { syncRtsContentToProduct } from '@/lib/rtsProductSync';
 
 interface RtsVariant {
   id?: string;
@@ -672,6 +673,18 @@ export function ReadyToPublishMergeModal({
         toast.error('儲存失敗', { id: toastId, description: error.message });
         return;
       }
+
+      await syncRtsContentToProduct(supabase, hostProductId, {
+        image_url: primary,
+        image_url_2: dedupedGallery[1] || null,
+        image_url_3: dedupedGallery[2] || null,
+        images: dedupedGallery.length > 0
+          ? dedupedGallery.map((src, i) => ({ src, position: i + 1 }))
+          : null,
+        sku: parentSku,
+        price: minPrice,
+        sale_price: minPrice,
+      });
 
       if (currentMergedRtsIds.length > 0) {
         await supabase
