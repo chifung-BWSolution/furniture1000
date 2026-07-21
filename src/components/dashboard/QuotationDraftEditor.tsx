@@ -1021,8 +1021,8 @@ function QuoteProductItemCard({
               className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
             />
           </QuoteFieldBlock>
-          <div className="flex min-h-0 flex-1 items-center py-0.5">
-            <QuoteFieldBlock label={labels.exchangeRate} className="w-full">
+          <div className="relative z-10 flex min-h-0 flex-1 items-center py-0.5">
+            <QuoteFieldBlock label={labels.exchangeRate} className="w-max">
               <div className="flex items-center gap-1.5">
                 <input
                   type="text"
@@ -1030,7 +1030,7 @@ function QuoteProductItemCard({
                   value={exchangeRateInputDisplay(item.exchangeRateInput, item.exchangeRate)}
                   placeholder="—"
                   onChange={(e) => updateExchangeRate(item.id, e.target.value)}
-                  className={cn(QUOTE_COMPACT_NUMBER_INPUT_CLASS, "min-w-0 flex-1")}
+                  className={cn(QUOTE_COMPACT_NUMBER_INPUT_CLASS, "w-[6em] min-w-[6em] shrink-0")}
                 />
                 {showUnifyExchangeRate ? (
                   <button
