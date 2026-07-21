@@ -15,6 +15,7 @@ import {
   imageDedupeKey,
   isHttpUrl,
 } from '@/lib/productMergeImages';
+import { parseInvokeError } from '@/lib/edgeFunctionErrors';
 import {
   Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle,
 } from '@/components/ui/dialog';
@@ -565,13 +566,14 @@ export function PublishedProductMergeModal({
     setIsMerging(true);
     const toastId = toast.loading('正在合併 Shopify 產品…');
     try {
+      const mergeRows = assignDuplicateMergeSkus(rows);
       const dedupedGallery = dedupeImageUrlsPreserveOrder(galleryUrls);
       const payload = {
         parent_shopify_product_id: parentShopifyId,
         parent_sku: parentSku,
         primary_image_src: dedupedGallery[0] || undefined,
         gallery_urls: dedupedGallery.length > 0 ? dedupedGallery : undefined,
-        variants: rows.map((r) => {
+        variants: mergeRows.map((r) => {
           const primary = dedupedGallery[0];
           let imageSrc = r.imageSrc || undefined;
           if (imageSrc && primary && imageDedupeKey(imageSrc) === imageDedupeKey(primary)) {
@@ -594,8 +596,8 @@ export function PublishedProductMergeModal({
       );
 
       if (error || data?.error || data?.success === false) {
-        const msg = data?.error || error?.message || '合併失敗';
-        toast.error('合併失敗', { id: toastId, description: String(msg).slice(0, 200), duration: 8000 });
+        const msg = await parseInvokeError(error, data);
+        toast.error('合併失敗', { id: toastId, description: String(msg).slice(0, 300), duration: 8000 });
         return;
       }
 

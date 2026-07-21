@@ -111,12 +111,32 @@ function normalizeImageUrl(src: string): string {
   }
 }
 
-/** Collapse Shopify re-upload copies (_uuid suffix) and query strings to one logical image. */
 function imageDedupeKey(src: string): string {
+  const stem = imageIdentityKey(src);
+  if (stem) return stem;
   return normalizeImageUrl(src).replace(
     /_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?=\.[a-z0-9]+$)/i,
     "",
   );
+}
+
+/** Filename stem — Storage vs Shopify CDN; strip _1/_12 suffix on CDN only. */
+function imageIdentityKey(url: string): string {
+  if (!url || typeof url !== "string") return "";
+  const noQuery = url.split("?")[0];
+  const base = noQuery.substring(noQuery.lastIndexOf("/") + 1);
+  let stem = base
+    .replace(/\.[a-zA-Z0-9]+$/, "")
+    .replace(
+      /_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i,
+      "",
+    )
+    .trim()
+    .toLowerCase();
+  if (/cdn\.shopify\.com/i.test(url)) {
+    stem = stem.replace(/_\d{1,2}$/, "");
+  }
+  return stem;
 }
 
 function dedupeGalleryUrls(urls: string[], primarySrc: string | null): string[] {
@@ -349,7 +369,7 @@ async function ensureGalleryImagesOnShopify(
   return images;
 }
 
-/** Mirror images[] = unique gallery order only (no extra Shopify duplicates). */
+/** Mirror images[] = unique gallery order; fall back to live Shopify when UI gallery empty. */
 function buildMirrorImagesFromGallery(
   shopifyImages: ShopifyRecord[],
   galleryUrls: string[],
@@ -366,6 +386,19 @@ function buildMirrorImagesFromGallery(
         ? { ...im, src: (im.src as string) || src }
         : { src, alt: "", position: ordered.length + 1 },
     );
+  }
+
+  if (ordered.length === 0) {
+    const live = [...shopifyImages]
+      .filter((im) => isHttpUrl(im.src as string))
+      .sort((a, b) => (Number(a.position) || 99) - (Number(b.position) || 99));
+    const seen = new Set<string>();
+    for (const im of live) {
+      const key = imageDedupeKey(String(im.src));
+      if (seen.has(key)) continue;
+      seen.add(key);
+      ordered.push(im);
+    }
   }
 
   return ordered.map((im, i) => ({ ...im, position: i + 1 }));
@@ -512,6 +545,36 @@ async function syncMoreImageMetafieldsToShopify(
   }
 }
 
+/** Same-SKU rows → base SKU on lowest price; others get -1, -2, … suffixes. */
+function assignUniqueMergeSkus(specs: VariantSpec[], parentSku: string): VariantSpec[] {
+  const next = specs.map((s) => ({ ...s, sku: String(s.sku || "").trim() || parentSku }));
+  const groups = new Map<string, number[]>();
+  next.forEach((spec, idx) => {
+    const sku = spec.sku.trim();
+    if (!sku) return;
+    const list = groups.get(sku) ?? [];
+    list.push(idx);
+    groups.set(sku, list);
+  });
+  for (const [baseSku, indices] of groups) {
+    if (indices.length <= 1) continue;
+    const sorted = [...indices].sort((a, b) => {
+      const pa = Number(next[a].price);
+      const pb = Number(next[b].price);
+      const priceDiff = (Number.isFinite(pa) ? pa : 0) - (Number.isFinite(pb) ? pb : 0);
+      if (priceDiff !== 0) return priceDiff;
+      return String(next[a].size).localeCompare(String(next[b].size), "zh-Hant");
+    });
+    sorted.forEach((idx, rank) => {
+      next[idx] = {
+        ...next[idx],
+        sku: rank === 0 ? baseSku : `${baseSku}-${rank}`,
+      };
+    });
+  }
+  return next;
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
@@ -537,10 +600,26 @@ Deno.serve(async (req: Request) => {
     const body = await req.json().catch(() => ({})) as MergeBody;
     const parentId = String(body.parent_shopify_product_id || "").trim();
     const parentSku = String(body.parent_sku || "").trim();
-    const specs = Array.isArray(body.variants) ? body.variants : [];
+    let specs = Array.isArray(body.variants) ? body.variants : [];
 
     if (!/^\d+$/.test(parentId) || !parentSku || specs.length < 2) {
       return json({ error: "parent_shopify_product_id, parent_sku, and variants (>=2) are required" }, 400);
+    }
+
+    specs = assignUniqueMergeSkus(
+      specs.map((s) => ({
+        ...s,
+        shopify_product_id: String(s.shopify_product_id || "").trim(),
+        size: String(s.size || "").trim(),
+        sku: String(s.sku || "").trim() || parentSku,
+      })),
+      parentSku,
+    );
+
+    for (const spec of specs) {
+      if (!spec.size || !spec.sku || !/^\d+$/.test(spec.shopify_product_id)) {
+        return json({ error: "Each variant needs size, sku, and shopify_product_id" }, 400);
+      }
     }
 
     const apiBase = `https://${shopDomain}/admin/api/2024-10`;
@@ -584,6 +663,23 @@ Deno.serve(async (req: Request) => {
         .filter((id) => id !== parentId && /^\d+$/.test(id)),
     )];
 
+    // Archive child listings first so Shopify SKU conflicts are less likely during variant PUT.
+    const archivedOnShopify: string[] = [];
+    const archiveErrors: { shopify_product_id: string; error: string }[] = [];
+    for (const childId of childProductIds) {
+      const archResp = await fetch(`${apiBase}/products/${childId}.json`, {
+        method: "PUT",
+        headers,
+        body: JSON.stringify({ product: { id: Number(childId), status: "archived" } }),
+      });
+      if (archResp.ok) {
+        archivedOnShopify.push(childId);
+      } else {
+        const t = await archResp.text();
+        archiveErrors.push({ shopify_product_id: childId, error: t.slice(0, 200) });
+      }
+    }
+
     const putResp = await fetch(`${apiBase}/products/${parentId}.json`, {
       method: "PUT",
       headers,
@@ -621,23 +717,6 @@ Deno.serve(async (req: Request) => {
       const midImages = collectProductImages(midProduct);
       const orderedForReorder = buildMirrorImagesFromGallery(midImages, galleryUrls, primaryFromUi);
       await reorderShopifyProductImages(apiBase, headers, parentId, orderedForReorder);
-    }
-
-    // Archive child listings on Shopify (manual DELETE later if needed).
-    const archivedOnShopify: string[] = [];
-    const archiveErrors: { shopify_product_id: string; error: string }[] = [];
-    for (const childId of childProductIds) {
-      const archResp = await fetch(`${apiBase}/products/${childId}.json`, {
-        method: "PUT",
-        headers,
-        body: JSON.stringify({ product: { id: Number(childId), status: "archived" } }),
-      });
-      if (archResp.ok) {
-        archivedOnShopify.push(childId);
-      } else {
-        const t = await archResp.text();
-        archiveErrors.push({ shopify_product_id: childId, error: t.slice(0, 200) });
-      }
     }
 
     const finalProduct = await fetchShopifyProduct(apiBase, headers, parentId);
