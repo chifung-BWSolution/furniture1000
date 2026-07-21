@@ -277,19 +277,13 @@ export function CustomerQuoteSchemesView() {
       const quoteItems = syntheticProjectId
         ? []
         : await loadClientQuoteItems(activeId);
-      const quoteInfo = await fetchActiveMainProductInfo(
-        quoteItems
-          .filter((item) => !item.isSectionTitle && item.id)
-          .map((item) => ({
-            key: item.id as string,
-            productId: item.id,
-            title: item.name,
-          })),
-      );
-      const safeQuoteItems = quoteItems.map((item) => ({
-          ...item,
-          sku: item.id ? quoteInfo[item.id]?.sku : undefined,
-      }));
+      const quoteTargets = quoteItems
+        .filter((item) => !item.isSectionTitle && item.id)
+        .map((item) => ({
+          key: item.id as string,
+          productId: item.id,
+          title: item.name,
+        }));
       const linkedProject = syntheticProjectId
         ? confirmedProjects.find((project) => project.id === syntheticProjectId)
         : activeQuote
@@ -297,20 +291,20 @@ export function CustomerQuoteSchemesView() {
             (project) => projectQuoteId(project) === activeQuote.quote_id,
           )
           : null;
-      if (!linkedProject) return safeQuoteItems;
+      if (!linkedProject) {
+        return { rows: quoteItems, skuTargets: quoteTargets };
+      }
 
       const [zones, zoneProducts] = await Promise.all([
         fetchZones(linkedProject.id),
         fetchZoneProducts(linkedProject.id),
       ]);
       const selectedProducts = zoneProducts.filter((product) => product.zoneId);
-      const mainInfo = await fetchActiveMainProductInfo(
-        selectedProducts.map((product) => ({
-          key: product.id,
-          productId: product.productId,
-          title: product.productTitle,
-        })),
-      );
+      const skuTargets = selectedProducts.map((product) => ({
+        key: product.id,
+        productId: product.productId,
+        title: product.productTitle,
+      }));
       const grouped: BwfQuoteItemInput[] = [];
       for (const zone of zones) {
         const products = selectedProducts.filter(
@@ -330,22 +324,35 @@ export function CustomerQuoteSchemesView() {
             unitPrice: product.salePrice,
             quantity: product.quantity,
             unit: '件',
-            sku: mainInfo[product.id]?.sku,
           });
         }
       }
-      return grouped.length > 0 ? grouped : safeQuoteItems;
+      return {
+        rows: grouped.length > 0 ? grouped : quoteItems,
+        skuTargets: grouped.length > 0 ? skuTargets : quoteTargets,
+      };
     };
 
     loadItems()
-      .then((rows) => {
-        if (!cancelled) setItems(rows);
+      .then(({ rows, skuTargets }) => {
+        if (cancelled) return;
+        setItems(rows);
+        setItemsLoading(false);
+        void fetchActiveMainProductInfo(skuTargets).then((info) => {
+          if (cancelled) return;
+          setItems((current) =>
+            current.map((item) => ({
+              ...item,
+              sku: item.id ? info[item.id]?.sku : item.sku,
+            })),
+          );
+        });
       })
       .catch(() => {
-        if (!cancelled) setItems([]);
-      })
-      .finally(() => {
-        if (!cancelled) setItemsLoading(false);
+        if (!cancelled) {
+          setItems([]);
+          setItemsLoading(false);
+        }
       });
     return () => {
       cancelled = true;
