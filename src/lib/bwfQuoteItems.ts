@@ -185,6 +185,21 @@ export async function loadQuoteItems(
   return ((data || []) as BwfQuoteItemRow[]).map(mapRowToItem);
 }
 
+/** Client Portal safe projection — never transfers cost/exchange/factory fields. */
+export async function loadClientQuoteItems(
+  quoteUuid: string,
+): Promise<BwfQuoteItemInput[]> {
+  const { data, error } = await supabase
+    .from('bwf_quote_item')
+    .select(
+      'id,client_item_id,name,image,reference_image,remarks_image,remarks,unit_price,quantity,unit,category,material,color,dimension_l_mm,dimension_w_mm,dimension_h_mm,delivery_term_name,is_custom_term,is_optional,is_section_title,sort_order,quote_uuid',
+    )
+    .eq('quote_uuid', quoteUuid)
+    .order('sort_order', { ascending: true });
+  if (error) throw error;
+  return ((data || []) as unknown as BwfQuoteItemRow[]).map(mapRowToItem);
+}
+
 /**
  * Replace all items for a quote (delete + insert via RPC).
  * Call after resolving images to Storage URLs.

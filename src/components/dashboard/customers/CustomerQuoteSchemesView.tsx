@@ -1,12 +1,25 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { cn } from '@/lib/utils';
 import {
-  FileText, Loader2, ChevronDown, ChevronUp,
-  Shield, Clock, Search, RefreshCw,
+  Ban,
+  Check,
+  CheckCircle2,
+  Clock,
+  Download,
+  FileText,
+  Loader2,
+  Mail,
+  MessageSquare,
+  Printer,
+  RefreshCw,
+  Shield,
 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
-import { loadQuoteItems, type BwfQuoteItemInput } from '@/lib/bwfQuoteItems';
+import {
+  loadClientQuoteItems,
+  type BwfQuoteItemInput,
+} from '@/lib/bwfQuoteItems';
 import { compareQuoteVersion, displayQuoteVersion } from '@/lib/quoteVersions';
 import { quoteStatusBadgeClass } from '@/lib/listTableUtils';
 import { quoteItemLineSubtotal } from '@/lib/quoteItemTotals';
@@ -18,6 +31,7 @@ import {
 import { PortalPageShell } from '@/components/dashboard/customers/PortalPageShell';
 import { useClientZoneContext } from '@/hooks/use-client-zone-context';
 import { usePlatformRole } from '@/hooks/use-platform-role';
+import { BW_COMPANY } from '@/content/bwCorporate';
 
 type QuoteRecord = {
   id: string;
@@ -32,7 +46,6 @@ type QuoteRecord = {
     formData?: {
       clientName?: string;
       clientContactName?: string;
-      projectManager?: string;
     };
     clientInfo?: { name?: string; contactName?: string };
     [key: string]: unknown;
@@ -40,49 +53,85 @@ type QuoteRecord = {
   pitching?: PmsPitchingListItem | null;
 };
 
+type ItemReview = 'accepted' | 'change' | 'rejected';
+type QuoteDecision = 'pending' | 'approved' | 'rejected';
+type QuoteItemGroup = { title: string; items: BwfQuoteItemInput[] };
+
 const LIST_SELECT =
   'id, quote_id, version, status, total_amount, created_at, modified_date, project_data, bwf_pitching_id';
 
-function fmtMoney(n: number) {
-  return `HK$ ${Math.round(n || 0).toLocaleString()}`;
+function fmtMoney(value: number) {
+  return `HK$ ${Math.round(value || 0).toLocaleString()}`;
 }
 
 function fmtDate(iso: string | null | undefined) {
   if (!iso) return '—';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '—';
-  return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '—';
+  return date.toLocaleDateString('zh-HK');
 }
 
-function clientNameOf(q: QuoteRecord) {
+function clientNameOf(quote: QuoteRecord) {
   return (
-    q.project_data?.formData?.clientName?.trim() ||
-    q.project_data?.clientInfo?.name?.trim() ||
-    q.project_data?.formData?.clientContactName?.trim() ||
+    quote.project_data?.formData?.clientName?.trim() ||
+    quote.project_data?.clientInfo?.name?.trim() ||
+    quote.project_data?.formData?.clientContactName?.trim() ||
     '—'
   );
 }
 
-/** Same rule as 報價單一覽: live PMS pitching title, else client name. */
-function quoteDisplayName(q: QuoteRecord) {
-  if (q.pitching) return pitchingDisplayTitle(q.pitching);
-  const client = q.project_data?.formData?.clientName?.trim() || '';
-  return client || q.quote_id?.trim() || '未命名專案';
+function quoteDisplayName(quote: QuoteRecord) {
+  if (quote.pitching) return pitchingDisplayTitle(quote.pitching);
+  return (
+    quote.project_data?.formData?.clientName?.trim() ||
+    quote.quote_id?.trim() ||
+    '未命名專案'
+  );
 }
 
-function groupByQuoteId(rows: QuoteRecord[]): Map<string, QuoteRecord[]> {
+function groupVersions(rows: QuoteRecord[]) {
   const map = new Map<string, QuoteRecord[]>();
   for (const row of rows) {
-    const list = map.get(row.quote_id) || [];
-    list.push(row);
-    map.set(row.quote_id, list);
+    const versions = map.get(row.quote_id) || [];
+    versions.push(row);
+    map.set(row.quote_id, versions);
   }
-  for (const [key, list] of map) {
-    list.sort((a, b) => -compareQuoteVersion(a.version, b.version));
-    map.set(key, list);
+  for (const versions of map.values()) {
+    versions.sort((a, b) => -compareQuoteVersion(a.version, b.version));
   }
   return map;
 }
+
+function groupQuoteItems(items: BwfQuoteItemInput[]): QuoteItemGroup[] {
+  const groups: QuoteItemGroup[] = [];
+  let current: QuoteItemGroup = { title: '報價產品', items: [] };
+  for (const item of items) {
+    if (item.isSectionTitle) {
+      if (current.items.length > 0) groups.push(current);
+      current = { title: item.name?.trim() || '其他區域', items: [] };
+      continue;
+    }
+    if (item.isCustomTerm) continue;
+    current.items.push(item);
+  }
+  if (current.items.length > 0) groups.push(current);
+  return groups;
+}
+
+function escapeHtml(value: unknown) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+const REVIEW_LABEL: Record<ItemReview, string> = {
+  accepted: '接受',
+  change: '要求修改',
+  rejected: '不接受',
+};
 
 export function CustomerQuoteSchemesView() {
   const { projects: clientProjects } = useClientZoneContext();
@@ -91,13 +140,16 @@ export function CustomerQuoteSchemesView() {
     typeof window !== 'undefined' &&
     Boolean(localStorage.getItem('fds-client-portal-token'));
   const clientOnly = platformRole === 'client' || hasPortalToken;
+
   const [quotes, setQuotes] = useState<QuoteRecord[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [activeId, setActiveId] = useState('');
   const [items, setItems] = useState<BwfQuoteItemInput[]>([]);
+  const [loading, setLoading] = useState(true);
   const [itemsLoading, setItemsLoading] = useState(false);
+  const [itemReviews, setItemReviews] = useState<Record<string, ItemReview>>({});
+  const [itemNotes, setItemNotes] = useState<Record<string, string>>({});
+  const [quoteDecision, setQuoteDecision] = useState<QuoteDecision>('pending');
+  const [quoteNote, setQuoteNote] = useState('');
 
   const fetchQuotes = useCallback(async () => {
     setLoading(true);
@@ -109,44 +161,38 @@ export function CustomerQuoteSchemesView() {
         .limit(120);
       if (error) throw error;
       const rows = (data as QuoteRecord[]) || [];
-
       const pitchingIds = [
         ...new Set(
           rows
-            .map((q) => q.bwf_pitching_id)
+            .map((quote) => quote.bwf_pitching_id)
             .filter((id): id is string => Boolean(id)),
         ),
       ];
-      let pitchingById = new Map<string, PmsPitchingListItem>();
-      if (pitchingIds.length > 0) {
-        const pitchings = await fetchPmsPitchings({
-          ids: pitchingIds,
-          limit: pitchingIds.length,
-        });
-        pitchingById = new Map(pitchings.map((p) => [p.id, p]));
-      }
-
-      const enriched = rows.map((q) => ({
-        ...q,
-        pitching: q.bwf_pitching_id
-          ? pitchingById.get(q.bwf_pitching_id) || null
+      const pitchings = pitchingIds.length
+        ? await fetchPmsPitchings({ ids: pitchingIds, limit: pitchingIds.length })
+        : [];
+      const pitchingById = new Map(pitchings.map((pitching) => [pitching.id, pitching]));
+      const enriched = rows.map((quote) => ({
+        ...quote,
+        pitching: quote.bwf_pitching_id
+          ? pitchingById.get(quote.bwf_pitching_id) || null
           : null,
       }));
       setQuotes(enriched);
-      if (enriched[0] && !activeId) setActiveId(enriched[0].id);
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : '無法載入報價';
-      toast.error('載入失敗', { description: message });
+      setActiveId((current) => current || enriched[0]?.id || '');
+    } catch (error) {
+      toast.error('無法載入客戶報價', {
+        description: error instanceof Error ? error.message : '請稍後再試',
+      });
       setQuotes([]);
     } finally {
       setLoading(false);
     }
-  }, [activeId]);
+  }, []);
 
   useEffect(() => {
     void fetchQuotes();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [fetchQuotes]);
 
   useEffect(() => {
     if (!activeId) {
@@ -155,7 +201,7 @@ export function CustomerQuoteSchemesView() {
     }
     let cancelled = false;
     setItemsLoading(true);
-    loadQuoteItems(activeId)
+    loadClientQuoteItems(activeId)
       .then((rows) => {
         if (!cancelled) setItems(rows);
       })
@@ -170,27 +216,21 @@ export function CustomerQuoteSchemesView() {
     };
   }, [activeId]);
 
-  const groups = useMemo(() => groupByQuoteId(quotes), [quotes]);
-
-  const latestRows = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase();
+  const versionsByQuote = useMemo(() => groupVersions(quotes), [quotes]);
+  const availableQuotes = useMemo(() => {
     const allowedTerms = new Set(
       clientProjects
-        .flatMap((p) => [p.name, p.clientName, p.clientCompany])
-        .map((v) => v?.trim().toLowerCase())
-        .filter((v): v is string => Boolean(v)),
+        .flatMap((project) => [project.name, project.clientName, project.clientCompany])
+        .map((value) => value?.trim().toLowerCase())
+        .filter((value): value is string => Boolean(value)),
     );
-    const list = [...groups.values()]
+    return [...versionsByQuote.values()]
       .map((versions) => versions[0])
-      .filter((row) => {
+      .filter((quote) => {
         if (!clientOnly) return true;
         if (allowedTerms.size === 0) return false;
-        const values = [
-          quoteDisplayName(row),
-          clientNameOf(row),
-          row.project_data?.formData?.clientName || '',
-        ]
-          .map((v) => v.trim().toLowerCase())
+        const values = [quoteDisplayName(quote), clientNameOf(quote)]
+          .map((value) => value.trim().toLowerCase())
           .filter(Boolean);
         return values.some((value) =>
           [...allowedTerms].some(
@@ -198,312 +238,469 @@ export function CustomerQuoteSchemesView() {
           ),
         );
       });
-    return list.filter((row) => {
-      if (!q) return true;
-      return (
-        row.quote_id.toLowerCase().includes(q) ||
-        quoteDisplayName(row).toLowerCase().includes(q) ||
-        clientNameOf(row).toLowerCase().includes(q) ||
-        displayQuoteVersion(row.version).toLowerCase().includes(q) ||
-        (row.status || '').toLowerCase().includes(q)
-      );
-    });
-  }, [groups, searchQuery, clientOnly, clientProjects]);
+  }, [clientOnly, clientProjects, versionsByQuote]);
 
-  const active = useMemo(
-    () => quotes.find((q) => q.id === activeId) || null,
-    [quotes, activeId],
+  useEffect(() => {
+    if (availableQuotes.length === 0) return;
+    const activeVisible = quotes.some(
+      (quote) =>
+        quote.id === activeId &&
+        availableQuotes.some((latest) => latest.quote_id === quote.quote_id),
+    );
+    if (!activeVisible) setActiveId(availableQuotes[0].id);
+  }, [activeId, availableQuotes, quotes]);
+
+  const active = quotes.find((quote) => quote.id === activeId) || null;
+  const activeVersions = active
+    ? versionsByQuote.get(active.quote_id) || [active]
+    : [];
+  const itemGroups = useMemo(() => groupQuoteItems(items), [items]);
+  const pricedItems = items.filter(
+    (item) => !item.isSectionTitle && !item.isCustomTerm && !item.isOptional,
   );
-  const activeVersions = active ? groups.get(active.quote_id) || [active] : [];
-  const billableItems = useMemo(
-    () =>
-      items.filter(
-        (it) => !it.isSectionTitle && !it.isOptional && !it.isCustomTerm,
-      ),
-    [items],
-  );
-  const itemsSubtotal = useMemo(
-    () => billableItems.reduce((sum, it) => sum + quoteItemLineSubtotal(it), 0),
-    [billableItems],
+  const itemSubtotal = pricedItems.reduce(
+    (sum, item) => sum + quoteItemLineSubtotal(item),
+    0,
   );
 
-  const toggleExpand = (quoteId: string) => {
-    setExpandedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(quoteId)) next.delete(quoteId);
-      else next.add(quoteId);
-      return next;
+  const itemKey = (item: BwfQuoteItemInput, index: number) =>
+    item.id || `${item.name || 'item'}-${index}`;
+
+  const buildExportHtml = () => {
+    if (!active) return '';
+    const groupsHtml = itemGroups
+      .map(
+        (group) => `
+          <section>
+            <h2>${escapeHtml(group.title)}</h2>
+            ${group.items
+              .map((item, index) => {
+                const key = itemKey(item, index);
+                const review = itemReviews[key]
+                  ? REVIEW_LABEL[itemReviews[key]]
+                  : '尚未決定';
+                return `<div class="item">
+                  ${
+                    item.image
+                      ? `<img src="${escapeHtml(item.image)}" alt="">`
+                      : ''
+                  }
+                  <div class="grow">
+                    <strong>${escapeHtml(item.name || '—')}</strong>
+                    <p>${escapeHtml(item.material || '')} ${escapeHtml(item.color || '')}</p>
+                    <p>${fmtMoney(Number(item.unitPrice || 0))} × ${escapeHtml(item.quantity || 1)} ${escapeHtml(item.unit || '')}</p>
+                    <p class="review">客戶決定：${escapeHtml(review)} ${escapeHtml(itemNotes[key] || '')}</p>
+                  </div>
+                  <b>${item.isOptional ? '可選' : fmtMoney(quoteItemLineSubtotal(item))}</b>
+                </div>`;
+              })
+              .join('')}
+          </section>`,
+      )
+      .join('');
+    const decisionLabel =
+      quoteDecision === 'approved'
+        ? '確認整張報價'
+        : quoteDecision === 'rejected'
+          ? '拒絕整張報價'
+          : '尚未決定';
+    return `<!doctype html>
+      <html lang="zh-HK"><head><meta charset="utf-8">
+      <title>${escapeHtml(active.quote_id)} ${escapeHtml(displayQuoteVersion(active.version))}</title>
+      <style>
+        body{font-family:"Noto Sans HK","Noto Sans TC",sans-serif;color:#16182a;max-width:960px;margin:0 auto;padding:40px}
+        header{border-bottom:2px solid #6366f1;padding-bottom:22px;margin-bottom:26px}
+        h1{margin:0 0 8px;font-size:28px} h2{font-size:19px;margin-top:28px}
+        .meta{color:#62677a}.item{display:flex;gap:16px;align-items:center;border:1px solid #e4e5ef;border-radius:12px;padding:14px;margin:10px 0}
+        .item img{width:72px;height:72px;object-fit:cover;border-radius:8px}.grow{flex:1}.item p{margin:4px 0;color:#62677a}
+        .review{color:#4338ca!important}.decision{margin-top:30px;padding:18px;background:#f2f2ff;border-radius:12px}
+        @media print{body{padding:0}.item{break-inside:avoid}}
+      </style></head><body>
+      <header><p>BW Furniture · Client Portal</p>
+        <h1>${escapeHtml(quoteDisplayName(active))}</h1>
+        <p class="meta">${escapeHtml(active.quote_id)} · ${escapeHtml(displayQuoteVersion(active.version))} · ${fmtDate(active.modified_date || active.created_at)}</p>
+        <h2>${fmtMoney(active.total_amount || itemSubtotal)}</h2>
+      </header>
+      ${groupsHtml}
+      <div class="decision"><strong>整張報價決定：${decisionLabel}</strong><p>${escapeHtml(quoteNote)}</p></div>
+      </body></html>`;
+  };
+
+  const downloadHtml = () => {
+    if (!active) return;
+    const blob = new Blob([buildExportHtml()], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${active.quote_id}-${displayQuoteVersion(active.version)}.html`;
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const printPdf = () => {
+    const popup = window.open('', '_blank');
+    if (!popup) {
+      toast.error('瀏覽器已阻擋列印視窗');
+      return;
+    }
+    popup.opener = null;
+    popup.document.open();
+    popup.document.write(buildExportHtml());
+    popup.document.close();
+    popup.focus();
+    window.setTimeout(() => popup.print(), 300);
+  };
+
+  const submitResponse = () => {
+    if (!active || quoteDecision === 'pending') {
+      toast.error('請先選擇確認或拒絕整張報價');
+      return;
+    }
+    const lines = pricedItems.map((item, index) => {
+      const key = itemKey(item, index);
+      return `${item.name || '產品'}：${
+        itemReviews[key] ? REVIEW_LABEL[itemReviews[key]] : '尚未決定'
+      }${itemNotes[key] ? `（${itemNotes[key]}）` : ''}`;
     });
+    const body = encodeURIComponent(
+      `報價：${active.quote_id} ${displayQuoteVersion(active.version)}\n整張決定：${
+        quoteDecision === 'approved' ? '確認' : '拒絕'
+      }\n\n${lines.join('\n')}\n\n備註：${quoteNote || '沒有'}`,
+    );
+    window.location.href = `mailto:${BW_COMPANY.email}?subject=${encodeURIComponent(
+      `客戶報價回覆 ${active.quote_id}`,
+    )}&body=${body}`;
   };
 
   return (
     <PortalPageShell
       title="報價方案"
       badge="Client Portal"
-      subtitle="唯讀載入 Supabase 真實報價與產品明細（僅售價，隱藏成本）。"
+      subtitle="查看自己的 HTML 報價、切換版本、按工程分區批核產品，並回覆整張報價。"
+      maxWidthClass="max-w-6xl"
       actions={
-        <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2.5 py-1 font-body text-xs text-muted-foreground">
-          <Shield className="h-3 w-3" /> 僅顯示售價
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/5 px-3 py-1.5 text-xs text-primary">
+          <Shield className="h-4 w-4" />
+          只顯示售價，成本已隱藏
         </span>
       }
-      maxWidthClass="max-w-6xl"
     >
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <input
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="搜尋提案顯示名稱／報價單號／版本…"
-            className="w-full rounded-xl border border-border bg-card py-2.5 pl-10 pr-4 font-body text-sm focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
-          />
-        </div>
-        <button
-          type="button"
-          onClick={() => void fetchQuotes()}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-medium hover:bg-muted"
-        >
-          <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />
-          重新整理
-        </button>
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
-        {/* List — inspired by 報價一覽 */}
-        <section className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
-          <div className="border-b border-border bg-muted/40 px-4 py-2.5">
-            <h2 className="font-display text-sm font-bold">報價一覽</h2>
-            <p className="font-mono-data text-xs text-muted-foreground">
-              {loading ? '載入中…' : `共 ${latestRows.length} 張報價 · ${quotes.length} 個版本`}
+      <section>
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <h2 className="font-display text-lg font-bold">您的報價</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              一般只會顯示目前客戶的 1–2 張有效報價。
             </p>
           </div>
-          {loading ? (
-            <div className="flex justify-center py-16">
-              <Loader2 className="h-6 w-6 animate-spin text-primary" />
-            </div>
-          ) : latestRows.length === 0 ? (
-            <div className="px-4 py-14 text-center text-sm text-muted-foreground">
-              <FileText className="mx-auto mb-2 h-8 w-8 opacity-40" />
-              尚無可展示報價
-            </div>
-          ) : (
-            <div className="max-h-[70vh] overflow-y-auto">
-              <table className="w-full text-left">
-                <thead className="sticky top-0 bg-muted/60 text-xs text-muted-foreground">
-                  <tr className="border-b border-border">
-                    <th className="px-3 py-2 font-medium">日期</th>
-                    <th className="px-3 py-2 font-medium">提案顯示名稱</th>
-                    <th className="px-3 py-2 font-medium">狀態</th>
-                    <th className="px-3 py-2 font-medium text-right">金額</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {latestRows.map((latest) => {
-                    const versions = groups.get(latest.quote_id) || [latest];
-                    const expanded = expandedIds.has(latest.quote_id);
-                    const rowsToShow = expanded ? versions : [latest];
-                    return rowsToShow.map((row, idx) => {
-                      const isLatest = idx === 0;
-                      const selected = row.id === activeId;
-                      const title = quoteDisplayName(row);
-                      const client = clientNameOf(row);
-                      return (
-                        <tr
-                          key={row.id}
-                          onClick={() => setActiveId(row.id)}
-                          className={cn(
-                            'cursor-pointer border-b border-border/70 transition-colors',
-                            selected ? 'bg-primary/10' : 'hover:bg-accent/40',
-                            !isLatest && 'bg-muted/15',
-                          )}
-                        >
-                          <td className="whitespace-nowrap px-3 py-2.5 font-mono-data text-xs text-muted-foreground">
-                            {fmtDate(row.modified_date || row.created_at)}
-                          </td>
-                          <td className="px-3 py-2.5">
-                            <div className="flex items-start gap-1.5">
-                              {isLatest && versions.length > 1 ? (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    toggleExpand(latest.quote_id);
-                                  }}
-                                  className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-border/60 text-muted-foreground hover:bg-accent hover:text-foreground"
-                                  aria-label="展開版本"
-                                >
-                                  {expanded ? (
-                                    <ChevronUp className="h-3.5 w-3.5" />
-                                  ) : (
-                                    <ChevronDown className="h-3.5 w-3.5" />
-                                  )}
-                                </button>
-                              ) : (
-                                <span className="inline-block w-6 shrink-0" />
-                              )}
-                              <div className="min-w-0">
-                                {!isLatest ? (
-                                  <div className="flex items-center gap-2">
-                                    <span className="shrink-0 rounded border border-border/80 bg-muted/50 px-2 py-0.5 font-body text-xs font-semibold text-muted-foreground">
-                                      舊版
-                                    </span>
-                                    <span className="truncate font-mono-data text-xs text-muted-foreground/80">
-                                      {displayQuoteVersion(row.version)}
-                                    </span>
-                                  </div>
-                                ) : (
-                                  <>
-                                    <div className="flex items-center gap-2">
-                                      <p className="truncate font-body text-sm font-semibold text-primary">
-                                        {title}
-                                      </p>
-                                      {versions.length > 1 ? (
-                                        <span className="shrink-0 rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 font-body text-xs font-semibold text-primary">
-                                          {versions.length} 版
-                                        </span>
-                                      ) : null}
-                                    </div>
-                                    <p className="mt-0.5 truncate font-mono-data text-xs text-muted-foreground">
-                                      {row.quote_id}
-                                      {client && client !== '—' && client !== title
-                                        ? ` · ${client}`
-                                        : ''}
-                                      <span className="text-primary/80">
-                                        {' '}
-                                        {displayQuoteVersion(row.version)}
-                                      </span>
-                                    </p>
-                                  </>
-                                )}
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-3 py-2.5">
-                            <span
-                              className={cn(
-                                'inline-flex rounded-full border px-2 py-0.5 text-xs font-medium',
-                                quoteStatusBadgeClass(row.status),
-                              )}
-                            >
-                              {row.status || '—'}
-                            </span>
-                          </td>
-                          <td className="whitespace-nowrap px-3 py-2.5 text-right font-mono-data text-xs font-semibold text-foreground">
-                            {fmtMoney(row.total_amount)}
-                          </td>
-                        </tr>
-                      );
-                    });
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
+          <button
+            type="button"
+            onClick={() => void fetchQuotes()}
+            className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm"
+          >
+            <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
+            重新整理
+          </button>
+        </div>
 
-        {/* Detail — real products */}
-        <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
-          {!active ? (
-            <div className="flex h-full min-h-[280px] flex-col items-center justify-center text-sm text-muted-foreground">
-              請從左側選擇一張報價
-            </div>
-          ) : (
-            <div className="space-y-4">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div>
-                  <h2 className="font-display text-lg font-bold text-primary">
-                    {quoteDisplayName(active)}
-                  </h2>
-                  <p className="mt-1 font-mono-data text-sm text-muted-foreground">
-                    {active.quote_id} · {displayQuoteVersion(active.version)} ·{' '}
-                    {fmtMoney(active.total_amount)}
+        {loading ? (
+          <div className="flex justify-center py-16">
+            <Loader2 className="h-6 w-6 animate-spin text-primary" />
+          </div>
+        ) : availableQuotes.length === 0 ? (
+          <div className="mt-4 rounded-2xl border border-dashed border-border px-6 py-14 text-center">
+            <FileText className="mx-auto h-9 w-9 text-muted-foreground/40" />
+            <p className="mt-3 font-semibold">目前沒有屬於您的報價</p>
+          </div>
+        ) : (
+          <div className="mt-4 grid gap-4 md:grid-cols-2">
+            {availableQuotes.map((quote) => {
+              const selected = active?.quote_id === quote.quote_id;
+              const versions = versionsByQuote.get(quote.quote_id) || [quote];
+              return (
+                <button
+                  key={quote.quote_id}
+                  type="button"
+                  onClick={() => {
+                    setActiveId(quote.id);
+                    setItemReviews({});
+                    setItemNotes({});
+                    setQuoteDecision('pending');
+                    setQuoteNote('');
+                  }}
+                  className={cn(
+                    'rounded-2xl border bg-card p-5 text-left shadow-sm transition-all',
+                    selected
+                      ? 'border-primary/50 ring-2 ring-primary/10'
+                      : 'border-border hover:border-primary/30',
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="rounded-lg bg-primary/10 px-2.5 py-1 font-mono-data text-xs font-bold text-primary">
+                      {quote.quote_id}
+                    </span>
+                    <span
+                      className={cn(
+                        'rounded-full border px-2.5 py-1 text-xs font-medium',
+                        quoteStatusBadgeClass(quote.status),
+                      )}
+                    >
+                      {quote.status || '—'}
+                    </span>
+                  </div>
+                  <h3 className="mt-4 line-clamp-2 font-display text-lg font-bold">
+                    {quoteDisplayName(quote)}
+                  </h3>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {clientNameOf(quote)} · {versions.length} 個版本
                   </p>
-                </div>
+                  <div className="mt-4 flex items-end justify-between gap-3 border-t border-border pt-4">
+                    <span className="text-xs text-muted-foreground">
+                      {fmtDate(quote.modified_date || quote.created_at)}
+                    </span>
+                    <strong className="font-mono-data text-lg text-primary">
+                      {fmtMoney(quote.total_amount)}
+                    </strong>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </section>
+
+      {active ? (
+        <section className="space-y-5">
+          <div className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <p className="font-mono-data text-xs text-primary">
+                  {active.quote_id}
+                </p>
+                <h2 className="mt-1 font-display text-xl font-bold">
+                  {quoteDisplayName(active)}
+                </h2>
+                <p className="mt-2 flex items-center gap-2 text-sm text-muted-foreground">
+                  <Clock className="h-4 w-4" />
+                  更新日期 {fmtDate(active.modified_date || active.created_at)}
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
                 <select
                   value={activeId}
-                  onChange={(e) => setActiveId(e.target.value)}
-                  className="h-9 rounded-lg border border-border bg-background px-2 text-xs"
+                  onChange={(event) => {
+                    setActiveId(event.target.value);
+                    setItemReviews({});
+                    setItemNotes({});
+                    setQuoteDecision('pending');
+                    setQuoteNote('');
+                  }}
+                  className="h-10 rounded-lg border border-border bg-background px-3 text-sm font-semibold"
                 >
-                  {activeVersions.map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {displayQuoteVersion(v.version)} · {v.status}
+                  {activeVersions.map((version) => (
+                    <option key={version.id} value={version.id}>
+                      {displayQuoteVersion(version.version)} · {version.status}
                     </option>
                   ))}
                 </select>
+                <button
+                  type="button"
+                  onClick={downloadHtml}
+                  className="inline-flex h-10 items-center gap-2 rounded-lg border border-border px-3 text-sm"
+                >
+                  <Download className="h-4 w-4" />
+                  HTML
+                </button>
+                <button
+                  type="button"
+                  onClick={printPdf}
+                  className="inline-flex h-10 items-center gap-2 rounded-lg border border-border px-3 text-sm"
+                >
+                  <Printer className="h-4 w-4" />
+                  PDF
+                </button>
               </div>
+            </div>
+            <div className="mt-5 flex items-center justify-between rounded-xl bg-primary/5 px-4 py-3">
+              <span className="font-semibold">報價總額</span>
+              <strong className="font-mono-data text-xl text-primary">
+                {fmtMoney(active.total_amount || itemSubtotal)}
+              </strong>
+            </div>
+          </div>
 
-              <div className="rounded-xl border border-border/80 bg-muted/20 px-3 py-2.5 text-xs text-foreground/85">
-                真實產品明細來自 bwf_quote_item（唯讀）。成本價已隱藏。報價狀態：
-                <span className="ml-1 font-medium">
-                  {active.status || '—'}
-                </span>
-              </div>
-
-              <div className="max-h-[320px] overflow-y-auto rounded-xl border border-border">
-                {itemsLoading ? (
-                  <div className="flex justify-center py-10">
-                    <Loader2 className="h-5 w-5 animate-spin text-primary" />
+          {itemsLoading ? (
+            <div className="flex justify-center py-16">
+              <Loader2 className="h-6 w-6 animate-spin text-primary" />
+            </div>
+          ) : itemGroups.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-border px-6 py-12 text-center text-muted-foreground">
+              此版本暫無產品明細
+            </div>
+          ) : (
+            itemGroups.map((group, groupIndex) => (
+              <section
+                key={`${group.title}-${groupIndex}`}
+                className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm"
+              >
+                <div className="flex items-center justify-between border-b border-border bg-muted/30 px-5 py-4">
+                  <div>
+                    <p className="text-xs font-semibold text-primary">
+                      區域 {String(groupIndex + 1).padStart(2, '0')}
+                    </p>
+                    <h3 className="mt-1 font-display text-lg font-bold">
+                      {group.title}
+                    </h3>
                   </div>
-                ) : items.length === 0 ? (
-                  <p className="px-4 py-8 text-center text-xs text-muted-foreground">
-                    此版本暫無產品明細
-                  </p>
-                ) : (
-                  <ul className="divide-y divide-border/70">
-                    {items.map((it, idx) => {
-                      if (it.isSectionTitle) {
-                        return (
-                          <li
-                            key={it.id || `sec-${idx}`}
-                            className="bg-muted/40 px-3 py-2 font-display text-xs font-bold"
-                          >
-                            {it.name || '分區'}
-                          </li>
-                        );
-                      }
-                      const key = it.id || `item-${idx}`;
-                      const line = quoteItemLineSubtotal(it);
-                      return (
-                        <li key={key} className="flex items-center gap-3 px-3 py-2.5">
-                          <div className="h-12 w-12 overflow-hidden rounded-md bg-muted">
-                            {it.image ? (
-                              <img src={it.image} alt="" className="h-full w-full object-cover" />
+                  <span className="text-sm text-muted-foreground">
+                    {group.items.length} 件產品
+                  </span>
+                </div>
+                <div className="divide-y divide-border/70">
+                  {group.items.map((item, index) => {
+                    const key = itemKey(item, index);
+                    const review = itemReviews[key];
+                    return (
+                      <article key={key} className="p-5">
+                        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+                          <div className="h-24 w-24 shrink-0 overflow-hidden rounded-xl bg-muted">
+                            {item.image ? (
+                              <img
+                                src={item.image}
+                                alt={item.name || ''}
+                                className="h-full w-full object-cover"
+                              />
                             ) : null}
                           </div>
                           <div className="min-w-0 flex-1">
-                            <p className="truncate text-sm font-medium">{it.name || '—'}</p>
-                            <p className="font-mono-data text-xs text-muted-foreground">
-                              ${Number(it.unitPrice || 0).toLocaleString()} × {it.quantity || 1}
-                              {it.unit ? ` ${it.unit}` : ''}
-                              {it.isOptional ? ' · 可選' : ''}
+                            <h4 className="text-base font-bold">
+                              {item.name || '—'}
+                            </h4>
+                            <p className="mt-1 text-sm text-muted-foreground">
+                              {[item.material, item.color].filter(Boolean).join(' · ') ||
+                                '產品規格以報價為準'}
+                            </p>
+                            <p className="mt-2 font-mono-data text-sm text-primary">
+                              {fmtMoney(Number(item.unitPrice || 0))} ×{' '}
+                              {item.quantity || 1} {item.unit || ''}
                             </p>
                           </div>
-                          <div className="text-right">
-                            <p className="font-mono-data text-xs font-semibold">
-                              {it.isOptional ? '—' : fmtMoney(line)}
+                          <div className="sm:text-right">
+                            <p className="font-mono-data text-lg font-bold">
+                              {item.isOptional
+                                ? '可選'
+                                : fmtMoney(quoteItemLineSubtotal(item))}
                             </p>
                           </div>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </div>
-
-              <div className="flex items-center justify-between border-t border-border pt-3">
-                <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
-                  <Clock className="h-3.5 w-3.5" />
-                  {fmtDate(active.modified_date || active.created_at)}
-                </span>
-                <span className="font-mono-data text-sm font-bold">
-                  小計 {fmtMoney(itemsSubtotal || active.total_amount)}
-                </span>
-              </div>
-
-            </div>
+                        </div>
+                        {!item.isOptional ? (
+                          <div className="mt-4 flex flex-wrap gap-2 border-t border-border pt-4">
+                            {(
+                              [
+                                ['accepted', '接受', Check],
+                                ['change', '要求修改', MessageSquare],
+                                ['rejected', '不接受', Ban],
+                              ] as const
+                            ).map(([value, label, Icon]) => (
+                              <button
+                                key={value}
+                                type="button"
+                                onClick={() =>
+                                  setItemReviews((current) => ({
+                                    ...current,
+                                    [key]: value,
+                                  }))
+                                }
+                                className={cn(
+                                  'inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium',
+                                  review === value
+                                    ? value === 'accepted'
+                                      ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700'
+                                      : value === 'change'
+                                        ? 'border-amber-500/40 bg-amber-500/10 text-amber-700'
+                                        : 'border-rose-500/40 bg-rose-500/10 text-rose-700'
+                                    : 'border-border text-muted-foreground',
+                                )}
+                              >
+                                <Icon className="h-4 w-4" />
+                                {label}
+                              </button>
+                            ))}
+                          </div>
+                        ) : null}
+                        {review === 'change' || review === 'rejected' ? (
+                          <textarea
+                            value={itemNotes[key] || ''}
+                            onChange={(event) =>
+                              setItemNotes((current) => ({
+                                ...current,
+                                [key]: event.target.value,
+                              }))
+                            }
+                            rows={2}
+                            placeholder="請說明需要修改或不接受的原因…"
+                            className="mt-3 w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm"
+                          />
+                        ) : null}
+                      </article>
+                    );
+                  })}
+                </div>
+              </section>
+            ))
           )}
+
+          <section className="rounded-2xl border border-primary/20 bg-primary/5 p-5">
+            <h2 className="font-display text-lg font-bold">整張報價決定</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              可先逐件提出意見，再確認或拒絕整張報價。
+            </p>
+            <div className="mt-4 flex flex-wrap gap-3">
+              <button
+                type="button"
+                onClick={() => setQuoteDecision('approved')}
+                className={cn(
+                  'inline-flex items-center gap-2 rounded-lg border px-4 py-3 font-semibold',
+                  quoteDecision === 'approved'
+                    ? 'border-emerald-500/40 bg-emerald-600 text-white'
+                    : 'border-border bg-card',
+                )}
+              >
+                <CheckCircle2 className="h-5 w-5" />
+                確認整張報價
+              </button>
+              <button
+                type="button"
+                onClick={() => setQuoteDecision('rejected')}
+                className={cn(
+                  'inline-flex items-center gap-2 rounded-lg border px-4 py-3 font-semibold',
+                  quoteDecision === 'rejected'
+                    ? 'border-rose-500/40 bg-rose-600 text-white'
+                    : 'border-border bg-card',
+                )}
+              >
+                <Ban className="h-5 w-5" />
+                拒絕整張報價
+              </button>
+            </div>
+            <textarea
+              value={quoteNote}
+              onChange={(event) => setQuoteNote(event.target.value)}
+              rows={3}
+              placeholder="整體意見、交期或其他補充…"
+              className="mt-4 w-full rounded-xl border border-border bg-card px-3 py-2.5 text-sm"
+            />
+            <button
+              type="button"
+              onClick={submitResponse}
+              className="mt-4 inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-3 font-semibold text-primary-foreground"
+            >
+              <Mail className="h-5 w-5" />
+              提交回覆給 BW
+            </button>
+          </section>
         </section>
-      </div>
+      ) : null}
     </PortalPageShell>
   );
 }
