@@ -9,6 +9,7 @@ import type {
   DesignProject, ProjectZone, ZoneProduct, ProjectInvitation,
   ClientCompany, ProductDiscussion, SearchProduct,
 } from '@/types/solutions';
+import { applySolutionDemoCustomerPatch } from '@/constants/solution-demo-customers';
 import { withInsertAuditFields, withUpdateAuditFields } from '@/lib/pmsAudit';
 
 // ---------------------------------------------------------------------------
@@ -178,7 +179,7 @@ export async function fetchProjects(): Promise<DesignProject[]> {
       .select('*')
       .order('updated_at', { ascending: false });
     if (error || !data) return [];
-    return data.map(mapProject);
+    return data.map(mapProject).map(applySolutionDemoCustomerPatch);
   } catch {
     return [];
   }
@@ -339,7 +340,7 @@ export async function fetchInvitedProjects(
       .in('id', projectIds)
       .order('updated_at', { ascending: false });
     if (error || !data) return [];
-    return data.map(mapProject);
+    return data.map(mapProject).map(applySolutionDemoCustomerPatch);
   } catch {
     return [];
   }
