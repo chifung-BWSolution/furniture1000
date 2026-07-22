@@ -163,25 +163,16 @@ async function registerPdfFonts(mod: ReactPdfModule): Promise<void> {
     mod.Font.register({ family, fonts });
   }
 
-  mod.Font.registerHyphenationCallback((word: string) => {
-    const cjk = /[\u3000-\u30FF\u3400-\u9FFF\uF900-\uFAFF\uFF00-\uFFEF]/;
-    if (!cjk.test(word)) return [word];
-    const parts: string[] = [];
-    let latin = '';
-    for (const ch of word) {
-      if (cjk.test(ch)) {
-        if (latin) {
-          parts.push(latin);
-          latin = '';
-        }
-        parts.push(ch, '');
-      } else {
-        latin += ch;
-      }
-    }
-    if (latin) parts.push(latin);
-    return parts.length ? parts : [word];
-  });
+  // Soft-break after every code point. Empty segments are wrap opportunities
+  // without inserting a visible "-" (react-pdf's default syllable join).
+  mod.Font.registerHyphenationCallback(pdfSoftBreakNoHyphen);
+}
+
+/** Soft-wrap without inserting "-" between break segments. */
+function pdfSoftBreakNoHyphen(word: string): string[] {
+  const chars = Array.from(word);
+  if (chars.length === 0) return [''];
+  return chars.flatMap((ch) => [ch, '']);
 }
 
 /** Clear failed/partial state so Retry can re-download and re-register fonts. */
@@ -506,7 +497,12 @@ function renderDescDimensionsValue(
     <View style={{ width: valuePct, minWidth: 0, paddingHorizontal: 2, paddingVertical: 2 }}>
       <Text style={styles.descDimLabelText}>{dimSubLabel}</Text>
       {lines.map((line, li) => (
-        <Text key={`dim-line-${li}`} wrap={false} style={styles.descDimValueText}>
+        <Text
+          key={`dim-line-${li}`}
+          wrap={false}
+          style={styles.descDimValueText}
+          hyphenationCallback={pdfSoftBreakNoHyphen}
+        >
           {pdfDisplayText(line)}
         </Text>
       ))}
@@ -526,15 +522,23 @@ const ILLUSTRATION_COL_WIDTH_PT = PDF_TABLE_WIDTH_PT * 0.114;
 /**
  * EN needs a slightly wider Description column so "Dimensions (mm)" fits on one line.
  * Transfer just enough width from Materials & Details (sum stays 41.6%).
+ * ZH: slightly wider 說明 (+0.8pp from 單價) so ~6 CJK chars fit in 類別 value.
  */
-const PDF_COL_DESC_PCT = { zh: 0.124, en: 0.195 } as const;
+const PDF_COL_DESC_PCT = { zh: 0.132, en: 0.195 } as const;
 const PDF_COL_MATERIAL_PCT = { zh: 0.292, en: 0.221 } as const;
-/** Label / value split inside Description — EN labels are longer. */
-const PDF_DESC_LABEL_PCT = { zh: 0.5, en: 0.6 } as const;
-const PDF_DESC_VALUE_PCT = { zh: 0.5, en: 0.4 } as const;
+/** Label / value split inside Description — ZH ≈ 4:6 so 類別 data gets more room. */
+const PDF_DESC_LABEL_PCT = { zh: 0.4, en: 0.6 } as const;
+const PDF_DESC_VALUE_PCT = { zh: 0.6, en: 0.4 } as const;
+/** 單價 column — ZH trimmed to fund wider 說明 (EN unchanged). */
+const PDF_COL_UNIT_PRICE_PCT = { zh: 0.097, en: 0.105 } as const;
 
-function pdfColWidthPct(locale: 'zh' | 'en', key: 'desc' | 'material'): string {
-  const pct = key === 'desc' ? PDF_COL_DESC_PCT[locale] : PDF_COL_MATERIAL_PCT[locale];
+function pdfColWidthPct(locale: 'zh' | 'en', key: 'desc' | 'material' | 'unitPrice'): string {
+  const pct =
+    key === 'desc'
+      ? PDF_COL_DESC_PCT[locale]
+      : key === 'material'
+        ? PDF_COL_MATERIAL_PCT[locale]
+        : PDF_COL_UNIT_PRICE_PCT[locale];
   return `${(pct * 100).toFixed(1)}%`;
 }
 
@@ -576,7 +580,7 @@ function renderMaterialPdfContent(
           <Text
             key={`material-line-${i}`}
             style={styles.materialCellText}
-            hyphenationCallback={(word) => Array.from(word)}
+            hyphenationCallback={pdfSoftBreakNoHyphen}
           >
             {pdfDisplayText(line)}
           </Text>
@@ -681,7 +685,9 @@ function renderQuotationTableRow(
         </View>
         <View style={styles.colQty}><Text style={styles.tableCellText}>{item?.quantity || 0}</Text></View>
         <View style={styles.colUnit}><Text style={styles.tableCellText}>{pdfDisplayText(item?.unit || '')}</Text></View>
-        <View style={styles.colUnitPrice}><Text style={styles.tableCellText}>HK${(item?.unitPrice || 0).toLocaleString()}</Text></View>
+        <View style={{ ...styles.colUnitPrice, width: pdfColWidthPct(locale, 'unitPrice') }}>
+          <Text style={styles.tableCellText}>HK${(item?.unitPrice || 0).toLocaleString()}</Text>
+        </View>
         {renderSubtotalPdfCell(item, View, Text, labels)}
       </View>
     );
@@ -708,7 +714,9 @@ function renderQuotationTableRow(
       </View>
       <View style={styles.colQty}><Text style={styles.tableCellText}>{item?.quantity || 0}</Text></View>
       <View style={styles.colUnit}><Text style={styles.tableCellText}>{pdfDisplayText(item?.unit || '')}</Text></View>
-      <View style={styles.colUnitPrice}><Text style={styles.tableCellText}>HK${(item?.unitPrice || 0).toLocaleString()}</Text></View>
+      <View style={{ ...styles.colUnitPrice, width: pdfColWidthPct(locale, 'unitPrice') }}>
+        <Text style={styles.tableCellText}>HK${(item?.unitPrice || 0).toLocaleString()}</Text>
+      </View>
       {renderSubtotalPdfCell(item, View, Text, labels)}
     </View>
   );
@@ -859,14 +867,16 @@ function renderDescriptionPdfContent(
             <View style={{ width: valuePct, justifyContent: 'flex-start', paddingHorizontal: 2, paddingVertical: 2 }}>
               <Text
                 style={styles.descCategoryValueText}
-                hyphenationCallback={(word) => Array.from(word)}
+                hyphenationCallback={pdfSoftBreakNoHyphen}
               >
                 {pdfDisplayText(row.value)}
               </Text>
             </View>
           ) : (
             <View style={{ width: valuePct, justifyContent: 'center', paddingHorizontal: 2 }}>
-              <Text style={styles.descValueText}>{pdfDisplayText(row.value)}</Text>
+              <Text style={styles.descValueText} hyphenationCallback={pdfSoftBreakNoHyphen}>
+                {pdfDisplayText(row.value)}
+              </Text>
             </View>
           )}
         </View>
@@ -892,13 +902,13 @@ const styles: Record<string, any> = {
   tableHeader: { display: 'flex', flexDirection: 'row', backgroundColor: '#f5f5f5', minHeight: 24, alignItems: 'center', ...tableBandBorder },
   tableRow: { display: 'flex', flexDirection: 'row', minHeight: 60, alignItems: 'stretch', ...tableBandBorder },
   colIndex: { width: '5%', display: 'flex', justifyContent: 'center', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd', paddingVertical: 4 },
-  colDesc: { width: '12.4%', paddingLeft: 0, paddingRight: 0, paddingTop: 0, paddingBottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'stretch', borderRightWidth: 0.5, borderColor: '#ddd' },
+  colDesc: { width: '13.2%', paddingLeft: 0, paddingRight: 0, paddingTop: 0, paddingBottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'stretch', borderRightWidth: 0.5, borderColor: '#ddd' },
   colMaterial: { width: '29.2%', paddingLeft: 4, paddingRight: 4, paddingTop: 4, paddingBottom: 4, display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', alignSelf: 'stretch', borderRightWidth: 0.5, borderColor: '#ddd' },
   colRemarks: { width: '9%', paddingLeft: 2, paddingRight: 2, paddingTop: 0, paddingBottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'stretch', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
   colImage: { width: '11.4%', paddingLeft: 0, paddingRight: 0, paddingTop: 0, paddingBottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'stretch', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
   colQty: { width: '5%', display: 'flex', justifyContent: 'center', alignItems: 'center', textAlign: 'center', borderRightWidth: 0.5, borderColor: '#ddd', paddingVertical: 4 },
   colUnit: { width: '5%', display: 'flex', justifyContent: 'center', alignItems: 'center', textAlign: 'center', borderRightWidth: 0.5, borderColor: '#ddd', paddingVertical: 4 },
-  colUnitPrice: { width: '10.5%', display: 'flex', justifyContent: 'center', alignItems: 'center', textAlign: 'center', borderRightWidth: 0.5, borderColor: '#ddd', paddingVertical: 4 },
+  colUnitPrice: { width: '9.7%', display: 'flex', justifyContent: 'center', alignItems: 'center', textAlign: 'center', borderRightWidth: 0.5, borderColor: '#ddd', paddingVertical: 4 },
   colSubtotal: { width: '12.5%', display: 'flex', justifyContent: 'center', alignItems: 'center', textAlign: 'center', paddingVertical: 4 },
   tableHeaderText: { fontSize: 6.5, fontWeight: 700, textAlign: 'center', lineHeight: 1.4 },
   tableCellText: { fontSize: 7, textAlign: 'center', lineHeight: 1.3 },
@@ -1015,7 +1025,9 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
       <View style={styles.colImage}><Text style={styles.tableHeaderText}>{labels.colImage}</Text></View>
       <View style={styles.colQty}><Text style={styles.tableHeaderText}>{labels.colQty}</Text></View>
       <View style={styles.colUnit}><Text style={styles.tableHeaderText}>{labels.colUnit}</Text></View>
-      <View style={styles.colUnitPrice}><Text style={styles.tableHeaderText}>{labels.colUnitPrice}</Text></View>
+      <View style={{ ...styles.colUnitPrice, width: pdfColWidthPct(locale, 'unitPrice') }}>
+        <Text style={styles.tableHeaderText}>{labels.colUnitPrice}</Text>
+      </View>
       <View style={styles.colSubtotal}><Text style={styles.tableHeaderText}>{labels.colTotal}</Text></View>
     </View>
   );
