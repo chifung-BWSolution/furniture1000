@@ -396,13 +396,14 @@ async function ensureGalleryImagesOnShopify(
   parentId: string,
   galleryUrls: string[],
   primarySrc: string | null,
-): Promise<ShopifyRecord[]> {
+): Promise<{ images: ShopifyRecord[]; failedSrcs: string[] }> {
   const product = await fetchShopifyProduct(apiBase, headers, parentId);
-  if (!product) return [];
+  if (!product) return { images: [], failedSrcs: [] };
   const images = [...((product.images as ShopifyRecord[]) || [])];
   const byDedupe = indexShopifyImagesByDedupe(images);
   const seen = new Set<string>();
   const uniqueGallery: string[] = [];
+  const failedSrcs: string[] = [];
   if (primarySrc && isHttpUrl(primarySrc)) {
     const key = imageDedupeKey(primarySrc);
     if (!seen.has(key)) {
@@ -424,14 +425,77 @@ async function ensureGalleryImagesOnShopify(
       headers,
       body: JSON.stringify({ image: { src } }),
     });
-    if (!postResp.ok) continue;
+    if (!postResp.ok) {
+      failedSrcs.push(src);
+      continue;
+    }
     const newImg = (await postResp.json()).image as ShopifyRecord;
     if (newImg?.id != null) {
       images.push(newImg);
       if (isHttpUrl(newImg.src)) byDedupe.set(imageDedupeKey(newImg.src as string), newImg);
     }
   }
-  return images;
+  return { images, failedSrcs };
+}
+
+async function deleteShopifyProduct(
+  apiBase: string,
+  headers: Record<string, string>,
+  shopifyId: string,
+): Promise<void> {
+  try {
+    const resp = await fetch(`${apiBase}/products/${shopifyId}.json`, { method: "DELETE", headers });
+    if (!resp.ok && resp.status !== 404) {
+      console.warn(
+        `[publish-to-shopify] rollback delete failed for ${shopifyId}: HTTP ${resp.status}`,
+      );
+    }
+  } catch (err) {
+    console.warn(
+      `[publish-to-shopify] rollback delete error for ${shopifyId}:`,
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+}
+
+/** Verify live Shopify gallery contains every expected RTS/catalog image. */
+function validatePublishedGallery(
+  liveImages: ShopifyRecord[],
+  orderedGallery: string[],
+  primarySrc: string | null,
+): { ok: true } | { ok: false; error: string } {
+  if (orderedGallery.length === 0) return { ok: true };
+  const liveByKey = indexShopifyImagesByDedupe(liveImages);
+  const expectedPrimary = primarySrc || orderedGallery[0] || null;
+  if (expectedPrimary && isHttpUrl(expectedPrimary)) {
+    if (!liveByKey.has(imageDedupeKey(expectedPrimary))) {
+      const name = expectedPrimary.split("/").pop()?.split("?")[0] || "主圖";
+      return { ok: false, error: `主圖未能上傳到 Shopify（${name}）` };
+    }
+  }
+  let matched = 0;
+  for (const src of orderedGallery) {
+    if (isHttpUrl(src) && liveByKey.has(imageDedupeKey(src))) matched++;
+  }
+  if (matched < orderedGallery.length) {
+    return {
+      ok: false,
+      error: `圖片上傳不完整：預期 ${orderedGallery.length} 張，Shopify 僅成功 ${matched} 張`,
+    };
+  }
+  return { ok: true };
+}
+
+async function markPublishImageFailed(
+  supabase: ReturnType<typeof createClient>,
+  productId: string,
+  errMsg: string,
+): Promise<void> {
+  await supabase.from("products").update({
+    status: "error",
+    error_message: errMsg,
+    shopify_product_id: null,
+  }).eq("id", productId);
 }
 
 /** Map gallery URLs to live Shopify image rows (deduped) for position reorder. */
@@ -1283,20 +1347,46 @@ Deno.serve(async (req: Request) => {
 
         if (rawGallerySources.length > 0) {
           console.log(`[publish-to-shopify] 🖼️ Resolving ${rawGallerySources.length} gallery image(s) for "${product.title}"`);
-          for (let imgIdx = 0; imgIdx < rawGallerySources.length; imgIdx++) {
+
+          const primaryResult = await resolveImageUrl(
+            supabase, supabaseUrl, product.id, rawGallerySources[0],
+          );
+          if (!primaryResult.url) {
+            const errMsg = `主圖無法上傳：${primaryResult.warning || "URL 無效或 Storage 上傳失敗"}`;
+            console.warn(`[publish-to-shopify] ❌ ${errMsg} (${product.title})`);
+            await markPublishImageFailed(supabase, product.id, errMsg);
+            results.push({ id: product.id, success: false, error: errMsg, action: "image_failed" });
+            continue;
+          }
+          resolvedImageUrl = primaryResult.url;
+          allImages.push({ src: primaryResult.url });
+          seenImageKeys.add(imageIdentityKey(primaryResult.url));
+          console.log(`[publish-to-shopify] ✅ Primary image: ${primaryResult.url.substring(0, 80)}...`);
+
+          const extraFailures: string[] = [];
+          for (let imgIdx = 1; imgIdx < rawGallerySources.length; imgIdx++) {
             const rawSrc = rawGallerySources[imgIdx];
-            const imgResult = await resolveImageUrl(supabase, supabaseUrl, `${product.id}_gal${imgIdx}`, rawSrc);
+            const imgResult = await resolveImageUrl(
+              supabase, supabaseUrl, `${product.id}_gal${imgIdx}`, rawSrc,
+            );
             if (imgResult.url) {
               const key = imageIdentityKey(imgResult.url);
               if (!seenImageKeys.has(key)) {
                 allImages.push({ src: imgResult.url });
                 seenImageKeys.add(key);
-                if (imgIdx === 0) resolvedImageUrl = imgResult.url;
                 console.log(`[publish-to-shopify] ✅ Gallery image [${imgIdx}]: ${imgResult.url.substring(0, 80)}...`);
               }
-            } else if (imgResult.warning) {
-              console.warn(`[publish-to-shopify] ⚠️ Gallery image [${imgIdx}] skipped: ${imgResult.warning}`);
+            } else {
+              const detail = imgResult.warning || "URL 無效或 Storage 上傳失敗";
+              extraFailures.push(`附圖 ${imgIdx + 1}：${detail}`);
+              console.warn(`[publish-to-shopify] ⚠️ Gallery image [${imgIdx}] failed: ${detail}`);
             }
+          }
+          if (extraFailures.length > 0) {
+            const errMsg = `部分附圖無法上傳：${extraFailures.join("；")}`;
+            await markPublishImageFailed(supabase, product.id, errMsg);
+            results.push({ id: product.id, success: false, error: errMsg, action: "image_failed" });
+            continue;
           }
         } else if (resolvedImageUrl) {
           allImages.push({ src: resolvedImageUrl });
@@ -1306,6 +1396,11 @@ Deno.serve(async (req: Request) => {
         if (allImages.length > 0) {
           shopifyProduct.images = allImages;
           console.log(`[publish-to-shopify] 📸 Total images for "${product.title}": ${allImages.length}`);
+        } else if (rawGallerySources.length > 0) {
+          const errMsg = "產品沒有可上傳的圖片（主圖與附圖均無法處理）";
+          await markPublishImageFailed(supabase, product.id, errMsg);
+          results.push({ id: product.id, success: false, error: errMsg, action: "image_failed" });
+          continue;
         } else {
           console.log(`[publish-to-shopify] ℹ️ Publishing "${product.title}" WITHOUT images`);
         }
@@ -1359,163 +1454,6 @@ Deno.serve(async (req: Request) => {
              rawResponseBody.toLowerCase().includes("src") ||
              rawResponseBody.toLowerCase().includes("url is not valid"));
 
-          if (isImageError && resolvedImageUrl) {
-            console.warn(`[publish-to-shopify] 🔄 FALLBACK: Got 422 image error. Retrying "${product.title}" WITHOUT images...`);
-            delete shopifyProduct.images;
-            const fallbackPayload = { product: shopifyProduct };
-            try {
-              const fallbackResponse = await fetch(`${shopifyApiBase}/products.json`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json", "X-Shopify-Access-Token": shopifyAccessToken },
-                body: JSON.stringify(fallbackPayload),
-              });
-              const fallbackBody = await fallbackResponse.text();
-              if (fallbackResponse.ok) {
-                let fallbackData: Record<string, unknown>;
-                try {
-                  fallbackData = JSON.parse(fallbackBody);
-                } catch {
-                  console.error(`[publish-to-shopify] ❌ Fallback response not valid JSON`);
-                  await supabase.from("products").update({ status: "error", error_message: "Invalid JSON in Shopify fallback response" }).eq("id", product.id);
-                  results.push({ id: product.id, success: false, error: "Invalid JSON in Shopify fallback response", action: "create_failed" });
-                  continue;
-                }
-                const fallbackCreated = (fallbackData as Record<string, Record<string, unknown>>).product;
-                const shopifyProductId = String(fallbackCreated.id);
-                const warningMsg = `Published without image (original image URL was invalid). Product is live on Shopify.`;
-                console.log(`[publish-to-shopify] ✅ FALLBACK SUCCESS: "${product.title}" → Shopify ID: ${shopifyProductId}`);
-                await supabase.from("products").update({ status: "success", shopify_product_id: shopifyProductId, error_message: warningMsg, source: "local" }).eq("id", product.id);
-
-                const seoMirror = await applyProductSeoMirror(storeHost, shopifyAccessToken, shopifyProductId, product);
-                const publishedHandle = (seoMirror.shopify_url as string | null) || normalizeShopifyHandle(product.handle) || String(fallbackCreated.handle || "");
-
-                const shopifyHeaders = {
-                  "Content-Type": "application/json",
-                  "X-Shopify-Access-Token": shopifyAccessToken,
-                };
-                const orderedGallery = buildOrderedGalleryUrls(product, resolvedImageUrl);
-                const fbResolvedPrimary = resolvedImageUrl || product.primary_image_src || product.image_url || null;
-                let finalFallbackProduct = fallbackCreated;
-                if (orderedGallery.length > 0) {
-                  try {
-                    await ensureGalleryImagesOnShopify(
-                      shopifyApiBase,
-                      shopifyHeaders,
-                      shopifyProductId,
-                      orderedGallery,
-                      fbResolvedPrimary,
-                    );
-                    const fbMid = await fetchShopifyProduct(shopifyApiBase, shopifyHeaders, shopifyProductId);
-                    if (fbMid) {
-                      const fbMidImages = (fbMid.images as ShopifyRecord[]) || [];
-                      const fbOrdered = buildOrderedShopifyImagesFromGallery(
-                        fbMidImages,
-                        orderedGallery,
-                        fbResolvedPrimary,
-                      );
-                      await reorderShopifyProductImages(
-                        shopifyApiBase,
-                        shopifyHeaders,
-                        shopifyProductId,
-                        fbOrdered,
-                      );
-                    }
-                  } catch (fbGalErr) {
-                    console.warn(
-                      `[publish-to-shopify] ⚠️ Fallback gallery attach failed for "${product.title}":`,
-                      fbGalErr instanceof Error ? fbGalErr.message : String(fbGalErr),
-                    );
-                  }
-                }
-
-                const fbCdnFinalize = await finalizeCdnImageMetafieldsForProduct(
-                  shopifyApiBase,
-                  shopifyHeaders,
-                  shopifyProductId,
-                  product.title || "",
-                  orderedGallery,
-                  fbResolvedPrimary,
-                );
-                if (fbCdnFinalize.liveProduct) finalFallbackProduct = fbCdnFinalize.liveProduct;
-
-                const fbCoreMf = product.metafields && !Array.isArray(product.metafields)
-                  ? stripImageUrlMetafields(product.metafields)
-                  : undefined;
-                const fbCoreSync = await syncCoreMetafieldsToShopify(
-                  shopifyApiBase,
-                  shopifyHeaders,
-                  shopifyProductId,
-                  fbCoreMf,
-                );
-                console.log(
-                  `[publish-to-shopify] 🏷️ Fallback core metafields synced for "${product.title}": ${fbCoreSync.ok} ok, ${fbCoreSync.fail} fail`,
-                );
-
-                // 寫入 shopify_products mirror（fallback：無圖上傳成功）
-                try {
-                  const fbSpImages = (finalFallbackProduct.images as ShopifyRecord[]) || [];
-                  const fbMirrorGallery = buildMirrorGalleryFields(fbSpImages, orderedGallery);
-                  const fbCreatedVariants = (finalFallbackProduct.variants as Record<string, unknown>[]) || [];
-                  const fbSpPrice = fbCreatedVariants[0]?.price != null ? Number(fbCreatedVariants[0].price) : (product.price ?? 0);
-                  const fbSpCompareAt = fbCreatedVariants[0]?.compare_at_price != null ? Number(fbCreatedVariants[0].compare_at_price) : null;
-                  const fbMfColumns: Record<string, string> = {};
-                  for (const m of shopifyMetafields) {
-                    fbMfColumns[`${m.namespace}.${m.key}`] = m.value;
-                  }
-                  const fbMergedMf: Record<string, string | null> = { ...fbMfColumns };
-                  for (const [col, val] of Object.entries(fbCdnFinalize.mfColumns)) {
-                    if (val != null && String(val).trim()) fbMergedMf[col] = String(val).trim();
-                    else fbMergedMf[col] = null;
-                  }
-                  const fbMirrorMetafields = metafieldsArrayFromColumnMap(fbMergedMf);
-                  const fbSpRow: Record<string, unknown> = {
-                    shopify_product_id: shopifyProductId,
-                    source_product_id: product.id,
-                    title: (finalFallbackProduct.title as string) || product.title || null,
-                    body_html: (finalFallbackProduct.body_html as string) || product.description_html || null,
-                    vendor: (finalFallbackProduct.vendor as string) || product.vendor || product.factory_name || null,
-                    product_type: (finalFallbackProduct.product_type as string) || product.product_type || null,
-                    handle: publishedHandle,
-                    status: "active",
-                    published_at: new Date().toISOString(),
-                    image_url: fbMirrorGallery.image_url,
-                    images: fbMirrorGallery.images,
-                    variants: fbCreatedVariants.length > 0 ? fbCreatedVariants : null,
-                    tags: Array.isArray(product.tags) ? product.tags : [],
-                    price: fbSpPrice,
-                    compare_at_price: fbSpCompareAt,
-                    shopify_created_at: String(fallbackCreated.created_at || new Date().toISOString()),
-                    shopify_updated_at: String(fallbackCreated.updated_at || new Date().toISOString()),
-                    imported_at: new Date().toISOString(),
-                    shop_domain: storeHost,
-                    metafields: fbMirrorMetafields.length > 0 ? fbMirrorMetafields : null,
-                    ...Object.fromEntries(
-                      Object.entries(fbMergedMf).filter(([, v]) => v != null && String(v).trim()),
-                    ),
-                    ...seoMirror,
-                  };
-                  if (product.rts_id) fbSpRow.id = product.rts_id;
-                  await supabase.from("shopify_products").upsert(fbSpRow, { onConflict: "shopify_product_id" });
-                } catch (fbSpErr) {
-                  console.warn(`[publish-to-shopify] ⚠️ shopify_products mirror write failed (fallback, non-blocking):`, fbSpErr instanceof Error ? fbSpErr.message : String(fbSpErr));
-                }
-
-                try {
-                  await exitPublishPipeline(supabase, product.id);
-                } catch (pipeErr) {
-                  console.warn(`[publish-to-shopify] ⚠️ pipeline cleanup failed (fallback):`, pipeErr instanceof Error ? pipeErr.message : String(pipeErr));
-                }
-
-                results.push({ id: product.id, success: true, shopify_product_id: shopifyProductId, action: "created_without_image", image_warning: warningMsg });
-                continue;
-              } else {
-                console.error(`[publish-to-shopify] ❌ Fallback also failed (HTTP ${fallbackResponse.status}): ${fallbackBody.substring(0, 300)}`);
-              }
-            } catch (fallbackFetchErr) {
-              console.error(`[publish-to-shopify] ❌ Fallback fetch error:`, fallbackFetchErr instanceof Error ? fallbackFetchErr.message : String(fallbackFetchErr));
-            }
-          }
-
           let errMsg: string;
           try {
             const errorJson = JSON.parse(rawResponseBody);
@@ -1523,8 +1461,17 @@ Deno.serve(async (req: Request) => {
           } catch {
             errMsg = rawResponseBody.substring(0, 500);
           }
-          await supabase.from("products").update({ status: "error", error_message: `Shopify API (${shopifyResponse.status}): ${errMsg}` }).eq("id", product.id);
-          results.push({ id: product.id, success: false, error: `Shopify API (${shopifyResponse.status}): ${errMsg}`, action: "create_failed", image_warning: imageWarning });
+          const userErr = isImageError
+            ? `Shopify 拒絕產品圖片（HTTP 422）：${errMsg}`
+            : `Shopify API (${shopifyResponse.status}): ${errMsg}`;
+          await markPublishImageFailed(supabase, product.id, userErr);
+          results.push({
+            id: product.id,
+            success: false,
+            error: userErr,
+            action: isImageError ? "image_failed" : "create_failed",
+            image_warning: imageWarning,
+          });
           continue;
         }
 
@@ -1557,15 +1504,19 @@ Deno.serve(async (req: Request) => {
 
         let finalProduct = createdProduct;
         const resolvedPrimary = resolvedImageUrl || product.primary_image_src || product.image_url || null;
+        let gallerySyncError: string | null = null;
         if (orderedGallery.length > 0 || variantImageSpecs.length > 0) {
           try {
-            await ensureGalleryImagesOnShopify(
+            const attachResult = await ensureGalleryImagesOnShopify(
               shopifyApiBase,
               shopifyHeaders,
               shopifyProductId,
               orderedGallery,
               resolvedPrimary,
             );
+            if (attachResult.failedSrcs.length > 0) {
+              gallerySyncError = `部分圖片未能附加到 Shopify（${attachResult.failedSrcs.length} 張失敗）`;
+            }
             if (variantImageSpecs.length > 0) {
               await attachVariantImagesBySku(
                 shopifyApiBase,
@@ -1584,18 +1535,22 @@ Deno.serve(async (req: Request) => {
                   orderedGallery,
                   resolvedPrimary,
                 );
-                await reorderShopifyProductImages(
+                const reordered = await reorderShopifyProductImages(
                   shopifyApiBase,
                   shopifyHeaders,
                   shopifyProductId,
                   orderedForReorder,
                 );
+                if (!reordered && orderedForReorder.length > 0) {
+                  gallerySyncError = gallerySyncError || "Shopify 圖片排序失敗";
+                }
               }
             }
           } catch (postImgErr) {
+            gallerySyncError = `圖片同步失敗：${postImgErr instanceof Error ? postImgErr.message : String(postImgErr)}`;
             console.warn(
               `[publish-to-shopify] ⚠️ Post-create gallery/variant image step failed for "${product.title}":`,
-              postImgErr instanceof Error ? postImgErr.message : String(postImgErr),
+              gallerySyncError,
             );
           }
         }
@@ -1609,6 +1564,17 @@ Deno.serve(async (req: Request) => {
           resolvedPrimary,
         );
         if (cdnFinalize.liveProduct) finalProduct = cdnFinalize.liveProduct;
+
+        const liveImages = ((finalProduct.images as ShopifyRecord[]) || []);
+        const galleryCheck = validatePublishedGallery(liveImages, orderedGallery, resolvedPrimary);
+        if (gallerySyncError || !galleryCheck.ok) {
+          const errMsg = gallerySyncError || (!galleryCheck.ok ? galleryCheck.error : "圖片上傳失敗");
+          console.warn(`[publish-to-shopify] ❌ Rolling back "${product.title}" — ${errMsg}`);
+          await deleteShopifyProduct(shopifyApiBase, shopifyHeaders, shopifyProductId);
+          await markPublishImageFailed(supabase, product.id, errMsg);
+          results.push({ id: product.id, success: false, error: errMsg, action: "image_failed" });
+          continue;
+        }
 
         const coreMf = product.metafields && !Array.isArray(product.metafields)
           ? stripImageUrlMetafields(product.metafields)
@@ -1629,7 +1595,12 @@ Deno.serve(async (req: Request) => {
         const shopifyReturnedCompareAt = shopifyFirstVariant.compare_at_price ? Number(shopifyFirstVariant.compare_at_price) : (product.compare_at_price || null);
 
         console.log(`[publish-to-shopify] ✅ SUCCESS: "${product.title}" → Shopify ID: ${shopifyProductId}`);
-        await supabase.from("products").update({ status: "success", shopify_product_id: shopifyProductId, error_message: imageWarning || null, source: "local" }).eq("id", product.id);
+        await supabase.from("products").update({
+          status: "success",
+          shopify_product_id: shopifyProductId,
+          error_message: null,
+          source: "local",
+        }).eq("id", product.id);
 
         const seoMirror = await applyProductSeoMirror(storeHost, shopifyAccessToken, shopifyProductId, product);
         const publishedHandle = (seoMirror.shopify_url as string | null) || normalizeShopifyHandle(product.handle) || String(createdProduct.handle || "");
@@ -1638,12 +1609,6 @@ Deno.serve(async (req: Request) => {
         try {
           const spImages = (finalProduct.images as ShopifyRecord[]) || [];
           const mirrorGallery = buildMirrorGalleryFields(spImages, orderedGallery);
-          if (orderedGallery.length > 0 && (mirrorGallery.images?.length ?? 0) < orderedGallery.length) {
-            console.warn(
-              `[publish-to-shopify] ⚠️ Mirror gallery shorter than RTS for "${product.title}": ` +
-              `expected ${orderedGallery.length}, mirror ${mirrorGallery.images?.length ?? 0}`,
-            );
-          }
           const spVariants = (finalProduct.variants as Record<string, unknown>[]) || [];
           const spPrice = spVariants[0]?.price != null ? Number(spVariants[0].price) : (product.price ?? 0);
           const spCompareAt = spVariants[0]?.compare_at_price != null ? Number(spVariants[0].compare_at_price) : null;
@@ -1708,7 +1673,7 @@ Deno.serve(async (req: Request) => {
           console.warn(`[publish-to-shopify] ⚠️ pipeline cleanup failed:`, pipeErr instanceof Error ? pipeErr.message : String(pipeErr));
         }
 
-        results.push({ id: product.id, success: true, shopify_product_id: shopifyProductId, action: "created", image_warning: imageWarning });
+        results.push({ id: product.id, success: true, shopify_product_id: shopifyProductId, action: "created" });
 
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : "Unknown error";
@@ -1723,15 +1688,15 @@ Deno.serve(async (req: Request) => {
     const errorCount = results.filter((r) => !r.success).length;
     const skippedCount = results.filter((r) => r.action === "skipped_already_exists").length;
     const createdCount = results.filter((r) => r.action === "created").length;
-    const createdWithoutImageCount = results.filter((r) => r.action === "created_without_image").length;
+    const imageFailedCount = results.filter((r) => r.action === "image_failed").length;
 
-    console.log(`[publish-to-shopify] Done. ${createdCount} created, ${createdWithoutImageCount} created without image, ${skippedCount} skipped, ${errorCount} failed.`);
+    console.log(`[publish-to-shopify] Done. ${createdCount} created, ${imageFailedCount} image failed, ${skippedCount} skipped, ${errorCount} failed.`);
 
     return new Response(
       JSON.stringify({
         success: errorCount === 0,
         results,
-        summary: { total: products.length, created: createdCount, created_without_image: createdWithoutImageCount, skipped: skippedCount, errors: errorCount, success: successCount },
+        summary: { total: products.length, created: createdCount, image_failed: imageFailedCount, skipped: skippedCount, errors: errorCount, success: successCount },
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" }, status: 200 }
     );

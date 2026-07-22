@@ -79,6 +79,7 @@ interface ProductTableRowProps {
   product: Product;
   isSelected: boolean;
   globalIndex: number;
+  readyToPublishMode?: boolean;
   editingCell: { id: string; field: string } | null;
   editValue: string;
   onCheckboxClick: (e: React.MouseEvent, productId: string, index: number) => void;
@@ -97,6 +98,7 @@ const ProductTableRow = memo(function ProductTableRow({
   product,
   isSelected,
   globalIndex,
+  readyToPublishMode = false,
   editingCell,
   editValue,
   onCheckboxClick,
@@ -148,6 +150,11 @@ const ProductTableRow = memo(function ProductTableRow({
           <span className="font-display text-xs font-bold leading-tight line-clamp-2 max-w-[180px]">
             {product.title}
           </span>
+          {readyToPublishMode && product.errorMessage && (
+            <p className="mt-1 text-[10px] leading-snug text-destructive line-clamp-2 max-w-[200px]" title={product.errorMessage}>
+              {product.errorMessage}
+            </p>
+          )}
         </div>
       </td>
 
@@ -912,6 +919,7 @@ export const ProductTableView = memo(function ProductTableView({
                 <ProductTableRow
                   key={product.id}
                   product={product}
+                  readyToPublishMode={readyToPublishMode}
                   isSelected={selectedIds.has(product.id)}
                   globalIndex={i}
                   editingCell={editingCell?.id === product.id ? editingCell : null}

@@ -1136,6 +1136,7 @@ export function useAppStore() {
     let successCount = 0;
     let errorCount = 0;
     let firstErr: string | undefined;
+    const failedDetails: { title: string; error: string }[] = [];
 
     // Upload one product per edge-function call. A single bulk invoke easily
     // exceeds the 60s client fetch timeout for multi-select uploads, which
@@ -1181,10 +1182,16 @@ export function useAppStore() {
 
           errorCount++;
           if (!firstErr) firstErr = detailedMsg;
+          failedDetails.push({ title: item.title || item.id, error: detailedMsg });
           await supabase
             .from('products')
             .update({ status: 'error', error_message: detailedMsg })
             .eq('id', item.id);
+          setReadyToPublishList(prev => prev.map(p => {
+            const pid = (p as any).productId || p.id;
+            if (pid !== item.id && p.id !== rtsUuid) return p;
+            return { ...p, status: 'error' as ProductStatus, errorMessage: detailedMsg };
+          }));
           setProducts(prev => prev.map(p =>
             p.id === item.id ? { ...p, status: 'error' as ProductStatus, errorMessage: detailedMsg } : p
           ));
@@ -1193,7 +1200,7 @@ export function useAppStore() {
             id: string; success: boolean; shopify_product_id?: string; error?: string; action?: string;
           };
 
-          if (result.success) {
+          if (result.success && result.action !== 'created_without_image') {
             successCount++;
             const syncTimestamp = new Date().toISOString();
             await supabase
@@ -1253,14 +1260,23 @@ export function useAppStore() {
             }));
           } else {
             errorCount++;
-            if (!firstErr && result.error) firstErr = result.error;
+            const errText = result.error || (result.action === 'created_without_image'
+              ? '圖片上傳失敗，產品未完整發佈'
+              : 'Unknown error');
+            if (!firstErr) firstErr = errText;
+            failedDetails.push({ title: item.title || item.id, error: errText });
             await supabase
               .from('products')
-              .update({ status: 'error', error_message: result.error || 'Unknown error' })
+              .update({ status: 'error', error_message: errText })
               .eq('id', item.id);
+            setReadyToPublishList(prev => prev.map(p => {
+              const pid = (p as any).productId || p.id;
+              if (pid !== item.id && p.id !== rtsUuid) return p;
+              return { ...p, status: 'error' as ProductStatus, errorMessage: errText };
+            }));
             setProducts(prev => prev.map(p =>
               p.id === item.id
-                ? { ...p, status: 'error' as ProductStatus, errorMessage: result.error }
+                ? { ...p, status: 'error' as ProductStatus, errorMessage: errText }
                 : p
             ));
           }
@@ -1268,10 +1284,16 @@ export function useAppStore() {
           const errMsg = data.error as string;
           errorCount++;
           if (!firstErr) firstErr = errMsg;
+          failedDetails.push({ title: item.title || item.id, error: errMsg });
           await supabase
             .from('products')
             .update({ status: 'error', error_message: errMsg })
             .eq('id', item.id);
+          setReadyToPublishList(prev => prev.map(p => {
+            const pid = (p as any).productId || p.id;
+            if (pid !== item.id && p.id !== rtsUuid) return p;
+            return { ...p, status: 'error' as ProductStatus, errorMessage: errMsg };
+          }));
           setProducts(prev => prev.map(p =>
             p.id === item.id ? { ...p, status: 'error' as ProductStatus, errorMessage: errMsg } : p
           ));
@@ -1279,10 +1301,16 @@ export function useAppStore() {
           const errMsg = 'Unexpected response from upload function. Check console for details.';
           errorCount++;
           if (!firstErr) firstErr = errMsg;
+          failedDetails.push({ title: item.title || item.id, error: errMsg });
           await supabase
             .from('products')
             .update({ status: 'error', error_message: errMsg })
             .eq('id', item.id);
+          setReadyToPublishList(prev => prev.map(p => {
+            const pid = (p as any).productId || p.id;
+            if (pid !== item.id && p.id !== rtsUuid) return p;
+            return { ...p, status: 'error' as ProductStatus, errorMessage: errMsg };
+          }));
           console.error('[uploadToMasterDb] Unexpected response format:', JSON.stringify(data));
         }
 
@@ -1296,15 +1324,17 @@ export function useAppStore() {
           action: { label: '前往已上載產品', onClick: () => setCurrentView('listed-products') },
         });
       } else if (successCount > 0 && errorCount > 0) {
-        toast.warning(`${successCount} 個成功、${errorCount} 個失敗`, {
-          description: firstErr ? `失敗原因：${firstErr.slice(0, 200)}` : '部分產品上傳失敗',
-          duration: 12000,
+        const failLines = failedDetails.slice(0, 3).map(f => `• ${f.title}：${f.error.slice(0, 100)}`).join('\n');
+        toast.warning(`${successCount} 個成功、${errorCount} 個失敗（失敗產品仍留在準備上載）`, {
+          description: failLines || (firstErr ? firstErr.slice(0, 200) : '部分產品上傳失敗'),
+          duration: 15000,
           action: { label: '前往已上載產品', onClick: () => setCurrentView('listed-products') },
         });
       } else if (errorCount > 0) {
-        toast.error(`${errorCount} 個產品上傳失敗`, {
-          description: firstErr ? firstErr.slice(0, 300) : '請查看控制台了解詳情',
-          duration: 12000,
+        const failLines = failedDetails.slice(0, 3).map(f => `• ${f.title}：${f.error.slice(0, 100)}`).join('\n');
+        toast.error(`${errorCount} 個產品上傳失敗（仍留在準備上載）`, {
+          description: failLines || (firstErr ? firstErr.slice(0, 300) : '請查看列表中的錯誤原因'),
+          duration: 15000,
         });
         console.error('[publishToShopify] First product error:', firstErr);
       }

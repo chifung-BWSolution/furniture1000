@@ -75,6 +75,8 @@ export function mapReadyToPublishRow(row: Record<string, unknown>): Product {
   const rtsImg = typeof row.image_url === 'string' ? row.image_url.trim() : '';
   const prodImg = typeof p.image_url === 'string' ? p.image_url.trim() : '';
   const imageUrl = rtsImg || prodImg;
+  const prodStatus = typeof p.status === 'string' ? p.status : '';
+  const prodError = typeof p.error_message === 'string' ? p.error_message.trim() : '';
 
   return {
     id: String(row.id),
@@ -86,7 +88,8 @@ export function mapReadyToPublishRow(row: Record<string, unknown>): Product {
     price: row.price != null ? parseFloat(String(row.price)) : 0,
     compareAtPrice: row.compare_at_price != null ? parseFloat(String(row.compare_at_price)) : undefined,
     collection: String(row.product_type || ''),
-    status: 'draft' as ProductStatus,
+    status: (prodStatus === 'error' ? 'error' : 'draft') as ProductStatus,
+    errorMessage: prodError || undefined,
     imageUrl,
     shopifyProductId: row.shopify_product_id ? String(row.shopify_product_id) : null,
     factoriesDisplayName: String(row.vendor || p.factories_display_name || ''),
