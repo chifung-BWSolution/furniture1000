@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import {
-  Plus, Loader2, Search, Check, CheckCircle2, X, LayoutGrid, UserRound, Tag,
+  Plus, Loader2, Search, Check, CheckCircle2, Trash2, X, LayoutGrid, UserRound, Tag,
 } from 'lucide-react';
 import {
   fetchProjects, fetchZones, fetchZoneProducts, fetchActiveShopifyProducts,
-  createZoneProduct, updateZoneProductStatus, saveProject,
+  createZoneProduct, deleteZoneProductWithProgress, updateZoneProductStatus, saveProject,
 } from '@/lib/solutionsApi';
 import { useAppStore } from '@/hooks/use-app-store';
 import { consumeSolutionFocusProjectId } from '@/lib/solutionProjectFocus';
@@ -56,6 +56,7 @@ export function DesignProjectsView() {
   const [productLevel1, setProductLevel1] = useState('');
   const [productLevel2, setProductLevel2] = useState('');
   const [confirmingProject, setConfirmingProject] = useState(false);
+  const [deletingProductId, setDeletingProductId] = useState<string | null>(null);
 
   useEffect(() => {
     const focusId = consumeSolutionFocusProjectId();
@@ -154,6 +155,27 @@ export function DesignProjectsView() {
     );
     const res = await updateZoneProductStatus(id, status);
     if (!res.ok) toast.error('更新失敗', { description: res.error });
+  };
+
+  const removeProduct = async (item: ZoneProduct) => {
+    if (!activeProjectId || deletingProductId) return;
+    if (!window.confirm(`確定從此間隔移除「${item.productTitle}」？`)) return;
+    setDeletingProductId(item.id);
+    const result = await deleteZoneProductWithProgress(
+      item.id,
+      activeProjectId,
+    );
+    setDeletingProductId(null);
+    if (!result.ok) {
+      toast.error('刪除產品失敗', { description: result.error });
+      return;
+    }
+    setZoneProducts((current) =>
+      current.filter((product) => product.id !== item.id),
+    );
+    toast.success('已從間隔移除產品', {
+      description: item.productTitle,
+    });
   };
 
   const confirmProject = async () => {
@@ -399,20 +421,36 @@ export function DesignProjectsView() {
                               ${Number(item.salePrice || 0).toLocaleString()} × {item.quantity}
                             </p>
                           </div>
-                          <select
-                            value={item.status}
-                            onChange={(e) =>
-                              setStatus(item.id, e.target.value as ZoneProductStatus)
-                            }
-                            className={cn(
-                              'rounded-full border px-3 py-1.5 text-[15px] font-medium',
-                              ZONE_PRODUCT_STATUS_META[item.status]?.className,
-                            )}
-                          >
-                            <option value="pending">未確定</option>
-                            <option value="discussing">待討論</option>
-                            <option value="confirmed">已確定</option>
-                          </select>
+                          <div className="flex shrink-0 items-center gap-2">
+                            <select
+                              value={item.status}
+                              onChange={(e) =>
+                                setStatus(item.id, e.target.value as ZoneProductStatus)
+                              }
+                              className={cn(
+                                'rounded-full border px-3 py-1.5 text-[15px] font-medium',
+                                ZONE_PRODUCT_STATUS_META[item.status]?.className,
+                              )}
+                            >
+                              <option value="pending">未確定</option>
+                              <option value="discussing">待討論</option>
+                              <option value="confirmed">已確定</option>
+                            </select>
+                            <button
+                              type="button"
+                              disabled={deletingProductId === item.id}
+                              onClick={() => void removeProduct(item)}
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/30 px-2.5 py-1.5 text-[15px] font-medium text-rose-600 hover:bg-rose-500/10 disabled:opacity-50"
+                              title="從間隔移除產品"
+                            >
+                              {deletingProductId === item.id ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-4 w-4" />
+                              )}
+                              刪除
+                            </button>
+                          </div>
                         </li>
                       ))}
                     </ul>

@@ -891,6 +891,34 @@ export async function createZoneProduct(input: {
   }
 }
 
+/** Delete one selected product from a project zone. */
+export async function deleteZoneProduct(
+  zoneProductId: string,
+): Promise<WriteResult> {
+  try {
+    const { error } = await supabase
+      .from('zone_products')
+      .delete()
+      .eq('id', zoneProductId);
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : '刪除產品失敗',
+    };
+  }
+}
+
+export async function deleteZoneProductWithProgress(
+  zoneProductId: string,
+  projectId: string,
+): Promise<WriteResult> {
+  const result = await deleteZoneProduct(zoneProductId);
+  if (result.ok) await recalculateAndSaveProjectProgress(projectId);
+  return result;
+}
+
 /** Update a single zone_product's confirmation status. */
 export async function updateZoneProductStatus(
   zoneProductId: string,
