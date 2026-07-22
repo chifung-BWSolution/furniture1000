@@ -16,6 +16,8 @@ export interface SecondaryItem {
   view: ViewType;
   label: string;
   icon: LucideIcon;
+  /** Only visible to 系統管理員 (role = admin). */
+  adminOnly?: boolean;
 }
 
 export interface PrimaryItem {
@@ -109,12 +111,12 @@ export const NAV_CONFIG: PrimaryItem[] = [
     label: '設定',
     icon: SettingsIcon,
     children: [
-      { view: 'user-management', label: '用戶管理', icon: UserCog },
-      { view: 'login-history', label: '登入紀錄', icon: History },
+      { view: 'user-management', label: '用戶管理', icon: UserCog, adminOnly: true },
+      { view: 'login-history', label: '登入紀錄', icon: History, adminOnly: true },
       { view: 'category-management', label: 'Shopify 分類', icon: FolderTree },
       { view: 'category-registry', label: '產品分類', icon: FolderTree },
-      { view: 'settings', label: '系統設定', icon: SettingsIcon },
-      { view: 'upload-product-log', label: '上載產品紀錄', icon: ClipboardList },
+      { view: 'settings', label: '系統設定', icon: SettingsIcon, adminOnly: true },
+      { view: 'upload-product-log', label: '上載產品紀錄', icon: ClipboardList, adminOnly: true },
     ],
   },
 ];
@@ -142,6 +144,26 @@ export function findSection(view: ViewType): PrimarySection {
 
 export function getSection(id: PrimarySection): PrimaryItem {
   return NAV_CONFIG.find((p) => p.id === id) ?? NAV_CONFIG[0];
+}
+
+/** Settings views restricted to 系統管理員. */
+export const ADMIN_ONLY_VIEWS: ViewType[] = [
+  'user-management',
+  'login-history',
+  'settings',
+  'upload-product-log',
+];
+
+export function isAdminOnlyView(view: ViewType): boolean {
+  return ADMIN_ONLY_VIEWS.includes(view);
+}
+
+export function filterNavChildren(children: SecondaryItem[], isAdmin: boolean): SecondaryItem[] {
+  return isAdmin ? children : children.filter((c) => !c.adminOnly);
+}
+
+export function getFirstVisibleView(sectionId: PrimarySection, isAdmin: boolean): ViewType | undefined {
+  return filterNavChildren(getSection(sectionId).children, isAdmin)[0]?.view;
 }
 
 export function getViewMeta(view: ViewType): { sectionLabel: string; viewLabel: string } {

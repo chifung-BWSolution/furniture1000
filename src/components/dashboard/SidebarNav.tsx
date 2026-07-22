@@ -8,7 +8,7 @@ import {
   TooltipTrigger,
   TooltipProvider,
 } from '@/components/ui/tooltip';
-import { getSection } from './navConfig';
+import { getSection, filterNavChildren } from './navConfig';
 
 interface SidebarNavProps {
   activeSection: PrimarySection;
@@ -18,6 +18,7 @@ interface SidebarNavProps {
   onToggleDarkMode: () => void;
   isCollapsed?: boolean;
   onCollapseChange?: (collapsed: boolean) => void;
+  isAdmin?: boolean;
 }
 
 export function SidebarNav({
@@ -28,10 +29,12 @@ export function SidebarNav({
   onToggleDarkMode,
   isCollapsed: isCollapsedProp = false,
   onCollapseChange,
+  isAdmin = false,
 }: SidebarNavProps) {
   const isCollapsed = isCollapsedProp;
   const setIsCollapsed = (val: boolean) => onCollapseChange?.(val);
   const section = getSection(activeSection);
+  const visibleChildren = filterNavChildren(section.children, isAdmin);
   const SectionIcon = section.icon;
 
   return (
@@ -74,7 +77,7 @@ export function SidebarNav({
         {/* Items */}
         <nav className="flex-1 overflow-y-auto px-3 py-3">
           <div className="space-y-1">
-            {section.children.map(({ view, label, icon: Icon }) => {
+            {visibleChildren.map(({ view, label, icon: Icon }) => {
               const isActive = currentView === view;
               if (isCollapsed) {
                 return (

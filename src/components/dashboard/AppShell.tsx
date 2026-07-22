@@ -37,7 +37,7 @@ import { PublishModal } from "./PublishModal";
 import { FurnitureGroupCheckView } from "./publish/FurnitureGroupCheckView";
 import { ReadyToPublishView } from "./publish/ReadyToPublishView";
 import { Construction, WifiOff, RefreshCw } from "lucide-react";
-import { findSection, getSection } from "./navConfig";
+import { findSection, isAdminOnlyView, getFirstVisibleView } from "./navConfig";
 import { type PrimarySection, type ViewType } from "@/types/product";
 import { addToCatalog } from "@/lib/catalogStore";
 import { toast } from "sonner";
@@ -235,7 +235,7 @@ function PlaceholderView({
 export function AppShell() {
   const store = useAppStore();
   const { user } = useAuth();
-  const { role: platformRole } = usePlatformRole();
+  const { role: platformRole, loading: roleLoading } = usePlatformRole();
   const location = useLocation();
   const navigate = useNavigate();
   const [showPublishModal, setShowPublishModal] = useState(false);
@@ -254,6 +254,7 @@ export function AppShell() {
       : null;
   const clientOnly =
     platformRole === 'client' || Boolean(portalToken || storedPortalToken);
+  const isAdmin = platformRole === 'admin';
 
   useEffect(() => {
     if (portalToken) {
@@ -268,7 +269,10 @@ export function AppShell() {
     ) {
       store.setCurrentView('customer-quote-schemes');
     }
-  }, [clientOnly, portalToken, store.currentView, store]);
+    if (!roleLoading && !clientOnly && !isAdmin && isAdminOnlyView(store.currentView)) {
+      store.setCurrentView('category-management');
+    }
+  }, [clientOnly, portalToken, roleLoading, isAdmin, store.currentView, store]);
 
   const setEditingQuoteId = useCallback(
     (id: string | null) => {
@@ -831,6 +835,10 @@ export function AppShell() {
   const activeSection: PrimarySection = findSection(store.currentView);
 
   const handleViewChange = (view: typeof store.currentView) => {
+    if (!roleLoading && !isAdmin && isAdminOnlyView(view)) {
+      return;
+    }
+
     if (view === "quick-quote") {
       if (unsavedGuard.isDirty && !unsavedGuard.confirmLeave()) return;
       writeQuickQuoteCopyFrom(user?.email, null);
@@ -876,7 +884,7 @@ export function AppShell() {
 
   const handleSectionChange = (section: PrimarySection) => {
     if (section === activeSection) return;
-    const target = getSection(section).children[0]?.view;
+    const target = getFirstVisibleView(section, isAdmin);
     if (target) handleViewChange(target);
   };
 
@@ -906,6 +914,7 @@ export function AppShell() {
             onToggleDarkMode={store.toggleDarkMode}
             isCollapsed={sidebarCollapsed}
             onCollapseChange={setSidebarCollapsed}
+            isAdmin={isAdmin}
           />
         )}
 
