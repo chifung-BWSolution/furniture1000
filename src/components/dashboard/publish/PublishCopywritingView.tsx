@@ -13,7 +13,7 @@ import { uploadFileToStorage, uploadImageSourceToStorage, isHttpImageUrl } from 
 import { excludeAlreadyPublishedRts } from '@/lib/publishPipeline';
 import { collectProductGalleryUrls } from '@/lib/productGallery';
 import { pickScenarioPrimaryImageUrl } from '@/lib/productMergeImages';
-import { syncRtsContentToProduct, syncRtsWorkflowToProduct } from '@/lib/rtsProductSync';
+import { syncRtsContentToProduct, syncRtsGalleryToProduct, syncRtsWorkflowToProduct } from '@/lib/rtsProductSync';
 import { writeUploadLog } from '@/lib/uploadLog';
 import { getPublishTimestampHk } from '@/lib/publishTimestamps';
 import { normalizeBodyHtmlForShopify } from '@/lib/bodyHtml';
@@ -461,9 +461,9 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
         title: name,
         body_html: normalizeBodyHtmlForShopify(desc),
         sku: sku || null,
+      });
+      await syncRtsGalleryToProduct(supabase, activeId, {
         image_url: resolvedPrimary || null,
-        image_url_2: imagesJson[0]?.src || null,
-        image_url_3: imagesJson[1]?.src || null,
         images: imagesJson.length > 0 ? imagesJson : null,
       });
       applyResolvedImagesToState(resolvedPrimary, imagesJson);
@@ -485,7 +485,6 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
       const { image_url: resolvedPrimary, images: imagesJsonArr } = await persistCopywritingImages();
       const copyDoneAt = getPublishTimestampHk();
       const imagesJson = imagesJsonArr ?? [];
-      const resolvedExtras = imagesJson.map((im) => im.src);
 
       const { error: rtsError } = await supabase
         .from('ready_to_shopify')
@@ -511,9 +510,9 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
         title: name,
         body_html: normalizeBodyHtmlForShopify(desc),
         sku: sku || null,
+      });
+      await syncRtsGalleryToProduct(supabase, activeId, {
         image_url: resolvedPrimary || null,
-        image_url_2: resolvedExtras[0] || null,
-        image_url_3: resolvedExtras[1] || null,
         images: imagesJson.length > 0 ? imagesJson : null,
       });
       await syncRtsWorkflowToProduct(supabase, activeId, {

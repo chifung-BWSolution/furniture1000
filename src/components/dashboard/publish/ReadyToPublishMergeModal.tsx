@@ -18,7 +18,7 @@ import {
   imageDedupeKey,
   isHttpUrl,
 } from '@/lib/productMergeImages';
-import { syncRtsContentToProduct } from '@/lib/rtsProductSync';
+import { syncRtsContentToProduct, syncRtsGalleryToProduct } from '@/lib/rtsProductSync';
 import { buildRtsImagesJson, parseRtsGalleryUrls } from '@/lib/rtsImages';
 
 interface RtsVariant {
@@ -657,11 +657,13 @@ export function ReadyToPublishMergeModal({
       }
 
       await syncRtsContentToProduct(supabase, hostProductId, {
-        image_url: primary,
-        images: buildRtsImagesJson(dedupedGallery.slice(1)),
         sku: parentSku,
         price: minPrice,
         sale_price: minPrice,
+      });
+      await syncRtsGalleryToProduct(supabase, hostProductId, {
+        image_url: primary,
+        images: buildRtsImagesJson(dedupedGallery.slice(1)),
       });
 
       if (currentMergedRtsIds.length > 0) {

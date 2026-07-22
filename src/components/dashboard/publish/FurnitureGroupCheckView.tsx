@@ -8,7 +8,7 @@ import {
 import { supabase } from '@/lib/supabase';
 import { uploadImageSourceToStorage, stripBase64ForDb, isHttpImageUrl } from '@/lib/imageStorage';
 import { buildRtsImagesJson, parseRtsGalleryUrls } from '@/lib/rtsImages';
-import { syncRtsContentToProduct, syncRtsWorkflowToProduct } from '@/lib/rtsProductSync';
+import { syncRtsContentToProduct, syncRtsGalleryToProduct, syncRtsWorkflowToProduct } from '@/lib/rtsProductSync';
 import { dedupeFactoryNames, normalizeFactoryDisplayName } from '@/lib/factoryNames';
 import { getPublishTimestampHk } from '@/lib/publishTimestamps';
 import { writeUploadLog, writeUploadLogBatch } from '@/lib/uploadLog';
@@ -506,13 +506,13 @@ export function FGProductDetailModal({
           in_stock: inStockVal,
           customize: customizeVal,
           vendor: editVendor || null,
-          ...(imagesChanged
-            ? {
-                image_url: primaryImageUrl,
-                images: buildRtsImagesJson(resolvedImages.slice(1)),
-              }
-            : {}),
         });
+        if (imagesChanged) {
+          await syncRtsGalleryToProduct(supabase, data.product_id, {
+            image_url: primaryImageUrl,
+            images: buildRtsImagesJson(resolvedImages.slice(1)),
+          });
+        }
       }
 
       setData(prev => {

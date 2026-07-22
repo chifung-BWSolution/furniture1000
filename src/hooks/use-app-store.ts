@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase';
 import { removeProductFromPublishPipeline } from '@/lib/publishPipeline';
 import { resolveSelectedPublishProducts } from '@/lib/readyToPublishRow';
 import { parseRtsGalleryUrls, buildPublishGalleryUrls } from '@/lib/rtsImages';
+import { syncRtsGalleryToProduct } from '@/lib/rtsProductSync';
 import { writeUploadLog } from '@/lib/uploadLog';
 import { resolveRowsImagesToStorage, productImageFieldsPendingStorage, stripBase64ForDb } from '@/lib/imageStorage';
 import { toast } from 'sonner';
@@ -1031,6 +1032,25 @@ export function useAppStore() {
     }
     const rtsMap = new Map<string, any>((rtsRows || []).map((r: any) => [r.product_id, r]));
 
+    // Before upload: sync merged RTS+catalog gallery back to products so catalog
+    // stays aligned and publish backfill never misses images split across tables.
+    await Promise.all(
+      productIdsToPublish.map(async (productId) => {
+        const rts = rtsMap.get(productId);
+        if (!rts) return;
+        const catalogImages = rts.products as {
+          image_url?: string | null;
+          image_url_2?: string | null;
+          image_url_3?: string | null;
+          lifestyle_image_url?: string | null;
+          images?: unknown;
+        } | null | undefined;
+        const mergedGallery = buildPublishGalleryUrls(rts, catalogImages);
+        if (mergedGallery.length === 0) return;
+        await syncRtsGalleryToProduct(supabase, productId, mergedGallery);
+      }),
+    );
+
     // Build payload for publish-to-shopify edge function.
     // Content fields (title, description, price, images, variants) come from
     // ready_to_shopify; meta fields (vendor, category, dimensions, etc.) come
@@ -1384,6 +1404,9 @@ export function useAppStore() {
       images?: unknown;
     } | null | undefined;
     const galleryUrls = buildPublishGalleryUrls(rts, catalogImages);
+    if (galleryUrls.length > 0) {
+      await syncRtsGalleryToProduct(supabase, id, galleryUrls);
+    }
     const primaryUrl = galleryUrls[0] || rts?.image_url || '';
     const additionalImages = galleryUrls.slice(1).map((src) => ({ src }));
 

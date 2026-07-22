@@ -20,6 +20,34 @@ export type MirrorRowForProductSync = {
   'my_fields.production_time'?: string | null;
 };
 
+export type ProductImagesPatch = {
+  image_url: string | null;
+  image_url_2: string | null;
+  image_url_3: string | null;
+  images: { src: string; position: number }[] | null;
+};
+
+/** Ordered gallery URLs → products image columns (primary + legacy extras + images[] JSON). */
+export function buildProductImagesPatchFromGallery(galleryUrls: string[]): ProductImagesPatch {
+  const deduped = galleryUrls.filter((u) => typeof u === 'string' && u.trim().startsWith('http'));
+  const primary = deduped[0] || null;
+  const extras = deduped.slice(1);
+  return {
+    image_url: primary,
+    image_url_2: extras[0] || null,
+    image_url_3: extras[1] || null,
+    images: buildRtsImagesJson(extras),
+  };
+}
+
+/** RTS row or { image_url, images } → products image patch. */
+export function buildProductImagesPatchFromRtsRow(row: {
+  image_url?: string | null;
+  images?: unknown;
+}): ProductImagesPatch {
+  return buildProductImagesPatchFromGallery(parseRtsGalleryUrls(row));
+}
+
 /** Map ready_to_shopify or shopify_products row → products content patch. */
 export function mirrorRowToRtsContentPatch(row: MirrorRowForProductSync) {
   const gallery = parseRtsGalleryUrls(row);
@@ -49,6 +77,21 @@ export function mirrorRowToRtsContentPatch(row: MirrorRowForProductSync) {
     customize: row['my_fields.production_time'] ?? undefined,
     cost_price: row.cost ?? undefined,
   };
+}
+
+/**
+ * Sync ready_to_shopify gallery → products image columns.
+ * Keeps image_url, image_url_2/3, and images[] aligned whenever publish workflow edits images.
+ */
+export async function syncRtsGalleryToProduct(
+  supabase: SupabaseClient,
+  productId: string,
+  gallery: { image_url?: string | null; images?: unknown } | string[],
+): Promise<void> {
+  const patch = Array.isArray(gallery)
+    ? buildProductImagesPatchFromGallery(gallery)
+    : buildProductImagesPatchFromRtsRow(gallery);
+  await syncRtsContentToProduct(supabase, productId, patch);
 }
 
 /** Push shopify_products mirror edits → products (same product_id / source_product_id). */
