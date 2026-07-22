@@ -854,12 +854,17 @@ function renderDescriptionPdfContent(
               borderColor: '#ddd',
             }}
           >
-            <Text
-              style={styles.tableCellText}
-              wrap={row.kind === 'dimensions' ? false : undefined}
-            >
-              {row.label}
-            </Text>
+            {row.kind === 'dimensions' ? (
+              <View style={{ alignItems: 'center' }}>
+                {row.label.split('\n').map((line, li) => (
+                  <Text key={`dim-label-${li}`} style={styles.tableCellText} wrap={false}>
+                    {line}
+                  </Text>
+                ))}
+              </View>
+            ) : (
+              <Text style={styles.tableCellText}>{row.label}</Text>
+            )}
           </View>
           {row.kind === 'dimensions' ? (
             renderDescDimensionsValue(row.dimText, row.dimSubLabel, View, Text, locale)
