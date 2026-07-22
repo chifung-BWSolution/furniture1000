@@ -65,6 +65,9 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { resolveImagesToStorage } from '@/lib/imageStorage';
+import { collectProductGalleryUrls } from '@/lib/productGallery';
+import { pickScenarioPrimaryImageUrl } from '@/lib/productMergeImages';
+import { buildRtsImagesJson } from '@/lib/rtsImages';
 import { removeFromCatalog, addToCatalog, addToShopifyQueue, dismissProducts } from '@/lib/catalogStore';
 import { toast } from 'sonner';
 import { withUpdateAuditFields } from '@/lib/pmsAudit';
@@ -1099,17 +1102,22 @@ export function ListedProductsView({
         lifestyle_image_url: p.lifestyleImageUrl ?? null,
         images: p.images ?? [],
       };
-      // Resolve primary + extra images (image_url_2/3, lifestyle, images[] array)
-      const extraInputs: string[] = [
-        ...(heavy.image_url_2 ? [heavy.image_url_2] : []),
-        ...(heavy.image_url_3 ? [heavy.image_url_3] : []),
-        ...(heavy.lifestyle_image_url ? [heavy.lifestyle_image_url] : []),
-        ...(Array.isArray(heavy.images) ? heavy.images.map((img) => img.src).filter(Boolean) : []),
-      ];
-      const { primary, extras } = await resolveImagesToStorage(p.id, p.imageUrl || null, extraInputs);
-      const images = extras.length > 0
-        ? extras.map((src, idx) => ({ src, position: idx + 1 }))
-        : null;
+      // Resolve full catalog gallery; prefer scenario/dialog as RTS primary (準備上載 convention).
+      const catalogGallery = collectProductGalleryUrls({
+        image_url: p.imageUrl || null,
+        image_url_2: heavy.image_url_2,
+        image_url_3: heavy.image_url_3,
+        lifestyle_image_url: heavy.lifestyle_image_url,
+        images: heavy.images,
+      });
+      const scenarioPrimary = pickScenarioPrimaryImageUrl(catalogGallery);
+      const extraInputs = catalogGallery.filter((u) => u !== scenarioPrimary);
+      const { primary, extras } = await resolveImagesToStorage(
+        p.id,
+        scenarioPrimary || p.imageUrl || null,
+        extraInputs,
+      );
+      const images = buildRtsImagesJson(extras);
       return {
         product_id: p.id,
         title: p.title || null,

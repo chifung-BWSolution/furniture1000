@@ -1114,12 +1114,36 @@ Deno.serve(async (req: Request) => {
           return variant;
         });
 
-        // Enrich gallery from ready_to_shopify when client payload is incomplete.
-        const { data: rtsRow } = await supabase
-          .from("ready_to_shopify")
-          .select("image_url, images")
-          .eq("product_id", product.id)
-          .maybeSingle();
+        // Enrich gallery from ready_to_shopify + products catalog (fill missing images).
+        const [{ data: rtsRow }, { data: prodRow }] = await Promise.all([
+          supabase
+            .from("ready_to_shopify")
+            .select("image_url, images")
+            .eq("product_id", product.id)
+            .maybeSingle(),
+          supabase
+            .from("products")
+            .select("image_url, image_url_2, image_url_3, lifestyle_image_url, images")
+            .eq("id", product.id)
+            .maybeSingle(),
+        ]);
+
+        const catalogUrls: string[] = [];
+        const pushCatalog = (src: unknown) => {
+          if (isHttpUrl(src)) catalogUrls.push(String(src).trim());
+        };
+        if (prodRow) {
+          pushCatalog(prodRow.image_url);
+          if (Array.isArray(prodRow.images)) {
+            for (const im of prodRow.images as { src?: string; url?: string }[]) {
+              pushCatalog(im?.src || im?.url);
+            }
+          }
+          pushCatalog(prodRow.image_url_2);
+          pushCatalog(prodRow.image_url_3);
+          pushCatalog(prodRow.lifestyle_image_url);
+        }
+
         if (rtsRow) {
           const rtsUrls: string[] = [];
           const pushRts = (src: unknown) => {
@@ -1146,6 +1170,7 @@ Deno.serve(async (req: Request) => {
             seenGallery.add(key);
             mergedGallery.push(src);
           };
+          // RTS / client payload order first, then backfill from products catalog.
           if (rtsPrimary.startsWith("http")) addGallery(rtsPrimary);
           if (Array.isArray(product.gallery_urls)) {
             for (const url of product.gallery_urls) addGallery(url);
@@ -1156,12 +1181,33 @@ Deno.serve(async (req: Request) => {
             }
           }
           for (const url of rtsUrls) addGallery(url);
+          for (const url of catalogUrls) addGallery(url);
 
           if (mergedGallery.length > 0) {
             product.gallery_urls = mergedGallery;
+            product.image_url = mergedGallery[0];
+            product.primary_image_src = mergedGallery[0];
             console.log(
-              `[publish-to-shopify] 📎 ready_to_shopify gallery merge for "${product.title}": ${mergedGallery.length} image(s)`,
+              `[publish-to-shopify] 📎 gallery merge for "${product.title}": ${mergedGallery.length} image(s) (RTS + catalog)`,
             );
+          }
+        } else if (catalogUrls.length > 0) {
+          const mergedGallery: string[] = [];
+          const seenGallery = new Set<string>();
+          const addGallery = (src: string) => {
+            const key = imageDedupeKey(src);
+            if (seenGallery.has(key)) return;
+            seenGallery.add(key);
+            mergedGallery.push(src);
+          };
+          if (Array.isArray(product.gallery_urls)) {
+            for (const url of product.gallery_urls) addGallery(url);
+          }
+          for (const url of catalogUrls) addGallery(url);
+          if (mergedGallery.length > 0) {
+            product.gallery_urls = mergedGallery;
+            product.image_url = mergedGallery[0];
+            product.primary_image_src = mergedGallery[0];
           }
         }
 

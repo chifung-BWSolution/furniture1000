@@ -1024,7 +1024,7 @@ export function useAppStore() {
     // finalised title, body_html, price, image_url, images, variants.
     const { data: rtsRows, error: rtsErr } = await supabase
       .from('ready_to_shopify')
-      .select('id,product_id,title,body_html,vendor,price,image_url,images,variants,product_type,tags,shopify_url,shopify_page_title,shopify_page_description,dimension_l_mm,dimension_w_mm,dimension_h_mm,material,"my_fields.materials",customize,sku,products(dimension_l_mm,dimension_w_mm,dimension_h_mm,material,customize)')
+      .select('id,product_id,title,body_html,vendor,price,image_url,images,variants,product_type,tags,shopify_url,shopify_page_title,shopify_page_description,dimension_l_mm,dimension_w_mm,dimension_h_mm,material,"my_fields.materials",customize,sku,products(image_url,image_url_2,image_url_3,lifestyle_image_url,images,dimension_l_mm,dimension_w_mm,dimension_h_mm,material,customize)')
       .in('product_id', productIdsToPublish);
     if (rtsErr) {
       console.warn('[publishToShopify] ready_to_shopify fetch error:', rtsErr.message);
@@ -1044,8 +1044,15 @@ export function useAppStore() {
       const productTags: string[] = Array.isArray(p.tags) ? p.tags : [];
       const mergedTags = Array.from(new Set([...productTags, ...rtsTags]));
 
-      // Ordered gallery from ready_to_shopify only (準備上載 source of truth).
-      const galleryUrls: string[] = buildPublishGalleryUrls(rts);
+      // RTS order first; backfill any catalog images missing from RTS (e.g. white-bg when scenario is primary).
+      const catalogImages = rts?.products as {
+        image_url?: string | null;
+        image_url_2?: string | null;
+        image_url_3?: string | null;
+        lifestyle_image_url?: string | null;
+        images?: unknown;
+      } | null | undefined;
+      const galleryUrls: string[] = buildPublishGalleryUrls(rts, catalogImages);
       const primaryUrl: string = galleryUrls[0] || rts?.image_url || '';
       const additionalImages: { src: string }[] = galleryUrls.slice(1).map((src) => ({ src }));
 
@@ -1331,7 +1338,7 @@ export function useAppStore() {
     // Fetch the ready_to_shopify row for this product to get finalised content
     const { data: rtsRetryRows } = await supabase
       .from('ready_to_shopify')
-      .select('id,product_id,title,body_html,price,image_url,images,variants,product_type,tags,shopify_url,shopify_page_title,shopify_page_description,sku,vendor')
+      .select('id,product_id,title,body_html,price,image_url,images,variants,product_type,tags,shopify_url,shopify_page_title,shopify_page_description,sku,vendor,products(image_url,image_url_2,image_url_3,lifestyle_image_url,images)')
       .eq('product_id', id)
       .maybeSingle();
     const rts = rtsRetryRows as any;
@@ -1339,7 +1346,14 @@ export function useAppStore() {
     const productTags: string[] = Array.isArray(product.tags) ? product.tags : [];
     const mergedTags = Array.from(new Set([...productTags, ...rtsTags]));
 
-    const galleryUrls = buildPublishGalleryUrls(rts);
+    const catalogImages = rts?.products as {
+      image_url?: string | null;
+      image_url_2?: string | null;
+      image_url_3?: string | null;
+      lifestyle_image_url?: string | null;
+      images?: unknown;
+    } | null | undefined;
+    const galleryUrls = buildPublishGalleryUrls(rts, catalogImages);
     const primaryUrl = galleryUrls[0] || rts?.image_url || '';
     const additionalImages = galleryUrls.slice(1).map((src) => ({ src }));
 

@@ -12,6 +12,7 @@ import { supabase } from '@/lib/supabase';
 import { uploadFileToStorage, uploadImageSourceToStorage, isHttpImageUrl } from '@/lib/imageStorage';
 import { excludeAlreadyPublishedRts } from '@/lib/publishPipeline';
 import { collectProductGalleryUrls } from '@/lib/productGallery';
+import { pickScenarioPrimaryImageUrl } from '@/lib/productMergeImages';
 import { syncRtsContentToProduct, syncRtsWorkflowToProduct } from '@/lib/rtsProductSync';
 import { writeUploadLog } from '@/lib/uploadLog';
 import { getPublishTimestampHk } from '@/lib/publishTimestamps';
@@ -292,8 +293,8 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
 
     if (prod) {
       const gallery = collectProductGalleryUrls(prod);
-      const primaryImg = gallery[0] || p.imageUrl || '';
-      const extraImgs = gallery.slice(1);
+      const primaryImg = pickScenarioPrimaryImageUrl(gallery) || gallery[0] || p.imageUrl || '';
+      const extraImgs = gallery.filter((u) => u !== primaryImg);
       if (primaryImg) { setPrimaryImg(primaryImg); finalPrimary = primaryImg; }
       setExtraImgs(extraImgs); finalExtras = extraImgs;
     }
