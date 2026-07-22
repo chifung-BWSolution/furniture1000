@@ -420,6 +420,7 @@ export function DesignProjectsView() {
                   {items.length === 0 ? (
                     <p className="px-5 py-6 text-[15px] text-muted-foreground">尚未配置傢俬 — 按本列右上角「加入產品」</p>
                   ) : (
+                    <>
                     <ul className="divide-y divide-border/70">
                       {items.map((item) => (
                         <li key={item.id} className="flex items-center gap-4 px-5 py-3.5">
@@ -503,6 +504,20 @@ export function DesignProjectsView() {
                         </li>
                       ))}
                     </ul>
+                    <div className="flex justify-end border-t border-border bg-muted/20 px-5 py-3.5">
+                      <p className="font-mono-data text-[15px] font-bold text-foreground">
+                        小計：$
+                        {items
+                          .reduce(
+                            (sum, item) =>
+                              sum +
+                              Number(item.salePrice || 0) * item.quantity,
+                            0,
+                          )
+                          .toLocaleString()}
+                      </p>
+                    </div>
+                    </>
                   )}
                 </div>
               );
