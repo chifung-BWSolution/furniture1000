@@ -919,6 +919,30 @@ export async function deleteZoneProductWithProgress(
   return result;
 }
 
+/** Update selected product quantity (minimum 1). */
+export async function updateZoneProductQuantity(
+  zoneProductId: string,
+  quantity: number,
+): Promise<WriteResult> {
+  try {
+    const nextQuantity = Math.max(1, Math.floor(quantity || 1));
+    const updatePayload = await withUpdateAuditFields({
+      quantity: nextQuantity,
+    });
+    const { error } = await supabase
+      .from('zone_products')
+      .update(updatePayload)
+      .eq('id', zoneProductId);
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : '更新數量失敗',
+    };
+  }
+}
+
 /** Update a single zone_product's confirmation status. */
 export async function updateZoneProductStatus(
   zoneProductId: string,

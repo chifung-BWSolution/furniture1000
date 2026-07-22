@@ -5,7 +5,8 @@ import {
 } from 'lucide-react';
 import {
   fetchProjects, fetchZones, fetchZoneProducts, fetchActiveShopifyProducts,
-  createZoneProduct, deleteZoneProductWithProgress, updateZoneProductStatus, saveProject,
+  createZoneProduct, deleteZoneProductWithProgress, updateZoneProductQuantity,
+  updateZoneProductStatus, saveProject,
 } from '@/lib/solutionsApi';
 import { useAppStore } from '@/hooks/use-app-store';
 import { consumeSolutionFocusProjectId } from '@/lib/solutionProjectFocus';
@@ -176,6 +177,22 @@ export function DesignProjectsView() {
     toast.success('已從間隔移除產品', {
       description: item.productTitle,
     });
+  };
+
+  const setQuantity = async (item: ZoneProduct, value: number) => {
+    if (!activeProjectId) return;
+    const quantity = Math.max(1, Math.min(9999, Math.floor(value || 1)));
+    if (quantity === item.quantity) return;
+    setZoneProducts((current) =>
+      current.map((product) =>
+        product.id === item.id ? { ...product, quantity } : product,
+      ),
+    );
+    const result = await updateZoneProductQuantity(item.id, quantity);
+    if (!result.ok) {
+      toast.error('更新數量失敗', { description: result.error });
+      void reloadZones(activeProjectId);
+    }
   };
 
   const confirmProject = async () => {
@@ -418,10 +435,42 @@ export function DesignProjectsView() {
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-base font-medium">{item.productTitle}</p>
                             <p className="font-mono-data text-[15px] text-primary">
-                              ${Number(item.salePrice || 0).toLocaleString()} × {item.quantity}
+                              單價 ${Number(item.salePrice || 0).toLocaleString()} × {item.quantity}
+                              {' = '}
+                              小計 ${(Number(item.salePrice || 0) * item.quantity).toLocaleString()}
                             </p>
                           </div>
                           <div className="flex shrink-0 items-center gap-2">
+                            <div className="inline-flex items-center overflow-hidden rounded-lg border border-border bg-background">
+                              <button
+                                type="button"
+                                onClick={() => void setQuantity(item, item.quantity - 1)}
+                                disabled={item.quantity <= 1}
+                                className="flex h-9 w-9 items-center justify-center text-[17px] text-muted-foreground hover:bg-muted disabled:opacity-35"
+                                aria-label="數量減一"
+                              >
+                                −
+                              </button>
+                              <input
+                                type="number"
+                                min={1}
+                                max={9999}
+                                value={item.quantity}
+                                onChange={(event) =>
+                                  void setQuantity(item, Number(event.target.value))
+                                }
+                                className="h-9 w-12 border-x border-border bg-background text-center font-mono-data text-[15px] font-semibold outline-none"
+                                aria-label={`${item.productTitle}數量`}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => void setQuantity(item, item.quantity + 1)}
+                                className="flex h-9 w-9 items-center justify-center text-[17px] text-muted-foreground hover:bg-muted"
+                                aria-label="數量加一"
+                              >
+                                +
+                              </button>
+                            </div>
                             <select
                               value={item.status}
                               onChange={(e) =>
