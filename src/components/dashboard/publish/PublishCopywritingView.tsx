@@ -36,6 +36,9 @@ interface CopyItem {
   model: string;
   level1: string;
   level2: string;
+  dimL: number | null;
+  dimW: number | null;
+  dimH: number | null;
   seoTitle: string;
   seoDescription: string;
   handle: string;
@@ -44,6 +47,12 @@ interface CopyItem {
   salePrice: number | null;
   sku: string;
   revertReason: RevertReason | null;
+}
+
+function formatDimensions(l: number | null, w: number | null, h: number | null): string | null {
+  const parts = [l, w, h].filter((n): n is number => n != null && Number.isFinite(n));
+  if (parts.length === 0) return null;
+  return parts.join(' * ');
 }
 
 function slugify(s: string) {
@@ -192,6 +201,9 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
       model,
       level1: r.level1_category || '',
       level2: r.level2_category || '',
+      dimL: r.dimension_l_mm != null ? Number(r.dimension_l_mm) : null,
+      dimW: r.dimension_w_mm != null ? Number(r.dimension_w_mm) : null,
+      dimH: r.dimension_h_mm != null ? Number(r.dimension_h_mm) : null,
       seoTitle: r.title || '',
       seoDescription: (r.description || '').slice(0, 160),
       handle: slugify(r.title || ''),
@@ -819,6 +831,7 @@ ${rawDesc}
             <div className="mx-auto grid max-w-6xl grid-cols-1 gap-4 lg:grid-cols-2">
               {items.map((p) => {
                 const isSelected = selectedIds.has(p.id);
+                const dimensionsLabel = formatDimensions(p.dimL, p.dimW, p.dimH);
                 return (
                 <div
                   key={p.id}
@@ -867,6 +880,11 @@ ${rawDesc}
                     <img src={p.imageUrl} alt={p.title} loading="lazy" className="h-20 w-20 shrink-0 rounded-xl object-cover bg-muted" />
                     <div className="min-w-0 flex-1">
                       <h3 className="font-display text-[14px] font-bold text-foreground line-clamp-1">{p.title}</h3>
+                      {dimensionsLabel && (
+                        <p className="mt-0.5 font-mono-data text-[11px] text-muted-foreground">
+                          {dimensionsLabel}
+                        </p>
+                      )}
                       <div className="mt-1 flex flex-wrap items-center gap-1.5">
                         {p.factory && <span className="rounded bg-muted px-1.5 py-0.5 font-body text-[10px] text-muted-foreground">{p.factory}</span>}
                         {p.level1 && <span className="rounded bg-indigo-500/10 px-1.5 py-0.5 font-body text-[10px] text-indigo-600">{p.level1}</span>}
