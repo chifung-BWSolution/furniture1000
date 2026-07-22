@@ -138,6 +138,13 @@ export function pickBestPrimaryImageUrl(urls: string[]): string {
   return sorted[0] ?? '';
 }
 
+/** Prefer dialog/lifestyle/scene as 準備上載 primary; fall back to first URL. */
+export function pickScenarioPrimaryImageUrl(urls: string[]): string {
+  const deduped = dedupeImageUrlsPreserveOrder(urls.filter(isHttpUrl));
+  const scenario = deduped.find((u) => imageRolePriority(u) >= 2);
+  return scenario ?? deduped[0] ?? '';
+}
+
 export interface MergeVariantRowBase {
   key: string;
   sku: string;
