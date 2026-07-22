@@ -31,7 +31,7 @@ export function CustomerCompanyInfoView(
       title="公司資料"
       badge="Client Portal"
       subtitle="公司介紹、資質、公開客戶案例、工廠資料與已核實紀錄，建立報價以外的完整信任。"
-      maxWidthClass="max-w-7xl"
+      maxWidthClass="max-w-none"
     >
       <section className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
         <div className="grid gap-6 p-6 lg:grid-cols-[1.3fr_0.7fr] lg:p-8">

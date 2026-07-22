@@ -592,7 +592,7 @@ export function CustomerQuoteSchemesView() {
       title={showDetail && active ? quoteDisplayName(active) : '報價方案'}
       badge="Client Portal"
       subtitle="查看自己的 HTML 報價、切換版本、按工程分區批核產品，並回覆整張報價。"
-      maxWidthClass="max-w-6xl"
+      maxWidthClass="max-w-none"
       actions={
         <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/5 px-3 py-1.5 text-xs text-primary">
           <Shield className="h-4 w-4" />
@@ -629,7 +629,7 @@ export function CustomerQuoteSchemesView() {
             <p className="mt-3 font-semibold">目前沒有屬於您的報價</p>
           </div>
         ) : (
-          <div className="mt-4 grid gap-4 md:grid-cols-2">
+          <div className="mt-5 grid gap-5 md:grid-cols-2">
             {availableQuotes.map((quote) => {
               const selected = active?.quote_id === quote.quote_id;
               const versions = versionsByQuote.get(quote.quote_id) || [quote];

@@ -466,7 +466,7 @@ export function CustomerProductSearchView() {
           </button>
         </div>
       }
-      maxWidthClass="max-w-7xl"
+      maxWidthClass="max-w-none"
     >
       <div className="relative">
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -555,7 +555,7 @@ export function CustomerProductSearchView() {
 
       <div
         className={cn(
-          'grid gap-4',
+          'grid gap-5',
           showFilters ? 'lg:grid-cols-[320px_minmax(0,1fr)]' : '',
         )}
       >
@@ -690,7 +690,7 @@ export function CustomerProductSearchView() {
             </div>
           ) : (
             <>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
                 {results.map((p) => {
                   const dims = fmtDims(p);
                   return (

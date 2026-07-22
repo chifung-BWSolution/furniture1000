@@ -9,7 +9,7 @@ export function PortalPageShell({
   actions,
   children,
   className,
-  maxWidthClass = 'max-w-7xl',
+  maxWidthClass = 'max-w-none',
 }: {
   title: string;
   subtitle?: string;
@@ -20,9 +20,9 @@ export function PortalPageShell({
   maxWidthClass?: string;
 }) {
   return (
-    <div className={cn('h-full overflow-y-auto bg-background p-6 md:p-8', className)}>
-      <div className={cn('mx-auto space-y-6', maxWidthClass)}>
-        <div className="flex flex-wrap items-end justify-between gap-3">
+    <div className={cn('h-full overflow-y-auto bg-background p-4 md:p-6', className)}>
+      <div className={cn('mx-auto w-full space-y-7', maxWidthClass)}>
+        <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="font-display text-2xl font-bold tracking-tight">{title}</h1>

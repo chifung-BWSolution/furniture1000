@@ -112,7 +112,7 @@ export function CustomerPaymentDeliveryView() {
       title="付款 + 送貨"
       badge="網上選購"
       subtitle="瀏覽目前可供選購的產品、圖片及現時售價；此頁不儲存購物車或結帳資料。"
-      maxWidthClass="max-w-6xl"
+      maxWidthClass="max-w-none"
     >
       {/* Steps */}
       <div className="flex flex-wrap gap-2">
@@ -139,8 +139,8 @@ export function CustomerPaymentDeliveryView() {
         ))}
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
-        <div className="space-y-4">
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1.45fr)_minmax(360px,0.55fr)]">
+        <div className="space-y-5">
           {step === 'cart' ? (
             <>
               <section className="rounded-2xl border border-border bg-card p-4 shadow-sm">
