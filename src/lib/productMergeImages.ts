@@ -43,26 +43,17 @@ export function imageIdentityKey(src: string): string {
   return stem;
 }
 
-/** Lower = preferred as Shopify primary (white-bg product shot before dialog/lifestyle). */
-export function imageRolePriority(url: string): number {
-  const base = url.split('?')[0].toLowerCase();
-  if (base.includes('_primary_')) return 0;
-  if (
-    base.includes('_dialog_') ||
-    base.includes('_lifestyle_') ||
-    base.includes('_scene_')
-  ) {
-    return 2;
-  }
+/**
+ * @deprecated Filename role sorting removed — gallery order is user/DB order only.
+ * Kept as a no-op classifier for any legacy callers.
+ */
+export function imageRolePriority(_url: string): number {
   return 1;
 }
 
+/** @deprecated No role sort — returns URLs unchanged (caller should use dedupe helpers). */
 export function sortUrlsPrimaryFirst(urls: string[]): string[] {
-  return [...urls].sort((a, b) => {
-    const roleDiff = imageRolePriority(a) - imageRolePriority(b);
-    if (roleDiff !== 0) return roleDiff;
-    return a.localeCompare(b);
-  });
+  return [...urls];
 }
 
 export function imageDedupeKey(src: string): string {
@@ -74,7 +65,7 @@ export function imageDedupeKey(src: string): string {
   );
 }
 
-/** Dedupe by filename stem; keep first occurrence order (merge submit / UI slot order). */
+/** Dedupe by filename stem; keep first occurrence order (merge / UI / publish). */
 export function dedupeImageUrlsPreserveOrder(urls: string[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
@@ -88,26 +79,20 @@ export function dedupeImageUrlsPreserveOrder(urls: string[]): string[] {
   return out;
 }
 
-/** Dedupe then sort primary-role filenames first — for initial gallery build only. */
+/**
+ * Dedupe by filename stem; keep first occurrence order.
+ * Primary is whatever the caller put first (RTS image_url / user drag slot) — no filename role sort.
+ */
 export function dedupeImageUrls(urls: string[]): string[] {
-  const byKey = new Map<string, string>();
-  for (const url of urls) {
-    if (!isHttpUrl(url)) continue;
-    const key = imageDedupeKey(url);
-    const existing = byKey.get(key);
-    if (!existing || imageRolePriority(url) < imageRolePriority(existing)) {
-      byKey.set(key, url);
-    }
-  }
-  return sortUrlsPrimaryFirst([...byKey.values()]);
+  return dedupeImageUrlsPreserveOrder(urls);
 }
 
 export function dedupeGalleryUrls(urls: string[], primarySrc: string | null): string[] {
   const merged = primarySrc ? [primarySrc, ...urls] : urls;
-  return dedupeImageUrls(merged);
+  return dedupeImageUrlsPreserveOrder(merged);
 }
 
-/** Collect all HTTP image URLs from a mirror row; primary-role URLs sort first. */
+/** Collect HTTP image URLs from a mirror row — image_url first, then images[] order. */
 export function collectMergeProductImageUrls(product: {
   image_url?: string | null;
   images?: Array<{ src?: string | null }> | null;
@@ -117,7 +102,7 @@ export function collectMergeProductImageUrls(product: {
   for (const im of product.images ?? []) {
     if (isHttpUrl(im?.src)) raw.push(im.src);
   }
-  return dedupeImageUrls(raw);
+  return dedupeImageUrlsPreserveOrder(raw);
 }
 
 export function buildMergeGalleryFromProducts(
@@ -130,19 +115,20 @@ export function buildMergeGalleryFromProducts(
     if (!product) continue;
     raw.push(...collectMergeProductImageUrls(product));
   }
-  return dedupeImageUrls(raw);
+  return dedupeImageUrlsPreserveOrder(raw);
 }
 
+/** First URL in the given order (after stem-dedupe). */
 export function pickBestPrimaryImageUrl(urls: string[]): string {
-  const sorted = sortUrlsPrimaryFirst(dedupeImageUrls(urls));
-  return sorted[0] ?? '';
+  return dedupeImageUrlsPreserveOrder(urls)[0] ?? '';
 }
 
-/** Prefer dialog/lifestyle/scene as 準備上載 primary; fall back to first URL. */
+/**
+ * @deprecated Use the first gallery URL / ready_to_shopify.image_url instead.
+ * Kept as alias of first-in-order for any legacy callers.
+ */
 export function pickScenarioPrimaryImageUrl(urls: string[]): string {
-  const deduped = dedupeImageUrlsPreserveOrder(urls.filter(isHttpUrl));
-  const scenario = deduped.find((u) => imageRolePriority(u) >= 2);
-  return scenario ?? deduped[0] ?? '';
+  return pickBestPrimaryImageUrl(urls);
 }
 
 export interface MergeVariantRowBase {
@@ -191,7 +177,7 @@ export function buildMoreImageMetafields(
   orderedUrls: string[],
   title?: string | null,
 ): Record<string, string> {
-  const cols = buildMoreImageMetafieldColumns(dedupeImageUrls(orderedUrls), title);
+  const cols = buildMoreImageMetafieldColumns(dedupeImageUrlsPreserveOrder(orderedUrls), title);
   const mf: Record<string, string> = {};
   for (const [col, val] of Object.entries(cols)) {
     if (val != null && String(val).trim()) mf[col] = String(val).trim();

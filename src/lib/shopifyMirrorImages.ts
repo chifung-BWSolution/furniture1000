@@ -1,11 +1,8 @@
 /** Shopify mirror image helpers — single source of truth for gallery order. */
 
 import {
-  dedupeImageUrls,
   dedupeImageUrlsPreserveOrder,
   imageIdentityKey,
-  pickBestPrimaryImageUrl,
-  sortUrlsPrimaryFirst,
 } from './productMergeImages';
 
 export type ShopifyMirrorImage = {
@@ -44,36 +41,26 @@ export function sortShopifyImages(images: unknown): ShopifyMirrorImage[] {
 }
 
 /**
- * Primary thumbnail for 已上載產品 — use saved image_url when set (user reorder / DB primary),
- * otherwise pick *_primary_* white-bg shot over dialog/lifestyle.
+ * Primary thumbnail for 已上載產品 — saved image_url first, else first images[] by position.
  */
 export function resolveMirrorPrimaryImageUrl(row: {
   image_url?: string | null;
   images?: unknown;
 }): string {
-  const gallery = resolveMirrorGalleryUrlsInSavedOrder(row);
-  if (gallery[0]) return gallery[0];
-  return pickBestPrimaryImageUrl(gallery);
+  return resolveMirrorGalleryUrlsInSavedOrder(row)[0] ?? '';
 }
 
-/** Ordered unique gallery URLs [primary, ...extras] — role-based sort for initial import display. */
+/** Ordered unique gallery URLs [primary, ...extras] — DB/saved order only. */
 export function resolveMirrorGalleryUrls(row: {
   image_url?: string | null;
   images?: unknown;
 }): string[] {
-  const candidates: string[] = [];
-  for (const im of sortShopifyImages(row.images)) {
-    candidates.push(imageSrc(im));
-  }
-  if ((row.image_url || '').trim().startsWith('http')) {
-    candidates.unshift(row.image_url!.trim());
-  }
-  return sortUrlsPrimaryFirst(dedupeImageUrls(candidates.filter((u) => u.startsWith('http'))));
+  return resolveMirrorGalleryUrlsInSavedOrder(row);
 }
 
 /**
- * Gallery URLs in DB-saved order (position + image_url) — no filename-role re-sort.
- * Use in detail edit views after user drag-reorder save.
+ * Gallery URLs in DB-saved order (image_url + images[] by position).
+ * Use in list/detail views after user drag-reorder save.
  */
 export function resolveMirrorGalleryUrlsInSavedOrder(row: {
   image_url?: string | null;

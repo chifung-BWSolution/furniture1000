@@ -13,7 +13,6 @@ import {
 import type { Product } from '@/types/product';
 import {
   assignDuplicateMergeSkus,
-  dedupeImageUrls,
   dedupeImageUrlsPreserveOrder,
   imageDedupeKey,
   isHttpUrl,
@@ -151,11 +150,11 @@ function buildGalleryFromRtsProducts(
     if (!product) continue;
     urls.push(...collectRtsImageUrls(product));
   }
-  return dedupeImageUrls(urls);
+  return dedupeImageUrlsPreserveOrder(urls);
 }
 
 function appendRtsProductImages(prev: string[], product: RtsProductRow): string[] {
-  return dedupeImageUrls([...prev, ...collectRtsImageUrls(product)]);
+  return dedupeImageUrlsPreserveOrder([...prev, ...collectRtsImageUrls(product)]);
 }
 
 function MergeVariantRowView({

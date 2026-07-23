@@ -16,10 +16,9 @@ function normalizeImagesField(images: unknown): Array<{ src?: string; url?: stri
 }
 
 /**
- * Merge products.image_url (main / often lifestyle) with images[] extras,
- * image_url_2/3, and lifestyle_image_url. Primary first; stem-deduped.
- *
- * Catalog cards use image_url alone; detail must not drop it when images[] is set.
+ * Collect products gallery in column order:
+ * image_url → images[] → image_url_2 → image_url_3 → lifestyle_image_url.
+ * Stem-deduped; first occurrence kept (no filename-role sort).
  */
 export function collectProductGalleryUrls(row: {
   image_url?: string | null;

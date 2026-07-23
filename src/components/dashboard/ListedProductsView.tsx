@@ -66,7 +66,6 @@ import {
 import { supabase } from '@/lib/supabase';
 import { resolveImagesToStorage } from '@/lib/imageStorage';
 import { collectProductGalleryUrls } from '@/lib/productGallery';
-import { pickScenarioPrimaryImageUrl } from '@/lib/productMergeImages';
 import { buildRtsImagesJson } from '@/lib/rtsImages';
 import { removeFromCatalog, addToCatalog, addToShopifyQueue, dismissProducts } from '@/lib/catalogStore';
 import { toast } from 'sonner';
@@ -1102,7 +1101,8 @@ export function ListedProductsView({
         lifestyle_image_url: p.lifestyleImageUrl ?? null,
         images: p.images ?? [],
       };
-      // Resolve full catalog gallery; prefer scenario/dialog as RTS primary (準備上載 convention).
+      // Catalog order: products.image_url first, then images[] / url_2 / url_3 / lifestyle.
+      // No filename-role reorder — user sets primary later on 產品文案 / 合併變體.
       const catalogGallery = collectProductGalleryUrls({
         image_url: p.imageUrl || null,
         image_url_2: heavy.image_url_2,
@@ -1110,11 +1110,11 @@ export function ListedProductsView({
         lifestyle_image_url: heavy.lifestyle_image_url,
         images: heavy.images,
       });
-      const scenarioPrimary = pickScenarioPrimaryImageUrl(catalogGallery);
-      const extraInputs = catalogGallery.filter((u) => u !== scenarioPrimary);
+      const catalogPrimary = catalogGallery[0] || p.imageUrl || null;
+      const extraInputs = catalogGallery.filter((u) => u !== catalogPrimary);
       const { primary, extras } = await resolveImagesToStorage(
         p.id,
-        scenarioPrimary || p.imageUrl || null,
+        catalogPrimary,
         extraInputs,
       );
       const images = buildRtsImagesJson(extras);

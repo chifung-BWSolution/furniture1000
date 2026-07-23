@@ -1064,7 +1064,7 @@ export function useAppStore() {
       const productTags: string[] = Array.isArray(p.tags) ? p.tags : [];
       const mergedTags = Array.from(new Set([...productTags, ...rtsTags]));
 
-      // RTS order first; backfill any catalog images missing from RTS (e.g. white-bg when scenario is primary).
+      // RTS image_url + images[] first; backfill missing catalog images (no filename-role sort).
       const catalogImages = rts?.products as {
         image_url?: string | null;
         image_url_2?: string | null;

@@ -1234,7 +1234,8 @@ Deno.serve(async (req: Request) => {
             seenGallery.add(key);
             mergedGallery.push(src);
           };
-          // RTS / client payload order first, then backfill from products catalog.
+          // Order: ready_to_shopify.image_url → images[] / client gallery → products catalog backfill.
+          // No filename-role reorder (情景圖/白底); user/RTS primary wins.
           if (rtsPrimary.startsWith("http")) addGallery(rtsPrimary);
           if (Array.isArray(product.gallery_urls)) {
             for (const url of product.gallery_urls) addGallery(url);
@@ -1249,8 +1250,9 @@ Deno.serve(async (req: Request) => {
 
           if (mergedGallery.length > 0) {
             product.gallery_urls = mergedGallery;
-            product.image_url = mergedGallery[0];
-            product.primary_image_src = mergedGallery[0];
+            const primary = rtsPrimary.startsWith("http") ? rtsPrimary : mergedGallery[0];
+            product.image_url = primary;
+            product.primary_image_src = primary;
             console.log(
               `[publish-to-shopify] 📎 gallery merge for "${product.title}": ${mergedGallery.length} image(s) (RTS + catalog)`,
             );

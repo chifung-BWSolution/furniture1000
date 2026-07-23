@@ -12,7 +12,6 @@ import { supabase } from '@/lib/supabase';
 import { uploadFileToStorage, uploadImageSourceToStorage, isHttpImageUrl } from '@/lib/imageStorage';
 import { excludeAlreadyPublishedRts } from '@/lib/publishPipeline';
 import { collectProductGalleryUrls } from '@/lib/productGallery';
-import { pickScenarioPrimaryImageUrl } from '@/lib/productMergeImages';
 import { syncRtsContentToProduct, syncRtsGalleryToProduct, syncRtsWorkflowToProduct } from '@/lib/rtsProductSync';
 import { writeUploadLog } from '@/lib/uploadLog';
 import { getPublishTimestampHk } from '@/lib/publishTimestamps';
@@ -304,8 +303,9 @@ export function PublishCopywritingView({ focusProductId, onFocusHandled }: Props
     let finalExtras: string[] = [];
 
     if (prod) {
+      // products column order only; RTS image_url below overrides when saved.
       const gallery = collectProductGalleryUrls(prod);
-      const primaryImg = pickScenarioPrimaryImageUrl(gallery) || gallery[0] || p.imageUrl || '';
+      const primaryImg = gallery[0] || p.imageUrl || '';
       const extraImgs = gallery.filter((u) => u !== primaryImg);
       if (primaryImg) { setPrimaryImg(primaryImg); finalPrimary = primaryImg; }
       setExtraImgs(extraImgs); finalExtras = extraImgs;

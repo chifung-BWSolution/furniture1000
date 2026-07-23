@@ -10,7 +10,6 @@ import { Input } from '@/components/ui/input';
 import {
   buildMergeGalleryFromProducts,
   collectMergeProductImageUrls,
-  dedupeImageUrls,
   dedupeImageUrlsPreserveOrder,
   imageDedupeKey,
   isHttpUrl,
@@ -182,7 +181,7 @@ function appendProductImages(
   prev: string[],
   product: ShopifyProductRow,
 ): string[] {
-  return dedupeImageUrls([...prev, ...collectMergeProductImageUrls(product)]);
+  return dedupeImageUrlsPreserveOrder([...prev, ...collectMergeProductImageUrls(product)]);
 }
 
 function MergeVariantRowView({

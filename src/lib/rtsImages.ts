@@ -74,9 +74,10 @@ export type ProductGallerySource = {
 };
 
 /**
- * Merge RTS gallery (user order on 準備上載) with products catalog URLs.
- * RTS order wins; catalog fills any images missing from RTS (e.g. _primary_ white-bg
- * when scenario was set as RTS primary but white-bg stayed on products.image_url only).
+ * Merge RTS gallery with products catalog URLs.
+ * Order: ready_to_shopify.image_url → ready_to_shopify.images[] → catalog backfill
+ * (products.image_url / images[] / image_url_2 / image_url_3 / lifestyle_image_url).
+ * No filename-role reorder.
  */
 export function mergePublishGalleryUrls(
   rts: { image_url?: string | null; images?: unknown } | null | undefined,
