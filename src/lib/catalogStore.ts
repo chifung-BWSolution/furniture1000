@@ -60,13 +60,16 @@ export async function addToShopifyQueue(ids: string[]): Promise<{ ok: boolean; c
   }
 }
 
-/** C「暫不考慮」: mark products dismissed (hidden from 所有產品, kept in DB). */
+/**
+ * C「暫不考慮」: mark products dismissed (hidden from 所有產品 / 產品目錄, kept in DB).
+ * Also clears in_catalog so catalog membership does not revive them after refresh.
+ */
 export async function dismissProducts(ids: string[]): Promise<{ ok: boolean; count: number; error?: string }> {
   if (ids.length === 0) return { ok: true, count: 0 };
   try {
     const { error } = await supabase
       .from('products')
-      .update(await withUpdateAuditFields({ dismissed: true }))
+      .update(await withUpdateAuditFields({ dismissed: true, in_catalog: false }))
       .in('id', ids);
     if (error) return { ok: false, count: 0, error: error.message };
     return { ok: true, count: ids.length };

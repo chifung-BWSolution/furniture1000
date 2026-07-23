@@ -153,6 +153,11 @@ function applyPendingProductsFilters(q: any) {
     .not('dismissed', 'is', true);
 }
 
+/** 產品目錄 filter — 僅 in_catalog，並排除已「暫不考慮」。 */
+function applyCatalogFilters(q: any) {
+  return q.eq('in_catalog', true).not('dismissed', 'is', true);
+}
+
 export function ListedProductsView({
   onSyncFromShopify,
   isSyncing,
@@ -255,7 +260,7 @@ export function ListedProductsView({
       const BATCH = 1000;
 
       const applyVisibility = (q: any) => isCatalog
-        ? q.eq('in_catalog', true)
+        ? applyCatalogFilters(q)
         : applyPendingProductsFilters(q);
 
       // Paginated fetch helper
@@ -371,7 +376,7 @@ export function ListedProductsView({
         .not('product_sku', 'is', null)
         .neq('product_sku', '');
       if (isCatalog) {
-        q = q.eq('in_catalog', true);
+        q = applyCatalogFilters(q);
       } else {
         q = applyPendingProductsFilters(q);
       }
@@ -424,9 +429,9 @@ export function ListedProductsView({
       if (level1Filter) countQuery = countQuery.eq('level1_category', level1Filter);
       if (level2Filter) countQuery = countQuery.eq('level2_category', level2Filter);
 
-      // 產品目錄頁：只計算已加入目錄的產品
+      // 產品目錄頁：只計算已加入目錄、且未「暫不考慮」的產品
       if (isCatalog) {
-        countQuery = countQuery.eq('in_catalog', true);
+        countQuery = applyCatalogFilters(countQuery);
       } else {
         countQuery = applyPendingProductsFilters(countQuery);
       }
@@ -492,9 +497,9 @@ export function ListedProductsView({
       if (level1Filter) dataQuery = dataQuery.eq('level1_category', level1Filter);
       if (level2Filter) dataQuery = dataQuery.eq('level2_category', level2Filter);
 
-      // 產品目錄頁：只顯示已加入目錄的產品
+      // 產品目錄頁：只顯示已加入目錄、且未「暫不考慮」的產品
       if (isCatalog) {
-        dataQuery = dataQuery.eq('in_catalog', true);
+        dataQuery = applyCatalogFilters(dataQuery);
       } else {
         dataQuery = applyPendingProductsFilters(dataQuery);
       }
@@ -1177,7 +1182,7 @@ export function ListedProductsView({
     setDismissTarget(null);
     if (!product) return;
     dropRowLocally(product.id);
-    await supabase.from('rejectedd_products').insert([{
+    const { error: rejectErr } = await supabase.from('rejectedd_products').insert([{
       original_product_id: product.id,
       title: product.title,
       description: product.description,
@@ -1220,6 +1225,9 @@ export function ListedProductsView({
       variants: product.variants ?? null,
       rejection_source: 'listed_products',
     }]);
+    if (rejectErr) {
+      console.error('[rejectedd_products] insert error:', rejectErr.message);
+    }
     const res = await dismissProducts([product.id]);
     res.ok
       ? toast.success('已移除', { description: product.title })
@@ -1284,11 +1292,18 @@ export function ListedProductsView({
         variants: p.variants ?? null,
         rejection_source: 'listed_products',
       }));
-      await supabase.from('rejectedd_products').insert(rejectedRows);
+      const { error: rejectErr } = await supabase.from('rejectedd_products').insert(rejectedRows);
+      if (rejectErr) {
+        console.error('[rejectedd_products] insert error:', rejectErr.message);
+      }
       const res = await dismissProducts(ids);
       if (res.ok) {
         toast.success(`已將 ${ids.length} 件產品標記為「暫不考慮」`, {
-          id: toastId, description: '資料已儲存至 rejectedd_products。', duration: 5000,
+          id: toastId,
+          description: rejectErr
+            ? `產品已從列表隱藏（歸檔寫入失敗：${rejectErr.message}）`
+            : '資料已儲存至 rejectedd_products。',
+          duration: 5000,
         });
       } else {
         toast.error('部分操作失敗', { id: toastId, description: res.error });
