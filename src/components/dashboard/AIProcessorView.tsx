@@ -2644,7 +2644,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
       setAiError(classifiedError);
       setProcessingProgress({ phase: 'error', message: classifiedError });
     }
-  }, [excelPreviewData, selectedManufacturer, applyCorrections, getCorrections, setCatalogProductsWithRef]);
+  }, [excelPreviewData, selectedManufacturer, selectedProductCategory, applyCorrections, getCorrections, setCatalogProductsWithRef]);
 
   // ─── Cancel Preview Table → go back to upload ────────────────────────
   const handleCancelPreview = useCallback(() => {
