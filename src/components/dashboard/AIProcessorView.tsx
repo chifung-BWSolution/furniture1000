@@ -2299,6 +2299,8 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
   }, []);
 
   const isManufacturerSelected = selectedManufacturer.trim().length > 0;
+  const isProductCategorySelected = selectedProductCategory.trim().length > 0;
+  const canProceedToStep2 = isManufacturerSelected && isProductCategorySelected;
 
   const filteredManufacturers = useMemo(() => {
     if (!manufacturerSearch.trim()) return manufacturerList;
@@ -4512,8 +4514,18 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
           </button>
           <div className="h-px flex-1 bg-border max-w-[60px]" />
           <button
-            onClick={() => setCurrentStep(2)}
-            disabled={!isManufacturerSelected}
+            onClick={() => {
+              if (!canProceedToStep2) {
+                if (!isManufacturerSelected) {
+                  toast.error('請先選擇廠家');
+                } else if (!isProductCategorySelected) {
+                  toast.error('請先選擇產品分類');
+                }
+                return;
+              }
+              setCurrentStep(2);
+            }}
+            disabled={!canProceedToStep2}
             className={cn(
               'flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
               currentStep === 2
@@ -4832,7 +4844,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
             </motion.div>
           )}
 
-          {/* ━━━ Step 1b: 選擇產品分類 (可選) ━━━ */}
+          {/* ━━━ Step 1b: 選擇產品分類 (必填) ━━━ */}
           {isManufacturerSelected && (
             <motion.div
               initial={{ opacity: 0, height: 0 }}
@@ -4843,25 +4855,25 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
               <div className="flex items-center gap-2">
                 <div className={cn(
                   "flex h-6 w-6 items-center justify-center rounded-md transition-colors duration-300",
-                  selectedProductCategory
+                  isProductCategorySelected
                     ? "bg-emerald-500/15 text-emerald-500"
                     : "bg-muted text-muted-foreground"
                 )}>
-                  {selectedProductCategory ? (
+                  {isProductCategorySelected ? (
                     <CheckCircle2 className="h-4 w-4" />
                   ) : (
                     <FolderOpen className="h-3.5 w-3.5" />
                   )}
                 </div>
                 <h3 className="font-display text-sm font-bold tracking-tight">產品分類</h3>
-                {selectedProductCategory && (
+                <span className="font-mono-data text-[10px] text-destructive/80">*</span>
+                {isProductCategorySelected ? (
                   <Badge className="ml-auto bg-emerald-500/15 text-emerald-500 border border-emerald-500/30 font-mono-data text-[10px] gap-1">
                     <Check className="h-2.5 w-2.5" />
                     {selectedProductCategory}
                   </Badge>
-                )}
-                {!selectedProductCategory && (
-                  <span className="ml-auto font-mono-data text-[10px] text-muted-foreground/50">可選</span>
+                ) : (
+                  <span className="ml-auto font-mono-data text-[10px] text-destructive/70">必填</span>
                 )}
               </div>
               <div className="pl-8">
@@ -4872,13 +4884,12 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
                     categories={categoryList}
                     value={selectedProductCategory}
                     onValueChange={setSelectedProductCategory}
-                    placeholder="選擇此批次的產品分類..."
-                    showClear
+                    placeholder="選擇此批次的產品分類（必填）..."
                     triggerClassName="bg-background border-border font-body text-sm"
                   />
                 )}
                 <p className="font-body text-[10px] text-muted-foreground/50 mt-1.5">
-                  選擇分類後，此批次上傳的所有產品將自動歸入該分類。不選則需稍後在「分類管理」中手動指派。
+                  必須選擇分類後才能進入下一步；此批次上傳的所有產品將自動歸入該分類。
                 </p>
               </div>
             </motion.div>
@@ -5165,11 +5176,21 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
       {/* 下一步 button — bottom-right of Step 1 */}
       <div className="flex justify-end px-6 py-4 border-t border-border bg-background/50">
         <button
-          onClick={() => setCurrentStep(2)}
-          disabled={!isManufacturerSelected}
+          onClick={() => {
+            if (!canProceedToStep2) {
+              if (!isManufacturerSelected) {
+                toast.error('請先選擇廠家');
+              } else if (!isProductCategorySelected) {
+                toast.error('請先選擇產品分類');
+              }
+              return;
+            }
+            setCurrentStep(2);
+          }}
+          disabled={!canProceedToStep2}
           className={cn(
             'flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold transition-all',
-            isManufacturerSelected
+            canProceedToStep2
               ? 'bg-primary text-primary-foreground hover:bg-primary/90 shadow-sm'
               : 'bg-muted text-muted-foreground cursor-not-allowed opacity-50'
           )}
