@@ -2477,9 +2477,12 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         const collection = rawCollection ? simplifiedToTraditional(rawCollection) : '';
         // Extract additional mapped fields that map directly to bwf_product_master columns
         const factoryNameFromExcel = simplifiedToTraditional(getCellStr('factory_name'));
-        // Day-count for products.production_date; text bucket goes to products.customize
-        const productionLeadTime = getCellNum('production_lead_time');
-        const productionLeadTimeRaw = getCellStr('production_lead_time');
+        // customize mapping (訂製天數／生產週期): text bucket → customize, days → production_date
+        // Legacy mapping key production_lead_time still accepted for saved sessions.
+        const customizeRaw = getCellStr('customize') || getCellStr('production_lead_time');
+        const productionLeadTime =
+          getCellNum('customize') ?? getCellNum('production_lead_time');
+        const customize: string | null = customizeRaw ? mapCustomizeLeadTime(customizeRaw) : null;
         const deliveryDays = getCellNum('delivery_days');
         const shippingDays = getCellNum('shipping_days');
         const shippingFee = getCellNum('shipping_fee');
@@ -2492,11 +2495,6 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         const inStockColMapped = fieldToCol['in_stock'] !== undefined;
         const inStockRaw = getCellStr('in_stock');
         const inStock: boolean | null = inStockColMapped ? mapInStock(inStockRaw, true) : null;
-        // customize: explicit「訂製天數」column wins; else「生產時間／生產週期」→ customize
-        const customizeRaw = getCellStr('customize');
-        const customize: string | null =
-          (customizeRaw ? mapCustomizeLeadTime(customizeRaw) : null)
-          ?? (productionLeadTimeRaw ? mapCustomizeLeadTime(productionLeadTimeRaw) : null);
 
         // Parse dimensions — support individual (mm) fields OR combined string
         let dimensionLMm: number | null = null;
@@ -2781,9 +2779,12 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         const collection = rawCollection ? simplifiedToTraditional(rawCollection) : '';
         // Extract additional mapped fields for master DB
         const factoryNameFromExcel = simplifiedToTraditional(getCellStr('factory_name'));
-        // Day-count for products.production_date; text bucket goes to products.customize
-        const productionLeadTime = getCellNum('production_lead_time');
-        const productionLeadTimeRaw = getCellStr('production_lead_time');
+        // customize mapping (訂製天數／生產週期): text bucket → customize, days → production_date
+        // Legacy mapping key production_lead_time still accepted for saved sessions.
+        const customizeRaw = getCellStr('customize') || getCellStr('production_lead_time');
+        const productionLeadTime =
+          getCellNum('customize') ?? getCellNum('production_lead_time');
+        const customize: string | null = customizeRaw ? mapCustomizeLeadTime(customizeRaw) : null;
         const deliveryDays = getCellNum('delivery_days');
         const shippingDays = getCellNum('shipping_days');
         const shippingFee = getCellNum('shipping_fee');
@@ -2796,11 +2797,6 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         const inStockColMapped = fieldToCol['in_stock'] !== undefined;
         const inStockRaw = getCellStr('in_stock');
         const inStock: boolean | null = inStockColMapped ? mapInStock(inStockRaw, true) : null;
-        // customize: explicit「訂製天數」column wins; else「生產時間／生產週期」→ customize
-        const customizeRaw = getCellStr('customize');
-        const customize: string | null =
-          (customizeRaw ? mapCustomizeLeadTime(customizeRaw) : null)
-          ?? (productionLeadTimeRaw ? mapCustomizeLeadTime(productionLeadTimeRaw) : null);
 
         // ── Delivery Term Parsing (from 參考貨期 column) ──────────────────────
         const rawDeliveryTermRef = getCellStr('delivery_term_ref');

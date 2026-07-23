@@ -88,7 +88,6 @@ export const STANDARD_HEADERS = [
   { value: 'collection', label: 'Collection/Category (系列) → category', labelZh: '系列' },
   { value: 'factory_name', label: 'Factory Name (工廠名) → factory_name', labelZh: '工廠名' },
   // ── Lead time & Shipping ──
-  { value: 'production_lead_time', label: 'Production Time (生產時間／生產週期) → customize', labelZh: '生產時間' },
   { value: 'delivery_days', label: 'Delivery Days (交貨天數) → delivery_days', labelZh: '交貨天數' },
   { value: 'shipping_days', label: 'Shipping Days (運輸天數) → shipping_days', labelZh: '運輸天數' },
   { value: 'shipping_fee', label: 'Shipping Fee (運費) → shipping_fee', labelZh: '運費' },
@@ -98,7 +97,7 @@ export const STANDARD_HEADERS = [
   { value: 'index_number', label: 'Row Index (序號) — skip in DB', labelZh: '序號' },
   // ── Stock / Customize ──
   { value: 'in_stock', label: 'In Stock (現貨) → in_stock', labelZh: '現貨' },
-  { value: 'customize', label: 'Customize Lead Time (訂製天數) → customize', labelZh: '訂製天數' },
+  { value: 'customize', label: 'Customize Lead Time (訂製天數／生產週期) → customize', labelZh: '訂製天數' },
 ] as const;
 
 export type StandardHeaderValue = (typeof STANDARD_HEADERS)[number]['value'];
@@ -259,7 +258,7 @@ function autoDetectMappings(headers: string[], rows?: RawExtractedRow[], columnC
     { field: 'dim_height_mm', regex: /^(H|height|高|高度|高度?\s*[\(（]?\s*[mc]m\s*[\)）]?)$/i },
     { field: 'collection', regex: /series|系列|collection|category|類別|类别/i },
     { field: 'factory_name', regex: /factory|工廠|工厂|manufacturer|供應商|供应商|廠名|厂名/i },
-    { field: 'production_lead_time', regex: /lead\s*time|生产周期|生產週期|工期/i },
+    { field: 'customize', regex: /lead\s*time|生产周期|生產週期|生產時間|生产时间|工期|訂製|订制|订製|customize/i },
     { field: 'delivery_days', regex: /delivery\s*day|交期|交貨|交货|到貨|到货/i },
     { field: 'shipping_days', regex: /shipping\s*day|運輸天數|运输天数|船期/i },
     { field: 'shipping_fee', regex: /shipping\s*fee|運費|运费|物流费/i },
@@ -838,11 +837,15 @@ export function ExcelPreviewTable({
       const saved = await loadMappings();
       if (saved && typeof saved === 'object' && sheetDataList.some(sd => saved[sd.sheetName])) {
         // Sanitize: replace any persisted values that no longer exist in STANDARD_HEADERS
+        // Legacy production_lead_time → customize (same destination column).
         const sanitized: MultiSheetColumnMapping = {};
         for (const [sheetName, mapping] of Object.entries(saved)) {
           const cleanMapping: ColumnMappingState = {};
           for (const [key, val] of Object.entries(mapping as Record<string, string>)) {
-            cleanMapping[key] = validValues.has(val as StandardHeaderValue) ? (val as StandardHeaderValue) : 'skip';
+            const mappedVal = val === 'production_lead_time' ? 'customize' : val;
+            cleanMapping[key] = validValues.has(mappedVal as StandardHeaderValue)
+              ? (mappedVal as StandardHeaderValue)
+              : 'skip';
           }
           // If the restored mapping has no 'dimensions' nor any dim_* axis,
           // run data-based dimension detection so columns like 550*600*830
