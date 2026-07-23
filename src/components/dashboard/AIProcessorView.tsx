@@ -1992,8 +1992,10 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
   const [manufacturerListLoading, setManufacturerListLoading] = useState(true);
   const [manufacturerListSource, setManufacturerListSource] = useState<'dynamic' | 'static' | null>(null);
 
-  // ── Step 1b: Category Selection (syncs with bwf_product_categories) ──
-  const [selectedProductCategory, setSelectedProductCategory] = useState<string>('');
+  // ── Step 1b: Category Selection (syncs with product_category) ──
+  /** Default: 工作枱 → 辦公枱 (level-2 display value). */
+  const DEFAULT_PRODUCT_CATEGORY = '辦公枱';
+  const [selectedProductCategory, setSelectedProductCategory] = useState<string>(DEFAULT_PRODUCT_CATEGORY);
   const [categoryList, setCategoryList] = useState<{ id: string; name: string; parent_id: string | null; level: number; sort_order: number }[]>([]);
   const [categoryListLoading, setCategoryListLoading] = useState(false);
   // raw 一級/二級 pairs from product_category — used to resolve level1/level2 on upload
@@ -2033,6 +2035,19 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
             }
           }
           setCategoryList(built);
+
+          // Default 工作枱 → 辦公枱 when that pair (or L2 name) exists in settings.
+          const hasDefault = pairs.some(
+            (p) =>
+              p.level2 === DEFAULT_PRODUCT_CATEGORY
+              && (p.level1 === '工作枱' || p.level1 === ''),
+          ) || pairs.some((p) => p.level2 === DEFAULT_PRODUCT_CATEGORY);
+          if (hasDefault) {
+            setSelectedProductCategory((prev) => {
+              if (!prev || prev === '__clear__') return DEFAULT_PRODUCT_CATEGORY;
+              return prev;
+            });
+          }
         }
       } catch (err) {
         console.warn('[AIProcessorView] Category fetch error:', err);
@@ -4883,8 +4898,13 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
                   <CascadingCategorySelector
                     categories={categoryList}
                     value={selectedProductCategory}
-                    onValueChange={setSelectedProductCategory}
+                    onValueChange={(v) => {
+                      // Required field — ignore clear sentinel / empty.
+                      if (!v || v === '__clear__') return;
+                      setSelectedProductCategory(v);
+                    }}
                     placeholder="選擇此批次的產品分類（必填）..."
+                    showClear={false}
                     triggerClassName="bg-background border-border font-body text-sm"
                   />
                 )}
