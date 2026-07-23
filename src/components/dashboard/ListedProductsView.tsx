@@ -112,7 +112,6 @@ interface ListedProduct {
   category?: string | null;
   level1Category?: string | null;
   level2Category?: string | null;
-  productionTime?: string | null;
   material?: string | null;
   model?: string | null;
   specifications?: string | null;
@@ -457,7 +456,7 @@ export function ListedProductsView({
         'color', 'factory_id', 'factories_display_name',
         'cost_price', 'sale_price', 'production_date', 'shipping_days', 'total_lead_time',
         'bwf_master_id', 'remarks', 'shipping_fee', 'category',
-        'level1_category', 'level2_category', 'production_time',
+        'level1_category', 'level2_category',
         'material', 'model', 'specifications',
         'delivery_term_id', 'delivery_term_name',
         'dimension_l_mm', 'dimension_w_mm', 'dimension_h_mm',
@@ -568,7 +567,6 @@ export function ListedProductsView({
         category: row.category || null,
         level1Category: row.level1_category || null,
         level2Category: row.level2_category || null,
-        productionTime: row.production_time || null,
         material: row.material || null,
         model: row.model || null,
         specifications: row.specifications || null,
@@ -1139,7 +1137,7 @@ export function ListedProductsView({
         dimension_h_mm: p.dimensionHMm ?? null,
         material: p.material ?? null,
         in_stock: p.inStock ?? null,
-        production_time: p.productionTime ?? null,
+        customize: p.customize ?? null,
         status: 'draft',
         imported_at: new Date().toISOString(),
         in_shopify_queue: true,
@@ -1208,7 +1206,6 @@ export function ListedProductsView({
       category: product.category ?? null,
       level1_category: product.level1Category ?? null,
       level2_category: product.level2Category ?? null,
-      production_time: product.productionTime ?? null,
       material: product.material ?? null,
       model: product.model ?? null,
       specifications: product.specifications ?? null,
@@ -1273,7 +1270,6 @@ export function ListedProductsView({
         category: p.category ?? null,
         level1_category: p.level1Category ?? null,
         level2_category: p.level2Category ?? null,
-        production_time: p.productionTime ?? null,
         material: p.material ?? null,
         model: p.model ?? null,
         specifications: p.specifications ?? null,
@@ -2012,7 +2008,7 @@ export function ListedProductsView({
                   {isCatalog && (
                     <th className="px-3 py-3 text-left">
                       <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                        生產時間
+                        訂製天數
                       </span>
                     </th>
                   )}
@@ -2209,12 +2205,12 @@ export function ListedProductsView({
                       )}
                     </td>
 
-                    {/* Production Time (catalog only) */}
+                    {/* Customize lead time (catalog only) — from products.customize */}
                     {isCatalog && (
                       <td className="px-3 py-3">
-                        {product.productionTime ? (
+                        {product.customize ? (
                           <Badge variant="outline" className="font-body text-[10px] border-sky-500/30 text-sky-600 dark:text-sky-400 whitespace-nowrap">
-                            {product.productionTime}
+                            {product.customize}
                           </Badge>
                         ) : (
                           <span className="text-[10px] text-muted-foreground">—</span>

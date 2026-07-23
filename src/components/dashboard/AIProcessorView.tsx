@@ -195,8 +195,9 @@ interface CatalogProduct {
   factoriesDisplayName?: string;
   costPrice?: number | null;
   productionLeadTime?: number | null;
-  productionTime?: string | null;
   deliveryDays?: number | null;
+  inStock?: boolean | null;
+  customize?: string | null;
   shippingDays?: number | null;
   shippingFee?: number | null;
   remarks?: string | null;
@@ -531,38 +532,6 @@ function estimatePDFPages(fileSizeBytes: number): number {
 
 function generateUploadSessionId(): string {
   return `session_${Date.now()}_${Math.random().toString(36).substring(2, 10)}`;
-}
-
-/**
- * Normalize a raw production-time cell into one of the 4 allowed options:
- * 'in stock' | 'within 7days' | '7-22days' | '23days or above'.
- * Accepts plain numbers (days), Chinese/English keywords, or "X天/天/日/days".
- * Returns null when nothing usable is found.
- */
-function normalizeProductionTime(raw: unknown): string | null {
-  if (raw === null || raw === undefined) return null;
-  const s = String(raw).trim();
-  if (!s) return null;
-  const lower = s.toLowerCase();
-
-  // 現貨 / in stock
-  if (/現貨|现货|stock|spot/.test(lower) || /現貨|现货/.test(s)) return 'in stock';
-
-  // pull the largest number of days from the string (handles ranges like "7-22天")
-  const nums = (s.match(/\d+(?:\.\d+)?/g) || []).map(Number).filter((n) => !isNaN(n));
-  const days = nums.length ? Math.max(...nums) : NaN;
-
-  if (!isNaN(days)) {
-    if (days <= 0) return 'in stock';
-    if (days <= 7) return 'within 7days';
-    if (days <= 22) return '7-22days';
-    return '23days or above';
-  }
-
-  // keyword fallbacks
-  if (/within\s*7|7\s*days?\s*內|一週|一周/.test(lower)) return 'within 7days';
-  if (/23|above|以上|個月|个月|month/.test(lower)) return '23days or above';
-  return null;
 }
 
 /**
@@ -2508,10 +2477,9 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         const collection = rawCollection ? simplifiedToTraditional(rawCollection) : '';
         // Extract additional mapped fields that map directly to bwf_product_master columns
         const factoryNameFromExcel = simplifiedToTraditional(getCellStr('factory_name'));
+        // Day-count for products.production_date; text bucket goes to products.customize
         const productionLeadTime = getCellNum('production_lead_time');
-        // 'production_lead_time' mapping now feeds the new products.production_time
-        // (4 fixed options) — normalize the raw cell value.
-        const productionTime = normalizeProductionTime(getCellStr('production_lead_time'));
+        const productionLeadTimeRaw = getCellStr('production_lead_time');
         const deliveryDays = getCellNum('delivery_days');
         const shippingDays = getCellNum('shipping_days');
         const shippingFee = getCellNum('shipping_fee');
@@ -2524,9 +2492,11 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         const inStockColMapped = fieldToCol['in_stock'] !== undefined;
         const inStockRaw = getCellStr('in_stock');
         const inStock: boolean | null = inStockColMapped ? mapInStock(inStockRaw, true) : null;
-        // customize: mapped column number/range → one of the 5 lead-time options
+        // customize: explicit「訂製天數」column wins; else「生產時間／生產週期」→ customize
         const customizeRaw = getCellStr('customize');
-        const customize: string | null = customizeRaw ? mapCustomizeLeadTime(customizeRaw) : null;
+        const customize: string | null =
+          (customizeRaw ? mapCustomizeLeadTime(customizeRaw) : null)
+          ?? (productionLeadTimeRaw ? mapCustomizeLeadTime(productionLeadTimeRaw) : null);
 
         // Parse dimensions — support individual (mm) fields OR combined string
         let dimensionLMm: number | null = null;
@@ -2626,7 +2596,6 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
           bounding_box: null,
           costPrice,
           productionLeadTime,
-          productionTime,
           deliveryDays,
           shippingDays,
           shippingFee,
@@ -2812,9 +2781,9 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         const collection = rawCollection ? simplifiedToTraditional(rawCollection) : '';
         // Extract additional mapped fields for master DB
         const factoryNameFromExcel = simplifiedToTraditional(getCellStr('factory_name'));
+        // Day-count for products.production_date; text bucket goes to products.customize
         const productionLeadTime = getCellNum('production_lead_time');
-        // 'production_lead_time' mapping feeds the new products.production_time (4 options)
-        const productionTime = normalizeProductionTime(getCellStr('production_lead_time'));
+        const productionLeadTimeRaw = getCellStr('production_lead_time');
         const deliveryDays = getCellNum('delivery_days');
         const shippingDays = getCellNum('shipping_days');
         const shippingFee = getCellNum('shipping_fee');
@@ -2827,9 +2796,11 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         const inStockColMapped = fieldToCol['in_stock'] !== undefined;
         const inStockRaw = getCellStr('in_stock');
         const inStock: boolean | null = inStockColMapped ? mapInStock(inStockRaw, true) : null;
-        // customize: mapped column number/range → one of the 5 lead-time options
+        // customize: explicit「訂製天數」column wins; else「生產時間／生產週期」→ customize
         const customizeRaw = getCellStr('customize');
-        const customize: string | null = customizeRaw ? mapCustomizeLeadTime(customizeRaw) : null;
+        const customize: string | null =
+          (customizeRaw ? mapCustomizeLeadTime(customizeRaw) : null)
+          ?? (productionLeadTimeRaw ? mapCustomizeLeadTime(productionLeadTimeRaw) : null);
 
         // ── Delivery Term Parsing (from 參考貨期 column) ──────────────────────
         const rawDeliveryTermRef = getCellStr('delivery_term_ref');
@@ -2944,7 +2915,6 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
           bounding_box: null,
           costPrice,
           productionLeadTime,
-          productionTime,
           deliveryDays,
           shippingDays,
           shippingFee,
@@ -2958,6 +2928,8 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
           dimensionWMm,
           dimensionHMm,
           modelNumber,
+          inStock,
+          customize,
           deliveryTermId,
           deliveryTermName,
           imageSource: resolvedProductImage ? 'excel' as const : null,
@@ -3285,10 +3257,8 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
               bwf_master_id: dbResult?.master_id || null,
               cost_price: item.costPrice ?? null,
               sale_price: 0,
-              // production_date = integer day-count (e.g. Excel「生產週期」12);
-              // production_time = bucketed text (in stock / within 7days / …).
+              // production_date = integer day-count; customize = lead-time bucket text
               production_date: (item as any).productionLeadTime ?? null,
-              production_time: (item as any).productionTime ?? null,
               specifications: (item as any).specifications ?? null,
               image_url_2: (item as any).imageUrl2 ?? null,
               image_url_3: (item as any).imageUrl3 ?? null,
