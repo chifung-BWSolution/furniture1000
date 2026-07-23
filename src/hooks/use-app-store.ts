@@ -212,6 +212,7 @@ async function saveProductsToDb(productsToSave: Product[]) {
     bwf_master_id: p.bwfMasterId || null,
     cost_price: p.costPrice ?? null,
     sale_price: p.salePrice ?? 0,
+    // production_date stores integer day-count (not a calendar date)
     production_date: p.productionLeadTime ?? null,
     shipping_days: p.shippingDays ?? null,
     shipping_fee: p.shippingFee ?? null,
@@ -729,6 +730,7 @@ export function useAppStore() {
         bwf_master_id: newProduct.bwfMasterId || null,
         cost_price: newProduct.costPrice ?? null,
         sale_price: newProduct.salePrice ?? 0,
+        // production_date stores integer day-count (not a calendar date)
         production_date: newProduct.productionLeadTime ?? null,
         shipping_days: newProduct.shippingDays ?? null,
         shipping_fee: newProduct.shippingFee ?? null,
@@ -811,6 +813,7 @@ export function useAppStore() {
           bwf_master_id: np.bwfMasterId || null,
           cost_price: np.costPrice ?? null,
           sale_price: np.salePrice ?? 0,
+          // production_date stores integer day-count (not a calendar date)
           production_date: np.productionLeadTime ?? null,
           shipping_days: np.shippingDays ?? null,
           shipping_fee: np.shippingFee ?? null,
@@ -991,6 +994,7 @@ export function useAppStore() {
               bwf_master_id: p.bwfMasterId || null,
               cost_price: p.costPrice ?? null,
               sale_price: p.salePrice ?? 0,
+              // production_date stores integer day-count (not a calendar date)
               production_date: p.productionLeadTime ?? null,
               shipping_days: p.shippingDays ?? null,
               shipping_fee: p.shippingFee ?? null,

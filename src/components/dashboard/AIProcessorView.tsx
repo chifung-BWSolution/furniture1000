@@ -3285,6 +3285,8 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
               bwf_master_id: dbResult?.master_id || null,
               cost_price: item.costPrice ?? null,
               sale_price: 0,
+              // production_date = integer day-count (e.g. Excel「生產週期」12);
+              // production_time = bucketed text (in stock / within 7days / …).
               production_date: (item as any).productionLeadTime ?? null,
               production_time: (item as any).productionTime ?? null,
               specifications: (item as any).specifications ?? null,

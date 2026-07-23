@@ -672,8 +672,7 @@ export function ProductDetailModal({
             return '41天以上';
           })()
         : null;
-      // production_date is a DATE column in the live DB — never write an integer to it
-      // We skip it entirely; lead time is captured in customize (text) + total_lead_time (int)
+      // production_date stores integer day-count (not a calendar date)
       const parsedProductionLeadTime = productionLeadTime ? parseInt(productionLeadTime) : null;
       const parsedShippingDays = shippingDays ? parseInt(shippingDays) : null;
       const parsedShippingFee = shippingFee ? parseFloat(shippingFee) : null;
@@ -773,6 +772,7 @@ export function ProductDetailModal({
         cost_price: parsedCostPrice,
         price: parsedSalePrice ?? product.price,
         factory_id: factoryId || null,
+        production_date: parsedProductionLeadTime,
         shipping_days: parsedShippingDays,
         shipping_fee: parsedShippingFee,
         total_lead_time: computedTotal,
