@@ -84,21 +84,24 @@ export const STANDARD_HEADERS = [
   { value: 'dim_width_mm', label: '闊度 → dimension_w_mm', labelZh: '闊度' },
   { value: 'dim_height_mm', label: '高度 → dimension_h_mm', labelZh: '高度' },
   { value: 'dimensions', label: 'Dimensions Combined (尺寸) → splits to 長/闊/高', labelZh: '尺寸(合併)' },
-  // ── Classification ──
-  { value: 'collection', label: 'Collection/Category (系列) → category', labelZh: '系列' },
-  { value: 'factory_name', label: 'Factory Name (工廠名) → factory_name', labelZh: '工廠名' },
-  // ── Lead time & Shipping ──
-  { value: 'delivery_days', label: 'Delivery Days (交貨天數) → delivery_days', labelZh: '交貨天數' },
-  { value: 'shipping_days', label: 'Shipping Days (運輸天數) → shipping_days', labelZh: '運輸天數' },
-  { value: 'shipping_fee', label: 'Shipping Fee (運費) → shipping_fee', labelZh: '運費' },
   // ── Other ──
   { value: 'remarks', label: 'Remarks (備註) → remarks', labelZh: '備註' },
-  { value: 'delivery_term_ref', label: 'Delivery Term Ref (參考貨期) → delivery_term_name/id', labelZh: '參考貨期' },
-  { value: 'index_number', label: 'Row Index (序號) — skip in DB', labelZh: '序號' },
   // ── Stock / Customize ──
   { value: 'in_stock', label: 'In Stock (現貨) → in_stock', labelZh: '現貨' },
   { value: 'customize', label: 'Customize Lead Time (訂製天數／生產週期) → customize', labelZh: '訂製天數' },
 ] as const;
+
+/** Removed from Excel mapping UI — factory/category come from Step 1; unused lead-time fields. */
+const LEGACY_MAPPING_TO_SKIP = new Set([
+  'index_number',
+  'delivery_days',
+  'shipping_days',
+  'shipping_fee',
+  'delivery_term_ref',
+  'collection',
+  'factory_name',
+  'production_lead_time',
+]);
 
 export type StandardHeaderValue = (typeof STANDARD_HEADERS)[number]['value'];
 
@@ -242,7 +245,6 @@ function autoDetectMappings(headers: string[], rows?: RawExtractedRow[], columnC
   const mapping: ColumnMappingState = {};
   
   const patterns: { field: StandardHeaderValue; regex: RegExp }[] = [
-    { field: 'index_number', regex: /^(序号|序號|#|no\.?|index)$/i },
     { field: 'model_number', regex: /model|型號|型号|貨號|货号|item\s*no|product\s*code|sku|产品型号/i },
     { field: 'title', regex: /^(name|品名|產品名|产品名|產品名稱|产品名称|product\s*name|item\s*name)$/i },
     { field: 'description', regex: /desc|說明|说明|note/i },
@@ -256,14 +258,8 @@ function autoDetectMappings(headers: string[], rows?: RawExtractedRow[], columnC
     { field: 'dim_length_mm', regex: /^(L|length|長|长|長度|长度|長度?\s*[\(（]?\s*[mc]m\s*[\)）]?|长度?\s*[\(（]?\s*[mc]m\s*[\)）]?)$/i },
     { field: 'dim_width_mm', regex: /^(W|width|寬|宽|寬度|宽度|闊|闊度?\s*[\(（]?\s*[mc]m\s*[\)）]?|寬度?\s*[\(（]?\s*[mc]m\s*[\)）]?|宽度?\s*[\(（]?\s*[mc]m\s*[\)）]?)$/i },
     { field: 'dim_height_mm', regex: /^(H|height|高|高度|高度?\s*[\(（]?\s*[mc]m\s*[\)）]?)$/i },
-    { field: 'collection', regex: /series|系列|collection|category|類別|类别/i },
-    { field: 'factory_name', regex: /factory|工廠|工厂|manufacturer|供應商|供应商|廠名|厂名/i },
     { field: 'customize', regex: /lead\s*time|生产周期|生產週期|生產時間|生产时间|工期|訂製|订制|订製|customize/i },
-    { field: 'delivery_days', regex: /delivery\s*day|交期|交貨|交货|到貨|到货/i },
-    { field: 'shipping_days', regex: /shipping\s*day|運輸天數|运输天数|船期/i },
-    { field: 'shipping_fee', regex: /shipping\s*fee|運費|运费|物流费/i },
     { field: 'remarks', regex: /備註|备注|remark|annotation|附註/i },
-    { field: 'delivery_term_ref', regex: /參考貨期|参考货期|貨期|货期/i },
   ];
 
   const usedFields = new Set<StandardHeaderValue>();
@@ -273,6 +269,9 @@ function autoDetectMappings(headers: string[], rows?: RawExtractedRow[], columnC
   // 配置说明 = "configuration notes" — CYJ casual-chair sheets use this for build details
   // we don't want imported.
   const ALWAYS_SKIP_RE = /包[装裝]|包装|包裝|纸箱|紙箱|carton|gross\s*weight|net\s*weight|^配置|配置说明|配置說明|箱[規规]|箱體|箱体|外[箱盒]|淨重|净重|毛重|浮重/i;
+  // Headers that used to map to removed options — keep as skip (factory/category come from Step 1).
+  const REMOVED_OPTION_HEADER_RE =
+    /^(序号|序號|#|no\.?|index)$|factory|工廠|工厂|manufacturer|供應商|供应商|廠名|厂名|^(series|系列|collection|category|類別|类别)$|delivery\s*day|交期|交貨|交货|到貨|到货|shipping\s*day|運輸天數|运输天数|船期|shipping\s*fee|運費|运费|物流费|參考貨期|参考货期|^貨期$|^货期$/i;
 
   for (let i = 0; i < headers.length; i++) {
     const headerText = (headers[i] || '').trim();
@@ -280,7 +279,7 @@ function autoDetectMappings(headers: string[], rows?: RawExtractedRow[], columnC
       mapping[i] = 'skip';
       continue;
     }
-    if (ALWAYS_SKIP_RE.test(headerText)) {
+    if (ALWAYS_SKIP_RE.test(headerText) || REMOVED_OPTION_HEADER_RE.test(headerText)) {
       mapping[i] = 'skip';
       continue;
     }
@@ -836,13 +835,14 @@ export function ExcelPreviewTable({
     (async () => {
       const saved = await loadMappings();
       if (saved && typeof saved === 'object' && sheetDataList.some(sd => saved[sd.sheetName])) {
-        // Sanitize: replace any persisted values that no longer exist in STANDARD_HEADERS
-        // Legacy production_lead_time → customize (same destination column).
+        // Sanitize: drop removed mapping options; remap legacy production_lead_time → customize.
         const sanitized: MultiSheetColumnMapping = {};
         for (const [sheetName, mapping] of Object.entries(saved)) {
           const cleanMapping: ColumnMappingState = {};
           for (const [key, val] of Object.entries(mapping as Record<string, string>)) {
-            const mappedVal = val === 'production_lead_time' ? 'customize' : val;
+            let mappedVal = val;
+            if (val === 'production_lead_time') mappedVal = 'customize';
+            else if (LEGACY_MAPPING_TO_SKIP.has(val)) mappedVal = 'skip';
             cleanMapping[key] = validValues.has(mappedVal as StandardHeaderValue)
               ? (mappedVal as StandardHeaderValue)
               : 'skip';

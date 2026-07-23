@@ -49,7 +49,7 @@ import { supabase } from '@/lib/supabase';
 import { resolveRowsImagesToStorage, resolveRowsImagesToStorageWithRetry, productImageFieldsPendingStorage } from '@/lib/imageStorage';
 import { fetchFactories, fetchFactoriesWithIds, FactoryItem } from '@/lib/factorySupabase';
 import { withInsertAuditFields, withUpdateAuditFields } from '@/lib/pmsAudit';
-import { parseExcelFile, extractImagesFromWorkbook, extractRawExcelTable, ExcelProduct, ExcelImage, getFactoryRule, RawTableExtraction, cleanPrice, parseSmartDimensions, parseDeliveryTerm, resolveMappedRowImages } from '@/lib/excelParser';
+import { parseExcelFile, extractImagesFromWorkbook, extractRawExcelTable, ExcelProduct, ExcelImage, getFactoryRule, RawTableExtraction, cleanPrice, parseSmartDimensions, resolveMappedRowImages } from '@/lib/excelParser';
 import { ExcelPreviewTable, ExcelPreviewData, ColumnMappingState, StandardHeaderValue, MultiSheetColumnMapping, MultiSheetDimUnits, DimUnit, PreviewAction } from '@/components/dashboard/ExcelPreviewTable';
 import { simplifiedToTraditional, convertRowToTraditional } from '@/lib/chineseConverter';
 import { useFactoryLearning, CorrectableField } from '@/hooks/use-factory-learning';
@@ -2473,19 +2473,13 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         // Apply Simplified → Traditional Chinese conversion for description
         const rawDescription = getCellStr('description');
         const description = rawDescription ? simplifiedToTraditional(rawDescription) : '';
-        const rawCollection = getCellStr('collection');
-        const collection = rawCollection ? simplifiedToTraditional(rawCollection) : '';
-        // Extract additional mapped fields that map directly to bwf_product_master columns
-        const factoryNameFromExcel = simplifiedToTraditional(getCellStr('factory_name'));
+        // Category/factory come from Step 1 (產品分類 / 選擇廠家), not Excel mapping.
+        const collection = selectedProductCategory || '';
         // customize mapping (訂製天數／生產週期): text bucket → customize, days → production_date
-        // Legacy mapping key production_lead_time still accepted for saved sessions.
         const customizeRaw = getCellStr('customize') || getCellStr('production_lead_time');
         const productionLeadTime =
           getCellNum('customize') ?? getCellNum('production_lead_time');
         const customize: string | null = customizeRaw ? mapCustomizeLeadTime(customizeRaw) : null;
-        const deliveryDays = getCellNum('delivery_days');
-        const shippingDays = getCellNum('shipping_days');
-        const shippingFee = getCellNum('shipping_fee');
         const remarks = getCellStr('remarks') ? simplifiedToTraditional(getCellStr('remarks')) : null;
         const specifications = getCellStr('specifications') ? simplifiedToTraditional(getCellStr('specifications')) : null;
         // image_url_2 / image_url_3 resolved via mapping helper (embedded + column cells)
@@ -2594,15 +2588,12 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
           bounding_box: null,
           costPrice,
           productionLeadTime,
-          deliveryDays,
-          shippingDays,
-          shippingFee,
           remarks,
           specifications,
           imageUrl2,
           imageUrl3,
           color,
-          factoriesDisplayName: factoryNameFromExcel || selectedManufacturer,
+          factoriesDisplayName: selectedManufacturer,
           dimensionLMm,
           dimensionWMm,
           dimensionHMm,
@@ -2775,19 +2766,13 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         // Apply Simplified → Traditional Chinese conversion for description
         const rawDescription = getCellStr('description');
         const description = rawDescription ? simplifiedToTraditional(rawDescription) : '';
-        const rawCollection = getCellStr('collection');
-        const collection = rawCollection ? simplifiedToTraditional(rawCollection) : '';
-        // Extract additional mapped fields for master DB
-        const factoryNameFromExcel = simplifiedToTraditional(getCellStr('factory_name'));
+        // Category/factory come from Step 1 (產品分類 / 選擇廠家), not Excel mapping.
+        const collection = selectedProductCategory || '';
         // customize mapping (訂製天數／生產週期): text bucket → customize, days → production_date
-        // Legacy mapping key production_lead_time still accepted for saved sessions.
         const customizeRaw = getCellStr('customize') || getCellStr('production_lead_time');
         const productionLeadTime =
           getCellNum('customize') ?? getCellNum('production_lead_time');
         const customize: string | null = customizeRaw ? mapCustomizeLeadTime(customizeRaw) : null;
-        const deliveryDays = getCellNum('delivery_days');
-        const shippingDays = getCellNum('shipping_days');
-        const shippingFee = getCellNum('shipping_fee');
         const remarks = getCellStr('remarks') ? simplifiedToTraditional(getCellStr('remarks')) : null;
         const specifications = getCellStr('specifications') ? simplifiedToTraditional(getCellStr('specifications')) : null;
         // image_url_2 / image_url_3 resolved via mapping helper (embedded + column cells)
@@ -2797,16 +2782,6 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         const inStockColMapped = fieldToCol['in_stock'] !== undefined;
         const inStockRaw = getCellStr('in_stock');
         const inStock: boolean | null = inStockColMapped ? mapInStock(inStockRaw, true) : null;
-
-        // ── Delivery Term Parsing (from 參考貨期 column) ──────────────────────
-        const rawDeliveryTermRef = getCellStr('delivery_term_ref');
-        let deliveryTermId: string | null = null;
-        let deliveryTermName: string | null = null;
-        if (rawDeliveryTermRef) {
-          const parsed = parseDeliveryTerm(rawDeliveryTermRef);
-          deliveryTermId = parsed.id;
-          deliveryTermName = parsed.name;
-        }
 
         // Include AI-generated product name if available
         const nameKey = `${sheetName}:${row.rowIndex}`;
@@ -2911,23 +2886,18 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
           bounding_box: null,
           costPrice,
           productionLeadTime,
-          deliveryDays,
-          shippingDays,
-          shippingFee,
           remarks,
           specifications,
           imageUrl2,
           imageUrl3,
           color,
-          factoriesDisplayName: factoryNameFromExcel || selectedManufacturer,
+          factoriesDisplayName: selectedManufacturer,
           dimensionLMm,
           dimensionWMm,
           dimensionHMm,
           modelNumber,
           inStock,
           customize,
-          deliveryTermId,
-          deliveryTermName,
           imageSource: resolvedProductImage ? 'excel' as const : null,
           dataSource: 'excel' as const,
           imageValidated: !!resolvedProductImage,
