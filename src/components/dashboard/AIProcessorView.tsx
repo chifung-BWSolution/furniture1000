@@ -1993,9 +1993,8 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
   const [manufacturerListSource, setManufacturerListSource] = useState<'dynamic' | 'static' | null>(null);
 
   // ── Step 1b: Category Selection (syncs with product_category) ──
-  /** Default: 工作枱 → 辦公枱 (level-2 display value). */
-  const DEFAULT_PRODUCT_CATEGORY = '辦公枱';
-  const [selectedProductCategory, setSelectedProductCategory] = useState<string>(DEFAULT_PRODUCT_CATEGORY);
+  // Default display value = level-2「辦公枱」(under 一級「工作枱」).
+  const [selectedProductCategory, setSelectedProductCategory] = useState<string>('辦公枱');
   const [categoryList, setCategoryList] = useState<{ id: string; name: string; parent_id: string | null; level: number; sort_order: number }[]>([]);
   const [categoryListLoading, setCategoryListLoading] = useState(false);
   // raw 一級/二級 pairs from product_category — used to resolve level1/level2 on upload
@@ -2036,15 +2035,13 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
           }
           setCategoryList(built);
 
-          // Default 工作枱 → 辦公枱 when that pair (or L2 name) exists in settings.
-          const hasDefault = pairs.some(
-            (p) =>
-              p.level2 === DEFAULT_PRODUCT_CATEGORY
-              && (p.level1 === '工作枱' || p.level1 === ''),
-          ) || pairs.some((p) => p.level2 === DEFAULT_PRODUCT_CATEGORY);
-          if (hasDefault) {
+          // Keep default 工作枱 → 辦公枱 when present in settings.
+          const hasOfficeDesk = pairs.some(
+            (p) => p.level2 === '辦公枱' && (p.level1 === '工作枱' || !p.level1),
+          ) || pairs.some((p) => p.level2 === '辦公枱');
+          if (hasOfficeDesk) {
             setSelectedProductCategory((prev) => {
-              if (!prev || prev === '__clear__') return DEFAULT_PRODUCT_CATEGORY;
+              if (!prev || prev === '__clear__') return '辦公枱';
               return prev;
             });
           }
