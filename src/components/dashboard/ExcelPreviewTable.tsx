@@ -901,6 +901,12 @@ export function ExcelPreviewTable({
   });
 
   const currentSelection = multiSheetSelections[activeSheet.sheetName] || new Set<number>();
+  /** Anchor row for Shift+click range select (per active sheet display order). */
+  const lastClickedRowRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    lastClickedRowRef.current = null;
+  }, [activeSheet.sheetName]);
 
   // ─── Auto-switch to next non-empty sheet when current sheet becomes empty or is removed ───
   useEffect(() => {
@@ -1003,18 +1009,42 @@ export function ExcelPreviewTable({
     }));
   }, [activeSheet.sheetName, activeSheet.headerLabels]);
 
-  // Handler: toggle row selection for current sheet
-  const handleToggleRow = useCallback((rowIndex: number) => {
-    setMultiSheetSelections(prev => {
-      const current = new Set(prev[activeSheet.sheetName] || []);
+  // Handler: toggle row selection for current sheet.
+  // Shift+click selects all rows between the last clicked row and this one (inclusive).
+  const handleToggleRow = useCallback((rowIndex: number, shiftKey = false) => {
+    const sheetName = activeSheet.sheetName;
+    const anchor = lastClickedRowRef.current;
+    const visibleIndices = displayRows.map((r) => r.rowIndex);
+
+    setMultiSheetSelections((prev) => {
+      const current = new Set(prev[sheetName] || []);
+
+      if (shiftKey && anchor != null) {
+        const a = visibleIndices.indexOf(anchor);
+        const b = visibleIndices.indexOf(rowIndex);
+        if (a !== -1 && b !== -1) {
+          const from = Math.min(a, b);
+          const to = Math.max(a, b);
+          for (let i = from; i <= to; i++) {
+            current.add(visibleIndices[i]);
+          }
+          return { ...prev, [sheetName]: current };
+        }
+      }
+
       if (current.has(rowIndex)) {
         current.delete(rowIndex);
       } else {
         current.add(rowIndex);
       }
-      return { ...prev, [activeSheet.sheetName]: current };
+      return { ...prev, [sheetName]: current };
     });
-  }, [activeSheet.sheetName]);
+
+    // Keep anchor on Shift+range select so further Shift+clicks extend from the same start.
+    if (!shiftKey || anchor == null) {
+      lastClickedRowRef.current = rowIndex;
+    }
+  }, [activeSheet.sheetName, displayRows]);
 
   // Handler: select all / deselect all for current sheet
   const handleSelectAll = useCallback(() => {
@@ -1987,11 +2017,15 @@ export function ExcelPreviewTable({
                         !isProductRow && isSelected && 'bg-amber-500/5',
                       )}
                     >
-                      {/* Checkbox */}
+                      {/* Checkbox — leftmost; Shift+click selects a contiguous range */}
                       <TableCell className="text-center sticky left-0 z-10 bg-card p-1">
                         <Checkbox
                           checked={isSelected}
-                          onCheckedChange={() => handleToggleRow(row.rowIndex)}
+                          onClick={(e) => {
+                            e.preventDefault();
+                            handleToggleRow(row.rowIndex, e.shiftKey);
+                          }}
+                          aria-label={`選擇第 ${row.rowIndex} 列（可配合 Shift 連選）`}
                         />
                       </TableCell>
                       {/* Row number */}
