@@ -127,15 +127,16 @@ function ShopifyPublishedBreakdown({
                     <Button
                       type="button"
                       variant="outline"
-                      size="sm"
-                      className="h-7 gap-1 px-2 text-[11px]"
+                      size="icon"
+                      className="h-7 w-7"
                       onClick={() => toggle(l1.level1)}
                       aria-expanded={isOpen}
+                      aria-label={isOpen ? '收合' : '展開'}
+                      title={isOpen ? '收合' : '展開'}
                     >
                       <ChevronDown
-                        className={cn('h-3 w-3 transition-transform', !isOpen && '-rotate-90')}
+                        className={cn('h-3.5 w-3.5 transition-transform', !isOpen && '-rotate-90')}
                       />
-                      {isOpen ? '收合' : '展開'}
                     </Button>
                   )}
                 </div>
