@@ -23,6 +23,7 @@ import {
 import { generateFloorPlanDataUrl } from '@/lib/floorPlanGenerator';
 import {
   PROJECT_TYPE_OPTIONS,
+  EXCLUDED_DEFAULT_ROOM_KEYS,
   codePrefixFromLabel,
   defaultRoomCounts,
   inferProjectType,
@@ -94,7 +95,9 @@ function resolveRoomOrder(
 ): string[] {
   const known = new Set(defaultOrderFor(type, customRooms));
   if (savedOrder.length === 0) return defaultOrderFor(type, customRooms);
-  const next = savedOrder.filter((key) => known.has(key));
+  const next = savedOrder.filter(
+    (key) => known.has(key) && !EXCLUDED_DEFAULT_ROOM_KEYS.has(key),
+  );
   for (const room of customRooms) {
     if (!next.includes(room.key)) next.push(room.key);
   }
@@ -167,9 +170,10 @@ export function ProjectPartitionPanel({
           inferProjectType(project.name, project.clientCompany);
         const nextCustom = normalizeCustomRooms(project.meta?.customRooms);
         const savedOrder = normalizeRoomOrder(project.meta?.roomOrder);
+        const nextOrder = resolveRoomOrder(type, nextCustom, savedOrder);
         setProjectType(type);
         setCustomRooms(nextCustom);
-        setRoomOrder(resolveRoomOrder(type, nextCustom, savedOrder));
+        setRoomOrder(nextOrder);
         setRoomCounts(
           project.meta?.roomCounts &&
             Object.keys(project.meta.roomCounts).length > 0
@@ -184,6 +188,12 @@ export function ProjectPartitionPanel({
               ? countRoomsFromZones(type, loadedZones, nextCustom)
               : defaultRoomCounts(type),
         );
+        // Existing projects may still contain removed defaults — prompt save cleanup.
+        if (
+          savedOrder.some((key) => EXCLUDED_DEFAULT_ROOM_KEYS.has(key))
+        ) {
+          setDirty(true);
+        }
       })
       .finally(() => {
         if (!cancelled) setLoading(false);

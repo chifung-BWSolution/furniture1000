@@ -43,6 +43,9 @@ export const EXISTING_PARTITION_OPTIONS: {
   { id: 'none', label: '沒有' },
 ];
 
+/** Deprecated default keys — excluded from all engineering-type presets. */
+export const EXCLUDED_DEFAULT_ROOM_KEYS = new Set(['other', 'no_partition']);
+
 const OFFICE_ROOMS: RoomTypeTemplate[] = [
   { key: 'meeting', label: '會議室', codePrefix: 'M' },
   { key: 'manager', label: '經理房', codePrefix: 'G' },
@@ -54,8 +57,6 @@ const OFFICE_ROOMS: RoomTypeTemplate[] = [
   { key: 'open', label: '開放式工作區', codePrefix: 'O' },
   { key: 'phone', label: '電話房', codePrefix: 'PH' },
   { key: 'restroom', label: '洗手間', codePrefix: 'WC' },
-  { key: 'other', label: '其他', codePrefix: 'X' },
-  { key: 'no_partition', label: '沒有間隔', codePrefix: 'NP' },
 ];
 
 const SCHOOL_ROOMS: RoomTypeTemplate[] = [
@@ -68,7 +69,6 @@ const SCHOOL_ROOMS: RoomTypeTemplate[] = [
   { key: 'reception', label: '接待處', codePrefix: 'R' },
   { key: 'restroom', label: '洗手間', codePrefix: 'WC' },
   { key: 'storage', label: '儲物房', codePrefix: 'ST' },
-  { key: 'other', label: '其他', codePrefix: 'X' },
 ];
 
 const CLINIC_ROOMS: RoomTypeTemplate[] = [
@@ -79,7 +79,6 @@ const CLINIC_ROOMS: RoomTypeTemplate[] = [
   { key: 'waiting', label: '候診區', codePrefix: 'W' },
   { key: 'restroom', label: '洗手間', codePrefix: 'WC' },
   { key: 'storage', label: '儲物房', codePrefix: 'ST' },
-  { key: 'other', label: '其他', codePrefix: 'X' },
 ];
 
 const HOTEL_ROOMS: RoomTypeTemplate[] = [
@@ -90,7 +89,6 @@ const HOTEL_ROOMS: RoomTypeTemplate[] = [
   { key: 'pantry', label: '茶水間', codePrefix: 'P' },
   { key: 'storage', label: '儲物房', codePrefix: 'ST' },
   { key: 'restroom', label: '洗手間', codePrefix: 'WC' },
-  { key: 'other', label: '其他', codePrefix: 'X' },
 ];
 
 const OTHER_ROOMS: RoomTypeTemplate[] = [
@@ -99,7 +97,6 @@ const OTHER_ROOMS: RoomTypeTemplate[] = [
   { key: 'storage', label: '儲物房', codePrefix: 'ST' },
   { key: 'reception', label: '接待處', codePrefix: 'R' },
   { key: 'restroom', label: '洗手間', codePrefix: 'WC' },
-  { key: 'other', label: '其他', codePrefix: 'X' },
 ];
 
 export function roomsForProjectType(type: ProjectEngineeringType): RoomTypeTemplate[] {
@@ -205,7 +202,10 @@ export function zoneSeedsFromRoomCounts(
 ): { code: string; name: string; bounds: ZoneBounds; roomKey: string }[] {
   const rooms = orderedRoomsForProjectType(type, customRooms, roomOrder);
   const seeds: { code: string; name: string; bounds: ZoneBounds; roomKey: string }[] = [];
-  const active = rooms.filter((r) => (counts[r.key] || 0) > 0 && r.key !== 'no_partition');
+  const active = rooms.filter(
+    (r) =>
+      (counts[r.key] || 0) > 0 && !EXCLUDED_DEFAULT_ROOM_KEYS.has(r.key),
+  );
   const total = active.reduce((n, r) => n + (counts[r.key] || 0), 0) || 1;
   let index = 0;
   for (const room of active) {
