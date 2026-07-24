@@ -4,15 +4,20 @@ import {
   Building2,
   CheckCircle2,
   ExternalLink,
+  Factory,
   Film,
   Globe,
   Landmark,
   Loader2,
   Mail,
+  MessageCircle,
   PackageCheck,
   PenLine,
+  Percent,
   Phone,
+  Ruler,
   Search,
+  Truck,
   Upload,
   UserRound,
   Users,
@@ -34,9 +39,12 @@ import {
 } from '@/components/corporate/CorporateModules';
 import {
   BW_COMPANY,
+  BW_CONTACT_HIGHLIGHTS,
   BW_PUBLIC_CASES,
   BW_SERVICE_MODULES,
 } from '@/content/bwCorporate';
+
+const CONTACT_HIGHLIGHT_ICONS = [Factory, Truck, Ruler, Percent] as const;
 
 function NoRecords({
   icon: Icon,
@@ -608,8 +616,9 @@ export function CustomerContactView() {
       title="聯絡我們"
       badge="Client Portal"
       subtitle="聯絡 BW Furniture 專員，查詢報價、產品、訂製、機構採購及項目安排。"
+      maxWidthClass="max-w-none"
     >
-      <div className="grid gap-5 lg:grid-cols-[1fr_0.9fr]">
+      <div className="grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
         <section className="rounded-2xl border border-border bg-card p-6 shadow-sm">
           <p className="text-sm font-semibold text-primary">BW FURNITURE</p>
           <h2 className="mt-2 font-display text-xl font-bold">
@@ -619,14 +628,30 @@ export function CustomerContactView() {
             {BW_COMPANY.intro}
           </p>
           <div className="mt-6 grid gap-3 sm:grid-cols-2">
-            <a
-              href={`tel:${BW_COMPANY.phones[0].replace(/\s/g, '')}`}
-              className="rounded-xl border border-border p-4 hover:border-primary/40"
-            >
+            <div className="rounded-xl border border-border p-4">
               <Phone className="h-5 w-5 text-primary" />
               <p className="mt-2 text-sm text-muted-foreground">電話</p>
-              <p className="font-semibold">{BW_COMPANY.phones.join(' / ')}</p>
-            </a>
+              <a
+                href={`tel:${BW_COMPANY.phoneTel}`}
+                className="mt-1 block font-semibold hover:text-primary"
+              >
+                {BW_COMPANY.phone}
+              </a>
+              <div className="mt-3 border-t border-border/70 pt-3">
+                <p className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
+                  <MessageCircle className="h-4 w-4 text-emerald-600" />
+                  WhatsApp
+                </p>
+                <a
+                  href={BW_COMPANY.whatsappUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-1 block font-semibold text-emerald-700 hover:underline"
+                >
+                  {BW_COMPANY.whatsapp}
+                </a>
+              </div>
+            </div>
             <a
               href={`mailto:${BW_COMPANY.email}`}
               className="rounded-xl border border-border p-4 hover:border-primary/40"
@@ -655,20 +680,39 @@ export function CustomerContactView() {
           </div>
         </section>
 
-        <section className="rounded-2xl border border-primary/20 bg-primary/5 p-6">
-          <h2 className="font-display text-lg font-bold">
-            一條專屬連結，完成整個報價體驗
+        <section className="rounded-2xl border border-border bg-card p-6 shadow-sm">
+          <p className="text-sm font-semibold text-primary">服務優勢</p>
+          <h2 className="mt-2 font-display text-lg font-bold">
+            實力工廠・極速交期・免費度尺・機構特惠
           </h2>
-          <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-            透過 Client Portal 查看報價版本、完整產品、訂製需求、公司實力與服務資料，減少來回傳送 PDF 及版本混亂。
-          </p>
-          <a
-            href={`mailto:${BW_COMPANY.email}?subject=${encodeURIComponent('Client Portal 查詢')}`}
-            className="mt-5 inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-3 font-semibold text-primary-foreground"
-          >
-            <Mail className="h-4 w-4" />
-            聯絡專員
-          </a>
+          <div className="mt-5 grid gap-3 sm:grid-cols-2">
+            {BW_CONTACT_HIGHLIGHTS.map((item, index) => {
+              const Icon = CONTACT_HIGHLIGHT_ICONS[index] ?? Factory;
+              return (
+                <article
+                  key={item.title}
+                  className="rounded-xl border border-border bg-muted/20 p-4"
+                >
+                  <div className="flex items-center gap-2">
+                    <span className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                      <Icon className="h-5 w-5" />
+                    </span>
+                    <h3 className="font-display text-base font-bold">
+                      {item.title}
+                    </h3>
+                  </div>
+                  <ul className="mt-3 space-y-1.5 text-sm text-muted-foreground">
+                    {item.lines.map((line) => (
+                      <li key={line} className="flex items-start gap-2">
+                        <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                        <span>{line}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </article>
+              );
+            })}
+          </div>
         </section>
       </div>
 
