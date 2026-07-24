@@ -254,14 +254,24 @@ export function ListedProductsView({
   }, []);
 
   // Fetch category product counts — paginated to bypass Supabase's 1000-row server cap.
+  // Must respect factory filter so dropdown numbers match the filtered list (0 when empty).
   useEffect(() => {
     let cancelled = false;
     (async () => {
       const BATCH = 1000;
+      const factoryNames = selectedFactories.length > 0
+        ? expandFactoryFilterSelection(selectedFactories)
+        : null;
 
-      const applyVisibility = (q: any) => isCatalog
-        ? applyCatalogFilters(q)
-        : applyPendingProductsFilters(q);
+      const applyVisibility = (q: any) => {
+        let query = isCatalog
+          ? applyCatalogFilters(q)
+          : applyPendingProductsFilters(q);
+        if (factoryNames) {
+          query = query.in('factories_display_name', factoryNames);
+        }
+        return query;
+      };
 
       // Paginated fetch helper
       const fetchAllPages = async (columns: string, extraFilter: (q: any) => any) => {
@@ -304,10 +314,20 @@ export function ListedProductsView({
         if (!l1 || !l2) continue;
         counts[`level2:${l1}:${l2}`] = (counts[`level2:${l1}:${l2}`] || 0) + 1;
       }
+      // Known taxonomy options with no matching rows under the current factory
+      // filter should display 0 (not a stale global count / blank).
+      for (const { level1, level2 } of categoryPairs) {
+        const l1 = (level1 || '').trim();
+        const l2 = (level2 || '').trim();
+        if (l1 && counts[`level1:${l1}`] == null) counts[`level1:${l1}`] = 0;
+        if (l1 && l2 && counts[`level2:${l1}:${l2}`] == null) {
+          counts[`level2:${l1}:${l2}`] = 0;
+        }
+      }
       if (!cancelled) setCategoryCounts(counts);
     })();
     return () => { cancelled = true; };
-  }, [isCatalog]);
+  }, [isCatalog, selectedFactories, categoryPairs]);
 
   // Fetch unique factory names for filter — DEFERRED: only runs the first time
   // the user opens the factory dropdown, so it never competes with the
@@ -1481,17 +1501,17 @@ export function ListedProductsView({
               <SelectContent>
                 <SelectItem value="__all__">全部一級分類</SelectItem>
                 {level1Options.map((l1) => {
-                  // When this option is active and no level2 filter, totalCount is exact.
+                  // When this option is active and no level2 filter, totalCount is exact
+                  // (already respects factory filter). Otherwise use categoryCounts, which
+                  // are recomputed for the current factory selection.
                   const cnt = (l1 === level1Filter && !level2Filter)
                     ? totalCount
-                    : categoryCounts[`level1:${l1}`];
+                    : (categoryCounts[`level1:${l1}`] ?? 0);
                   return (
                     <SelectItem key={l1} value={l1}>
                       <span className="flex items-center justify-between gap-3 w-full">
                         <span>{l1}</span>
-                        {cnt != null && (
-                          <span className="font-mono-data text-xs font-semibold text-foreground/70 ml-auto">{cnt}</span>
-                        )}
+                        <span className="font-mono-data text-xs font-semibold text-foreground/70 ml-auto">{cnt}</span>
                       </span>
                     </SelectItem>
                   );
@@ -1515,18 +1535,16 @@ export function ListedProductsView({
                 <SelectContent>
                   <SelectItem value="__all__">全部二級分類</SelectItem>
                   {level2Options.map((l2) => {
-                    // When this option is the active filter, use totalCount (exact from main query).
-                    // For other options, fall back to categoryCounts (approximate).
+                    // Active filter → exact totalCount (factory-aware). Others → categoryCounts
+                    // recomputed for the current factory selection (0 when none).
                     const cnt = l2 === level2Filter
                       ? totalCount
-                      : categoryCounts[`level2:${level1Filter}:${l2}`];
+                      : (categoryCounts[`level2:${level1Filter}:${l2}`] ?? 0);
                     return (
                       <SelectItem key={l2} value={l2}>
                         <span className="flex items-center justify-between gap-3 w-full">
                           <span>{l2}</span>
-                          {cnt != null && (
-                            <span className="font-mono-data text-xs font-semibold text-foreground/70 ml-auto">{cnt}</span>
-                          )}
+                          <span className="font-mono-data text-xs font-semibold text-foreground/70 ml-auto">{cnt}</span>
                         </span>
                       </SelectItem>
                     );
