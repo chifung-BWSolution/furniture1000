@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import {
   Plus, Loader2, Search, Check, CheckCircle2, Trash2, X, LayoutGrid, UserRound, Tag,
-  ImagePlus, PenLine, ZoomIn, Save,
+  ImagePlus, PenLine, ZoomIn, Save, Link2,
 } from 'lucide-react';
 import {
   fetchProjects, fetchZones, fetchZoneProducts, fetchActiveShopifyProducts,
@@ -10,6 +11,10 @@ import {
   persistDesignProjectFurniture, saveProject, updateZoneProductNotes,
 } from '@/lib/solutionsApi';
 import { useAppStore } from '@/hooks/use-app-store';
+import {
+  buildDesignProjectPath,
+  parseDesignProjectPathname,
+} from '@/lib/designProjectRoutes';
 import { consumeSolutionFocusProjectId } from '@/lib/solutionProjectFocus';
 import { resolveDesignProjectPmLabels } from '@/lib/solutionProjectPm';
 import {
@@ -157,8 +162,14 @@ function zoneBaseName(name: string): string {
 
 export function DesignProjectsView() {
   const appStore = useAppStore();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const routeProjectId = useMemo(() => {
+    const parsed = parseDesignProjectPathname(location.pathname);
+    return parsed?.kind === 'project' ? parsed.projectId : '';
+  }, [location.pathname]);
   const [projects, setProjects] = useState<DesignProject[]>([]);
-  const [activeProjectId, setActiveProjectId] = useState('');
+  const [activeProjectId, setActiveProjectId] = useState(routeProjectId);
   const [zones, setZones] = useState<ProjectZone[]>([]);
   const [zoneProducts, setZoneProducts] = useState<ZoneProduct[]>([]);
   const [projectsLoaded, setProjectsLoaded] = useState(false);
@@ -186,21 +197,94 @@ export function DesignProjectsView() {
   );
   const [floorPlanViewerOpen, setFloorPlanViewerOpen] = useState(false);
   const imageInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const furnitureDirtyRef = useRef(false);
+
+  useEffect(() => {
+    furnitureDirtyRef.current = furnitureDirty;
+  }, [furnitureDirty]);
+
+  const selectProject = useCallback(
+    (projectId: string, opts?: { force?: boolean }) => {
+      const nextId = (projectId || '').trim();
+      if (!nextId || nextId === activeProjectId) return;
+      if (
+        !opts?.force &&
+        furnitureDirtyRef.current &&
+        !window.confirm('目前傢俬配置尚未儲存，確定切換專案？')
+      ) {
+        return;
+      }
+      setActiveProjectId(nextId);
+      setFurnitureDirty(false);
+    },
+    [activeProjectId],
+  );
 
   useEffect(() => {
     const focusId = consumeSolutionFocusProjectId();
+    const urlId = routeProjectId;
     fetchProjects()
       .then(async (rows) => {
         setProjects(rows);
         setPmNames(await resolveDesignProjectPmLabels(rows));
-        if (focusId && rows.some((r) => r.id === focusId)) {
+        if (urlId && rows.some((r) => r.id === urlId)) {
+          setActiveProjectId(urlId);
+        } else if (focusId && rows.some((r) => r.id === focusId)) {
           setActiveProjectId(focusId);
+        } else if (urlId && rows.length > 0) {
+          toast.error('找不到此設計專案連結，已改為顯示可存取的專案');
+          setActiveProjectId(rows[0].id);
         } else if (rows.length > 0) {
-          setActiveProjectId((cur) => cur || rows[0].id);
+          setActiveProjectId((cur) =>
+            cur && rows.some((r) => r.id === cur) ? cur : rows[0].id,
+          );
         }
       })
       .finally(() => setProjectsLoaded(true));
+    // Only on mount — URL changes are handled below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Follow browser URL (shared link / back-forward) after projects are loaded.
+  useEffect(() => {
+    if (!projectsLoaded) return;
+    const parsed = parseDesignProjectPathname(location.pathname);
+    if (parsed?.kind !== 'project') return;
+    if (parsed.projectId === activeProjectId) return;
+    if (!projects.some((project) => project.id === parsed.projectId)) {
+      if (projects.length > 0) {
+        toast.error('找不到此設計專案連結');
+        selectProject(projects[0].id, { force: true });
+      }
+      return;
+    }
+    if (
+      furnitureDirtyRef.current &&
+      !window.confirm('目前傢俬配置尚未儲存，確定切換專案？')
+    ) {
+      navigate(buildDesignProjectPath(activeProjectId), { replace: true });
+      return;
+    }
+    setActiveProjectId(parsed.projectId);
+    setFurnitureDirty(false);
+  }, [
+    activeProjectId,
+    location.pathname,
+    navigate,
+    projects,
+    projectsLoaded,
+    selectProject,
+  ]);
+
+  // Keep address bar on the active project's shareable URL.
+  useEffect(() => {
+    if (!projectsLoaded || !activeProjectId) return;
+    const target = buildDesignProjectPath(activeProjectId);
+    if (location.pathname === target) return;
+    const parsed = parseDesignProjectPathname(location.pathname);
+    // Push history when switching between projects; replace when entering the view.
+    navigate(target, { replace: parsed?.kind !== 'project' });
+  }, [activeProjectId, location.pathname, navigate, projectsLoaded]);
 
   const reloadZones = useCallback(async (projectId: string) => {
     setLoading(true);
@@ -661,7 +745,7 @@ export function DesignProjectsView() {
             <div className="mt-2 flex min-w-0 flex-wrap items-center gap-3">
               <select
                 value={activeProjectId}
-                onChange={(e) => setActiveProjectId(e.target.value)}
+                onChange={(e) => selectProject(e.target.value)}
                 className="h-10 min-w-[280px] max-w-xl flex-1 truncate rounded-lg border border-border bg-card px-3 font-display text-sm font-semibold"
                 aria-label="選擇設計專案"
               >
@@ -671,6 +755,24 @@ export function DesignProjectsView() {
                   </option>
                 ))}
               </select>
+              {activeProjectId ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const path = buildDesignProjectPath(activeProjectId);
+                    const url = `${window.location.origin}${path}`;
+                    void navigator.clipboard.writeText(url).then(
+                      () => toast.success('已複製專案連結'),
+                      () => toast.error('無法複製連結', { description: url }),
+                    );
+                  }}
+                  className="inline-flex h-10 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-sm font-medium text-foreground hover:bg-muted"
+                  title="複製此專案的獨立連結"
+                >
+                  <Link2 className="h-4 w-4" />
+                  複製連結
+                </button>
+              ) : null}
             </div>
           </div>
 

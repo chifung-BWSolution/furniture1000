@@ -27,6 +27,11 @@ import {
   QUOTE_LIST_PATH,
   QUOTE_QUICK_PATH,
 } from "@/lib/quoteRoutes";
+import {
+  DESIGN_PROJECTS_PATH,
+  isDesignProjectPath,
+  parseDesignProjectPathname,
+} from "@/lib/designProjectRoutes";
 import { SidebarNav } from "./SidebarNav";
 import { PrimaryTopNav } from "./PrimaryTopNav";
 import { TopBar } from "./TopBar";
@@ -429,7 +434,19 @@ export function AppShell() {
     if (saved) setEditingQuoteIdRaw(saved);
   }, [user?.email, store.currentView, location.pathname, navigate, store]);
 
-  // Keep browser URL aligned with quote views (without fighting deep-link handler).
+  // Deep links: /design-projects, /design-projects/:projectId
+  useEffect(() => {
+    const parsed = parseDesignProjectPathname(location.pathname);
+    if (!parsed) return;
+    if (
+      store.currentView !== 'design-projects' &&
+      store.currentView !== 'product-search'
+    ) {
+      store.setCurrentView('design-projects');
+    }
+  }, [location.pathname, store]);
+
+  // Keep browser URL aligned with quote / design-project views.
   useEffect(() => {
     let target: string | null = null;
 
@@ -441,7 +458,17 @@ export function AppShell() {
       } else {
         target = `${QUOTE_QUICK_PATH}${location.search || ''}`;
       }
+    } else if (
+      store.currentView === 'design-projects' ||
+      store.currentView === 'product-search'
+    ) {
+      // DesignProjectsView owns `/design-projects/:id` once a project is selected.
+      if (!isDesignProjectPath(location.pathname)) {
+        target = DESIGN_PROJECTS_PATH;
+      }
     } else if (location.pathname.startsWith('/quote')) {
+      target = '/';
+    } else if (isDesignProjectPath(location.pathname)) {
       target = '/';
     }
 
@@ -867,13 +894,30 @@ export function AppShell() {
       return;
     }
 
+    if (view === "design-projects" || view === "product-search") {
+      if (view !== store.currentView && unsavedGuard.isDirty && !unsavedGuard.confirmLeave()) {
+        return;
+      }
+      const parsed = parseDesignProjectPathname(location.pathname);
+      const target =
+        parsed?.kind === 'project'
+          ? `${DESIGN_PROJECTS_PATH}/${parsed.projectId}`
+          : DESIGN_PROJECTS_PATH;
+      quoteUrlSyncRef.current = target;
+      navigate(target, { replace: true });
+      store.setCurrentView("design-projects");
+      store.setFilterProductId(null);
+      setEditingQuoteId(null);
+      return;
+    }
+
     if (view !== store.currentView && unsavedGuard.isDirty && !unsavedGuard.confirmLeave()) {
       return;
     }
     if (store.currentView === 'category-management' && view !== 'category-management') {
       store.reloadProducts();
     }
-    if (location.pathname.startsWith('/quote')) {
+    if (location.pathname.startsWith('/quote') || isDesignProjectPath(location.pathname)) {
       quoteUrlSyncRef.current = '/';
       navigate('/', { replace: true });
     }

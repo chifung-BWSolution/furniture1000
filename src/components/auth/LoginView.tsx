@@ -39,7 +39,17 @@ export function LoginView() {
       console.error('[LoginView] VITE_PMS_SSO_START_URL is not configured');
       return;
     }
-    window.location.href = PMS_SSO_START_URL;
+    try {
+      const start = new URL(PMS_SSO_START_URL, window.location.origin);
+      // Preserve deep links (e.g. /design-projects/:id, /quote/...) across SSO.
+      const redirectTo = `${window.location.pathname}${window.location.search}`;
+      if (redirectTo && redirectTo !== '/') {
+        start.searchParams.set('redirect_to', redirectTo);
+      }
+      window.location.href = start.toString();
+    } catch {
+      window.location.href = PMS_SSO_START_URL;
+    }
   };
 
   return (

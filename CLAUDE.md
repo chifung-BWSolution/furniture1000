@@ -138,7 +138,10 @@ DB 觸發器 `trg_bwf_quote_extract_embedded_items`：若舊前端仍把 `items`
 **SSO**：PMS `GET /api/bwf/sso/start?redirect_to=<encoded Furniture path+query>`。
 Furniture `/auth/pms/callback` 交換 session 後必須導向 `redirect_to`（保留 query）。
 `pms-sso` mint 若收到最終 path（如 `/quote/quick?...`）會包進 callback 的
-`?redirect_to=`。
+`?redirect_to=`。登入頁「使用 PMS 登入」會自動帶上目前 path（含 `/design-projects/:id`）。
+
+**設計專案 deep link**：`/design-projects/:projectId`（見 `src/lib/designProjectRoutes.ts`）。
+切換專案會同步 URL；可貼上連結 → 登入後直接開啟該專案。
 
 **快速報價 deep link**：`/quote/quick?...` 預填 Step 1（見 `src/lib/pmsQuotePrefill.ts`）。
 Query：`pmsPitchingId`（=`bwf_pitchings.id`）與／或 `pmsProjectId`

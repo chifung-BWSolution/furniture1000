@@ -107,6 +107,9 @@ function App() {
             <Route path="/quote/quick" element={<Home />} />
             <Route path="/quote/:quoteId" element={<Home />} />
             <Route path="/quote" element={<Home />} />
+            {/* Stable deep links for 設計專案 */}
+            <Route path="/design-projects/:projectId" element={<Home />} />
+            <Route path="/design-projects" element={<Home />} />
             <Route path="/*" element={<Home />} />
           </Routes>
         </Suspense>
