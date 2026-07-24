@@ -296,7 +296,7 @@ export function DesignProjectsView() {
   return (
     <div className="h-full overflow-y-auto bg-background">
       {/* Header */}
-      <div className="sticky top-0 z-20 border-b border-border bg-background/95 backdrop-blur">
+      <div className="border-b border-border bg-background">
         <div className="mx-auto grid max-w-[1440px] gap-4 px-7 py-4 md:grid-cols-[minmax(0,1fr)_320px] md:px-10">
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
