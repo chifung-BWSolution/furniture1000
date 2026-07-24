@@ -65,11 +65,10 @@ function countRoomsFromZones(
   const counts = defaultRoomCounts(type);
   for (const room of rooms) counts[room.key] = 0;
   for (const zone of zones) {
+    // Match by name only — custom Chinese rooms often share codePrefix "CR".
     const match = rooms.find(
       (room) =>
-        zone.name === room.label ||
-        zone.name.startsWith(`${room.label} `) ||
-        zone.code?.startsWith(room.codePrefix),
+        zone.name === room.label || zone.name.startsWith(`${room.label} `),
     );
     if (match) counts[match.key] = (counts[match.key] || 0) + 1;
   }
