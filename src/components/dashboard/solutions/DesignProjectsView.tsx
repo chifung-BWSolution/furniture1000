@@ -273,6 +273,16 @@ export function DesignProjectsView() {
     return [...groups.values()].sort((a, b) => a.minSort - b.minSort);
   }, [zones]);
 
+  const furnitureGrandTotal = useMemo(
+    () =>
+      zoneProducts.reduce(
+        (sum, item) =>
+          sum + Number(item.salePrice || 0) * Math.max(1, item.quantity || 1),
+        0,
+      ),
+    [zoneProducts],
+  );
+
   const openPicker = async (zoneId?: string | null) => {
     setPickerZoneId(zoneId ?? null);
     setPickerOpen(true);
@@ -686,20 +696,27 @@ export function DesignProjectsView() {
             </div>
           ) : (
             <div className="space-y-7">
-            {zoneGroups.map((group) => (
+            {zoneGroups.map((group, groupIndex) => (
               <section key={group.key} className="space-y-3">
-                <div className="flex items-center gap-3 border-b border-border pb-2.5">
-                  <span className="flex h-9 min-w-9 items-center justify-center rounded-lg border border-primary/30 bg-primary/10 text-sm font-bold text-primary">
-                    {group.prefix}
-                  </span>
-                  <div>
-                    <h3 className="font-display text-lg font-bold">
-                      {group.prefix} · {group.label}
-                    </h3>
-                    <p className="mt-0.5 text-[15px] text-muted-foreground">
-                      {group.zones.length} 個{group.label}
-                    </p>
+                <div className="flex flex-wrap items-end justify-between gap-3 border-b border-border pb-2.5">
+                  <div className="flex items-center gap-3">
+                    <span className="flex h-9 min-w-9 items-center justify-center rounded-lg border border-primary/30 bg-primary/10 text-sm font-bold text-primary">
+                      {group.prefix}
+                    </span>
+                    <div>
+                      <h3 className="font-display text-lg font-bold">
+                        {group.prefix} · {group.label}
+                      </h3>
+                      <p className="mt-0.5 text-[15px] text-muted-foreground">
+                        {group.zones.length} 個{group.label}
+                      </p>
+                    </div>
                   </div>
+                  {groupIndex === 0 ? (
+                    <p className="pb-0.5 font-mono-data text-base font-bold text-foreground">
+                      總計 : HKD ${furnitureGrandTotal.toLocaleString()}
+                    </p>
+                  ) : null}
                 </div>
                 <div className="space-y-3">
                 {group.zones.map((zone) => {
