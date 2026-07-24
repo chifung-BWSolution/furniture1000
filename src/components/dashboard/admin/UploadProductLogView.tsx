@@ -2,8 +2,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
 import {
-  ClipboardList, RefreshCw, Loader2, Clock, ChevronLeft, ChevronRight, Mail,
+  ClipboardList, RefreshCw, Loader2, Clock, ChevronLeft, ChevronRight, ChevronDown, Mail,
 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import type { PublishLogStage } from '@/lib/uploadLog';
 import {
   fetchUploadLogReport,
@@ -81,50 +82,91 @@ function ShopifyPublishedBreakdown({
   count: number;
   breakdown: ShopifyCategoryBreakdown[];
 }) {
+  // 二級分類預設展開；collapsed 集合記錄已收合的一級分類
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+
+  useEffect(() => {
+    setCollapsed(new Set());
+  }, [breakdown]);
+
+  const toggle = (level1: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(level1)) next.delete(level1);
+      else next.add(level1);
+      return next;
+    });
+  };
+
+  const totalFromLevel1 = useMemo(
+    () => breakdown.reduce((sum, l1) => sum + l1.count, 0),
+    [breakdown],
+  );
+
+  if (breakdown.length === 0) return null;
+
   return (
-    <div className="space-y-2">
-      <p className="text-sm text-muted-foreground">
-        已上載shopify 產品 :
-        <span className="ml-1 font-mono-data text-base font-semibold text-foreground">
-          {count}
-        </span>
+    <div className="rounded-xl border border-border bg-card px-4 py-3 shadow-sm">
+      <p className="mb-2 text-xs font-medium text-muted-foreground">
+        按一級／二級分類（目前件數）
       </p>
-      {breakdown.length > 0 && (
-        <div className="rounded-xl border border-border bg-card px-4 py-3 shadow-sm">
-          <p className="mb-2 text-xs font-medium text-muted-foreground">
-            按一級／二級分類（目前件數）
-          </p>
-          <ul className="space-y-2">
-            {breakdown.map((l1) => (
-              <li key={l1.level1}>
-                <div className="flex items-baseline justify-between gap-4 text-sm">
-                  <span className="font-display font-semibold text-foreground">{l1.level1}</span>
-                  <span className="shrink-0 font-mono-data text-sm font-semibold text-foreground">
+      <ul className="space-y-2">
+        {breakdown.map((l1) => {
+          const isOpen = !collapsed.has(l1.level1);
+          const hasChildren = l1.children.length > 0;
+          return (
+            <li key={l1.level1}>
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <span className="font-display font-semibold text-foreground">{l1.level1}</span>
+                <div className="flex shrink-0 items-center gap-2">
+                  <span className="font-mono-data text-sm font-semibold text-foreground">
                     {l1.count}
                     <span className="ml-0.5 text-xs font-normal text-muted-foreground">件</span>
                   </span>
+                  {hasChildren && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-7 gap-1 px-2 text-[11px]"
+                      onClick={() => toggle(l1.level1)}
+                      aria-expanded={isOpen}
+                    >
+                      <ChevronDown
+                        className={cn('h-3 w-3 transition-transform', !isOpen && '-rotate-90')}
+                      />
+                      {isOpen ? '收合' : '展開'}
+                    </Button>
+                  )}
                 </div>
-                {l1.children.length > 0 && (
-                  <ul className="mt-1 space-y-1 border-l border-border/60 pl-3">
-                    {l1.children.map((l2) => (
-                      <li
-                        key={`${l1.level1}:${l2.level2}`}
-                        className="flex items-baseline justify-between gap-4 text-xs text-muted-foreground"
-                      >
-                        <span>{l2.level2}</span>
-                        <span className="shrink-0 font-mono-data text-foreground/80">
-                          {l2.count}
-                          <span className="ml-0.5 text-[10px]">件</span>
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+              </div>
+              {hasChildren && isOpen && (
+                <ul className="mt-1 space-y-1 border-l border-border/60 pl-3">
+                  {l1.children.map((l2) => (
+                    <li
+                      key={`${l1.level1}:${l2.level2}`}
+                      className="flex items-baseline justify-between gap-4 text-xs text-muted-foreground"
+                    >
+                      <span>{l2.level2}</span>
+                      <span className="shrink-0 font-mono-data text-foreground/80">
+                        {l2.count}
+                        <span className="ml-0.5 text-[10px]">件</span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+      <div className="mt-3 flex items-center justify-between gap-4 border-t border-border/60 pt-3 text-sm">
+        <span className="font-display font-bold text-foreground">總數 :</span>
+        <span className="font-mono-data text-base font-semibold text-foreground">
+          {totalFromLevel1 || count}
+          <span className="ml-0.5 text-xs font-normal text-muted-foreground">件</span>
+        </span>
+      </div>
     </div>
   );
 }
@@ -134,14 +176,12 @@ function StageDayTable({
   todayHk,
   pendingCounts,
   publishedShopifyCount,
-  publishedShopifyBreakdown,
   showDateHeader = false,
 }: {
   row: DailyReportRow;
   todayHk: string;
   pendingCounts: Record<PublishLogStage, number>;
   publishedShopifyCount: number;
-  publishedShopifyBreakdown: ShopifyCategoryBreakdown[];
   showDateHeader?: boolean;
 }) {
   const isToday = row.hkDate === todayHk;
@@ -159,10 +199,12 @@ function StageDayTable({
         </h3>
       )}
       {isToday && (
-        <ShopifyPublishedBreakdown
-          count={publishedShopifyCount}
-          breakdown={publishedShopifyBreakdown}
-        />
+        <p className="text-sm text-muted-foreground">
+          已上載shopify 產品 :
+          <span className="ml-1 font-mono-data text-base font-semibold text-foreground">
+            {publishedShopifyCount}
+          </span>
+        </p>
       )}
       <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
         <table className="w-full">
@@ -428,7 +470,6 @@ export function UploadProductLogView() {
                     todayHk={report.todayHk}
                     pendingCounts={report.pendingCounts}
                     publishedShopifyCount={report.publishedShopifyCount}
-                    publishedShopifyBreakdown={report.publishedShopifyBreakdown}
                     showDateHeader={viewMode === 'all'}
                   />
                 ))}
@@ -442,6 +483,11 @@ export function UploadProductLogView() {
               <p className="text-xs leading-relaxed text-muted-foreground">
                 {UPLOAD_LOG_REPORT_FOOTNOTE}
               </p>
+
+              <ShopifyPublishedBreakdown
+                count={report.publishedShopifyCount}
+                breakdown={report.publishedShopifyBreakdown}
+              />
             </>
           ) : null}
         </div>
