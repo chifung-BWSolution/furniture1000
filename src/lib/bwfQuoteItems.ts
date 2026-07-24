@@ -14,6 +14,10 @@ export type BwfQuoteItemInput = QuoteItemImageFields & {
   name?: string;
   /** Client-only display enrichment from the main published product. */
   sku?: string;
+  /** Staff remarks from design-project zone_products.notes (portal display). */
+  notes?: string;
+  /** Linked zone_products.status when row comes from 設計專案. */
+  zoneStatus?: 'pending' | 'discussing' | 'confirmed';
   unitPrice?: number;
   quantity?: number;
   unit?: string;

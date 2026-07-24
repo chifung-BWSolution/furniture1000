@@ -9,6 +9,7 @@ import type {
   DesignProject, ProjectZone, ZoneProduct, ProjectInvitation,
   ClientCompany, ProductDiscussion, SearchProduct,
   FurnitureSnapshot, FurnitureSnapshotItem, SchemeLabel,
+  ZoneProductStatus,
 } from '@/types/solutions';
 import { withInsertAuditFields, withUpdateAuditFields } from '@/lib/pmsAudit';
 import {
@@ -1144,6 +1145,53 @@ export async function updateZoneProductNotes(
     return {
       ok: false,
       error: e instanceof Error ? e.message : '更新備註失敗',
+    };
+  }
+}
+
+/**
+ * Client Portal review → zone_products.status (+ optional feedback under notes).
+ * Accept→confirmed, 要求修改→discussing, 不接受→pending.
+ */
+export async function applyZoneProductClientReview(input: {
+  zoneProductId: string;
+  review: 'accepted' | 'change' | 'rejected';
+  feedbackText?: string;
+  authorName?: string;
+  previousNotes?: string;
+}): Promise<WriteResult<{ notes: string; status: ZoneProductStatus }>> {
+  try {
+    const {
+      REVIEW_TO_ZONE_STATUS,
+      appendClientFeedbackToNotes,
+    } = await import('@/lib/zoneProductClientFeedback');
+    const status = REVIEW_TO_ZONE_STATUS[input.review];
+    let notes = input.previousNotes ?? '';
+    if (
+      (input.review === 'change' || input.review === 'rejected') &&
+      (input.feedbackText || '').trim()
+    ) {
+      notes = appendClientFeedbackToNotes(notes, {
+        at: new Date().toISOString(),
+        review: input.review,
+        text: input.feedbackText!.trim(),
+        author: (input.authorName || '客戶').trim() || '客戶',
+      });
+    }
+    const updatePayload = await withUpdateAuditFields({
+      status,
+      notes,
+    });
+    const { error } = await supabase
+      .from('zone_products')
+      .update(updatePayload)
+      .eq('id', input.zoneProductId);
+    if (error) return { ok: false, error: error.message };
+    return { ok: true, data: { notes, status } };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : '更新客戶決定失敗',
     };
   }
 }

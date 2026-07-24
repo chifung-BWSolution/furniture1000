@@ -39,15 +39,22 @@ import { BW_COMPANY } from '@/content/bwCorporate';
 import { ROLE_META, type UserRole } from '@/constants/analytics-mock';
 import {
   fetchProjects,
-  fetchActiveMainProductInfo,
   fetchZones,
   fetchZoneProducts,
+  applyZoneProductClientReview,
 } from '@/lib/solutionsApi';
 import type {
   DesignProject,
   ProjectZone,
   ZoneProduct,
 } from '@/types/solutions';
+import {
+  isAllowedPortalQuote,
+  splitStaffNotesAndFeedback,
+  ZONE_STATUS_TO_REVIEW,
+  type ClientItemReview,
+} from '@/lib/zoneProductClientFeedback';
+import { remarksPlainText } from '@/lib/remarksContent';
 
 type QuoteRecord = {
   id: string;
@@ -69,7 +76,7 @@ type QuoteRecord = {
   pitching?: PmsPitchingListItem | null;
 };
 
-type ItemReview = 'accepted' | 'change' | 'rejected';
+type ItemReview = ClientItemReview;
 type QuoteDecision = 'pending' | 'approved' | 'rejected';
 type CommentBadgeRole = Extract<UserRole, 'pm' | 'designer'>;
 type ItemMessage = {
@@ -95,7 +102,6 @@ type QuoteRoomGroup = {
 };
 type QuoteZoneTypeGroup = {
   key: string;
-  prefix: string;
   label: string;
   rooms: QuoteRoomGroup[];
 };
@@ -237,23 +243,22 @@ function groupQuoteItemsByZoneType(
 
   const ensureRoom = (title: string) => {
     const parsed = parseZoneSectionTitle(title);
-    const key = `${parsed.prefix}:${parsed.label}`;
+    const key = parsed.label;
     let groupIndex = indexByKey.get(key);
     if (groupIndex == null) {
       groupIndex = groups.length;
       indexByKey.set(key, groupIndex);
       groups.push({
         key,
-        prefix: parsed.prefix,
         label: parsed.label,
         rooms: [],
       });
     }
     const group = groups[groupIndex];
     currentRoom = {
-      id: `${key}:${parsed.code || parsed.name}:${group.rooms.length}`,
-      code: parsed.code,
-      name: parsed.name,
+      id: `${key}:${parsed.name}:${group.rooms.length}`,
+      code: '',
+      name: parsed.name || parsed.label,
       items: [],
     };
     group.rooms.push(currentRoom);
@@ -269,6 +274,11 @@ function groupQuoteItemsByZoneType(
     currentRoom?.items.push(item);
   }
   return groups;
+}
+
+function portalNotesDisplay(notes: string | null | undefined): string {
+  const { staffNotes } = splitStaffNotesAndFeedback(notes);
+  return remarksPlainText(staffNotes) || staffNotes.trim();
 }
 
 function escapeHtml(value: unknown) {
@@ -298,14 +308,13 @@ export function CustomerQuoteSchemesView() {
   const clientOnly = platformRole === 'client' || hasPortalToken;
 
   const [quotes, setQuotes] = useState<QuoteRecord[]>([]);
-  const [confirmedProjects, setConfirmedProjects] = useState<DesignProject[]>([]);
-  const [confirmedTotals, setConfirmedTotals] = useState<Record<string, number>>(
-    {},
-  );
-  const [confirmedProjectData, setConfirmedProjectData] = useState<
+  const [portalProjects, setPortalProjects] = useState<DesignProject[]>([]);
+  const [portalTotals, setPortalTotals] = useState<Record<string, number>>({});
+  const [portalProjectData, setPortalProjectData] = useState<
     Record<string, { zones: ProjectZone[]; products: ZoneProduct[] }>
   >({});
   const [syntheticQuotes, setSyntheticQuotes] = useState<QuoteRecord[]>([]);
+  const [savingReviewKey, setSavingReviewKey] = useState<string | null>(null);
   const [activeId, setActiveId] = useState('');
   const [items, setItems] = useState<BwfQuoteItemInput[]>([]);
   const [loading, setLoading] = useState(true);
@@ -387,67 +396,90 @@ export function CustomerQuoteSchemesView() {
   useEffect(() => {
     void fetchQuotes();
     void fetchProjects().then(async (rows) => {
-      const confirmed = rows.filter((project) => project.status === 'confirmed');
       const loaded = await Promise.all(
-        confirmed.map(async (project) => {
+        rows.map(async (project) => {
           const [zones, products] = await Promise.all([
             fetchZones(project.id),
             fetchZoneProducts(project.id),
           ]);
-          const total = products
-            .filter((product) => product.zoneId)
-            .reduce(
-              (sum, product) =>
-                sum + product.salePrice * product.quantity,
-              0,
-            );
-          return { projectId: project.id, zones, products, total };
+          const assigned = products.filter((product) => product.zoneId);
+          const total = assigned.reduce(
+            (sum, product) => sum + product.salePrice * product.quantity,
+            0,
+          );
+          return {
+            project,
+            projectId: project.id,
+            zones,
+            products,
+            total,
+            hasFurniture: assigned.length > 0,
+          };
         }),
       );
-      setConfirmedProjectData(
+      // Design-project quotes: any project that already has furniture configured.
+      const withFurniture = loaded.filter((entry) => entry.hasFurniture);
+      setPortalProjectData(
         Object.fromEntries(
-          loaded.map((entry) => [
+          withFurniture.map((entry) => [
             entry.projectId,
             { zones: entry.zones, products: entry.products },
           ]),
         ),
       );
-      setConfirmedTotals(
+      setPortalTotals(
         Object.fromEntries(
-          loaded.map((entry) => [entry.projectId, entry.total]),
+          withFurniture.map((entry) => [entry.projectId, entry.total]),
         ),
       );
-      // Publish confirmed projects only after their detail cache is ready.
-      setConfirmedProjects(confirmed);
+      setPortalProjects(withFurniture.map((entry) => entry.project));
     });
   }, [fetchQuotes]);
 
   useEffect(() => {
-    const actualQuoteIds = new Set(quotes.map((quote) => quote.quote_id));
+    const allowedQuoteIds = new Set(
+      quotes
+        .filter((quote) =>
+          isAllowedPortalQuote({
+            quoteId: quote.quote_id,
+            displayName: quoteDisplayName(quote),
+            clientName: clientNameOf(quote),
+          }),
+        )
+        .map((quote) => quote.quote_id),
+    );
     setSyntheticQuotes(
-      confirmedProjects
+      portalProjects
         .filter((project) => {
           const quoteId = projectQuoteId(project);
-          return quoteId && !actualQuoteIds.has(quoteId);
+          // Prefer real bwf_quote card when allow-listed and already present.
+          if (quoteId && allowedQuoteIds.has(quoteId)) return false;
+          return true;
         })
         .map((project) => ({
-          id: `confirmed-project:${project.id}`,
-          quote_id: projectQuoteId(project),
+          id: `design-project:${project.id}`,
+          quote_id: projectQuoteId(project) || `DP-${project.id.slice(0, 8)}`,
           version: 'v1',
-          status: '已確認',
-          total_amount: confirmedTotals[project.id] || 0,
+          status:
+            project.status === 'confirmed'
+              ? '已確認'
+              : project.status === 'in_progress'
+                ? '進行中'
+                : '草稿',
+          total_amount: portalTotals[project.id] || 0,
           created_at: project.createdAt,
           modified_date: project.updatedAt,
           project_data: {
             formData: {
-              clientName: project.clientCompany || project.name,
-              clientContactName: project.clientName || undefined,
+              clientName: project.name,
+              clientContactName:
+                project.clientCompany || project.clientName || undefined,
             },
           },
           pitching: null,
         })),
     );
-  }, [confirmedProjects, confirmedTotals, quotes]);
+  }, [portalProjects, portalTotals, quotes]);
 
   useEffect(() => {
     if (!activeId) {
@@ -460,31 +492,26 @@ export function CustomerQuoteSchemesView() {
       const activeQuote = [...quotes, ...syntheticQuotes].find(
         (quote) => quote.id === activeId,
       );
-      const syntheticProjectId = activeId.startsWith('confirmed-project:')
-        ? activeId.replace('confirmed-project:', '')
-        : '';
+      const syntheticProjectId = activeId.startsWith('design-project:')
+        ? activeId.replace('design-project:', '')
+        : activeId.startsWith('confirmed-project:')
+          ? activeId.replace('confirmed-project:', '')
+          : '';
       const quoteItems = syntheticProjectId
         ? []
         : await loadClientQuoteItems(activeId);
-      const quoteTargets = quoteItems
-        .filter((item) => !item.isSectionTitle && item.id)
-        .map((item) => ({
-          key: item.id as string,
-          productId: item.id,
-          title: quoteItemDisplayName(item),
-        }));
       const linkedProject = syntheticProjectId
-        ? confirmedProjects.find((project) => project.id === syntheticProjectId)
+        ? portalProjects.find((project) => project.id === syntheticProjectId)
         : activeQuote
-          ? confirmedProjects.find(
-            (project) => projectQuoteId(project) === activeQuote.quote_id,
-          )
+          ? portalProjects.find(
+              (project) => projectQuoteId(project) === activeQuote.quote_id,
+            )
           : null;
       if (!linkedProject) {
-        return { rows: quoteItems, skuTargets: quoteTargets };
+        return { rows: quoteItems, zoneProducts: [] as ZoneProduct[] };
       }
 
-      const cached = confirmedProjectData[linkedProject.id];
+      const cached = portalProjectData[linkedProject.id];
       const [zones, zoneProducts] = cached
         ? [cached.zones, cached.products]
         : await Promise.all([
@@ -492,11 +519,6 @@ export function CustomerQuoteSchemesView() {
             fetchZoneProducts(linkedProject.id),
           ]);
       const selectedProducts = zoneProducts.filter((product) => product.zoneId);
-      const skuTargets = selectedProducts.map((product) => ({
-        key: product.id,
-        productId: product.productId,
-        title: product.productTitle,
-      }));
       const grouped: BwfQuoteItemInput[] = [];
       for (const zone of zones) {
         const products = selectedProducts.filter(
@@ -504,7 +526,7 @@ export function CustomerQuoteSchemesView() {
         );
         grouped.push({
           id: `zone-${zone.id}`,
-          name: `${zone.code ? `${zone.code} · ` : ''}${zone.name}`,
+          name: zone.name,
           isSectionTitle: true,
           image: '',
         });
@@ -516,29 +538,36 @@ export function CustomerQuoteSchemesView() {
             unitPrice: product.salePrice,
             quantity: product.quantity,
             unit: '件',
+            notes: product.notes || '',
+            zoneStatus: product.status,
           });
         }
       }
       return {
         rows: grouped.length > 0 ? grouped : quoteItems,
-        skuTargets: grouped.length > 0 ? skuTargets : quoteTargets,
+        zoneProducts: selectedProducts,
       };
     };
 
     loadItems()
-      .then(({ rows, skuTargets }) => {
+      .then(({ rows, zoneProducts }) => {
         if (cancelled) return;
         setItems(rows);
+        // Hydrate Accept / 要求修改 / 不接受 from design-project statuses.
+        const nextReviews: Record<string, ItemReview> = {};
+        for (const product of zoneProducts) {
+          const mapped = ZONE_STATUS_TO_REVIEW[product.status];
+          if (mapped) nextReviews[product.id] = mapped;
+        }
+        for (const row of rows) {
+          if (!row.id || !row.zoneStatus) continue;
+          const mapped = ZONE_STATUS_TO_REVIEW[row.zoneStatus];
+          if (mapped) nextReviews[row.id] = mapped;
+        }
+        if (Object.keys(nextReviews).length > 0) {
+          setItemReviews((current) => ({ ...nextReviews, ...current }));
+        }
         setItemsLoading(false);
-        void fetchActiveMainProductInfo(skuTargets).then((info) => {
-          if (cancelled) return;
-          setItems((current) =>
-            current.map((item) => ({
-              ...item,
-              sku: item.id ? info[item.id]?.sku : item.sku,
-            })),
-          );
-        });
       })
       .catch(() => {
         if (!cancelled) {
@@ -551,8 +580,8 @@ export function CustomerQuoteSchemesView() {
     };
   }, [
     activeId,
-    confirmedProjectData,
-    confirmedProjects,
+    portalProjectData,
+    portalProjects,
     quotes,
     syntheticQuotes,
   ]);
@@ -566,50 +595,59 @@ export function CustomerQuoteSchemesView() {
     [allQuoteRows],
   );
   const availableQuotes = useMemo(() => {
-    const allowedTerms = new Set(
+    const invitedTerms = new Set(
       clientProjects
-        .flatMap((project) => [project.name, project.clientName, project.clientCompany])
+        .flatMap((project) => [
+          project.name,
+          project.clientName,
+          project.clientCompany,
+        ])
         .map((value) => value?.trim().toLowerCase())
         .filter((value): value is string => Boolean(value)),
     );
+    const designProjectIds = new Set(portalProjects.map((project) => project.id));
     const visible = [...versionsByQuote.values()]
       .map((versions) => versions[0])
       .filter((quote) => {
+        const isDesignCard =
+          quote.id.startsWith('design-project:') ||
+          quote.id.startsWith('confirmed-project:');
+        const designId = isDesignCard
+          ? quote.id.replace(/^design-project:|^confirmed-project:/, '')
+          : '';
+        const allowedByPolicy =
+          isDesignCard
+            ? designProjectIds.has(designId)
+            : isAllowedPortalQuote({
+                quoteId: quote.quote_id,
+                displayName: quoteDisplayName(quote),
+                clientName: clientNameOf(quote),
+              });
+        if (!allowedByPolicy) return false;
         if (!clientOnly) return true;
-        if (allowedTerms.size === 0) return false;
+        if (invitedTerms.size === 0) {
+          // Staff/demo portal token without invites: still show allow-listed set.
+          return true;
+        }
         const values = [quoteDisplayName(quote), clientNameOf(quote)]
           .map((value) => value.trim().toLowerCase())
           .filter(Boolean);
         return values.some((value) =>
-          [...allowedTerms].some(
+          [...invitedTerms].some(
             (term) => value.includes(term) || term.includes(value),
           ),
         );
       });
-    const clientProjectIds = new Set(clientProjects.map((project) => project.id));
-    const confirmedQuoteIds = new Set(
-      confirmedProjects
-        .filter(
-          (project) => !clientOnly || clientProjectIds.has(project.id),
-        )
-        .map(projectQuoteId)
-        .filter(Boolean),
-    );
     return [...visible].sort((a, b) => {
-      const aConfirmed = confirmedQuoteIds.has(a.quote_id) ? 1 : 0;
-      const bConfirmed = confirmedQuoteIds.has(b.quote_id) ? 1 : 0;
-      if (aConfirmed !== bConfirmed) return bConfirmed - aConfirmed;
+      const aDesign = a.id.startsWith('design-project:') ? 1 : 0;
+      const bDesign = b.id.startsWith('design-project:') ? 1 : 0;
+      if (aDesign !== bDesign) return bDesign - aDesign;
       return (
         new Date(b.modified_date || b.created_at).getTime() -
         new Date(a.modified_date || a.created_at).getTime()
       );
     });
-  }, [
-    clientOnly,
-    clientProjects,
-    confirmedProjects,
-    versionsByQuote,
-  ]);
+  }, [clientOnly, clientProjects, portalProjects, versionsByQuote]);
 
   useEffect(() => {
     if (availableQuotes.length === 0) return;
@@ -641,10 +679,86 @@ export function CustomerQuoteSchemesView() {
   const itemKey = (item: BwfQuoteItemInput, index: number) =>
     item.id || `${quoteItemDisplayName(item)}-${index}`;
 
-  const sendItemMessage = (key: string) => {
+  const syncItemReview = async (
+    item: BwfQuoteItemInput,
+    review: ItemReview,
+    feedbackText?: string,
+  ) => {
+    const key = item.id || '';
+    if (!key || key.startsWith('zone-')) {
+      setItemReviews((current) => ({
+        ...current,
+        [key || itemKey(item, 0)]: review,
+      }));
+      return;
+    }
+    setItemReviews((current) => ({ ...current, [key]: review }));
+
+    const linked = Object.values(portalProjectData).some((entry) =>
+      entry.products.some((product) => product.id === key),
+    );
+    if (!linked) return;
+
+    setSavingReviewKey(key);
+    const previousNotes =
+      Object.values(portalProjectData)
+        .flatMap((entry) => entry.products)
+        .find((product) => product.id === key)?.notes ||
+      item.notes ||
+      '';
+    const result = await applyZoneProductClientReview({
+      zoneProductId: key,
+      review,
+      feedbackText,
+      authorName: currentUserName,
+      previousNotes,
+    });
+    setSavingReviewKey(null);
+    if (!result.ok || !result.data) {
+      toast.error('同步設計專案狀態失敗', { description: result.error });
+      return;
+    }
+    setPortalProjectData((current) => {
+      const next: typeof current = {};
+      for (const [projectId, entry] of Object.entries(current)) {
+        next[projectId] = {
+          ...entry,
+          products: entry.products.map((product) =>
+            product.id === key
+              ? {
+                  ...product,
+                  status: result.data!.status,
+                  notes: result.data!.notes,
+                }
+              : product,
+          ),
+        };
+      }
+      return next;
+    });
+    setItems((current) =>
+      current.map((row) =>
+        row.id === key
+          ? {
+              ...row,
+              notes: result.data!.notes,
+              zoneStatus: result.data!.status,
+            }
+          : row,
+      ),
+    );
+  };
+
+  const sendItemMessage = async (item: BwfQuoteItemInput, index: number) => {
+    const key = itemKey(item, index);
     const text = (itemDraftNotes[key] || '').trim();
     if (!text) {
       toast.error('請先填寫留言內容');
+      return;
+    }
+    const review = itemReviews[key];
+    if (review !== 'change' && review !== 'rejected') {
+      toast.error('請先選擇「要求修改」或「不接受」');
       return;
     }
     const message: ItemMessage = {
@@ -659,7 +773,8 @@ export function CustomerQuoteSchemesView() {
       [key]: [...(current[key] || []), message],
     }));
     setItemDraftNotes((current) => ({ ...current, [key]: '' }));
-    toast.success('已發送留言');
+    await syncItemReview(item, review, text);
+    toast.success('已送出意見並同步至設計專案');
   };
 
   const deleteItemMessage = (key: string, messageId: string) => {
@@ -699,8 +814,9 @@ export function CustomerQuoteSchemesView() {
                       : ''
                   }
                   <div class="grow">
-                    <div class="name-row"><strong>${escapeHtml(quoteItemDisplayName(item))}</strong><small>SKU ${escapeHtml(item.sku || '—')}</small></div>
+                    <div class="name-row"><strong>${escapeHtml(quoteItemDisplayName(item))}</strong></div>
                     <p>${escapeHtml(item.material || '')} ${escapeHtml(item.color || '')}</p>
+                    <p>${escapeHtml(portalNotesDisplay(item.notes) || '—')}</p>
                     <p>${fmtMoney(Number(item.unitPrice || 0))} × ${escapeHtml(item.quantity || 1)} ${escapeHtml(item.unit || '')}</p>
                     <p class="review">客戶決定：${escapeHtml(review)}${notes ? `（${escapeHtml(notes)}）` : ''}</p>
                   </div>
@@ -715,7 +831,7 @@ export function CustomerQuoteSchemesView() {
           .join('');
         return `
           <section>
-            <h2>${escapeHtml(group.prefix)} · ${escapeHtml(group.label)}</h2>
+            <h2>${escapeHtml(group.label)}</h2>
             <p class="meta">${group.rooms.length} 個${escapeHtml(group.label)}</p>
             ${roomsHtml}
           </section>`;
@@ -852,12 +968,15 @@ export function CustomerQuoteSchemesView() {
             {availableQuotes.map((quote) => {
               const selected = active?.quote_id === quote.quote_id;
               const versions = versionsByQuote.get(quote.quote_id) || [quote];
-              const linkedConfirmedProject = confirmedProjects.some(
-                (project) => projectQuoteId(project) === quote.quote_id,
-              );
+              const linkedDesignProject =
+                quote.id.startsWith('design-project:') ||
+                quote.id.startsWith('confirmed-project:') ||
+                portalProjects.some(
+                  (project) => projectQuoteId(project) === quote.quote_id,
+                );
               return (
                 <button
-                  key={quote.quote_id}
+                  key={`${quote.id}:${quote.quote_id}`}
                   type="button"
                   onClick={() => {
                     setActiveId(quote.id);
@@ -882,12 +1001,14 @@ export function CustomerQuoteSchemesView() {
                     <span
                       className={cn(
                         'rounded-full border px-2.5 py-1 text-xs font-medium',
-                        linkedConfirmedProject
+                        linkedDesignProject
                           ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
                           : quoteStatusBadgeClass(quote.status),
                       )}
                     >
-                      {linkedConfirmedProject ? '已確認' : quote.status || '—'}
+                      {linkedDesignProject
+                        ? quote.status || '設計專案'
+                        : quote.status || '—'}
                     </span>
                   </div>
                   <h3 className="mt-4 line-clamp-2 font-display text-lg font-bold">
@@ -896,9 +1017,9 @@ export function CustomerQuoteSchemesView() {
                   <p className="mt-1 text-sm text-muted-foreground">
                     {clientNameOf(quote)} · {versions.length} 個版本
                   </p>
-                  {linkedConfirmedProject ? (
+                  {linkedDesignProject ? (
                     <p className="mt-2 inline-flex rounded-full border border-emerald-500/25 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:text-emerald-300">
-                      已劃分工程區域
+                      來自設計專案
                     </p>
                   ) : null}
                   <div className="mt-4 flex items-end justify-between gap-3 border-t border-border pt-4">
@@ -1004,18 +1125,13 @@ export function CustomerQuoteSchemesView() {
                 return (
                   <section key={group.key} className="space-y-3">
                     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-2.5">
-                      <div className="flex items-center gap-3">
-                        <span className="flex h-9 min-w-9 items-center justify-center rounded-lg border border-primary/30 bg-primary/10 text-sm font-bold text-primary">
-                          {group.prefix}
-                        </span>
-                        <div>
-                          <h3 className="font-display text-lg font-bold">
-                            {group.prefix} · {group.label}
-                          </h3>
-                          <p className="mt-0.5 text-sm text-muted-foreground">
-                            {group.rooms.length} 個{group.label}
-                          </p>
-                        </div>
+                      <div>
+                        <h3 className="font-display text-lg font-bold">
+                          {group.label}
+                        </h3>
+                        <p className="mt-0.5 text-sm text-muted-foreground">
+                          {group.rooms.length} 個{group.label}
+                        </p>
                       </div>
                       <span className="text-sm text-muted-foreground">
                         {productCount} 件產品
@@ -1030,11 +1146,6 @@ export function CustomerQuoteSchemesView() {
                         >
                           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/30 px-5 py-3.5">
                             <div className="flex items-center gap-2">
-                              {room.code ? (
-                                <span className="rounded bg-primary/15 px-2 py-1 font-mono-data text-sm text-primary">
-                                  {room.code}
-                                </span>
-                              ) : null}
                               <h4 className="font-display text-base font-bold">
                                 {room.name}
                               </h4>
@@ -1066,25 +1177,30 @@ export function CustomerQuoteSchemesView() {
                                       ) : null}
                                     </div>
                                     <div className="min-w-0 flex-1">
-                                      <div className="flex items-center justify-between gap-3">
-                                        <h5 className="min-w-0 truncate text-base font-bold">
-                                          {quoteItemDisplayName(item)}
-                                        </h5>
-                                        <span className="shrink-0 font-mono-data text-[10px] text-muted-foreground">
-                                          SKU {item.sku || '—'}
-                                        </span>
+                                      <h5 className="min-w-0 truncate text-base font-bold">
+                                        {quoteItemDisplayName(item)}
+                                      </h5>
+                                      <div className="mt-1 flex flex-wrap items-start gap-x-4 gap-y-2">
+                                        <p className="text-sm text-muted-foreground">
+                                          {[item.material, item.color]
+                                            .filter(Boolean)
+                                            .join(' · ') || '產品規格以報價為準'}
+                                        </p>
+                                        {portalNotesDisplay(item.notes) ? (
+                                          <p className="min-w-0 flex-1 whitespace-pre-wrap text-sm text-foreground/90">
+                                            <span className="mr-1 font-medium text-muted-foreground">
+                                              備註
+                                            </span>
+                                            {portalNotesDisplay(item.notes)}
+                                          </p>
+                                        ) : null}
                                       </div>
-                                      <p className="mt-1 text-sm text-muted-foreground">
-                                        {[item.material, item.color]
-                                          .filter(Boolean)
-                                          .join(' · ') || '產品規格以報價為準'}
-                                      </p>
                                       <p className="mt-2 font-mono-data text-sm text-primary">
                                         {fmtMoney(Number(item.unitPrice || 0))} ×{' '}
                                         {item.quantity || 1} {item.unit || ''}
                                       </p>
                                     </div>
-                                    <div className="sm:text-right">
+                                    <div className="sm:min-w-[7.5rem] sm:text-right">
                                       <p className="font-mono-data text-lg font-bold">
                                         {item.isOptional
                                           ? '可選'
@@ -1104,14 +1220,15 @@ export function CustomerQuoteSchemesView() {
                                         <button
                                           key={value}
                                           type="button"
-                                          onClick={() =>
-                                            setItemReviews((current) => ({
-                                              ...current,
-                                              [key]: value,
-                                            }))
-                                          }
+                                          disabled={savingReviewKey === key}
+                                          onClick={() => {
+                                            void syncItemReview(item, value);
+                                            if (value === 'accepted') {
+                                              toast.success('已同步為「已確定」');
+                                            }
+                                          }}
                                           className={cn(
-                                            'inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium',
+                                            'inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium disabled:opacity-60',
                                             review === value
                                               ? value === 'accepted'
                                                 ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700'
@@ -1199,9 +1316,15 @@ export function CustomerQuoteSchemesView() {
                                       <div className="mt-2 flex justify-end">
                                         <button
                                           type="button"
-                                          onClick={() => sendItemMessage(key)}
-                                          className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground"
+                                          onClick={() =>
+                                            void sendItemMessage(item, index)
+                                          }
+                                          disabled={savingReviewKey === key}
+                                          className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-60"
                                         >
+                                          {savingReviewKey === key ? (
+                                            <Loader2 className="h-4 w-4 animate-spin" />
+                                          ) : null}
                                           確定
                                         </button>
                                       </div>

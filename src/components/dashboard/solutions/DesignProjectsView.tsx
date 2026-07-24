@@ -37,17 +37,51 @@ import {
   type ZoneProductStatus,
 } from '@/types/solutions';
 import {
+  CLIENT_FEEDBACK_MARKER,
+  reviewLabelZh,
+  splitStaffNotesAndFeedback,
+} from '@/lib/zoneProductClientFeedback';
+import {
   FloorPlanThumb,
   FloorPlanViewerModal,
   floorPlanPreviewOf,
 } from './FloorPlanViewerModal';
 
-/** Show plain multi-line notes; unwrap older rich-text JSON if present. */
-function plainNotesValue(notes: string | null | undefined): string {
-  const raw = notes || '';
-  if (!raw.trim()) return '';
-  if (raw.trim().startsWith('[')) return remarksPlainText(raw);
-  return raw;
+/** Staff-editable notes only (strip client feedback + unwrap rich-text JSON). */
+function staffNotesValue(notes: string | null | undefined): string {
+  const { staffNotes } = splitStaffNotesAndFeedback(notes);
+  if (!staffNotes.trim()) return '';
+  if (staffNotes.trim().startsWith('[')) return remarksPlainText(staffNotes);
+  return staffNotes;
+}
+
+function mergeStaffNotesKeepingFeedback(
+  previousNotes: string | null | undefined,
+  nextStaffNotes: string,
+): string {
+  const { feedback } = splitStaffNotesAndFeedback(previousNotes);
+  const staff = nextStaffNotes.replace(/\s+$/, '');
+  if (feedback.length === 0) return staff;
+  const body = feedback.map((row) => JSON.stringify(row)).join('\n');
+  if (!staff.trim()) return `${CLIENT_FEEDBACK_MARKER}\n${body}`;
+  return `${staff}\n\n${CLIENT_FEEDBACK_MARKER}\n${body}`;
+}
+
+function fmtFeedbackTime(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Hong_Kong',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(date);
+  const get = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((part) => part.type === type)?.value || '';
+  return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')} (UTC+8)`;
 }
 function isCustomZoneProduct(item: ZoneProduct): boolean {
   return !item.productId;
@@ -363,7 +397,9 @@ export function DesignProjectsView() {
   };
 
   const setNotes = (item: ZoneProduct, value: string) => {
-    patchProduct(item.id, { notes: value });
+    patchProduct(item.id, {
+      notes: mergeStaffNotesKeepingFeedback(item.notes, value),
+    });
   };
 
   const addBlankProduct = async (zoneId: string) => {
@@ -970,20 +1006,49 @@ export function DesignProjectsView() {
                               </button>
                             </div>
                           </div>
-                          <div className="flex items-start gap-2 pl-[4.5rem]">
-                            <span className="mt-2 shrink-0 text-[15px] font-medium text-muted-foreground">
-                              備註
-                            </span>
-                            <textarea
-                              value={plainNotesValue(item.notes)}
-                              onChange={(event) =>
-                                setNotes(item, event.target.value)
-                              }
-                              rows={3}
-                              placeholder="輸入意見或補充說明…"
-                              className="min-h-[72px] min-w-0 flex-1 resize-y rounded-lg border border-border bg-background px-3 py-2 text-[15px] leading-relaxed outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
-                              aria-label={`${titleLabel}備註`}
-                            />
+                          <div className="space-y-2 pl-[4.5rem]">
+                            <div className="flex items-start gap-2">
+                              <span className="mt-2 shrink-0 text-[15px] font-medium text-muted-foreground">
+                                備註
+                              </span>
+                              <textarea
+                                value={staffNotesValue(item.notes)}
+                                onChange={(event) =>
+                                  setNotes(item, event.target.value)
+                                }
+                                rows={3}
+                                placeholder="輸入意見或補充說明…"
+                                className="min-h-[72px] min-w-0 flex-1 resize-y rounded-lg border border-border bg-background px-3 py-2 text-[15px] leading-relaxed outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+                                aria-label={`${titleLabel}備註`}
+                              />
+                            </div>
+                            {splitStaffNotesAndFeedback(item.notes).feedback
+                              .length > 0 ? (
+                              <div className="space-y-2 pl-[3.25rem]">
+                                {splitStaffNotesAndFeedback(
+                                  item.notes,
+                                ).feedback.map((feedback, feedbackIndex) => (
+                                  <div
+                                    key={`${item.id}-feedback-${feedbackIndex}-${feedback.at}`}
+                                    className="rounded-lg border border-amber-500/25 bg-amber-500/5 px-3 py-2.5"
+                                  >
+                                    <p className="text-[13px] font-medium text-amber-800 dark:text-amber-200">
+                                      客戶意見 · {reviewLabelZh(feedback.review)}
+                                      {' · '}
+                                      {fmtFeedbackTime(feedback.at)}
+                                      {feedback.author
+                                        ? ` · ${feedback.author}`
+                                        : ''}
+                                    </p>
+                                    {feedback.text ? (
+                                      <p className="mt-1 whitespace-pre-wrap text-[15px] text-foreground">
+                                        {feedback.text}
+                                      </p>
+                                    ) : null}
+                                  </div>
+                                ))}
+                              </div>
+                            ) : null}
                           </div>
                         </li>
                         );
