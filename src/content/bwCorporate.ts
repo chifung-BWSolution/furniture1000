@@ -7,11 +7,10 @@ import { DEFAULT_QUOTE_COMPANY } from '@/lib/pmsQuotePrefill';
 export const BW_COMPANY = {
   legalName: DEFAULT_QUOTE_COMPANY,
   brandName: 'BW Furniture',
-  tagline: '不只是發一張報價單，而是給客戶一個專屬的專業網站',
   intro:
     'BW Furniture 專注商業空間的整體傢俬方案，從需求分析、空間規劃、產品選配與訂製，到送貨安裝及項目協調，為企業、學校、政府及非牟利機構提供一站式服務。',
   mission:
-    '以專屬 Client Portal 取代傳統單向報價單，讓客戶在同一網站查看版本、產品、售價、公司實力及服務進度，提升信任、互動與決策效率。',
+    '以專屬連結取代傳統單向報價單，讓客戶在同一網站查看版本、產品、售價、公司實力及服務進度，提升信任、互動與決策效率。',
   address: DEFAULT_COMPANY_ADDRESS.zh,
   website: DEFAULT_COMPANY_WEBSITE,
   email: 'sales@brandingworks-furniture.com',

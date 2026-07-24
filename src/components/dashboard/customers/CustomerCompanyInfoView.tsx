@@ -1,5 +1,4 @@
 import {
-  Award,
   Building2,
   CheckCircle2,
   ExternalLink,
@@ -34,33 +33,26 @@ export function CustomerCompanyInfoView(
       maxWidthClass="max-w-none"
     >
       <section className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
-        <div className="grid gap-6 p-6 lg:grid-cols-[1.3fr_0.7fr] lg:p-8">
-          <div>
-            <p className="text-sm font-semibold text-primary">ABOUT BW FURNITURE</p>
-            <h2 className="mt-2 font-display text-2xl font-bold">
-              {BW_COMPANY.legalName}
-            </h2>
-            <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
-              {BW_COMPANY.intro}
-            </p>
-            <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-              {BW_COMPANY.mission}
-            </p>
-          </div>
-          <div className="rounded-2xl border border-primary/20 bg-primary/5 p-5">
-            <Building2 className="h-6 w-6 text-primary" />
-            <p className="mt-3 font-display text-lg font-bold">
-              {BW_COMPANY.tagline}
-            </p>
-            <a
-              href={BW_COMPANY.website}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-4 inline-flex items-center gap-1 font-semibold text-primary"
-            >
-              瀏覽公司網站 <ExternalLink className="h-4 w-4" />
-            </a>
-          </div>
+        <div className="p-6 lg:p-8">
+          <p className="text-sm font-semibold text-primary">ABOUT BW FURNITURE</p>
+          <h2 className="mt-2 font-display text-2xl font-bold">
+            {BW_COMPANY.legalName}
+          </h2>
+          <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
+            {BW_COMPANY.intro}
+          </p>
+          <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+            {BW_COMPANY.mission}
+          </p>
+          <a
+            href={BW_COMPANY.website}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-4 inline-flex items-center gap-1 font-semibold text-primary"
+          >
+            <Building2 className="h-4 w-4" />
+            瀏覽公司網站 <ExternalLink className="h-4 w-4" />
+          </a>
         </div>
       </section>
 
@@ -116,18 +108,6 @@ export function CustomerCompanyInfoView(
               </p>
             </article>
           ))}
-        </div>
-      </CorporateSection>
-
-      <CorporateSection
-        title="得獎及表揚紀錄"
-        icon={<Award className="h-5 w-5 text-primary" />}
-      >
-        <div className="rounded-2xl border border-dashed border-border bg-card/50 p-6">
-          <p className="font-semibold">待 BW 補充已核實紀錄</p>
-          <p className="mt-2 text-sm text-muted-foreground">
-            參考的公開成功案例頁未列出具體獎項名稱，因此本頁不會自行加入未核實資料。
-          </p>
         </div>
       </CorporateSection>
     </PortalPageShell>
