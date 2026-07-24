@@ -13,6 +13,7 @@ import {
   UPLOAD_LOG_REPORT_FOOTNOTE,
   UPLOAD_LOG_STAGES,
   type DailyReportRow,
+  type ShopifyCategoryBreakdown,
   type UploadLogReport,
   type UserActivity,
 } from '@/lib/uploadLogReport';
@@ -73,17 +74,74 @@ function ProcessedCell({
   );
 }
 
+function ShopifyPublishedBreakdown({
+  count,
+  breakdown,
+}: {
+  count: number;
+  breakdown: ShopifyCategoryBreakdown[];
+}) {
+  return (
+    <div className="space-y-2">
+      <p className="text-sm text-muted-foreground">
+        已上載shopify 產品 :
+        <span className="ml-1 font-mono-data text-base font-semibold text-foreground">
+          {count}
+        </span>
+      </p>
+      {breakdown.length > 0 && (
+        <div className="rounded-xl border border-border bg-card px-4 py-3 shadow-sm">
+          <p className="mb-2 text-xs font-medium text-muted-foreground">
+            按一級／二級分類（目前件數）
+          </p>
+          <ul className="space-y-2">
+            {breakdown.map((l1) => (
+              <li key={l1.level1}>
+                <div className="flex items-baseline justify-between gap-4 text-sm">
+                  <span className="font-display font-semibold text-foreground">{l1.level1}</span>
+                  <span className="shrink-0 font-mono-data text-sm font-semibold text-foreground">
+                    {l1.count}
+                    <span className="ml-0.5 text-xs font-normal text-muted-foreground">件</span>
+                  </span>
+                </div>
+                {l1.children.length > 0 && (
+                  <ul className="mt-1 space-y-1 border-l border-border/60 pl-3">
+                    {l1.children.map((l2) => (
+                      <li
+                        key={`${l1.level1}:${l2.level2}`}
+                        className="flex items-baseline justify-between gap-4 text-xs text-muted-foreground"
+                      >
+                        <span>{l2.level2}</span>
+                        <span className="shrink-0 font-mono-data text-foreground/80">
+                          {l2.count}
+                          <span className="ml-0.5 text-[10px]">件</span>
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function StageDayTable({
   row,
   todayHk,
   pendingCounts,
   publishedShopifyCount,
+  publishedShopifyBreakdown,
   showDateHeader = false,
 }: {
   row: DailyReportRow;
   todayHk: string;
   pendingCounts: Record<PublishLogStage, number>;
   publishedShopifyCount: number;
+  publishedShopifyBreakdown: ShopifyCategoryBreakdown[];
   showDateHeader?: boolean;
 }) {
   const isToday = row.hkDate === todayHk;
@@ -101,12 +159,10 @@ function StageDayTable({
         </h3>
       )}
       {isToday && (
-        <p className="text-sm text-muted-foreground">
-          已上載shopify 產品 :
-          <span className="ml-1 font-mono-data text-base font-semibold text-foreground">
-            {publishedShopifyCount}
-          </span>
-        </p>
+        <ShopifyPublishedBreakdown
+          count={publishedShopifyCount}
+          breakdown={publishedShopifyBreakdown}
+        />
       )}
       <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
         <table className="w-full">
@@ -372,6 +428,7 @@ export function UploadProductLogView() {
                     todayHk={report.todayHk}
                     pendingCounts={report.pendingCounts}
                     publishedShopifyCount={report.publishedShopifyCount}
+                    publishedShopifyBreakdown={report.publishedShopifyBreakdown}
                     showDateHeader={viewMode === 'all'}
                   />
                 ))}

@@ -55,12 +55,26 @@ export interface DailyReportRow {
   stages: Record<PublishLogStage, StageDailyStats>;
 }
 
+export interface ShopifyCategoryLevel2Count {
+  level2: string;
+  count: number;
+}
+
+/** One level-1 bucket with nested level-2 counts (from shopify_products.product_type). */
+export interface ShopifyCategoryBreakdown {
+  level1: string;
+  count: number;
+  children: ShopifyCategoryLevel2Count[];
+}
+
 export interface UploadLogReport {
   generatedAt: string;
   todayHk: string;
   pendingCounts: Record<PublishLogStage, number>;
   /** Matches 已上載產品 → 已發佈 (shopify_products active, non-configurable). */
   publishedShopifyCount: number;
+  /** Current published Shopify products broken down by 一級 / 二級分類. */
+  publishedShopifyBreakdown: ShopifyCategoryBreakdown[];
   dailyRows: DailyReportRow[];
 }
 
@@ -533,18 +547,111 @@ async function fetchHistoricalLogRows(
   return historical;
 }
 
-/** Same filters as PublishedProductsView「已發佈」count. */
-async function fetchPublishedShopifyCount(): Promise<number> {
-  const { count, error } = await supabase
-    .from('shopify_products')
-    .select('*', { count: 'exact', head: true })
-    .eq('status', 'active')
-    .is('configurable', null);
+const UNCATEGORIZED_LABEL = '未分類';
+
+/** Parse shopify product_type "L1 / L2" (same convention as PublishedProductsView). */
+function splitProductType(productType: string | null | undefined): { level1: string; level2: string } {
+  const raw = (productType || '').trim();
+  if (!raw) return { level1: UNCATEGORIZED_LABEL, level2: '' };
+  const parts = raw.split(' / ').map((p) => p.trim());
+  const level1 = parts[0] || UNCATEGORIZED_LABEL;
+  const level2 = parts[1] || '';
+  return { level1, level2 };
+}
+
+async function fetchCategorySortOrders(): Promise<{
+  level1Order: Map<string, number>;
+  level2Order: Map<string, number>;
+}> {
+  const level1Order = new Map<string, number>();
+  const level2Order = new Map<string, number>();
+  const { data, error } = await supabase
+    .from('product_category')
+    .select('level1, level2, sort_order')
+    .order('sort_order', { ascending: true });
   if (error) {
-    console.warn('[uploadLogReport] published shopify count failed:', error.message);
-    return 0;
+    console.warn('[uploadLogReport] product_category sort order failed:', error.message);
+    return { level1Order, level2Order };
   }
-  return count ?? 0;
+  for (const row of data ?? []) {
+    const l1 = String(row.level1 ?? '').trim();
+    const l2 = String(row.level2 ?? '').trim();
+    const order = Number(row.sort_order) || 0;
+    if (l1 && !level1Order.has(l1)) level1Order.set(l1, order);
+    if (l1 && l2) {
+      const key = `${l1}\0${l2}`;
+      if (!level2Order.has(key)) level2Order.set(key, order);
+    }
+  }
+  return { level1Order, level2Order };
+}
+
+/**
+ * Same filters as PublishedProductsView「已發佈」count, plus L1/L2 breakdown
+ * from product_type ("一級 / 二級").
+ */
+async function fetchPublishedShopifyStats(): Promise<{
+  count: number;
+  breakdown: ShopifyCategoryBreakdown[];
+}> {
+  const [rows, sortOrders] = await Promise.all([
+    fetchAllPages<{ product_type: string | null }>('shopify_products.product_type', (from, to) =>
+      supabase
+        .from('shopify_products')
+        .select('product_type')
+        .eq('status', 'active')
+        .is('configurable', null)
+        .range(from, to),
+    ),
+    fetchCategorySortOrders(),
+  ]);
+
+  const l1Counts = new Map<string, number>();
+  const l2Counts = new Map<string, Map<string, number>>();
+
+  for (const row of rows) {
+    const { level1, level2 } = splitProductType(row.product_type);
+    l1Counts.set(level1, (l1Counts.get(level1) || 0) + 1);
+    if (level2) {
+      if (!l2Counts.has(level1)) l2Counts.set(level1, new Map());
+      const child = l2Counts.get(level1)!;
+      child.set(level2, (child.get(level2) || 0) + 1);
+    }
+  }
+
+  const sortL1 = (a: string, b: string) => {
+    if (a === UNCATEGORIZED_LABEL) return 1;
+    if (b === UNCATEGORIZED_LABEL) return -1;
+    const oa = sortOrders.level1Order.get(a);
+    const ob = sortOrders.level1Order.get(b);
+    if (oa != null && ob != null && oa !== ob) return oa - ob;
+    if (oa != null && ob == null) return -1;
+    if (oa == null && ob != null) return 1;
+    return a.localeCompare(b, 'zh-Hant');
+  };
+
+  const sortL2 = (level1: string, a: string, b: string) => {
+    const oa = sortOrders.level2Order.get(`${level1}\0${a}`);
+    const ob = sortOrders.level2Order.get(`${level1}\0${b}`);
+    if (oa != null && ob != null && oa !== ob) return oa - ob;
+    if (oa != null && ob == null) return -1;
+    if (oa == null && ob != null) return 1;
+    return a.localeCompare(b, 'zh-Hant');
+  };
+
+  const breakdown: ShopifyCategoryBreakdown[] = Array.from(l1Counts.entries())
+    .sort(([a], [b]) => sortL1(a, b))
+    .map(([level1, count]) => {
+      const childrenMap = l2Counts.get(level1);
+      const children: ShopifyCategoryLevel2Count[] = childrenMap
+        ? Array.from(childrenMap.entries())
+            .sort(([a], [b]) => sortL2(level1, a, b))
+            .map(([level2, c]) => ({ level2, count: c }))
+        : [];
+      return { level1, count, children };
+    });
+
+  return { count: rows.length, breakdown };
 }
 
 async function fetchPendingCounts(): Promise<Record<PublishLogStage, number>> {
@@ -616,16 +723,17 @@ export async function fetchUploadLogReport(dayCount = 30): Promise<UploadLogRepo
   const enriched = await enrichLogsWithStaff(merged, productStaffMap);
   const logs = dedupeCopywritingByLastSubmit(enriched);
 
-  const [pendingCounts, publishedShopifyCount] = await Promise.all([
+  const [pendingCounts, publishedShopify] = await Promise.all([
     fetchPendingCounts(),
-    fetchPublishedShopifyCount(),
+    fetchPublishedShopifyStats(),
   ]);
 
   return {
     generatedAt: new Date().toISOString(),
     todayHk,
     pendingCounts,
-    publishedShopifyCount,
+    publishedShopifyCount: publishedShopify.count,
+    publishedShopifyBreakdown: publishedShopify.breakdown,
     dailyRows: buildDailyRows(logs, dayCount),
   };
 }
