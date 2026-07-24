@@ -595,7 +595,7 @@ async function fetchPublishedShopifyStats(): Promise<{
   breakdown: ShopifyCategoryBreakdown[];
 }> {
   const [rows, sortOrders] = await Promise.all([
-    fetchAllPages<{ product_type: string | null }>('shopify_products.product_type', (from, to) =>
+    fetchAllPages<{ product_type: string | null }>('shopify_products.product_type', async (from, to) =>
       supabase
         .from('shopify_products')
         .select('product_type')
