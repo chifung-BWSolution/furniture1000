@@ -1,12 +1,14 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import {
   Plus, Loader2, Search, Check, CheckCircle2, Trash2, X, LayoutGrid, UserRound, Tag,
+  ImagePlus, PenLine, ZoomIn,
 } from 'lucide-react';
 import {
   fetchProjects, fetchZones, fetchZoneProducts, fetchActiveShopifyProducts,
   createZoneProduct, deleteZoneProductWithProgress, updateZoneProductQuantity,
-  updateZoneProductNotes, updateZoneProductStatus, saveProject,
+  updateZoneProductNotes, updateZoneProductStatus, updateZoneProductFields,
+  saveProject,
 } from '@/lib/solutionsApi';
 import { useAppStore } from '@/hooks/use-app-store';
 import { consumeSolutionFocusProjectId } from '@/lib/solutionProjectFocus';
@@ -23,6 +25,7 @@ import {
   syncProjectZones,
   zonesMissingFromSeeds,
 } from '@/lib/syncProjectZones';
+import { uploadFileToStorage } from '@/lib/imageStorage';
 import { toast } from 'sonner';
 import {
   ZONE_PRODUCT_STATUS_META,
@@ -33,6 +36,56 @@ import {
   type SearchProduct,
   type ZoneProductStatus,
 } from '@/types/solutions';
+
+function isCustomZoneProduct(item: ZoneProduct): boolean {
+  return !item.productId;
+}
+
+function ProductImageLightbox({
+  src,
+  title,
+  onClose,
+}: {
+  src: string;
+  title?: string;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label={title ? `${title}圖片預覽` : '產品圖片預覽'}
+    >
+      <img
+        src={src}
+        alt={title || '產品圖片'}
+        className="max-h-[90vh] max-w-[90vw] rounded-xl object-contain shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+      />
+      <button
+        type="button"
+        onClick={onClose}
+        className="absolute right-4 top-4 rounded-full bg-black/60 p-2 text-white hover:bg-black/80"
+        aria-label="關閉預覽"
+      >
+        <X className="h-5 w-5" />
+      </button>
+      <p className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-black/50 px-4 py-1.5 text-[13px] text-white/80">
+        點擊空白處或按 Esc 關閉
+      </p>
+    </div>
+  );
+}
 
 function normalizeCustomRooms(value: unknown): CustomRoomType[] {
   if (!Array.isArray(value)) return [];
@@ -82,6 +135,12 @@ export function DesignProjectsView() {
   const [productLevel2, setProductLevel2] = useState('');
   const [confirmingProject, setConfirmingProject] = useState(false);
   const [deletingProductId, setDeletingProductId] = useState<string | null>(null);
+  const [creatingBlankZoneId, setCreatingBlankZoneId] = useState<string | null>(null);
+  const [uploadingImageId, setUploadingImageId] = useState<string | null>(null);
+  const [lightbox, setLightbox] = useState<{ src: string; title: string } | null>(
+    null,
+  );
+  const imageInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   useEffect(() => {
     const focusId = consumeSolutionFocusProjectId();
@@ -284,6 +343,119 @@ export function DesignProjectsView() {
         ),
       );
       toast.error('更新備註失敗', { description: result.error });
+    }
+  };
+
+  const addBlankProduct = async (zoneId: string) => {
+    if (!activeProjectId || creatingBlankZoneId) return;
+    setCreatingBlankZoneId(zoneId);
+    const result = await createZoneProduct({
+      projectId: activeProjectId,
+      zoneId,
+      productId: null,
+      productTitle: '',
+      productImageUrl: '',
+      salePrice: 0,
+      notes: '',
+      scheme: project?.activeScheme || 'A',
+      quantity: 1,
+      status: 'pending',
+    });
+    setCreatingBlankZoneId(null);
+    if (!result.ok || !result.data) {
+      toast.error('新增欄位失敗', { description: result.error });
+      return;
+    }
+    setZoneProducts((prev) => [...prev, result.data!]);
+    toast.success('已新增空白產品欄位', {
+      description: '請填寫產品名稱、單價、備註，並可上傳圖片',
+    });
+  };
+
+  const setProductTitle = async (item: ZoneProduct, value: string) => {
+    const productTitle = value.trim();
+    if (productTitle === (item.productTitle || '')) return;
+    setZoneProducts((current) =>
+      current.map((product) =>
+        product.id === item.id ? { ...product, productTitle } : product,
+      ),
+    );
+    const result = await updateZoneProductFields(item.id, { productTitle });
+    if (!result.ok) {
+      setZoneProducts((current) =>
+        current.map((product) =>
+          product.id === item.id
+            ? { ...product, productTitle: item.productTitle }
+            : product,
+        ),
+      );
+      toast.error('更新產品名稱失敗', { description: result.error });
+    }
+  };
+
+  const setSalePrice = async (item: ZoneProduct, value: number) => {
+    const salePrice = Math.max(0, Number.isFinite(value) ? value : 0);
+    if (salePrice === Number(item.salePrice || 0)) return;
+    setZoneProducts((current) =>
+      current.map((product) =>
+        product.id === item.id ? { ...product, salePrice } : product,
+      ),
+    );
+    const result = await updateZoneProductFields(item.id, { salePrice });
+    if (!result.ok) {
+      setZoneProducts((current) =>
+        current.map((product) =>
+          product.id === item.id
+            ? { ...product, salePrice: item.salePrice }
+            : product,
+        ),
+      );
+      toast.error('更新單價失敗', { description: result.error });
+    }
+  };
+
+  const uploadProductImage = async (item: ZoneProduct, file: File | null) => {
+    if (!file || !isCustomZoneProduct(item)) return;
+    if (!file.type.startsWith('image/')) {
+      toast.error('請上傳圖片檔案');
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      toast.error('圖片超過 8MB 上限');
+      return;
+    }
+    setUploadingImageId(item.id);
+    try {
+      const url = await uploadFileToStorage(file, item.id, 'zone');
+      const previous = item.productImageUrl || '';
+      setZoneProducts((current) =>
+        current.map((product) =>
+          product.id === item.id
+            ? { ...product, productImageUrl: url }
+            : product,
+        ),
+      );
+      const result = await updateZoneProductFields(item.id, {
+        productImageUrl: url,
+      });
+      if (!result.ok) {
+        setZoneProducts((current) =>
+          current.map((product) =>
+            product.id === item.id
+              ? { ...product, productImageUrl: previous }
+              : product,
+          ),
+        );
+        toast.error('更新產品圖片失敗', { description: result.error });
+        return;
+      }
+      toast.success('產品圖片已上傳');
+    } catch (error) {
+      toast.error('上傳圖片失敗', {
+        description: error instanceof Error ? error.message : '請稍後再試',
+      });
+    } finally {
+      setUploadingImageId(null);
     }
   };
 
@@ -517,38 +689,171 @@ export function DesignProjectsView() {
                       <h3 className="font-display text-base font-bold">{zone.name}</h3>
                       <span className="text-[15px] text-muted-foreground">{items.length} 件傢俬</span>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => openPicker(zone.id)}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-[15px] font-medium text-primary hover:bg-primary/15"
-                    >
-                      <Plus className="h-3 w-3" /> 加入產品
-                    </button>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={creatingBlankZoneId === zone.id}
+                        onClick={() => void addBlankProduct(zone.id)}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-[15px] font-medium text-foreground hover:bg-muted disabled:opacity-60"
+                      >
+                        {creatingBlankZoneId === zone.id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <PenLine className="h-3.5 w-3.5" />
+                        )}
+                        新欄位
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => openPicker(zone.id)}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-[15px] font-medium text-primary hover:bg-primary/15"
+                      >
+                        <Plus className="h-3 w-3" /> 加入產品
+                      </button>
+                    </div>
                   </div>
                   {items.length === 0 ? (
-                    <p className="px-5 py-6 text-[15px] text-muted-foreground">尚未配置傢俬 — 按本列右上角「加入產品」</p>
+                    <p className="px-5 py-6 text-[15px] text-muted-foreground">
+                      尚未配置傢俬 — 按右上角「新欄位」自行填寫，或「加入產品」從目錄選取
+                    </p>
                   ) : (
                     <>
                     <ul className="divide-y divide-border/70">
-                      {items.map((item) => (
+                      {items.map((item) => {
+                        const custom = isCustomZoneProduct(item);
+                        const titleLabel = item.productTitle || '未命名產品';
+                        return (
                         <li key={item.id} className="space-y-2.5 px-5 py-3.5">
-                          <div className="flex items-center gap-4">
-                            <div className="h-14 w-14 shrink-0 overflow-hidden rounded-lg bg-muted">
+                          <div className="flex items-start gap-4">
+                            <div className="relative shrink-0">
+                              <input
+                                ref={(node) => {
+                                  imageInputRefs.current[item.id] = node;
+                                }}
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                onChange={(event) => {
+                                  const file = event.target.files?.[0] || null;
+                                  event.target.value = '';
+                                  void uploadProductImage(item, file);
+                                }}
+                              />
                               {item.productImageUrl ? (
-                                <img
-                                  src={item.productImageUrl}
-                                  alt=""
-                                  className="h-full w-full object-cover"
-                                />
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setLightbox({
+                                      src: item.productImageUrl,
+                                      title: titleLabel,
+                                    })
+                                  }
+                                  className="group relative h-14 w-14 overflow-hidden rounded-lg bg-muted ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                                  title="點擊放大圖片"
+                                  aria-label={`${titleLabel}圖片預覽`}
+                                >
+                                  <img
+                                    src={item.productImageUrl}
+                                    alt=""
+                                    className="h-full w-full object-cover transition group-hover:scale-105"
+                                  />
+                                  <span className="absolute inset-0 flex items-center justify-center bg-black/0 text-white opacity-0 transition group-hover:bg-black/35 group-hover:opacity-100">
+                                    <ZoomIn className="h-4 w-4" />
+                                  </span>
+                                </button>
+                              ) : custom ? (
+                                <button
+                                  type="button"
+                                  disabled={uploadingImageId === item.id}
+                                  onClick={() =>
+                                    imageInputRefs.current[item.id]?.click()
+                                  }
+                                  className="flex h-14 w-14 items-center justify-center rounded-lg border border-dashed border-border bg-muted/40 text-muted-foreground hover:border-primary/40 hover:text-primary disabled:opacity-60"
+                                  title="上傳產品圖片"
+                                  aria-label="上傳產品圖片"
+                                >
+                                  {uploadingImageId === item.id ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : (
+                                    <ImagePlus className="h-4 w-4" />
+                                  )}
+                                </button>
+                              ) : (
+                                <div className="h-14 w-14 rounded-lg bg-muted" />
+                              )}
+                              {custom && item.productImageUrl ? (
+                                <button
+                                  type="button"
+                                  disabled={uploadingImageId === item.id}
+                                  onClick={() =>
+                                    imageInputRefs.current[item.id]?.click()
+                                  }
+                                  className="mt-1 w-full rounded border border-border px-1 py-0.5 text-[11px] text-muted-foreground hover:bg-muted disabled:opacity-60"
+                                >
+                                  {uploadingImageId === item.id ? '上傳中…' : '更換圖片'}
+                                </button>
                               ) : null}
                             </div>
-                            <div className="min-w-0 flex-1">
-                              <p className="truncate text-base font-medium">{item.productTitle}</p>
-                              <p className="font-mono-data text-[15px] text-primary">
-                                單價 ${Number(item.salePrice || 0).toLocaleString()} × {item.quantity}
-                                {' = '}
-                                小計 ${(Number(item.salePrice || 0) * item.quantity).toLocaleString()}
-                              </p>
+                            <div className="min-w-0 flex-1 space-y-1.5">
+                              {custom ? (
+                                <input
+                                  type="text"
+                                  defaultValue={item.productTitle || ''}
+                                  key={`${item.id}:title:${item.productTitle || ''}`}
+                                  onBlur={(event) =>
+                                    void setProductTitle(item, event.target.value)
+                                  }
+                                  onKeyDown={(event) => {
+                                    if (event.key === 'Enter') {
+                                      event.currentTarget.blur();
+                                    }
+                                  }}
+                                  placeholder="輸入產品名稱…"
+                                  className="h-10 w-full rounded-lg border border-border bg-background px-3 text-base font-medium outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+                                  aria-label="產品名稱"
+                                />
+                              ) : (
+                                <p className="truncate text-base font-medium">
+                                  {item.productTitle}
+                                </p>
+                              )}
+                              {custom ? (
+                                <div className="flex flex-wrap items-center gap-2 text-[15px]">
+                                  <span className="text-muted-foreground">單價 $</span>
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    step={1}
+                                    defaultValue={Number(item.salePrice || 0)}
+                                    key={`${item.id}:price:${item.salePrice || 0}`}
+                                    onBlur={(event) =>
+                                      void setSalePrice(
+                                        item,
+                                        Number(event.target.value),
+                                      )
+                                    }
+                                    onKeyDown={(event) => {
+                                      if (event.key === 'Enter') {
+                                        event.currentTarget.blur();
+                                      }
+                                    }}
+                                    className="h-9 w-28 rounded-lg border border-border bg-background px-2 font-mono-data text-[15px] text-primary outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+                                    aria-label="單價"
+                                  />
+                                  <span className="font-mono-data text-primary">
+                                    × {item.quantity} = 小計 $
+                                    {(
+                                      Number(item.salePrice || 0) * item.quantity
+                                    ).toLocaleString()}
+                                  </span>
+                                </div>
+                              ) : (
+                                <p className="font-mono-data text-[15px] text-primary">
+                                  單價 ${Number(item.salePrice || 0).toLocaleString()} × {item.quantity}
+                                  {' = '}
+                                  小計 ${(Number(item.salePrice || 0) * item.quantity).toLocaleString()}
+                                </p>
+                              )}
                             </div>
                             <div className="flex shrink-0 items-center gap-2">
                               <div className="inline-flex items-center overflow-hidden rounded-lg border border-border bg-background">
@@ -570,7 +875,7 @@ export function DesignProjectsView() {
                                     void setQuantity(item, Number(event.target.value))
                                   }
                                   className="h-9 w-12 border-x border-border bg-background text-center font-mono-data text-[15px] font-semibold outline-none"
-                                  aria-label={`${item.productTitle}數量`}
+                                  aria-label={`${titleLabel}數量`}
                                 />
                                 <button
                                   type="button"
@@ -618,7 +923,7 @@ export function DesignProjectsView() {
                             <input
                               type="text"
                               defaultValue={item.notes || ''}
-                              key={`${item.id}:${item.notes || ''}`}
+                              key={`${item.id}:notes:${item.notes || ''}`}
                               onBlur={(event) =>
                                 void setNotes(item, event.target.value)
                               }
@@ -629,11 +934,12 @@ export function DesignProjectsView() {
                               }}
                               placeholder="輸入意見或補充說明…"
                               className="h-10 min-w-0 flex-1 rounded-lg border border-border bg-background px-3 text-[15px] outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
-                              aria-label={`${item.productTitle}備註`}
+                              aria-label={`${titleLabel}備註`}
                             />
                           </div>
                         </li>
-                      ))}
+                        );
+                      })}
                     </ul>
                     <div className="flex justify-end border-t border-border bg-muted/20 px-5 py-3.5">
                       <p className="font-mono-data text-[15px] font-bold text-foreground">
@@ -828,6 +1134,14 @@ export function DesignProjectsView() {
             </div>
           </div>
         </div>
+      ) : null}
+
+      {lightbox ? (
+        <ProductImageLightbox
+          src={lightbox.src}
+          title={lightbox.title}
+          onClose={() => setLightbox(null)}
+        />
       ) : null}
     </div>
   );

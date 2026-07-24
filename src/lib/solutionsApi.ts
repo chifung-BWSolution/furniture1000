@@ -879,6 +879,7 @@ export async function createZoneProduct(input: {
   scheme?: string;
   quantity?: number;
   status?: string;
+  notes?: string;
 }): Promise<WriteResult<ZoneProduct>> {
   try {
     const insertPayload = await withInsertAuditFields({
@@ -892,6 +893,7 @@ export async function createZoneProduct(input: {
       status: input.status ?? 'pending',
       quantity: input.quantity ?? 1,
       sort_order: 0,
+      notes: (input.notes ?? '').trim(),
     });
     const { data, error } = await supabase
       .from('zone_products')
@@ -902,6 +904,46 @@ export async function createZoneProduct(input: {
     return { ok: true, data: mapZoneProduct(data) };
   } catch (e) {
     return { ok: false, error: e instanceof Error ? e.message : '加入產品失敗' };
+  }
+}
+
+/** Update editable fields on a zone product (custom blank rows / staff edits). */
+export async function updateZoneProductFields(
+  zoneProductId: string,
+  patch: {
+    productTitle?: string;
+    salePrice?: number;
+    productImageUrl?: string;
+    notes?: string;
+  },
+): Promise<WriteResult> {
+  try {
+    const row: Record<string, unknown> = {};
+    if (patch.productTitle !== undefined) {
+      row.product_title = patch.productTitle.trim();
+    }
+    if (patch.salePrice !== undefined) {
+      row.sale_price = Math.max(0, Number(patch.salePrice) || 0);
+    }
+    if (patch.productImageUrl !== undefined) {
+      row.product_image_url = patch.productImageUrl;
+    }
+    if (patch.notes !== undefined) {
+      row.notes = patch.notes.trim();
+    }
+    if (Object.keys(row).length === 0) return { ok: true };
+    const updatePayload = await withUpdateAuditFields(row);
+    const { error } = await supabase
+      .from('zone_products')
+      .update(updatePayload)
+      .eq('id', zoneProductId);
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : '更新產品失敗',
+    };
   }
 }
 
