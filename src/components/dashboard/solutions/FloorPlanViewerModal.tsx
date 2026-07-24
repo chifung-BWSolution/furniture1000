@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
@@ -102,6 +102,9 @@ export function FloorPlanViewerModal({
   const [pageIndex, setPageIndex] = useState(0);
   const [loading, setLoading] = useState(false);
   const [zoom, setZoom] = useState(1);
+  const [naturalSize, setNaturalSize] = useState({ w: 0, h: 0 });
+  const [viewportSize, setViewportSize] = useState({ w: 0, h: 0 });
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open || !url) {
@@ -113,12 +116,14 @@ export function FloorPlanViewerModal({
       });
       setPageIndex(0);
       setZoom(1);
+      setNaturalSize({ w: 0, h: 0 });
       return;
     }
 
     let cancelled = false;
     const pdf = isPdfSource(url, type);
     setZoom(1);
+    setNaturalSize({ w: 0, h: 0 });
 
     if (!pdf) {
       setPageUrls([url]);
@@ -175,11 +180,59 @@ export function FloorPlanViewerModal({
     return () => document.removeEventListener('keydown', handler);
   }, [onClose, open]);
 
-  if (!open || !url) return null;
+  useLayoutEffect(() => {
+    if (!open) return;
+    const node = scrollRef.current;
+    if (!node) return;
+    const measure = () => {
+      setViewportSize({
+        w: node.clientWidth,
+        h: node.clientHeight,
+      });
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [open, loading, pageIndex]);
 
   const current = pageUrls[pageIndex] || previewUrl || '';
   const canPrev = pageIndex > 0;
   const canNext = pageIndex < pageUrls.length - 1;
+
+  useEffect(() => {
+    setNaturalSize({ w: 0, h: 0 });
+  }, [current]);
+
+  const displaySize = useMemo(() => {
+    const pad = 32;
+    const availW = Math.max(120, viewportSize.w - pad);
+    const availH = Math.max(120, viewportSize.h - pad);
+    if (!naturalSize.w || !naturalSize.h || !availW || !availH) {
+      return { w: 0, h: 0 };
+    }
+    const fit = Math.min(availW / naturalSize.w, availH / naturalSize.h, 1);
+    return {
+      w: Math.max(1, Math.round(naturalSize.w * fit * zoom)),
+      h: Math.max(1, Math.round(naturalSize.h * fit * zoom)),
+    };
+  }, [naturalSize.h, naturalSize.w, viewportSize.h, viewportSize.w, zoom]);
+
+  useEffect(() => {
+    // After zoom changes, keep scroll range valid (especially top/left).
+    const node = scrollRef.current;
+    if (!node) return;
+    if (zoom <= 1) {
+      node.scrollLeft = Math.max(0, (node.scrollWidth - node.clientWidth) / 2);
+      node.scrollTop = Math.max(0, (node.scrollHeight - node.clientHeight) / 2);
+      return;
+    }
+    // Clamp so users can always reach left/top edges.
+    node.scrollLeft = Math.min(node.scrollLeft, node.scrollWidth - node.clientWidth);
+    node.scrollTop = Math.min(node.scrollTop, node.scrollHeight - node.clientHeight);
+  }, [displaySize.h, displaySize.w, zoom]);
+
+  if (!open || !url) return null;
 
   return (
     <div
@@ -237,37 +290,53 @@ export function FloorPlanViewerModal({
           </div>
         </div>
 
-        <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-auto bg-muted/30 p-4">
+        <div
+          ref={scrollRef}
+          className="relative min-h-0 flex-1 overflow-auto bg-muted/30"
+        >
           {loading ? (
-            <div className="flex flex-col items-center gap-2 text-muted-foreground">
+            <div className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground">
               <Loader2 className="h-6 w-6 animate-spin text-primary" />
               <span className="text-sm">正在轉成可檢視圖片…</span>
             </div>
           ) : current ? (
             <div
-              className="flex min-h-full min-w-full items-center justify-center"
+              className="grid place-items-center"
               style={{
-                width: `${Math.max(100, zoom * 100)}%`,
-                height: `${Math.max(100, zoom * 100)}%`,
+                width: Math.max(viewportSize.w || 0, (displaySize.w || 0) + 32),
+                height: Math.max(viewportSize.h || 0, (displaySize.h || 0) + 32),
+                minWidth: '100%',
+                minHeight: '100%',
               }}
             >
               <img
                 src={current}
                 alt={`${title} 平面圖`}
+                onLoad={(event) => {
+                  const img = event.currentTarget;
+                  setNaturalSize({
+                    w: img.naturalWidth || img.width,
+                    h: img.naturalHeight || img.height,
+                  });
+                }}
                 onClick={() =>
                   setZoom((value) => Number((value * 1.2).toFixed(3)))
                 }
-                className="max-h-full max-w-full rounded-lg border border-border bg-white object-contain shadow-sm transition-transform duration-150"
+                className="rounded-lg border border-border bg-white object-contain shadow-sm"
                 style={{
                   cursor: 'zoom-in',
-                  transform: `scale(${zoom})`,
-                  transformOrigin: 'center center',
+                  width: displaySize.w || undefined,
+                  height: displaySize.h || undefined,
+                  maxWidth: displaySize.w ? undefined : '100%',
+                  maxHeight: displaySize.h ? undefined : '100%',
                 }}
                 title="點擊放大 20%"
               />
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground">暫無可顯示的平面圖</p>
+            <div className="flex h-full items-center justify-center">
+              <p className="text-sm text-muted-foreground">暫無可顯示的平面圖</p>
+            </div>
           )}
         </div>
 
