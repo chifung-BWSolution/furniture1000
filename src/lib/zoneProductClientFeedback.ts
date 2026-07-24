@@ -71,11 +71,30 @@ export function appendClientFeedbackToNotes(
 ): string {
   const { staffNotes, feedback: existing } = splitStaffNotesAndFeedback(notes);
   const next = [...existing, feedback];
-  const body = next.map((row) => JSON.stringify(row)).join('\n');
-  if (!staffNotes.trim()) {
-    return `${CLIENT_FEEDBACK_MARKER}\n${body}`;
+  return serializeStaffNotesAndFeedback(staffNotes, next);
+}
+
+export function removeClientFeedbackFromNotes(
+  notes: string | null | undefined,
+  feedbackIndex: number,
+): string {
+  const { staffNotes, feedback } = splitStaffNotesAndFeedback(notes);
+  if (feedbackIndex < 0 || feedbackIndex >= feedback.length) {
+    return notes || '';
   }
-  return `${staffNotes}\n\n${CLIENT_FEEDBACK_MARKER}\n${body}`;
+  const next = feedback.filter((_, index) => index !== feedbackIndex);
+  return serializeStaffNotesAndFeedback(staffNotes, next);
+}
+
+export function serializeStaffNotesAndFeedback(
+  staffNotes: string,
+  feedback: ZoneProductClientFeedback[],
+): string {
+  const staff = (staffNotes || '').replace(/\s+$/, '');
+  if (feedback.length === 0) return staff;
+  const body = feedback.map((row) => JSON.stringify(row)).join('\n');
+  if (!staff.trim()) return `${CLIENT_FEEDBACK_MARKER}\n${body}`;
+  return `${staff}\n\n${CLIENT_FEEDBACK_MARKER}\n${body}`;
 }
 
 export function reviewLabelZh(review: ClientItemReview): string {

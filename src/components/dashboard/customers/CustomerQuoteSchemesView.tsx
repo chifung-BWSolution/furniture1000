@@ -42,6 +42,7 @@ import {
   fetchZones,
   fetchZoneProducts,
   applyZoneProductClientReview,
+  updateZoneProductNotes,
 } from '@/lib/solutionsApi';
 import type {
   DesignProject,
@@ -50,11 +51,21 @@ import type {
 } from '@/types/solutions';
 import {
   isAllowedPortalQuote,
+  removeClientFeedbackFromNotes,
   splitStaffNotesAndFeedback,
   ZONE_STATUS_TO_REVIEW,
   type ClientItemReview,
 } from '@/lib/zoneProductClientFeedback';
 import { remarksPlainText } from '@/lib/remarksContent';
+
+function isZoneProductId(id: string | null | undefined): boolean {
+  if (!id) return false;
+  if (id.startsWith('zone-')) return false;
+  // zone_products ids are UUIDs
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    id,
+  );
+}
 
 type QuoteRecord = {
   id: string;
@@ -482,8 +493,9 @@ export function CustomerQuoteSchemesView() {
   }, [portalProjects, portalTotals, quotes]);
 
   useEffect(() => {
-    if (!activeId) {
-      setItems([]);
+    // Re-load whenever detail is opened (even same quote), so client opinions
+    // persist across close/reopen instead of staying wiped in local state.
+    if (!showDetail || !activeId) {
       return;
     }
     let cancelled = false;
@@ -508,16 +520,19 @@ export function CustomerQuoteSchemesView() {
             )
           : null;
       if (!linkedProject) {
-        return { rows: quoteItems, zoneProducts: [] as ZoneProduct[] };
+        return {
+          rows: quoteItems,
+          zoneProducts: [] as ZoneProduct[],
+          linkedProjectId: '',
+          zones: [] as ProjectZone[],
+        };
       }
 
-      const cached = portalProjectData[linkedProject.id];
-      const [zones, zoneProducts] = cached
-        ? [cached.zones, cached.products]
-        : await Promise.all([
-            fetchZones(linkedProject.id),
-            fetchZoneProducts(linkedProject.id),
-          ]);
+      // Always fetch fresh notes/status so reopening shows saved client feedback.
+      const [zones, zoneProducts] = await Promise.all([
+        fetchZones(linkedProject.id),
+        fetchZoneProducts(linkedProject.id),
+      ]);
       const selectedProducts = zoneProducts.filter((product) => product.zoneId);
       const grouped: BwfQuoteItemInput[] = [];
       for (const zone of zones) {
@@ -546,27 +561,54 @@ export function CustomerQuoteSchemesView() {
       return {
         rows: grouped.length > 0 ? grouped : quoteItems,
         zoneProducts: selectedProducts,
+        linkedProjectId: linkedProject.id,
+        zones,
       };
     };
 
     loadItems()
-      .then(({ rows, zoneProducts }) => {
+      .then(({ rows, zoneProducts, linkedProjectId, zones }) => {
         if (cancelled) return;
+        if (linkedProjectId) {
+          setPortalProjectData((current) => ({
+            ...current,
+            [linkedProjectId]: { zones, products: zoneProducts },
+          }));
+        }
         setItems(rows);
-        // Hydrate Accept / 要求修改 / 不接受 from design-project statuses.
+        // Hydrate Accept / 要求修改 / 不接受 + persisted client opinions.
         const nextReviews: Record<string, ItemReview> = {};
+        const nextMessages: Record<string, ItemMessage[]> = {};
+        const hydrateFromNotes = (
+          productId: string,
+          status: ZoneProduct['status'] | undefined,
+          notes: string | undefined,
+        ) => {
+          const { feedback } = splitStaffNotesAndFeedback(notes);
+          const mapped = status ? ZONE_STATUS_TO_REVIEW[status] : undefined;
+          if (mapped) nextReviews[productId] = mapped;
+          else if (feedback.length > 0) {
+            nextReviews[productId] = feedback[feedback.length - 1].review;
+          }
+          if (feedback.length > 0) {
+            nextMessages[productId] = feedback.map((row, index) => ({
+              id: `${productId}-${row.at}-${index}`,
+              text: row.text,
+              createdAt: row.at,
+              authorName: row.author || '客戶',
+              authorRole: null,
+            }));
+          }
+        };
         for (const product of zoneProducts) {
-          const mapped = ZONE_STATUS_TO_REVIEW[product.status];
-          if (mapped) nextReviews[product.id] = mapped;
+          hydrateFromNotes(product.id, product.status, product.notes);
         }
         for (const row of rows) {
-          if (!row.id || !row.zoneStatus) continue;
-          const mapped = ZONE_STATUS_TO_REVIEW[row.zoneStatus];
-          if (mapped) nextReviews[row.id] = mapped;
+          if (!row.id || row.isSectionTitle) continue;
+          hydrateFromNotes(row.id, row.zoneStatus, row.notes);
         }
-        if (Object.keys(nextReviews).length > 0) {
-          setItemReviews((current) => ({ ...nextReviews, ...current }));
-        }
+        setItemReviews(nextReviews);
+        setItemMessages(nextMessages);
         setItemsLoading(false);
       })
       .catch(() => {
@@ -578,13 +620,7 @@ export function CustomerQuoteSchemesView() {
     return () => {
       cancelled = true;
     };
-  }, [
-    activeId,
-    portalProjectData,
-    portalProjects,
-    quotes,
-    syntheticQuotes,
-  ]);
+  }, [activeId, portalProjects, quotes, showDetail, syntheticQuotes]);
 
   const allQuoteRows = useMemo(
     () => [...quotes, ...syntheticQuotes],
@@ -683,21 +719,18 @@ export function CustomerQuoteSchemesView() {
     item: BwfQuoteItemInput,
     review: ItemReview,
     feedbackText?: string,
-  ) => {
+  ): Promise<boolean> => {
     const key = item.id || '';
-    if (!key || key.startsWith('zone-')) {
-      setItemReviews((current) => ({
-        ...current,
-        [key || itemKey(item, 0)]: review,
-      }));
-      return;
+    setItemReviews((current) => ({
+      ...current,
+      [key || itemKey(item, 0)]: review,
+    }));
+    if (!isZoneProductId(key)) {
+      if (feedbackText?.trim()) {
+        toast.error('此產品尚未連結設計專案，意見無法儲存');
+      }
+      return false;
     }
-    setItemReviews((current) => ({ ...current, [key]: review }));
-
-    const linked = Object.values(portalProjectData).some((entry) =>
-      entry.products.some((product) => product.id === key),
-    );
-    if (!linked) return;
 
     setSavingReviewKey(key);
     const previousNotes =
@@ -716,23 +749,28 @@ export function CustomerQuoteSchemesView() {
     setSavingReviewKey(null);
     if (!result.ok || !result.data) {
       toast.error('同步設計專案狀態失敗', { description: result.error });
-      return;
+      return false;
     }
     setPortalProjectData((current) => {
-      const next: typeof current = {};
+      const next: typeof current = { ...current };
+      let found = false;
       for (const [projectId, entry] of Object.entries(current)) {
         next[projectId] = {
           ...entry,
-          products: entry.products.map((product) =>
-            product.id === key
-              ? {
-                  ...product,
-                  status: result.data!.status,
-                  notes: result.data!.notes,
-                }
-              : product,
-          ),
+          products: entry.products.map((product) => {
+            if (product.id !== key) return product;
+            found = true;
+            return {
+              ...product,
+              status: result.data!.status,
+              notes: result.data!.notes,
+            };
+          }),
         };
+      }
+      // Keep cache coherent even if product was missing from local cache.
+      if (!found) {
+        // no-op: DB already updated; next reopen will reload.
       }
       return next;
     });
@@ -747,6 +785,20 @@ export function CustomerQuoteSchemesView() {
           : row,
       ),
     );
+    if (feedbackText?.trim()) {
+      const { feedback } = splitStaffNotesAndFeedback(result.data.notes);
+      setItemMessages((current) => ({
+        ...current,
+        [key]: feedback.map((row, index) => ({
+          id: `${key}-${row.at}-${index}`,
+          text: row.text,
+          createdAt: row.at,
+          authorName: row.author || currentUserName,
+          authorRole: null,
+        })),
+      }));
+    }
+    return true;
   };
 
   const sendItemMessage = async (item: BwfQuoteItemInput, index: number) => {
@@ -761,27 +813,73 @@ export function CustomerQuoteSchemesView() {
       toast.error('請先選擇「要求修改」或「不接受」');
       return;
     }
-    const message: ItemMessage = {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      text,
-      createdAt: new Date().toISOString(),
-      authorName: currentUserName,
-      authorRole: currentUserRole,
-    };
-    setItemMessages((current) => ({
-      ...current,
-      [key]: [...(current[key] || []), message],
-    }));
+    const ok = await syncItemReview(item, review, text);
+    if (!ok) return;
     setItemDraftNotes((current) => ({ ...current, [key]: '' }));
-    await syncItemReview(item, review, text);
-    toast.success('已送出意見並同步至設計專案');
+    toast.success('已儲存意見至設計專案', {
+      description: '下次打開報價方案仍會保留此留言',
+    });
   };
 
-  const deleteItemMessage = (key: string, messageId: string) => {
+  const deleteItemMessage = async (
+    item: BwfQuoteItemInput,
+    messageId: string,
+  ) => {
+    const key = item.id || '';
+    const messages = itemMessages[key] || [];
+    const feedbackIndex = messages.findIndex(
+      (message) => message.id === messageId,
+    );
+    if (feedbackIndex < 0) return;
+
+    const previousNotes =
+      Object.values(portalProjectData)
+        .flatMap((entry) => entry.products)
+        .find((product) => product.id === key)?.notes ||
+      item.notes ||
+      '';
+
     setItemMessages((current) => ({
       ...current,
       [key]: (current[key] || []).filter((message) => message.id !== messageId),
     }));
+
+    if (!isZoneProductId(key)) {
+      toast.error('此產品尚未連結設計專案，無法刪除已儲存意見');
+      return;
+    }
+
+    const nextNotes = removeClientFeedbackFromNotes(
+      previousNotes,
+      feedbackIndex,
+    );
+    const result = await updateZoneProductNotes(key, nextNotes);
+    if (!result.ok) {
+      setItemMessages((current) => ({
+        ...current,
+        [key]: messages,
+      }));
+      toast.error('刪除意見失敗', { description: result.error });
+      return;
+    }
+    setPortalProjectData((current) => {
+      const next: typeof current = { ...current };
+      for (const [projectId, entry] of Object.entries(current)) {
+        next[projectId] = {
+          ...entry,
+          products: entry.products.map((product) =>
+            product.id === key ? { ...product, notes: nextNotes } : product,
+          ),
+        };
+      }
+      return next;
+    });
+    setItems((current) =>
+      current.map((row) =>
+        row.id === key ? { ...row, notes: nextNotes } : row,
+      ),
+    );
+    toast.success('已刪除意見');
   };
 
   const buildExportHtml = () => {
@@ -1283,8 +1381,8 @@ export function CustomerQuoteSchemesView() {
                                             <button
                                               type="button"
                                               onClick={() =>
-                                                deleteItemMessage(
-                                                  key,
+                                                void deleteItemMessage(
+                                                  item,
                                                   message.id,
                                                 )
                                               }

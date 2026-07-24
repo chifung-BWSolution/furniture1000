@@ -7,7 +7,7 @@ import {
 import {
   fetchProjects, fetchZones, fetchZoneProducts, fetchActiveShopifyProducts,
   createZoneProduct, deleteZoneProductWithProgress,
-  persistDesignProjectFurniture, saveProject,
+  persistDesignProjectFurniture, saveProject, updateZoneProductNotes,
 } from '@/lib/solutionsApi';
 import { useAppStore } from '@/hooks/use-app-store';
 import { consumeSolutionFocusProjectId } from '@/lib/solutionProjectFocus';
@@ -37,8 +37,9 @@ import {
   type ZoneProductStatus,
 } from '@/types/solutions';
 import {
-  CLIENT_FEEDBACK_MARKER,
+  removeClientFeedbackFromNotes,
   reviewLabelZh,
+  serializeStaffNotesAndFeedback,
   splitStaffNotesAndFeedback,
 } from '@/lib/zoneProductClientFeedback';
 import {
@@ -60,11 +61,7 @@ function mergeStaffNotesKeepingFeedback(
   nextStaffNotes: string,
 ): string {
   const { feedback } = splitStaffNotesAndFeedback(previousNotes);
-  const staff = nextStaffNotes.replace(/\s+$/, '');
-  if (feedback.length === 0) return staff;
-  const body = feedback.map((row) => JSON.stringify(row)).join('\n');
-  if (!staff.trim()) return `${CLIENT_FEEDBACK_MARKER}\n${body}`;
-  return `${staff}\n\n${CLIENT_FEEDBACK_MARKER}\n${body}`;
+  return serializeStaffNotesAndFeedback(nextStaffNotes, feedback);
 }
 
 function fmtFeedbackTime(iso: string): string {
@@ -181,6 +178,9 @@ export function DesignProjectsView() {
   const [uploadingImageId, setUploadingImageId] = useState<string | null>(null);
   const [savingFurniture, setSavingFurniture] = useState(false);
   const [furnitureDirty, setFurnitureDirty] = useState(false);
+  const [deletingFeedbackKey, setDeletingFeedbackKey] = useState<string | null>(
+    null,
+  );
   const [lightbox, setLightbox] = useState<{ src: string; title: string } | null>(
     null,
   );
@@ -400,6 +400,28 @@ export function DesignProjectsView() {
     patchProduct(item.id, {
       notes: mergeStaffNotesKeepingFeedback(item.notes, value),
     });
+  };
+
+  const deleteClientFeedback = async (
+    item: ZoneProduct,
+    feedbackIndex: number,
+  ) => {
+    const feedbackKey = `${item.id}:${feedbackIndex}`;
+    if (deletingFeedbackKey) return;
+    if (!window.confirm('確定刪除此客戶意見？')) return;
+    const nextNotes = removeClientFeedbackFromNotes(item.notes, feedbackIndex);
+    setDeletingFeedbackKey(feedbackKey);
+    const previous = item.notes;
+    patchProduct(item.id, { notes: nextNotes });
+    const result = await updateZoneProductNotes(item.id, nextNotes);
+    setDeletingFeedbackKey(null);
+    if (!result.ok) {
+      patchProduct(item.id, { notes: previous });
+      toast.error('刪除客戶意見失敗', { description: result.error });
+      return;
+    }
+    setFurnitureDirty(true);
+    toast.success('已刪除客戶意見');
   };
 
   const addBlankProduct = async (zoneId: string) => {
@@ -1027,26 +1049,50 @@ export function DesignProjectsView() {
                               <div className="space-y-2 pl-[3.25rem]">
                                 {splitStaffNotesAndFeedback(
                                   item.notes,
-                                ).feedback.map((feedback, feedbackIndex) => (
+                                ).feedback.map((feedback, feedbackIndex) => {
+                                  const feedbackKey = `${item.id}:${feedbackIndex}`;
+                                  return (
                                   <div
                                     key={`${item.id}-feedback-${feedbackIndex}-${feedback.at}`}
                                     className="rounded-lg border border-amber-500/25 bg-amber-500/5 px-3 py-2.5"
                                   >
-                                    <p className="text-[13px] font-medium text-amber-800 dark:text-amber-200">
-                                      客戶意見 · {reviewLabelZh(feedback.review)}
-                                      {' · '}
-                                      {fmtFeedbackTime(feedback.at)}
-                                      {feedback.author
-                                        ? ` · ${feedback.author}`
-                                        : ''}
-                                    </p>
+                                    <div className="flex items-start justify-between gap-3">
+                                      <p className="text-[13px] font-medium text-amber-800 dark:text-amber-200">
+                                        客戶意見 · {reviewLabelZh(feedback.review)}
+                                        {' · '}
+                                        {fmtFeedbackTime(feedback.at)}
+                                        {feedback.author
+                                          ? ` · ${feedback.author}`
+                                          : ''}
+                                      </p>
+                                      <button
+                                        type="button"
+                                        disabled={deletingFeedbackKey === feedbackKey}
+                                        onClick={() =>
+                                          void deleteClientFeedback(
+                                            item,
+                                            feedbackIndex,
+                                          )
+                                        }
+                                        className="inline-flex shrink-0 items-center gap-1 rounded-md border border-rose-500/30 px-2 py-1 text-xs font-medium text-rose-700 hover:bg-rose-500/10 disabled:opacity-50"
+                                        title="刪除此客戶意見"
+                                      >
+                                        {deletingFeedbackKey === feedbackKey ? (
+                                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                        ) : (
+                                          <Trash2 className="h-3.5 w-3.5" />
+                                        )}
+                                        刪除
+                                      </button>
+                                    </div>
                                     {feedback.text ? (
                                       <p className="mt-1 whitespace-pre-wrap text-[15px] text-foreground">
                                         {feedback.text}
                                       </p>
                                     ) : null}
                                   </div>
-                                ))}
+                                  );
+                                })}
                               </div>
                             ) : null}
                           </div>
