@@ -40,6 +40,7 @@ import {
   FloorPlanViewerModal,
   floorPlanPreviewOf,
 } from './FloorPlanViewerModal';
+import { RemarksRichEditor } from '@/components/dashboard/RemarksRichEditor';
 
 function isCustomZoneProduct(item: ZoneProduct): boolean {
   return !item.productId;
@@ -983,16 +984,23 @@ export function DesignProjectsView() {
                             <span className="mt-2 shrink-0 text-[15px] font-medium text-muted-foreground">
                               備註
                             </span>
-                            <input
-                              type="text"
-                              value={item.notes || ''}
-                              onChange={(event) =>
-                                setNotes(item, event.target.value)
-                              }
-                              placeholder="輸入意見或補充說明…"
-                              className="h-10 min-w-0 flex-1 rounded-lg border border-border bg-background px-3 text-[15px] outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+                            <div
+                              className="min-w-0 flex-1 rounded-lg border border-border bg-background px-2 py-2"
                               aria-label={`${titleLabel}備註`}
-                            />
+                            >
+                              <RemarksRichEditor
+                                key={item.id}
+                                value={item.notes || ''}
+                                comfortable
+                                textRows={3}
+                                onChange={(serialized) =>
+                                  setNotes(item, serialized)
+                                }
+                                uploadImage={async (file) =>
+                                  uploadFileToStorage(file, item.id, 'notes')
+                                }
+                              />
+                            </div>
                           </div>
                         </li>
                         );

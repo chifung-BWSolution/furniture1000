@@ -79,6 +79,10 @@ interface RemarksRichEditorProps {
   onChange: (serialized: string) => void;
   /** Narrow layout for quote item cards — single-line text, smaller image previews */
   compact?: boolean;
+  /** Visible textarea rows (defaults: compact 1, otherwise 2). */
+  textRows?: number;
+  /** Larger typography for 設計專案 product cards. */
+  comfortable?: boolean;
   /** Upload to Supabase Storage; returns HTTP URL (required for quote editor). */
   uploadImage?: (file: File) => Promise<string>;
 }
@@ -88,6 +92,8 @@ export function RemarksRichEditor({
   legacyImage,
   onChange,
   compact = false,
+  textRows,
+  comfortable = false,
   uploadImage,
 }: RemarksRichEditorProps) {
   const [blocks, setBlocks] = useState<RemarksBlock[]>(() =>
@@ -296,12 +302,15 @@ export function RemarksRichEditor({
               <textarea
                 value={block.content}
                 placeholder="備註文字..."
-                rows={compact ? 1 : 2}
+                rows={textRows ?? (compact ? 1 : comfortable ? 3 : 2)}
                 onChange={(e) => updateTextBlock(block.id, e.target.value)}
                 onPaste={handlePasteImage}
                 className={cn(
-                  "w-full resize-y rounded-md border border-border bg-background px-2 py-1 font-body text-xs leading-snug text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30",
-                  compact && "min-h-[34px]",
+                  "w-full resize-y rounded-md border border-border bg-background px-2 py-1 font-body leading-snug text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30",
+                  comfortable
+                    ? "min-h-[72px] px-3 py-2 text-[15px] leading-relaxed"
+                    : "text-xs",
+                  compact && !comfortable && "min-h-[34px]",
                 )}
               />
             </div>
