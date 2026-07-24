@@ -13,17 +13,41 @@ import { consumeSolutionFocusProjectId } from '@/lib/solutionProjectFocus';
 import { resolveDesignProjectPmLabels } from '@/lib/solutionProjectPm';
 import {
   inferProjectType,
+  normalizeRoomOrder,
   projectTypeLabel,
+  zoneSeedsFromRoomCounts,
+  type ProjectEngineeringType,
+  type RoomTypeTemplate,
 } from '@/lib/projectPartitionTemplates';
+import {
+  syncProjectZones,
+  zonesMissingFromSeeds,
+} from '@/lib/syncProjectZones';
 import { toast } from 'sonner';
 import {
   ZONE_PRODUCT_STATUS_META,
+  type CustomRoomType,
   type DesignProject,
   type ProjectZone,
   type ZoneProduct,
   type SearchProduct,
   type ZoneProductStatus,
 } from '@/types/solutions';
+
+function normalizeCustomRooms(value: unknown): CustomRoomType[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      if (!item || typeof item !== 'object') return null;
+      const row = item as Record<string, unknown>;
+      const key = String(row.key || '').trim();
+      const label = String(row.label || '').trim();
+      const codePrefix = String(row.codePrefix || '').trim() || 'CR';
+      if (!key || !label) return null;
+      return { key, label, codePrefix };
+    })
+    .filter((item): item is CustomRoomType => Boolean(item));
+}
 
 function zoneCodePrefix(code: string | null): string {
   return code?.trim().match(/^[A-Za-z]+/)?.[0]?.toUpperCase() || '其他';
@@ -76,20 +100,67 @@ export function DesignProjectsView() {
 
   const reloadZones = useCallback(async (projectId: string) => {
     setLoading(true);
-    const [z, zp] = await Promise.all([
-      fetchZones(projectId),
-      fetchZoneProducts(projectId),
-    ]);
-    setZones(z);
-    setZoneProducts(zp);
-    setLoading(false);
-    return z;
-  }, []);
+    try {
+      const projectRow =
+        projects.find((p) => p.id === projectId) || null;
+      const [z, zp] = await Promise.all([
+        fetchZones(projectId),
+        fetchZoneProducts(projectId),
+      ]);
+
+      // Heal incomplete project_zones from saved meta.roomCounts.
+      // Older saves could skip custom Chinese rooms that shared code "CR1".
+      const meta = projectRow?.meta;
+      const roomCounts = meta?.roomCounts;
+      let nextZones = z;
+      if (roomCounts && typeof roomCounts === 'object') {
+        const projectType = (meta?.projectType ||
+          inferProjectType(
+            projectRow?.name || '',
+            projectRow?.clientCompany,
+          )) as ProjectEngineeringType;
+        const customRooms = normalizeCustomRooms(meta?.customRooms);
+        const roomOrder = normalizeRoomOrder(meta?.roomOrder);
+        const desired = zoneSeedsFromRoomCounts(
+          projectType,
+          roomCounts as Record<string, number>,
+          customRooms as RoomTypeTemplate[],
+          roomOrder.length > 0 ? roomOrder : null,
+        );
+        if (zonesMissingFromSeeds(desired, z)) {
+          const synced = await syncProjectZones({
+            projectId,
+            desired,
+            zones: z,
+            zoneProducts: zp,
+            // Only create missing rooms here; pruning stays on 方案列表「儲存」.
+            pruneEmpty: false,
+          });
+          if (synced.ok && synced.data) {
+            nextZones = synced.data;
+            toast.success('已同步房間清單', {
+              description: '已依方案列表的房間類型及數量補齊間隔',
+            });
+          } else if (!synced.ok) {
+            toast.error('同步房間失敗', {
+              description: synced.error || '請到方案列表重新按「儲存」',
+            });
+          }
+        }
+      }
+
+      setZones(nextZones);
+      setZoneProducts(zp);
+      return nextZones;
+    } finally {
+      setLoading(false);
+    }
+  }, [projects]);
 
   useEffect(() => {
-    if (!activeProjectId) return;
+    if (!activeProjectId || !projectsLoaded) return;
     void reloadZones(activeProjectId);
-  }, [activeProjectId, reloadZones]);
+  }, [activeProjectId, projectsLoaded, reloadZones]);
 
   const project = projects.find((p) => p.id === activeProjectId) || null;
   const projectType =

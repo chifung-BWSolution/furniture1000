@@ -12,13 +12,10 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
-  createZone,
-  deleteZone,
   fetchZoneProducts,
   fetchZones,
   saveProject,
   updateProjectFloorPlan,
-  updateZone,
 } from '@/lib/solutionsApi';
 import { generateFloorPlanDataUrl } from '@/lib/floorPlanGenerator';
 import {
@@ -35,6 +32,7 @@ import {
   type ProjectEngineeringType,
   type RoomTypeTemplate,
 } from '@/lib/projectPartitionTemplates';
+import { syncProjectZones } from '@/lib/syncProjectZones';
 import type {
   CustomRoomType,
   DesignProject,
@@ -214,56 +212,17 @@ export function ProjectPartitionPanel({
         customRooms as RoomTypeTemplate[],
         nextOrder,
       );
-      const zonesWithProducts = new Set(
-        zoneProducts.map((p) => p.zoneId).filter(Boolean),
-      );
-      const kept = zones.filter((z) => zonesWithProducts.has(z.id));
-      const empty = zones.filter((z) => !zonesWithProducts.has(z.id));
-      for (const zone of empty) await deleteZone(zone.id);
-
-      const pool = [...kept];
-      for (let i = 0; i < desired.length; i++) {
-        const seed = desired[i];
-        const existing = pool.find(
-          (z) => z.name === seed.name || z.code === seed.code,
-        );
-        if (existing) continue;
-        const result = await createZone({
-          projectId: project.id,
-          name: seed.name,
-          code: seed.code,
-          bounds: seed.bounds,
-          aiSuggested: true,
-          sortOrder: i,
-        });
-        if (!result.ok) throw new Error(result.error || '建立間隔失敗');
-        if (result.data) pool.push(result.data);
+      const synced = await syncProjectZones({
+        projectId: project.id,
+        desired,
+        zones,
+        zoneProducts,
+        pruneEmpty: true,
+      });
+      if (!synced.ok || !synced.data) {
+        throw new Error(synced.error || '同步間隔失敗');
       }
-
-      const orderedZones: ProjectZone[] = [];
-      const usedIds = new Set<string>();
-      for (let i = 0; i < desired.length; i++) {
-        const seed = desired[i];
-        const match = pool.find(
-          (z) =>
-            !usedIds.has(z.id) &&
-            (z.name === seed.name || z.code === seed.code),
-        );
-        if (!match) continue;
-        usedIds.add(match.id);
-        if (match.sortOrder !== i) {
-          const updated = await updateZone(match.id, { sortOrder: i });
-          if (!updated.ok) throw new Error(updated.error || '更新排序失敗');
-        }
-        orderedZones.push({ ...match, sortOrder: i });
-      }
-      for (const zone of pool) {
-        if (usedIds.has(zone.id)) continue;
-        const sortOrder = orderedZones.length;
-        const updated = await updateZone(zone.id, { sortOrder });
-        if (!updated.ok) throw new Error(updated.error || '更新排序失敗');
-        orderedZones.push({ ...zone, sortOrder });
-      }
+      const orderedZones = synced.data;
 
       // Keep counts only for currently visible rooms.
       const visibleCounts: Record<string, number> = {};

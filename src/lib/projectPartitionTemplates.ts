@@ -193,6 +193,26 @@ export function orderedRoomsForProjectType(
     .filter((room): room is RoomTypeTemplate => Boolean(room));
 }
 
+/**
+ * Allocate a unique zone code for a project.
+ * Chinese custom rooms often share prefix "CR"; codes must still be unique
+ * across the whole project (CR1, CR2, …) so sync does not skip creates.
+ */
+export function allocateUniqueZoneCode(
+  prefix: string,
+  usedCodes: Set<string>,
+): string {
+  const base = (prefix || 'CR').trim().toUpperCase() || 'CR';
+  let n = 1;
+  let code = `${base}${n}`;
+  while (usedCodes.has(code)) {
+    n += 1;
+    code = `${base}${n}`;
+  }
+  usedCodes.add(code);
+  return code;
+}
+
 /** Layout seeds for floor-plan generator from selected room counts. */
 export function zoneSeedsFromRoomCounts(
   type: ProjectEngineeringType,
@@ -206,7 +226,7 @@ export function zoneSeedsFromRoomCounts(
     (r) =>
       (counts[r.key] || 0) > 0 && !EXCLUDED_DEFAULT_ROOM_KEYS.has(r.key),
   );
-  const total = active.reduce((n, r) => n + (counts[r.key] || 0), 0) || 1;
+  const usedCodes = new Set<string>();
   let index = 0;
   for (const room of active) {
     const qty = counts[room.key] || 0;
@@ -214,7 +234,7 @@ export function zoneSeedsFromRoomCounts(
       const col = index % 3;
       const row = Math.floor(index / 3);
       seeds.push({
-        code: `${room.codePrefix}${i + 1}`,
+        code: allocateUniqueZoneCode(room.codePrefix, usedCodes),
         name: qty > 1 ? `${room.label} ${i + 1}` : room.label,
         bounds: {
           x: 6 + col * 31,
@@ -225,9 +245,7 @@ export function zoneSeedsFromRoomCounts(
         roomKey: room.key,
       });
       index += 1;
-      if (index >= Math.min(total, 12)) break;
     }
-    if (index >= 12) break;
   }
   if (seeds.length === 0) {
     // Explicit empty roomOrder means user cleared all rooms — do not invent a fallback.
