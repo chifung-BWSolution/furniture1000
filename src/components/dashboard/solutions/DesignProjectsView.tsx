@@ -308,7 +308,12 @@ export function DesignProjectsView() {
 
   const removeProduct = async (item: ZoneProduct) => {
     if (!activeProjectId || deletingProductId) return;
-    if (!window.confirm(`確定從此間隔移除「${item.productTitle}」？`)) return;
+    if (
+      !window.confirm(
+        `確定從此間隔移除「${item.productTitle || '未命名產品'}」？`,
+      )
+    )
+      return;
     setDeletingProductId(item.id);
     const result = await deleteZoneProductWithProgress(
       item.id,
