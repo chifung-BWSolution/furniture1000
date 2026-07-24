@@ -35,6 +35,11 @@ import {
   type SearchProduct,
   type ZoneProductStatus,
 } from '@/types/solutions';
+import {
+  FloorPlanThumb,
+  FloorPlanViewerModal,
+  floorPlanPreviewOf,
+} from './FloorPlanViewerModal';
 
 function isCustomZoneProduct(item: ZoneProduct): boolean {
   return !item.productId;
@@ -141,6 +146,7 @@ export function DesignProjectsView() {
   const [lightbox, setLightbox] = useState<{ src: string; title: string } | null>(
     null,
   );
+  const [floorPlanViewerOpen, setFloorPlanViewerOpen] = useState(false);
   const imageInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   useEffect(() => {
@@ -220,6 +226,7 @@ export function DesignProjectsView() {
 
   useEffect(() => {
     if (!activeProjectId || !projectsLoaded) return;
+    setFloorPlanViewerOpen(false);
     void reloadZones(activeProjectId);
   }, [activeProjectId, projectsLoaded, reloadZones]);
 
@@ -575,12 +582,15 @@ export function DesignProjectsView() {
     );
   }
 
+  const floorPlanPreviewUrl = floorPlanPreviewOf(project);
+  const hasFloorPlan = Boolean(project.floorPlanUrl);
+
   return (
     <div className="h-full overflow-y-auto bg-background">
       {/* Header */}
       <div className="border-b border-border bg-background">
-        <div className="mx-auto grid max-w-[1440px] gap-4 px-7 py-4 md:grid-cols-[minmax(0,1fr)_320px] md:px-10">
-          <div className="min-w-0">
+        <div className="mx-auto flex max-w-[1440px] flex-col gap-4 px-7 py-4 md:flex-row md:items-center md:px-10">
+          <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="truncate font-display text-2xl font-bold tracking-tight">
                 設計專案
@@ -604,7 +614,28 @@ export function DesignProjectsView() {
               </select>
             </div>
           </div>
-          <div className="grid gap-2 rounded-xl border border-border bg-card px-4 py-3">
+
+          <button
+            type="button"
+            disabled={!hasFloorPlan}
+            onClick={() => setFloorPlanViewerOpen(true)}
+            className="relative mx-auto flex h-24 w-32 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-border bg-muted/40 shadow-sm transition hover:border-primary/40 hover:shadow-md disabled:cursor-default disabled:opacity-70 md:mx-0"
+            title={hasFloorPlan ? '點擊檢視平面圖' : '尚未上傳平面圖'}
+            aria-label={hasFloorPlan ? '檢視專案平面圖縮圖' : '尚未上傳平面圖'}
+          >
+            <FloorPlanThumb
+              url={project.floorPlanUrl}
+              type={project.floorPlanType}
+              previewUrl={floorPlanPreviewUrl}
+              fileName={
+                typeof project.meta?.floorPlanFileName === 'string'
+                  ? project.meta.floorPlanFileName
+                  : undefined
+              }
+            />
+          </button>
+
+          <div className="grid w-full shrink-0 gap-2 rounded-xl border border-border bg-card px-4 py-3 md:w-[320px]">
             <div className="flex items-center gap-2 text-[15px]">
               <Tag className="h-4 w-4 shrink-0 text-primary" />
               <span className="text-muted-foreground">專案分類</span>
@@ -613,7 +644,7 @@ export function DesignProjectsView() {
               </span>
             </div>
             <div className="flex items-center gap-2 border-t border-border/70 pt-2 text-[15px]">
-                <UserRound className="h-4 w-4 text-primary" />
+              <UserRound className="h-4 w-4 text-primary" />
               <span className="text-muted-foreground">項目經理</span>
               <span className="ml-auto font-semibold text-foreground">
                 {pmNames[project.id] || '正在讀取…'}
@@ -1169,6 +1200,15 @@ export function DesignProjectsView() {
           onClose={() => setLightbox(null)}
         />
       ) : null}
+
+      <FloorPlanViewerModal
+        open={floorPlanViewerOpen}
+        title={project.name}
+        url={project.floorPlanUrl}
+        type={project.floorPlanType}
+        previewUrl={floorPlanPreviewUrl}
+        onClose={() => setFloorPlanViewerOpen(false)}
+      />
     </div>
   );
 }

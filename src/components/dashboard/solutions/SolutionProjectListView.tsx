@@ -37,7 +37,11 @@ import {
 import { toast } from 'sonner';
 import type { DesignProject } from '@/types/solutions';
 import { ProjectPartitionPanel } from './ProjectPartitionPanel';
-import { FloorPlanViewerModal } from './FloorPlanViewerModal';
+import {
+  FloorPlanThumb,
+  FloorPlanViewerModal,
+  floorPlanPreviewOf,
+} from './FloorPlanViewerModal';
 
 const STATUS_FILTERS = [
   { id: 'all', label: '全部狀態' },
@@ -66,68 +70,6 @@ function isPdfFloorPlan(url: string | null | undefined, type: string | null | un
     value.startsWith('data:application/pdf') ||
     /\.pdf(\?|#|$)/i.test(value)
   );
-}
-
-function isDisplayableFloorImage(
-  url: string | null | undefined,
-  type: string | null | undefined,
-) {
-  if (!url) return false;
-  if (isPdfFloorPlan(url, type)) return false;
-  const mime = (type || '').toLowerCase();
-  return (
-    mime.startsWith('image/') ||
-    url.startsWith('data:image/') ||
-    url.startsWith('http://') ||
-    url.startsWith('https://')
-  );
-}
-
-function floorPlanPreviewOf(project: DesignProject): string | null {
-  const preview = project.meta?.floorPlanPreviewUrl;
-  return typeof preview === 'string' && preview.trim() ? preview.trim() : null;
-}
-
-function FloorPlanThumb({
-  url,
-  type,
-  previewUrl,
-  fileName,
-}: {
-  url: string | null;
-  type: string | null;
-  previewUrl?: string | null;
-  fileName?: string;
-}) {
-  if (previewUrl) {
-    return (
-      <div className="relative h-full w-full">
-        <img src={previewUrl} alt="" className="h-full w-full object-cover" />
-        {url && isPdfFloorPlan(url, type) ? (
-          <span className="absolute bottom-0.5 right-0.5 rounded bg-black/65 px-1 py-0.5 text-[9px] font-semibold text-white">
-            PDF
-          </span>
-        ) : null}
-      </div>
-    );
-  }
-  if (url && isPdfFloorPlan(url, type)) {
-    return (
-      <div className="flex h-full w-full flex-col items-center justify-center gap-1 bg-rose-500/5 px-1 text-rose-700">
-        <FileText className="h-5 w-5" />
-        <span className="truncate text-[10px] font-semibold">PDF</span>
-        {fileName ? (
-          <span className="max-w-full truncate text-[9px] text-muted-foreground">
-            {fileName}
-          </span>
-        ) : null}
-      </div>
-    );
-  }
-  if (url && isDisplayableFloorImage(url, type)) {
-    return <img src={url} alt="" className="h-full w-full object-cover" />;
-  }
-  return <MapIcon className="h-6 w-6 text-muted-foreground/50" />;
 }
 
 export function SolutionProjectListView() {

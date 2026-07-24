@@ -1,7 +1,16 @@
 import { useEffect, useState } from 'react';
-import { ChevronLeft, ChevronRight, ExternalLink, Loader2, X } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  ExternalLink,
+  FileText,
+  Loader2,
+  Map as MapIcon,
+  X,
+} from 'lucide-react';
 import { renderPdfPagesToObjectUrls } from '@/lib/floorPlanPdf';
 import { toast } from 'sonner';
+import type { DesignProject } from '@/types/solutions';
 
 function isPdfSource(url: string | null | undefined, type: string | null | undefined) {
   const value = (url || '').toLowerCase();
@@ -11,6 +20,67 @@ function isPdfSource(url: string | null | undefined, type: string | null | undef
     value.startsWith('data:application/pdf') ||
     /\.pdf(\?|#|$)/i.test(value)
   );
+}
+
+function isDisplayableFloorImage(
+  url: string | null | undefined,
+  type: string | null | undefined,
+) {
+  if (!url) return false;
+  const mime = (type || '').toLowerCase();
+  if (mime.startsWith('image/')) return true;
+  return (
+    url.startsWith('data:image/') ||
+    url.startsWith('http://') ||
+    url.startsWith('https://')
+  );
+}
+
+export function floorPlanPreviewOf(project: DesignProject): string | null {
+  const preview = project.meta?.floorPlanPreviewUrl;
+  return typeof preview === 'string' && preview.trim() ? preview.trim() : null;
+}
+
+export function FloorPlanThumb({
+  url,
+  type,
+  previewUrl,
+  fileName,
+}: {
+  url: string | null;
+  type: string | null;
+  previewUrl?: string | null;
+  fileName?: string;
+}) {
+  if (previewUrl) {
+    return (
+      <div className="relative h-full w-full">
+        <img src={previewUrl} alt="" className="h-full w-full object-cover" />
+        {url && isPdfSource(url, type) ? (
+          <span className="absolute bottom-0.5 right-0.5 rounded bg-black/65 px-1 py-0.5 text-[9px] font-semibold text-white">
+            PDF
+          </span>
+        ) : null}
+      </div>
+    );
+  }
+  if (url && isPdfSource(url, type)) {
+    return (
+      <div className="flex h-full w-full flex-col items-center justify-center gap-1 bg-rose-500/5 px-1 text-rose-700">
+        <FileText className="h-5 w-5" />
+        <span className="truncate text-[10px] font-semibold">PDF</span>
+        {fileName ? (
+          <span className="max-w-full truncate text-[9px] text-muted-foreground">
+            {fileName}
+          </span>
+        ) : null}
+      </div>
+    );
+  }
+  if (url && isDisplayableFloorImage(url, type)) {
+    return <img src={url} alt="" className="h-full w-full object-cover" />;
+  }
+  return <MapIcon className="h-6 w-6 text-muted-foreground/50" />;
 }
 
 export function FloorPlanViewerModal({
@@ -31,19 +101,24 @@ export function FloorPlanViewerModal({
   const [pageUrls, setPageUrls] = useState<string[]>([]);
   const [pageIndex, setPageIndex] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [zoom, setZoom] = useState(1);
 
   useEffect(() => {
     if (!open || !url) {
       setPageUrls((current) => {
-        current.forEach((item) => URL.revokeObjectURL(item));
+        current.forEach((item) => {
+          if (item.startsWith('blob:')) URL.revokeObjectURL(item);
+        });
         return [];
       });
       setPageIndex(0);
+      setZoom(1);
       return;
     }
 
     let cancelled = false;
     const pdf = isPdfSource(url, type);
+    setZoom(1);
 
     if (!pdf) {
       setPageUrls([url]);
@@ -91,6 +166,15 @@ export function FloorPlanViewerModal({
     };
   }, [pageUrls]);
 
+  useEffect(() => {
+    if (!open) return;
+    const handler = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [onClose, open]);
+
   if (!open || !url) return null;
 
   const current = pageUrls[pageIndex] || previewUrl || '';
@@ -98,8 +182,17 @@ export function FloorPlanViewerModal({
   const canNext = pageIndex < pageUrls.length - 1;
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4">
-      <div className="flex max-h-[92vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl">
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="flex h-[70vh] w-[70vw] max-h-[70vh] max-w-[70vw] flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${title} 平面圖預覽`}
+      >
         <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
           <div className="min-w-0">
             <p className="truncate font-display text-base font-bold">{title}</p>
@@ -108,9 +201,20 @@ export function FloorPlanViewerModal({
               {pageUrls.length > 1
                 ? ` · 第 ${pageIndex + 1} / ${pageUrls.length} 頁`
                 : ''}
+              {zoom > 1 ? ` · 放大 ${Math.round(zoom * 100)}%` : ''}
+              {' · 點擊圖片再放大 20%'}
             </p>
           </div>
           <div className="flex items-center gap-2">
+            {zoom > 1 ? (
+              <button
+                type="button"
+                onClick={() => setZoom(1)}
+                className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted"
+              >
+                重設縮放
+              </button>
+            ) : null}
             {url.startsWith('http') ? (
               <a
                 href={url}
@@ -133,18 +237,35 @@ export function FloorPlanViewerModal({
           </div>
         </div>
 
-        <div className="relative flex min-h-[320px] flex-1 items-center justify-center overflow-auto bg-muted/30 p-4">
+        <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-auto bg-muted/30 p-4">
           {loading ? (
             <div className="flex flex-col items-center gap-2 text-muted-foreground">
               <Loader2 className="h-6 w-6 animate-spin text-primary" />
               <span className="text-sm">正在轉成可檢視圖片…</span>
             </div>
           ) : current ? (
-            <img
-              src={current}
-              alt={`${title} 平面圖`}
-              className="max-h-[72vh] w-auto max-w-full rounded-lg border border-border bg-white object-contain shadow-sm"
-            />
+            <div
+              className="flex min-h-full min-w-full items-center justify-center"
+              style={{
+                width: `${Math.max(100, zoom * 100)}%`,
+                height: `${Math.max(100, zoom * 100)}%`,
+              }}
+            >
+              <img
+                src={current}
+                alt={`${title} 平面圖`}
+                onClick={() =>
+                  setZoom((value) => Number((value * 1.2).toFixed(3)))
+                }
+                className="max-h-full max-w-full rounded-lg border border-border bg-white object-contain shadow-sm transition-transform duration-150"
+                style={{
+                  cursor: 'zoom-in',
+                  transform: `scale(${zoom})`,
+                  transformOrigin: 'center center',
+                }}
+                title="點擊放大 20%"
+              />
+            </div>
           ) : (
             <p className="text-sm text-muted-foreground">暫無可顯示的平面圖</p>
           )}
@@ -155,7 +276,10 @@ export function FloorPlanViewerModal({
             <button
               type="button"
               disabled={!canPrev || loading}
-              onClick={() => setPageIndex((value) => Math.max(0, value - 1))}
+              onClick={() => {
+                setPageIndex((value) => Math.max(0, value - 1));
+                setZoom(1);
+              }}
               className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-sm disabled:opacity-40"
             >
               <ChevronLeft className="h-4 w-4" />
@@ -167,11 +291,12 @@ export function FloorPlanViewerModal({
             <button
               type="button"
               disabled={!canNext || loading}
-              onClick={() =>
+              onClick={() => {
                 setPageIndex((value) =>
                   Math.min(pageUrls.length - 1, value + 1),
-                )
-              }
+                );
+                setZoom(1);
+              }}
               className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-sm disabled:opacity-40"
             >
               下一頁
