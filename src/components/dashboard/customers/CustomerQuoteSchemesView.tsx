@@ -36,6 +36,7 @@ import { useClientZoneContext } from '@/hooks/use-client-zone-context';
 import { usePlatformRole } from '@/hooks/use-platform-role';
 import { usePmsStaffName } from '@/hooks/use-pms-staff-name';
 import { BW_COMPANY } from '@/content/bwCorporate';
+import { ROLE_META, type UserRole } from '@/constants/analytics-mock';
 import {
   fetchProjects,
   fetchActiveMainProductInfo,
@@ -70,12 +71,22 @@ type QuoteRecord = {
 
 type ItemReview = 'accepted' | 'change' | 'rejected';
 type QuoteDecision = 'pending' | 'approved' | 'rejected';
+type CommentBadgeRole = Extract<UserRole, 'pm' | 'designer'>;
 type ItemMessage = {
   id: string;
   text: string;
   createdAt: string;
   authorName: string;
+  authorRole?: CommentBadgeRole | null;
 };
+
+function asCommentBadgeRole(
+  role: string | null | undefined,
+): CommentBadgeRole | null {
+  const next = String(role || '').trim().toLowerCase();
+  if (next === 'pm' || next === 'designer') return next;
+  return null;
+}
 type QuoteRoomGroup = {
   id: string;
   code: string;
@@ -309,6 +320,30 @@ export function CustomerQuoteSchemesView() {
   >({});
   const [quoteDecision, setQuoteDecision] = useState<QuoteDecision>('pending');
   const [quoteNote, setQuoteNote] = useState('');
+  const [currentUserRole, setCurrentUserRole] =
+    useState<CommentBadgeRole | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const email = user?.email?.trim().toLowerCase();
+    if (!email) {
+      setCurrentUserRole(null);
+      return;
+    }
+    supabase
+      .from('platform_user_profiles')
+      .select('role')
+      .ilike('email', email)
+      .maybeSingle()
+      .then(({ data }) => {
+        if (!cancelled) {
+          setCurrentUserRole(asCommentBadgeRole(data?.role));
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.email]);
 
   const fetchQuotes = useCallback(async () => {
     setLoading(true);
@@ -617,6 +652,7 @@ export function CustomerQuoteSchemesView() {
       text,
       createdAt: new Date().toISOString(),
       authorName: currentUserName,
+      authorRole: currentUserRole,
     };
     setItemMessages((current) => ({
       ...current,
@@ -649,10 +685,12 @@ export function CustomerQuoteSchemesView() {
                   ? REVIEW_LABEL[itemReviews[key]]
                   : '尚未決定';
                 const notes = (itemMessages[key] || [])
-                  .map(
-                    (message) =>
-                      `${message.authorName} ${fmtUtc8DateTime(message.createdAt)} ${message.text}`,
-                  )
+                  .map((message) => {
+                    const roleLabel = message.authorRole
+                      ? ROLE_META[message.authorRole].label
+                      : '';
+                    return `${message.authorName}${roleLabel ? ` [${roleLabel}]` : ''} ${fmtUtc8DateTime(message.createdAt)} ${message.text}`;
+                  })
                   .join('；');
                 return `<div class="item">
                   ${
@@ -747,10 +785,12 @@ export function CustomerQuoteSchemesView() {
     const lines = pricedItems.map((item, index) => {
       const key = itemKey(item, index);
       const notes = (itemMessages[key] || [])
-        .map(
-          (message) =>
-            `${message.authorName} ${fmtUtc8DateTime(message.createdAt)} ${message.text}`,
-        )
+        .map((message) => {
+          const roleLabel = message.authorRole
+            ? ROLE_META[message.authorRole].label
+            : '';
+          return `${message.authorName}${roleLabel ? ` [${roleLabel}]` : ''} ${fmtUtc8DateTime(message.createdAt)} ${message.text}`;
+        })
         .join('；');
       return `${quoteItemDisplayName(item)}：${
         itemReviews[key] ? REVIEW_LABEL[itemReviews[key]] : '尚未決定'
@@ -1094,20 +1134,31 @@ export function CustomerQuoteSchemesView() {
                                           key={message.id}
                                           className="rounded-xl border border-border bg-muted/20 px-3 py-2.5"
                                         >
-                                          <p className="text-xs text-muted-foreground">
+                                          <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                                             <span className="font-semibold text-foreground">
                                               {message.authorName || currentUserName}
                                             </span>
-                                            <span className="mx-1.5 text-border">
-                                              ·
-                                            </span>
+                                            {message.authorRole ? (
+                                              <span
+                                                className={cn(
+                                                  'inline-flex items-center rounded-full border px-2 py-0.5 text-[10.5px] font-medium',
+                                                  ROLE_META[message.authorRole]
+                                                    .className,
+                                                )}
+                                              >
+                                                {
+                                                  ROLE_META[message.authorRole]
+                                                    .label
+                                                }
+                                              </span>
+                                            ) : null}
                                             <span className="font-mono-data">
                                               {fmtUtc8DateTime(message.createdAt)}{' '}
                                               <span className="text-[10px]">
                                                 (UTC+8)
                                               </span>
                                             </span>
-                                          </p>
+                                          </div>
                                           <div className="mt-1 flex items-start justify-between gap-3">
                                             <p className="min-w-0 flex-1 whitespace-pre-wrap text-sm">
                                               {message.text}
