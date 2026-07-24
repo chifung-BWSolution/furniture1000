@@ -6,11 +6,16 @@ import {
   FileText,
   Loader2,
   Map as MapIcon,
+  Minus,
+  Plus,
   X,
 } from 'lucide-react';
 import { renderPdfPagesToObjectUrls } from '@/lib/floorPlanPdf';
 import { toast } from 'sonner';
 import type { DesignProject } from '@/types/solutions';
+
+/** Fit (100%) → staged enlargements requested for the floor-plan viewer. */
+const ZOOM_LEVELS = [1, 1.5, 2, 2.5, 3, 5] as const;
 
 function isPdfSource(url: string | null | undefined, type: string | null | undefined) {
   const value = (url || '').toLowerCase();
@@ -101,10 +106,20 @@ export function FloorPlanViewerModal({
   const [pageUrls, setPageUrls] = useState<string[]>([]);
   const [pageIndex, setPageIndex] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [zoom, setZoom] = useState(1);
+  const [zoomIndex, setZoomIndex] = useState(0);
   const [naturalSize, setNaturalSize] = useState({ w: 0, h: 0 });
   const [viewportSize, setViewportSize] = useState({ w: 0, h: 0 });
   const scrollRef = useRef<HTMLDivElement>(null);
+  const zoom = ZOOM_LEVELS[zoomIndex] ?? 1;
+  const canZoomIn = zoomIndex < ZOOM_LEVELS.length - 1;
+  const canZoomOut = zoomIndex > 0;
+
+  const zoomIn = () => {
+    setZoomIndex((current) => Math.min(ZOOM_LEVELS.length - 1, current + 1));
+  };
+  const zoomOut = () => {
+    setZoomIndex((current) => Math.max(0, current - 1));
+  };
 
   useEffect(() => {
     if (!open || !url) {
@@ -115,14 +130,14 @@ export function FloorPlanViewerModal({
         return [];
       });
       setPageIndex(0);
-      setZoom(1);
+      setZoomIndex(0);
       setNaturalSize({ w: 0, h: 0 });
       return;
     }
 
     let cancelled = false;
     const pdf = isPdfSource(url, type);
-    setZoom(1);
+    setZoomIndex(0);
     setNaturalSize({ w: 0, h: 0 });
 
     if (!pdf) {
@@ -254,20 +269,11 @@ export function FloorPlanViewerModal({
               {pageUrls.length > 1
                 ? ` · 第 ${pageIndex + 1} / ${pageUrls.length} 頁`
                 : ''}
-              {zoom > 1 ? ` · 放大 ${Math.round(zoom * 100)}%` : ''}
-              {' · 點擊圖片再放大 20%'}
+              {` · 目前 ${Math.round(zoom * 100)}%`}
+              {' · 點擊圖片或按＋可放大（150% / 200% / 250% / 300% / 500%）'}
             </p>
           </div>
           <div className="flex items-center gap-2">
-            {zoom > 1 ? (
-              <button
-                type="button"
-                onClick={() => setZoom(1)}
-                className="rounded-lg border border-border px-3 py-1.5 text-xs font-medium hover:bg-muted"
-              >
-                重設縮放
-              </button>
-            ) : null}
             {url.startsWith('http') ? (
               <a
                 href={url}
@@ -279,6 +285,26 @@ export function FloorPlanViewerModal({
                 開啟原檔
               </a>
             ) : null}
+            <button
+              type="button"
+              onClick={zoomOut}
+              disabled={!canZoomOut}
+              className="rounded-lg border border-border p-2 hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
+              aria-label="縮小"
+              title="縮小"
+            >
+              <Minus className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={zoomIn}
+              disabled={!canZoomIn}
+              className="rounded-lg border border-border p-2 hover:bg-muted disabled:cursor-not-allowed disabled:opacity-40"
+              aria-label="放大"
+              title="放大"
+            >
+              <Plus className="h-4 w-4" />
+            </button>
             <button
               type="button"
               onClick={onClose}
@@ -319,18 +345,20 @@ export function FloorPlanViewerModal({
                     h: img.naturalHeight || img.height,
                   });
                 }}
-                onClick={() =>
-                  setZoom((value) => Number((value * 1.2).toFixed(3)))
-                }
+                onClick={zoomIn}
                 className="rounded-lg border border-border bg-white object-contain shadow-sm"
                 style={{
-                  cursor: 'zoom-in',
+                  cursor: canZoomIn ? 'zoom-in' : 'default',
                   width: displaySize.w || undefined,
                   height: displaySize.h || undefined,
                   maxWidth: displaySize.w ? undefined : '100%',
                   maxHeight: displaySize.h ? undefined : '100%',
                 }}
-                title="點擊放大 20%"
+                title={
+                  canZoomIn
+                    ? `點擊放大至 ${Math.round((ZOOM_LEVELS[zoomIndex + 1] || zoom) * 100)}%`
+                    : '已達最大放大 500%'
+                }
               />
             </div>
           ) : (
@@ -347,7 +375,7 @@ export function FloorPlanViewerModal({
               disabled={!canPrev || loading}
               onClick={() => {
                 setPageIndex((value) => Math.max(0, value - 1));
-                setZoom(1);
+                setZoomIndex(0);
               }}
               className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-sm disabled:opacity-40"
             >
@@ -364,7 +392,7 @@ export function FloorPlanViewerModal({
                 setPageIndex((value) =>
                   Math.min(pageUrls.length - 1, value + 1),
                 );
-                setZoom(1);
+                setZoomIndex(0);
               }}
               className="inline-flex items-center gap-1 rounded-lg border border-border px-3 py-1.5 text-sm disabled:opacity-40"
             >
