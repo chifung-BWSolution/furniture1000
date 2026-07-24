@@ -164,6 +164,17 @@ export async function uploadFileToStorage(
   return buildStoragePublicUrl(filePath);
 }
 
+function designProjectStoragePath(
+  projectId: string,
+  suffix: string,
+  ext: string,
+): string {
+  const safeId =
+    projectId.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64) || 'project';
+  const rand = Math.floor(performance.now() * 1000) % 100000;
+  return `design-projects/${safeId}/${suffix}_${Date.now()}_${rand}.${ext}`;
+}
+
 /**
  * Upload a design-project floor plan (JPG/PNG/WebP/PDF) to Storage.
  * Images are resized to JPEG; PDFs are stored as-is. Returns public HTTP URL.
@@ -188,8 +199,7 @@ export async function uploadProjectFloorPlanFile(
     ? 'application/pdf'
     : blob.type || 'image/jpeg';
   const ext = isPdf ? 'pdf' : extFromMime(mimeType);
-  const safeId = projectId.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64) || 'project';
-  const filePath = `design-projects/${safeId}/floor-plan_${Date.now()}.${ext}`;
+  const filePath = designProjectStoragePath(projectId, 'floor-plan', ext);
   const bytes = new Uint8Array(await blob.arrayBuffer());
   const { error } = await uploadWithRetry(filePath, bytes, mimeType);
   if (error) throw new Error(error.message);
@@ -198,6 +208,24 @@ export async function uploadProjectFloorPlanFile(
     mimeType,
     fileName: file.name,
   };
+}
+
+/** Upload a JPEG preview rendered from a PDF floor plan. */
+export async function uploadProjectFloorPlanPreview(
+  projectId: string,
+  blob: Blob,
+): Promise<string> {
+  const mimeType = blob.type || 'image/jpeg';
+  const ext = extFromMime(mimeType);
+  const filePath = designProjectStoragePath(
+    projectId,
+    'floor-plan-preview',
+    ext,
+  );
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  const { error } = await uploadWithRetry(filePath, bytes, mimeType);
+  if (error) throw new Error(error.message);
+  return buildStoragePublicUrl(filePath);
 }
 
 /** Upload blob bytes to Storage; returns public HTTP URL. */

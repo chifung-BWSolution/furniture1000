@@ -22,7 +22,11 @@ import {
   saveProject,
   updateProjectFloorPlan,
 } from '@/lib/solutionsApi';
-import { uploadProjectFloorPlanFile } from '@/lib/imageStorage';
+import {
+  uploadProjectFloorPlanFile,
+  uploadProjectFloorPlanPreview,
+} from '@/lib/imageStorage';
+import { renderPdfPageToJpegBlob } from '@/lib/floorPlanPdf';
 import { generateFloorPlanDataUrl } from '@/lib/floorPlanGenerator';
 import {
   PROJECT_TYPE_OPTIONS,
@@ -36,6 +40,7 @@ import { useAppStore } from '@/hooks/use-app-store';
 import { toast } from 'sonner';
 import type { DesignProject } from '@/types/solutions';
 import { ProjectPartitionPanel } from './ProjectPartitionPanel';
+import { FloorPlanViewerModal } from './FloorPlanViewerModal';
 
 const STATUS_FILTERS = [
   { id: 'all', label: '全部狀態' },
@@ -81,15 +86,34 @@ function isDisplayableFloorImage(
   );
 }
 
+function floorPlanPreviewOf(project: DesignProject): string | null {
+  const preview = project.meta?.floorPlanPreviewUrl;
+  return typeof preview === 'string' && preview.trim() ? preview.trim() : null;
+}
+
 function FloorPlanThumb({
   url,
   type,
+  previewUrl,
   fileName,
 }: {
   url: string | null;
   type: string | null;
+  previewUrl?: string | null;
   fileName?: string;
 }) {
+  if (previewUrl) {
+    return (
+      <div className="relative h-full w-full">
+        <img src={previewUrl} alt="" className="h-full w-full object-cover" />
+        {url && isPdfFloorPlan(url, type) ? (
+          <span className="absolute bottom-0.5 right-0.5 rounded bg-black/65 px-1 py-0.5 text-[9px] font-semibold text-white">
+            PDF
+          </span>
+        ) : null}
+      </div>
+    );
+  }
   if (url && isPdfFloorPlan(url, type)) {
     return (
       <div className="flex h-full w-full flex-col items-center justify-center gap-1 bg-rose-500/5 px-1 text-rose-700">
@@ -126,7 +150,9 @@ export function SolutionProjectListView() {
   });
   const [floorFile, setFloorFile] = useState<File | null>(null);
   const [floorPreview, setFloorPreview] = useState<string | null>(null);
+  const [viewerProject, setViewerProject] = useState<DesignProject | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  const previewBackfillAttempted = useRef(new Set<string>());
 
   useEffect(() => {
     fetchProjects()
@@ -139,6 +165,52 @@ export function SolutionProjectListView() {
       if (floorPreview?.startsWith('blob:')) URL.revokeObjectURL(floorPreview);
     };
   }, [floorPreview]);
+
+  // Backfill JPEG previews for existing PDF floor plans so list thumbnails work.
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      for (const project of projects) {
+        if (cancelled) return;
+        if (previewBackfillAttempted.current.has(project.id)) continue;
+        if (!project.floorPlanUrl) continue;
+        if (!isPdfFloorPlan(project.floorPlanUrl, project.floorPlanType)) continue;
+        if (floorPlanPreviewOf(project)) {
+          previewBackfillAttempted.current.add(project.id);
+          continue;
+        }
+        previewBackfillAttempted.current.add(project.id);
+        try {
+          const rendered = await renderPdfPageToJpegBlob(
+            project.floorPlanUrl,
+            1,
+            { scale: 1.25, quality: 0.84 },
+          );
+          const previewUrl = await uploadProjectFloorPlanPreview(
+            project.id,
+            rendered.blob,
+          );
+          const meta = {
+            ...project.meta,
+            floorPlanPreviewUrl: previewUrl,
+          };
+          const saved = await saveProject(project.id, { meta });
+          if (!saved.ok || cancelled) continue;
+          setProjects((prev) =>
+            prev.map((row) =>
+              row.id === project.id ? { ...row, meta } : row,
+            ),
+          );
+        } catch {
+          // Keep PDF badge if preview generation fails (e.g. CORS / corrupt file).
+        }
+      }
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [projects]);
 
   const filtered = useMemo(() => {
     const q = keyword.trim().toLowerCase();
@@ -171,7 +243,7 @@ export function SolutionProjectListView() {
     if (fileRef.current) fileRef.current.value = '';
   };
 
-  const onPickFloor = (file: File | null) => {
+  const onPickFloor = async (file: File | null) => {
     if (!file) return;
     if (
       !/^image\/(jpeg|png|webp)|application\/pdf$/i.test(file.type) &&
@@ -184,8 +256,19 @@ export function SolutionProjectListView() {
     setFloorFile(file);
     if (file.type.startsWith('image/') || /\.(jpe?g|png|webp)$/i.test(file.name)) {
       setFloorPreview(URL.createObjectURL(file));
-    } else {
+      return;
+    }
+    try {
+      const rendered = await renderPdfPageToJpegBlob(file, 1, {
+        scale: 1.2,
+        quality: 0.85,
+      });
+      setFloorPreview(URL.createObjectURL(rendered.blob));
+    } catch {
       setFloorPreview(null);
+      toast.message('已選擇 PDF', {
+        description: '建立專案後會轉成可檢視圖片',
+      });
     }
   };
 
@@ -250,6 +333,25 @@ export function SolutionProjectListView() {
               ...nextMeta,
               floorPlanFileName: uploaded.fileName,
             };
+            if (uploaded.mimeType.includes('pdf')) {
+              try {
+                const rendered = await renderPdfPageToJpegBlob(floorFile, 1, {
+                  scale: 1.35,
+                  quality: 0.86,
+                });
+                const previewUrl = await uploadProjectFloorPlanPreview(
+                  project.id,
+                  rendered.blob,
+                );
+                nextMeta = {
+                  ...nextMeta,
+                  floorPlanPreviewUrl: previewUrl,
+                };
+                previewBackfillAttempted.current.add(project.id);
+              } catch {
+                // PDF file is still saved; preview can be backfilled later.
+              }
+            }
             await saveProject(project.id, { meta: nextMeta });
           }
         } catch (error) {
@@ -357,63 +459,72 @@ export function SolutionProjectListView() {
                     expanded ? 'border-primary/40 shadow-md' : 'border-border',
                   )}
                 >
-                  <button
-                    type="button"
-                    onClick={() => setExpandedProjectId(expanded ? null : p.id)}
-                    className="flex w-full items-center gap-4 p-4 text-left hover:bg-muted/20"
-                    aria-expanded={expanded}
-                  >
-                    <div className="flex h-16 w-20 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-border bg-muted/40">
+                  <div className="flex w-full items-center gap-4 p-4">
+                    <button
+                      type="button"
+                      disabled={!p.floorPlanUrl}
+                      onClick={() => setViewerProject(p)}
+                      className="relative flex h-16 w-20 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-border bg-muted/40 disabled:cursor-default"
+                      title={p.floorPlanUrl ? '點擊檢視平面圖' : '尚未上傳平面圖'}
+                    >
                       <FloorPlanThumb
                         url={p.floorPlanUrl}
                         type={p.floorPlanType}
+                        previewUrl={floorPlanPreviewOf(p)}
                         fileName={
                           typeof p.meta?.floorPlanFileName === 'string'
                             ? p.meta.floorPlanFileName
                             : undefined
                         }
                       />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <h2 className="truncate font-display text-base font-bold">{p.name}</h2>
-                        <span className="rounded-full bg-primary/10 px-2 py-0.5 font-body text-xs font-medium text-primary">
-                          {statusLabel(p.status || 'draft')}
-                        </span>
-                        {p.meta?.projectType ? (
-                          <span className="rounded-full border border-border px-2 py-0.5 font-body text-xs text-muted-foreground">
-                            {projectTypeLabel(p.meta.projectType)}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setExpandedProjectId(expanded ? null : p.id)}
+                      className="flex min-w-0 flex-1 items-center gap-4 text-left hover:opacity-95"
+                      aria-expanded={expanded}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h2 className="truncate font-display text-base font-bold">{p.name}</h2>
+                          <span className="rounded-full bg-primary/10 px-2 py-0.5 font-body text-xs font-medium text-primary">
+                            {statusLabel(p.status || 'draft')}
                           </span>
-                        ) : null}
-                      </div>
-                      <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 font-body text-xs text-muted-foreground">
-                        <span className="inline-flex items-center gap-1">
-                          <Building2 className="h-3 w-3" />
-                          {[p.clientCompany, p.clientName].filter(Boolean).join(' · ') || '未填客戶'}
-                        </span>
-                        <span className="inline-flex items-center gap-1">
-                          <Calendar className="h-3 w-3" />
-                          {fmtDate(p.updatedAt || p.createdAt)}
-                        </span>
-                      </p>
-                      <div className="mt-2 flex items-center gap-2">
-                        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
-                          <div
-                            className="h-full rounded-full bg-primary/70"
-                            style={{ width: `${Math.min(100, Math.max(0, p.progress || 0))}%` }}
-                          />
+                          {p.meta?.projectType ? (
+                            <span className="rounded-full border border-border px-2 py-0.5 font-body text-xs text-muted-foreground">
+                              {projectTypeLabel(p.meta.projectType)}
+                            </span>
+                          ) : null}
                         </div>
-                        <span className="font-mono-data text-xs text-muted-foreground">
-                          {p.progress || 0}% 已確認
-                        </span>
+                        <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 font-body text-xs text-muted-foreground">
+                          <span className="inline-flex items-center gap-1">
+                            <Building2 className="h-3 w-3" />
+                            {[p.clientCompany, p.clientName].filter(Boolean).join(' · ') || '未填客戶'}
+                          </span>
+                          <span className="inline-flex items-center gap-1">
+                            <Calendar className="h-3 w-3" />
+                            {fmtDate(p.updatedAt || p.createdAt)}
+                          </span>
+                        </p>
+                        <div className="mt-2 flex items-center gap-2">
+                          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+                            <div
+                              className="h-full rounded-full bg-primary/70"
+                              style={{ width: `${Math.min(100, Math.max(0, p.progress || 0))}%` }}
+                            />
+                          </div>
+                          <span className="font-mono-data text-xs text-muted-foreground">
+                            {p.progress || 0}% 已確認
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                    {expanded ? (
-                      <ChevronUp className="h-5 w-5 shrink-0 text-primary" />
-                    ) : (
-                      <ChevronDown className="h-5 w-5 shrink-0 text-muted-foreground" />
-                    )}
-                  </button>
+                      {expanded ? (
+                        <ChevronUp className="h-5 w-5 shrink-0 text-primary" />
+                      ) : (
+                        <ChevronDown className="h-5 w-5 shrink-0 text-muted-foreground" />
+                      )}
+                    </button>
+                  </div>
                   {expanded ? (
                     <>
                       <ProjectPartitionPanel
@@ -522,7 +633,7 @@ export function SolutionProjectListView() {
                   type="file"
                   accept="image/jpeg,image/png,image/webp,application/pdf,.pdf,.jpg,.jpeg,.png"
                   className="hidden"
-                  onChange={(e) => onPickFloor(e.target.files?.[0] || null)}
+                  onChange={(e) => void onPickFloor(e.target.files?.[0] || null)}
                 />
                 <button
                   type="button"
@@ -530,7 +641,15 @@ export function SolutionProjectListView() {
                   className="flex w-full flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-muted/20 px-4 py-10 text-center hover:border-primary/40"
                 >
                   {floorPreview ? (
-                    <img src={floorPreview} alt="平面圖預覽" className="max-h-40 rounded-lg object-contain" />
+                    <>
+                      <img src={floorPreview} alt="平面圖預覽" className="max-h-40 rounded-lg object-contain" />
+                      {floorFile ? (
+                        <span className="font-body text-xs text-muted-foreground">
+                          {floorFile.name}
+                          {/\.pdf$/i.test(floorFile.name) ? ' · 已轉成可預覽圖片' : ''}
+                        </span>
+                      ) : null}
+                    </>
                   ) : floorFile ? (
                     <>
                       <FileText className="h-6 w-6 text-rose-600" />
@@ -538,7 +657,7 @@ export function SolutionProjectListView() {
                         已選擇：{floorFile.name}
                       </span>
                       <span className="font-body text-xs text-muted-foreground">
-                        PDF 將上傳至資料庫；列表以 PDF 標示顯示
+                        建立後會轉成可檢視圖片
                       </span>
                     </>
                   ) : (
@@ -582,6 +701,17 @@ export function SolutionProjectListView() {
           </div>
         </div>
       )}
+
+      <FloorPlanViewerModal
+        open={Boolean(viewerProject?.floorPlanUrl)}
+        title={viewerProject?.name || '平面圖'}
+        url={viewerProject?.floorPlanUrl || null}
+        type={viewerProject?.floorPlanType || null}
+        previewUrl={
+          viewerProject ? floorPlanPreviewOf(viewerProject) : null
+        }
+        onClose={() => setViewerProject(null)}
+      />
     </div>
   );
 }

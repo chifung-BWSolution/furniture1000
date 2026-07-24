@@ -63,6 +63,8 @@ export interface DesignProjectMeta {
   /** User-defined rooms beyond the engineering-type templates. */
   customRooms?: CustomRoomType[];
   floorPlanFileName?: string;
+  /** JPEG preview for PDF floor plans (Storage HTTP URL). */
+  floorPlanPreviewUrl?: string;
   [key: string]: unknown;
 }
 

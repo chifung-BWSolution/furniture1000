@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { DoorOpen, Loader2, Minus, Plus, Sparkles, X } from 'lucide-react';
+import { DoorOpen, Loader2, Minus, Plus, Sparkles, Trash2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   createZone,
@@ -289,6 +289,25 @@ export function ProjectPartitionPanel({
     toast.success('已新增房間並儲存', { description: `${label} × ${qty}` });
   };
 
+  const deleteCustomRoom = async (key: string) => {
+    const target = customRooms.find((room) => room.key === key);
+    if (!target) return;
+    if (!window.confirm(`確定刪除自訂房間「${target.label}」？`)) return;
+    const previousCustom = customRooms;
+    const previousCounts = roomCounts;
+    const nextCustom = customRooms.filter((room) => room.key !== key);
+    const nextCounts = { ...roomCounts };
+    delete nextCounts[key];
+    setCustomRooms(nextCustom);
+    setRoomCounts(nextCounts);
+    if (!(await syncZones(projectType, nextCounts, nextCustom))) {
+      setCustomRooms(previousCustom);
+      setRoomCounts(previousCounts);
+      return;
+    }
+    toast.success('已刪除自訂房間', { description: target.label });
+  };
+
   if (loading) {
     return (
       <div className="flex justify-center border-t border-border py-10">
@@ -417,44 +436,59 @@ export function ProjectPartitionPanel({
         ) : null}
 
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {[...roomTemplates, ...customRooms].map((room) => (
-            <div
-              key={room.key}
-              className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3"
-            >
-              <div className="min-w-0">
-                <span className="text-sm font-medium">{room.label}</span>
-                {room.key.startsWith('custom_') ? (
-                  <span className="ml-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
-                    自訂
+          {[...roomTemplates, ...customRooms].map((room) => {
+            const isCustom = room.key.startsWith('custom_');
+            return (
+              <div
+                key={room.key}
+                className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3"
+              >
+                <div className="min-w-0">
+                  <span className="text-sm font-medium">{room.label}</span>
+                  {isCustom ? (
+                    <span className="ml-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
+                      自訂
+                    </span>
+                  ) : null}
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={syncing}
+                    onClick={() => void changeQty(room.key, -1)}
+                    className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary disabled:opacity-40"
+                    aria-label={`減少${room.label}`}
+                  >
+                    <Minus className="h-4 w-4" />
+                  </button>
+                  <span className="w-7 text-center font-mono-data text-sm font-bold">
+                    {roomCounts[room.key] || 0}
                   </span>
-                ) : null}
+                  <button
+                    type="button"
+                    disabled={syncing}
+                    onClick={() => void changeQty(room.key, 1)}
+                    className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary disabled:opacity-40"
+                    aria-label={`增加${room.label}`}
+                  >
+                    <Plus className="h-4 w-4" />
+                  </button>
+                  {isCustom ? (
+                    <button
+                      type="button"
+                      disabled={syncing}
+                      onClick={() => void deleteCustomRoom(room.key)}
+                      className="flex h-8 w-8 items-center justify-center rounded-lg border border-rose-500/30 text-rose-700 hover:bg-rose-500/10 disabled:opacity-40"
+                      aria-label={`刪除${room.label}`}
+                      title="刪除自訂房間"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  ) : null}
+                </div>
               </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  disabled={syncing}
-                  onClick={() => void changeQty(room.key, -1)}
-                  className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary disabled:opacity-40"
-                  aria-label={`減少${room.label}`}
-                >
-                  <Minus className="h-4 w-4" />
-                </button>
-                <span className="w-7 text-center font-mono-data text-sm font-bold">
-                  {roomCounts[room.key] || 0}
-                </span>
-                <button
-                  type="button"
-                  disabled={syncing}
-                  onClick={() => void changeQty(room.key, 1)}
-                  className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary disabled:opacity-40"
-                  aria-label={`增加${room.label}`}
-                >
-                  <Plus className="h-4 w-4" />
-                </button>
-              </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
         <p className="mt-3 flex items-center gap-1.5 text-[15px] text-muted-foreground">
           <Sparkles className="h-4 w-4 text-primary" />
