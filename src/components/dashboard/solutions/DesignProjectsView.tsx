@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import {
   Plus, Loader2, Search, Check, CheckCircle2, Trash2, X, LayoutGrid, UserRound, Tag,
-  ImagePlus, PenLine, ZoomIn, Save, Link2,
+  ImagePlus, PenLine, ZoomIn, Save, Link2, RefreshCw,
 } from 'lucide-react';
 import {
   fetchProjects, fetchZones, fetchZoneProducts, fetchActiveShopifyProducts,
@@ -178,6 +178,10 @@ export function DesignProjectsView() {
 
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pickerZoneId, setPickerZoneId] = useState<string | null>(null);
+  /** When set, product picker replaces this zone_product instead of adding. */
+  const [replacingZoneProductId, setReplacingZoneProductId] = useState<
+    string | null
+  >(null);
   const [products, setProducts] = useState<SearchProduct[]>([]);
   const [productsLoading, setProductsLoading] = useState(false);
   const [keyword, setKeyword] = useState('');
@@ -409,8 +413,17 @@ export function DesignProjectsView() {
     [zoneProducts],
   );
 
-  const openPicker = async (zoneId?: string | null) => {
+  const closePicker = () => {
+    setPickerOpen(false);
+    setReplacingZoneProductId(null);
+  };
+
+  const openPicker = async (
+    zoneId?: string | null,
+    replaceZoneProductId?: string | null,
+  ) => {
     setPickerZoneId(zoneId ?? null);
+    setReplacingZoneProductId(replaceZoneProductId ?? null);
     setPickerOpen(true);
     if (products.length === 0) {
       setProductsLoading(true);
@@ -420,7 +433,32 @@ export function DesignProjectsView() {
     }
   };
 
+  const replaceZoneProduct = (product: SearchProduct) => {
+    if (!replacingZoneProductId) return;
+    const current = zoneProducts.find(
+      (item) => item.id === replacingZoneProductId,
+    );
+    if (!current) {
+      toast.error('找不到要更換的產品');
+      return;
+    }
+    patchProduct(replacingZoneProductId, {
+      productId: product.id,
+      productTitle: product.title,
+      productImageUrl: product.imageUrl || '',
+      salePrice: Number(product.salePrice) || 0,
+    });
+    toast.success('已更換產品', {
+      description: `${current.productTitle || '未命名產品'} → ${product.title}（記得按儲存）`,
+    });
+    closePicker();
+  };
+
   const addProductToZone = async (product: SearchProduct) => {
+    if (replacingZoneProductId) {
+      replaceZoneProduct(product);
+      return;
+    }
     if (!activeProjectId) return;
     const zoneId = pickerZoneId || zones[0]?.id || null;
     if (!zoneId) {
@@ -1070,6 +1108,17 @@ export function DesignProjectsView() {
                               )}
                             </div>
                             <div className="flex shrink-0 items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void openPicker(item.zoneId || zone.id, item.id)
+                                }
+                                className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 px-2.5 text-[14px] font-medium text-primary hover:bg-primary/15"
+                                title="更換此產品的名稱、圖片與價錢"
+                              >
+                                <RefreshCw className="h-3.5 w-3.5" />
+                                更換產品
+                              </button>
                               <div className="inline-flex items-center overflow-hidden rounded-lg border border-border bg-background">
                                 <button
                                   type="button"
@@ -1237,18 +1286,31 @@ export function DesignProjectsView() {
               <div>
                 <h3 className="font-display text-base font-bold">選擇產品</h3>
                 <p className="text-[15px] text-muted-foreground">
-                  加入至：
-                  {pickerZoneId
-                    ? zones.find((z) => z.id === pickerZoneId)?.name || '指定間隔'
-                    : zones[0]?.name || '第一個間隔'}
+                  {replacingZoneProductId ? (
+                    <>
+                      更換：
+                      {zoneProducts.find((item) => item.id === replacingZoneProductId)
+                        ?.productTitle || '目前產品'}
+                    </>
+                  ) : (
+                    <>
+                      加入至：
+                      {pickerZoneId
+                        ? zones.find((z) => z.id === pickerZoneId)?.name ||
+                          '指定間隔'
+                        : zones[0]?.name || '第一個間隔'}
+                    </>
+                  )}
                 </p>
                 <p className="mt-1 text-[13px] text-muted-foreground">
-                  只顯示目前可供選購並已有售價的產品
+                  {replacingZoneProductId
+                    ? '點選產品後會替換目前項目的名稱、圖片與價錢（數量／備註／狀態保留）'
+                    : '只顯示目前可供選購並已有售價的產品'}
                 </p>
               </div>
               <button
                 type="button"
-                onClick={() => setPickerOpen(false)}
+                onClick={closePicker}
                 className="rounded-md p-1.5 hover:bg-muted"
               >
                 <X className="h-4 w-4" />
@@ -1265,6 +1327,7 @@ export function DesignProjectsView() {
                   className="w-full rounded-lg border border-border bg-background py-2 pl-9 pr-3 text-sm"
                 />
               </div>
+              {!replacingZoneProductId ? (
               <div className="flex flex-wrap gap-1.5">
                 <select
                   value={pickerZoneId || zones[0]?.id || ''}
@@ -1278,6 +1341,7 @@ export function DesignProjectsView() {
                   ))}
                 </select>
               </div>
+              ) : null}
               <div className="flex flex-wrap items-center gap-1.5">
                 <span className="mr-1 text-[13px] font-semibold text-muted-foreground">
                   一級分類
@@ -1377,10 +1441,18 @@ export function DesignProjectsView() {
                           </span>
                           <button
                             type="button"
-                            onClick={() => addProductToZone(p)}
+                            onClick={() => void addProductToZone(p)}
                             className="inline-flex items-center gap-1 rounded-md border border-primary/40 bg-primary/10 px-2 py-1 text-[15px] font-medium text-primary hover:bg-primary/15"
                           >
-                            <Check className="h-3 w-3" /> 加入
+                            {replacingZoneProductId ? (
+                              <>
+                                <RefreshCw className="h-3 w-3" /> 更換
+                              </>
+                            ) : (
+                              <>
+                                <Check className="h-3 w-3" /> 加入
+                              </>
+                            )}
                           </button>
                         </div>
                       </div>

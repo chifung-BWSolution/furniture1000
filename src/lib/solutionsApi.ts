@@ -919,6 +919,7 @@ export async function createZoneProduct(input: {
 export async function updateZoneProductFields(
   zoneProductId: string,
   patch: {
+    productId?: string | null;
     productTitle?: string;
     salePrice?: number;
     productImageUrl?: string;
@@ -930,6 +931,9 @@ export async function updateZoneProductFields(
 ): Promise<WriteResult> {
   try {
     const row: Record<string, unknown> = {};
+    if (patch.productId !== undefined) {
+      row.product_id = patch.productId;
+    }
     if (patch.productTitle !== undefined) {
       row.product_title = patch.productTitle.trim();
     }
@@ -1008,6 +1012,7 @@ export async function persistDesignProjectFurniture(input: {
       };
 
       const updated = await updateZoneProductFields(next.id, {
+        productId: next.productId,
         productTitle: next.productTitle,
         salePrice: next.salePrice,
         productImageUrl: next.productImageUrl,
