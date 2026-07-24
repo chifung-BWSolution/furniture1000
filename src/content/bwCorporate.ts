@@ -14,9 +14,31 @@ export const BW_COMPANY = {
   address: DEFAULT_COMPANY_ADDRESS.zh,
   website: DEFAULT_COMPANY_WEBSITE,
   email: 'sales@brandingworks-furniture.com',
-  phones: ['5163 4839', '9717 3545'],
+  phone: '(+852) 2127 4839',
+  phoneTel: '+85221274839',
+  whatsapp: '(+852) 9717 3545',
+  whatsappUrl: 'https://wa.me/85297173545',
   youtube: 'https://www.youtube.com/@brandingworks',
 } as const;
+
+export const BW_CONTACT_HIGHLIGHTS = [
+  {
+    title: '實力工廠',
+    lines: ['16+年經驗、1000+產品', '專員一對一服務'],
+  },
+  {
+    title: '極速交期',
+    lines: ['現貨 3-7 天送裝', '廠方訂造 14–28 天'],
+  },
+  {
+    title: '免費度尺',
+    lines: ['免費上門度尺', '快速提供預算及報價'],
+  },
+  {
+    title: '機構特惠',
+    lines: ['接受 P-Card 付款', '學校及 NGO 享九折'],
+  },
+] as const;
 
 export const BW_TRUST_STATS = [
   { value: '16+', label: '年項目經驗' },
