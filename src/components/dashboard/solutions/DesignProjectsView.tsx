@@ -2,13 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import {
   Plus, Loader2, Search, Check, CheckCircle2, Trash2, X, LayoutGrid, UserRound, Tag,
-  ImagePlus, PenLine, ZoomIn,
+  ImagePlus, PenLine, ZoomIn, Save,
 } from 'lucide-react';
 import {
   fetchProjects, fetchZones, fetchZoneProducts, fetchActiveShopifyProducts,
-  createZoneProduct, deleteZoneProductWithProgress, updateZoneProductQuantity,
-  updateZoneProductNotes, updateZoneProductStatus, updateZoneProductFields,
-  saveProject,
+  createZoneProduct, deleteZoneProductWithProgress,
+  persistDesignProjectFurniture, saveProject,
 } from '@/lib/solutionsApi';
 import { useAppStore } from '@/hooks/use-app-store';
 import { consumeSolutionFocusProjectId } from '@/lib/solutionProjectFocus';
@@ -137,6 +136,8 @@ export function DesignProjectsView() {
   const [deletingProductId, setDeletingProductId] = useState<string | null>(null);
   const [creatingBlankZoneId, setCreatingBlankZoneId] = useState<string | null>(null);
   const [uploadingImageId, setUploadingImageId] = useState<string | null>(null);
+  const [savingFurniture, setSavingFurniture] = useState(false);
+  const [furnitureDirty, setFurnitureDirty] = useState(false);
   const [lightbox, setLightbox] = useState<{ src: string; title: string } | null>(
     null,
   );
@@ -210,6 +211,7 @@ export function DesignProjectsView() {
 
       setZones(nextZones);
       setZoneProducts(zp);
+      setFurnitureDirty(false);
       return nextZones;
     } finally {
       setLoading(false);
@@ -220,6 +222,18 @@ export function DesignProjectsView() {
     if (!activeProjectId || !projectsLoaded) return;
     void reloadZones(activeProjectId);
   }, [activeProjectId, projectsLoaded, reloadZones]);
+
+  const patchProduct = useCallback(
+    (productId: string, patch: Partial<ZoneProduct>) => {
+      setZoneProducts((current) =>
+        current.map((product) =>
+          product.id === productId ? { ...product, ...patch } : product,
+        ),
+      );
+      setFurnitureDirty(true);
+    },
+    [],
+  );
 
   const project = projects.find((p) => p.id === activeProjectId) || null;
   const projectType =
@@ -290,20 +304,17 @@ export function DesignProjectsView() {
     });
     if (res.ok && res.data) {
       setZoneProducts((prev) => [...prev, res.data!]);
+      setFurnitureDirty(true);
       toast.success('已加入間隔', {
-        description: `${product.title} → ${zones.find((z) => z.id === zoneId)?.name || '間隔'}`,
+        description: `${product.title} → ${zones.find((z) => z.id === zoneId)?.name || '間隔'}（記得按儲存）`,
       });
     } else {
       toast.error('加入失敗', { description: res.error });
     }
   };
 
-  const setStatus = async (id: string, status: ZoneProductStatus) => {
-    setZoneProducts((prev) =>
-      prev.map((zp) => (zp.id === id ? { ...zp, status } : zp)),
-    );
-    const res = await updateZoneProductStatus(id, status);
-    if (!res.ok) toast.error('更新失敗', { description: res.error });
+  const setStatus = (id: string, status: ZoneProductStatus) => {
+    patchProduct(id, { status });
   };
 
   const removeProduct = async (item: ZoneProduct) => {
@@ -327,28 +338,14 @@ export function DesignProjectsView() {
     setZoneProducts((current) =>
       current.filter((product) => product.id !== item.id),
     );
+    setFurnitureDirty(true);
     toast.success('已從間隔移除產品', {
-      description: item.productTitle,
+      description: item.productTitle || '未命名產品',
     });
   };
 
-  const setNotes = async (item: ZoneProduct, value: string) => {
-    const notes = value.trim();
-    if (notes === (item.notes || '')) return;
-    setZoneProducts((current) =>
-      current.map((product) =>
-        product.id === item.id ? { ...product, notes } : product,
-      ),
-    );
-    const result = await updateZoneProductNotes(item.id, notes);
-    if (!result.ok) {
-      setZoneProducts((current) =>
-        current.map((product) =>
-          product.id === item.id ? { ...product, notes: item.notes || '' } : product,
-        ),
-      );
-      toast.error('更新備註失敗', { description: result.error });
-    }
+  const setNotes = (item: ZoneProduct, value: string) => {
+    patchProduct(item.id, { notes: value });
   };
 
   const addBlankProduct = async (zoneId: string) => {
@@ -372,51 +369,19 @@ export function DesignProjectsView() {
       return;
     }
     setZoneProducts((prev) => [...prev, result.data!]);
+    setFurnitureDirty(true);
     toast.success('已新增空白產品欄位', {
-      description: '請填寫產品名稱、單價、備註，並可上傳圖片',
+      description: '請填寫後按上方「儲存」寫入專案',
     });
   };
 
-  const setProductTitle = async (item: ZoneProduct, value: string) => {
-    const productTitle = value.trim();
-    if (productTitle === (item.productTitle || '')) return;
-    setZoneProducts((current) =>
-      current.map((product) =>
-        product.id === item.id ? { ...product, productTitle } : product,
-      ),
-    );
-    const result = await updateZoneProductFields(item.id, { productTitle });
-    if (!result.ok) {
-      setZoneProducts((current) =>
-        current.map((product) =>
-          product.id === item.id
-            ? { ...product, productTitle: item.productTitle }
-            : product,
-        ),
-      );
-      toast.error('更新產品名稱失敗', { description: result.error });
-    }
+  const setProductTitle = (item: ZoneProduct, value: string) => {
+    patchProduct(item.id, { productTitle: value });
   };
 
-  const setSalePrice = async (item: ZoneProduct, value: number) => {
+  const setSalePrice = (item: ZoneProduct, value: number) => {
     const salePrice = Math.max(0, Number.isFinite(value) ? value : 0);
-    if (salePrice === Number(item.salePrice || 0)) return;
-    setZoneProducts((current) =>
-      current.map((product) =>
-        product.id === item.id ? { ...product, salePrice } : product,
-      ),
-    );
-    const result = await updateZoneProductFields(item.id, { salePrice });
-    if (!result.ok) {
-      setZoneProducts((current) =>
-        current.map((product) =>
-          product.id === item.id
-            ? { ...product, salePrice: item.salePrice }
-            : product,
-        ),
-      );
-      toast.error('更新單價失敗', { description: result.error });
-    }
+    patchProduct(item.id, { salePrice });
   };
 
   const uploadProductImage = async (item: ZoneProduct, file: File | null) => {
@@ -431,30 +396,12 @@ export function DesignProjectsView() {
     }
     setUploadingImageId(item.id);
     try {
+      // Upload to Storage first; DB + design_projects.meta flush on「儲存」.
       const url = await uploadFileToStorage(file, item.id, 'zone');
-      const previous = item.productImageUrl || '';
-      setZoneProducts((current) =>
-        current.map((product) =>
-          product.id === item.id
-            ? { ...product, productImageUrl: url }
-            : product,
-        ),
-      );
-      const result = await updateZoneProductFields(item.id, {
-        productImageUrl: url,
+      patchProduct(item.id, { productImageUrl: url });
+      toast.success('產品圖片已上傳', {
+        description: '請按上方「儲存」寫入專案資料',
       });
-      if (!result.ok) {
-        setZoneProducts((current) =>
-          current.map((product) =>
-            product.id === item.id
-              ? { ...product, productImageUrl: previous }
-              : product,
-          ),
-        );
-        toast.error('更新產品圖片失敗', { description: result.error });
-        return;
-      }
-      toast.success('產品圖片已上傳');
     } catch (error) {
       toast.error('上傳圖片失敗', {
         description: error instanceof Error ? error.message : '請稍後再試',
@@ -464,19 +411,50 @@ export function DesignProjectsView() {
     }
   };
 
-  const setQuantity = async (item: ZoneProduct, value: number) => {
-    if (!activeProjectId) return;
+  const setQuantity = (item: ZoneProduct, value: number) => {
     const quantity = Math.max(1, Math.min(9999, Math.floor(value || 1)));
-    if (quantity === item.quantity) return;
-    setZoneProducts((current) =>
-      current.map((product) =>
-        product.id === item.id ? { ...product, quantity } : product,
-      ),
-    );
-    const result = await updateZoneProductQuantity(item.id, quantity);
-    if (!result.ok) {
-      toast.error('更新數量失敗', { description: result.error });
-      void reloadZones(activeProjectId);
+    patchProduct(item.id, { quantity });
+  };
+
+  const saveFurniture = async () => {
+    if (!project || savingFurniture) return;
+    if (typeof document !== 'undefined') {
+      const active = document.activeElement;
+      if (active instanceof HTMLElement) active.blur();
+    }
+    setSavingFurniture(true);
+    try {
+      // Allow controlled inputs to flush latest keystrokes into state.
+      await new Promise((resolve) => window.setTimeout(resolve, 0));
+      const result = await persistDesignProjectFurniture({
+        project,
+        zones,
+        products: zoneProducts,
+      });
+      if (!result.ok || !result.data) {
+        toast.error('儲存失敗', { description: result.error });
+        return;
+      }
+      setZoneProducts(result.data.products);
+      setProjects((current) =>
+        current.map((row) =>
+          row.id === project.id
+            ? {
+                ...row,
+                meta: {
+                  ...row.meta,
+                  furnitureSnapshot: result.data!.snapshot,
+                },
+              }
+            : row,
+        ),
+      );
+      setFurnitureDirty(false);
+      toast.success('已儲存傢俬配置', {
+        description: `${result.data.snapshot.zoneCount} 個間隔 · ${result.data.snapshot.productCount} 件產品已寫入 design_projects`,
+      });
+    } finally {
+      setSavingFurniture(false);
     }
   };
 
@@ -488,6 +466,33 @@ export function DesignProjectsView() {
       return;
     }
     setConfirmingProject(true);
+    if (furnitureDirty) {
+      const flushed = await persistDesignProjectFurniture({
+        project,
+        zones,
+        products: zoneProducts,
+      });
+      if (!flushed.ok || !flushed.data) {
+        setConfirmingProject(false);
+        toast.error('確定前儲存失敗', { description: flushed.error });
+        return;
+      }
+      setZoneProducts(flushed.data.products);
+      setProjects((current) =>
+        current.map((row) =>
+          row.id === project.id
+            ? {
+                ...row,
+                meta: {
+                  ...row.meta,
+                  furnitureSnapshot: flushed.data!.snapshot,
+                },
+              }
+            : row,
+        ),
+      );
+      setFurnitureDirty(false);
+    }
     const result = await saveProject(project.id, {
       status: 'confirmed',
       progress: 100,
@@ -624,11 +629,31 @@ export function DesignProjectsView() {
       <div className="mx-auto max-w-[1440px] space-y-6 px-7 py-8 md:px-10 md:py-10">
         {/* Text zone list + furniture */}
         <section className="space-y-3">
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <h2 className="font-display text-lg font-bold">間隔清單與傢俬配置</h2>
-            <span className="font-mono-data text-[15px] text-muted-foreground">
-              {zones.length} 個間隔 · {zoneProducts.filter((z) => z.zoneId).length} 件產品
-            </span>
+            <div className="flex flex-wrap items-center gap-2">
+              {furnitureDirty ? (
+                <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[13px] font-medium text-amber-700">
+                  尚未儲存
+                </span>
+              ) : null}
+              <button
+                type="button"
+                disabled={!project || savingFurniture || loading}
+                onClick={() => void saveFurniture()}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-[15px] font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
+              >
+                {savingFurniture ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4" />
+                )}
+                儲存
+              </button>
+              <span className="font-mono-data text-[15px] text-muted-foreground">
+                {zones.length} 個間隔 · {zoneProducts.filter((z) => z.zoneId).length} 件產品
+              </span>
+            </div>
           </div>
           {!loading && zoneGroups.length > 0 ? (
             <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-4 py-3">
@@ -803,16 +828,10 @@ export function DesignProjectsView() {
                               {custom ? (
                                 <input
                                   type="text"
-                                  defaultValue={item.productTitle || ''}
-                                  key={`${item.id}:title:${item.productTitle || ''}`}
-                                  onBlur={(event) =>
-                                    void setProductTitle(item, event.target.value)
+                                  value={item.productTitle || ''}
+                                  onChange={(event) =>
+                                    setProductTitle(item, event.target.value)
                                   }
-                                  onKeyDown={(event) => {
-                                    if (event.key === 'Enter') {
-                                      event.currentTarget.blur();
-                                    }
-                                  }}
                                   placeholder="輸入產品名稱…"
                                   className="h-10 w-full rounded-lg border border-border bg-background px-3 text-base font-medium outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
                                   aria-label="產品名稱"
@@ -829,19 +848,10 @@ export function DesignProjectsView() {
                                     type="number"
                                     min={0}
                                     step={1}
-                                    defaultValue={Number(item.salePrice || 0)}
-                                    key={`${item.id}:price:${item.salePrice || 0}`}
-                                    onBlur={(event) =>
-                                      void setSalePrice(
-                                        item,
-                                        Number(event.target.value),
-                                      )
+                                    value={Number(item.salePrice || 0)}
+                                    onChange={(event) =>
+                                      setSalePrice(item, Number(event.target.value))
                                     }
-                                    onKeyDown={(event) => {
-                                      if (event.key === 'Enter') {
-                                        event.currentTarget.blur();
-                                      }
-                                    }}
                                     className="h-9 w-28 rounded-lg border border-border bg-background px-2 font-mono-data text-[15px] text-primary outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
                                     aria-label="單價"
                                   />
@@ -864,7 +874,7 @@ export function DesignProjectsView() {
                               <div className="inline-flex items-center overflow-hidden rounded-lg border border-border bg-background">
                                 <button
                                   type="button"
-                                  onClick={() => void setQuantity(item, item.quantity - 1)}
+                                  onClick={() => setQuantity(item, item.quantity - 1)}
                                   disabled={item.quantity <= 1}
                                   className="flex h-9 w-9 items-center justify-center text-[17px] text-muted-foreground hover:bg-muted disabled:opacity-35"
                                   aria-label="數量減一"
@@ -877,14 +887,14 @@ export function DesignProjectsView() {
                                   max={9999}
                                   value={item.quantity}
                                   onChange={(event) =>
-                                    void setQuantity(item, Number(event.target.value))
+                                    setQuantity(item, Number(event.target.value))
                                   }
                                   className="h-9 w-12 border-x border-border bg-background text-center font-mono-data text-[15px] font-semibold outline-none"
                                   aria-label={`${titleLabel}數量`}
                                 />
                                 <button
                                   type="button"
-                                  onClick={() => void setQuantity(item, item.quantity + 1)}
+                                  onClick={() => setQuantity(item, item.quantity + 1)}
                                   className="flex h-9 w-9 items-center justify-center text-[17px] text-muted-foreground hover:bg-muted"
                                   aria-label="數量加一"
                                 >
@@ -927,16 +937,10 @@ export function DesignProjectsView() {
                             </span>
                             <input
                               type="text"
-                              defaultValue={item.notes || ''}
-                              key={`${item.id}:notes:${item.notes || ''}`}
-                              onBlur={(event) =>
-                                void setNotes(item, event.target.value)
+                              value={item.notes || ''}
+                              onChange={(event) =>
+                                setNotes(item, event.target.value)
                               }
-                              onKeyDown={(event) => {
-                                if (event.key === 'Enter') {
-                                  event.currentTarget.blur();
-                                }
-                              }}
                               placeholder="輸入意見或補充說明…"
                               className="h-10 min-w-0 flex-1 rounded-lg border border-border bg-background px-3 text-[15px] outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
                               aria-label={`${titleLabel}備註`}

@@ -8,9 +8,16 @@ import { supabase } from './supabase';
 import type {
   DesignProject, ProjectZone, ZoneProduct, ProjectInvitation,
   ClientCompany, ProductDiscussion, SearchProduct,
+  FurnitureSnapshot, FurnitureSnapshotItem, SchemeLabel,
 } from '@/types/solutions';
 import { withInsertAuditFields, withUpdateAuditFields } from '@/lib/pmsAudit';
-import { isHttpImageUrl, isSvgPlaceholder } from '@/lib/imageStorage';
+import {
+  httpOnlyImageForDb,
+  isBase64Image,
+  isHttpImageUrl,
+  isSvgPlaceholder,
+  uploadImageSourceToStorage,
+} from '@/lib/imageStorage';
 
 /** Persist Storage HTTP URLs or compact SVG schematics — never huge base64 blobs. */
 function floorPlanUrlForDb(url: string | null | undefined): string | null {
@@ -915,6 +922,9 @@ export async function updateZoneProductFields(
     salePrice?: number;
     productImageUrl?: string;
     notes?: string;
+    quantity?: number;
+    status?: string;
+    sortOrder?: number;
   },
 ): Promise<WriteResult> {
   try {
@@ -931,6 +941,15 @@ export async function updateZoneProductFields(
     if (patch.notes !== undefined) {
       row.notes = patch.notes.trim();
     }
+    if (patch.quantity !== undefined) {
+      row.quantity = Math.max(1, Math.floor(patch.quantity || 1));
+    }
+    if (patch.status !== undefined) {
+      row.status = patch.status;
+    }
+    if (patch.sortOrder !== undefined) {
+      row.sort_order = patch.sortOrder;
+    }
     if (Object.keys(row).length === 0) return { ok: true };
     const updatePayload = await withUpdateAuditFields(row);
     const { error } = await supabase
@@ -943,6 +962,113 @@ export async function updateZoneProductFields(
     return {
       ok: false,
       error: e instanceof Error ? e.message : '更新產品失敗',
+    };
+  }
+}
+
+/**
+ * Persist 設計專案 furniture:
+ * 1) ensure product images are Storage HTTP URLs (upload base64 if needed)
+ * 2) flush every zone_product row
+ * 3) write furnitureSnapshot into design_projects.meta
+ */
+export async function persistDesignProjectFurniture(input: {
+  project: DesignProject;
+  zones: ProjectZone[];
+  products: ZoneProduct[];
+}): Promise<WriteResult<{ products: ZoneProduct[]; snapshot: FurnitureSnapshot }>> {
+  try {
+    const { project, zones } = input;
+    const zoneById = new Map(zones.map((zone) => [zone.id, zone]));
+    const normalized: ZoneProduct[] = [];
+
+    for (const product of input.products) {
+      let imageUrl = (product.productImageUrl || '').trim();
+      if (imageUrl && !isHttpImageUrl(imageUrl)) {
+        if (isBase64Image(imageUrl)) {
+          const uploaded = await uploadImageSourceToStorage(
+            imageUrl,
+            product.id,
+            'zone',
+          );
+          imageUrl = uploaded || '';
+        } else {
+          imageUrl = httpOnlyImageForDb(imageUrl) || '';
+        }
+      }
+
+      const next: ZoneProduct = {
+        ...product,
+        productTitle: (product.productTitle || '').trim(),
+        productImageUrl: imageUrl,
+        salePrice: Math.max(0, Number(product.salePrice) || 0),
+        quantity: Math.max(1, Math.min(9999, Math.floor(product.quantity || 1))),
+        notes: (product.notes || '').trim(),
+      };
+
+      const updated = await updateZoneProductFields(next.id, {
+        productTitle: next.productTitle,
+        salePrice: next.salePrice,
+        productImageUrl: next.productImageUrl,
+        notes: next.notes,
+        quantity: next.quantity,
+        status: next.status,
+        sortOrder: next.sortOrder,
+      });
+      if (!updated.ok) {
+        return {
+          ok: false,
+          error: updated.error || `更新產品失敗：${next.productTitle || next.id}`,
+        };
+      }
+      normalized.push(next);
+    }
+
+    const snapshotProducts: FurnitureSnapshotItem[] = normalized.map((product) => {
+      const zone = product.zoneId ? zoneById.get(product.zoneId) : undefined;
+      const salePrice = Number(product.salePrice) || 0;
+      const quantity = product.quantity || 1;
+      return {
+        id: product.id,
+        zoneId: product.zoneId,
+        zoneCode: zone?.code ?? null,
+        zoneName: zone?.name ?? null,
+        productId: product.productId,
+        productTitle: product.productTitle,
+        productImageUrl: product.productImageUrl,
+        salePrice,
+        quantity,
+        subtotal: salePrice * quantity,
+        notes: product.notes || '',
+        status: product.status,
+        scheme: product.scheme,
+        sortOrder: product.sortOrder,
+      };
+    });
+
+    const snapshot: FurnitureSnapshot = {
+      savedAt: new Date().toISOString(),
+      activeScheme: (project.activeScheme || 'A') as SchemeLabel,
+      zoneCount: zones.length,
+      productCount: snapshotProducts.length,
+      grandTotal: snapshotProducts.reduce((sum, item) => sum + item.subtotal, 0),
+      products: snapshotProducts,
+    };
+
+    const meta = {
+      ...project.meta,
+      furnitureSnapshot: snapshot,
+    };
+    const saved = await saveProject(project.id, { meta });
+    if (!saved.ok) {
+      return { ok: false, error: saved.error || '寫入 design_projects 失敗' };
+    }
+
+    return { ok: true, data: { products: normalized, snapshot } };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : '儲存傢俬失敗',
     };
   }
 }

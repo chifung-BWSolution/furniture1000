@@ -52,6 +52,36 @@ export interface CustomRoomType {
   codePrefix: string;
 }
 
+/** One furniture line saved into design_projects.meta.furnitureSnapshot. */
+export interface FurnitureSnapshotItem {
+  id: string;
+  zoneId: string | null;
+  zoneCode: string | null;
+  zoneName: string | null;
+  productId: string | null;
+  productTitle: string;
+  /** Storage / public HTTP URL only — never base64. */
+  productImageUrl: string;
+  salePrice: number;
+  quantity: number;
+  /** salePrice × quantity */
+  subtotal: number;
+  notes: string;
+  status: ZoneProductStatus;
+  scheme: SchemeLabel;
+  sortOrder: number;
+}
+
+/** Full furniture inventory snapshot under design_projects.meta. */
+export interface FurnitureSnapshot {
+  savedAt: string;
+  activeScheme: SchemeLabel;
+  zoneCount: number;
+  productCount: number;
+  grandTotal: number;
+  products: FurnitureSnapshotItem[];
+}
+
 /** Stored in design_projects.meta (no schema change). */
 export interface DesignProjectMeta {
   projectType?: 'office' | 'school' | 'clinic' | 'hotel' | 'other';
@@ -69,6 +99,8 @@ export interface DesignProjectMeta {
   floorPlanFileName?: string;
   /** JPEG preview for PDF floor plans (Storage HTTP URL). */
   floorPlanPreviewUrl?: string;
+  /** Latest furniture inventory from 設計專案「儲存». */
+  furnitureSnapshot?: FurnitureSnapshot;
   [key: string]: unknown;
 }
 
