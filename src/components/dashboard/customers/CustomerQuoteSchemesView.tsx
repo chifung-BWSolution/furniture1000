@@ -13,6 +13,7 @@ import {
   Printer,
   RefreshCw,
   Shield,
+  Trash2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
@@ -67,7 +68,23 @@ type QuoteRecord = {
 
 type ItemReview = 'accepted' | 'change' | 'rejected';
 type QuoteDecision = 'pending' | 'approved' | 'rejected';
-type QuoteItemGroup = { title: string; items: BwfQuoteItemInput[] };
+type ItemMessage = {
+  id: string;
+  text: string;
+  createdAt: string;
+};
+type QuoteRoomGroup = {
+  id: string;
+  code: string;
+  name: string;
+  items: BwfQuoteItemInput[];
+};
+type QuoteZoneTypeGroup = {
+  key: string;
+  prefix: string;
+  label: string;
+  rooms: QuoteRoomGroup[];
+};
 
 const LIST_SELECT =
   'id, quote_id, version, status, total_amount, created_at, modified_date, project_data, bwf_pitching_id';
@@ -81,6 +98,76 @@ function fmtDate(iso: string | null | undefined) {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return '—';
   return date.toLocaleDateString('zh-HK');
+}
+
+/** Display timestamps in UTC+8, 24-hour clock. */
+function fmtUtc8DateTime(iso: string | null | undefined) {
+  if (!iso) return '—';
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '—';
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Hong_Kong',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(date);
+  const get = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((part) => part.type === type)?.value || '';
+  return `${get('year')}-${get('month')}-${get('day')} ${get('hour')}:${get('minute')}`;
+}
+
+function zoneCodePrefix(code: string | null): string {
+  return code?.trim().match(/^[A-Za-z]+/)?.[0]?.toUpperCase() || '其他';
+}
+
+function zoneBaseName(name: string): string {
+  return (
+    name
+      .trim()
+      .replace(/\s+\d+$/, '')
+      .replace(/[（(]\d+[）)]$/, '')
+      .trim() || '其他間隔'
+  );
+}
+
+function parseZoneSectionTitle(title: string): {
+  code: string;
+  name: string;
+  prefix: string;
+  label: string;
+} {
+  const cleaned = title.trim() || '其他區域';
+  const dotted = cleaned.match(/^([A-Za-z]+[0-9]*)\s*[·•‧.\-–—]\s*(.+)$/);
+  if (dotted) {
+    const code = dotted[1].toUpperCase();
+    const name = dotted[2].trim();
+    return {
+      code,
+      name,
+      prefix: zoneCodePrefix(code),
+      label: zoneBaseName(name),
+    };
+  }
+  const spaced = cleaned.match(/^([A-Za-z]+[0-9]*)\s+(.+)$/);
+  if (spaced) {
+    const code = spaced[1].toUpperCase();
+    const name = spaced[2].trim();
+    return {
+      code,
+      name,
+      prefix: zoneCodePrefix(code),
+      label: zoneBaseName(name),
+    };
+  }
+  return {
+    code: '',
+    name: cleaned,
+    prefix: '其他',
+    label: zoneBaseName(cleaned),
+  };
 }
 
 function clientNameOf(quote: QuoteRecord) {
@@ -127,20 +214,46 @@ function groupVersions(rows: QuoteRecord[]) {
   return map;
 }
 
-function groupQuoteItems(items: BwfQuoteItemInput[]): QuoteItemGroup[] {
-  const groups: QuoteItemGroup[] = [];
-  let current: QuoteItemGroup | null = null;
+function groupQuoteItemsByZoneType(
+  items: BwfQuoteItemInput[],
+): QuoteZoneTypeGroup[] {
+  const groups: QuoteZoneTypeGroup[] = [];
+  const indexByKey = new Map<string, number>();
+  let currentRoom: QuoteRoomGroup | null = null;
+
+  const ensureRoom = (title: string) => {
+    const parsed = parseZoneSectionTitle(title);
+    const key = `${parsed.prefix}:${parsed.label}`;
+    let groupIndex = indexByKey.get(key);
+    if (groupIndex == null) {
+      groupIndex = groups.length;
+      indexByKey.set(key, groupIndex);
+      groups.push({
+        key,
+        prefix: parsed.prefix,
+        label: parsed.label,
+        rooms: [],
+      });
+    }
+    const group = groups[groupIndex];
+    currentRoom = {
+      id: `${key}:${parsed.code || parsed.name}:${group.rooms.length}`,
+      code: parsed.code,
+      name: parsed.name,
+      items: [],
+    };
+    group.rooms.push(currentRoom);
+  };
+
   for (const item of items) {
     if (item.isSectionTitle) {
-      if (current) groups.push(current);
-      current = { title: item.name?.trim() || '其他區域', items: [] };
+      ensureRoom(item.name?.trim() || '其他區域');
       continue;
     }
     if (item.isCustomTerm) continue;
-    if (!current) current = { title: '報價產品', items: [] };
-    current.items.push(item);
+    if (!currentRoom) ensureRoom('報價產品');
+    currentRoom?.items.push(item);
   }
-  if (current) groups.push(current);
   return groups;
 }
 
@@ -182,7 +295,12 @@ export function CustomerQuoteSchemesView() {
   const [itemsLoading, setItemsLoading] = useState(false);
   const [showDetail, setShowDetail] = useState(false);
   const [itemReviews, setItemReviews] = useState<Record<string, ItemReview>>({});
-  const [itemNotes, setItemNotes] = useState<Record<string, string>>({});
+  const [itemDraftNotes, setItemDraftNotes] = useState<Record<string, string>>(
+    {},
+  );
+  const [itemMessages, setItemMessages] = useState<
+    Record<string, ItemMessage[]>
+  >({});
   const [quoteDecision, setQuoteDecision] = useState<QuoteDecision>('pending');
   const [quoteNote, setQuoteNote] = useState('');
 
@@ -467,7 +585,10 @@ export function CustomerQuoteSchemesView() {
   const activeVersions = active
     ? versionsByQuote.get(active.quote_id) || [active]
     : [];
-  const itemGroups = useMemo(() => groupQuoteItems(items), [items]);
+  const zoneTypeGroups = useMemo(
+    () => groupQuoteItemsByZoneType(items),
+    [items],
+  );
   const pricedItems = items.filter(
     (item) => !item.isSectionTitle && !item.isCustomTerm && !item.isOptional,
   );
@@ -479,19 +600,53 @@ export function CustomerQuoteSchemesView() {
   const itemKey = (item: BwfQuoteItemInput, index: number) =>
     item.id || `${quoteItemDisplayName(item)}-${index}`;
 
+  const sendItemMessage = (key: string) => {
+    const text = (itemDraftNotes[key] || '').trim();
+    if (!text) {
+      toast.error('請先填寫留言內容');
+      return;
+    }
+    const message: ItemMessage = {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      text,
+      createdAt: new Date().toISOString(),
+    };
+    setItemMessages((current) => ({
+      ...current,
+      [key]: [...(current[key] || []), message],
+    }));
+    setItemDraftNotes((current) => ({ ...current, [key]: '' }));
+    toast.success('已發送留言');
+  };
+
+  const deleteItemMessage = (key: string, messageId: string) => {
+    setItemMessages((current) => ({
+      ...current,
+      [key]: (current[key] || []).filter((message) => message.id !== messageId),
+    }));
+  };
+
   const buildExportHtml = () => {
     if (!active) return '';
-    const groupsHtml = itemGroups
-      .map(
-        (group) => `
-          <section>
-            <h2>${escapeHtml(group.title)}</h2>
-            ${group.items
+    const groupsHtml = zoneTypeGroups
+      .map((group) => {
+        const roomsHtml = group.rooms
+          .map((room) => {
+            const roomTitle = room.code
+              ? `${room.code} · ${room.name}`
+              : room.name;
+            const itemsHtml = room.items
               .map((item, index) => {
                 const key = itemKey(item, index);
                 const review = itemReviews[key]
                   ? REVIEW_LABEL[itemReviews[key]]
                   : '尚未決定';
+                const notes = (itemMessages[key] || [])
+                  .map(
+                    (message) =>
+                      `${fmtUtc8DateTime(message.createdAt)} ${message.text}`,
+                  )
+                  .join('；');
                 return `<div class="item">
                   ${
                     item.image
@@ -502,14 +657,24 @@ export function CustomerQuoteSchemesView() {
                     <div class="name-row"><strong>${escapeHtml(quoteItemDisplayName(item))}</strong><small>SKU ${escapeHtml(item.sku || '—')}</small></div>
                     <p>${escapeHtml(item.material || '')} ${escapeHtml(item.color || '')}</p>
                     <p>${fmtMoney(Number(item.unitPrice || 0))} × ${escapeHtml(item.quantity || 1)} ${escapeHtml(item.unit || '')}</p>
-                    <p class="review">客戶決定：${escapeHtml(review)} ${escapeHtml(itemNotes[key] || '')}</p>
+                    <p class="review">客戶決定：${escapeHtml(review)}${notes ? `（${escapeHtml(notes)}）` : ''}</p>
                   </div>
                   <b>${item.isOptional ? '可選' : fmtMoney(quoteItemLineSubtotal(item))}</b>
                 </div>`;
               })
-              .join('')}
-          </section>`,
-      )
+              .join('');
+            return `<div class="room"><h3>${escapeHtml(roomTitle)}</h3>${
+              itemsHtml || '<p class="meta">此區域暫未選擇產品</p>'
+            }</div>`;
+          })
+          .join('');
+        return `
+          <section>
+            <h2>${escapeHtml(group.prefix)} · ${escapeHtml(group.label)}</h2>
+            <p class="meta">${group.rooms.length} 個${escapeHtml(group.label)}</p>
+            ${roomsHtml}
+          </section>`;
+      })
       .join('');
     const decisionLabel =
       quoteDecision === 'approved'
@@ -523,8 +688,9 @@ export function CustomerQuoteSchemesView() {
       <style>
         body{font-family:"Noto Sans HK","Noto Sans TC",sans-serif;color:#16182a;max-width:960px;margin:0 auto;padding:40px}
         header{border-bottom:2px solid #6366f1;padding-bottom:22px;margin-bottom:26px}
-        h1{margin:0 0 8px;font-size:28px} h2{font-size:19px;margin-top:28px}
-        .meta{color:#62677a}.item{display:flex;gap:16px;align-items:center;border:1px solid #e4e5ef;border-radius:12px;padding:14px;margin:10px 0}
+        h1{margin:0 0 8px;font-size:28px} h2{font-size:19px;margin-top:28px} h3{font-size:16px;margin:18px 0 8px}
+        .meta{color:#62677a}.room{margin:12px 0 18px;padding:12px;border:1px solid #ececf5;border-radius:12px}
+        .item{display:flex;gap:16px;align-items:center;border:1px solid #e4e5ef;border-radius:12px;padding:14px;margin:10px 0}
         .item img{width:72px;height:72px;object-fit:cover;border-radius:8px}.grow{flex:1}.item p{margin:4px 0;color:#62677a}
         .name-row{display:flex;justify-content:space-between;gap:16px}.name-row small{font-size:10px;color:#8a8d99;font-family:monospace}
         .review{color:#4338ca!important}.decision{margin-top:30px;padding:18px;background:#f2f2ff;border-radius:12px}
@@ -573,9 +739,12 @@ export function CustomerQuoteSchemesView() {
     }
     const lines = pricedItems.map((item, index) => {
       const key = itemKey(item, index);
+      const notes = (itemMessages[key] || [])
+        .map((message) => `${fmtUtc8DateTime(message.createdAt)} ${message.text}`)
+        .join('；');
       return `${quoteItemDisplayName(item)}：${
         itemReviews[key] ? REVIEW_LABEL[itemReviews[key]] : '尚未決定'
-      }${itemNotes[key] ? `（${itemNotes[key]}）` : ''}`;
+      }${notes ? `（${notes}）` : ''}`;
     });
     const body = encodeURIComponent(
       `報價：${active.quote_id} ${displayQuoteVersion(active.version)}\n整張決定：${
@@ -644,7 +813,8 @@ export function CustomerQuoteSchemesView() {
                     setActiveId(quote.id);
                     setShowDetail(true);
                     setItemReviews({});
-                    setItemNotes({});
+                    setItemDraftNotes({});
+                    setItemMessages({});
                     setQuoteDecision('pending');
                     setQuoteNote('');
                   }}
@@ -727,7 +897,8 @@ export function CustomerQuoteSchemesView() {
                   onChange={(event) => {
                     setActiveId(event.target.value);
                     setItemReviews({});
-                    setItemNotes({});
+                    setItemDraftNotes({});
+                    setItemMessages({});
                     setQuoteDecision('pending');
                     setQuoteNote('');
                   }}
@@ -769,131 +940,215 @@ export function CustomerQuoteSchemesView() {
             <div className="flex justify-center py-16">
               <Loader2 className="h-6 w-6 animate-spin text-primary" />
             </div>
-          ) : itemGroups.length === 0 ? (
+          ) : zoneTypeGroups.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-border px-6 py-12 text-center text-muted-foreground">
               此版本暫無產品明細
             </div>
           ) : (
-            itemGroups.map((group, groupIndex) => (
-              <section
-                key={`${group.title}-${groupIndex}`}
-                className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm"
-              >
-                <div className="flex items-center justify-between border-b border-border bg-muted/30 px-5 py-4">
-                  <div>
-                    <p className="text-xs font-semibold text-primary">
-                      區域 {String(groupIndex + 1).padStart(2, '0')}
-                    </p>
-                    <h3 className="mt-1 font-display text-lg font-bold">
-                      {group.title}
-                    </h3>
-                  </div>
-                  <span className="text-sm text-muted-foreground">
-                    {group.items.length} 件產品
-                  </span>
-                </div>
-                <div className="divide-y divide-border/70">
-                  {group.items.length === 0 ? (
-                    <p className="px-5 py-6 text-sm text-muted-foreground">
-                      此區域暫未選擇產品
-                    </p>
-                  ) : null}
-                  {group.items.map((item, index) => {
-                    const key = itemKey(item, index);
-                    const review = itemReviews[key];
-                    return (
-                      <article key={key} className="p-5">
-                        <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
-                          <div className="h-24 w-24 shrink-0 overflow-hidden rounded-xl bg-muted">
-                            {item.image ? (
-                              <img
-                                src={item.image}
-                                alt={quoteItemDisplayName(item)}
-                                className="h-full w-full object-cover"
-                              />
-                            ) : null}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center justify-between gap-3">
-                              <h4 className="min-w-0 truncate text-base font-bold">
-                                {quoteItemDisplayName(item)}
+            <div className="space-y-7">
+              {zoneTypeGroups.map((group) => {
+                const productCount = group.rooms.reduce(
+                  (sum, room) => sum + room.items.length,
+                  0,
+                );
+                return (
+                  <section key={group.key} className="space-y-3">
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-2.5">
+                      <div className="flex items-center gap-3">
+                        <span className="flex h-9 min-w-9 items-center justify-center rounded-lg border border-primary/30 bg-primary/10 text-sm font-bold text-primary">
+                          {group.prefix}
+                        </span>
+                        <div>
+                          <h3 className="font-display text-lg font-bold">
+                            {group.prefix} · {group.label}
+                          </h3>
+                          <p className="mt-0.5 text-sm text-muted-foreground">
+                            {group.rooms.length} 個{group.label}
+                          </p>
+                        </div>
+                      </div>
+                      <span className="text-sm text-muted-foreground">
+                        {productCount} 件產品
+                      </span>
+                    </div>
+
+                    <div className="space-y-3">
+                      {group.rooms.map((room) => (
+                        <section
+                          key={room.id}
+                          className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/30 px-5 py-3.5">
+                            <div className="flex items-center gap-2">
+                              {room.code ? (
+                                <span className="rounded bg-primary/15 px-2 py-1 font-mono-data text-sm text-primary">
+                                  {room.code}
+                                </span>
+                              ) : null}
+                              <h4 className="font-display text-base font-bold">
+                                {room.name}
                               </h4>
-                              <span className="shrink-0 font-mono-data text-[10px] text-muted-foreground">
-                                SKU {item.sku || '—'}
+                              <span className="text-sm text-muted-foreground">
+                                {room.items.length} 件產品
                               </span>
                             </div>
-                            <p className="mt-1 text-sm text-muted-foreground">
-                              {[item.material, item.color].filter(Boolean).join(' · ') ||
-                                '產品規格以報價為準'}
-                            </p>
-                            <p className="mt-2 font-mono-data text-sm text-primary">
-                              {fmtMoney(Number(item.unitPrice || 0))} ×{' '}
-                              {item.quantity || 1} {item.unit || ''}
-                            </p>
                           </div>
-                          <div className="sm:text-right">
-                            <p className="font-mono-data text-lg font-bold">
-                              {item.isOptional
-                                ? '可選'
-                                : fmtMoney(quoteItemLineSubtotal(item))}
-                            </p>
+                          <div className="divide-y divide-border/70">
+                            {room.items.length === 0 ? (
+                              <p className="px-5 py-6 text-sm text-muted-foreground">
+                                此區域暫未選擇產品
+                              </p>
+                            ) : null}
+                            {room.items.map((item, index) => {
+                              const key = itemKey(item, index);
+                              const review = itemReviews[key];
+                              const messages = itemMessages[key] || [];
+                              return (
+                                <article key={key} className="p-5">
+                                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+                                    <div className="h-24 w-24 shrink-0 overflow-hidden rounded-xl bg-muted">
+                                      {item.image ? (
+                                        <img
+                                          src={item.image}
+                                          alt={quoteItemDisplayName(item)}
+                                          className="h-full w-full object-cover"
+                                        />
+                                      ) : null}
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                      <div className="flex items-center justify-between gap-3">
+                                        <h5 className="min-w-0 truncate text-base font-bold">
+                                          {quoteItemDisplayName(item)}
+                                        </h5>
+                                        <span className="shrink-0 font-mono-data text-[10px] text-muted-foreground">
+                                          SKU {item.sku || '—'}
+                                        </span>
+                                      </div>
+                                      <p className="mt-1 text-sm text-muted-foreground">
+                                        {[item.material, item.color]
+                                          .filter(Boolean)
+                                          .join(' · ') || '產品規格以報價為準'}
+                                      </p>
+                                      <p className="mt-2 font-mono-data text-sm text-primary">
+                                        {fmtMoney(Number(item.unitPrice || 0))} ×{' '}
+                                        {item.quantity || 1} {item.unit || ''}
+                                      </p>
+                                    </div>
+                                    <div className="sm:text-right">
+                                      <p className="font-mono-data text-lg font-bold">
+                                        {item.isOptional
+                                          ? '可選'
+                                          : fmtMoney(quoteItemLineSubtotal(item))}
+                                      </p>
+                                    </div>
+                                  </div>
+                                  {!item.isOptional ? (
+                                    <div className="mt-4 flex flex-wrap gap-2 border-t border-border pt-4">
+                                      {(
+                                        [
+                                          ['accepted', '接受', Check],
+                                          ['change', '要求修改', MessageSquare],
+                                          ['rejected', '不接受', Ban],
+                                        ] as const
+                                      ).map(([value, label, Icon]) => (
+                                        <button
+                                          key={value}
+                                          type="button"
+                                          onClick={() =>
+                                            setItemReviews((current) => ({
+                                              ...current,
+                                              [key]: value,
+                                            }))
+                                          }
+                                          className={cn(
+                                            'inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium',
+                                            review === value
+                                              ? value === 'accepted'
+                                                ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700'
+                                                : value === 'change'
+                                                  ? 'border-amber-500/40 bg-amber-500/10 text-amber-700'
+                                                  : 'border-rose-500/40 bg-rose-500/10 text-rose-700'
+                                              : 'border-border text-muted-foreground',
+                                          )}
+                                        >
+                                          <Icon className="h-4 w-4" />
+                                          {label}
+                                        </button>
+                                      ))}
+                                    </div>
+                                  ) : null}
+                                  {messages.length > 0 ? (
+                                    <div className="mt-3 space-y-2">
+                                      {messages.map((message) => (
+                                        <div
+                                          key={message.id}
+                                          className="rounded-xl border border-border bg-muted/20 px-3 py-2.5"
+                                        >
+                                          <p className="font-mono-data text-xs text-muted-foreground">
+                                            {fmtUtc8DateTime(message.createdAt)}{' '}
+                                            <span className="text-[10px]">
+                                              (UTC+8)
+                                            </span>
+                                          </p>
+                                          <div className="mt-1 flex items-start justify-between gap-3">
+                                            <p className="min-w-0 flex-1 whitespace-pre-wrap text-sm">
+                                              {message.text}
+                                            </p>
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                deleteItemMessage(
+                                                  key,
+                                                  message.id,
+                                                )
+                                              }
+                                              className="inline-flex shrink-0 items-center gap-1 rounded-md border border-rose-500/30 px-2 py-1 text-xs font-medium text-rose-700 hover:bg-rose-500/10"
+                                            >
+                                              <Trash2 className="h-3.5 w-3.5" />
+                                              刪除
+                                            </button>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : null}
+                                  {review === 'change' ||
+                                  review === 'rejected' ? (
+                                    <div className="mt-3">
+                                      <textarea
+                                        value={itemDraftNotes[key] || ''}
+                                        onChange={(event) =>
+                                          setItemDraftNotes((current) => ({
+                                            ...current,
+                                            [key]: event.target.value,
+                                          }))
+                                        }
+                                        rows={2}
+                                        placeholder="請說明需要修改或不接受的原因…"
+                                        className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm"
+                                      />
+                                      <div className="mt-2 flex justify-end">
+                                        <button
+                                          type="button"
+                                          onClick={() => sendItemMessage(key)}
+                                          className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground"
+                                        >
+                                          確定
+                                        </button>
+                                      </div>
+                                    </div>
+                                  ) : null}
+                                </article>
+                              );
+                            })}
                           </div>
-                        </div>
-                        {!item.isOptional ? (
-                          <div className="mt-4 flex flex-wrap gap-2 border-t border-border pt-4">
-                            {(
-                              [
-                                ['accepted', '接受', Check],
-                                ['change', '要求修改', MessageSquare],
-                                ['rejected', '不接受', Ban],
-                              ] as const
-                            ).map(([value, label, Icon]) => (
-                              <button
-                                key={value}
-                                type="button"
-                                onClick={() =>
-                                  setItemReviews((current) => ({
-                                    ...current,
-                                    [key]: value,
-                                  }))
-                                }
-                                className={cn(
-                                  'inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium',
-                                  review === value
-                                    ? value === 'accepted'
-                                      ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700'
-                                      : value === 'change'
-                                        ? 'border-amber-500/40 bg-amber-500/10 text-amber-700'
-                                        : 'border-rose-500/40 bg-rose-500/10 text-rose-700'
-                                    : 'border-border text-muted-foreground',
-                                )}
-                              >
-                                <Icon className="h-4 w-4" />
-                                {label}
-                              </button>
-                            ))}
-                          </div>
-                        ) : null}
-                        {review === 'change' || review === 'rejected' ? (
-                          <textarea
-                            value={itemNotes[key] || ''}
-                            onChange={(event) =>
-                              setItemNotes((current) => ({
-                                ...current,
-                                [key]: event.target.value,
-                              }))
-                            }
-                            rows={2}
-                            placeholder="請說明需要修改或不接受的原因…"
-                            className="mt-3 w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm"
-                          />
-                        ) : null}
-                      </article>
-                    );
-                  })}
-                </div>
-              </section>
-            ))
+                        </section>
+                      ))}
+                    </div>
+                  </section>
+                );
+              })}
+            </div>
           )}
 
           <section className="rounded-2xl border border-primary/20 bg-primary/5 p-5">
