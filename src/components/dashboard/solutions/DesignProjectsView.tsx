@@ -98,17 +98,35 @@ export function DesignProjectsView() {
   const zoneGroups = useMemo(() => {
     const groups = new Map<
       string,
-      { key: string; prefix: string; label: string; zones: ProjectZone[] }
+      {
+        key: string;
+        prefix: string;
+        label: string;
+        zones: ProjectZone[];
+        minSort: number;
+      }
     >();
-    for (const zone of zones) {
+    // Zones are already sorted by sort_order from fetchZones; preserve that
+    // so「方案列表」drag order shows the same sequence here.
+    const sortedZones = [...zones].sort(
+      (a, b) => (a.sortOrder || 0) - (b.sortOrder || 0),
+    );
+    for (const zone of sortedZones) {
       const prefix = zoneCodePrefix(zone.code);
       const label = zoneBaseName(zone.name);
       const key = `${prefix}:${label}`;
-      const group = groups.get(key) || { key, prefix, label, zones: [] };
+      const group = groups.get(key) || {
+        key,
+        prefix,
+        label,
+        zones: [],
+        minSort: zone.sortOrder || 0,
+      };
       group.zones.push(zone);
+      group.minSort = Math.min(group.minSort, zone.sortOrder || 0);
       groups.set(key, group);
     }
-    return [...groups.values()];
+    return [...groups.values()].sort((a, b) => a.minSort - b.minSort);
   }, [zones]);
 
   const openPicker = async (zoneId?: string | null) => {

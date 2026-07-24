@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { DoorOpen, Loader2, Minus, Plus, Sparkles, Trash2, X } from 'lucide-react';
+import {
+  DoorOpen,
+  GripVertical,
+  Loader2,
+  Minus,
+  Plus,
+  Sparkles,
+  Trash2,
+  X,
+} from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   createZone,
@@ -8,6 +17,7 @@ import {
   fetchZones,
   saveProject,
   updateProjectFloorPlan,
+  updateZone,
 } from '@/lib/solutionsApi';
 import { generateFloorPlanDataUrl } from '@/lib/floorPlanGenerator';
 import {
@@ -15,6 +25,8 @@ import {
   codePrefixFromLabel,
   defaultRoomCounts,
   inferProjectType,
+  normalizeRoomOrder,
+  orderedRoomsForProjectType,
   projectTypeLabel,
   roomsForProjectType,
   zoneSeedsFromRoomCounts,
@@ -64,6 +76,13 @@ function countRoomsFromZones(
   return counts;
 }
 
+function defaultOrderFor(
+  type: ProjectEngineeringType,
+  customRooms: CustomRoomType[],
+): string[] {
+  return orderedRoomsForProjectType(type, customRooms).map((room) => room.key);
+}
+
 export function ProjectPartitionPanel({
   project,
   onProjectMetaChange,
@@ -88,6 +107,9 @@ export function ProjectPartitionPanel({
   const [customRooms, setCustomRooms] = useState<CustomRoomType[]>(
     normalizeCustomRooms(project.meta?.customRooms),
   );
+  const [roomOrder, setRoomOrder] = useState<string[]>(
+    normalizeRoomOrder(project.meta?.roomOrder),
+  );
   const [zones, setZones] = useState<ProjectZone[]>([]);
   const [zoneProducts, setZoneProducts] = useState<ZoneProduct[]>([]);
   const [loading, setLoading] = useState(true);
@@ -95,10 +117,21 @@ export function ProjectPartitionPanel({
   const [showAddRoom, setShowAddRoom] = useState(false);
   const [newRoomLabel, setNewRoomLabel] = useState('');
   const [newRoomQty, setNewRoomQty] = useState(1);
+  const [dragKey, setDragKey] = useState<string | null>(null);
+  const [dragOverKey, setDragOverKey] = useState<string | null>(null);
 
   const roomTemplates = useMemo(
     () => roomsForProjectType(projectType),
     [projectType],
+  );
+  const orderedRooms = useMemo(
+    () =>
+      orderedRoomsForProjectType(
+        projectType,
+        customRooms as RoomTypeTemplate[],
+        roomOrder,
+      ),
+    [projectType, customRooms, roomOrder],
   );
 
   useEffect(() => {
@@ -113,8 +146,14 @@ export function ProjectPartitionPanel({
           project.meta?.projectType ||
           inferProjectType(project.name, project.clientCompany);
         const nextCustom = normalizeCustomRooms(project.meta?.customRooms);
+        const savedOrder = normalizeRoomOrder(project.meta?.roomOrder);
         setProjectType(type);
         setCustomRooms(nextCustom);
+        setRoomOrder(
+          savedOrder.length > 0
+            ? savedOrder
+            : defaultOrderFor(type, nextCustom),
+        );
         setRoomCounts(
           project.meta?.roomCounts &&
             Object.keys(project.meta.roomCounts).length > 0
@@ -143,6 +182,7 @@ export function ProjectPartitionPanel({
       type: ProjectEngineeringType,
       counts: Record<string, number>,
       nextCustomRooms: CustomRoomType[],
+      nextRoomOrder: string[],
     ): Promise<boolean> => {
       if (syncing) return false;
       setSyncing(true);
@@ -151,6 +191,7 @@ export function ProjectPartitionPanel({
           type,
           counts,
           nextCustomRooms as RoomTypeTemplate[],
+          nextRoomOrder,
         );
         const zonesWithProducts = new Set(
           zoneProducts.map((p) => p.zoneId).filter(Boolean),
@@ -159,10 +200,10 @@ export function ProjectPartitionPanel({
         const empty = zones.filter((z) => !zonesWithProducts.has(z.id));
         for (const zone of empty) await deleteZone(zone.id);
 
-        const nextZones = [...kept];
+        const pool = [...kept];
         for (let i = 0; i < desired.length; i++) {
           const seed = desired[i];
-          const existing = kept.find(
+          const existing = pool.find(
             (z) => z.name === seed.name || z.code === seed.code,
           );
           if (existing) continue;
@@ -175,7 +216,32 @@ export function ProjectPartitionPanel({
             sortOrder: i,
           });
           if (!result.ok) throw new Error(result.error || '建立間隔失敗');
-          if (result.data) nextZones.push(result.data);
+          if (result.data) pool.push(result.data);
+        }
+
+        const orderedZones: ProjectZone[] = [];
+        const usedIds = new Set<string>();
+        for (let i = 0; i < desired.length; i++) {
+          const seed = desired[i];
+          const match = pool.find(
+            (z) =>
+              !usedIds.has(z.id) &&
+              (z.name === seed.name || z.code === seed.code),
+          );
+          if (!match) continue;
+          usedIds.add(match.id);
+          if (match.sortOrder !== i) {
+            const updated = await updateZone(match.id, { sortOrder: i });
+            if (!updated.ok) throw new Error(updated.error || '更新排序失敗');
+          }
+          orderedZones.push({ ...match, sortOrder: i });
+        }
+        for (const zone of pool) {
+          if (usedIds.has(zone.id)) continue;
+          const sortOrder = orderedZones.length;
+          const updated = await updateZone(zone.id, { sortOrder });
+          if (!updated.ok) throw new Error(updated.error || '更新排序失敗');
+          orderedZones.push({ ...zone, sortOrder });
         }
 
         const meta = {
@@ -183,6 +249,7 @@ export function ProjectPartitionPanel({
           projectType: type,
           roomCounts: counts,
           customRooms: nextCustomRooms,
+          roomOrder: nextRoomOrder,
         };
         const saved = await saveProject(project.id, { meta });
         if (!saved.ok) throw new Error(saved.error || '儲存專案失敗');
@@ -192,7 +259,7 @@ export function ProjectPartitionPanel({
           !project.floorPlanUrl ||
           project.floorPlanType === 'image/svg+xml'
         ) {
-          const dataUrl = generateFloorPlanDataUrl(nextZones, project.name);
+          const dataUrl = generateFloorPlanDataUrl(orderedZones, project.name);
           const floorSaved = await updateProjectFloorPlan(
             project.id,
             dataUrl,
@@ -202,7 +269,7 @@ export function ProjectPartitionPanel({
             onProjectFloorPlanChange?.(project.id, dataUrl, 'image/svg+xml');
           }
         }
-        setZones(nextZones);
+        setZones(orderedZones);
         onProjectMetaChange?.(project.id, meta);
         return true;
       } catch (error) {
@@ -228,17 +295,21 @@ export function ProjectPartitionPanel({
   const changeType = async (type: ProjectEngineeringType) => {
     const previousType = projectType;
     const previousCounts = roomCounts;
+    const previousOrder = roomOrder;
     const counts = {
       ...defaultRoomCounts(type),
       ...Object.fromEntries(
         customRooms.map((room) => [room.key, roomCounts[room.key] || 0]),
       ),
     };
+    const nextOrder = defaultOrderFor(type, customRooms);
     setProjectType(type);
     setRoomCounts(counts);
-    if (!(await syncZones(type, counts, customRooms))) {
+    setRoomOrder(nextOrder);
+    if (!(await syncZones(type, counts, customRooms, nextOrder))) {
       setProjectType(previousType);
       setRoomCounts(previousCounts);
+      setRoomOrder(previousOrder);
     }
   };
 
@@ -249,7 +320,7 @@ export function ProjectPartitionPanel({
       [key]: Math.max(0, Math.min(20, (roomCounts[key] || 0) + delta)),
     };
     setRoomCounts(next);
-    if (!(await syncZones(projectType, next, customRooms))) {
+    if (!(await syncZones(projectType, next, customRooms, roomOrder))) {
       setRoomCounts(previous);
     }
   };
@@ -274,13 +345,17 @@ export function ProjectPartitionPanel({
       { key, label, codePrefix: codePrefixFromLabel(label) },
     ];
     const nextCounts = { ...roomCounts, [key]: qty };
+    const nextOrder = [...(roomOrder.length ? roomOrder : defaultOrderFor(projectType, customRooms)), key];
     const previousCustom = customRooms;
     const previousCounts = roomCounts;
+    const previousOrder = roomOrder;
     setCustomRooms(nextCustom);
     setRoomCounts(nextCounts);
-    if (!(await syncZones(projectType, nextCounts, nextCustom))) {
+    setRoomOrder(nextOrder);
+    if (!(await syncZones(projectType, nextCounts, nextCustom, nextOrder))) {
       setCustomRooms(previousCustom);
       setRoomCounts(previousCounts);
+      setRoomOrder(previousOrder);
       return;
     }
     setShowAddRoom(false);
@@ -295,17 +370,44 @@ export function ProjectPartitionPanel({
     if (!window.confirm(`確定刪除自訂房間「${target.label}」？`)) return;
     const previousCustom = customRooms;
     const previousCounts = roomCounts;
+    const previousOrder = roomOrder;
     const nextCustom = customRooms.filter((room) => room.key !== key);
     const nextCounts = { ...roomCounts };
     delete nextCounts[key];
+    const nextOrder = (roomOrder.length
+      ? roomOrder
+      : defaultOrderFor(projectType, customRooms)
+    ).filter((item) => item !== key);
     setCustomRooms(nextCustom);
     setRoomCounts(nextCounts);
-    if (!(await syncZones(projectType, nextCounts, nextCustom))) {
+    setRoomOrder(nextOrder);
+    if (!(await syncZones(projectType, nextCounts, nextCustom, nextOrder))) {
       setCustomRooms(previousCustom);
       setRoomCounts(previousCounts);
+      setRoomOrder(previousOrder);
       return;
     }
     toast.success('已刪除自訂房間', { description: target.label });
+  };
+
+  const reorderRooms = async (fromKey: string, toKey: string) => {
+    if (!fromKey || !toKey || fromKey === toKey) return;
+    const keys = orderedRooms.map((room) => room.key);
+    const from = keys.indexOf(fromKey);
+    const to = keys.indexOf(toKey);
+    if (from < 0 || to < 0) return;
+    const previousOrder = roomOrder;
+    const next = [...keys];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    setRoomOrder(next);
+    if (!(await syncZones(projectType, roomCounts, customRooms, next))) {
+      setRoomOrder(previousOrder);
+      return;
+    }
+    toast.success('已更新房間排序', {
+      description: '設計專案會按新順序顯示',
+    });
   };
 
   if (loading) {
@@ -362,9 +464,14 @@ export function ProjectPartitionPanel({
 
       <div>
         <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <p className="text-[15px] font-semibold text-muted-foreground">
-            房間類型及數量 — {projectTypeLabel(projectType)}
-          </p>
+          <div>
+            <p className="text-[15px] font-semibold text-muted-foreground">
+              房間類型及數量 — {projectTypeLabel(projectType)}
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              拖曳房間卡片可調整順序，設計專案會同步顯示
+            </p>
+          </div>
           <button
             type="button"
             disabled={syncing}
@@ -436,20 +543,58 @@ export function ProjectPartitionPanel({
         ) : null}
 
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {[...roomTemplates, ...customRooms].map((room) => {
+          {orderedRooms.map((room) => {
             const isCustom = room.key.startsWith('custom_');
+            const dragging = dragKey === room.key;
+            const over = dragOverKey === room.key && dragKey !== room.key;
             return (
               <div
                 key={room.key}
-                className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3"
+                draggable={!syncing}
+                onDragStart={(event) => {
+                  setDragKey(room.key);
+                  event.dataTransfer.effectAllowed = 'move';
+                  event.dataTransfer.setData('text/plain', room.key);
+                }}
+                onDragEnd={() => {
+                  setDragKey(null);
+                  setDragOverKey(null);
+                }}
+                onDragOver={(event) => {
+                  event.preventDefault();
+                  event.dataTransfer.dropEffect = 'move';
+                  if (dragOverKey !== room.key) setDragOverKey(room.key);
+                }}
+                onDragLeave={() => {
+                  if (dragOverKey === room.key) setDragOverKey(null);
+                }}
+                onDrop={(event) => {
+                  event.preventDefault();
+                  const fromKey =
+                    event.dataTransfer.getData('text/plain') || dragKey;
+                  setDragOverKey(null);
+                  setDragKey(null);
+                  if (fromKey) void reorderRooms(fromKey, room.key);
+                }}
+                className={cn(
+                  'flex cursor-grab items-center justify-between gap-3 rounded-xl border bg-card px-3 py-3 active:cursor-grabbing',
+                  dragging
+                    ? 'border-primary/50 opacity-60'
+                    : over
+                      ? 'border-primary bg-primary/5'
+                      : 'border-border',
+                )}
               >
-                <div className="min-w-0">
-                  <span className="text-sm font-medium">{room.label}</span>
-                  {isCustom ? (
-                    <span className="ml-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
-                      自訂
-                    </span>
-                  ) : null}
+                <div className="flex min-w-0 items-center gap-2">
+                  <GripVertical className="h-4 w-4 shrink-0 text-muted-foreground/70" />
+                  <div className="min-w-0">
+                    <span className="text-sm font-medium">{room.label}</span>
+                    {isCustom ? (
+                      <span className="ml-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
+                        自訂
+                      </span>
+                    ) : null}
+                  </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
@@ -492,7 +637,7 @@ export function ProjectPartitionPanel({
         </div>
         <p className="mt-3 flex items-center gap-1.5 text-[15px] text-muted-foreground">
           <Sparkles className="h-4 w-4 text-primary" />
-          已配置產品的間隔會保留；調整後會同步更新未配置產品的間隔。
+          已配置產品的間隔會保留；拖曳排序後會同步到設計專案顯示順序。
         </p>
       </div>
     </div>

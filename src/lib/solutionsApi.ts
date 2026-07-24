@@ -1203,16 +1203,22 @@ export async function createZone(input: {
   }
 }
 
-/** Update a zone's editable fields (name, code, bounds). */
+/** Update a zone's editable fields (name, code, bounds, sort order). */
 export async function updateZone(
   zoneId: string,
-  patch: { name?: string; code?: string | null; bounds?: { x: number; y: number; w: number; h: number } },
+  patch: {
+    name?: string;
+    code?: string | null;
+    bounds?: { x: number; y: number; w: number; h: number };
+    sortOrder?: number;
+  },
 ): Promise<WriteResult> {
   try {
     const row: Record<string, unknown> = {};
     if (patch.name !== undefined) row.name = patch.name;
     if (patch.code !== undefined) row.code = patch.code;
     if (patch.bounds !== undefined) row.bounds = patch.bounds;
+    if (patch.sortOrder !== undefined) row.sort_order = patch.sortOrder;
     const updatePayload = await withUpdateAuditFields(row);
     const { error } = await supabase.from('project_zones').update(updatePayload).eq('id', zoneId);
     if (error) return { ok: false, error: error.message };

@@ -62,6 +62,8 @@ export interface DesignProjectMeta {
   roomCounts?: Record<string, number>;
   /** User-defined rooms beyond the engineering-type templates. */
   customRooms?: CustomRoomType[];
+  /** Display/sync order of room type keys (templates + custom). */
+  roomOrder?: string[];
   floorPlanFileName?: string;
   /** JPEG preview for PDF floor plans (Storage HTTP URL). */
   floorPlanPreviewUrl?: string;

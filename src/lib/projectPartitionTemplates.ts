@@ -171,13 +171,41 @@ export function codePrefixFromLabel(label: string): string {
   return 'CR';
 }
 
+export function normalizeRoomOrder(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => String(item || '').trim())
+    .filter(Boolean);
+}
+
+/** Merge template + custom rooms, honoring a saved roomOrder when present. */
+export function orderedRoomsForProjectType(
+  type: ProjectEngineeringType,
+  customRooms: RoomTypeTemplate[] = [],
+  roomOrder: string[] = [],
+): RoomTypeTemplate[] {
+  const rooms = [...roomsForProjectType(type), ...customRooms];
+  if (roomOrder.length === 0) return rooms;
+  const byKey = new Map(rooms.map((room) => [room.key, room]));
+  const ordered: RoomTypeTemplate[] = [];
+  for (const key of roomOrder) {
+    const room = byKey.get(key);
+    if (!room) continue;
+    ordered.push(room);
+    byKey.delete(key);
+  }
+  for (const room of byKey.values()) ordered.push(room);
+  return ordered;
+}
+
 /** Layout seeds for floor-plan generator from selected room counts. */
 export function zoneSeedsFromRoomCounts(
   type: ProjectEngineeringType,
   counts: Record<string, number>,
   customRooms: RoomTypeTemplate[] = [],
+  roomOrder: string[] = [],
 ): { code: string; name: string; bounds: ZoneBounds; roomKey: string }[] {
-  const rooms = [...roomsForProjectType(type), ...customRooms];
+  const rooms = orderedRoomsForProjectType(type, customRooms, roomOrder);
   const seeds: { code: string; name: string; bounds: ZoneBounds; roomKey: string }[] = [];
   const active = rooms.filter((r) => (counts[r.key] || 0) > 0 && r.key !== 'no_partition');
   const total = active.reduce((n, r) => n + (counts[r.key] || 0), 0) || 1;
@@ -219,4 +247,5 @@ export interface ProjectPartitionMeta {
   existingPartition?: ExistingPartitionMode;
   roomCounts?: Record<string, number>;
   customRooms?: RoomTypeTemplate[];
+  roomOrder?: string[];
 }
