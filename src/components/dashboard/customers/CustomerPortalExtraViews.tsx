@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react';
 import {
-  Briefcase,
   Building2,
   CheckCircle2,
   ExternalLink,
@@ -24,10 +23,7 @@ import {
   X,
 } from 'lucide-react';
 import { PortalPageShell } from '@/components/dashboard/customers/PortalPageShell';
-import {
-  fetchPortalBrowseProducts,
-  fetchSearchProducts,
-} from '@/lib/solutionsApi';
+import { fetchPortalBrowseProducts } from '@/lib/solutionsApi';
 import { useClientZoneContext } from '@/hooks/use-client-zone-context';
 import type { SearchProduct } from '@/types/solutions';
 import { toast } from 'sonner';
@@ -426,20 +422,11 @@ export function CustomerOrderStatusView() {
 }
 
 export function CustomerCaseStudiesView() {
-  const [products, setProducts] = useState<SearchProduct[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetchSearchProducts(12)
-      .then(setProducts)
-      .finally(() => setLoading(false));
-  }, []);
-
   return (
     <PortalPageShell
       title="成功案例"
       badge="Client Portal"
-      subtitle="公開工程案例、服務客戶 Logo 牆、公司 YouTube 及真實產品圖。"
+      subtitle="公開工程案例、服務客戶 Logo 牆及公司 YouTube。"
     >
       <section className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm">
         <div className="p-6 lg:p-8">
@@ -500,51 +487,6 @@ export function CustomerCaseStudiesView() {
         icon={<Film className="h-5 w-5 text-primary" />}
       >
         <CorporateYouTubeGrid />
-      </CorporateSection>
-
-      <CorporateSection
-        title="真實產品圖"
-        subtitle="以下產品由現有產品目錄即時讀取。"
-        icon={<Briefcase className="h-5 w-5 text-primary" />}
-      >
-        {loading ? (
-          <div className="flex justify-center py-16">
-            <Loader2 className="h-6 w-6 animate-spin text-primary" />
-          </div>
-        ) : products.length === 0 ? (
-          <NoRecords
-            icon={Film}
-            title="暫無案例產品"
-            description="產品目錄目前沒有可展示的資料。"
-          />
-        ) : (
-          <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-4">
-            {products.map((product) => (
-              <article
-                key={product.id}
-                className="overflow-hidden rounded-xl border border-border bg-card"
-              >
-                <div className="aspect-square bg-muted/30">
-                  {product.imageUrl ? (
-                    <img
-                      src={product.imageUrl}
-                      alt={product.title}
-                      className="h-full w-full object-cover"
-                    />
-                  ) : null}
-                </div>
-                <div className="p-3">
-                  <h3 className="line-clamp-2 text-sm font-semibold">
-                    {product.title}
-                  </h3>
-                  <p className="mt-1 font-mono-data text-xs text-primary">
-                    HK$ {product.salePrice.toLocaleString()}
-                  </p>
-                </div>
-              </article>
-            ))}
-          </div>
-        )}
       </CorporateSection>
     </PortalPageShell>
   );
