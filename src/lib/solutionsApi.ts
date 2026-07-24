@@ -76,6 +76,7 @@ function mapZoneProduct(r: any): ZoneProduct {
     status: (r.status ?? 'pending') as ZoneProduct['status'],
     quantity: r.quantity ?? 1,
     sortOrder: r.sort_order ?? 0,
+    notes: typeof r.notes === 'string' ? r.notes : '',
   };
 }
 
@@ -952,6 +953,29 @@ export async function updateZoneProductQuantity(
     return {
       ok: false,
       error: e instanceof Error ? e.message : '更新數量失敗',
+    };
+  }
+}
+
+/** Update selected product remark / note. */
+export async function updateZoneProductNotes(
+  zoneProductId: string,
+  notes: string,
+): Promise<WriteResult> {
+  try {
+    const updatePayload = await withUpdateAuditFields({
+      notes: (notes ?? '').trim(),
+    });
+    const { error } = await supabase
+      .from('zone_products')
+      .update(updatePayload)
+      .eq('id', zoneProductId);
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : '更新備註失敗',
     };
   }
 }

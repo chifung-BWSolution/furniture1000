@@ -41,6 +41,8 @@ export interface ZoneProduct {
   status: ZoneProductStatus;
   quantity: number;
   sortOrder: number;
+  /** Staff remark / note entered on 設計專案. */
+  notes: string;
 }
 
 /** Custom room rows created via「新增房間」, stored in design_projects.meta. */

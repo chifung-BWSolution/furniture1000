@@ -6,7 +6,7 @@ import {
 import {
   fetchProjects, fetchZones, fetchZoneProducts, fetchActiveShopifyProducts,
   createZoneProduct, deleteZoneProductWithProgress, updateZoneProductQuantity,
-  updateZoneProductStatus, saveProject,
+  updateZoneProductNotes, updateZoneProductStatus, saveProject,
 } from '@/lib/solutionsApi';
 import { useAppStore } from '@/hooks/use-app-store';
 import { consumeSolutionFocusProjectId } from '@/lib/solutionProjectFocus';
@@ -195,6 +195,25 @@ export function DesignProjectsView() {
     toast.success('已從間隔移除產品', {
       description: item.productTitle,
     });
+  };
+
+  const setNotes = async (item: ZoneProduct, value: string) => {
+    const notes = value.trim();
+    if (notes === (item.notes || '')) return;
+    setZoneProducts((current) =>
+      current.map((product) =>
+        product.id === item.id ? { ...product, notes } : product,
+      ),
+    );
+    const result = await updateZoneProductNotes(item.id, notes);
+    if (!result.ok) {
+      setZoneProducts((current) =>
+        current.map((product) =>
+          product.id === item.id ? { ...product, notes: item.notes || '' } : product,
+        ),
+      );
+      toast.error('更新備註失敗', { description: result.error });
+    }
   };
 
   const setQuantity = async (item: ZoneProduct, value: number) => {
@@ -441,83 +460,106 @@ export function DesignProjectsView() {
                     <>
                     <ul className="divide-y divide-border/70">
                       {items.map((item) => (
-                        <li key={item.id} className="flex items-center gap-4 px-5 py-3.5">
-                          <div className="h-14 w-14 overflow-hidden rounded-lg bg-muted">
-                            {item.productImageUrl ? (
-                              <img
-                                src={item.productImageUrl}
-                                alt=""
-                                className="h-full w-full object-cover"
-                              />
-                            ) : null}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="truncate text-base font-medium">{item.productTitle}</p>
-                            <p className="font-mono-data text-[15px] text-primary">
-                              單價 ${Number(item.salePrice || 0).toLocaleString()} × {item.quantity}
-                              {' = '}
-                              小計 ${(Number(item.salePrice || 0) * item.quantity).toLocaleString()}
-                            </p>
-                          </div>
-                          <div className="flex shrink-0 items-center gap-2">
-                            <div className="inline-flex items-center overflow-hidden rounded-lg border border-border bg-background">
-                              <button
-                                type="button"
-                                onClick={() => void setQuantity(item, item.quantity - 1)}
-                                disabled={item.quantity <= 1}
-                                className="flex h-9 w-9 items-center justify-center text-[17px] text-muted-foreground hover:bg-muted disabled:opacity-35"
-                                aria-label="數量減一"
-                              >
-                                −
-                              </button>
-                              <input
-                                type="number"
-                                min={1}
-                                max={9999}
-                                value={item.quantity}
-                                onChange={(event) =>
-                                  void setQuantity(item, Number(event.target.value))
+                        <li key={item.id} className="space-y-2.5 px-5 py-3.5">
+                          <div className="flex items-center gap-4">
+                            <div className="h-14 w-14 shrink-0 overflow-hidden rounded-lg bg-muted">
+                              {item.productImageUrl ? (
+                                <img
+                                  src={item.productImageUrl}
+                                  alt=""
+                                  className="h-full w-full object-cover"
+                                />
+                              ) : null}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-base font-medium">{item.productTitle}</p>
+                              <p className="font-mono-data text-[15px] text-primary">
+                                單價 ${Number(item.salePrice || 0).toLocaleString()} × {item.quantity}
+                                {' = '}
+                                小計 ${(Number(item.salePrice || 0) * item.quantity).toLocaleString()}
+                              </p>
+                            </div>
+                            <div className="flex shrink-0 items-center gap-2">
+                              <div className="inline-flex items-center overflow-hidden rounded-lg border border-border bg-background">
+                                <button
+                                  type="button"
+                                  onClick={() => void setQuantity(item, item.quantity - 1)}
+                                  disabled={item.quantity <= 1}
+                                  className="flex h-9 w-9 items-center justify-center text-[17px] text-muted-foreground hover:bg-muted disabled:opacity-35"
+                                  aria-label="數量減一"
+                                >
+                                  −
+                                </button>
+                                <input
+                                  type="number"
+                                  min={1}
+                                  max={9999}
+                                  value={item.quantity}
+                                  onChange={(event) =>
+                                    void setQuantity(item, Number(event.target.value))
+                                  }
+                                  className="h-9 w-12 border-x border-border bg-background text-center font-mono-data text-[15px] font-semibold outline-none"
+                                  aria-label={`${item.productTitle}數量`}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => void setQuantity(item, item.quantity + 1)}
+                                  className="flex h-9 w-9 items-center justify-center text-[17px] text-muted-foreground hover:bg-muted"
+                                  aria-label="數量加一"
+                                >
+                                  +
+                                </button>
+                              </div>
+                              <select
+                                value={item.status}
+                                onChange={(e) =>
+                                  setStatus(item.id, e.target.value as ZoneProductStatus)
                                 }
-                                className="h-9 w-12 border-x border-border bg-background text-center font-mono-data text-[15px] font-semibold outline-none"
-                                aria-label={`${item.productTitle}數量`}
-                              />
+                                className={cn(
+                                  'rounded-full border px-3 py-1.5 text-[15px] font-medium',
+                                  ZONE_PRODUCT_STATUS_META[item.status]?.className,
+                                )}
+                              >
+                                <option value="pending">未確定</option>
+                                <option value="discussing">待討論</option>
+                                <option value="confirmed">已確定</option>
+                              </select>
                               <button
                                 type="button"
-                                onClick={() => void setQuantity(item, item.quantity + 1)}
-                                className="flex h-9 w-9 items-center justify-center text-[17px] text-muted-foreground hover:bg-muted"
-                                aria-label="數量加一"
+                                disabled={deletingProductId === item.id}
+                                onClick={() => void removeProduct(item)}
+                                className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/30 px-2.5 py-1.5 text-[15px] font-medium text-rose-600 hover:bg-rose-500/10 disabled:opacity-50"
+                                title="從間隔移除產品"
                               >
-                                +
+                                {deletingProductId === item.id ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Trash2 className="h-4 w-4" />
+                                )}
+                                刪除
                               </button>
                             </div>
-                            <select
-                              value={item.status}
-                              onChange={(e) =>
-                                setStatus(item.id, e.target.value as ZoneProductStatus)
+                          </div>
+                          <div className="flex items-start gap-2 pl-[4.5rem]">
+                            <span className="mt-2 shrink-0 text-[15px] font-medium text-muted-foreground">
+                              備註
+                            </span>
+                            <input
+                              type="text"
+                              defaultValue={item.notes || ''}
+                              key={`${item.id}:${item.notes || ''}`}
+                              onBlur={(event) =>
+                                void setNotes(item, event.target.value)
                               }
-                              className={cn(
-                                'rounded-full border px-3 py-1.5 text-[15px] font-medium',
-                                ZONE_PRODUCT_STATUS_META[item.status]?.className,
-                              )}
-                            >
-                              <option value="pending">未確定</option>
-                              <option value="discussing">待討論</option>
-                              <option value="confirmed">已確定</option>
-                            </select>
-                            <button
-                              type="button"
-                              disabled={deletingProductId === item.id}
-                              onClick={() => void removeProduct(item)}
-                              className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/30 px-2.5 py-1.5 text-[15px] font-medium text-rose-600 hover:bg-rose-500/10 disabled:opacity-50"
-                              title="從間隔移除產品"
-                            >
-                              {deletingProductId === item.id ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : (
-                                <Trash2 className="h-4 w-4" />
-                              )}
-                              刪除
-                            </button>
+                              onKeyDown={(event) => {
+                                if (event.key === 'Enter') {
+                                  event.currentTarget.blur();
+                                }
+                              }}
+                              placeholder="輸入意見或補充說明…"
+                              className="h-10 min-w-0 flex-1 rounded-lg border border-border bg-background px-3 text-[15px] outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+                              aria-label={`${item.productTitle}備註`}
+                            />
                           </div>
                         </li>
                       ))}
