@@ -31,8 +31,10 @@ import {
   type PmsPitchingListItem,
 } from '@/lib/pmsPitchings';
 import { PortalPageShell } from '@/components/dashboard/customers/PortalPageShell';
+import { useAuth } from '@/contexts/AuthProvider';
 import { useClientZoneContext } from '@/hooks/use-client-zone-context';
 import { usePlatformRole } from '@/hooks/use-platform-role';
+import { usePmsStaffName } from '@/hooks/use-pms-staff-name';
 import { BW_COMPANY } from '@/content/bwCorporate';
 import {
   fetchProjects,
@@ -72,6 +74,7 @@ type ItemMessage = {
   id: string;
   text: string;
   createdAt: string;
+  authorName: string;
 };
 type QuoteRoomGroup = {
   id: string;
@@ -273,6 +276,9 @@ const REVIEW_LABEL: Record<ItemReview, string> = {
 };
 
 export function CustomerQuoteSchemesView() {
+  const { user } = useAuth();
+  const staffName = usePmsStaffName(user?.id);
+  const currentUserName = (staffName || user?.email || '用戶').trim() || '用戶';
   const { projects: clientProjects } = useClientZoneContext();
   const { role: platformRole } = usePlatformRole();
   const hasPortalToken =
@@ -610,6 +616,7 @@ export function CustomerQuoteSchemesView() {
       id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       text,
       createdAt: new Date().toISOString(),
+      authorName: currentUserName,
     };
     setItemMessages((current) => ({
       ...current,
@@ -644,7 +651,7 @@ export function CustomerQuoteSchemesView() {
                 const notes = (itemMessages[key] || [])
                   .map(
                     (message) =>
-                      `${fmtUtc8DateTime(message.createdAt)} ${message.text}`,
+                      `${message.authorName} ${fmtUtc8DateTime(message.createdAt)} ${message.text}`,
                   )
                   .join('；');
                 return `<div class="item">
@@ -740,7 +747,10 @@ export function CustomerQuoteSchemesView() {
     const lines = pricedItems.map((item, index) => {
       const key = itemKey(item, index);
       const notes = (itemMessages[key] || [])
-        .map((message) => `${fmtUtc8DateTime(message.createdAt)} ${message.text}`)
+        .map(
+          (message) =>
+            `${message.authorName} ${fmtUtc8DateTime(message.createdAt)} ${message.text}`,
+        )
         .join('；');
       return `${quoteItemDisplayName(item)}：${
         itemReviews[key] ? REVIEW_LABEL[itemReviews[key]] : '尚未決定'
@@ -1084,10 +1094,18 @@ export function CustomerQuoteSchemesView() {
                                           key={message.id}
                                           className="rounded-xl border border-border bg-muted/20 px-3 py-2.5"
                                         >
-                                          <p className="font-mono-data text-xs text-muted-foreground">
-                                            {fmtUtc8DateTime(message.createdAt)}{' '}
-                                            <span className="text-[10px]">
-                                              (UTC+8)
+                                          <p className="text-xs text-muted-foreground">
+                                            <span className="font-semibold text-foreground">
+                                              {message.authorName || currentUserName}
+                                            </span>
+                                            <span className="mx-1.5 text-border">
+                                              ·
+                                            </span>
+                                            <span className="font-mono-data">
+                                              {fmtUtc8DateTime(message.createdAt)}{' '}
+                                              <span className="text-[10px]">
+                                                (UTC+8)
+                                              </span>
                                             </span>
                                           </p>
                                           <div className="mt-1 flex items-start justify-between gap-3">
