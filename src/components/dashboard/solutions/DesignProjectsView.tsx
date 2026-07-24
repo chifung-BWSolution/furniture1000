@@ -25,6 +25,7 @@ import {
   zonesMissingFromSeeds,
 } from '@/lib/syncProjectZones';
 import { uploadFileToStorage } from '@/lib/imageStorage';
+import { remarksPlainText } from '@/lib/remarksContent';
 import { toast } from 'sonner';
 import {
   ZONE_PRODUCT_STATUS_META,
@@ -40,8 +41,14 @@ import {
   FloorPlanViewerModal,
   floorPlanPreviewOf,
 } from './FloorPlanViewerModal';
-import { RemarksRichEditor } from '@/components/dashboard/RemarksRichEditor';
 
+/** Show plain multi-line notes; unwrap older rich-text JSON if present. */
+function plainNotesValue(notes: string | null | undefined): string {
+  const raw = notes || '';
+  if (!raw.trim()) return '';
+  if (raw.trim().startsWith('[')) return remarksPlainText(raw);
+  return raw;
+}
 function isCustomZoneProduct(item: ZoneProduct): boolean {
   return !item.productId;
 }
@@ -984,23 +991,16 @@ export function DesignProjectsView() {
                             <span className="mt-2 shrink-0 text-[15px] font-medium text-muted-foreground">
                               備註
                             </span>
-                            <div
-                              className="min-w-0 flex-1 rounded-lg border border-border bg-background px-2 py-2"
+                            <textarea
+                              value={plainNotesValue(item.notes)}
+                              onChange={(event) =>
+                                setNotes(item, event.target.value)
+                              }
+                              rows={3}
+                              placeholder="輸入意見或補充說明…"
+                              className="min-h-[72px] min-w-0 flex-1 resize-y rounded-lg border border-border bg-background px-3 py-2 text-[15px] leading-relaxed outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
                               aria-label={`${titleLabel}備註`}
-                            >
-                              <RemarksRichEditor
-                                key={item.id}
-                                value={item.notes || ''}
-                                comfortable
-                                textRows={3}
-                                onChange={(serialized) =>
-                                  setNotes(item, serialized)
-                                }
-                                uploadImage={async (file) =>
-                                  uploadFileToStorage(file, item.id, 'notes')
-                                }
-                              />
-                            </div>
+                            />
                           </div>
                         </li>
                         );
