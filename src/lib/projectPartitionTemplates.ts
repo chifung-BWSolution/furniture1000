@@ -178,24 +178,22 @@ export function normalizeRoomOrder(value: unknown): string[] {
     .filter(Boolean);
 }
 
-/** Merge template + custom rooms, honoring a saved roomOrder when present. */
+/**
+ * Merge template + custom rooms, honoring a saved roomOrder when present.
+ * - roomOrder == null → return all template + custom rooms
+ * - roomOrder is an array (even empty) → only those keys (deleted rooms stay hidden)
+ */
 export function orderedRoomsForProjectType(
   type: ProjectEngineeringType,
   customRooms: RoomTypeTemplate[] = [],
-  roomOrder: string[] = [],
+  roomOrder?: string[] | null,
 ): RoomTypeTemplate[] {
   const rooms = [...roomsForProjectType(type), ...customRooms];
-  if (roomOrder.length === 0) return rooms;
+  if (roomOrder == null) return rooms;
   const byKey = new Map(rooms.map((room) => [room.key, room]));
-  const ordered: RoomTypeTemplate[] = [];
-  for (const key of roomOrder) {
-    const room = byKey.get(key);
-    if (!room) continue;
-    ordered.push(room);
-    byKey.delete(key);
-  }
-  for (const room of byKey.values()) ordered.push(room);
-  return ordered;
+  return roomOrder
+    .map((key) => byKey.get(key))
+    .filter((room): room is RoomTypeTemplate => Boolean(room));
 }
 
 /** Layout seeds for floor-plan generator from selected room counts. */
@@ -203,7 +201,7 @@ export function zoneSeedsFromRoomCounts(
   type: ProjectEngineeringType,
   counts: Record<string, number>,
   customRooms: RoomTypeTemplate[] = [],
-  roomOrder: string[] = [],
+  roomOrder?: string[] | null,
 ): { code: string; name: string; bounds: ZoneBounds; roomKey: string }[] {
   const rooms = orderedRoomsForProjectType(type, customRooms, roomOrder);
   const seeds: { code: string; name: string; bounds: ZoneBounds; roomKey: string }[] = [];
@@ -232,6 +230,8 @@ export function zoneSeedsFromRoomCounts(
     if (index >= 12) break;
   }
   if (seeds.length === 0) {
+    // Explicit empty roomOrder means user cleared all rooms — do not invent a fallback.
+    if (roomOrder != null) return [];
     seeds.push({
       code: 'O1',
       name: '開放區',

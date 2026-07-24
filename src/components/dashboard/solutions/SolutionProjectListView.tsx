@@ -5,14 +5,12 @@ import {
   Upload,
   Search,
   Map as MapIcon,
-  ChevronRight,
   ChevronDown,
   ChevronUp,
   Loader2,
   Sparkles,
   Building2,
   Calendar,
-  Sofa,
   FileText,
 } from 'lucide-react';
 import {
@@ -32,11 +30,10 @@ import {
   PROJECT_TYPE_OPTIONS,
   defaultRoomCounts,
   projectTypeLabel,
+  roomsForProjectType,
   zoneSeedsFromRoomCounts,
   type ProjectEngineeringType,
 } from '@/lib/projectPartitionTemplates';
-import { writeSolutionFocusProjectId } from '@/lib/solutionProjectFocus';
-import { useAppStore } from '@/hooks/use-app-store';
 import { toast } from 'sonner';
 import type { DesignProject } from '@/types/solutions';
 import { ProjectPartitionPanel } from './ProjectPartitionPanel';
@@ -134,7 +131,6 @@ function FloorPlanThumb({
 }
 
 export function SolutionProjectListView() {
-  const store = useAppStore();
   const [projects, setProjects] = useState<DesignProject[]>([]);
   const [loading, setLoading] = useState(true);
   const [keyword, setKeyword] = useState('');
@@ -225,11 +221,6 @@ export function SolutionProjectListView() {
     });
   }, [projects, keyword, status]);
 
-  const enterDesignProject = (project: DesignProject) => {
-    writeSolutionFocusProjectId(project.id);
-    store.setCurrentView('design-projects');
-  };
-
   const resetCreateForm = () => {
     setForm({
       name: '',
@@ -280,11 +271,15 @@ export function SolutionProjectListView() {
     setCreating(true);
     try {
       const roomCounts = defaultRoomCounts(form.projectType);
+      const roomOrder = roomsForProjectType(form.projectType).map(
+        (room) => room.key,
+      );
       const baseMeta = {
         projectType: form.projectType,
         existingPartition: 'none' as const,
         roomCounts,
         customRooms: [] as DesignProject['meta']['customRooms'],
+        roomOrder,
       };
       const res = await createProject({
         name: form.name.trim(),
@@ -393,7 +388,7 @@ export function SolutionProjectListView() {
           <div>
             <h1 className="font-display text-2xl font-bold tracking-tight">方案列表</h1>
             <p className="mt-1 font-body text-sm text-muted-foreground">
-              依工程類型建立專案；展開每個方案設定「間隔／功能房間」，再進入設計專案配置傢俬
+              依工程類型建立專案；展開每個方案設定「間隔／功能房間」，並按「儲存」寫入專案資料
             </p>
           </div>
           <button
@@ -526,38 +521,25 @@ export function SolutionProjectListView() {
                     </button>
                   </div>
                   {expanded ? (
-                    <>
-                      <ProjectPartitionPanel
-                        project={p}
-                        onProjectMetaChange={(projectId, meta) =>
-                          setProjects((prev) =>
-                            prev.map((row) =>
-                              row.id === projectId ? { ...row, meta } : row,
-                            ),
-                          )
-                        }
-                        onProjectFloorPlanChange={(projectId, floorPlanUrl, floorPlanType) =>
-                          setProjects((prev) =>
-                            prev.map((row) =>
-                              row.id === projectId
-                                ? { ...row, floorPlanUrl, floorPlanType }
-                                : row,
-                            ),
-                          )
-                        }
-                      />
-                      <div className="flex justify-end border-t border-border bg-card px-5 py-4">
-                        <button
-                          type="button"
-                          onClick={() => enterDesignProject(p)}
-                          className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground"
-                        >
-                          <Sofa className="h-4 w-4" />
-                          進入設計專案配置產品
-                          <ChevronRight className="h-4 w-4" />
-                        </button>
-                      </div>
-                    </>
+                    <ProjectPartitionPanel
+                      project={p}
+                      onProjectMetaChange={(projectId, meta) =>
+                        setProjects((prev) =>
+                          prev.map((row) =>
+                            row.id === projectId ? { ...row, meta } : row,
+                          ),
+                        )
+                      }
+                      onProjectFloorPlanChange={(projectId, floorPlanUrl, floorPlanType) =>
+                        setProjects((prev) =>
+                          prev.map((row) =>
+                            row.id === projectId
+                              ? { ...row, floorPlanUrl, floorPlanType }
+                              : row,
+                          ),
+                        )
+                      }
+                    />
                   ) : null}
                 </article>
               );

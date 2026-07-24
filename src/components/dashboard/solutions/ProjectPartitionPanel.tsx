@@ -5,6 +5,7 @@ import {
   Loader2,
   Minus,
   Plus,
+  Save,
   Sparkles,
   Trash2,
   X,
@@ -80,7 +81,24 @@ function defaultOrderFor(
   type: ProjectEngineeringType,
   customRooms: CustomRoomType[],
 ): string[] {
-  return orderedRoomsForProjectType(type, customRooms).map((room) => room.key);
+  return [
+    ...roomsForProjectType(type).map((room) => room.key),
+    ...customRooms.map((room) => room.key),
+  ];
+}
+
+function resolveRoomOrder(
+  type: ProjectEngineeringType,
+  customRooms: CustomRoomType[],
+  savedOrder: string[],
+): string[] {
+  const known = new Set(defaultOrderFor(type, customRooms));
+  if (savedOrder.length === 0) return defaultOrderFor(type, customRooms);
+  const next = savedOrder.filter((key) => known.has(key));
+  for (const room of customRooms) {
+    if (!next.includes(room.key)) next.push(room.key);
+  }
+  return next;
 }
 
 export function ProjectPartitionPanel({
@@ -113,7 +131,8 @@ export function ProjectPartitionPanel({
   const [zones, setZones] = useState<ProjectZone[]>([]);
   const [zoneProducts, setZoneProducts] = useState<ZoneProduct[]>([]);
   const [loading, setLoading] = useState(true);
-  const [syncing, setSyncing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
   const [showAddRoom, setShowAddRoom] = useState(false);
   const [newRoomLabel, setNewRoomLabel] = useState('');
   const [newRoomQty, setNewRoomQty] = useState(1);
@@ -137,6 +156,7 @@ export function ProjectPartitionPanel({
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setDirty(false);
     Promise.all([fetchZones(project.id), fetchZoneProducts(project.id)])
       .then(([loadedZones, loadedProducts]) => {
         if (cancelled) return;
@@ -149,11 +169,7 @@ export function ProjectPartitionPanel({
         const savedOrder = normalizeRoomOrder(project.meta?.roomOrder);
         setProjectType(type);
         setCustomRooms(nextCustom);
-        setRoomOrder(
-          savedOrder.length > 0
-            ? savedOrder
-            : defaultOrderFor(type, nextCustom),
-        );
+        setRoomOrder(resolveRoomOrder(type, nextCustom, savedOrder));
         setRoomCounts(
           project.meta?.roomCounts &&
             Object.keys(project.meta.roomCounts).length > 0
@@ -177,125 +193,132 @@ export function ProjectPartitionPanel({
     };
   }, [project]);
 
-  const syncZones = useCallback(
-    async (
-      type: ProjectEngineeringType,
-      counts: Record<string, number>,
-      nextCustomRooms: CustomRoomType[],
-      nextRoomOrder: string[],
-    ): Promise<boolean> => {
-      if (syncing) return false;
-      setSyncing(true);
-      try {
-        const desired = zoneSeedsFromRoomCounts(
-          type,
-          counts,
-          nextCustomRooms as RoomTypeTemplate[],
-          nextRoomOrder,
+  const persistCurrentRooms = useCallback(async (): Promise<boolean> => {
+    if (saving) return false;
+    setSaving(true);
+    try {
+      const nextOrder = roomOrder;
+      const desired = zoneSeedsFromRoomCounts(
+        projectType,
+        roomCounts,
+        customRooms as RoomTypeTemplate[],
+        nextOrder,
+      );
+      const zonesWithProducts = new Set(
+        zoneProducts.map((p) => p.zoneId).filter(Boolean),
+      );
+      const kept = zones.filter((z) => zonesWithProducts.has(z.id));
+      const empty = zones.filter((z) => !zonesWithProducts.has(z.id));
+      for (const zone of empty) await deleteZone(zone.id);
+
+      const pool = [...kept];
+      for (let i = 0; i < desired.length; i++) {
+        const seed = desired[i];
+        const existing = pool.find(
+          (z) => z.name === seed.name || z.code === seed.code,
         );
-        const zonesWithProducts = new Set(
-          zoneProducts.map((p) => p.zoneId).filter(Boolean),
-        );
-        const kept = zones.filter((z) => zonesWithProducts.has(z.id));
-        const empty = zones.filter((z) => !zonesWithProducts.has(z.id));
-        for (const zone of empty) await deleteZone(zone.id);
-
-        const pool = [...kept];
-        for (let i = 0; i < desired.length; i++) {
-          const seed = desired[i];
-          const existing = pool.find(
-            (z) => z.name === seed.name || z.code === seed.code,
-          );
-          if (existing) continue;
-          const result = await createZone({
-            projectId: project.id,
-            name: seed.name,
-            code: seed.code,
-            bounds: seed.bounds,
-            aiSuggested: true,
-            sortOrder: i,
-          });
-          if (!result.ok) throw new Error(result.error || '建立間隔失敗');
-          if (result.data) pool.push(result.data);
-        }
-
-        const orderedZones: ProjectZone[] = [];
-        const usedIds = new Set<string>();
-        for (let i = 0; i < desired.length; i++) {
-          const seed = desired[i];
-          const match = pool.find(
-            (z) =>
-              !usedIds.has(z.id) &&
-              (z.name === seed.name || z.code === seed.code),
-          );
-          if (!match) continue;
-          usedIds.add(match.id);
-          if (match.sortOrder !== i) {
-            const updated = await updateZone(match.id, { sortOrder: i });
-            if (!updated.ok) throw new Error(updated.error || '更新排序失敗');
-          }
-          orderedZones.push({ ...match, sortOrder: i });
-        }
-        for (const zone of pool) {
-          if (usedIds.has(zone.id)) continue;
-          const sortOrder = orderedZones.length;
-          const updated = await updateZone(zone.id, { sortOrder });
-          if (!updated.ok) throw new Error(updated.error || '更新排序失敗');
-          orderedZones.push({ ...zone, sortOrder });
-        }
-
-        const meta = {
-          ...project.meta,
-          projectType: type,
-          roomCounts: counts,
-          customRooms: nextCustomRooms,
-          roomOrder: nextRoomOrder,
-        };
-        const saved = await saveProject(project.id, { meta });
-        if (!saved.ok) throw new Error(saved.error || '儲存專案失敗');
-
-        // Do not overwrite a user-uploaded PDF/JPG floor plan.
-        if (
-          !project.floorPlanUrl ||
-          project.floorPlanType === 'image/svg+xml'
-        ) {
-          const dataUrl = generateFloorPlanDataUrl(orderedZones, project.name);
-          const floorSaved = await updateProjectFloorPlan(
-            project.id,
-            dataUrl,
-            'image/svg+xml',
-          );
-          if (floorSaved.ok) {
-            onProjectFloorPlanChange?.(project.id, dataUrl, 'image/svg+xml');
-          }
-        }
-        setZones(orderedZones);
-        onProjectMetaChange?.(project.id, meta);
-        return true;
-      } catch (error) {
-        toast.error('更新間隔失敗', {
-          description:
-            error instanceof Error ? error.message : '請稍後再試',
+        if (existing) continue;
+        const result = await createZone({
+          projectId: project.id,
+          name: seed.name,
+          code: seed.code,
+          bounds: seed.bounds,
+          aiSuggested: true,
+          sortOrder: i,
         });
-        return false;
-      } finally {
-        setSyncing(false);
+        if (!result.ok) throw new Error(result.error || '建立間隔失敗');
+        if (result.data) pool.push(result.data);
       }
-    },
-    [
-      onProjectFloorPlanChange,
-      onProjectMetaChange,
-      project,
-      syncing,
-      zoneProducts,
-      zones,
-    ],
-  );
 
-  const changeType = async (type: ProjectEngineeringType) => {
-    const previousType = projectType;
-    const previousCounts = roomCounts;
-    const previousOrder = roomOrder;
+      const orderedZones: ProjectZone[] = [];
+      const usedIds = new Set<string>();
+      for (let i = 0; i < desired.length; i++) {
+        const seed = desired[i];
+        const match = pool.find(
+          (z) =>
+            !usedIds.has(z.id) &&
+            (z.name === seed.name || z.code === seed.code),
+        );
+        if (!match) continue;
+        usedIds.add(match.id);
+        if (match.sortOrder !== i) {
+          const updated = await updateZone(match.id, { sortOrder: i });
+          if (!updated.ok) throw new Error(updated.error || '更新排序失敗');
+        }
+        orderedZones.push({ ...match, sortOrder: i });
+      }
+      for (const zone of pool) {
+        if (usedIds.has(zone.id)) continue;
+        const sortOrder = orderedZones.length;
+        const updated = await updateZone(zone.id, { sortOrder });
+        if (!updated.ok) throw new Error(updated.error || '更新排序失敗');
+        orderedZones.push({ ...zone, sortOrder });
+      }
+
+      // Keep counts only for currently visible rooms.
+      const visibleCounts: Record<string, number> = {};
+      for (const key of nextOrder) {
+        visibleCounts[key] = Math.max(0, roomCounts[key] || 0);
+      }
+
+      const meta = {
+        ...project.meta,
+        projectType,
+        roomCounts: visibleCounts,
+        customRooms,
+        roomOrder: nextOrder,
+      };
+      const saved = await saveProject(project.id, { meta });
+      if (!saved.ok) throw new Error(saved.error || '儲存專案失敗');
+
+      if (
+        !project.floorPlanUrl ||
+        project.floorPlanType === 'image/svg+xml'
+      ) {
+        const dataUrl = generateFloorPlanDataUrl(orderedZones, project.name);
+        const floorSaved = await updateProjectFloorPlan(
+          project.id,
+          dataUrl,
+          'image/svg+xml',
+        );
+        if (floorSaved.ok) {
+          onProjectFloorPlanChange?.(project.id, dataUrl, 'image/svg+xml');
+        }
+      }
+
+      setZones(orderedZones);
+      setRoomCounts(visibleCounts);
+      setRoomOrder(nextOrder);
+      setDirty(false);
+      onProjectMetaChange?.(project.id, meta);
+      toast.success('已儲存房間設定', {
+        description: `${orderedRooms.length} 種房間類型已寫入專案`,
+      });
+      return true;
+    } catch (error) {
+      toast.error('儲存失敗', {
+        description:
+          error instanceof Error ? error.message : '請稍後再試',
+      });
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  }, [
+    customRooms,
+    onProjectFloorPlanChange,
+    onProjectMetaChange,
+    orderedRooms.length,
+    project,
+    projectType,
+    roomCounts,
+    roomOrder,
+    saving,
+    zoneProducts,
+    zones,
+  ]);
+
+  const changeType = (type: ProjectEngineeringType) => {
     const counts = {
       ...defaultRoomCounts(type),
       ...Object.fromEntries(
@@ -306,26 +329,18 @@ export function ProjectPartitionPanel({
     setProjectType(type);
     setRoomCounts(counts);
     setRoomOrder(nextOrder);
-    if (!(await syncZones(type, counts, customRooms, nextOrder))) {
-      setProjectType(previousType);
-      setRoomCounts(previousCounts);
-      setRoomOrder(previousOrder);
-    }
+    setDirty(true);
   };
 
-  const changeQty = async (key: string, delta: number) => {
-    const previous = roomCounts;
-    const next = {
-      ...roomCounts,
-      [key]: Math.max(0, Math.min(20, (roomCounts[key] || 0) + delta)),
-    };
-    setRoomCounts(next);
-    if (!(await syncZones(projectType, next, customRooms, roomOrder))) {
-      setRoomCounts(previous);
-    }
+  const changeQty = (key: string, delta: number) => {
+    setRoomCounts((current) => ({
+      ...current,
+      [key]: Math.max(0, Math.min(20, (current[key] || 0) + delta)),
+    }));
+    setDirty(true);
   };
 
-  const addCustomRoom = async () => {
+  const addCustomRoom = () => {
     const label = newRoomLabel.trim();
     if (!label) {
       toast.error('請輸入房間類型');
@@ -333,81 +348,64 @@ export function ProjectPartitionPanel({
     }
     if (
       roomTemplates.some((room) => room.label === label) ||
-      customRooms.some((room) => room.label === label)
+      customRooms.some((room) => room.label === label) ||
+      orderedRooms.some((room) => room.label === label)
     ) {
       toast.error('此房間類型已存在');
       return;
     }
     const qty = Math.max(1, Math.min(20, Math.floor(newRoomQty || 1)));
     const key = `custom_${Date.now().toString(36)}`;
-    const nextCustom = [
-      ...customRooms,
+    setCustomRooms((current) => [
+      ...current,
       { key, label, codePrefix: codePrefixFromLabel(label) },
-    ];
-    const nextCounts = { ...roomCounts, [key]: qty };
-    const nextOrder = [...(roomOrder.length ? roomOrder : defaultOrderFor(projectType, customRooms)), key];
-    const previousCustom = customRooms;
-    const previousCounts = roomCounts;
-    const previousOrder = roomOrder;
-    setCustomRooms(nextCustom);
-    setRoomCounts(nextCounts);
-    setRoomOrder(nextOrder);
-    if (!(await syncZones(projectType, nextCounts, nextCustom, nextOrder))) {
-      setCustomRooms(previousCustom);
-      setRoomCounts(previousCounts);
-      setRoomOrder(previousOrder);
-      return;
-    }
+    ]);
+    setRoomCounts((current) => ({ ...current, [key]: qty }));
+    setRoomOrder((current) => [
+      ...(current.length ? current : defaultOrderFor(projectType, customRooms)),
+      key,
+    ]);
     setShowAddRoom(false);
     setNewRoomLabel('');
     setNewRoomQty(1);
-    toast.success('已新增房間並儲存', { description: `${label} × ${qty}` });
+    setDirty(true);
+    toast.message('已加入房間', {
+      description: '請按「儲存」寫入專案資料',
+    });
   };
 
-  const deleteCustomRoom = async (key: string) => {
-    const target = customRooms.find((room) => room.key === key);
+  const deleteRoom = (key: string) => {
+    const target = orderedRooms.find((room) => room.key === key);
     if (!target) return;
-    if (!window.confirm(`確定刪除自訂房間「${target.label}」？`)) return;
-    const previousCustom = customRooms;
-    const previousCounts = roomCounts;
-    const previousOrder = roomOrder;
-    const nextCustom = customRooms.filter((room) => room.key !== key);
-    const nextCounts = { ...roomCounts };
-    delete nextCounts[key];
-    const nextOrder = (roomOrder.length
-      ? roomOrder
-      : defaultOrderFor(projectType, customRooms)
-    ).filter((item) => item !== key);
-    setCustomRooms(nextCustom);
-    setRoomCounts(nextCounts);
-    setRoomOrder(nextOrder);
-    if (!(await syncZones(projectType, nextCounts, nextCustom, nextOrder))) {
-      setCustomRooms(previousCustom);
-      setRoomCounts(previousCounts);
-      setRoomOrder(previousOrder);
-      return;
-    }
-    toast.success('已刪除自訂房間', { description: target.label });
+    if (!window.confirm(`確定刪除房間類型「${target.label}」？`)) return;
+    setCustomRooms((current) => current.filter((room) => room.key !== key));
+    setRoomCounts((current) => {
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+    setRoomOrder((current) =>
+      (current.length ? current : defaultOrderFor(projectType, customRooms)).filter(
+        (item) => item !== key,
+      ),
+    );
+    setDirty(true);
+    toast.message('已移除房間類型', {
+      description: '請按「儲存」更新專案資料',
+    });
   };
 
-  const reorderRooms = async (fromKey: string, toKey: string) => {
+  const reorderRooms = (fromKey: string, toKey: string) => {
     if (!fromKey || !toKey || fromKey === toKey) return;
     const keys = orderedRooms.map((room) => room.key);
     const from = keys.indexOf(fromKey);
     const to = keys.indexOf(toKey);
     if (from < 0 || to < 0) return;
-    const previousOrder = roomOrder;
     const next = [...keys];
     const [moved] = next.splice(from, 1);
     next.splice(to, 0, moved);
     setRoomOrder(next);
-    if (!(await syncZones(projectType, roomCounts, customRooms, next))) {
-      setRoomOrder(previousOrder);
-      return;
-    }
-    toast.success('已更新房間排序', {
-      description: '設計專案會按新順序顯示',
-    });
+    setDirty(true);
   };
 
   if (loading) {
@@ -427,13 +425,17 @@ export function ProjectPartitionPanel({
             間隔／功能房間
           </h3>
           <p className="mt-1 text-[15px] text-muted-foreground">
-            在此設定工程類型及房間數量，再進入「設計專案」為每個間隔加入產品。
+            在此設定工程類型及房間數量；完成後按「儲存」寫入專案資料。
           </p>
         </div>
-        {syncing ? (
+        {saving ? (
           <span className="inline-flex items-center gap-2 text-[15px] text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
-            正在同步
+            正在儲存
+          </span>
+        ) : dirty ? (
+          <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-700">
+            尚未儲存
           </span>
         ) : null}
       </div>
@@ -447,8 +449,8 @@ export function ProjectPartitionPanel({
             <button
               key={option.id}
               type="button"
-              disabled={syncing}
-              onClick={() => void changeType(option.id)}
+              disabled={saving}
+              onClick={() => changeType(option.id)}
               className={cn(
                 'rounded-full border px-3.5 py-2 text-[15px] font-medium transition-colors disabled:opacity-50',
                 projectType === option.id
@@ -469,18 +471,33 @@ export function ProjectPartitionPanel({
               房間類型及數量 — {projectTypeLabel(projectType)}
             </p>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              拖曳房間卡片可調整順序，設計專案會同步顯示
+              可拖曳排序、刪除房間；按「儲存」後才寫入資料庫
             </p>
           </div>
-          <button
-            type="button"
-            disabled={syncing}
-            onClick={() => setShowAddRoom((open) => !open)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/10 px-3 py-1.5 text-sm font-semibold text-primary hover:bg-primary/15 disabled:opacity-50"
-          >
-            <Plus className="h-4 w-4" />
-            新增房間
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              disabled={saving || !dirty}
+              onClick={() => void persistCurrentRooms()}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            >
+              {saving ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4" />
+              )}
+              儲存
+            </button>
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => setShowAddRoom((open) => !open)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/10 px-3 py-1.5 text-sm font-semibold text-primary hover:bg-primary/15 disabled:opacity-50"
+            >
+              <Plus className="h-4 w-4" />
+              新增房間
+            </button>
+          </div>
         </div>
 
         {showAddRoom ? (
@@ -489,7 +506,7 @@ export function ProjectPartitionPanel({
               <div>
                 <p className="text-sm font-semibold">新增房間類型</p>
                 <p className="mt-0.5 text-xs text-muted-foreground">
-                  輸入房間類型及數量後會即時顯示，並儲存至專案資料。
+                  輸入房間類型及數量後會先顯示在列表，再按「儲存」寫入專案。
                 </p>
               </div>
               <button
@@ -531,8 +548,8 @@ export function ProjectPartitionPanel({
               <div className="flex items-end">
                 <button
                   type="button"
-                  disabled={syncing}
-                  onClick={() => void addCustomRoom()}
+                  disabled={saving}
+                  onClick={addCustomRoom}
                   className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-50 sm:w-auto"
                 >
                   確定新增
@@ -550,7 +567,7 @@ export function ProjectPartitionPanel({
             return (
               <div
                 key={room.key}
-                draggable={!syncing}
+                draggable={!saving}
                 onDragStart={(event) => {
                   setDragKey(room.key);
                   event.dataTransfer.effectAllowed = 'move';
@@ -574,7 +591,7 @@ export function ProjectPartitionPanel({
                     event.dataTransfer.getData('text/plain') || dragKey;
                   setDragOverKey(null);
                   setDragKey(null);
-                  if (fromKey) void reorderRooms(fromKey, room.key);
+                  if (fromKey) reorderRooms(fromKey, room.key);
                 }}
                 className={cn(
                   'flex cursor-grab items-center justify-between gap-3 rounded-xl border bg-card px-3 py-3 active:cursor-grabbing',
@@ -599,8 +616,8 @@ export function ProjectPartitionPanel({
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    disabled={syncing}
-                    onClick={() => void changeQty(room.key, -1)}
+                    disabled={saving}
+                    onClick={() => changeQty(room.key, -1)}
                     className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary disabled:opacity-40"
                     aria-label={`減少${room.label}`}
                   >
@@ -611,33 +628,36 @@ export function ProjectPartitionPanel({
                   </span>
                   <button
                     type="button"
-                    disabled={syncing}
-                    onClick={() => void changeQty(room.key, 1)}
+                    disabled={saving}
+                    onClick={() => changeQty(room.key, 1)}
                     className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary disabled:opacity-40"
                     aria-label={`增加${room.label}`}
                   >
                     <Plus className="h-4 w-4" />
                   </button>
-                  {isCustom ? (
-                    <button
-                      type="button"
-                      disabled={syncing}
-                      onClick={() => void deleteCustomRoom(room.key)}
-                      className="flex h-8 w-8 items-center justify-center rounded-lg border border-rose-500/30 text-rose-700 hover:bg-rose-500/10 disabled:opacity-40"
-                      aria-label={`刪除${room.label}`}
-                      title="刪除自訂房間"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
-                  ) : null}
+                  <button
+                    type="button"
+                    disabled={saving}
+                    onClick={() => deleteRoom(room.key)}
+                    className="flex h-8 w-8 items-center justify-center rounded-lg border border-rose-500/30 text-rose-700 hover:bg-rose-500/10 disabled:opacity-40"
+                    aria-label={`刪除${room.label}`}
+                    title="刪除房間類型"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
                 </div>
               </div>
             );
           })}
         </div>
+        {orderedRooms.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
+            尚未有房間類型，請按「新增房間」或先儲存前選擇工程類型預設房間。
+          </div>
+        ) : null}
         <p className="mt-3 flex items-center gap-1.5 text-[15px] text-muted-foreground">
           <Sparkles className="h-4 w-4 text-primary" />
-          已配置產品的間隔會保留；拖曳排序後會同步到設計專案顯示順序。
+          刪除、排序與數量調整後，記得按「儲存」才會寫入 design_projects。
         </p>
       </div>
     </div>
