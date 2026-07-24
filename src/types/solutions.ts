@@ -43,6 +43,13 @@ export interface ZoneProduct {
   sortOrder: number;
 }
 
+/** Custom room rows created via「新增房間」, stored in design_projects.meta. */
+export interface CustomRoomType {
+  key: string;
+  label: string;
+  codePrefix: string;
+}
+
 /** Stored in design_projects.meta (no schema change). */
 export interface DesignProjectMeta {
   projectType?: 'office' | 'school' | 'clinic' | 'hotel' | 'other';
@@ -53,6 +60,9 @@ export interface DesignProjectMeta {
     | 'raise_to_ceiling'
     | 'none';
   roomCounts?: Record<string, number>;
+  /** User-defined rooms beyond the engineering-type templates. */
+  customRooms?: CustomRoomType[];
+  floorPlanFileName?: string;
   [key: string]: unknown;
 }
 

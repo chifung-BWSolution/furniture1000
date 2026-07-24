@@ -163,12 +163,21 @@ export function defaultRoomCounts(type: ProjectEngineeringType): Record<string, 
   return counts;
 }
 
+export function codePrefixFromLabel(label: string): string {
+  const latin = label.trim().match(/[A-Za-z]+/)?.[0];
+  if (latin) return latin.slice(0, 2).toUpperCase();
+  const digits = label.trim().match(/[0-9]+/)?.[0];
+  if (digits) return `R${digits.slice(0, 2)}`;
+  return 'CR';
+}
+
 /** Layout seeds for floor-plan generator from selected room counts. */
 export function zoneSeedsFromRoomCounts(
   type: ProjectEngineeringType,
   counts: Record<string, number>,
+  customRooms: RoomTypeTemplate[] = [],
 ): { code: string; name: string; bounds: ZoneBounds; roomKey: string }[] {
-  const rooms = roomsForProjectType(type);
+  const rooms = [...roomsForProjectType(type), ...customRooms];
   const seeds: { code: string; name: string; bounds: ZoneBounds; roomKey: string }[] = [];
   const active = rooms.filter((r) => (counts[r.key] || 0) > 0 && r.key !== 'no_partition');
   const total = active.reduce((n, r) => n + (counts[r.key] || 0), 0) || 1;
@@ -209,4 +218,5 @@ export interface ProjectPartitionMeta {
   projectType?: ProjectEngineeringType;
   existingPartition?: ExistingPartitionMode;
   roomCounts?: Record<string, number>;
+  customRooms?: RoomTypeTemplate[];
 }

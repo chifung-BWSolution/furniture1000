@@ -164,6 +164,42 @@ export async function uploadFileToStorage(
   return buildStoragePublicUrl(filePath);
 }
 
+/**
+ * Upload a design-project floor plan (JPG/PNG/WebP/PDF) to Storage.
+ * Images are resized to JPEG; PDFs are stored as-is. Returns public HTTP URL.
+ */
+export async function uploadProjectFloorPlanFile(
+  projectId: string,
+  file: File,
+): Promise<{ url: string; mimeType: string; fileName: string }> {
+  const lowerName = file.name.toLowerCase();
+  const isPdf =
+    file.type === 'application/pdf' || lowerName.endsWith('.pdf');
+  const isImage =
+    file.type.startsWith('image/') ||
+    /\.(jpe?g|png|webp)$/i.test(lowerName);
+
+  if (!isPdf && !isImage) {
+    throw new Error('只支援 PDF / JPG / PNG / WebP');
+  }
+
+  const blob = isImage ? await resizeImageToBlob(file) : file;
+  const mimeType = isPdf
+    ? 'application/pdf'
+    : blob.type || 'image/jpeg';
+  const ext = isPdf ? 'pdf' : extFromMime(mimeType);
+  const safeId = projectId.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64) || 'project';
+  const filePath = `design-projects/${safeId}/floor-plan_${Date.now()}.${ext}`;
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  const { error } = await uploadWithRetry(filePath, bytes, mimeType);
+  if (error) throw new Error(error.message);
+  return {
+    url: buildStoragePublicUrl(filePath),
+    mimeType,
+    fileName: file.name,
+  };
+}
+
 /** Upload blob bytes to Storage; returns public HTTP URL. */
 export async function uploadBlobToStorage(
   blob: Blob,

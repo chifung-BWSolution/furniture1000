@@ -10,6 +10,18 @@ import type {
   ClientCompany, ProductDiscussion, SearchProduct,
 } from '@/types/solutions';
 import { withInsertAuditFields, withUpdateAuditFields } from '@/lib/pmsAudit';
+import { isHttpImageUrl, isSvgPlaceholder } from '@/lib/imageStorage';
+
+/** Persist Storage HTTP URLs or compact SVG schematics — never huge base64 blobs. */
+function floorPlanUrlForDb(url: string | null | undefined): string | null {
+  const value = (url || '').trim();
+  if (!value) return null;
+  if (isHttpImageUrl(value) || value.startsWith('https://') || value.startsWith('http://')) {
+    return value;
+  }
+  if (isSvgPlaceholder(value)) return value;
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // Row → domain mappers
@@ -803,12 +815,13 @@ export async function createProject(input: {
   meta?: DesignProject['meta'];
 }): Promise<WriteResult<DesignProject>> {
   try {
+    const floorPlanUrl = floorPlanUrlForDb(input.floorPlanUrl);
     const insertPayload = await withInsertAuditFields({
       name: input.name,
       client_name: input.clientName ?? null,
       client_company: input.clientCompany ?? null,
-      floor_plan_url: input.floorPlanUrl ?? null,
-      floor_plan_type: input.floorPlanType ?? null,
+      floor_plan_url: floorPlanUrl,
+      floor_plan_type: floorPlanUrl ? input.floorPlanType ?? null : null,
       status: 'draft',
       active_scheme: 'A',
       progress: 0,
@@ -1130,16 +1143,23 @@ export async function unassignZoneProduct(zoneProductId: string): Promise<WriteR
   }
 }
 
-/** Persist a project's uploaded floor plan (data URL or storage URL + type). */
+/** Persist a project's floor plan (Storage HTTP URL or compact SVG schematic). */
 export async function updateProjectFloorPlan(
   projectId: string,
   floorPlanUrl: string,
   floorPlanType: string,
 ): Promise<WriteResult> {
   try {
+    const safeUrl = floorPlanUrlForDb(floorPlanUrl);
+    if (!safeUrl) {
+      return {
+        ok: false,
+        error: '平面圖須先上傳至儲存空間（不可直接寫入 base64）',
+      };
+    }
     const updatePayload = await withUpdateAuditFields({
-      floor_plan_url: floorPlanUrl,
-      floor_plan_type: floorPlanType,
+      floor_plan_url: safeUrl,
+      floor_plan_type: floorPlanType || null,
       updated_at: new Date().toISOString(),
     });
     const { error } = await supabase

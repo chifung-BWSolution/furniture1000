@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { DoorOpen, Loader2, Minus, Plus, Sparkles } from 'lucide-react';
+import { DoorOpen, Loader2, Minus, Plus, Sparkles, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   createZone,
@@ -12,21 +12,44 @@ import {
 import { generateFloorPlanDataUrl } from '@/lib/floorPlanGenerator';
 import {
   PROJECT_TYPE_OPTIONS,
+  codePrefixFromLabel,
   defaultRoomCounts,
   inferProjectType,
   projectTypeLabel,
   roomsForProjectType,
   zoneSeedsFromRoomCounts,
   type ProjectEngineeringType,
+  type RoomTypeTemplate,
 } from '@/lib/projectPartitionTemplates';
-import type { DesignProject, ProjectZone, ZoneProduct } from '@/types/solutions';
+import type {
+  CustomRoomType,
+  DesignProject,
+  ProjectZone,
+  ZoneProduct,
+} from '@/types/solutions';
 import { toast } from 'sonner';
+
+function normalizeCustomRooms(value: unknown): CustomRoomType[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => {
+      if (!item || typeof item !== 'object') return null;
+      const row = item as Record<string, unknown>;
+      const key = String(row.key || '').trim();
+      const label = String(row.label || '').trim();
+      const codePrefix = String(row.codePrefix || '').trim() || 'CR';
+      if (!key || !label) return null;
+      return { key, label, codePrefix };
+    })
+    .filter((item): item is CustomRoomType => Boolean(item));
+}
 
 function countRoomsFromZones(
   type: ProjectEngineeringType,
   zones: ProjectZone[],
+  customRooms: CustomRoomType[],
 ): Record<string, number> {
-  const rooms = roomsForProjectType(type);
+  const rooms = [...roomsForProjectType(type), ...customRooms];
   const counts = defaultRoomCounts(type);
   for (const room of rooms) counts[room.key] = 0;
   for (const zone of zones) {
@@ -44,9 +67,15 @@ function countRoomsFromZones(
 export function ProjectPartitionPanel({
   project,
   onProjectMetaChange,
+  onProjectFloorPlanChange,
 }: {
   project: DesignProject;
   onProjectMetaChange?: (projectId: string, meta: DesignProject['meta']) => void;
+  onProjectFloorPlanChange?: (
+    projectId: string,
+    floorPlanUrl: string,
+    floorPlanType: string,
+  ) => void;
 }) {
   const initialType =
     project.meta?.projectType ||
@@ -56,10 +85,17 @@ export function ProjectPartitionPanel({
   const [roomCounts, setRoomCounts] = useState<Record<string, number>>(
     project.meta?.roomCounts || defaultRoomCounts(initialType),
   );
+  const [customRooms, setCustomRooms] = useState<CustomRoomType[]>(
+    normalizeCustomRooms(project.meta?.customRooms),
+  );
   const [zones, setZones] = useState<ProjectZone[]>([]);
   const [zoneProducts, setZoneProducts] = useState<ZoneProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [showAddRoom, setShowAddRoom] = useState(false);
+  const [newRoomLabel, setNewRoomLabel] = useState('');
+  const [newRoomQty, setNewRoomQty] = useState(1);
+
   const roomTemplates = useMemo(
     () => roomsForProjectType(projectType),
     [projectType],
@@ -76,13 +112,21 @@ export function ProjectPartitionPanel({
         const type =
           project.meta?.projectType ||
           inferProjectType(project.name, project.clientCompany);
+        const nextCustom = normalizeCustomRooms(project.meta?.customRooms);
         setProjectType(type);
+        setCustomRooms(nextCustom);
         setRoomCounts(
           project.meta?.roomCounts &&
             Object.keys(project.meta.roomCounts).length > 0
-            ? { ...defaultRoomCounts(type), ...project.meta.roomCounts }
+            ? {
+                ...defaultRoomCounts(type),
+                ...Object.fromEntries(
+                  nextCustom.map((room) => [room.key, 0]),
+                ),
+                ...project.meta.roomCounts,
+              }
             : loadedZones.length > 0
-              ? countRoomsFromZones(type, loadedZones)
+              ? countRoomsFromZones(type, loadedZones, nextCustom)
               : defaultRoomCounts(type),
         );
       })
@@ -98,11 +142,16 @@ export function ProjectPartitionPanel({
     async (
       type: ProjectEngineeringType,
       counts: Record<string, number>,
+      nextCustomRooms: CustomRoomType[],
     ): Promise<boolean> => {
       if (syncing) return false;
       setSyncing(true);
       try {
-        const desired = zoneSeedsFromRoomCounts(type, counts);
+        const desired = zoneSeedsFromRoomCounts(
+          type,
+          counts,
+          nextCustomRooms as RoomTypeTemplate[],
+        );
         const zonesWithProducts = new Set(
           zoneProducts.map((p) => p.zoneId).filter(Boolean),
         );
@@ -133,6 +182,7 @@ export function ProjectPartitionPanel({
           ...project.meta,
           projectType: type,
           roomCounts: counts,
+          customRooms: nextCustomRooms,
         };
         const saved = await saveProject(project.id, { meta });
         if (!saved.ok) throw new Error(saved.error || '儲存專案失敗');
@@ -143,11 +193,14 @@ export function ProjectPartitionPanel({
           project.floorPlanType === 'image/svg+xml'
         ) {
           const dataUrl = generateFloorPlanDataUrl(nextZones, project.name);
-          await updateProjectFloorPlan(
+          const floorSaved = await updateProjectFloorPlan(
             project.id,
             dataUrl,
             'image/svg+xml',
           );
+          if (floorSaved.ok) {
+            onProjectFloorPlanChange?.(project.id, dataUrl, 'image/svg+xml');
+          }
         }
         setZones(nextZones);
         onProjectMetaChange?.(project.id, meta);
@@ -162,16 +215,28 @@ export function ProjectPartitionPanel({
         setSyncing(false);
       }
     },
-    [onProjectMetaChange, project, syncing, zoneProducts, zones],
+    [
+      onProjectFloorPlanChange,
+      onProjectMetaChange,
+      project,
+      syncing,
+      zoneProducts,
+      zones,
+    ],
   );
 
   const changeType = async (type: ProjectEngineeringType) => {
     const previousType = projectType;
     const previousCounts = roomCounts;
-    const counts = defaultRoomCounts(type);
+    const counts = {
+      ...defaultRoomCounts(type),
+      ...Object.fromEntries(
+        customRooms.map((room) => [room.key, roomCounts[room.key] || 0]),
+      ),
+    };
     setProjectType(type);
     setRoomCounts(counts);
-    if (!(await syncZones(type, counts))) {
+    if (!(await syncZones(type, counts, customRooms))) {
       setProjectType(previousType);
       setRoomCounts(previousCounts);
     }
@@ -184,7 +249,44 @@ export function ProjectPartitionPanel({
       [key]: Math.max(0, Math.min(20, (roomCounts[key] || 0) + delta)),
     };
     setRoomCounts(next);
-    if (!(await syncZones(projectType, next))) setRoomCounts(previous);
+    if (!(await syncZones(projectType, next, customRooms))) {
+      setRoomCounts(previous);
+    }
+  };
+
+  const addCustomRoom = async () => {
+    const label = newRoomLabel.trim();
+    if (!label) {
+      toast.error('請輸入房間類型');
+      return;
+    }
+    if (
+      roomTemplates.some((room) => room.label === label) ||
+      customRooms.some((room) => room.label === label)
+    ) {
+      toast.error('此房間類型已存在');
+      return;
+    }
+    const qty = Math.max(1, Math.min(20, Math.floor(newRoomQty || 1)));
+    const key = `custom_${Date.now().toString(36)}`;
+    const nextCustom = [
+      ...customRooms,
+      { key, label, codePrefix: codePrefixFromLabel(label) },
+    ];
+    const nextCounts = { ...roomCounts, [key]: qty };
+    const previousCustom = customRooms;
+    const previousCounts = roomCounts;
+    setCustomRooms(nextCustom);
+    setRoomCounts(nextCounts);
+    if (!(await syncZones(projectType, nextCounts, nextCustom))) {
+      setCustomRooms(previousCustom);
+      setRoomCounts(previousCounts);
+      return;
+    }
+    setShowAddRoom(false);
+    setNewRoomLabel('');
+    setNewRoomQty(1);
+    toast.success('已新增房間並儲存', { description: `${label} × ${qty}` });
   };
 
   if (loading) {
@@ -240,16 +342,94 @@ export function ProjectPartitionPanel({
       </div>
 
       <div>
-        <p className="mb-2 text-[15px] font-semibold text-muted-foreground">
-          房間類型及數量 — {projectTypeLabel(projectType)}
-        </p>
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-[15px] font-semibold text-muted-foreground">
+            房間類型及數量 — {projectTypeLabel(projectType)}
+          </p>
+          <button
+            type="button"
+            disabled={syncing}
+            onClick={() => setShowAddRoom((open) => !open)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/10 px-3 py-1.5 text-sm font-semibold text-primary hover:bg-primary/15 disabled:opacity-50"
+          >
+            <Plus className="h-4 w-4" />
+            新增房間
+          </button>
+        </div>
+
+        {showAddRoom ? (
+          <div className="mb-3 rounded-xl border border-primary/25 bg-card p-4 shadow-sm">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold">新增房間類型</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  輸入房間類型及數量後會即時顯示，並儲存至專案資料。
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowAddRoom(false)}
+                className="rounded-md p-1 text-muted-foreground hover:bg-muted"
+                aria-label="關閉新增房間"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="mt-3 grid gap-3 sm:grid-cols-[1.4fr_0.6fr_auto]">
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-muted-foreground">
+                  房間類型
+                </span>
+                <input
+                  value={newRoomLabel}
+                  onChange={(event) => setNewRoomLabel(event.target.value)}
+                  placeholder="例如：培訓室"
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-muted-foreground">
+                  數量
+                </span>
+                <input
+                  type="number"
+                  min={1}
+                  max={20}
+                  value={newRoomQty}
+                  onChange={(event) =>
+                    setNewRoomQty(Number(event.target.value) || 1)
+                  }
+                  className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+                />
+              </label>
+              <div className="flex items-end">
+                <button
+                  type="button"
+                  disabled={syncing}
+                  onClick={() => void addCustomRoom()}
+                  className="inline-flex h-10 w-full items-center justify-center gap-1.5 rounded-lg bg-primary px-4 text-sm font-semibold text-primary-foreground disabled:opacity-50 sm:w-auto"
+                >
+                  確定新增
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-          {roomTemplates.map((room) => (
+          {[...roomTemplates, ...customRooms].map((room) => (
             <div
               key={room.key}
               className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card px-4 py-3"
             >
-              <span className="text-sm font-medium">{room.label}</span>
+              <div className="min-w-0">
+                <span className="text-sm font-medium">{room.label}</span>
+                {room.key.startsWith('custom_') ? (
+                  <span className="ml-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
+                    自訂
+                  </span>
+                ) : null}
+              </div>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
