@@ -114,10 +114,6 @@ function normalizeCustomRooms(value: unknown): CustomRoomType[] {
     .filter((item): item is CustomRoomType => Boolean(item));
 }
 
-function zoneCodePrefix(code: string | null): string {
-  return code?.trim().match(/^[A-Za-z]+/)?.[0]?.toUpperCase() || '其他';
-}
-
 function zoneBaseName(name: string): string {
   return (
     name
@@ -259,7 +255,6 @@ export function DesignProjectsView() {
       string,
       {
         key: string;
-        prefix: string;
         label: string;
         zones: ProjectZone[];
         minSort: number;
@@ -271,12 +266,10 @@ export function DesignProjectsView() {
       (a, b) => (a.sortOrder || 0) - (b.sortOrder || 0),
     );
     for (const zone of sortedZones) {
-      const prefix = zoneCodePrefix(zone.code);
       const label = zoneBaseName(zone.name);
-      const key = `${prefix}:${label}`;
+      const key = label;
       const group = groups.get(key) || {
         key,
-        prefix,
         label,
         zones: [],
         minSort: zone.sortOrder || 0,
@@ -715,7 +708,7 @@ export function DesignProjectsView() {
                   className="inline-flex items-center gap-1 rounded-lg border border-primary/20 bg-primary/5 px-3 py-1.5 text-[15px]"
                 >
                   <span className="font-semibold text-foreground">
-                    {group.prefix} · {group.label}
+                    {group.label}
                   </span>
                   <span className="text-muted-foreground">
                     ：{group.zones.length}
@@ -738,18 +731,13 @@ export function DesignProjectsView() {
             {zoneGroups.map((group, groupIndex) => (
               <section key={group.key} className="space-y-3">
                 <div className="flex flex-wrap items-end justify-between gap-3 border-b border-border pb-2.5">
-                  <div className="flex items-center gap-3">
-                    <span className="flex h-9 min-w-9 items-center justify-center rounded-lg border border-primary/30 bg-primary/10 text-sm font-bold text-primary">
-                      {group.prefix}
-                    </span>
-                    <div>
-                      <h3 className="font-display text-lg font-bold">
-                        {group.prefix} · {group.label}
-                      </h3>
-                      <p className="mt-0.5 text-[15px] text-muted-foreground">
-                        {group.zones.length} 個{group.label}
-                      </p>
-                    </div>
+                  <div>
+                    <h3 className="font-display text-lg font-bold">
+                      {group.label}
+                    </h3>
+                    <p className="mt-0.5 text-[15px] text-muted-foreground">
+                      {group.zones.length} 個{group.label}
+                    </p>
                   </div>
                   {groupIndex === 0 ? (
                     <p className="pb-0.5 font-mono-data text-base font-bold text-foreground">
@@ -767,11 +755,6 @@ export function DesignProjectsView() {
                 >
                   <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/30 px-5 py-3.5">
                     <div className="flex items-center gap-2">
-                      {zone.code ? (
-                        <span className="rounded bg-primary/15 px-2 py-1 font-mono-data text-[15px] text-primary">
-                          {zone.code}
-                        </span>
-                      ) : null}
                       <h3 className="font-display text-base font-bold">{zone.name}</h3>
                       <span className="text-[15px] text-muted-foreground">{items.length} 件傢俬</span>
                     </div>
@@ -1077,7 +1060,6 @@ export function DesignProjectsView() {
                 >
                   {zones.map((z) => (
                     <option key={z.id} value={z.id}>
-                      {z.code ? `${z.code} · ` : ''}
                       {z.name}
                     </option>
                   ))}
