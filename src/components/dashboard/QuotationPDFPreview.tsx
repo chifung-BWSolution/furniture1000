@@ -544,11 +544,11 @@ const PDF_COL_DESC_PCT = { zh: 0.132, en: 0.195 } as const;
 const PDF_COL_MATERIAL_PCT = { zh: 0.292, en: 0.221 } as const;
 /**
  * Label / value split inside Description (column width unchanged).
- * Labels are fixed short text (Category / Dimensions\\n(mm) / Color) — keep them
- * tight with small padding; give the rest to data. ZH ≈ 4:6; EN ≈ 32:68.
+ * Labels stay compact with small padding; values get the rest.
+ * EN label ≥ ~40% so "Dimensions" fits on one line (no overflow).
  */
-const PDF_DESC_LABEL_PCT = { zh: 0.4, en: 0.32 } as const;
-const PDF_DESC_VALUE_PCT = { zh: 0.6, en: 0.68 } as const;
+const PDF_DESC_LABEL_PCT = { zh: 0.4, en: 0.4 } as const;
+const PDF_DESC_VALUE_PCT = { zh: 0.6, en: 0.6 } as const;
 /** 單價 column — ZH trimmed to fund wider 說明 (EN unchanged). */
 const PDF_COL_UNIT_PRICE_PCT = { zh: 0.097, en: 0.105 } as const;
 
@@ -866,8 +866,10 @@ function renderDescriptionPdfContent(
               width: labelPct,
               justifyContent:
                 row.kind === 'category' || row.kind === 'dimensions' ? 'flex-start' : 'center',
-              alignItems: 'center',
-              paddingHorizontal: 2,
+              // Left-align Category / Dimensions / Color as one vertical column.
+              alignItems: 'flex-start',
+              paddingLeft: 2,
+              paddingRight: 2,
               paddingTop: row.kind === 'category' || row.kind === 'dimensions' ? 4 : 0,
               paddingBottom: row.kind === 'category' ? 4 : 0,
               borderRightWidth: 0.5,
@@ -875,15 +877,17 @@ function renderDescriptionPdfContent(
             }}
           >
             {row.kind === 'dimensions' ? (
-              <View style={{ alignItems: 'center' }}>
+              <View style={{ width: '100%', alignItems: 'flex-start' }}>
                 {row.label.split('\n').map((line, li) => (
-                  <Text key={`dim-label-${li}`} style={styles.tableCellText} wrap={false}>
+                  <Text key={`dim-label-${li}`} style={styles.descLabelText} wrap={false}>
                     {line}
                   </Text>
                 ))}
               </View>
             ) : (
-              <Text style={styles.tableCellText}>{row.label}</Text>
+              <Text style={styles.descLabelText} wrap={false}>
+                {row.label}
+              </Text>
             )}
           </View>
           {row.kind === 'dimensions' ? (
@@ -939,6 +943,8 @@ const styles: Record<string, any> = {
   tableCellText: { fontSize: 7, textAlign: 'center', lineHeight: 1.3 },
   tableCellTextLeft: { fontSize: 7, textAlign: 'left', lineHeight: 1.45, paddingLeft: 4 },
   materialCellText: { fontSize: 7, textAlign: 'left', lineHeight: 1.45, width: '100%' },
+  /** Description row labels (Category / Dimensions / Color) — left-aligned column. */
+  descLabelText: { fontSize: 6.5, textAlign: 'left', lineHeight: 1.25 },
   descValueText: { fontSize: 6.5, textAlign: 'left', lineHeight: 1.3, paddingLeft: 2 },
   descMultilineValueText: { fontSize: 6.5, textAlign: 'left', lineHeight: 1.35, paddingLeft: 2, width: '100%' },
   /** 類別 — fixed column width, height grows with wrapped CJK text. */
