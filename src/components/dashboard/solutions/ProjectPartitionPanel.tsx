@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   DoorOpen,
   GripVertical,
@@ -21,9 +21,11 @@ import { generateFloorPlanDataUrl } from '@/lib/floorPlanGenerator';
 import {
   PROJECT_TYPE_OPTIONS,
   EXCLUDED_DEFAULT_ROOM_KEYS,
+  applyRoomLabelOverrides,
   codePrefixFromLabel,
   defaultRoomCounts,
   inferProjectType,
+  normalizeRoomLabelOverrides,
   normalizeRoomOrder,
   orderedRoomsForProjectType,
   projectTypeLabel,
@@ -210,6 +212,9 @@ export function ProjectPartitionPanel({
   const [customRooms, setCustomRooms] =
     useState<CustomRoomType[]>(initialCustom);
   const [roomOrder, setRoomOrder] = useState<string[]>(initialOrder);
+  const [labelOverrides, setLabelOverrides] = useState<Record<string, string>>(
+    () => normalizeRoomLabelOverrides(project.meta?.roomLabelOverrides),
+  );
   const [roomsByType, setRoomsByType] =
     useState<Partial<Record<ProjectEngineeringType, TypeRoomsSnapshot>>>(
       initialRoomsByType,
@@ -224,6 +229,10 @@ export function ProjectPartitionPanel({
   const [newRoomQty, setNewRoomQty] = useState(1);
   const [dragKey, setDragKey] = useState<string | null>(null);
   const [dragOverKey, setDragOverKey] = useState<string | null>(null);
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [editLabel, setEditLabel] = useState('');
+  const renameInputRef = useRef<HTMLInputElement | null>(null);
+  const editingKeyRef = useRef<string | null>(null);
 
   const roomTemplates = useMemo(
     () => roomsForProjectType(projectType),
@@ -231,13 +240,22 @@ export function ProjectPartitionPanel({
   );
   const orderedRooms = useMemo(
     () =>
-      orderedRoomsForProjectType(
-        projectType,
-        customRooms as RoomTypeTemplate[],
-        roomOrder,
-      ).filter((room) => !EXCLUDED_DEFAULT_ROOM_KEYS.has(room.key)),
-    [projectType, customRooms, roomOrder],
+      applyRoomLabelOverrides(
+        orderedRoomsForProjectType(
+          projectType,
+          customRooms as RoomTypeTemplate[],
+          roomOrder,
+        ).filter((room) => !EXCLUDED_DEFAULT_ROOM_KEYS.has(room.key)),
+        labelOverrides,
+      ),
+    [projectType, customRooms, roomOrder, labelOverrides],
   );
+
+  useEffect(() => {
+    if (!editingKey) return;
+    renameInputRef.current?.focus();
+    renameInputRef.current?.select();
+  }, [editingKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -252,6 +270,9 @@ export function ProjectPartitionPanel({
           project.meta?.projectType ||
           inferProjectType(project.name, project.clientCompany);
         const nextCustom = normalizeCustomRooms(project.meta?.customRooms);
+        const nextOverrides = normalizeRoomLabelOverrides(
+          project.meta?.roomLabelOverrides,
+        );
         // Distinguish missing roomOrder (legacy) vs intentionally saved list (even empty).
         const hasSavedOrder = Array.isArray(project.meta?.roomOrder);
         const savedOrder = hasSavedOrder
@@ -283,9 +304,12 @@ export function ProjectPartitionPanel({
 
         setProjectType(type);
         setCustomRooms(nextCustom);
+        setLabelOverrides(nextOverrides);
         setRoomOrder(nextOrder);
         setRoomCounts(nextCounts);
         setRoomsByType(cached);
+        setEditingKey(null);
+        setEditLabel('');
 
         // Existing projects may still contain removed defaults — prompt save cleanup.
         if (
@@ -308,11 +332,13 @@ export function ProjectPartitionPanel({
     try {
       const nextOrder = roomOrder;
       const nextCustom = customRooms;
+      const nextOverrides = labelOverrides;
       const desired = zoneSeedsFromRoomCounts(
         projectType,
         roomCounts,
         nextCustom as RoomTypeTemplate[],
         nextOrder,
+        nextOverrides,
       );
       const synced = await syncProjectZones({
         projectId: project.id,
@@ -347,6 +373,7 @@ export function ProjectPartitionPanel({
         roomCounts: visibleCounts,
         customRooms: nextCustom,
         roomOrder: nextOrder,
+        roomLabelOverrides: nextOverrides,
         roomsByType: nextRoomsByType,
       };
       const saved = await saveProject(project.id, { meta });
@@ -389,6 +416,7 @@ export function ProjectPartitionPanel({
     }
   }, [
     customRooms,
+    labelOverrides,
     onProjectFloorPlanChange,
     onProjectMetaChange,
     orderedRooms.length,
@@ -410,6 +438,58 @@ export function ProjectPartitionPanel({
     setDirty(true);
   };
 
+  const startRename = (room: RoomTypeTemplate) => {
+    if (saving) return;
+    editingKeyRef.current = room.key;
+    setEditingKey(room.key);
+    setEditLabel(room.label);
+  };
+
+  const cancelRename = () => {
+    editingKeyRef.current = null;
+    setEditingKey(null);
+    setEditLabel('');
+  };
+
+  const commitRename = (key: string) => {
+    // Ignore blur after Enter/Escape already closed the editor.
+    if (editingKeyRef.current !== key) return;
+    const label = editLabel.trim();
+    const current = orderedRooms.find((room) => room.key === key);
+    if (!current) {
+      cancelRename();
+      return;
+    }
+    if (!label) {
+      toast.error('請輸入房間類型');
+      return;
+    }
+    if (label === current.label) {
+      cancelRename();
+      return;
+    }
+    if (orderedRooms.some((room) => room.key !== key && room.label === label)) {
+      toast.error('此房間類型已存在');
+      return;
+    }
+    if (key.startsWith('custom_')) {
+      setCustomRooms((prev) =>
+        prev.map((room) =>
+          room.key === key
+            ? { ...room, label, codePrefix: codePrefixFromLabel(label) }
+            : room,
+        ),
+      );
+    } else {
+      setLabelOverrides((prev) => ({ ...prev, [key]: label }));
+    }
+    setDirty(true);
+    cancelRename();
+    toast.message('已更新房間名稱', {
+      description: '請按「儲存」寫入專案資料',
+    });
+  };
+
   const addCustomRoom = () => {
     const label = newRoomLabel.trim();
     if (!label) {
@@ -417,7 +497,9 @@ export function ProjectPartitionPanel({
       return;
     }
     if (
-      roomTemplates.some((room) => room.label === label) ||
+      roomTemplates.some(
+        (room) => (labelOverrides[room.key] || room.label) === label,
+      ) ||
       customRooms.some((room) => room.label === label) ||
       orderedRooms.some((room) => room.label === label)
     ) {
@@ -510,7 +592,7 @@ export function ProjectPartitionPanel({
               房間類型及數量 — {projectTypeLabel(projectType)}
             </p>
             <p className="mt-0.5 text-xs text-muted-foreground">
-              可拖曳排序、刪除房間；按「儲存」後才寫入資料庫
+              點擊名稱可改名；可拖曳排序、刪除房間；按「儲存」後才寫入資料庫
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -601,13 +683,18 @@ export function ProjectPartitionPanel({
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {orderedRooms.map((room) => {
             const isCustom = room.key.startsWith('custom_');
+            const isEditing = editingKey === room.key;
             const dragging = dragKey === room.key;
             const over = dragOverKey === room.key && dragKey !== room.key;
             return (
               <div
                 key={room.key}
-                draggable={!saving}
+                draggable={!saving && !isEditing}
                 onDragStart={(event) => {
+                  if (isEditing) {
+                    event.preventDefault();
+                    return;
+                  }
                   setDragKey(room.key);
                   event.dataTransfer.effectAllowed = 'move';
                   event.dataTransfer.setData('text/plain', room.key);
@@ -633,7 +720,10 @@ export function ProjectPartitionPanel({
                   if (fromKey) reorderRooms(fromKey, room.key);
                 }}
                 className={cn(
-                  'flex cursor-grab items-center justify-between gap-3 rounded-xl border bg-card px-3 py-3 active:cursor-grabbing',
+                  'flex items-center justify-between gap-3 rounded-xl border bg-card px-3 py-3',
+                  isEditing
+                    ? 'cursor-default'
+                    : 'cursor-grab active:cursor-grabbing',
                   dragging
                     ? 'border-primary/50 opacity-60'
                     : over
@@ -644,12 +734,46 @@ export function ProjectPartitionPanel({
                 <div className="flex min-w-0 items-center gap-2">
                   <GripVertical className="h-4 w-4 shrink-0 text-muted-foreground/70" />
                   <div className="min-w-0">
-                    <span className="text-sm font-medium">{room.label}</span>
-                    {isCustom ? (
-                      <span className="ml-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
-                        自訂
-                      </span>
-                    ) : null}
+                    {isEditing ? (
+                      <input
+                        ref={renameInputRef}
+                        value={editLabel}
+                        disabled={saving}
+                        onChange={(event) => setEditLabel(event.target.value)}
+                        onClick={(event) => event.stopPropagation()}
+                        onMouseDown={(event) => event.stopPropagation()}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') {
+                            event.preventDefault();
+                            commitRename(room.key);
+                          } else if (event.key === 'Escape') {
+                            event.preventDefault();
+                            cancelRename();
+                          }
+                        }}
+                        onBlur={() => commitRename(room.key)}
+                        className="w-full min-w-[8rem] rounded-md border border-primary/40 bg-background px-2 py-1 text-sm font-medium outline-none ring-2 ring-primary/20"
+                        aria-label={`修改${room.label}名稱`}
+                      />
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          disabled={saving}
+                          onClick={() => startRename(room)}
+                          onMouseDown={(event) => event.stopPropagation()}
+                          className="truncate text-left text-sm font-medium hover:text-primary hover:underline disabled:opacity-40"
+                          title="點擊修改名稱"
+                        >
+                          {room.label}
+                        </button>
+                        {isCustom ? (
+                          <span className="ml-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
+                            自訂
+                          </span>
+                        ) : null}
+                      </>
+                    )}
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -696,7 +820,7 @@ export function ProjectPartitionPanel({
         ) : null}
         <p className="mt-3 flex items-center gap-1.5 text-[15px] text-muted-foreground">
           <Sparkles className="h-4 w-4 text-primary" />
-          刪除、排序與數量調整後，記得按「儲存」才會寫入專案。
+          改名、刪除、排序與數量調整後，記得按「儲存」才會寫入專案。
         </p>
       </div>
     </div>

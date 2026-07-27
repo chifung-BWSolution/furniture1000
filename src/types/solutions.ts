@@ -97,6 +97,11 @@ export interface DesignProjectMeta {
   /** Display/sync order of room type keys (templates + custom). */
   roomOrder?: string[];
   /**
+   * Renamed labels for template room keys (custom rooms store label on
+   * customRooms directly). Applied when rendering and syncing zones.
+   */
+  roomLabelOverrides?: Record<string, string>;
+  /**
    * Per-工程類型 room drafts. Switching type shows that type's template
    * (qty 0) or restores a previous draft/save for that type.
    */

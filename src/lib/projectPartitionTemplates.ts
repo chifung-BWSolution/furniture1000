@@ -167,6 +167,37 @@ export function normalizeRoomOrder(value: unknown): string[] {
     .filter(Boolean);
 }
 
+/** Sanitize design_projects.meta.roomLabelOverrides (template room renames). */
+export function normalizeRoomLabelOverrides(
+  value: unknown,
+): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const next: Record<string, string> = {};
+  for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
+    const roomKey = String(key || '').trim();
+    const label = String(raw || '').trim();
+    if (!roomKey || !label) continue;
+    next[roomKey] = label;
+  }
+  return next;
+}
+
+export function applyRoomLabelOverrides(
+  rooms: RoomTypeTemplate[],
+  overrides?: Record<string, string> | null,
+): RoomTypeTemplate[] {
+  if (!overrides || Object.keys(overrides).length === 0) return rooms;
+  return rooms.map((room) => {
+    const label = overrides[room.key]?.trim();
+    if (!label || label === room.label) return room;
+    return {
+      ...room,
+      label,
+      codePrefix: codePrefixFromLabel(label),
+    };
+  });
+}
+
 /**
  * Merge template + custom rooms, honoring a saved roomOrder when present.
  * - roomOrder == null → return all template + custom rooms
@@ -211,8 +242,12 @@ export function zoneSeedsFromRoomCounts(
   counts: Record<string, number>,
   customRooms: RoomTypeTemplate[] = [],
   roomOrder?: string[] | null,
+  labelOverrides?: Record<string, string> | null,
 ): { code: string; name: string; bounds: ZoneBounds; roomKey: string }[] {
-  const rooms = orderedRoomsForProjectType(type, customRooms, roomOrder);
+  const rooms = applyRoomLabelOverrides(
+    orderedRoomsForProjectType(type, customRooms, roomOrder),
+    labelOverrides,
+  );
   const seeds: { code: string; name: string; bounds: ZoneBounds; roomKey: string }[] = [];
   const active = rooms.filter(
     (r) =>

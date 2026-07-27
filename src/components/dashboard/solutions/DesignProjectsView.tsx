@@ -18,7 +18,9 @@ import {
 import { consumeSolutionFocusProjectId } from '@/lib/solutionProjectFocus';
 import { resolveDesignProjectPmLabels } from '@/lib/solutionProjectPm';
 import {
+  applyRoomLabelOverrides,
   inferProjectType,
+  normalizeRoomLabelOverrides,
   normalizeRoomOrder,
   projectTypeLabel,
   roomsForProjectType,
@@ -578,8 +580,12 @@ function roomOrderLabels(
   projectType: ProjectEngineeringType | string,
   customRooms: CustomRoomType[],
   roomOrder: string[],
+  labelOverrides?: Record<string, string> | null,
 ): string[] {
-  const templates = roomsForProjectType(projectType as ProjectEngineeringType);
+  const templates = applyRoomLabelOverrides(
+    roomsForProjectType(projectType as ProjectEngineeringType),
+    labelOverrides,
+  );
   const byKey = new Map<string, string>();
   for (const room of templates) byKey.set(room.key, room.label);
   for (const room of customRooms) byKey.set(room.key, room.label);
@@ -760,12 +766,16 @@ export function DesignProjectsView() {
         const customRooms = normalizeCustomRooms(meta?.customRooms);
         const hasSavedOrder = Array.isArray(meta?.roomOrder);
         const roomOrder = normalizeRoomOrder(meta?.roomOrder);
+        const labelOverrides = normalizeRoomLabelOverrides(
+          meta?.roomLabelOverrides,
+        );
         const desired = zoneSeedsFromRoomCounts(
           projectType,
           roomCounts as Record<string, number>,
           customRooms as RoomTypeTemplate[],
           // Honor saved roomOrder (even empty); only fall back to all rooms when never saved.
           hasSavedOrder ? roomOrder : null,
+          labelOverrides,
         );
         if (zonesMissingFromSeeds(desired, z)) {
           const synced = await syncProjectZones({
@@ -901,6 +911,7 @@ export function DesignProjectsView() {
         projectType,
         normalizeCustomRooms(project?.meta?.customRooms),
         savedOrder,
+        normalizeRoomLabelOverrides(project?.meta?.roomLabelOverrides),
       );
       const rank = new Map(labelRank.map((label, index) => [label, index]));
       return list.sort((a, b) => {
