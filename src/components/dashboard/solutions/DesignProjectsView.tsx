@@ -1856,7 +1856,7 @@ export function DesignProjectsView() {
             </div>
           ) : (
             <div className="space-y-7">
-            {zoneGroups.map((group, groupIndex) => (
+            {zoneGroups.map((group) => (
               <section
                 key={group.key}
                 id={zoneGroupDomId(group.label)}
