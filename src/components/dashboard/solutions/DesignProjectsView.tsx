@@ -846,65 +846,72 @@ function ZoneProductRow({
                 ) : null}
               </div>
 
-              <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-1.5 self-end text-[15px] text-foreground">
-                {custom ? (
-                  <>
-                    <span className="text-foreground">單價 $</span>
+              {/* Bottom-right of the content column: unit × qty, then subtotal */}
+              <div className="ml-auto flex shrink-0 flex-col items-end justify-end gap-1 self-end text-[15px] text-foreground">
+                <div className="flex flex-wrap items-center justify-end gap-1.5">
+                  {custom ? (
+                    <>
+                      <span className="text-foreground">單價 $</span>
+                      <input
+                        type="number"
+                        min={0}
+                        step={1}
+                        value={Number(item.salePrice || 0)}
+                        onChange={(event) =>
+                          onSetSalePrice(item, Number(event.target.value))
+                        }
+                        className="h-8 w-24 rounded-lg border border-border bg-background px-2 font-mono-data text-[15px] text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+                        aria-label="單價"
+                      />
+                    </>
+                  ) : (
+                    <span className="font-mono-data text-foreground">
+                      單價 ${Number(item.salePrice || 0).toLocaleString()}
+                    </span>
+                  )}
+                  <span className="text-foreground">×</span>
+                  <div className="inline-flex items-center overflow-hidden rounded-lg border border-border bg-background">
+                    <button
+                      type="button"
+                      onClick={() => onSetQuantity(item, item.quantity - 1)}
+                      disabled={item.quantity <= 1}
+                      className="flex h-8 w-8 items-center justify-center text-[16px] text-muted-foreground hover:bg-muted disabled:opacity-35"
+                      aria-label="數量減一"
+                    >
+                      −
+                    </button>
                     <input
                       type="number"
-                      min={0}
-                      step={1}
-                      value={Number(item.salePrice || 0)}
+                      min={1}
+                      max={9999}
+                      value={item.quantity}
                       onChange={(event) =>
-                        onSetSalePrice(item, Number(event.target.value))
+                        onSetQuantity(item, Number(event.target.value))
                       }
-                      className="h-8 w-24 rounded-lg border border-border bg-background px-2 font-mono-data text-[15px] text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
-                      aria-label="單價"
+                      className="h-8 w-11 border-x border-border bg-background text-center font-mono-data text-[15px] font-semibold text-foreground outline-none"
+                      aria-label={`${titleLabel}數量`}
                     />
-                  </>
-                ) : (
-                  <span className="font-mono-data text-foreground">
-                    單價 ${Number(item.salePrice || 0).toLocaleString()}
-                  </span>
-                )}
-                <span className="text-foreground">×</span>
-                <div className="inline-flex items-center overflow-hidden rounded-lg border border-border bg-background">
-                  <button
-                    type="button"
-                    onClick={() => onSetQuantity(item, item.quantity - 1)}
-                    disabled={item.quantity <= 1}
-                    className="flex h-8 w-8 items-center justify-center text-[16px] text-muted-foreground hover:bg-muted disabled:opacity-35"
-                    aria-label="數量減一"
-                  >
-                    −
-                  </button>
-                  <input
-                    type="number"
-                    min={1}
-                    max={9999}
-                    value={item.quantity}
-                    onChange={(event) =>
-                      onSetQuantity(item, Number(event.target.value))
-                    }
-                    className="h-8 w-11 border-x border-border bg-background text-center font-mono-data text-[15px] font-semibold text-foreground outline-none"
-                    aria-label={`${titleLabel}數量`}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => onSetQuantity(item, item.quantity + 1)}
-                    className="flex h-8 w-8 items-center justify-center text-[16px] text-muted-foreground hover:bg-muted"
-                    aria-label="數量加一"
-                  >
-                    +
-                  </button>
+                    <button
+                      type="button"
+                      onClick={() => onSetQuantity(item, item.quantity + 1)}
+                      className="flex h-8 w-8 items-center justify-center text-[16px] text-muted-foreground hover:bg-muted"
+                      aria-label="數量加一"
+                    >
+                      +
+                    </button>
+                  </div>
                 </div>
-                <span className="font-mono-data text-foreground">
-                  = 小計 $
+                <div className="w-full text-right font-mono-data text-foreground">
+                  小計 $
                   {(
                     Number(item.salePrice || 0) * item.quantity
                   ).toLocaleString()}
-                  {item.isOptional ? '（可選，不計入總計）' : ''}
-                </span>
+                  {item.isOptional ? (
+                    <span className="ml-1 text-[13px] text-muted-foreground">
+                      （可選，不計入總計）
+                    </span>
+                  ) : null}
+                </div>
               </div>
             </div>
           </div>
