@@ -846,12 +846,12 @@ function ZoneProductRow({
                 ) : null}
               </div>
 
-              {/* Bottom-right of the content column: unit × qty, then subtotal */}
-              <div className="ml-auto flex shrink-0 flex-col items-end justify-end gap-1 self-end text-[15px] text-foreground">
-                <div className="flex flex-wrap items-center justify-end gap-1.5">
+              {/* Bottom-right: unit × qty (secondary), subtotal (primary) */}
+              <div className="ml-auto flex shrink-0 flex-col items-end justify-end gap-1 self-end text-foreground">
+                <div className="flex flex-wrap items-center justify-end gap-1 text-[13px] text-muted-foreground">
                   {custom ? (
                     <>
-                      <span className="text-foreground">單價 $</span>
+                      <span>單價 $</span>
                       <input
                         type="number"
                         min={0}
@@ -860,22 +860,22 @@ function ZoneProductRow({
                         onChange={(event) =>
                           onSetSalePrice(item, Number(event.target.value))
                         }
-                        className="h-8 w-24 rounded-lg border border-border bg-background px-2 font-mono-data text-[15px] text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+                        className="h-7 w-20 rounded-md border border-border bg-background px-1.5 font-mono-data text-[13px] text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
                         aria-label="單價"
                       />
                     </>
                   ) : (
-                    <span className="font-mono-data text-foreground">
+                    <span className="font-mono-data">
                       單價 ${Number(item.salePrice || 0).toLocaleString()}
                     </span>
                   )}
-                  <span className="text-foreground">×</span>
-                  <div className="inline-flex items-center overflow-hidden rounded-lg border border-border bg-background">
+                  <span>×</span>
+                  <div className="inline-flex items-center overflow-hidden rounded-md border border-border bg-background">
                     <button
                       type="button"
                       onClick={() => onSetQuantity(item, item.quantity - 1)}
                       disabled={item.quantity <= 1}
-                      className="flex h-8 w-8 items-center justify-center text-[16px] text-muted-foreground hover:bg-muted disabled:opacity-35"
+                      className="flex h-7 w-7 items-center justify-center text-[14px] text-muted-foreground hover:bg-muted disabled:opacity-35"
                       aria-label="數量減一"
                     >
                       −
@@ -888,26 +888,26 @@ function ZoneProductRow({
                       onChange={(event) =>
                         onSetQuantity(item, Number(event.target.value))
                       }
-                      className="h-8 w-11 border-x border-border bg-background text-center font-mono-data text-[15px] font-semibold text-foreground outline-none"
+                      className="h-7 w-9 border-x border-border bg-background text-center font-mono-data text-[13px] font-semibold text-foreground outline-none"
                       aria-label={`${titleLabel}數量`}
                     />
                     <button
                       type="button"
                       onClick={() => onSetQuantity(item, item.quantity + 1)}
-                      className="flex h-8 w-8 items-center justify-center text-[16px] text-muted-foreground hover:bg-muted"
+                      className="flex h-7 w-7 items-center justify-center text-[14px] text-muted-foreground hover:bg-muted"
                       aria-label="數量加一"
                     >
                       +
                     </button>
                   </div>
                 </div>
-                <div className="w-full text-right font-mono-data text-foreground">
+                <div className="w-full text-right font-mono-data text-[16px] font-semibold text-foreground">
                   小計 $
                   {(
                     Number(item.salePrice || 0) * item.quantity
                   ).toLocaleString()}
                   {item.isOptional ? (
-                    <span className="ml-1 text-[13px] text-muted-foreground">
+                    <span className="ml-1 text-[12px] font-normal text-muted-foreground">
                       （可選，不計入總計）
                     </span>
                   ) : null}
