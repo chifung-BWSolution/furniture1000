@@ -53,6 +53,7 @@ import {
   FloorPlanViewerModal,
   floorPlanPreviewOf,
 } from './FloorPlanViewerModal';
+import { publishDesignProjectStickyChrome } from '@/lib/designProjectStickyChrome';
 
 /** Staff-editable notes only (strip client feedback + unwrap rich-text JSON). */
 function staffNotesValue(notes: string | null | undefined): string {
@@ -790,6 +791,38 @@ export function DesignProjectsView() {
     target.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, []);
 
+  const pageScrollRef = useRef<HTMLDivElement | null>(null);
+  const partitionStickySentinelRef = useRef<HTMLDivElement | null>(null);
+  const [partitionHeaderPinned, setPartitionHeaderPinned] = useState(false);
+  const confirmProjectRef = useRef<() => void>(() => {});
+
+  useEffect(() => {
+    const node = partitionStickySentinelRef.current;
+    const root = pageScrollRef.current;
+    if (!node || !root || typeof IntersectionObserver === 'undefined') {
+      setPartitionHeaderPinned(false);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        // Pin TopBar chrome once the in-page「間隔清單」block scrolls above the list.
+        setPartitionHeaderPinned(
+          !entry.isIntersecting && entry.boundingClientRect.top < root.getBoundingClientRect().top,
+        );
+      },
+      { root, threshold: 0 },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [project?.id, loading, zoneGroups.length]);
+
+  useEffect(
+    () => () => {
+      publishDesignProjectStickyChrome(null);
+    },
+    [],
+  );
+
   const furnitureGrandTotal = useMemo(
     () =>
       zoneProducts.reduce(
@@ -1100,6 +1133,34 @@ export function DesignProjectsView() {
     appStore.setCurrentView('confirmed-projects');
   };
 
+  confirmProjectRef.current = () => {
+    void confirmProject();
+  };
+
+  useEffect(() => {
+    if (!project) {
+      publishDesignProjectStickyChrome(null);
+      return;
+    }
+    publishDesignProjectStickyChrome({
+      active: partitionHeaderPinned,
+      zoneGroups: zoneGroups.map((group) => ({
+        key: group.key,
+        label: group.label,
+        count: group.zones.length,
+      })),
+      confirming: confirmingProject,
+      onConfirm: () => confirmProjectRef.current(),
+      onJump: (label) => scrollToZoneGroup(label),
+    });
+  }, [
+    confirmingProject,
+    partitionHeaderPinned,
+    project,
+    scrollToZoneGroup,
+    zoneGroups,
+  ]);
+
   const filteredProducts = useMemo(() => {
     const q = keyword.trim().toLowerCase();
     return products.filter((p) => {
@@ -1154,7 +1215,7 @@ export function DesignProjectsView() {
   const hasFloorPlan = Boolean(project.floorPlanUrl);
 
   return (
-    <div className="h-full overflow-y-auto bg-background">
+    <div ref={pageScrollRef} className="h-full overflow-y-auto bg-background">
       {/* Header */}
       <div className="border-b border-border bg-background">
         <div className="mx-auto flex max-w-[1440px] flex-col gap-4 px-3.5 py-4 md:flex-row md:items-center md:px-5">
@@ -1256,55 +1317,57 @@ export function DesignProjectsView() {
       <div className="mx-auto max-w-[1440px] space-y-6 px-3.5 py-8 md:px-5 md:py-10">
         {/* Text zone list + furniture */}
         <section className="space-y-3">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <h2 className="font-display text-lg font-bold">間隔清單與傢俬配置</h2>
-            <div className="flex flex-wrap items-center gap-2">
-              {furnitureDirty ? (
-                <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[13px] font-medium text-amber-700">
-                  尚未儲存
-                </span>
-              ) : null}
-              <button
-                type="button"
-                disabled={!project || savingFurniture || loading}
-                onClick={() => void saveFurniture()}
-                className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-[15px] font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
-              >
-                {savingFurniture ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Save className="h-4 w-4" />
-                )}
-                儲存
-              </button>
-              <span className="font-mono-data text-[15px] text-muted-foreground">
-                {zones.length} 個間隔 · {zoneProducts.filter((z) => z.zoneId).length} 件產品
-              </span>
-            </div>
-          </div>
-          {!loading && zoneGroups.length > 0 ? (
-            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-4 py-3">
-              <span className="mr-1 text-[15px] font-semibold text-muted-foreground">
-                間隔數量
-              </span>
-              {zoneGroups.map((group) => (
+          <div ref={partitionStickySentinelRef}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 className="font-display text-lg font-bold">間隔清單與傢俬配置</h2>
+              <div className="flex flex-wrap items-center gap-2">
+                {furnitureDirty ? (
+                  <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[13px] font-medium text-amber-700">
+                    尚未儲存
+                  </span>
+                ) : null}
                 <button
-                  key={group.key}
                   type="button"
-                  onClick={() => scrollToZoneGroup(group.label)}
-                  className="inline-flex items-center gap-1 rounded-lg border border-primary/20 bg-primary/5 px-3 py-1.5 text-[15px] transition-colors hover:border-primary/50 hover:bg-primary/10"
-                  title={`跳至「${group.label}」`}
+                  disabled={!project || savingFurniture || loading}
+                  onClick={() => void saveFurniture()}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-[15px] font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
                 >
-                  <span className="font-semibold text-foreground">
-                    {group.label}
-                  </span>
-                  <span className="text-muted-foreground">
-                    ：{group.zones.length}
-                  </span>
+                  {savingFurniture ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Save className="h-4 w-4" />
+                  )}
+                  儲存
                 </button>
-              ))}
+                <span className="font-mono-data text-[15px] text-muted-foreground">
+                  {zones.length} 個間隔 · {zoneProducts.filter((z) => z.zoneId).length} 件產品
+                </span>
+              </div>
             </div>
-          ) : null}
+            {!loading && zoneGroups.length > 0 ? (
+              <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-4 py-3">
+                <span className="mr-1 text-[15px] font-semibold text-muted-foreground">
+                  間隔數量
+                </span>
+                {zoneGroups.map((group) => (
+                  <button
+                    key={group.key}
+                    type="button"
+                    onClick={() => scrollToZoneGroup(group.label)}
+                    className="inline-flex items-center gap-1 rounded-lg border border-primary/20 bg-primary/5 px-3 py-1.5 text-[15px] transition-colors hover:border-primary/50 hover:bg-primary/10"
+                    title={`跳至「${group.label}」`}
+                  >
+                    <span className="font-semibold text-foreground">
+                      {group.label}
+                    </span>
+                    <span className="text-muted-foreground">
+                      ：{group.zones.length}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </div>
 
           {loading ? (
             <div className="flex justify-center py-10">
@@ -1320,7 +1383,7 @@ export function DesignProjectsView() {
               <section
                 key={group.key}
                 id={zoneGroupDomId(group.label)}
-                className="scroll-mt-6 space-y-3"
+                className="scroll-mt-28 space-y-3"
               >
                 <div className="flex flex-wrap items-end justify-between gap-3 border-b border-border pb-2.5">
                   <div>

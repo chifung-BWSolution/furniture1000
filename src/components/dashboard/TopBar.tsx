@@ -1,10 +1,20 @@
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Database, ChevronRight, Save, Loader2, Check, Moon, Sun } from 'lucide-react';
+import {
+  Database,
+  ChevronRight,
+  Save,
+  Loader2,
+  Check,
+  CheckCircle2,
+  Moon,
+  Sun,
+} from 'lucide-react';
 import { ViewType } from '@/types/product';
 import { getViewMeta } from './navConfig';
 import { Switch } from '@/components/ui/switch';
+import { useDesignProjectStickyChrome } from '@/lib/designProjectStickyChrome';
 
 interface TopBarProps {
   currentView: ViewType;
@@ -48,12 +58,67 @@ export function TopBar({
   const meta = getViewMeta(currentView);
   const showParent = !hideBreadcrumbParent && meta.sectionLabel && meta.sectionLabel !== meta.viewLabel;
   const viewInfo = { label: meta.viewLabel, parent: showParent ? meta.sectionLabel : '' };
+  const designSticky = useDesignProjectStickyChrome();
+  const showDesignSticky =
+    currentView === 'design-projects' && Boolean(designSticky?.active);
 
   // Show stats (總共/已選) on product list views
   const showProductButtons = currentView === 'listed-products' || currentView === 'ready-to-publish' || currentView === 'product-catalog';
   // The upload-to-catalog action only appears on the 所有產品 / 待發佈 views
   const showUploadButton = currentView === 'listed-products' || currentView === 'ready-to-publish';
   const uploadLabel = currentView === 'listed-products' ? '上傳到產品目錄' : '上傳到 Shopify';
+
+  if (showDesignSticky && designSticky) {
+    return (
+      <header className="sticky top-0 z-30 border-b border-border bg-background/95 px-4 py-2.5 backdrop-blur-xl md:px-6">
+        <div className="flex flex-wrap items-center gap-2 md:gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="mb-1.5 flex flex-wrap items-center gap-2">
+              <h2 className="font-display text-base font-bold tracking-tight md:text-lg">
+                間隔清單與傢俬配置
+              </h2>
+              <span className="text-[13px] font-medium text-muted-foreground">
+                間隔數量
+              </span>
+            </div>
+            {designSticky.zoneGroups.length > 0 ? (
+              <div className="flex max-h-[4.5rem] flex-wrap items-center gap-1.5 overflow-y-auto">
+                {designSticky.zoneGroups.map((group) => (
+                  <button
+                    key={group.key}
+                    type="button"
+                    onClick={() => designSticky.onJump(group.label)}
+                    className="inline-flex items-center gap-1 rounded-lg border border-primary/20 bg-primary/5 px-2.5 py-1 text-[13px] transition-colors hover:border-primary/50 hover:bg-primary/10 md:text-[14px]"
+                    title={`跳至「${group.label}」`}
+                  >
+                    <span className="font-semibold text-foreground">
+                      {group.label}
+                    </span>
+                    <span className="text-muted-foreground">：{group.count}</span>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[13px] text-muted-foreground">尚無間隔</p>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => designSticky.onConfirm()}
+            disabled={designSticky.confirming}
+            className="ml-auto inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-[15px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+          >
+            {designSticky.confirming ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <CheckCircle2 className="h-4 w-4" />
+            )}
+            確定方案
+          </button>
+        </div>
+      </header>
+    );
+  }
 
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-border bg-background/80 px-6 backdrop-blur-xl">
