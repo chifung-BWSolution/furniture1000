@@ -32,6 +32,16 @@ import {
   isDesignProjectPath,
   parseDesignProjectPathname,
 } from "@/lib/designProjectRoutes";
+import {
+  CUSTOMER_PORTAL_BASE,
+  clearPortalToken,
+  customerViewFromPath,
+  isCustomerPortalPath,
+  isCustomerPortalView,
+  pathFromCustomerView,
+  readStoredPortalToken,
+  storePortalToken,
+} from "@/lib/customerPortalRoutes";
 import { SidebarNav } from "./SidebarNav";
 import { PrimaryTopNav } from "./PrimaryTopNav";
 import { TopBar } from "./TopBar";
@@ -253,20 +263,53 @@ export function AppShell() {
   const deepLinkHandledRef = useRef<string | null>(null);
   const quoteUrlSyncRef = useRef<string | null>(null);
   const portalToken = new URLSearchParams(location.search).get('portal_token');
-  const storedPortalToken =
-    typeof window !== 'undefined'
-      ? localStorage.getItem('fds-client-portal-token')
-      : null;
+  const storedPortalToken = readStoredPortalToken();
+  const portalTokenActive = Boolean(portalToken || storedPortalToken);
+  // Real clients stay inside 客戶專區. Invite tokens also lock unknown roles while
+  // loading; staff/admin keep full top-nav so they can leave a preview session.
   const clientOnly =
-    platformRole === 'client' || Boolean(portalToken || storedPortalToken);
+    platformRole === 'client' ||
+    (portalTokenActive &&
+      (roleLoading || (platformRole !== 'staff' && platformRole !== 'admin')));
   const isAdmin = platformRole === 'admin';
 
   useEffect(() => {
     if (portalToken) {
-      localStorage.setItem('fds-client-portal-token', portalToken);
+      storePortalToken(portalToken);
     }
+  }, [portalToken]);
+
+  // Legacy invite links landed on `/?portal_token=…` — send them to /customer.
+  useEffect(() => {
+    if (!portalToken) return;
+    if (isCustomerPortalPath(location.pathname)) return;
+    const params = new URLSearchParams(location.search);
+    const target = `${CUSTOMER_PORTAL_BASE}?${params.toString()}`;
+    quoteUrlSyncRef.current = target;
+    navigate(target, { replace: true });
+  }, [portalToken, location.pathname, location.search, navigate]);
+
+  // /customer and /customer/:slug → switch the active client-portal view.
+  useEffect(() => {
+    if (!isCustomerPortalPath(location.pathname)) return;
+    const view = customerViewFromPath(location.pathname);
+    if (!view) return;
+    if (store.currentView !== view) {
+      store.setCurrentView(view);
+    }
+  }, [location.pathname, store]);
+
+  useEffect(() => {
     if (clientOnly && findSection(store.currentView) !== 'customers') {
       store.setCurrentView('customer-quote-schemes');
+      if (!isCustomerPortalPath(location.pathname)) {
+        const token = portalToken || storedPortalToken;
+        const target = token
+          ? `${CUSTOMER_PORTAL_BASE}?portal_token=${encodeURIComponent(token)}`
+          : CUSTOMER_PORTAL_BASE;
+        quoteUrlSyncRef.current = target;
+        navigate(target, { replace: true });
+      }
     }
     if (
       store.currentView === 'customer-design-projects' ||
@@ -277,7 +320,17 @@ export function AppShell() {
     if (!roleLoading && !clientOnly && !isAdmin && isAdminOnlyView(store.currentView)) {
       store.setCurrentView('category-management');
     }
-  }, [clientOnly, portalToken, roleLoading, isAdmin, store.currentView, store]);
+  }, [
+    clientOnly,
+    portalToken,
+    storedPortalToken,
+    roleLoading,
+    isAdmin,
+    store.currentView,
+    store,
+    location.pathname,
+    navigate,
+  ]);
 
   const setEditingQuoteId = useCallback(
     (id: string | null) => {
@@ -452,9 +505,14 @@ export function AppShell() {
     }
   }, [location.pathname, store]);
 
-  // Keep browser URL aligned with quote / design-project views.
+  // Keep browser URL aligned with quote / design-project / customer-portal views.
   useEffect(() => {
     let target: string | null = null;
+    const token =
+      new URLSearchParams(location.search).get('portal_token') ||
+      readStoredPortalToken();
+    const withToken = (path: string) =>
+      token ? `${path}?portal_token=${encodeURIComponent(token)}` : path;
 
     if (store.currentView === 'quotation-list') {
       target = QUOTE_LIST_PATH;
@@ -472,9 +530,14 @@ export function AppShell() {
       if (!isDesignProjectPath(location.pathname)) {
         target = DESIGN_PROJECTS_PATH;
       }
+    } else if (isCustomerPortalView(store.currentView)) {
+      target = withToken(pathFromCustomerView(store.currentView));
     } else if (location.pathname.startsWith('/quote')) {
       target = '/';
     } else if (isDesignProjectPath(location.pathname)) {
+      target = '/';
+    } else if (isCustomerPortalPath(location.pathname)) {
+      // Left 客戶專區 — drop portal path (token kept for logout cleanup only).
       target = '/';
     }
 
@@ -923,7 +986,26 @@ export function AppShell() {
     if (store.currentView === 'category-management' && view !== 'category-management') {
       store.reloadProducts();
     }
-    if (location.pathname.startsWith('/quote') || isDesignProjectPath(location.pathname)) {
+    if (isCustomerPortalView(view)) {
+      const token =
+        new URLSearchParams(location.search).get('portal_token') ||
+        readStoredPortalToken();
+      const path = pathFromCustomerView(view);
+      const target = token
+        ? `${path}?portal_token=${encodeURIComponent(token)}`
+        : path;
+      quoteUrlSyncRef.current = target;
+      navigate(target, { replace: true });
+      store.setCurrentView(view);
+      store.setFilterProductId(null);
+      setEditingQuoteId(null);
+      return;
+    }
+    if (
+      location.pathname.startsWith('/quote') ||
+      isDesignProjectPath(location.pathname) ||
+      isCustomerPortalPath(location.pathname)
+    ) {
       quoteUrlSyncRef.current = '/';
       navigate('/', { replace: true });
     }
@@ -934,6 +1016,13 @@ export function AppShell() {
 
   const handleSectionChange = (section: PrimarySection) => {
     if (section === activeSection) return;
+    if (
+      section !== 'customers' &&
+      (platformRole === 'staff' || platformRole === 'admin') &&
+      portalTokenActive
+    ) {
+      clearPortalToken();
+    }
     const target = getFirstVisibleView(section, isAdmin);
     if (target) handleViewChange(target);
   };

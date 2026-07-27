@@ -43,6 +43,7 @@ import {
   updateZoneProductNotes,
   saveProject,
 } from '@/lib/solutionsApi';
+import { readStoredPortalToken } from '@/lib/customerPortalRoutes';
 import type {
   DesignProject,
   ProjectZone,
@@ -332,9 +333,7 @@ export function CustomerQuoteSchemesView() {
   const currentUserName = (staffName || user?.email || '用戶').trim() || '用戶';
   const { projects: clientProjects } = useClientZoneContext();
   const { role: platformRole } = usePlatformRole();
-  const hasPortalToken =
-    typeof window !== 'undefined' &&
-    Boolean(localStorage.getItem('fds-client-portal-token'));
+  const hasPortalToken = Boolean(readStoredPortalToken());
   const clientOnly = platformRole === 'client' || hasPortalToken;
 
   const [quotes, setQuotes] = useState<QuoteRecord[]>([]);

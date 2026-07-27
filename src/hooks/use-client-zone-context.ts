@@ -5,6 +5,7 @@ import {
   fetchClientCompany,
   getClientAuthorName,
 } from '@/lib/solutionsApi';
+import { readStoredPortalToken } from '@/lib/customerPortalRoutes';
 import type { ClientCompany, DesignProject } from '@/types/solutions';
 
 export interface ClientZoneContext {
@@ -24,11 +25,7 @@ export function useClientZoneContext(): ClientZoneContext {
     typeof window !== 'undefined'
       ? new URLSearchParams(window.location.search).get('portal_token')
       : null;
-  const shareToken =
-    queryToken ||
-    (typeof window !== 'undefined'
-      ? localStorage.getItem('fds-client-portal-token')
-      : null);
+  const shareToken = queryToken || readStoredPortalToken();
   const [loading, setLoading] = useState(true);
   const [projects, setProjects] = useState<DesignProject[]>([]);
   const [company, setCompany] = useState<ClientCompany | null>(null);

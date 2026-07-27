@@ -29,6 +29,7 @@ import {
   type DesignProject,
   type ProjectInvitation,
 } from '@/types/solutions';
+import { buildCustomerPortalInviteUrl } from '@/lib/customerPortalRoutes';
 
 function formatDateTime(dateStr: string | null) {
   if (!dateStr) return '尚未查看';
@@ -39,7 +40,7 @@ function formatDateTime(dateStr: string | null) {
 function invitationUrl(token: string) {
   const origin =
     typeof window !== 'undefined' ? window.location.origin : 'https://fds.app';
-  return `${origin}/?portal_token=${encodeURIComponent(token)}`;
+  return buildCustomerPortalInviteUrl(origin, token);
 }
 
 async function copyText(value: string) {

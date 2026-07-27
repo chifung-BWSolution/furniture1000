@@ -110,6 +110,9 @@ function App() {
             {/* Stable deep links for 設計專案 */}
             <Route path="/design-projects/:projectId" element={<Home />} />
             <Route path="/design-projects" element={<Home />} />
+            {/* Stable deep links for 客戶專區 */}
+            <Route path="/customer/*" element={<Home />} />
+            <Route path="/customer" element={<Home />} />
             <Route path="/*" element={<Home />} />
           </Routes>
         </Suspense>
