@@ -887,6 +887,8 @@ export function DesignProjectsView() {
     null,
   );
   const [divisionLevel1, setDivisionLevel1] = useState('');
+  /** Free-text 一級分類 entered in the trailing input (not from chips). */
+  const [divisionLevel1Custom, setDivisionLevel1Custom] = useState('');
   const [divisionLevel2, setDivisionLevel2] = useState('');
   const [divisionQty, setDivisionQty] = useState(1);
   const [categoryPairs, setCategoryPairs] = useState<ProductCategoryPair[]>([]);
@@ -1375,6 +1377,7 @@ export function DesignProjectsView() {
   const openDivisionModal = async (zoneId: string) => {
     setDivisionModalZoneId(zoneId);
     setDivisionLevel1('');
+    setDivisionLevel1Custom('');
     setDivisionLevel2('');
     setDivisionQty(1);
     if (categoryPairs.length === 0) {
@@ -1394,9 +1397,11 @@ export function DesignProjectsView() {
 
   const confirmDivisionModal = () => {
     if (!divisionModalZoneId) return;
-    const level1 = divisionLevel1.trim();
+    const level1 = (
+      divisionLevel1Custom.trim() || divisionLevel1.trim()
+    ).trim();
     if (!level1) {
-      toast.error('請選擇一級分類');
+      toast.error('請選擇或輸入一級分類');
       return;
     }
     const qty = Math.max(1, Math.min(9999, Math.floor(divisionQty || 1)));
@@ -2626,31 +2631,52 @@ export function DesignProjectsView() {
                 <p className="mb-2 text-[13px] font-semibold text-muted-foreground">
                   一級分類
                 </p>
-                <div className="flex max-h-36 flex-wrap gap-1.5 overflow-y-auto">
-                  {divisionLevel1Options.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">
-                      {productsLoading ? '載入分類中…' : '暫無分類資料'}
-                    </p>
-                  ) : (
-                    divisionLevel1Options.map((category) => (
-                      <button
-                        key={category}
-                        type="button"
-                        onClick={() => {
-                          setDivisionLevel1(category);
-                          setDivisionLevel2('');
-                        }}
-                        className={cn(
-                          'rounded-full border px-2.5 py-1 text-[14px]',
-                          divisionLevel1 === category
-                            ? 'border-primary/50 bg-primary/10 text-primary'
-                            : 'border-border text-muted-foreground',
-                        )}
-                      >
-                        {category}
-                      </button>
-                    ))
-                  )}
+                <div className="flex max-h-36 flex-wrap items-center gap-1.5 overflow-y-auto">
+                  {divisionLevel1Options.length === 0 && !productsLoading ? (
+                    <p className="text-sm text-muted-foreground">暫無分類資料</p>
+                  ) : null}
+                  {productsLoading && divisionLevel1Options.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">載入分類中…</p>
+                  ) : null}
+                  {divisionLevel1Options.map((category) => (
+                    <button
+                      key={category}
+                      type="button"
+                      onClick={() => {
+                        setDivisionLevel1(category);
+                        setDivisionLevel1Custom('');
+                        setDivisionLevel2('');
+                      }}
+                      className={cn(
+                        'rounded-full border px-2.5 py-1 text-[14px]',
+                        divisionLevel1 === category && !divisionLevel1Custom.trim()
+                          ? 'border-primary/50 bg-primary/10 text-primary'
+                          : 'border-border text-muted-foreground',
+                      )}
+                    >
+                      {category}
+                    </button>
+                  ))}
+                  <input
+                    type="text"
+                    value={divisionLevel1Custom}
+                    onChange={(event) => {
+                      const next = event.target.value;
+                      setDivisionLevel1Custom(next);
+                      setDivisionLevel1(next.trim());
+                      setDivisionLevel2('');
+                    }}
+                    placeholder="自訂"
+                    maxLength={40}
+                    className={cn(
+                      'h-[30px] w-[4em] shrink-0 rounded-full border px-2 text-center text-[14px] outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20',
+                      divisionLevel1Custom.trim()
+                        ? 'border-primary/50 bg-primary/10 text-primary'
+                        : 'border-border bg-background text-foreground',
+                    )}
+                    aria-label="自訂一級分類"
+                    title="自由輸入一級分類（約 4 個中文字寬）"
+                  />
                 </div>
               </div>
               {divisionLevel1 ? (
