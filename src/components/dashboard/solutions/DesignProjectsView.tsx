@@ -793,10 +793,12 @@ export function DesignProjectsView() {
   useEffect(() => {
     const focusId = consumeSolutionFocusProjectId();
     const urlId = routeProjectId;
+    let cancelled = false;
     fetchProjects()
-      .then(async (rows) => {
+      .then((rows) => {
+        if (cancelled) return;
         setProjects(rows);
-        setPmNames(await resolveDesignProjectPmLabels(rows));
+        // Unblock zone loading immediately — PM labels can resolve in background.
         if (urlId && rows.some((r) => r.id === urlId)) {
           setActiveProjectId(urlId);
         } else if (focusId && rows.some((r) => r.id === focusId)) {
@@ -809,8 +811,17 @@ export function DesignProjectsView() {
             cur && rows.some((r) => r.id === cur) ? cur : rows[0].id,
           );
         }
+        setProjectsLoaded(true);
+        void resolveDesignProjectPmLabels(rows).then((labels) => {
+          if (!cancelled) setPmNames(labels);
+        });
       })
-      .finally(() => setProjectsLoaded(true));
+      .catch(() => {
+        if (!cancelled) setProjectsLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
     // Only on mount — URL changes are handled below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -860,12 +871,14 @@ export function DesignProjectsView() {
   projectsRef.current = projects;
   /** Bump to ignore stale async reloadZones results (prevents load flicker loops). */
   const reloadGenRef = useRef(0);
-  /** Aggressive 方案列表 sync once per project id per mount (avoids sync↔reload loops). */
+  /** Heal sync once per project id per mount (avoids sync↔reload loops). */
   const healedProjectIdsRef = useRef(new Set<string>());
 
   const reloadZones = useCallback(async (projectId: string) => {
     const gen = ++reloadGenRef.current;
     setLoading(true);
+    setZones([]);
+    setZoneProducts([]);
     try {
       const projectRow =
         projectsRef.current.find((p) => p.id === projectId) || null;
@@ -875,76 +888,76 @@ export function DesignProjectsView() {
       ]);
       if (gen !== reloadGenRef.current) return;
 
-      // Heal incomplete project_zones from saved meta.roomCounts.
-      // Older saves could skip custom Chinese rooms that shared code "CR1".
+      // Paint first — never block the spinner on sequential zone sync.
+      setZones(z);
+      setZoneProducts(zp);
+      setFurnitureDirty(false);
+      setLoading(false);
+
+      // Projects that already have furniture are trusted; structure sync belongs
+      // to 方案列表「儲存」. Heal only empty / not-yet-configured projects.
+      if (z.length > 0 && zp.length > 0) return z;
+
       const meta = projectRow?.meta;
       const roomCounts = meta?.roomCounts;
-      let nextZones = z;
-      let nextProducts = zp;
-      if (roomCounts && typeof roomCounts === 'object') {
-        const projectType = (meta?.projectType ||
-          inferProjectType(
-            projectRow?.name || '',
-            projectRow?.clientCompany,
-          )) as ProjectEngineeringType;
-        const customRooms = normalizeCustomRooms(meta?.customRooms);
-        const hasSavedOrder = Array.isArray(meta?.roomOrder);
-        const roomOrder = normalizeRoomOrder(meta?.roomOrder);
-        const labelOverrides = normalizeRoomLabelOverrides(
-          meta?.roomLabelOverrides,
-        );
-        const desired = zoneSeedsFromRoomCounts(
-          projectType,
-          roomCounts as Record<string, number>,
-          customRooms as RoomTypeTemplate[],
-          // Honor saved roomOrder (even empty); only fall back to all rooms when never saved.
-          hasSavedOrder ? roomOrder : null,
-          labelOverrides,
-        );
-        // Keep 設計專案 intervals identical to 方案列表 (create missing + drop orphans).
-        // Only once per project — re-running sync on every projects[] identity change
-        // was flipping loading/TopBar sticky and made the page jump endlessly.
-        const alreadyHealed = healedProjectIdsRef.current.has(projectId);
-        if (
-          hasSavedOrder &&
-          !alreadyHealed &&
-          zonesOutOfSyncWithSeeds(desired, z)
-        ) {
-          healedProjectIdsRef.current.add(projectId);
-          const synced = await syncProjectZones({
-            projectId,
-            desired,
-            zones: z,
-            zoneProducts: zp,
-            pruneEmpty: true,
-            dropOrphanZones: true,
-          });
-          if (gen !== reloadGenRef.current) return;
-          if (synced.ok && synced.data) {
-            nextZones = synced.data;
-            // Orphan zones drop products into basket (zone_id null) — refresh list.
-            nextProducts = await fetchZoneProducts(projectId);
-            if (gen !== reloadGenRef.current) return;
-            toast.success('已同步房間清單', {
-              description: '已與方案列表的房間類型及數量對齊',
-            });
-          } else if (!synced.ok) {
-            // Allow a later reopen to retry heal.
-            healedProjectIdsRef.current.delete(projectId);
-            toast.error('同步房間失敗', {
-              description: synced.error || '請到方案列表重新按「儲存」',
-            });
-          }
-        }
+      if (!roomCounts || typeof roomCounts !== 'object') return z;
+
+      const projectType = (meta?.projectType ||
+        inferProjectType(
+          projectRow?.name || '',
+          projectRow?.clientCompany,
+        )) as ProjectEngineeringType;
+      const customRooms = normalizeCustomRooms(meta?.customRooms);
+      const hasSavedOrder = Array.isArray(meta?.roomOrder);
+      const roomOrder = normalizeRoomOrder(meta?.roomOrder);
+      const labelOverrides = normalizeRoomLabelOverrides(
+        meta?.roomLabelOverrides,
+      );
+      const desired = zoneSeedsFromRoomCounts(
+        projectType,
+        roomCounts as Record<string, number>,
+        customRooms as RoomTypeTemplate[],
+        hasSavedOrder ? roomOrder : null,
+        labelOverrides,
+      );
+      const alreadyHealed = healedProjectIdsRef.current.has(projectId);
+      if (
+        !hasSavedOrder ||
+        alreadyHealed ||
+        desired.length === 0 ||
+        !zonesOutOfSyncWithSeeds(desired, z)
+      ) {
+        return z;
       }
 
-      if (gen !== reloadGenRef.current) return;
-      setZones(nextZones);
-      setZoneProducts(nextProducts);
-      setFurnitureDirty(false);
-      return nextZones;
-    } finally {
+      healedProjectIdsRef.current.add(projectId);
+      const synced = await syncProjectZones({
+        projectId,
+        desired,
+        zones: z,
+        zoneProducts: zp,
+        pruneEmpty: true,
+        dropOrphanZones: true,
+      });
+      if (gen !== reloadGenRef.current) return z;
+      if (synced.ok && synced.data) {
+        const nextProducts = await fetchZoneProducts(projectId);
+        if (gen !== reloadGenRef.current) return synced.data;
+        setZones(synced.data);
+        setZoneProducts(nextProducts);
+        toast.success('已同步房間清單', {
+          description: '已與方案列表的房間類型及數量對齊',
+        });
+        return synced.data;
+      }
+      healedProjectIdsRef.current.delete(projectId);
+      toast.error('同步房間失敗', {
+        description: synced.error || '請到方案列表重新按「儲存」',
+      });
+      return z;
+    } catch {
       if (gen === reloadGenRef.current) setLoading(false);
+      return [];
     }
   }, []);
 
