@@ -312,12 +312,14 @@ export function DesignProjectsView() {
             projectRow?.clientCompany,
           )) as ProjectEngineeringType;
         const customRooms = normalizeCustomRooms(meta?.customRooms);
+        const hasSavedOrder = Array.isArray(meta?.roomOrder);
         const roomOrder = normalizeRoomOrder(meta?.roomOrder);
         const desired = zoneSeedsFromRoomCounts(
           projectType,
           roomCounts as Record<string, number>,
           customRooms as RoomTypeTemplate[],
-          roomOrder.length > 0 ? roomOrder : null,
+          // Honor saved roomOrder (even empty); only fall back to all rooms when never saved.
+          hasSavedOrder ? roomOrder : null,
         );
         if (zonesMissingFromSeeds(desired, z)) {
           const synced = await syncProjectZones({

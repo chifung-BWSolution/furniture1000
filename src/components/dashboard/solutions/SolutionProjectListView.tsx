@@ -91,6 +91,8 @@ export function SolutionProjectListView() {
   const [viewerProject, setViewerProject] = useState<DesignProject | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const previewBackfillAttempted = useRef(new Set<string>());
+  const projectsRef = useRef(projects);
+  projectsRef.current = projects;
 
   useEffect(() => {
     fetchProjects()
@@ -108,7 +110,7 @@ export function SolutionProjectListView() {
   useEffect(() => {
     let cancelled = false;
     const run = async () => {
-      for (const project of projects) {
+      for (const project of projectsRef.current) {
         if (cancelled) return;
         if (previewBackfillAttempted.current.has(project.id)) continue;
         if (!project.floorPlanUrl) continue;
@@ -128,15 +130,20 @@ export function SolutionProjectListView() {
             project.id,
             rendered.blob,
           );
-          const meta = {
-            ...project.meta,
+          if (cancelled) return;
+          // Merge onto the latest project meta so a concurrent room「儲存」
+          // is not overwritten by a stale closure from when PDF render started.
+          const latest =
+            projectsRef.current.find((row) => row.id === project.id) || project;
+          const nextMeta = {
+            ...latest.meta,
             floorPlanPreviewUrl: previewUrl,
           };
-          const saved = await saveProject(project.id, { meta });
+          const saved = await saveProject(project.id, { meta: nextMeta });
           if (!saved.ok || cancelled) continue;
           setProjects((prev) =>
             prev.map((row) =>
-              row.id === project.id ? { ...row, meta } : row,
+              row.id === project.id ? { ...row, meta: nextMeta } : row,
             ),
           );
         } catch {

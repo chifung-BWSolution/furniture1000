@@ -88,15 +88,27 @@ function defaultOrderFor(
 function resolveRoomOrder(
   type: ProjectEngineeringType,
   customRooms: CustomRoomType[],
-  savedOrder: string[],
+  /** null = never saved → use full template; array (even empty) = honor exactly */
+  savedOrder: string[] | null,
 ): string[] {
+  if (savedOrder == null) return defaultOrderFor(type, customRooms);
   const known = new Set(defaultOrderFor(type, customRooms));
-  if (savedOrder.length === 0) return defaultOrderFor(type, customRooms);
   const next = savedOrder.filter(
     (key) => known.has(key) && !EXCLUDED_DEFAULT_ROOM_KEYS.has(key),
   );
   for (const room of customRooms) {
     if (!next.includes(room.key)) next.push(room.key);
+  }
+  return next;
+}
+
+function countsForOrder(
+  order: string[],
+  savedCounts: Record<string, number> | null | undefined,
+): Record<string, number> {
+  const next: Record<string, number> = {};
+  for (const key of order) {
+    next[key] = Math.max(0, Number(savedCounts?.[key]) || 0);
   }
   return next;
 }
@@ -117,17 +129,26 @@ export function ProjectPartitionPanel({
   const initialType =
     project.meta?.projectType ||
     inferProjectType(project.name, project.clientCompany);
+  const initialCustom = normalizeCustomRooms(project.meta?.customRooms);
+  const initialHasSavedOrder = Array.isArray(project.meta?.roomOrder);
+  const initialOrder = resolveRoomOrder(
+    initialType,
+    initialCustom,
+    initialHasSavedOrder ? normalizeRoomOrder(project.meta?.roomOrder) : null,
+  );
+  const initialCounts =
+    initialHasSavedOrder ||
+    (project.meta?.roomCounts &&
+      Object.keys(project.meta.roomCounts).length > 0)
+      ? countsForOrder(initialOrder, project.meta?.roomCounts)
+      : defaultRoomCounts(initialType);
   const [projectType, setProjectType] =
     useState<ProjectEngineeringType>(initialType);
-  const [roomCounts, setRoomCounts] = useState<Record<string, number>>(
-    project.meta?.roomCounts || defaultRoomCounts(initialType),
-  );
-  const [customRooms, setCustomRooms] = useState<CustomRoomType[]>(
-    normalizeCustomRooms(project.meta?.customRooms),
-  );
-  const [roomOrder, setRoomOrder] = useState<string[]>(
-    normalizeRoomOrder(project.meta?.roomOrder),
-  );
+  const [roomCounts, setRoomCounts] =
+    useState<Record<string, number>>(initialCounts);
+  const [customRooms, setCustomRooms] =
+    useState<CustomRoomType[]>(initialCustom);
+  const [roomOrder, setRoomOrder] = useState<string[]>(initialOrder);
   const [zones, setZones] = useState<ProjectZone[]>([]);
   const [zoneProducts, setZoneProducts] = useState<ZoneProduct[]>([]);
   const [loading, setLoading] = useState(true);
@@ -166,28 +187,38 @@ export function ProjectPartitionPanel({
           project.meta?.projectType ||
           inferProjectType(project.name, project.clientCompany);
         const nextCustom = normalizeCustomRooms(project.meta?.customRooms);
-        const savedOrder = normalizeRoomOrder(project.meta?.roomOrder);
+        // Distinguish missing roomOrder (legacy) vs intentionally saved list (even empty).
+        const hasSavedOrder = Array.isArray(project.meta?.roomOrder);
+        const savedOrder = hasSavedOrder
+          ? normalizeRoomOrder(project.meta?.roomOrder)
+          : null;
         const nextOrder = resolveRoomOrder(type, nextCustom, savedOrder);
+        const savedCounts =
+          project.meta?.roomCounts &&
+          typeof project.meta.roomCounts === 'object'
+            ? project.meta.roomCounts
+            : null;
+        const hasSavedCounts = Boolean(
+          savedCounts && Object.keys(savedCounts).length > 0,
+        );
+
         setProjectType(type);
         setCustomRooms(nextCustom);
         setRoomOrder(nextOrder);
-        setRoomCounts(
-          project.meta?.roomCounts &&
-            Object.keys(project.meta.roomCounts).length > 0
-            ? {
-                ...defaultRoomCounts(type),
-                ...Object.fromEntries(
-                  nextCustom.map((room) => [room.key, 0]),
-                ),
-                ...project.meta.roomCounts,
-              }
-            : loadedZones.length > 0
-              ? countRoomsFromZones(type, loadedZones, nextCustom)
-              : defaultRoomCounts(type),
-        );
+
+        // Never re-merge template defaultRoomCounts over a user save — that
+        // reintroduces deleted room types with qty 1 on reopen.
+        if (hasSavedOrder || hasSavedCounts) {
+          setRoomCounts(countsForOrder(nextOrder, savedCounts));
+        } else if (loadedZones.length > 0) {
+          setRoomCounts(countRoomsFromZones(type, loadedZones, nextCustom));
+        } else {
+          setRoomCounts(defaultRoomCounts(type));
+        }
+
         // Existing projects may still contain removed defaults — prompt save cleanup.
         if (
-          savedOrder.some((key) => EXCLUDED_DEFAULT_ROOM_KEYS.has(key))
+          (savedOrder || []).some((key) => EXCLUDED_DEFAULT_ROOM_KEYS.has(key))
         ) {
           setDirty(true);
         }
