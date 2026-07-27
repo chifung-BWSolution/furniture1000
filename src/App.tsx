@@ -51,22 +51,29 @@ class ErrorBoundary extends Component<
   render() {
     if (this.state.hasError) {
       return (
-        <div className="flex h-screen w-screen items-center justify-center bg-background">
-          <div className="max-w-md space-y-4 rounded-xl border border-border bg-card p-8 text-center">
-            <h2 className="text-lg font-bold text-foreground">
-              {this.state.staleAssets ? "網站已更新" : "Something went wrong"}
+        <div
+          className="flex h-screen w-screen items-center justify-center"
+          style={{ background: "#f5f6fb", color: "#1a1a2e" }}
+        >
+          <div
+            className="max-w-md space-y-4 rounded-xl border p-8 text-center"
+            style={{ background: "#fff", borderColor: "#e5e7eb" }}
+          >
+            <h2 className="text-lg font-bold">
+              {this.state.staleAssets ? "網站已更新" : "頁面載入失敗"}
             </h2>
-            <p className="text-sm text-muted-foreground">
+            <p className="text-sm" style={{ color: "#5c5c7a" }}>
               {this.state.staleAssets
                 ? "偵測到新版本資源。請重新整理頁面；若正在編輯報價，草稿應已暫存，重整後可恢復。"
-                : this.state.error?.message || "An unexpected error occurred."}
+                : this.state.error?.message || "發生未預期錯誤。請重新整理後再試。"}
             </p>
             <button
               onClick={() => {
                 this.setState({ hasError: false, error: null, staleAssets: false });
                 window.location.reload();
               }}
-              className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+              className="rounded-lg px-4 py-2 text-sm font-medium text-white"
+              style={{ background: "#4f46e5" }}
             >
               重新整理頁面
             </button>

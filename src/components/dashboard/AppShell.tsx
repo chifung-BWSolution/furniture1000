@@ -192,6 +192,9 @@ const SELF_LOADING_VIEWS = new Set<ViewType>([
   "factory-detail",
   "category-management",
   "category-registry",
+  // Quote routes must render on refresh even while the product catalog is still loading.
+  // Otherwise /quote/:id waits on store.isLoading and can look like a blank/black screen.
+  "quick-quote",
   "quotation-list",
   "solution-project-list",
   "design-projects",
@@ -256,12 +259,23 @@ export function AppShell() {
   const [showPublishModal, setShowPublishModal] = useState(false);
   const [publishModalProducts, setPublishModalProducts] = useState<Product[]>([]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [editingQuoteId, setEditingQuoteIdRaw] = useState<string | null>(null);
+  const [editingQuoteId, setEditingQuoteIdRaw] = useState<string | null>(() => {
+    const parsed = parseQuotePathname(location.pathname);
+    return parsed.kind === 'quote' ? parsed.quoteId : null;
+  });
   const [editingQuoteUuid, setEditingQuoteUuidRaw] = useState<string | null>(null);
-  const [editingQuoteVersion, setEditingQuoteVersionRaw] = useState<string | null>(null);
+  const [editingQuoteVersion, setEditingQuoteVersionRaw] = useState<string | null>(() => {
+    const parsed = parseQuotePathname(location.pathname);
+    return parsed.kind === 'quote' ? parsed.version ?? null : null;
+  });
   const [quickQuoteFreshKey, setQuickQuoteFreshKey] = useState(0);
   const deepLinkHandledRef = useRef<string | null>(null);
-  const quoteUrlSyncRef = useRef<string | null>(null);
+  const quoteUrlSyncRef = useRef<string | null>(
+    (() => {
+      const path = location.pathname.replace(/\/+$/, '') || '/';
+      return path.startsWith('/quote') ? path : null;
+    })(),
+  );
   const portalToken = new URLSearchParams(location.search).get('portal_token');
   const storedPortalToken = readStoredPortalToken();
   const portalTokenActive = Boolean(portalToken || storedPortalToken);

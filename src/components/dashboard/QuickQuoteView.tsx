@@ -224,6 +224,7 @@ export function QuickQuoteView({
   const [currentStep, setCurrentStep] = useState(1);
   const [isQuotationReady, setIsQuotationReady] = useState(false);
   const [isLoadingQuote, setIsLoadingQuote] = useState(false);
+  const [quoteLoadError, setQuoteLoadError] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -606,6 +607,7 @@ export function QuickQuoteView({
       // Only block the whole view on the first load for this mount.
       const isInitialLoad = !loadedQuoteData;
       if (isInitialLoad) setIsLoadingQuote(true);
+      setQuoteLoadError(null);
       try {
         let data: Record<string, unknown> | null = null;
 
@@ -797,7 +799,9 @@ export function QuickQuoteView({
         // fresh step-1 shell) is what made users see「資料全遺失」after 版本審核.
         if (!loadedQuoteData) {
           loadedQuoteIdRef.current = null;
-          onClearEditingQuote?.();
+          setQuoteLoadError(message);
+          setIsQuotationReady(false);
+          setCurrentStep(1);
         } else {
           loadedQuoteIdRef.current = loadKey;
         }
@@ -917,12 +921,40 @@ export function QuickQuoteView({
     (isLoadingQuote || isLoadingCopy) && !loadedQuoteData && currentStep !== 4;
   if (blockUiForInitialLoad) {
     return (
-      <div className="flex h-full items-center justify-center">
+      <div className="flex h-full items-center justify-center bg-background">
         <div className="flex flex-col items-center gap-3">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
           <span className="font-mono-data text-xs text-muted-foreground">
             {isLoadingCopy ? '載入複製內容中...' : '載入報價單中...'}
           </span>
+        </div>
+      </div>
+    );
+  }
+
+  if (quoteLoadError && !loadedQuoteData) {
+    return (
+      <div className="flex h-full items-center justify-center bg-background p-6">
+        <div className="max-w-md space-y-4 rounded-2xl border border-border bg-card p-8 text-center shadow-sm">
+          <h2 className="font-display text-lg font-bold text-foreground">無法開啟報價單</h2>
+          <p className="font-body text-sm text-muted-foreground leading-relaxed">
+            {quoteLoadError}
+            {editingQuoteId ? (
+              <>
+                <br />
+                <span className="font-mono-data text-xs text-foreground/80">
+                  {editingQuoteId}
+                </span>
+              </>
+            ) : null}
+          </p>
+          <button
+            type="button"
+            onClick={() => onClearEditingQuote?.()}
+            className="inline-flex items-center justify-center rounded-lg bg-primary px-4 py-2 font-body text-sm font-semibold text-primary-foreground"
+          >
+            返回報價一覽
+          </button>
         </div>
       </div>
     );

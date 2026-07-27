@@ -312,6 +312,14 @@ export function useAppStore() {
   });
   const [currentView, setCurrentViewRaw] = useState<ViewType>(() => {
     try {
+      // Deep-link refresh: honour /quote/* immediately so we don't sit behind
+      // product-catalog loading (blank/black main pane) before the router effect runs.
+      if (typeof window !== 'undefined') {
+        const path = window.location.pathname.replace(/\/+$/, '') || '/';
+        if (path === '/quote' || path.startsWith('/quote/')) {
+          return path === '/quote' ? 'quotation-list' : 'quick-quote';
+        }
+      }
       const saved = sessionStorage.getItem('current-view');
       if (saved === 'product-report' || saved === 'quotation-settings') {
         return 'quick-quote';
