@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
   Plus, Loader2, Search, Check, CheckCircle2, Trash2, X, LayoutGrid, UserRound, Tag,
   ImagePlus, PenLine, ZoomIn, Save, Link2, RefreshCw, MessageSquare, Layers,
@@ -664,7 +665,7 @@ function ZoneProductRow({
                 <option value="discussing">待討論</option>
                 <option value="confirmed">已確定</option>
               </select>
-              <div className="flex flex-col gap-1.5">
+              <div className="flex flex-col items-stretch gap-1.5">
                 <button
                   type="button"
                   disabled={deletingProductId === item.id}
@@ -679,24 +680,22 @@ function ZoneProductRow({
                   )}
                   刪除
                 </button>
-                <button
-                  type="button"
-                  onClick={() => onToggleOptional(item)}
-                  className={cn(
-                    'inline-flex items-center justify-center rounded-lg border px-2.5 py-1.5 text-[15px] font-medium transition-colors',
-                    item.isOptional
-                      ? 'border-amber-500/40 bg-amber-500/10 text-amber-700'
-                      : 'border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground',
-                  )}
+                <label
+                  className="inline-flex cursor-pointer items-center justify-center gap-1.5 px-1 py-1 text-[15px] text-muted-foreground"
                   title={
                     item.isOptional
                       ? '取消可選：價錢將重新計入總計'
                       : '標記為可選：價錢不計入總計，產品仍顯示'
                   }
-                  aria-pressed={Boolean(item.isOptional)}
                 >
-                  可選
-                </button>
+                  <Checkbox
+                    checked={Boolean(item.isOptional)}
+                    onCheckedChange={() => onToggleOptional(item)}
+                    className="border-foreground/60 data-[state=checked]:border-primary"
+                    aria-label={`${titleLabel}可選`}
+                  />
+                  <span>可選</span>
+                </label>
               </div>
             </div>
           </div>
