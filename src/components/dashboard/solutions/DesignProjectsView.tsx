@@ -528,8 +528,45 @@ function ZoneProductRow({
     });
   };
 
+  const imageColumnWidth = size + PRODUCT_IMAGE_PAD_PX;
+
   return (
     <li>
+      {divisionHeading || divisionToolbar ? (
+        <div
+          className="flex flex-wrap items-start justify-between gap-2"
+          style={{
+            paddingTop: PRODUCT_IMAGE_PAD_PX,
+            paddingRight: PRODUCT_IMAGE_PAD_PX,
+            paddingLeft: PRODUCT_IMAGE_PAD_PX,
+          }}
+        >
+          <div
+            className="min-w-0 space-y-0.5"
+            style={{ width: imageColumnWidth, maxWidth: '100%' }}
+          >
+            {divisionHeading ? (
+              <>
+                <p className="font-display text-[15px] font-bold leading-snug text-foreground">
+                  {divisionHeading.label}
+                </p>
+                <p className="text-[14px] leading-snug text-muted-foreground">
+                  {divisionHeading.planned} 件傢俬
+                  {divisionHeading.added > 0
+                    ? ` · 已加入 ${divisionHeading.added}`
+                    : ''}
+                </p>
+              </>
+            ) : null}
+          </div>
+          {divisionToolbar ? (
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+              {divisionToolbar}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className="flex items-stretch">
         <div
           className="shrink-0"
@@ -543,54 +580,54 @@ function ZoneProductRow({
             className="relative overflow-hidden rounded-lg"
             style={{ width: size, height: size }}
           >
-          {item.productImageUrl ? (
-            <button
-              type="button"
-              onClick={() => onPreview(item.productImageUrl, titleLabel)}
-              className="group relative h-full w-full overflow-hidden rounded-lg bg-muted ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-              title="點擊放大圖片"
-              aria-label={`${titleLabel}圖片預覽`}
-            >
-              <img
-                src={item.productImageUrl}
-                alt=""
-                className="h-full w-full object-cover transition group-hover:scale-105"
-              />
-              <span className="absolute inset-0 flex items-center justify-center bg-black/0 text-white opacity-0 transition group-hover:bg-black/35 group-hover:opacity-100">
-                <ZoomIn className="h-5 w-5" />
-              </span>
-            </button>
-          ) : (
-            <button
-              type="button"
-              disabled={uploading || !canUploadImage}
-              onClick={() => onOpenUpload(item)}
-              className="flex h-full w-full items-center justify-center rounded-lg border border-dashed border-border bg-muted/40 text-muted-foreground hover:border-primary/40 hover:text-primary disabled:opacity-60"
-              title="上傳產品圖片"
-              aria-label="上傳產品圖片"
-            >
-              {uploading ? (
-                <Loader2 className="h-5 w-5 animate-spin" />
-              ) : (
-                <ImagePlus className="h-6 w-6" />
-              )}
-            </button>
-          )}
-          {custom && item.productImageUrl ? (
-            <button
-              type="button"
-              disabled={uploading}
-              onClick={() => onOpenUpload(item)}
-              className="absolute bottom-1.5 left-1/2 z-10 -translate-x-1/2 rounded-md border border-border/80 bg-background/90 px-2 py-0.5 text-[11px] font-medium text-muted-foreground shadow-sm backdrop-blur hover:bg-background disabled:opacity-60"
-            >
-              {uploading ? '上傳中…' : '更換圖片'}
-            </button>
-          ) : null}
+            {item.productImageUrl ? (
+              <button
+                type="button"
+                onClick={() => onPreview(item.productImageUrl, titleLabel)}
+                className="group relative h-full w-full overflow-hidden rounded-lg bg-muted ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                title="點擊放大圖片"
+                aria-label={`${titleLabel}圖片預覽`}
+              >
+                <img
+                  src={item.productImageUrl}
+                  alt=""
+                  className="h-full w-full object-cover transition group-hover:scale-105"
+                />
+                <span className="absolute inset-0 flex items-center justify-center bg-black/0 text-white opacity-0 transition group-hover:bg-black/35 group-hover:opacity-100">
+                  <ZoomIn className="h-5 w-5" />
+                </span>
+              </button>
+            ) : (
+              <button
+                type="button"
+                disabled={uploading || !canUploadImage}
+                onClick={() => onOpenUpload(item)}
+                className="flex h-full w-full items-center justify-center rounded-lg border border-dashed border-border bg-muted/40 text-muted-foreground hover:border-primary/40 hover:text-primary disabled:opacity-60"
+                title="上傳產品圖片"
+                aria-label="上傳產品圖片"
+              >
+                {uploading ? (
+                  <Loader2 className="h-5 w-5 animate-spin" />
+                ) : (
+                  <ImagePlus className="h-6 w-6" />
+                )}
+              </button>
+            )}
+            {custom && item.productImageUrl ? (
+              <button
+                type="button"
+                disabled={uploading}
+                onClick={() => onOpenUpload(item)}
+                className="absolute bottom-1.5 left-1/2 z-10 -translate-x-1/2 rounded-md border border-border/80 bg-background/90 px-2 py-0.5 text-[11px] font-medium text-muted-foreground shadow-sm backdrop-blur hover:bg-background disabled:opacity-60"
+              >
+                {uploading ? '上傳中…' : '更換圖片'}
+              </button>
+            ) : null}
           </div>
         </div>
 
         <div
-          className="flex min-w-0 flex-1 flex-col justify-start"
+          className="flex min-w-0 flex-1 flex-col"
           style={{
             minHeight: size + PRODUCT_IMAGE_PAD_PX * 2,
             paddingTop: PRODUCT_IMAGE_PAD_PX,
@@ -599,281 +636,264 @@ function ZoneProductRow({
             paddingLeft: PRODUCT_IMAGE_PAD_PX,
           }}
         >
-          <div ref={contentRef} className="space-y-2">
-          {divisionHeading ? (
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="min-w-0 space-y-0.5">
-                <p className="font-display text-[15px] font-bold leading-snug text-foreground">
-                  {divisionHeading.label}
-                </p>
-                <p className="text-[14px] leading-snug text-muted-foreground">
-                  {divisionHeading.planned} 件傢俬
-                  {divisionHeading.added > 0
-                    ? ` · 已加入 ${divisionHeading.added}`
-                    : ''}
-                </p>
-              </div>
-              {divisionToolbar ? (
-                <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-                  {divisionToolbar}
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="min-w-0 flex-1 space-y-1">
-              {custom ? (
-                <input
-                  type="text"
-                  value={item.productTitle || ''}
-                  onChange={(event) => onSetTitle(item, event.target.value)}
-                  placeholder="輸入產品名稱…"
-                  className="h-9 w-full rounded-lg border border-border bg-background px-3 text-base font-medium outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
-                  aria-label="產品名稱"
-                />
-              ) : (
-                <p className="text-base font-medium leading-snug">
-                  {item.productTitle}
-                </p>
-              )}
-              {factoryName ? (
-                <span className="inline-flex max-w-full items-center rounded-full border border-border bg-muted/60 px-2.5 py-0.5 text-[12px] font-medium text-muted-foreground">
-                  <span className="truncate" title={factoryName}>
-                    {factoryName}
-                  </span>
-                </span>
-              ) : null}
-            </div>
-            <div className="flex shrink-0 flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => onOpenPicker(item.zoneId || zoneId, item.id)}
-                className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 px-2.5 text-[14px] font-medium text-primary hover:bg-primary/15"
-                title="更換此產品的名稱、圖片與價錢"
-              >
-                <RefreshCw className="h-3.5 w-3.5" />
-                更換產品
-              </button>
-              <button
-                type="button"
-                disabled={deletingProductId === item.id}
-                onClick={() => onRemove(item)}
-                className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-rose-500/30 px-2.5 py-1.5 text-[15px] font-medium text-rose-600 hover:bg-rose-500/10 disabled:opacity-50"
-                title="從間隔移除產品"
-              >
-                {deletingProductId === item.id ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
+          <div ref={contentRef} className="flex min-h-0 flex-1 flex-col gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0 flex-1 space-y-1">
+                {custom ? (
+                  <input
+                    type="text"
+                    value={item.productTitle || ''}
+                    onChange={(event) => onSetTitle(item, event.target.value)}
+                    placeholder="輸入產品名稱…"
+                    className="h-9 w-full rounded-lg border border-border bg-background px-3 text-base font-medium outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+                    aria-label="產品名稱"
+                  />
                 ) : (
-                  <Trash2 className="h-4 w-4" />
+                  <p className="text-base font-medium leading-snug">
+                    {item.productTitle}
+                  </p>
                 )}
-                刪除
-              </button>
-              <label
-                className="inline-flex h-9 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-border bg-background px-2.5 text-[15px] text-muted-foreground hover:bg-muted"
-                title={
-                  item.isOptional
-                    ? '取消可選：價錢將重新計入總計'
-                    : '標記為可選：價錢不計入總計，產品仍顯示'
-                }
-              >
-                <Checkbox
-                  checked={Boolean(item.isOptional)}
-                  onCheckedChange={() => onToggleOptional(item)}
-                  className="border-foreground/60 data-[state=checked]:border-primary"
-                  aria-label={`${titleLabel}可選`}
-                />
-                <span>可選</span>
-              </label>
+                {factoryName ? (
+                  <span className="inline-flex max-w-full items-center rounded-full border border-border bg-muted/60 px-2.5 py-0.5 text-[12px] font-medium text-muted-foreground">
+                    <span className="truncate" title={factoryName}>
+                      {factoryName}
+                    </span>
+                  </span>
+                ) : null}
+              </div>
+              <div className="flex shrink-0 flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => onOpenPicker(item.zoneId || zoneId, item.id)}
+                  className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 px-2.5 text-[14px] font-medium text-primary hover:bg-primary/15"
+                  title="更換此產品的名稱、圖片與價錢"
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                  更換產品
+                </button>
+                <button
+                  type="button"
+                  disabled={deletingProductId === item.id}
+                  onClick={() => onRemove(item)}
+                  className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-rose-500/30 px-2.5 py-1.5 text-[15px] font-medium text-rose-600 hover:bg-rose-500/10 disabled:opacity-50"
+                  title="從間隔移除產品"
+                >
+                  {deletingProductId === item.id ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-4 w-4" />
+                  )}
+                  刪除
+                </button>
+                <label
+                  className="inline-flex h-9 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-border bg-background px-2.5 text-[15px] text-muted-foreground hover:bg-muted"
+                  title={
+                    item.isOptional
+                      ? '取消可選：價錢將重新計入總計'
+                      : '標記為可選：價錢不計入總計，產品仍顯示'
+                  }
+                >
+                  <Checkbox
+                    checked={Boolean(item.isOptional)}
+                    onCheckedChange={() => onToggleOptional(item)}
+                    className="border-foreground/60 data-[state=checked]:border-primary"
+                    aria-label={`${titleLabel}可選`}
+                  />
+                  <span>可選</span>
+                </label>
+              </div>
             </div>
-          </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-              <span className="shrink-0 text-[15px] font-medium text-muted-foreground">
-                尺寸
-              </span>
-              <input
-                type="text"
-                inputMode="numeric"
-                value={dimInputValue(effectiveL)}
-                onChange={(event) =>
-                  commitDimAxis('dimensionLMm', event.target.value)
-                }
-                placeholder="—"
-                className="h-8 w-[4.5rem] rounded-md border border-border bg-background px-2 text-right font-mono-data text-[14px] text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
-                aria-label={`${titleLabel}長度 W`}
-                title="長 (W) mm — 僅存於此設計專案"
-              />
-              <span className="font-mono-data text-[13px] text-muted-foreground">
-                (W) x
-              </span>
-              <input
-                type="text"
-                inputMode="numeric"
-                value={dimInputValue(effectiveW)}
-                onChange={(event) =>
-                  commitDimAxis('dimensionWMm', event.target.value)
-                }
-                placeholder="—"
-                className="h-8 w-[4.5rem] rounded-md border border-border bg-background px-2 text-right font-mono-data text-[14px] text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
-                aria-label={`${titleLabel}闊度 D`}
-                title="闊 (D) mm — 僅存於此設計專案"
-              />
-              <span className="font-mono-data text-[13px] text-muted-foreground">
-                (D) x
-              </span>
-              <input
-                type="text"
-                inputMode="numeric"
-                value={dimInputValue(effectiveH)}
-                onChange={(event) =>
-                  commitDimAxis('dimensionHMm', event.target.value)
-                }
-                placeholder="—"
-                className="h-8 w-[4.5rem] rounded-md border border-border bg-background px-2 text-right font-mono-data text-[14px] text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
-                aria-label={`${titleLabel}高度 H`}
-                title="高 (H) mm — 僅存於此設計專案"
-              />
-              <span className="font-mono-data text-[13px] text-muted-foreground">
-                (H) (mm)
-              </span>
-            </div>
-            <select
-              value={item.status}
-              onChange={(e) =>
-                onSetStatus(item.id, e.target.value as ZoneProductStatus)
-              }
-              className={cn(
-                'shrink-0 rounded-full border px-3 py-1.5 text-[15px] font-medium',
-                ZONE_PRODUCT_STATUS_META[item.status]?.className,
-              )}
-              aria-label={`${titleLabel}狀態`}
-            >
-              <option value="pending">未確定</option>
-              <option value="discussing">待討論</option>
-              <option value="confirmed">已確定</option>
-            </select>
-            <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5 text-[15px] text-foreground">
-              {custom ? (
-                <>
-                  <span className="text-foreground">單價 $</span>
+            <div className="flex min-h-0 flex-1 flex-wrap items-end gap-3">
+              <div className="min-w-0 flex-1 space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+                  <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                    <span className="shrink-0 text-[15px] font-medium text-muted-foreground">
+                      尺寸
+                    </span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={dimInputValue(effectiveL)}
+                      onChange={(event) =>
+                        commitDimAxis('dimensionLMm', event.target.value)
+                      }
+                      placeholder="—"
+                      className="h-8 w-[4.5rem] rounded-md border border-border bg-background px-2 text-right font-mono-data text-[14px] text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+                      aria-label={`${titleLabel}長度 W`}
+                      title="長 (W) mm — 僅存於此設計專案"
+                    />
+                    <span className="font-mono-data text-[13px] text-muted-foreground">
+                      (W) x
+                    </span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={dimInputValue(effectiveW)}
+                      onChange={(event) =>
+                        commitDimAxis('dimensionWMm', event.target.value)
+                      }
+                      placeholder="—"
+                      className="h-8 w-[4.5rem] rounded-md border border-border bg-background px-2 text-right font-mono-data text-[14px] text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+                      aria-label={`${titleLabel}闊度 D`}
+                      title="闊 (D) mm — 僅存於此設計專案"
+                    />
+                    <span className="font-mono-data text-[13px] text-muted-foreground">
+                      (D) x
+                    </span>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={dimInputValue(effectiveH)}
+                      onChange={(event) =>
+                        commitDimAxis('dimensionHMm', event.target.value)
+                      }
+                      placeholder="—"
+                      className="h-8 w-[4.5rem] rounded-md border border-border bg-background px-2 text-right font-mono-data text-[14px] text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+                      aria-label={`${titleLabel}高度 H`}
+                      title="高 (H) mm — 僅存於此設計專案"
+                    />
+                    <span className="font-mono-data text-[13px] text-muted-foreground">
+                      (H) (mm)
+                    </span>
+                  </div>
+                  <select
+                    value={item.status}
+                    onChange={(e) =>
+                      onSetStatus(item.id, e.target.value as ZoneProductStatus)
+                    }
+                    className={cn(
+                      'shrink-0 rounded-full border px-3 py-1.5 text-[15px] font-medium',
+                      ZONE_PRODUCT_STATUS_META[item.status]?.className,
+                    )}
+                    aria-label={`${titleLabel}狀態`}
+                  >
+                    <option value="pending">未確定</option>
+                    <option value="discussing">待討論</option>
+                    <option value="confirmed">已確定</option>
+                  </select>
+                </div>
+
+                <div className="flex items-start gap-2">
+                  <span className="mt-2 shrink-0 text-[15px] font-medium text-muted-foreground">
+                    備註
+                  </span>
+                  <textarea
+                    value={staffNotesValue(item.notes)}
+                    onChange={(event) => onSetNotes(item, event.target.value)}
+                    rows={3}
+                    placeholder="輸入意見或補充說明…"
+                    className="min-h-[72px] min-w-0 w-full flex-1 resize-y rounded-lg border border-border bg-background px-3 py-2 text-[15px] leading-relaxed outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+                    aria-label={`${titleLabel}備註`}
+                  />
+                </div>
+
+                {feedback.length > 0 ? (
+                  <div className="space-y-2">
+                    {feedback.map((row, feedbackIndex) => {
+                      const feedbackKey = `${item.id}:${feedbackIndex}`;
+                      return (
+                        <div
+                          key={`${item.id}-feedback-${feedbackIndex}-${row.at}`}
+                          className="rounded-lg border border-amber-500/25 bg-amber-500/5 px-3 py-2.5"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <p className="text-[13px] font-medium text-amber-800 dark:text-amber-200">
+                              客戶意見 · {reviewLabelZh(row.review)}
+                              {' · '}
+                              {fmtFeedbackTime(row.at)}
+                              {row.author ? ` · ${row.author}` : ''}
+                            </p>
+                            <button
+                              type="button"
+                              disabled={deletingFeedbackKey === feedbackKey}
+                              onClick={() =>
+                                onDeleteFeedback(item, feedbackIndex)
+                              }
+                              className="inline-flex shrink-0 items-center gap-1 rounded-md border border-rose-500/30 px-2 py-1 text-xs font-medium text-rose-700 hover:bg-rose-500/10 disabled:opacity-50"
+                              title="刪除此客戶意見"
+                            >
+                              {deletingFeedbackKey === feedbackKey ? (
+                                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                              ) : (
+                                <Trash2 className="h-3.5 w-3.5" />
+                              )}
+                              刪除
+                            </button>
+                          </div>
+                          {row.text ? (
+                            <p className="mt-1 whitespace-pre-wrap text-[15px] text-foreground">
+                              {row.text}
+                            </p>
+                          ) : null}
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
+
+              <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-1.5 self-end text-[15px] text-foreground">
+                {custom ? (
+                  <>
+                    <span className="text-foreground">單價 $</span>
+                    <input
+                      type="number"
+                      min={0}
+                      step={1}
+                      value={Number(item.salePrice || 0)}
+                      onChange={(event) =>
+                        onSetSalePrice(item, Number(event.target.value))
+                      }
+                      className="h-8 w-24 rounded-lg border border-border bg-background px-2 font-mono-data text-[15px] text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+                      aria-label="單價"
+                    />
+                  </>
+                ) : (
+                  <span className="font-mono-data text-foreground">
+                    單價 ${Number(item.salePrice || 0).toLocaleString()}
+                  </span>
+                )}
+                <span className="text-foreground">×</span>
+                <div className="inline-flex items-center overflow-hidden rounded-lg border border-border bg-background">
+                  <button
+                    type="button"
+                    onClick={() => onSetQuantity(item, item.quantity - 1)}
+                    disabled={item.quantity <= 1}
+                    className="flex h-8 w-8 items-center justify-center text-[16px] text-muted-foreground hover:bg-muted disabled:opacity-35"
+                    aria-label="數量減一"
+                  >
+                    −
+                  </button>
                   <input
                     type="number"
-                    min={0}
-                    step={1}
-                    value={Number(item.salePrice || 0)}
+                    min={1}
+                    max={9999}
+                    value={item.quantity}
                     onChange={(event) =>
-                      onSetSalePrice(item, Number(event.target.value))
+                      onSetQuantity(item, Number(event.target.value))
                     }
-                    className="h-8 w-24 rounded-lg border border-border bg-background px-2 font-mono-data text-[15px] text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
-                    aria-label="單價"
+                    className="h-8 w-11 border-x border-border bg-background text-center font-mono-data text-[15px] font-semibold text-foreground outline-none"
+                    aria-label={`${titleLabel}數量`}
                   />
-                </>
-              ) : (
+                  <button
+                    type="button"
+                    onClick={() => onSetQuantity(item, item.quantity + 1)}
+                    className="flex h-8 w-8 items-center justify-center text-[16px] text-muted-foreground hover:bg-muted"
+                    aria-label="數量加一"
+                  >
+                    +
+                  </button>
+                </div>
                 <span className="font-mono-data text-foreground">
-                  單價 ${Number(item.salePrice || 0).toLocaleString()}
+                  = 小計 $
+                  {(
+                    Number(item.salePrice || 0) * item.quantity
+                  ).toLocaleString()}
+                  {item.isOptional ? '（可選，不計入總計）' : ''}
                 </span>
-              )}
-              <span className="text-foreground">×</span>
-              <div className="inline-flex items-center overflow-hidden rounded-lg border border-border bg-background">
-                <button
-                  type="button"
-                  onClick={() => onSetQuantity(item, item.quantity - 1)}
-                  disabled={item.quantity <= 1}
-                  className="flex h-8 w-8 items-center justify-center text-[16px] text-muted-foreground hover:bg-muted disabled:opacity-35"
-                  aria-label="數量減一"
-                >
-                  −
-                </button>
-                <input
-                  type="number"
-                  min={1}
-                  max={9999}
-                  value={item.quantity}
-                  onChange={(event) =>
-                    onSetQuantity(item, Number(event.target.value))
-                  }
-                  className="h-8 w-11 border-x border-border bg-background text-center font-mono-data text-[15px] font-semibold text-foreground outline-none"
-                  aria-label={`${titleLabel}數量`}
-                />
-                <button
-                  type="button"
-                  onClick={() => onSetQuantity(item, item.quantity + 1)}
-                  className="flex h-8 w-8 items-center justify-center text-[16px] text-muted-foreground hover:bg-muted"
-                  aria-label="數量加一"
-                >
-                  +
-                </button>
               </div>
-              <span className="font-mono-data text-foreground">
-                = 小計 $
-                {(
-                  Number(item.salePrice || 0) * item.quantity
-                ).toLocaleString()}
-                {item.isOptional ? '（可選，不計入總計）' : ''}
-              </span>
             </div>
-          </div>
-
-          <div className="space-y-2">
-            <div className="flex items-start gap-2">
-              <span className="mt-2 shrink-0 text-[15px] font-medium text-muted-foreground">
-                備註
-              </span>
-              <textarea
-                value={staffNotesValue(item.notes)}
-                onChange={(event) => onSetNotes(item, event.target.value)}
-                rows={3}
-                placeholder="輸入意見或補充說明…"
-                className="min-h-[72px] min-w-0 flex-1 resize-y rounded-lg border border-border bg-background px-3 py-2 text-[15px] leading-relaxed outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
-                aria-label={`${titleLabel}備註`}
-              />
-            </div>
-            {feedback.length > 0 ? (
-              <div className="space-y-2">
-                {feedback.map((row, feedbackIndex) => {
-                  const feedbackKey = `${item.id}:${feedbackIndex}`;
-                  return (
-                    <div
-                      key={`${item.id}-feedback-${feedbackIndex}-${row.at}`}
-                      className="rounded-lg border border-amber-500/25 bg-amber-500/5 px-3 py-2.5"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <p className="text-[13px] font-medium text-amber-800 dark:text-amber-200">
-                          客戶意見 · {reviewLabelZh(row.review)}
-                          {' · '}
-                          {fmtFeedbackTime(row.at)}
-                          {row.author ? ` · ${row.author}` : ''}
-                        </p>
-                        <button
-                          type="button"
-                          disabled={deletingFeedbackKey === feedbackKey}
-                          onClick={() =>
-                            onDeleteFeedback(item, feedbackIndex)
-                          }
-                          className="inline-flex shrink-0 items-center gap-1 rounded-md border border-rose-500/30 px-2 py-1 text-xs font-medium text-rose-700 hover:bg-rose-500/10 disabled:opacity-50"
-                          title="刪除此客戶意見"
-                        >
-                          {deletingFeedbackKey === feedbackKey ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <Trash2 className="h-3.5 w-3.5" />
-                          )}
-                          刪除
-                        </button>
-                      </div>
-                      {row.text ? (
-                        <p className="mt-1 whitespace-pre-wrap text-[15px] text-foreground">
-                          {row.text}
-                        </p>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-            ) : null}
-          </div>
           </div>
         </div>
       </div>
