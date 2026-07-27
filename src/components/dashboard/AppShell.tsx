@@ -355,8 +355,12 @@ export function AppShell() {
     if (deepLinkHandledRef.current === key) return;
 
     const syncPath = quoteUrlSyncRef.current?.replace(/\/+$/, '') || '';
-    // In-app navigation (list → editor) already set id/uuid — do not wipe uuid here.
-    if (syncPath === normalizedPath && parsed.kind === 'quote') {
+    // In-app navigation (list → editor / 複製報價單 → /quote/quick) already set
+    // session state — do not wipe uuid or copyFromUuid here.
+    if (
+      syncPath === normalizedPath &&
+      (parsed.kind === 'quote' || parsed.kind === 'quick')
+    ) {
       deepLinkHandledRef.current = key;
       store.setCurrentView('quick-quote');
       return;
@@ -386,6 +390,7 @@ export function AppShell() {
       }
 
       if (hasPrefill) {
+        // PMS deep-link is a fresh handoff — do not keep a leftover 複製 source.
         resetQuickQuoteSessionStorage(user?.email);
         void deleteDraft(makeDraftKey(user?.email, 'NEW'));
         setEditingQuoteId(null);
@@ -393,7 +398,8 @@ export function AppShell() {
       } else if (savedEditingId || savedStep > 1) {
         if (savedEditingId) setEditingQuoteIdRaw(savedEditingId);
       } else {
-        resetQuickQuoteSessionStorage(user?.email);
+        // Preserve copyFromUuid so 複製報價單 still loads items after pitching pick.
+        resetQuickQuoteSessionStorage(user?.email, { keepCopyFrom: true });
         void deleteDraft(makeDraftKey(user?.email, 'NEW'));
         setEditingQuoteId(null);
       }
