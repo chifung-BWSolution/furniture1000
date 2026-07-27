@@ -5,7 +5,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import {
   Plus, Loader2, Search, Check, CheckCircle2, Trash2, X, LayoutGrid, UserRound, Tag,
   ImagePlus, PenLine, ZoomIn, Save, Link2, RefreshCw, MessageSquare, Layers,
-  Factory, ChevronDown, ChevronLeft, ChevronRight,
+  Factory, ChevronDown,
 } from 'lucide-react';
 import {
   fetchProjects, fetchZones, fetchZoneProducts, fetchActiveShopifyProducts,
@@ -880,7 +880,6 @@ export function DesignProjectsView() {
   const [factoryFilter, setFactoryFilter] = useState('');
   const [factoryFilterOpen, setFactoryFilterOpen] = useState(false);
   const [factoryQuery, setFactoryQuery] = useState('');
-  const [factoryPage, setFactoryPage] = useState(0);
   const factoryFilterRef = useRef<HTMLDivElement | null>(null);
   const [zoneAreasSqft, setZoneAreasSqft] = useState<Record<string, string>>(
     {},
@@ -1349,7 +1348,6 @@ export function DesignProjectsView() {
     setFactoryFilter('');
     setFactoryFilterOpen(false);
     setFactoryQuery('');
-    setFactoryPage(0);
   };
 
   const openPicker = async (
@@ -1366,7 +1364,6 @@ export function DesignProjectsView() {
     setFactoryFilter('');
     setFactoryFilterOpen(false);
     setFactoryQuery('');
-    setFactoryPage(0);
     setPickerOpen(true);
     if (products.length === 0) {
       setProductsLoading(true);
@@ -1957,21 +1954,6 @@ export function DesignProjectsView() {
     if (!q) return factoryOptions;
     return factoryOptions.filter((name) => name.toLowerCase().includes(q));
   }, [factoryOptions, factoryQuery]);
-
-  const FACTORIES_PER_PAGE = 10;
-  const factoryPageCount = Math.max(
-    1,
-    Math.ceil(filteredFactoryOptions.length / FACTORIES_PER_PAGE) || 1,
-  );
-  const safeFactoryPage = Math.min(factoryPage, factoryPageCount - 1);
-  const pagedFactoryOptions = filteredFactoryOptions.slice(
-    safeFactoryPage * FACTORIES_PER_PAGE,
-    safeFactoryPage * FACTORIES_PER_PAGE + FACTORIES_PER_PAGE,
-  );
-
-  useEffect(() => {
-    if (factoryPage !== safeFactoryPage) setFactoryPage(safeFactoryPage);
-  }, [factoryPage, safeFactoryPage]);
 
   useEffect(() => {
     if (!factoryFilterOpen) return;
@@ -2850,7 +2832,6 @@ export function DesignProjectsView() {
                         event.stopPropagation();
                         setFactoryFilter('');
                         setFactoryQuery('');
-                        setFactoryPage(0);
                       }}
                       className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground hover:opacity-90"
                       title="清除廠家篩選"
@@ -2868,7 +2849,6 @@ export function DesignProjectsView() {
                             value={factoryQuery}
                             onChange={(event) => {
                               setFactoryQuery(event.target.value);
-                              setFactoryPage(0);
                             }}
                             placeholder="輸入廠家名稱搜尋…"
                             className="w-full rounded-lg border border-border bg-background py-1.5 pl-8 pr-2 text-[13px]"
@@ -2876,14 +2856,17 @@ export function DesignProjectsView() {
                           />
                         </div>
                       </div>
-                      <div className="max-h-72 overflow-y-auto p-1.5" role="listbox">
+                      {/* ~10 factory rows visible; scroll continuously for the rest */}
+                      <div
+                        className="max-h-[22.5rem] overflow-y-auto overscroll-contain p-1.5"
+                        role="listbox"
+                      >
                         <button
                           type="button"
                           onClick={() => {
                             setFactoryFilter('');
                             setFactoryFilterOpen(false);
                             setFactoryQuery('');
-                            setFactoryPage(0);
                           }}
                           className={cn(
                             'flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left text-[13px]',
@@ -2895,12 +2878,12 @@ export function DesignProjectsView() {
                           <span>全部廠家</span>
                           {!factoryFilter ? <Check className="h-3.5 w-3.5" /> : null}
                         </button>
-                        {pagedFactoryOptions.length === 0 ? (
+                        {filteredFactoryOptions.length === 0 ? (
                           <p className="px-2.5 py-3 text-[13px] text-muted-foreground">
                             找不到廠家
                           </p>
                         ) : (
-                          pagedFactoryOptions.map((name) => {
+                          filteredFactoryOptions.map((name) => {
                             const selected = factoryFilter === name;
                             return (
                               <button
@@ -2912,7 +2895,6 @@ export function DesignProjectsView() {
                                   setFactoryFilter(name);
                                   setFactoryFilterOpen(false);
                                   setFactoryQuery('');
-                                  setFactoryPage(0);
                                 }}
                                 className={cn(
                                   'flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-[13px]',
@@ -2928,38 +2910,11 @@ export function DesignProjectsView() {
                           })
                         )}
                       </div>
-                      {filteredFactoryOptions.length > FACTORIES_PER_PAGE ? (
-                        <div className="flex items-center justify-between gap-2 border-t border-border px-2.5 py-2">
-                          <span className="font-mono-data text-[11px] text-muted-foreground">
-                            {safeFactoryPage + 1} / {factoryPageCount} 頁 ·{' '}
-                            {filteredFactoryOptions.length} 家
-                          </span>
-                          <div className="flex items-center gap-1">
-                            <button
-                              type="button"
-                              disabled={safeFactoryPage <= 0}
-                              onClick={() =>
-                                setFactoryPage((page) => Math.max(0, page - 1))
-                              }
-                              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border hover:bg-muted disabled:opacity-40"
-                              aria-label="上一頁廠家"
-                            >
-                              <ChevronLeft className="h-3.5 w-3.5" />
-                            </button>
-                            <button
-                              type="button"
-                              disabled={safeFactoryPage >= factoryPageCount - 1}
-                              onClick={() =>
-                                setFactoryPage((page) =>
-                                  Math.min(factoryPageCount - 1, page + 1),
-                                )
-                              }
-                              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border hover:bg-muted disabled:opacity-40"
-                              aria-label="下一頁廠家"
-                            >
-                              <ChevronRight className="h-3.5 w-3.5" />
-                            </button>
-                          </div>
+                      {filteredFactoryOptions.length > 10 ? (
+                        <div className="border-t border-border px-2.5 py-1.5">
+                          <p className="font-mono-data text-[11px] text-muted-foreground">
+                            共 {filteredFactoryOptions.length} 家 · 向下捲動查看全部
+                          </p>
                         </div>
                       ) : null}
                     </div>
