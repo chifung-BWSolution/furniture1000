@@ -43,7 +43,7 @@ import { sortIndustryLabels } from '@/lib/clientIndustrySort';
 import { filterIndustriesBySearch } from '@/lib/clientIndustryCatalog';
 import { PmsPitchingGate } from '@/components/dashboard/PmsPitchingGate';
 import { fetchLevel1CategoryOptions } from '@/lib/productCategoryOptions';
-import { generateQuoteId } from '@/lib/quoteRoutes';
+import { isLegacyQFormatQuoteId } from '@/lib/quoteChainId';
 
 const LazyQuotationPDFPreviewModal = lazy(() =>
   import('@/components/dashboard/QuotationPDFPreview').then((mod) => ({
@@ -252,17 +252,30 @@ export function QuickQuoteView({
 
   const enterStep4 = useCallback(
     (opts?: { quoteId?: string }) => {
+      // Chain id = PMS pitching code (BWF-…). Never invent legacy QYYYY-MMDD-NNN.
+      const candidates = [
+        opts?.quoteId,
+        formData.quoteId,
+        editingQuoteId,
+        assignedDraftQuoteIdRef.current,
+      ]
+        .map((v) => (v || '').trim())
+        .filter(Boolean);
+      const nextQuoteId =
+        candidates.find((id) => !isLegacyQFormatQuoteId(id)) || '';
+
+      if (!nextQuoteId) {
+        toast.error('缺少報價單號', {
+          description: '請返回選擇 PMS Pitching，確認報價單號後再產生報價',
+        });
+        return;
+      }
+
       setIsQuotationReady(true);
       setCurrentStep(4);
       if (typeof window !== 'undefined') {
         sessionStorage.setItem(quickQuoteStepKey(userEmail), '4');
       }
-
-      const nextQuoteId =
-        opts?.quoteId ||
-        editingQuoteId ||
-        assignedDraftQuoteIdRef.current ||
-        generateQuoteId();
 
       if (!editingQuoteId && !loadedQuoteData) {
         assignedDraftQuoteIdRef.current = nextQuoteId;
@@ -271,8 +284,21 @@ export function QuickQuoteView({
         markUseLocalQuoteDraft(userEmail, nextQuoteId);
         onAssignEditingQuoteId?.(nextQuoteId);
       }
+
+      // Keep wizard formData.quoteId aligned with the URL / draft key.
+      setFormData((prev) =>
+        prev.quoteId.trim() === nextQuoteId
+          ? prev
+          : { ...prev, quoteId: nextQuoteId },
+      );
     },
-    [editingQuoteId, loadedQuoteData, onAssignEditingQuoteId, userEmail],
+    [
+      editingQuoteId,
+      formData.quoteId,
+      loadedQuoteData,
+      onAssignEditingQuoteId,
+      userEmail,
+    ],
   );
   const copyFromUuid = readQuickQuoteCopyFrom(userEmail);
   const [errors, setErrors] = useState<Partial<Record<keyof QuoteFormData, string>>>({});
@@ -622,6 +648,22 @@ export function QuickQuoteView({
                 setSelectedPitchingLabel(
                   label || parsed.pmsPitchingId || parsed.pmsProjectId || null,
                 );
+              }
+              // Migrate stale /quote/Q… draft URLs to the PMS pitching code.
+              const pmsCode = parsed.quoteId.trim();
+              if (
+                pmsCode &&
+                !isLegacyQFormatQuoteId(pmsCode) &&
+                isLegacyQFormatQuoteId(editingQuoteId)
+              ) {
+                assignedDraftQuoteIdRef.current = pmsCode;
+                writeQuickQuoteEditingId(userEmail, pmsCode);
+                markUseLocalQuoteDraft(userEmail, pmsCode);
+                onAssignEditingQuoteId?.(pmsCode);
+                loadedQuoteIdRef.current = `${pmsCode}::`;
+                setIsQuotationReady(true);
+                setCurrentStep(4);
+                return;
               }
             }
           } catch {

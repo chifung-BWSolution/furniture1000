@@ -19,7 +19,7 @@ import {
 import {
   nextQuoteVersionFromChain,
 } from '@/lib/quoteVersions';
-import { resolveQuoteChainId } from '@/lib/quoteChainId';
+import { resolveQuoteChainId, isLegacyQFormatQuoteId } from '@/lib/quoteChainId';
 import { fetchPmsPitchingQuoteDefaults } from '@/lib/pmsPitchingQuoteDefaults';
 
 export interface SubmitReviewResult {
@@ -174,6 +174,12 @@ export function SubmitReviewModal({
         quoteMeta: projectData.quoteMeta as Record<string, unknown> | undefined,
       });
 
+      // Legacy Q… draft URL ids are not valid chain keys — treat as missing.
+      if (isLegacyQFormatQuoteId(code)) {
+        code = '';
+      }
+
+      // Prefer live PMS pitching code when wizard/draft lost the BWF number.
       if (!code && pitchingId) {
         const defaults = await fetchPmsPitchingQuoteDefaults({
           pitchingId,

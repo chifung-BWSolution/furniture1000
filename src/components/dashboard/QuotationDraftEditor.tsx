@@ -91,6 +91,7 @@ import {
   resolvePitchingCode,
   type BwfQuoteItemInput,
 } from "@/lib/bwfQuoteItems";
+import { isLegacyQFormatQuoteId } from "@/lib/quoteChainId";
 import type { QuoteCopyPayload } from "@/lib/quoteCopy";
 import { bumpQuoteVersion, displayQuoteVersion } from "@/lib/quoteVersions";
 import { isUrgentWorkPeriod } from "@/lib/quoteStockFilter";
@@ -1774,13 +1775,18 @@ export function QuotationDraftEditor({
     deliveryAddress: savedQuoteMeta?.deliveryAddress || "",
   });
   const resolveEditorQuoteId = useCallback(
-    (meta?: Record<string, unknown> | null) =>
-      resolvePitchingCode({
-        quoteId: existingQuote?.quoteId || formData.quoteId,
+    (meta?: Record<string, unknown> | null) => {
+      const existingId = existingQuote?.quoteId?.trim() || '';
+      const preferredExisting = isLegacyQFormatQuoteId(existingId)
+        ? ''
+        : existingId;
+      return resolvePitchingCode({
+        quoteId: preferredExisting || formData.quoteId,
         pitchingCode: formData.pitchingCode,
         formData: formData as unknown as Record<string, unknown>,
         quoteMeta: (meta ?? quoteMeta) as unknown as Record<string, unknown>,
-      }),
+      });
+    },
     [
       existingQuote?.quoteId,
       formData.quoteId,
@@ -3899,9 +3905,24 @@ export function QuotationDraftEditor({
         items={items.filter(hasQuoteItemContent)}
         bwfPitchingId={formData.pmsPitchingId || existingQuote?.bwfPitchingId || null}
         bwfProjectId={formData.pmsProjectId || existingQuote?.bwfProjectId || null}
-        quoteId={quoteId}
-        pitchingCode={formData.pitchingCode ?? formData.projectName ?? null}
-        existingQuoteId={existingQuote?.quoteId ?? null}
+        quoteId={
+          formData.quoteId?.trim() ||
+          quoteId ||
+          formData.pitchingCode?.trim() ||
+          formData.projectName?.trim() ||
+          null
+        }
+        pitchingCode={
+          formData.quoteId?.trim() ||
+          formData.pitchingCode?.trim() ||
+          formData.projectName?.trim() ||
+          null
+        }
+        existingQuoteId={
+          existingQuote?.quoteId && !isLegacyQFormatQuoteId(existingQuote.quoteId)
+            ? existingQuote.quoteId
+            : null
+        }
         existingQuoteUuid={existingQuote?.quoteUuid ?? null}
         forceNewQuote={forceNewQuote}
       />
