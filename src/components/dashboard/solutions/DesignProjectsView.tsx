@@ -574,7 +574,7 @@ function ZoneProductRow({
                 </span>
               ) : null}
             </div>
-            <div className="flex shrink-0 flex-wrap items-start gap-2">
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
               <button
                 type="button"
                 onClick={() => onOpenPicker(item.zoneId || zoneId, item.id)}
@@ -584,36 +584,6 @@ function ZoneProductRow({
                 <RefreshCw className="h-3.5 w-3.5" />
                 更換產品
               </button>
-              <div className="inline-flex items-center overflow-hidden rounded-lg border border-border bg-background">
-                <button
-                  type="button"
-                  onClick={() => onSetQuantity(item, item.quantity - 1)}
-                  disabled={item.quantity <= 1}
-                  className="flex h-9 w-9 items-center justify-center text-[17px] text-muted-foreground hover:bg-muted disabled:opacity-35"
-                  aria-label="數量減一"
-                >
-                  −
-                </button>
-                <input
-                  type="number"
-                  min={1}
-                  max={9999}
-                  value={item.quantity}
-                  onChange={(event) =>
-                    onSetQuantity(item, Number(event.target.value))
-                  }
-                  className="h-9 w-12 border-x border-border bg-background text-center font-mono-data text-[15px] font-semibold outline-none"
-                  aria-label={`${titleLabel}數量`}
-                />
-                <button
-                  type="button"
-                  onClick={() => onSetQuantity(item, item.quantity + 1)}
-                  className="flex h-9 w-9 items-center justify-center text-[17px] text-muted-foreground hover:bg-muted"
-                  aria-label="數量加一"
-                >
-                  +
-                </button>
-              </div>
               <select
                 value={item.status}
                 onChange={(e) =>
@@ -628,38 +598,36 @@ function ZoneProductRow({
                 <option value="discussing">待討論</option>
                 <option value="confirmed">已確定</option>
               </select>
-              <div className="flex flex-col items-stretch gap-1.5">
-                <button
-                  type="button"
-                  disabled={deletingProductId === item.id}
-                  onClick={() => onRemove(item)}
-                  className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-rose-500/30 px-2.5 py-1.5 text-[15px] font-medium text-rose-600 hover:bg-rose-500/10 disabled:opacity-50"
-                  title="從間隔移除產品"
-                >
-                  {deletingProductId === item.id ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Trash2 className="h-4 w-4" />
-                  )}
-                  刪除
-                </button>
-                <label
-                  className="inline-flex cursor-pointer items-center justify-center gap-1.5 px-1 py-1 text-[15px] text-muted-foreground"
-                  title={
-                    item.isOptional
-                      ? '取消可選：價錢將重新計入總計'
-                      : '標記為可選：價錢不計入總計，產品仍顯示'
-                  }
-                >
-                  <Checkbox
-                    checked={Boolean(item.isOptional)}
-                    onCheckedChange={() => onToggleOptional(item)}
-                    className="border-foreground/60 data-[state=checked]:border-primary"
-                    aria-label={`${titleLabel}可選`}
-                  />
-                  <span>可選</span>
-                </label>
-              </div>
+              <button
+                type="button"
+                disabled={deletingProductId === item.id}
+                onClick={() => onRemove(item)}
+                className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-rose-500/30 px-2.5 py-1.5 text-[15px] font-medium text-rose-600 hover:bg-rose-500/10 disabled:opacity-50"
+                title="從間隔移除產品"
+              >
+                {deletingProductId === item.id ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Trash2 className="h-4 w-4" />
+                )}
+                刪除
+              </button>
+              <label
+                className="inline-flex h-9 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-border bg-background px-2.5 text-[15px] text-muted-foreground hover:bg-muted"
+                title={
+                  item.isOptional
+                    ? '取消可選：價錢將重新計入總計'
+                    : '標記為可選：價錢不計入總計，產品仍顯示'
+                }
+              >
+                <Checkbox
+                  checked={Boolean(item.isOptional)}
+                  onCheckedChange={() => onToggleOptional(item)}
+                  className="border-foreground/60 data-[state=checked]:border-primary"
+                  aria-label={`${titleLabel}可選`}
+                />
+                <span>可選</span>
+              </label>
             </div>
           </div>
 
@@ -714,7 +682,7 @@ function ZoneProductRow({
                 (H) (mm)
               </span>
             </div>
-            <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2 text-[15px] text-foreground">
+            <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-1.5 text-[15px] text-foreground">
               {custom ? (
                 <>
                   <span className="text-foreground">單價 $</span>
@@ -726,29 +694,53 @@ function ZoneProductRow({
                     onChange={(event) =>
                       onSetSalePrice(item, Number(event.target.value))
                     }
-                    className="h-8 w-28 rounded-lg border border-border bg-background px-2 font-mono-data text-[15px] text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+                    className="h-8 w-24 rounded-lg border border-border bg-background px-2 font-mono-data text-[15px] text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
                     aria-label="單價"
                   />
-                  <span className="font-mono-data text-foreground">
-                    × {item.quantity} = 小計 $
-                    {(
-                      Number(item.salePrice || 0) * item.quantity
-                    ).toLocaleString()}
-                    {item.isOptional ? '（可選，不計入總計）' : ''}
-                  </span>
                 </>
               ) : (
-                <p className="font-mono-data text-[15px] text-foreground">
-                  單價 ${Number(item.salePrice || 0).toLocaleString()} ×{' '}
-                  {item.quantity}
-                  {' = '}
-                  小計 $
-                  {(
-                    Number(item.salePrice || 0) * item.quantity
-                  ).toLocaleString()}
-                  {item.isOptional ? '（可選，不計入總計）' : ''}
-                </p>
+                <span className="font-mono-data text-foreground">
+                  單價 ${Number(item.salePrice || 0).toLocaleString()}
+                </span>
               )}
+              <span className="text-foreground">×</span>
+              <div className="inline-flex items-center overflow-hidden rounded-lg border border-border bg-background">
+                <button
+                  type="button"
+                  onClick={() => onSetQuantity(item, item.quantity - 1)}
+                  disabled={item.quantity <= 1}
+                  className="flex h-8 w-8 items-center justify-center text-[16px] text-muted-foreground hover:bg-muted disabled:opacity-35"
+                  aria-label="數量減一"
+                >
+                  −
+                </button>
+                <input
+                  type="number"
+                  min={1}
+                  max={9999}
+                  value={item.quantity}
+                  onChange={(event) =>
+                    onSetQuantity(item, Number(event.target.value))
+                  }
+                  className="h-8 w-11 border-x border-border bg-background text-center font-mono-data text-[15px] font-semibold text-foreground outline-none"
+                  aria-label={`${titleLabel}數量`}
+                />
+                <button
+                  type="button"
+                  onClick={() => onSetQuantity(item, item.quantity + 1)}
+                  className="flex h-8 w-8 items-center justify-center text-[16px] text-muted-foreground hover:bg-muted"
+                  aria-label="數量加一"
+                >
+                  +
+                </button>
+              </div>
+              <span className="font-mono-data text-foreground">
+                = 小計 $
+                {(
+                  Number(item.salePrice || 0) * item.quantity
+                ).toLocaleString()}
+                {item.isOptional ? '（可選，不計入總計）' : ''}
+              </span>
             </div>
           </div>
 
