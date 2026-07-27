@@ -566,50 +566,13 @@ function ZoneProductRow({
                   {item.productTitle}
                 </p>
               )}
-              {custom ? (
-                <div className="flex flex-wrap items-center gap-2 text-[15px]">
-                  <span className="text-muted-foreground">單價 $</span>
-                  <input
-                    type="number"
-                    min={0}
-                    step={1}
-                    value={Number(item.salePrice || 0)}
-                    onChange={(event) =>
-                      onSetSalePrice(item, Number(event.target.value))
-                    }
-                    className="h-9 w-28 rounded-lg border border-border bg-background px-2 font-mono-data text-[15px] text-primary outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
-                    aria-label="單價"
-                  />
-                  <span
-                    className={cn(
-                      'font-mono-data',
-                      item.isOptional ? 'text-muted-foreground' : 'text-primary',
-                    )}
-                  >
-                    × {item.quantity} = 小計 $
-                    {(
-                      Number(item.salePrice || 0) * item.quantity
-                    ).toLocaleString()}
-                    {item.isOptional ? '（可選，不計入總計）' : ''}
+              {factoryName ? (
+                <span className="inline-flex max-w-full items-center rounded-full border border-border bg-muted/60 px-2.5 py-0.5 text-[12px] font-medium text-muted-foreground">
+                  <span className="truncate" title={factoryName}>
+                    {factoryName}
                   </span>
-                </div>
-              ) : (
-                <p
-                  className={cn(
-                    'font-mono-data text-[15px]',
-                    item.isOptional ? 'text-muted-foreground' : 'text-primary',
-                  )}
-                >
-                  單價 ${Number(item.salePrice || 0).toLocaleString()} ×{' '}
-                  {item.quantity}
-                  {' = '}
-                  小計 $
-                  {(
-                    Number(item.salePrice || 0) * item.quantity
-                  ).toLocaleString()}
-                  {item.isOptional ? '（可選，不計入總計）' : ''}
-                </p>
-              )}
+                </span>
+              ) : null}
             </div>
             <div className="flex shrink-0 flex-wrap items-start gap-2">
               <button
@@ -700,60 +663,93 @@ function ZoneProductRow({
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="shrink-0 text-[15px] font-medium text-muted-foreground">
-              尺寸
-            </span>
-            <input
-              type="text"
-              inputMode="numeric"
-              value={dimInputValue(effectiveL)}
-              onChange={(event) =>
-                commitDimAxis('dimensionLMm', event.target.value)
-              }
-              placeholder="—"
-              className="h-8 w-[4.5rem] rounded-md border border-border bg-background px-2 text-right font-mono-data text-[14px] text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
-              aria-label={`${titleLabel}長度 W`}
-              title="長 (W) mm — 僅存於此設計專案"
-            />
-            <span className="font-mono-data text-[13px] text-muted-foreground">
-              (W) x
-            </span>
-            <input
-              type="text"
-              inputMode="numeric"
-              value={dimInputValue(effectiveW)}
-              onChange={(event) =>
-                commitDimAxis('dimensionWMm', event.target.value)
-              }
-              placeholder="—"
-              className="h-8 w-[4.5rem] rounded-md border border-border bg-background px-2 text-right font-mono-data text-[14px] text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
-              aria-label={`${titleLabel}闊度 D`}
-              title="闊 (D) mm — 僅存於此設計專案"
-            />
-            <span className="font-mono-data text-[13px] text-muted-foreground">
-              (D) x
-            </span>
-            <input
-              type="text"
-              inputMode="numeric"
-              value={dimInputValue(effectiveH)}
-              onChange={(event) =>
-                commitDimAxis('dimensionHMm', event.target.value)
-              }
-              placeholder="—"
-              className="h-8 w-[4.5rem] rounded-md border border-border bg-background px-2 text-right font-mono-data text-[14px] text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
-              aria-label={`${titleLabel}高度 H`}
-              title="高 (H) mm — 僅存於此設計專案"
-            />
-            <span className="font-mono-data text-[13px] text-muted-foreground">
-              (H) (mm)
-            </span>
-            {factoryName ? (
-              <span className="rounded-full border border-border bg-muted/60 px-2.5 py-0.5 text-[12px] font-medium text-muted-foreground">
-                {factoryName}
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+              <span className="shrink-0 text-[15px] font-medium text-muted-foreground">
+                尺寸
               </span>
-            ) : null}
+              <input
+                type="text"
+                inputMode="numeric"
+                value={dimInputValue(effectiveL)}
+                onChange={(event) =>
+                  commitDimAxis('dimensionLMm', event.target.value)
+                }
+                placeholder="—"
+                className="h-8 w-[4.5rem] rounded-md border border-border bg-background px-2 text-right font-mono-data text-[14px] text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+                aria-label={`${titleLabel}長度 W`}
+                title="長 (W) mm — 僅存於此設計專案"
+              />
+              <span className="font-mono-data text-[13px] text-muted-foreground">
+                (W) x
+              </span>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={dimInputValue(effectiveW)}
+                onChange={(event) =>
+                  commitDimAxis('dimensionWMm', event.target.value)
+                }
+                placeholder="—"
+                className="h-8 w-[4.5rem] rounded-md border border-border bg-background px-2 text-right font-mono-data text-[14px] text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+                aria-label={`${titleLabel}闊度 D`}
+                title="闊 (D) mm — 僅存於此設計專案"
+              />
+              <span className="font-mono-data text-[13px] text-muted-foreground">
+                (D) x
+              </span>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={dimInputValue(effectiveH)}
+                onChange={(event) =>
+                  commitDimAxis('dimensionHMm', event.target.value)
+                }
+                placeholder="—"
+                className="h-8 w-[4.5rem] rounded-md border border-border bg-background px-2 text-right font-mono-data text-[14px] text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+                aria-label={`${titleLabel}高度 H`}
+                title="高 (H) mm — 僅存於此設計專案"
+              />
+              <span className="font-mono-data text-[13px] text-muted-foreground">
+                (H) (mm)
+              </span>
+            </div>
+            <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2 text-[15px] text-foreground">
+              {custom ? (
+                <>
+                  <span className="text-foreground">單價 $</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={Number(item.salePrice || 0)}
+                    onChange={(event) =>
+                      onSetSalePrice(item, Number(event.target.value))
+                    }
+                    className="h-8 w-28 rounded-lg border border-border bg-background px-2 font-mono-data text-[15px] text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+                    aria-label="單價"
+                  />
+                  <span className="font-mono-data text-foreground">
+                    × {item.quantity} = 小計 $
+                    {(
+                      Number(item.salePrice || 0) * item.quantity
+                    ).toLocaleString()}
+                    {item.isOptional ? '（可選，不計入總計）' : ''}
+                  </span>
+                </>
+              ) : (
+                <p className="font-mono-data text-[15px] text-foreground">
+                  單價 ${Number(item.salePrice || 0).toLocaleString()} ×{' '}
+                  {item.quantity}
+                  {' = '}
+                  小計 $
+                  {(
+                    Number(item.salePrice || 0) * item.quantity
+                  ).toLocaleString()}
+                  {item.isOptional ? '（可選，不計入總計）' : ''}
+                </p>
+              )}
+            </div>
           </div>
 
           <div className="space-y-2">
