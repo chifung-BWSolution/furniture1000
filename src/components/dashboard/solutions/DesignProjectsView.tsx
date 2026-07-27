@@ -4,6 +4,7 @@ import { cn } from '@/lib/utils';
 import {
   Plus, Loader2, Search, Check, CheckCircle2, Trash2, X, LayoutGrid, UserRound, Tag,
   ImagePlus, PenLine, ZoomIn, Save, Link2, RefreshCw, MessageSquare, Layers,
+  Factory, ChevronDown, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import {
   fetchProjects, fetchZones, fetchZoneProducts, fetchActiveShopifyProducts,
@@ -11,6 +12,10 @@ import {
   persistDesignProjectFurniture, saveProject, updateZoneProductNotes,
   type ProductDisplayMeta,
 } from '@/lib/solutionsApi';
+import {
+  dedupeFactoryNames,
+  normalizeFactoryDisplayName,
+} from '@/lib/factoryNames';
 import { formatProductDimensionsMm } from '@/lib/productDimensions';
 import { ProductImageUploadModal } from './ProductImageUploadModal';
 import { useAppStore } from '@/hooks/use-app-store';
@@ -816,6 +821,12 @@ export function DesignProjectsView() {
   const [keyword, setKeyword] = useState('');
   const [productLevel1, setProductLevel1] = useState('');
   const [productLevel2, setProductLevel2] = useState('');
+  /** Canonical factory name selected in 選擇產品 filter; empty = all. */
+  const [factoryFilter, setFactoryFilter] = useState('');
+  const [factoryFilterOpen, setFactoryFilterOpen] = useState(false);
+  const [factoryQuery, setFactoryQuery] = useState('');
+  const [factoryPage, setFactoryPage] = useState(0);
+  const factoryFilterRef = useRef<HTMLDivElement | null>(null);
   const [zoneAreasSqft, setZoneAreasSqft] = useState<Record<string, string>>(
     {},
   );
@@ -1280,6 +1291,10 @@ export function DesignProjectsView() {
     setPickerOpen(false);
     setReplacingZoneProductId(null);
     setPickerDivisionId(null);
+    setFactoryFilter('');
+    setFactoryFilterOpen(false);
+    setFactoryQuery('');
+    setFactoryPage(0);
   };
 
   const openPicker = async (
@@ -1293,6 +1308,10 @@ export function DesignProjectsView() {
     setProductLevel1(opts?.level1 ?? '');
     setProductLevel2(opts?.level2 ?? '');
     setKeyword('');
+    setFactoryFilter('');
+    setFactoryFilterOpen(false);
+    setFactoryQuery('');
+    setFactoryPage(0);
     setPickerOpen(true);
     if (products.length === 0) {
       setProductsLoading(true);
@@ -1819,17 +1838,63 @@ export function DesignProjectsView() {
     zoneGroups,
   ]);
 
+  const factoryOptions = useMemo(
+    () => dedupeFactoryNames(products.map((product) => product.factoryName || '')),
+    [products],
+  );
+
+  const filteredFactoryOptions = useMemo(() => {
+    const q = factoryQuery.trim().toLowerCase();
+    if (!q) return factoryOptions;
+    return factoryOptions.filter((name) => name.toLowerCase().includes(q));
+  }, [factoryOptions, factoryQuery]);
+
+  const FACTORIES_PER_PAGE = 10;
+  const factoryPageCount = Math.max(
+    1,
+    Math.ceil(filteredFactoryOptions.length / FACTORIES_PER_PAGE) || 1,
+  );
+  const safeFactoryPage = Math.min(factoryPage, factoryPageCount - 1);
+  const pagedFactoryOptions = filteredFactoryOptions.slice(
+    safeFactoryPage * FACTORIES_PER_PAGE,
+    safeFactoryPage * FACTORIES_PER_PAGE + FACTORIES_PER_PAGE,
+  );
+
+  useEffect(() => {
+    if (factoryPage !== safeFactoryPage) setFactoryPage(safeFactoryPage);
+  }, [factoryPage, safeFactoryPage]);
+
+  useEffect(() => {
+    if (!factoryFilterOpen) return;
+    const onPointerDown = (event: MouseEvent) => {
+      const node = factoryFilterRef.current;
+      if (!node) return;
+      if (event.target instanceof Node && !node.contains(event.target)) {
+        setFactoryFilterOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    return () => document.removeEventListener('mousedown', onPointerDown);
+  }, [factoryFilterOpen]);
+
   const filteredProducts = useMemo(() => {
     const q = keyword.trim().toLowerCase();
+    const selectedFactory = normalizeFactoryDisplayName(factoryFilter);
     return products.filter((p) => {
       if (q && !p.title.toLowerCase().includes(q) && !p.description.toLowerCase().includes(q)) {
         return false;
       }
       if (productLevel1 && p.level1Category !== productLevel1) return false;
       if (productLevel2 && p.level2Category !== productLevel2) return false;
+      if (
+        selectedFactory &&
+        normalizeFactoryDisplayName(p.factoryName) !== selectedFactory
+      ) {
+        return false;
+      }
       return true;
     });
-  }, [products, keyword, productLevel1, productLevel2]);
+  }, [products, keyword, productLevel1, productLevel2, factoryFilter]);
 
   const productLevel1Options = useMemo(
     () =>
@@ -2610,14 +2675,158 @@ export function DesignProjectsView() {
             </div>
 
             <div className="space-y-2 border-b border-border px-4 py-3">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <input
-                  value={keyword}
-                  onChange={(e) => setKeyword(e.target.value)}
-                  placeholder="搜尋產品…"
-                  className="w-full rounded-lg border border-border bg-background py-2 pl-9 pr-3 text-sm"
-                />
+              <div className="flex flex-wrap items-stretch gap-2">
+                <div className="relative min-w-0 flex-1">
+                  <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <input
+                    value={keyword}
+                    onChange={(e) => setKeyword(e.target.value)}
+                    placeholder="搜尋產品…"
+                    className="w-full rounded-lg border border-border bg-background py-2 pl-9 pr-3 text-sm"
+                  />
+                </div>
+                <div className="relative shrink-0" ref={factoryFilterRef}>
+                  <button
+                    type="button"
+                    onClick={() => setFactoryFilterOpen((open) => !open)}
+                    className={cn(
+                      'inline-flex h-full min-h-[38px] items-center gap-1.5 rounded-lg border px-3 text-sm font-medium',
+                      factoryFilter
+                        ? 'border-primary/50 bg-primary/10 text-primary'
+                        : 'border-border bg-background text-foreground hover:bg-muted',
+                    )}
+                    aria-expanded={factoryFilterOpen}
+                    aria-haspopup="listbox"
+                    title="以廠家篩選產品"
+                  >
+                    <Factory className="h-4 w-4 shrink-0" />
+                    <span className="max-w-[9rem] truncate">
+                      {factoryFilter || '篩選廠家'}
+                    </span>
+                    <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70" />
+                  </button>
+                  {factoryFilter ? (
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setFactoryFilter('');
+                        setFactoryQuery('');
+                        setFactoryPage(0);
+                      }}
+                      className="absolute -right-1.5 -top-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground hover:opacity-90"
+                      title="清除廠家篩選"
+                      aria-label="清除廠家篩選"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  ) : null}
+                  {factoryFilterOpen ? (
+                    <div className="absolute right-0 top-full z-50 mt-1 w-[min(20rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-border bg-card shadow-lg">
+                      <div className="border-b border-border p-2">
+                        <div className="relative">
+                          <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                          <input
+                            value={factoryQuery}
+                            onChange={(event) => {
+                              setFactoryQuery(event.target.value);
+                              setFactoryPage(0);
+                            }}
+                            placeholder="輸入廠家名稱搜尋…"
+                            className="w-full rounded-lg border border-border bg-background py-1.5 pl-8 pr-2 text-[13px]"
+                            autoFocus
+                          />
+                        </div>
+                      </div>
+                      <div className="max-h-72 overflow-y-auto p-1.5" role="listbox">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFactoryFilter('');
+                            setFactoryFilterOpen(false);
+                            setFactoryQuery('');
+                            setFactoryPage(0);
+                          }}
+                          className={cn(
+                            'flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left text-[13px]',
+                            !factoryFilter
+                              ? 'bg-primary/10 font-semibold text-primary'
+                              : 'text-foreground hover:bg-muted',
+                          )}
+                        >
+                          <span>全部廠家</span>
+                          {!factoryFilter ? <Check className="h-3.5 w-3.5" /> : null}
+                        </button>
+                        {pagedFactoryOptions.length === 0 ? (
+                          <p className="px-2.5 py-3 text-[13px] text-muted-foreground">
+                            找不到廠家
+                          </p>
+                        ) : (
+                          pagedFactoryOptions.map((name) => {
+                            const selected = factoryFilter === name;
+                            return (
+                              <button
+                                key={name}
+                                type="button"
+                                role="option"
+                                aria-selected={selected}
+                                onClick={() => {
+                                  setFactoryFilter(name);
+                                  setFactoryFilterOpen(false);
+                                  setFactoryQuery('');
+                                  setFactoryPage(0);
+                                }}
+                                className={cn(
+                                  'flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left text-[13px]',
+                                  selected
+                                    ? 'bg-primary/10 font-semibold text-primary'
+                                    : 'text-foreground hover:bg-muted',
+                                )}
+                              >
+                                <span className="truncate">{name}</span>
+                                {selected ? <Check className="h-3.5 w-3.5 shrink-0" /> : null}
+                              </button>
+                            );
+                          })
+                        )}
+                      </div>
+                      {filteredFactoryOptions.length > FACTORIES_PER_PAGE ? (
+                        <div className="flex items-center justify-between gap-2 border-t border-border px-2.5 py-2">
+                          <span className="font-mono-data text-[11px] text-muted-foreground">
+                            {safeFactoryPage + 1} / {factoryPageCount} 頁 ·{' '}
+                            {filteredFactoryOptions.length} 家
+                          </span>
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              disabled={safeFactoryPage <= 0}
+                              onClick={() =>
+                                setFactoryPage((page) => Math.max(0, page - 1))
+                              }
+                              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border hover:bg-muted disabled:opacity-40"
+                              aria-label="上一頁廠家"
+                            >
+                              <ChevronLeft className="h-3.5 w-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              disabled={safeFactoryPage >= factoryPageCount - 1}
+                              onClick={() =>
+                                setFactoryPage((page) =>
+                                  Math.min(factoryPageCount - 1, page + 1),
+                                )
+                              }
+                              className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border hover:bg-muted disabled:opacity-40"
+                              aria-label="下一頁廠家"
+                            >
+                              <ChevronRight className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
               </div>
               {!replacingZoneProductId ? (
               <div className="flex flex-wrap gap-1.5">
@@ -2721,6 +2930,7 @@ export function DesignProjectsView() {
                       p.dimensionWMm,
                       p.dimensionHMm,
                     );
+                    const factoryLabel = normalizeFactoryDisplayName(p.factoryName);
                     return (
                       <div
                         key={p.id}
@@ -2733,6 +2943,13 @@ export function DesignProjectsView() {
                         </div>
                         <div className="space-y-1.5 p-2.5">
                           <p className="line-clamp-2 text-[15px] font-medium">{p.title}</p>
+                          {factoryLabel ? (
+                            <span className="inline-flex max-w-full items-center rounded-full border border-border bg-muted/60 px-2 py-0.5 text-[12px] font-medium text-muted-foreground">
+                              <span className="truncate" title={factoryLabel}>
+                                {factoryLabel}
+                              </span>
+                            </span>
+                          ) : null}
                           {dims ? (
                             <p className="font-mono-data text-[13px] text-muted-foreground">
                               {dims}
