@@ -786,8 +786,11 @@ export function DesignProjectsView() {
       }
       setActiveProjectId(nextId);
       setFurnitureDirty(false);
+      // Push URL in the same turn so the follow-URL effect never sees a
+      // stale pathname and snaps selection back to the previous project.
+      navigate(buildDesignProjectPath(nextId));
     },
-    [activeProjectId],
+    [activeProjectId, navigate],
   );
 
   useEffect(() => {
@@ -826,12 +829,22 @@ export function DesignProjectsView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Track pathname changes so we only adopt URL → selection on real navigation
+  // (shared link / back-forward), never when only activeProjectId just changed.
+  const prevPathnameRef = useRef(location.pathname);
+  const activeProjectIdRef = useRef(activeProjectId);
+  activeProjectIdRef.current = activeProjectId;
+
   // Follow browser URL (shared link / back-forward) after projects are loaded.
   useEffect(() => {
     if (!projectsLoaded) return;
+    const pathnameChanged = prevPathnameRef.current !== location.pathname;
+    prevPathnameRef.current = location.pathname;
+    if (!pathnameChanged) return;
+
     const parsed = parseDesignProjectPathname(location.pathname);
     if (parsed?.kind !== 'project') return;
-    if (parsed.projectId === activeProjectId) return;
+    if (parsed.projectId === activeProjectIdRef.current) return;
     if (!projects.some((project) => project.id === parsed.projectId)) {
       if (projects.length > 0) {
         toast.error('找不到此設計專案連結');
@@ -843,21 +856,17 @@ export function DesignProjectsView() {
       furnitureDirtyRef.current &&
       !window.confirm('目前傢俬配置尚未儲存，確定切換專案？')
     ) {
-      navigate(buildDesignProjectPath(activeProjectId), { replace: true });
+      navigate(buildDesignProjectPath(activeProjectIdRef.current), {
+        replace: true,
+      });
       return;
     }
     setActiveProjectId(parsed.projectId);
     setFurnitureDirty(false);
-  }, [
-    activeProjectId,
-    location.pathname,
-    navigate,
-    projects,
-    projectsLoaded,
-    selectProject,
-  ]);
+  }, [location.pathname, navigate, projects, projectsLoaded, selectProject]);
 
-  // Keep address bar on the active project's shareable URL.
+  // Keep address bar on the active project's shareable URL (initial entry /
+  // focus handoff). Dropdown switches navigate inside selectProject.
   useEffect(() => {
     if (!projectsLoaded || !activeProjectId) return;
     const target = buildDesignProjectPath(activeProjectId);
