@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -375,9 +382,10 @@ function zoneAreasSqftMetaFromState(
   return zoneAreasSqftMeta;
 }
 
-/** Square product image grows with row content height; small padding around card. */
-const PRODUCT_IMAGE_MIN_PX = 168;
-const PRODUCT_IMAGE_MAX_PX = 420;
+/** Square product image grows with row content height; equal small padding on sides. */
+const PRODUCT_IMAGE_PAD_PX = 8;
+const PRODUCT_IMAGE_MIN_PX = 200;
+const PRODUCT_IMAGE_MAX_PX = 480;
 
 /** Keep product image square: match content column height, cap for overflow. */
 function useProductImageSquareSize() {
@@ -435,6 +443,7 @@ function ZoneProductRow({
   titleLabel,
   catalogMeta,
   divisionHeading,
+  divisionToolbar,
   uploading,
   deletingProductId,
   deletingFeedbackKey,
@@ -456,12 +465,14 @@ function ZoneProductRow({
   custom: boolean;
   titleLabel: string;
   catalogMeta?: ProductDisplayMeta | null;
-  /** Division label + qty shown above product name (first product in division). */
+  /** Division label + qty aligned with 加入產品／新欄位／刪除劃分. */
   divisionHeading?: {
     label: string;
     planned: number;
     added: number;
   } | null;
+  /** Division action buttons shown on the same row as divisionHeading. */
+  divisionToolbar?: ReactNode;
   uploading: boolean;
   deletingProductId: string | null;
   deletingFeedbackKey: string | null;
@@ -518,12 +529,20 @@ function ZoneProductRow({
   };
 
   return (
-    <li className="px-3 py-2">
-      <div className="flex items-stretch gap-3">
+    <li>
+      <div className="flex items-stretch">
         <div
-          className="relative shrink-0 overflow-hidden rounded-lg"
-          style={{ width: size, height: size }}
+          className="shrink-0"
+          style={{
+            paddingTop: PRODUCT_IMAGE_PAD_PX,
+            paddingBottom: PRODUCT_IMAGE_PAD_PX,
+            paddingLeft: PRODUCT_IMAGE_PAD_PX,
+          }}
         >
+          <div
+            className="relative overflow-hidden rounded-lg"
+            style={{ width: size, height: size }}
+          >
           {item.productImageUrl ? (
             <button
               type="button"
@@ -567,35 +586,50 @@ function ZoneProductRow({
               {uploading ? '上傳中…' : '更換圖片'}
             </button>
           ) : null}
+          </div>
         </div>
 
         <div
           className="flex min-w-0 flex-1 flex-col justify-start"
-          style={{ minHeight: size }}
+          style={{
+            minHeight: size + PRODUCT_IMAGE_PAD_PX * 2,
+            paddingTop: PRODUCT_IMAGE_PAD_PX,
+            paddingBottom: PRODUCT_IMAGE_PAD_PX,
+            paddingRight: PRODUCT_IMAGE_PAD_PX,
+            paddingLeft: PRODUCT_IMAGE_PAD_PX,
+          }}
         >
           <div ref={contentRef} className="space-y-2">
-          <div className="flex flex-wrap items-start gap-3">
-            <div className="min-w-0 flex-1 space-y-1">
-              {divisionHeading ? (
-                <div className="space-y-0.5">
-                  <p className="font-display text-[15px] font-bold leading-snug text-foreground">
-                    {divisionHeading.label}
-                  </p>
-                  <p className="text-[14px] leading-snug text-muted-foreground">
-                    {divisionHeading.planned} 件傢俬
-                    {divisionHeading.added > 0
-                      ? ` · 已加入 ${divisionHeading.added}`
-                      : ''}
-                  </p>
+          {divisionHeading ? (
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="min-w-0 space-y-0.5">
+                <p className="font-display text-[15px] font-bold leading-snug text-foreground">
+                  {divisionHeading.label}
+                </p>
+                <p className="text-[14px] leading-snug text-muted-foreground">
+                  {divisionHeading.planned} 件傢俬
+                  {divisionHeading.added > 0
+                    ? ` · 已加入 ${divisionHeading.added}`
+                    : ''}
+                </p>
+              </div>
+              {divisionToolbar ? (
+                <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                  {divisionToolbar}
                 </div>
               ) : null}
+            </div>
+          ) : null}
+
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0 flex-1 space-y-1">
               {custom ? (
                 <input
                   type="text"
                   value={item.productTitle || ''}
                   onChange={(event) => onSetTitle(item, event.target.value)}
                   placeholder="輸入產品名稱…"
-                  className="h-10 w-full rounded-lg border border-border bg-background px-3 text-base font-medium outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+                  className="h-9 w-full rounded-lg border border-border bg-background px-3 text-base font-medium outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
                   aria-label="產品名稱"
                 />
               ) : (
@@ -2359,6 +2393,7 @@ export function DesignProjectsView() {
                   planned: number;
                   added: number;
                 } | null,
+                divisionToolbar?: ReactNode,
               ) =>
                 rows.map((item, index) => (
                   <ZoneProductRow
@@ -2374,6 +2409,9 @@ export function DesignProjectsView() {
                     }
                     divisionHeading={
                       index === 0 && divisionMeta ? divisionMeta : null
+                    }
+                    divisionToolbar={
+                      index === 0 && divisionMeta ? divisionToolbar : null
                     }
                     uploading={uploadingImageId === item.id}
                     deletingProductId={deletingProductId}
@@ -2391,8 +2429,8 @@ export function DesignProjectsView() {
                     onSetSalePrice={setSalePrice}
                     onSetDimensions={setDimensions}
                     onSetNotes={setNotes}
-                    onDeleteFeedback={(row, index) => {
-                      void deleteClientFeedback(row, index);
+                    onDeleteFeedback={(row, feedbackIndex) => {
+                      void deleteClientFeedback(row, feedbackIndex);
                     }}
                   />
                 ));
@@ -2502,79 +2540,84 @@ export function DesignProjectsView() {
                               planned: division.quantity,
                               added: addedCount,
                             };
+                            const divisionToolbar = (
+                              <>
+                                {shortage ? (
+                                  <p className="text-[13px] font-semibold text-rose-600">
+                                    產品數量與計劃不符，請加入產品
+                                  </p>
+                                ) : null}
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    void openPicker(zone.id, null, {
+                                      level1: division.level1,
+                                      level2: division.level2 || '',
+                                      divisionId: division.id,
+                                    })
+                                  }
+                                  className="inline-flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 px-3 py-1.5 text-[14px] font-medium text-primary hover:bg-primary/15"
+                                >
+                                  <Plus className="h-3 w-3" /> 加入產品
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={
+                                    creatingBlankZoneId ===
+                                    `${zone.id}:${division.id}`
+                                  }
+                                  onClick={() =>
+                                    void addBlankProduct(zone.id, division.id)
+                                  }
+                                  className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-[14px] font-medium text-foreground hover:bg-muted disabled:opacity-60"
+                                >
+                                  {creatingBlankZoneId ===
+                                  `${zone.id}:${division.id}` ? (
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                  ) : (
+                                    <PenLine className="h-3.5 w-3.5" />
+                                  )}
+                                  新欄位
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    removeDivision(zone.id, division.id)
+                                  }
+                                  className="inline-flex items-center gap-1 rounded-lg border border-rose-500/30 px-2.5 py-1.5 text-[13px] font-medium text-rose-600 hover:bg-rose-500/10"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                  刪除劃分
+                                </button>
+                              </>
+                            );
                             return (
                               <div key={division.id}>
-                                <div className="flex flex-wrap items-center justify-end gap-2 bg-muted/15 px-3 py-2">
-                                  {divisionItems.length === 0 ? (
-                                    <div className="mr-auto min-w-0">
-                                      <p className="font-display text-[15px] font-bold text-foreground">
-                                        {label}
-                                      </p>
-                                      <p className="text-[14px] text-muted-foreground">
-                                        {division.quantity} 件傢俬
-                                      </p>
-                                    </div>
-                                  ) : null}
-                                  {shortage ? (
-                                    <p className="mr-auto text-[13px] font-semibold text-rose-600 sm:mr-0">
-                                      產品數量與計劃不符，請加入產品
-                                    </p>
-                                  ) : null}
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      void openPicker(zone.id, null, {
-                                        level1: division.level1,
-                                        level2: division.level2 || '',
-                                        divisionId: division.id,
-                                      })
-                                    }
-                                    className="inline-flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 px-3 py-1.5 text-[14px] font-medium text-primary hover:bg-primary/15"
-                                  >
-                                    <Plus className="h-3 w-3" /> 加入產品
-                                  </button>
-                                  <button
-                                    type="button"
-                                    disabled={
-                                      creatingBlankZoneId ===
-                                      `${zone.id}:${division.id}`
-                                    }
-                                    onClick={() =>
-                                      void addBlankProduct(
-                                        zone.id,
-                                        division.id,
-                                      )
-                                    }
-                                    className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-[14px] font-medium text-foreground hover:bg-muted disabled:opacity-60"
-                                  >
-                                    {creatingBlankZoneId ===
-                                    `${zone.id}:${division.id}` ? (
-                                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                    ) : (
-                                      <PenLine className="h-3.5 w-3.5" />
-                                    )}
-                                    新欄位
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      removeDivision(zone.id, division.id)
-                                    }
-                                    className="inline-flex items-center gap-1 rounded-lg border border-rose-500/30 px-2.5 py-1.5 text-[13px] font-medium text-rose-600 hover:bg-rose-500/10"
-                                  >
-                                    <Trash2 className="h-3.5 w-3.5" />
-                                    刪除劃分
-                                  </button>
-                                </div>
                                 {divisionItems.length === 0 ? (
-                                  <p className="px-3 py-4 text-[14px] text-muted-foreground">
-                                    尚未在此劃分加入產品 — 按「加入產品」或「新欄位」（預設已選 {label}）
-                                  </p>
+                                  <>
+                                    <div className="flex flex-wrap items-center justify-between gap-2 bg-muted/15 px-3 py-2">
+                                      <div className="min-w-0">
+                                        <p className="font-display text-[15px] font-bold text-foreground">
+                                          {label}
+                                        </p>
+                                        <p className="text-[14px] text-muted-foreground">
+                                          {division.quantity} 件傢俬
+                                        </p>
+                                      </div>
+                                      <div className="flex flex-wrap items-center justify-end gap-2">
+                                        {divisionToolbar}
+                                      </div>
+                                    </div>
+                                    <p className="px-3 py-4 text-[14px] text-muted-foreground">
+                                      尚未在此劃分加入產品 — 按「加入產品」或「新欄位」（預設已選 {label}）
+                                    </p>
+                                  </>
                                 ) : (
                                   <ul className="divide-y divide-border/70">
                                     {renderProductRows(
                                       divisionItems,
                                       divisionMeta,
+                                      divisionToolbar,
                                     )}
                                   </ul>
                                 )}
