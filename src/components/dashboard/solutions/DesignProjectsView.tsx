@@ -856,21 +856,31 @@ export function DesignProjectsView() {
     navigate(target, { replace: parsed?.kind !== 'project' });
   }, [activeProjectId, location.pathname, navigate, projectsLoaded]);
 
+  const projectsRef = useRef(projects);
+  projectsRef.current = projects;
+  /** Bump to ignore stale async reloadZones results (prevents load flicker loops). */
+  const reloadGenRef = useRef(0);
+  /** Aggressive 方案列表 sync once per project id per mount (avoids sync↔reload loops). */
+  const healedProjectIdsRef = useRef(new Set<string>());
+
   const reloadZones = useCallback(async (projectId: string) => {
+    const gen = ++reloadGenRef.current;
     setLoading(true);
     try {
       const projectRow =
-        projects.find((p) => p.id === projectId) || null;
+        projectsRef.current.find((p) => p.id === projectId) || null;
       const [z, zp] = await Promise.all([
         fetchZones(projectId),
         fetchZoneProducts(projectId),
       ]);
+      if (gen !== reloadGenRef.current) return;
 
       // Heal incomplete project_zones from saved meta.roomCounts.
       // Older saves could skip custom Chinese rooms that shared code "CR1".
       const meta = projectRow?.meta;
       const roomCounts = meta?.roomCounts;
       let nextZones = z;
+      let nextProducts = zp;
       if (roomCounts && typeof roomCounts === 'object') {
         const projectType = (meta?.projectType ||
           inferProjectType(
@@ -892,7 +902,15 @@ export function DesignProjectsView() {
           labelOverrides,
         );
         // Keep 設計專案 intervals identical to 方案列表 (create missing + drop orphans).
-        if (hasSavedOrder && zonesOutOfSyncWithSeeds(desired, z)) {
+        // Only once per project — re-running sync on every projects[] identity change
+        // was flipping loading/TopBar sticky and made the page jump endlessly.
+        const alreadyHealed = healedProjectIdsRef.current.has(projectId);
+        if (
+          hasSavedOrder &&
+          !alreadyHealed &&
+          zonesOutOfSyncWithSeeds(desired, z)
+        ) {
+          healedProjectIdsRef.current.add(projectId);
           const synced = await syncProjectZones({
             projectId,
             desired,
@@ -901,19 +919,18 @@ export function DesignProjectsView() {
             pruneEmpty: true,
             dropOrphanZones: true,
           });
+          if (gen !== reloadGenRef.current) return;
           if (synced.ok && synced.data) {
             nextZones = synced.data;
             // Orphan zones drop products into basket (zone_id null) — refresh list.
-            const refreshedProducts = await fetchZoneProducts(projectId);
-            setZoneProducts(refreshedProducts);
+            nextProducts = await fetchZoneProducts(projectId);
+            if (gen !== reloadGenRef.current) return;
             toast.success('已同步房間清單', {
               description: '已與方案列表的房間類型及數量對齊',
             });
-            setZones(nextZones);
-            setFurnitureDirty(false);
-            return nextZones;
-          }
-          if (!synced.ok) {
+          } else if (!synced.ok) {
+            // Allow a later reopen to retry heal.
+            healedProjectIdsRef.current.delete(projectId);
             toast.error('同步房間失敗', {
               description: synced.error || '請到方案列表重新按「儲存」',
             });
@@ -921,14 +938,15 @@ export function DesignProjectsView() {
         }
       }
 
+      if (gen !== reloadGenRef.current) return;
       setZones(nextZones);
-      setZoneProducts(zp);
+      setZoneProducts(nextProducts);
       setFurnitureDirty(false);
       return nextZones;
     } finally {
-      setLoading(false);
+      if (gen === reloadGenRef.current) setLoading(false);
     }
-  }, [projects]);
+  }, []);
 
   useEffect(() => {
     if (!activeProjectId || !projectsLoaded) return;
@@ -1065,6 +1083,9 @@ export function DesignProjectsView() {
   const openFloorPlanRef = useRef<() => void>(() => {});
 
   useEffect(() => {
+    // Avoid observing while the list is a spinner — loading toggles used to
+    // reconnect the observer and flip TopBar sticky height (page jump).
+    if (loading) return;
     const node = partitionStickySentinelRef.current;
     const root = pageScrollRef.current;
     if (!node || !root || typeof IntersectionObserver === 'undefined') {
@@ -1074,8 +1095,11 @@ export function DesignProjectsView() {
     const observer = new IntersectionObserver(
       ([entry]) => {
         // Pin TopBar chrome once the in-page「間隔清單」block scrolls above the list.
-        setPartitionHeaderPinned(
-          !entry.isIntersecting && entry.boundingClientRect.top < root.getBoundingClientRect().top,
+        const nextPinned =
+          !entry.isIntersecting &&
+          entry.boundingClientRect.top < root.getBoundingClientRect().top;
+        setPartitionHeaderPinned((current) =>
+          current === nextPinned ? current : nextPinned,
         );
       },
       { root, threshold: 0 },
