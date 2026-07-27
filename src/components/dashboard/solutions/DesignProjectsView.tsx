@@ -2122,33 +2122,35 @@ export function DesignProjectsView() {
             </div>
           ) : (
             <div className="space-y-7">
-            {zoneGroups.map((group) => (
+            {zoneGroups.map((group) => {
+              const groupPlannedTotal = plannedFurnitureTotalForZones(
+                group.zones.map((zone) => zone.id),
+                furnitureDivisions,
+              );
+              const isSingleZoneGroup = group.zones.length === 1;
+              return (
               <section
                 key={group.key}
                 id={zoneGroupDomId(group.label)}
                 className="scroll-mt-28 space-y-3"
               >
-                <div className="flex flex-wrap items-end justify-between gap-3 border-b border-border pb-2.5">
-                  <div>
-                    <h3 className="font-display text-lg font-bold">
-                      {group.label}
-                      {(() => {
-                        const plannedTotal = plannedFurnitureTotalForZones(
-                          group.zones.map((zone) => zone.id),
-                          furnitureDivisions,
-                        );
-                        return plannedTotal > 0 ? (
+                {!isSingleZoneGroup ? (
+                  <div className="flex flex-wrap items-end justify-between gap-3 border-b border-border pb-2.5">
+                    <div>
+                      <h3 className="font-display text-lg font-bold">
+                        {group.label}
+                        {groupPlannedTotal > 0 ? (
                           <span className="ml-2 text-[15px] font-semibold text-muted-foreground">
-                            × 總數 {plannedTotal}
+                            × 總數 {groupPlannedTotal}
                           </span>
-                        ) : null;
-                      })()}
-                    </h3>
-                    <p className="mt-0.5 text-[15px] text-muted-foreground">
-                      {group.zones.length} 個{group.label}
-                    </p>
+                        ) : null}
+                      </h3>
+                      <p className="mt-0.5 text-[15px] text-muted-foreground">
+                        {group.zones.length} 個{group.label}
+                      </p>
+                    </div>
                   </div>
-                </div>
+                ) : null}
                 <div className="space-y-3">
                 {group.zones.map((zone) => {
               const items = zoneProducts.filter((zp) => zp.zoneId === zone.id);
@@ -2158,6 +2160,10 @@ export function DesignProjectsView() {
               );
               const unassignedItems = items.filter(
                 (item) => !assignedIds.has(item.id),
+              );
+              const zonePlannedTotal = plannedFurnitureTotalForZones(
+                [zone.id],
+                furnitureDivisions,
               );
               const renderProductRows = (rows: ZoneProduct[]) =>
                 rows.map((item) => (
@@ -2193,66 +2199,79 @@ export function DesignProjectsView() {
                     }}
                   />
                 ));
+              const zoneToolbar = (
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/30 px-5 py-3.5">
+                  <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
+                    <h3 className="font-display text-base font-bold md:text-lg">
+                      {isSingleZoneGroup ? group.label : zone.name}
+                      {(isSingleZoneGroup
+                        ? groupPlannedTotal
+                        : zonePlannedTotal) > 0 ? (
+                        <span className="ml-2 text-[15px] font-semibold text-muted-foreground">
+                          × 總數{' '}
+                          {isSingleZoneGroup
+                            ? groupPlannedTotal
+                            : zonePlannedTotal}
+                        </span>
+                      ) : null}
+                    </h3>
+                    <span className="text-[15px] text-muted-foreground">
+                      {items.length} 件傢俬
+                    </span>
+                    <label className="inline-flex items-center gap-1.5 text-[15px] text-muted-foreground">
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={zoneAreasSqft[zone.id] ?? ''}
+                        onChange={(event) =>
+                          setZoneSqft(zone.id, event.target.value)
+                        }
+                        onBlur={() => flushZoneSqftToProjectMeta()}
+                        placeholder="0"
+                        className="h-9 w-24 rounded-lg border border-border bg-background px-2.5 text-right font-mono-data text-[15px] text-foreground"
+                        aria-label={`${zone.name} 平方尺`}
+                      />
+                      <span>平方尺 sqft</span>
+                    </label>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void openDivisionModal(zone.id)}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-[15px] font-medium text-foreground hover:bg-muted"
+                    >
+                      <Layers className="h-3.5 w-3.5" />
+                      傢俬劃分
+                    </button>
+                    <button
+                      type="button"
+                      disabled={creatingBlankZoneId === zone.id}
+                      onClick={() => void addBlankProduct(zone.id)}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-[15px] font-medium text-foreground hover:bg-muted disabled:opacity-60"
+                    >
+                      {creatingBlankZoneId === zone.id ? (
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      ) : (
+                        <PenLine className="h-3.5 w-3.5" />
+                      )}
+                      新欄位
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void openPicker(zone.id)}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-[15px] font-medium text-primary hover:bg-primary/15"
+                    >
+                      <Plus className="h-3 w-3" /> 加入產品
+                    </button>
+                  </div>
+                </div>
+              );
               return (
                 <div
                   key={zone.id}
                   className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm"
                 >
-                  <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/30 px-5 py-3.5">
-                    <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
-                      <h3 className="font-display text-base font-bold">
-                        {zone.name}
-                      </h3>
-                      <span className="text-[15px] text-muted-foreground">
-                        {items.length} 件傢俬
-                      </span>
-                      <label className="inline-flex items-center gap-1.5 text-[15px] text-muted-foreground">
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          value={zoneAreasSqft[zone.id] ?? ''}
-                          onChange={(event) =>
-                            setZoneSqft(zone.id, event.target.value)
-                          }
-                          onBlur={() => flushZoneSqftToProjectMeta()}
-                          placeholder="0"
-                          className="h-9 w-24 rounded-lg border border-border bg-background px-2.5 text-right font-mono-data text-[15px] text-foreground"
-                          aria-label={`${zone.name} 平方尺`}
-                        />
-                        <span>平方尺 sqft</span>
-                      </label>
-                    </div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => void openDivisionModal(zone.id)}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-[15px] font-medium text-foreground hover:bg-muted"
-                      >
-                        <Layers className="h-3.5 w-3.5" />
-                        傢俬劃分
-                      </button>
-                      <button
-                        type="button"
-                        disabled={creatingBlankZoneId === zone.id}
-                        onClick={() => void addBlankProduct(zone.id)}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-[15px] font-medium text-foreground hover:bg-muted disabled:opacity-60"
-                      >
-                        {creatingBlankZoneId === zone.id ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <PenLine className="h-3.5 w-3.5" />
-                        )}
-                        新欄位
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void openPicker(zone.id)}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-[15px] font-medium text-primary hover:bg-primary/15"
-                      >
-                        <Plus className="h-3 w-3" /> 加入產品
-                      </button>
-                    </div>
-                  </div>
+                  {zoneToolbar}
                   {divisions.length === 0 && items.length === 0 ? (
                     <p className="px-5 py-6 text-[15px] text-muted-foreground">
                       尚未配置傢俬 — 可先按「傢俬劃分」規劃類型，或按「新欄位／加入產品」直接加入
@@ -2371,7 +2390,8 @@ export function DesignProjectsView() {
                 })}
                 </div>
               </section>
-            ))}
+              );
+            })}
             </div>
           )}
 
