@@ -29,7 +29,6 @@ import {
   projectTypeLabel,
   roomsForProjectType,
   zoneSeedsFromRoomCounts,
-  zeroRoomCounts,
   type ProjectEngineeringType,
   type RoomTypeTemplate,
   type TypeRoomsSnapshot,
@@ -239,50 +238,6 @@ export function ProjectPartitionPanel({
       ).filter((room) => !EXCLUDED_DEFAULT_ROOM_KEYS.has(room.key)),
     [projectType, customRooms, roomOrder],
   );
-
-  const applyTypeSnapshot = (
-    type: ProjectEngineeringType,
-    snap: TypeRoomsSnapshot | undefined,
-  ) => {
-    if (snap) {
-      const nextCustom = normalizeCustomRooms(snap.customRooms);
-      const nextOrder = resolveRoomOrder(
-        type,
-        nextCustom,
-        Array.isArray(snap.roomOrder) ? normalizeRoomOrder(snap.roomOrder) : null,
-      );
-      setCustomRooms(nextCustom);
-      setRoomOrder(nextOrder);
-      setRoomCounts(countsForOrder(nextOrder, snap.roomCounts));
-      return;
-    }
-    // No draft for this type yet → show that type's default room list at qty 0.
-    const nextCustom: CustomRoomType[] = [];
-    const nextOrder = defaultOrderFor(type, nextCustom);
-    setCustomRooms(nextCustom);
-    setRoomOrder(nextOrder);
-    setRoomCounts(zeroRoomCounts(type));
-  };
-
-  const changeType = (type: ProjectEngineeringType) => {
-    // Single-select only: re-clicking current type is a no-op (keeps saved edits).
-    if (type === projectType) return;
-    // Stash the current type's draft, then load the target type's draft or
-    // its template rooms with quantity 0. Unsaved leave remounts from meta.
-    const nextCache = {
-      ...roomsByType,
-      [projectType]: snapshotFromState(roomOrder, roomCounts, customRooms),
-    };
-    setRoomsByType(nextCache);
-    setProjectType(type);
-    applyTypeSnapshot(type, nextCache[type]);
-    setDirty(true);
-    toast.message(`已選擇「${projectTypeLabel(type)}」`, {
-      description: nextCache[type]
-        ? '已還原此工程類型上次的房間設定；請按「儲存」才會寫入專案'
-        : '已載入此工程類型的預設房間（數量為 0）；請按「儲存」才會寫入專案',
-    });
-  };
 
   useEffect(() => {
     let cancelled = false;
@@ -533,7 +488,7 @@ export function ProjectPartitionPanel({
             間隔／功能房間
           </h3>
           <p className="mt-1 text-[15px] text-muted-foreground">
-            在此設定工程類型及房間數量；完成後按「儲存」寫入專案資料。
+            在此設定房間類型及數量；完成後按「儲存」寫入專案資料。
           </p>
         </div>
         {saving ? (
@@ -546,34 +501,6 @@ export function ProjectPartitionPanel({
             尚未儲存
           </span>
         ) : null}
-      </div>
-
-      <div>
-        <p className="mb-2 text-[15px] font-semibold text-muted-foreground">
-          工程類型（單選；各類型有獨立預設房間，切換後請按儲存才會寫入）
-        </p>
-        <div className="flex flex-wrap gap-2">
-          {PROJECT_TYPE_OPTIONS.map((option) => {
-            const selected = projectType === option.id;
-            return (
-              <button
-                key={option.id}
-                type="button"
-                disabled={saving}
-                onClick={() => changeType(option.id)}
-                aria-pressed={selected}
-                className={cn(
-                  'rounded-full border px-3.5 py-2 text-[15px] font-medium transition-colors disabled:opacity-50',
-                  selected
-                    ? 'border-primary bg-primary/10 text-primary shadow-sm'
-                    : 'border-transparent bg-muted/50 text-muted-foreground/45 hover:bg-muted hover:text-muted-foreground/70',
-                )}
-              >
-                {option.label}
-              </button>
-            );
-          })}
-        </div>
       </div>
 
       <div>
@@ -764,12 +691,12 @@ export function ProjectPartitionPanel({
         </div>
         {orderedRooms.length === 0 ? (
           <div className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
-            尚未有房間類型，請按「新增房間」或先儲存前選擇工程類型預設房間。
+            尚未有房間類型，請按「新增房間」加入。
           </div>
         ) : null}
         <p className="mt-3 flex items-center gap-1.5 text-[15px] text-muted-foreground">
           <Sparkles className="h-4 w-4 text-primary" />
-          切換工程類型會載入該類型房間（未設定過則數量為 0）；已儲存的類型會還原上次設定。按「儲存」才會寫入專案。
+          刪除、排序與數量調整後，記得按「儲存」才會寫入專案。
         </p>
       </div>
     </div>
