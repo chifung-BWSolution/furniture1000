@@ -255,7 +255,7 @@ export function FloorPlanViewerModal({
       onClick={onClose}
     >
       <div
-        className="flex h-[70vh] w-[70vw] max-h-[70vh] max-w-[70vw] flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl"
+        className="flex h-[84vh] w-[84vw] max-h-[84vh] max-w-[84vw] flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-2xl"
         onClick={(event) => event.stopPropagation()}
         role="dialog"
         aria-modal="true"
