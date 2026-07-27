@@ -719,86 +719,89 @@ function ZoneProductRow({
 
             <div className="flex min-h-0 flex-1 flex-wrap items-end gap-3">
               <div className="min-w-0 flex-1 space-y-2">
-                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-                  <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                    <span className="shrink-0 text-[15px] font-medium text-muted-foreground">
-                      尺寸
-                    </span>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      value={dimInputValue(effectiveL)}
-                      onChange={(event) =>
-                        commitDimAxis('dimensionLMm', event.target.value)
+                {/* 尺寸→未確定 / 備註 同寬：相對內容欄縮 20%，左緣對齊「尺寸」 */}
+                <div className="w-4/5 min-w-0 max-w-full space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+                    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                      <span className="shrink-0 text-[15px] font-medium text-muted-foreground">
+                        尺寸
+                      </span>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={dimInputValue(effectiveL)}
+                        onChange={(event) =>
+                          commitDimAxis('dimensionLMm', event.target.value)
+                        }
+                        placeholder="—"
+                        className="h-8 w-[4.5rem] rounded-md border border-border bg-background px-2 text-right font-mono-data text-[14px] text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+                        aria-label={`${titleLabel}長度 W`}
+                        title="長 (W) mm — 僅存於此設計專案"
+                      />
+                      <span className="font-mono-data text-[13px] text-muted-foreground">
+                        (W) x
+                      </span>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={dimInputValue(effectiveW)}
+                        onChange={(event) =>
+                          commitDimAxis('dimensionWMm', event.target.value)
+                        }
+                        placeholder="—"
+                        className="h-8 w-[4.5rem] rounded-md border border-border bg-background px-2 text-right font-mono-data text-[14px] text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+                        aria-label={`${titleLabel}闊度 D`}
+                        title="闊 (D) mm — 僅存於此設計專案"
+                      />
+                      <span className="font-mono-data text-[13px] text-muted-foreground">
+                        (D) x
+                      </span>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={dimInputValue(effectiveH)}
+                        onChange={(event) =>
+                          commitDimAxis('dimensionHMm', event.target.value)
+                        }
+                        placeholder="—"
+                        className="h-8 w-[4.5rem] rounded-md border border-border bg-background px-2 text-right font-mono-data text-[14px] text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+                        aria-label={`${titleLabel}高度 H`}
+                        title="高 (H) mm — 僅存於此設計專案"
+                      />
+                      <span className="font-mono-data text-[13px] text-muted-foreground">
+                        (H) (mm)
+                      </span>
+                    </div>
+                    <select
+                      value={item.status}
+                      onChange={(e) =>
+                        onSetStatus(item.id, e.target.value as ZoneProductStatus)
                       }
-                      placeholder="—"
-                      className="h-8 w-[4.5rem] rounded-md border border-border bg-background px-2 text-right font-mono-data text-[14px] text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
-                      aria-label={`${titleLabel}長度 W`}
-                      title="長 (W) mm — 僅存於此設計專案"
-                    />
-                    <span className="font-mono-data text-[13px] text-muted-foreground">
-                      (W) x
-                    </span>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      value={dimInputValue(effectiveW)}
-                      onChange={(event) =>
-                        commitDimAxis('dimensionWMm', event.target.value)
-                      }
-                      placeholder="—"
-                      className="h-8 w-[4.5rem] rounded-md border border-border bg-background px-2 text-right font-mono-data text-[14px] text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
-                      aria-label={`${titleLabel}闊度 D`}
-                      title="闊 (D) mm — 僅存於此設計專案"
-                    />
-                    <span className="font-mono-data text-[13px] text-muted-foreground">
-                      (D) x
-                    </span>
-                    <input
-                      type="text"
-                      inputMode="numeric"
-                      value={dimInputValue(effectiveH)}
-                      onChange={(event) =>
-                        commitDimAxis('dimensionHMm', event.target.value)
-                      }
-                      placeholder="—"
-                      className="h-8 w-[4.5rem] rounded-md border border-border bg-background px-2 text-right font-mono-data text-[14px] text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
-                      aria-label={`${titleLabel}高度 H`}
-                      title="高 (H) mm — 僅存於此設計專案"
-                    />
-                    <span className="font-mono-data text-[13px] text-muted-foreground">
-                      (H) (mm)
-                    </span>
+                      className={cn(
+                        'shrink-0 rounded-full border px-3 py-1.5 text-[15px] font-medium',
+                        ZONE_PRODUCT_STATUS_META[item.status]?.className,
+                      )}
+                      aria-label={`${titleLabel}狀態`}
+                    >
+                      <option value="pending">未確定</option>
+                      <option value="discussing">待討論</option>
+                      <option value="confirmed">已確定</option>
+                    </select>
                   </div>
-                  <select
-                    value={item.status}
-                    onChange={(e) =>
-                      onSetStatus(item.id, e.target.value as ZoneProductStatus)
-                    }
-                    className={cn(
-                      'shrink-0 rounded-full border px-3 py-1.5 text-[15px] font-medium',
-                      ZONE_PRODUCT_STATUS_META[item.status]?.className,
-                    )}
-                    aria-label={`${titleLabel}狀態`}
-                  >
-                    <option value="pending">未確定</option>
-                    <option value="discussing">待討論</option>
-                    <option value="confirmed">已確定</option>
-                  </select>
-                </div>
 
-                <div className="flex items-start gap-2">
-                  <span className="mt-2 shrink-0 text-[15px] font-medium text-muted-foreground">
-                    備註
-                  </span>
-                  <textarea
-                    value={staffNotesValue(item.notes)}
-                    onChange={(event) => onSetNotes(item, event.target.value)}
-                    rows={3}
-                    placeholder="輸入意見或補充說明…"
-                    className="min-h-[72px] min-w-0 w-full flex-1 resize-y rounded-lg border border-border bg-background px-3 py-2 text-[15px] leading-relaxed outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
-                    aria-label={`${titleLabel}備註`}
-                  />
+                  <div className="flex items-start gap-2">
+                    <span className="mt-2 shrink-0 text-[15px] font-medium text-muted-foreground">
+                      備註
+                    </span>
+                    <textarea
+                      value={staffNotesValue(item.notes)}
+                      onChange={(event) => onSetNotes(item, event.target.value)}
+                      rows={3}
+                      placeholder="輸入意見或補充說明…"
+                      className="min-h-[72px] min-w-0 w-full flex-1 resize-y rounded-lg border border-border bg-background px-3 py-2 text-[15px] leading-relaxed outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+                      aria-label={`${titleLabel}備註`}
+                    />
+                  </div>
                 </div>
 
                 {feedback.length > 0 ? (
