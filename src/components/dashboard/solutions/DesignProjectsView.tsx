@@ -1632,9 +1632,13 @@ export function DesignProjectsView() {
     toast.success('已刪除客戶意見');
   };
 
-  const addBlankProduct = async (zoneId: string) => {
+  const addBlankProduct = async (
+    zoneId: string,
+    divisionId?: string | null,
+  ) => {
     if (!activeProjectId || creatingBlankZoneId) return;
-    setCreatingBlankZoneId(zoneId);
+    const busyKey = divisionId ? `${zoneId}:${divisionId}` : zoneId;
+    setCreatingBlankZoneId(busyKey);
     const result = await createZoneProduct({
       projectId: activeProjectId,
       zoneId,
@@ -1653,7 +1657,23 @@ export function DesignProjectsView() {
       return;
     }
     setZoneProducts((prev) => [...prev, result.data!]);
-    setFurnitureDirty(true);
+    if (divisionId) {
+      const next = {
+        ...furnitureDivisions,
+        [zoneId]: (furnitureDivisions[zoneId] || []).map((row) =>
+          row.id === divisionId
+            ? {
+                ...row,
+                productIds: [...(row.productIds || []), result.data!.id],
+              }
+            : row,
+        ),
+      };
+      setFurnitureDivisions(next);
+      persistPlanningMeta(zoneAreasSqft, next);
+    } else {
+      setFurnitureDirty(true);
+    }
     toast.success('已新增空白產品欄位', {
       description: '請填寫後按上方「儲存」寫入專案',
     });
@@ -2400,19 +2420,21 @@ export function DesignProjectsView() {
                       <Layers className="h-3.5 w-3.5" />
                       傢俬劃分
                     </button>
-                    <button
-                      type="button"
-                      disabled={creatingBlankZoneId === zone.id}
-                      onClick={() => void addBlankProduct(zone.id)}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-[15px] font-medium text-foreground hover:bg-muted disabled:opacity-60"
-                    >
-                      {creatingBlankZoneId === zone.id ? (
-                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <PenLine className="h-3.5 w-3.5" />
-                      )}
-                      新欄位
-                    </button>
+                    {divisions.length === 0 ? (
+                      <button
+                        type="button"
+                        disabled={creatingBlankZoneId === zone.id}
+                        onClick={() => void addBlankProduct(zone.id)}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-[15px] font-medium text-foreground hover:bg-muted disabled:opacity-60"
+                      >
+                        {creatingBlankZoneId === zone.id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <PenLine className="h-3.5 w-3.5" />
+                        )}
+                        新欄位
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       onClick={() => void openPicker(zone.id)}
@@ -2472,16 +2494,25 @@ export function DesignProjectsView() {
                                     ) : null}
                                     <button
                                       type="button"
-                                      onClick={() =>
-                                        void openPicker(zone.id, null, {
-                                          level1: division.level1,
-                                          level2: division.level2 || '',
-                                          divisionId: division.id,
-                                        })
+                                      disabled={
+                                        creatingBlankZoneId ===
+                                        `${zone.id}:${division.id}`
                                       }
-                                      className="inline-flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 px-3 py-1.5 text-[14px] font-medium text-primary hover:bg-primary/15"
+                                      onClick={() =>
+                                        void addBlankProduct(
+                                          zone.id,
+                                          division.id,
+                                        )
+                                      }
+                                      className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-1.5 text-[14px] font-medium text-foreground hover:bg-muted disabled:opacity-60"
                                     >
-                                      <Plus className="h-3 w-3" /> 加入產品
+                                      {creatingBlankZoneId ===
+                                      `${zone.id}:${division.id}` ? (
+                                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                      ) : (
+                                        <PenLine className="h-3.5 w-3.5" />
+                                      )}
+                                      新欄位
                                     </button>
                                     <button
                                       type="button"
@@ -2497,7 +2528,7 @@ export function DesignProjectsView() {
                                 </div>
                                 {divisionItems.length === 0 ? (
                                   <p className="px-5 py-4 text-[14px] text-muted-foreground">
-                                    尚未在此劃分加入產品 — 按右上角「加入產品」（預設已選 {label}）
+                                    尚未在此劃分加入產品 — 可按「新欄位」新增，或用上方「加入產品」後再劃分
                                   </p>
                                 ) : (
                                   <ul className="divide-y divide-border/70">
