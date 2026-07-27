@@ -2421,27 +2421,29 @@ export function DesignProjectsView() {
                       傢俬劃分
                     </button>
                     {divisions.length === 0 ? (
-                      <button
-                        type="button"
-                        disabled={creatingBlankZoneId === zone.id}
-                        onClick={() => void addBlankProduct(zone.id)}
-                        className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-[15px] font-medium text-foreground hover:bg-muted disabled:opacity-60"
-                      >
-                        {creatingBlankZoneId === zone.id ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <PenLine className="h-3.5 w-3.5" />
-                        )}
-                        新欄位
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          disabled={creatingBlankZoneId === zone.id}
+                          onClick={() => void addBlankProduct(zone.id)}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-[15px] font-medium text-foreground hover:bg-muted disabled:opacity-60"
+                        >
+                          {creatingBlankZoneId === zone.id ? (
+                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                          ) : (
+                            <PenLine className="h-3.5 w-3.5" />
+                          )}
+                          新欄位
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void openPicker(zone.id)}
+                          className="inline-flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-[15px] font-medium text-primary hover:bg-primary/15"
+                        >
+                          <Plus className="h-3 w-3" /> 加入產品
+                        </button>
+                      </>
                     ) : null}
-                    <button
-                      type="button"
-                      onClick={() => void openPicker(zone.id)}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-[15px] font-medium text-primary hover:bg-primary/15"
-                    >
-                      <Plus className="h-3 w-3" /> 加入產品
-                    </button>
                   </div>
                 </div>
               );
@@ -2494,6 +2496,19 @@ export function DesignProjectsView() {
                                     ) : null}
                                     <button
                                       type="button"
+                                      onClick={() =>
+                                        void openPicker(zone.id, null, {
+                                          level1: division.level1,
+                                          level2: division.level2 || '',
+                                          divisionId: division.id,
+                                        })
+                                      }
+                                      className="inline-flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 px-3 py-1.5 text-[14px] font-medium text-primary hover:bg-primary/15"
+                                    >
+                                      <Plus className="h-3 w-3" /> 加入產品
+                                    </button>
+                                    <button
+                                      type="button"
                                       disabled={
                                         creatingBlankZoneId ===
                                         `${zone.id}:${division.id}`
@@ -2528,7 +2543,7 @@ export function DesignProjectsView() {
                                 </div>
                                 {divisionItems.length === 0 ? (
                                   <p className="px-5 py-4 text-[14px] text-muted-foreground">
-                                    尚未在此劃分加入產品 — 可按「新欄位」新增，或用上方「加入產品」後再劃分
+                                    尚未在此劃分加入產品 — 按「加入產品」或「新欄位」（預設已選 {label}）
                                   </p>
                                 ) : (
                                   <ul className="divide-y divide-border/70">
