@@ -25,7 +25,6 @@ import {
   defaultRoomCounts,
   inferProjectType,
   normalizeRoomOrder,
-  orderedRoomsForProjectType,
   projectTypeLabel,
   roomsForProjectType,
   zoneSeedsFromRoomCounts,
@@ -166,15 +165,42 @@ export function ProjectPartitionPanel({
     () => roomsForProjectType(projectType),
     [projectType],
   );
-  const orderedRooms = useMemo(
-    () =>
-      orderedRoomsForProjectType(
-        projectType,
-        customRooms as RoomTypeTemplate[],
-        roomOrder,
-      ),
-    [projectType, customRooms, roomOrder],
-  );
+  // Resolve room chips from the saved/current roomOrder so switching 工程類型
+  // does not hide existing rooms before「儲存」.
+  const orderedRooms = useMemo(() => {
+    const byKey = new Map<string, RoomTypeTemplate>();
+    for (const option of PROJECT_TYPE_OPTIONS) {
+      for (const room of roomsForProjectType(option.id)) {
+        byKey.set(room.key, room);
+      }
+    }
+    for (const room of customRooms) {
+      byKey.set(room.key, room);
+    }
+    if (roomOrder.length === 0) {
+      return [
+        ...roomsForProjectType(projectType),
+        ...(customRooms as RoomTypeTemplate[]),
+      ].filter((room) => !EXCLUDED_DEFAULT_ROOM_KEYS.has(room.key));
+    }
+    return roomOrder
+      .map((key) => byKey.get(key))
+      .filter((room): room is RoomTypeTemplate => Boolean(room))
+      .filter((room) => !EXCLUDED_DEFAULT_ROOM_KEYS.has(room.key));
+  }, [customRooms, projectType, roomOrder]);
+
+  const changeType = (type: ProjectEngineeringType) => {
+    // Single-select only: re-clicking current type is a no-op.
+    if (type === projectType) return;
+    // Do NOT reset roomCounts / roomOrder here. Unsaved switch only updates the
+    // selected type in UI; original rooms stay until「儲存」writes the new type.
+    // Closing without save reloads meta and restores the previous type + rooms.
+    setProjectType(type);
+    setDirty(true);
+    toast.message(`已選擇「${projectTypeLabel(type)}」`, {
+      description: '請按「儲存」才會更新專案；未儲存離開會保留原本的工程類型與房間設定',
+    });
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -238,10 +264,29 @@ export function ProjectPartitionPanel({
     setSaving(true);
     try {
       const nextOrder = roomOrder;
+      // Rooms kept after switching 工程類型 may belong to another type's
+      // template. Promote them into customRooms so zoneSeeds / reload still
+      // resolve labels and pruneEmpty does not drop those zones.
+      const typeKeys = new Set(
+        roomsForProjectType(projectType).map((room) => room.key),
+      );
+      const existingCustomKeys = new Set(customRooms.map((room) => room.key));
+      const promoted: CustomRoomType[] = [];
+      for (const room of orderedRooms) {
+        if (!typeKeys.has(room.key) && !existingCustomKeys.has(room.key)) {
+          promoted.push({
+            key: room.key,
+            label: room.label,
+            codePrefix: room.codePrefix,
+          });
+        }
+      }
+      const nextCustom = [...customRooms, ...promoted];
+
       const desired = zoneSeedsFromRoomCounts(
         projectType,
         roomCounts,
-        customRooms as RoomTypeTemplate[],
+        nextCustom as RoomTypeTemplate[],
         nextOrder,
       );
       const synced = await syncProjectZones({
@@ -266,7 +311,7 @@ export function ProjectPartitionPanel({
         ...project.meta,
         projectType,
         roomCounts: visibleCounts,
-        customRooms,
+        customRooms: nextCustom,
         roomOrder: nextOrder,
       };
       const saved = await saveProject(project.id, { meta });
@@ -288,6 +333,7 @@ export function ProjectPartitionPanel({
       }
 
       setZones(orderedZones);
+      setCustomRooms(nextCustom);
       setRoomCounts(visibleCounts);
       setRoomOrder(nextOrder);
       setDirty(false);
@@ -309,7 +355,7 @@ export function ProjectPartitionPanel({
     customRooms,
     onProjectFloorPlanChange,
     onProjectMetaChange,
-    orderedRooms.length,
+    orderedRooms,
     project,
     projectType,
     roomCounts,
@@ -318,27 +364,6 @@ export function ProjectPartitionPanel({
     zoneProducts,
     zones,
   ]);
-
-  const changeType = (type: ProjectEngineeringType) => {
-    // Clicking the already-selected 工程類型 must NOT rebuild the default room
-    // list — that was re-adding deleted rooms and marking the panel dirty.
-    if (type === projectType) return;
-    const confirmed = window.confirm(
-      `切換工程類型為「${projectTypeLabel(type)}」會重置房間類型清單（數量歸 0，自訂房間會保留）。確定繼續？`,
-    );
-    if (!confirmed) return;
-    const counts = {
-      ...defaultRoomCounts(type),
-      ...Object.fromEntries(
-        customRooms.map((room) => [room.key, roomCounts[room.key] || 0]),
-      ),
-    };
-    const nextOrder = defaultOrderFor(type, customRooms);
-    setProjectType(type);
-    setRoomCounts(counts);
-    setRoomOrder(nextOrder);
-    setDirty(true);
-  };
 
   const changeQty = (key: string, delta: number) => {
     setRoomCounts((current) => ({
@@ -443,25 +468,29 @@ export function ProjectPartitionPanel({
 
       <div>
         <p className="mb-2 text-[15px] font-semibold text-muted-foreground">
-          工程類型（決定可見房間）
+          工程類型（單選；切換後請按儲存才會寫入）
         </p>
         <div className="flex flex-wrap gap-2">
-          {PROJECT_TYPE_OPTIONS.map((option) => (
-            <button
-              key={option.id}
-              type="button"
-              disabled={saving}
-              onClick={() => changeType(option.id)}
-              className={cn(
-                'rounded-full border px-3.5 py-2 text-[15px] font-medium transition-colors disabled:opacity-50',
-                projectType === option.id
-                  ? 'border-primary bg-primary/10 text-primary'
-                  : 'border-border bg-card text-muted-foreground hover:text-foreground',
-              )}
-            >
-              {option.label}
-            </button>
-          ))}
+          {PROJECT_TYPE_OPTIONS.map((option) => {
+            const selected = projectType === option.id;
+            return (
+              <button
+                key={option.id}
+                type="button"
+                disabled={saving}
+                onClick={() => changeType(option.id)}
+                aria-pressed={selected}
+                className={cn(
+                  'rounded-full border px-3.5 py-2 text-[15px] font-medium transition-colors disabled:opacity-50',
+                  selected
+                    ? 'border-primary bg-primary/10 text-primary shadow-sm'
+                    : 'border-transparent bg-muted/50 text-muted-foreground/45 hover:bg-muted hover:text-muted-foreground/70',
+                )}
+              >
+                {option.label}
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -658,7 +687,7 @@ export function ProjectPartitionPanel({
         ) : null}
         <p className="mt-3 flex items-center gap-1.5 text-[15px] text-muted-foreground">
           <Sparkles className="h-4 w-4 text-primary" />
-          刪除、排序與數量調整後，記得按「儲存」才會寫入 design_projects。
+          切換工程類型、刪除、排序與數量調整後，記得按「儲存」才會寫入；未儲存離開會還原原本設定。
         </p>
       </div>
     </div>
