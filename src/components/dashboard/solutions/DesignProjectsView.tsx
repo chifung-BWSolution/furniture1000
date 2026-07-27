@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import {
@@ -12,6 +12,7 @@ import {
   type ProductDisplayMeta,
 } from '@/lib/solutionsApi';
 import { formatProductDimensionsMm } from '@/lib/productDimensions';
+import { ProductImageUploadModal } from './ProductImageUploadModal';
 import { useAppStore } from '@/hooks/use-app-store';
 import {
   buildDesignProjectPath,
@@ -300,8 +301,7 @@ function ZoneProductRow({
   uploading,
   deletingProductId,
   deletingFeedbackKey,
-  imageInputRefs,
-  onUploadImage,
+  onOpenUpload,
   onPreview,
   onOpenPicker,
   onSetQuantity,
@@ -320,8 +320,7 @@ function ZoneProductRow({
   uploading: boolean;
   deletingProductId: string | null;
   deletingFeedbackKey: string | null;
-  imageInputRefs: MutableRefObject<Record<string, HTMLInputElement | null>>;
-  onUploadImage: (item: ZoneProduct, file: File | null) => void;
+  onOpenUpload: (item: ZoneProduct) => void;
   onPreview: (src: string, title: string) => void;
   onOpenPicker: (zoneId: string, itemId: string) => void;
   onSetQuantity: (item: ZoneProduct, quantity: number) => void;
@@ -340,6 +339,7 @@ function ZoneProductRow({
     catalogMeta?.dimensionHMm,
   );
   const factoryName = (catalogMeta?.factoryName || '').trim();
+  const canUploadImage = custom || !item.productImageUrl;
 
   return (
     <li className="px-5 py-3.5">
@@ -348,19 +348,6 @@ function ZoneProductRow({
           className="relative shrink-0 self-start"
           style={{ width: size, height: size }}
         >
-          <input
-            ref={(node) => {
-              imageInputRefs.current[item.id] = node;
-            }}
-            type="file"
-            accept="image/*"
-            className="hidden"
-            onChange={(event) => {
-              const file = event.target.files?.[0] || null;
-              event.target.value = '';
-              onUploadImage(item, file);
-            }}
-          />
           {item.productImageUrl ? (
             <button
               type="button"
@@ -378,11 +365,11 @@ function ZoneProductRow({
                 <ZoomIn className="h-5 w-5" />
               </span>
             </button>
-          ) : custom ? (
+          ) : (
             <button
               type="button"
-              disabled={uploading}
-              onClick={() => imageInputRefs.current[item.id]?.click()}
+              disabled={uploading || !canUploadImage}
+              onClick={() => onOpenUpload(item)}
               className="flex h-full w-full items-center justify-center rounded-xl border border-dashed border-border bg-muted/40 text-muted-foreground hover:border-primary/40 hover:text-primary disabled:opacity-60"
               title="上傳產品圖片"
               aria-label="上傳產品圖片"
@@ -393,14 +380,12 @@ function ZoneProductRow({
                 <ImagePlus className="h-6 w-6" />
               )}
             </button>
-          ) : (
-            <div className="h-full w-full rounded-xl bg-muted" />
           )}
           {custom && item.productImageUrl ? (
             <button
               type="button"
               disabled={uploading}
-              onClick={() => imageInputRefs.current[item.id]?.click()}
+              onClick={() => onOpenUpload(item)}
               className="absolute bottom-1.5 left-1/2 z-10 -translate-x-1/2 rounded-md border border-border/80 bg-background/90 px-2 py-0.5 text-[11px] font-medium text-muted-foreground shadow-sm backdrop-blur hover:bg-background disabled:opacity-60"
             >
               {uploading ? '上傳中…' : '更換圖片'}
@@ -699,7 +684,9 @@ export function DesignProjectsView() {
     null,
   );
   const [floorPlanViewerOpen, setFloorPlanViewerOpen] = useState(false);
-  const imageInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const [imageUploadItem, setImageUploadItem] = useState<ZoneProduct | null>(
+    null,
+  );
   const furnitureDirtyRef = useRef(false);
 
   useEffect(() => {
@@ -1377,27 +1364,23 @@ export function DesignProjectsView() {
   };
 
   const uploadProductImage = async (item: ZoneProduct, file: File | null) => {
-    if (!file || !isCustomZoneProduct(item)) return;
-    if (!file.type.startsWith('image/')) {
-      toast.error('請上傳圖片檔案');
-      return;
-    }
-    if (file.size > 8 * 1024 * 1024) {
-      toast.error('圖片超過 8MB 上限');
-      return;
-    }
+    if (!file) return;
+    // Blank / custom rows, or catalog rows missing an image.
+    if (!isCustomZoneProduct(item) && item.productImageUrl) return;
     setUploadingImageId(item.id);
     try {
       // Upload to Storage first; DB + design_projects.meta flush on「儲存」.
       const url = await uploadFileToStorage(file, item.id, 'zone');
       patchProduct(item.id, { productImageUrl: url });
+      setImageUploadItem(null);
       toast.success('產品圖片已上傳', {
-        description: '請按上方「儲存」寫入專案資料',
+        description: '請按「儲存方案」寫入專案資料',
       });
     } catch (error) {
       toast.error('上傳圖片失敗', {
         description: error instanceof Error ? error.message : '請稍後再試',
       });
+      throw error;
     } finally {
       setUploadingImageId(null);
     }
@@ -1898,10 +1881,7 @@ export function DesignProjectsView() {
                     uploading={uploadingImageId === item.id}
                     deletingProductId={deletingProductId}
                     deletingFeedbackKey={deletingFeedbackKey}
-                    imageInputRefs={imageInputRefs}
-                    onUploadImage={(row, file) => {
-                      void uploadProductImage(row, file);
-                    }}
+                    onOpenUpload={(row) => setImageUploadItem(row)}
                     onPreview={(src, title) => setLightbox({ src, title })}
                     onOpenPicker={(zId, itemId) => void openPicker(zId, itemId)}
                     onSetQuantity={setQuantity}
@@ -2473,6 +2453,26 @@ export function DesignProjectsView() {
           onClose={() => setLightbox(null)}
         />
       ) : null}
+
+      <ProductImageUploadModal
+        open={Boolean(imageUploadItem)}
+        title="上傳圖片"
+        previewUrl={imageUploadItem?.productImageUrl || undefined}
+        busy={Boolean(
+          imageUploadItem && uploadingImageId === imageUploadItem.id,
+        )}
+        onClose={() => {
+          if (uploadingImageId) return;
+          setImageUploadItem(null);
+        }}
+        onSelectFile={async (file) => {
+          if (!imageUploadItem) return;
+          const latest =
+            zoneProducts.find((row) => row.id === imageUploadItem.id) ||
+            imageUploadItem;
+          await uploadProductImage(latest, file);
+        }}
+      />
 
       <FloorPlanViewerModal
         open={floorPlanViewerOpen}
