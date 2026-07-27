@@ -7,9 +7,11 @@ import {
 } from 'lucide-react';
 import {
   fetchProjects, fetchZones, fetchZoneProducts, fetchActiveShopifyProducts,
-  createZoneProduct, deleteZoneProductWithProgress,
+  fetchProductsDisplayMeta, createZoneProduct, deleteZoneProductWithProgress,
   persistDesignProjectFurniture, saveProject, updateZoneProductNotes,
+  type ProductDisplayMeta,
 } from '@/lib/solutionsApi';
+import { formatProductDimensionsMm } from '@/lib/productDimensions';
 import { useAppStore } from '@/hooks/use-app-store';
 import {
   buildDesignProjectPath,
@@ -281,6 +283,7 @@ function ZoneProductRow({
   zoneId,
   custom,
   titleLabel,
+  catalogMeta,
   uploading,
   deletingProductId,
   deletingFeedbackKey,
@@ -300,6 +303,7 @@ function ZoneProductRow({
   zoneId: string;
   custom: boolean;
   titleLabel: string;
+  catalogMeta?: ProductDisplayMeta | null;
   uploading: boolean;
   deletingProductId: string | null;
   deletingFeedbackKey: string | null;
@@ -317,6 +321,12 @@ function ZoneProductRow({
 }) {
   const { contentRef, size } = useProductImageSquareSize();
   const feedback = splitStaffNotesAndFeedback(item.notes).feedback;
+  const dimensionsLabel = formatProductDimensionsMm(
+    catalogMeta?.dimensionLMm,
+    catalogMeta?.dimensionWMm,
+    catalogMeta?.dimensionHMm,
+  );
+  const factoryName = (catalogMeta?.factoryName || '').trim();
 
   return (
     <li className="px-5 py-3.5">
@@ -510,6 +520,26 @@ function ZoneProductRow({
             </div>
           </div>
 
+          {dimensionsLabel || factoryName ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="shrink-0 text-[15px] font-medium text-muted-foreground">
+                尺寸
+              </span>
+              {dimensionsLabel ? (
+                <span className="font-mono-data text-[15px] text-muted-foreground">
+                  {dimensionsLabel}
+                </span>
+              ) : (
+                <span className="text-[15px] text-muted-foreground/70">—</span>
+              )}
+              {factoryName ? (
+                <span className="rounded-full border border-border bg-muted/60 px-2.5 py-0.5 text-[12px] font-medium text-muted-foreground">
+                  {factoryName}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
+
           <div className="space-y-2">
             <div className="flex items-start gap-2">
               <span className="mt-2 shrink-0 text-[15px] font-medium text-muted-foreground">
@@ -623,6 +653,10 @@ export function DesignProjectsView() {
   const [pickerDivisionId, setPickerDivisionId] = useState<string | null>(null);
   const [products, setProducts] = useState<SearchProduct[]>([]);
   const [productsLoading, setProductsLoading] = useState(false);
+  /** Catalog dims / factory keyed by products.id for zone product rows. */
+  const [productMetaById, setProductMetaById] = useState<
+    Record<string, ProductDisplayMeta>
+  >({});
   const [keyword, setKeyword] = useState('');
   const [productLevel1, setProductLevel1] = useState('');
   const [productLevel2, setProductLevel2] = useState('');
@@ -973,6 +1007,55 @@ export function DesignProjectsView() {
     [zoneProducts],
   );
 
+  const mergeProductMetaFromSearch = useCallback((rows: SearchProduct[]) => {
+    if (rows.length === 0) return;
+    setProductMetaById((current) => {
+      let changed = false;
+      const next = { ...current };
+      for (const row of rows) {
+        const id = String(row.id || '').trim();
+        if (!id) continue;
+        const meta: ProductDisplayMeta = {
+          dimensionLMm: row.dimensionLMm ?? null,
+          dimensionWMm: row.dimensionWMm ?? null,
+          dimensionHMm: row.dimensionHMm ?? null,
+          factoryName: (row.factoryName || '').trim(),
+        };
+        const prev = next[id];
+        if (
+          !prev ||
+          prev.dimensionLMm !== meta.dimensionLMm ||
+          prev.dimensionWMm !== meta.dimensionWMm ||
+          prev.dimensionHMm !== meta.dimensionHMm ||
+          prev.factoryName !== meta.factoryName
+        ) {
+          next[id] = meta;
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
+  }, []);
+
+  useEffect(() => {
+    const ids = [
+      ...new Set(
+        zoneProducts
+          .map((item) => String(item.productId || '').trim())
+          .filter(Boolean),
+      ),
+    ];
+    if (ids.length === 0) return;
+    let cancelled = false;
+    void fetchProductsDisplayMeta(ids).then((meta) => {
+      if (cancelled || Object.keys(meta).length === 0) return;
+      setProductMetaById((current) => ({ ...current, ...meta }));
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [zoneProducts]);
+
   const closePicker = () => {
     setPickerOpen(false);
     setReplacingZoneProductId(null);
@@ -994,7 +1077,10 @@ export function DesignProjectsView() {
     if (products.length === 0) {
       setProductsLoading(true);
       fetchActiveShopifyProducts(1000)
-        .then(setProducts)
+        .then((rows) => {
+          setProducts(rows);
+          mergeProductMetaFromSearch(rows);
+        })
         .finally(() => setProductsLoading(false));
     }
   };
@@ -1011,7 +1097,10 @@ export function DesignProjectsView() {
     if (products.length === 0) {
       setProductsLoading(true);
       fetchActiveShopifyProducts(1000)
-        .then(setProducts)
+        .then((rows) => {
+          setProducts(rows);
+          mergeProductMetaFromSearch(rows);
+        })
         .finally(() => setProductsLoading(false));
     }
   };
@@ -1090,6 +1179,7 @@ export function DesignProjectsView() {
       toast.error('找不到要更換的產品');
       return;
     }
+    mergeProductMetaFromSearch([product]);
     patchProduct(replacingZoneProductId, {
       productId: product.id,
       productTitle: product.title,
@@ -1107,6 +1197,7 @@ export function DesignProjectsView() {
       replaceZoneProduct(product);
       return;
     }
+    mergeProductMetaFromSearch([product]);
     if (!activeProjectId) return;
     const zoneId = pickerZoneId || zones[0]?.id || null;
     if (!zoneId) {
@@ -1769,6 +1860,11 @@ export function DesignProjectsView() {
                     zoneId={zone.id}
                     custom={isCustomZoneProduct(item)}
                     titleLabel={item.productTitle || '未命名產品'}
+                    catalogMeta={
+                      item.productId
+                        ? productMetaById[item.productId] || null
+                        : null
+                    }
                     uploading={uploadingImageId === item.id}
                     deletingProductId={deletingProductId}
                     deletingFeedbackKey={deletingFeedbackKey}
@@ -2279,41 +2375,53 @@ export function DesignProjectsView() {
                 </div>
               ) : (
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-                  {filteredProducts.map((p) => (
-                    <div
-                      key={p.id}
-                      className="overflow-hidden rounded-xl border border-border bg-background"
-                    >
-                      <div className="aspect-[4/3] bg-muted">
-                        {p.imageUrl ? (
-                          <img src={p.imageUrl} alt="" className="h-full w-full object-cover" />
-                        ) : null}
-                      </div>
-                      <div className="space-y-1.5 p-2.5">
-                        <p className="line-clamp-2 text-[15px] font-medium">{p.title}</p>
-                        <div className="flex items-center justify-between gap-1">
-                          <span className="font-mono-data text-[15px] font-bold text-primary">
-                            ${p.salePrice.toLocaleString()}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => void addProductToZone(p)}
-                            className="inline-flex items-center gap-1 rounded-md border border-primary/40 bg-primary/10 px-2 py-1 text-[15px] font-medium text-primary hover:bg-primary/15"
-                          >
-                            {replacingZoneProductId ? (
-                              <>
-                                <RefreshCw className="h-3 w-3" /> 更換
-                              </>
-                            ) : (
-                              <>
-                                <Check className="h-3 w-3" /> 加入
-                              </>
-                            )}
-                          </button>
+                  {filteredProducts.map((p) => {
+                    const dims = formatProductDimensionsMm(
+                      p.dimensionLMm,
+                      p.dimensionWMm,
+                      p.dimensionHMm,
+                    );
+                    return (
+                      <div
+                        key={p.id}
+                        className="overflow-hidden rounded-xl border border-border bg-background"
+                      >
+                        <div className="aspect-[4/3] bg-muted">
+                          {p.imageUrl ? (
+                            <img src={p.imageUrl} alt="" className="h-full w-full object-cover" />
+                          ) : null}
+                        </div>
+                        <div className="space-y-1.5 p-2.5">
+                          <p className="line-clamp-2 text-[15px] font-medium">{p.title}</p>
+                          {dims ? (
+                            <p className="font-mono-data text-[13px] text-muted-foreground">
+                              {dims}
+                            </p>
+                          ) : null}
+                          <div className="flex items-center justify-between gap-1">
+                            <span className="font-mono-data text-[15px] font-bold text-primary">
+                              ${p.salePrice.toLocaleString()}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => void addProductToZone(p)}
+                              className="inline-flex items-center gap-1 rounded-md border border-primary/40 bg-primary/10 px-2 py-1 text-[15px] font-medium text-primary hover:bg-primary/15"
+                            >
+                              {replacingZoneProductId ? (
+                                <>
+                                  <RefreshCw className="h-3 w-3" /> 更換
+                                </>
+                              ) : (
+                                <>
+                                  <Check className="h-3 w-3" /> 加入
+                                </>
+                              )}
+                            </button>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
               {!productsLoading && filteredProducts.length === 0 ? (

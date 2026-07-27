@@ -185,6 +185,7 @@ function mapSearchProduct(r: any, descLimit = 80): SearchProduct {
     dimensionLMm: numOrNullDim(r.dimension_l_mm),
     dimensionWMm: numOrNullDim(r.dimension_w_mm),
     dimensionHMm: numOrNullDim(r.dimension_h_mm),
+    factoryName: String(r.factories_display_name || '').trim() || undefined,
     shopifyProductId: r.shopify_product_id
       ? String(r.shopify_product_id)
       : null,
@@ -195,7 +196,48 @@ function mapSearchProduct(r: any, descLimit = 80): SearchProduct {
 }
 
 const PORTAL_PRODUCT_SELECT =
-  'id,title,description,price,sale_price,image_url,collection,category,color,material,level1_category,level2_category,dimension_l_mm,dimension_w_mm,dimension_h_mm,total_lead_time,shipping_days,delivery_term_name,shopify_product_id';
+  'id,title,description,price,sale_price,image_url,collection,category,color,material,level1_category,level2_category,dimension_l_mm,dimension_w_mm,dimension_h_mm,factories_display_name,total_lead_time,shipping_days,delivery_term_name,shopify_product_id';
+
+/** Lightweight dims + factory for 設計專案 product rows. */
+export type ProductDisplayMeta = {
+  dimensionLMm: number | null;
+  dimensionWMm: number | null;
+  dimensionHMm: number | null;
+  factoryName: string;
+};
+
+export async function fetchProductsDisplayMeta(
+  ids: string[],
+): Promise<Record<string, ProductDisplayMeta>> {
+  const unique = [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
+  const result: Record<string, ProductDisplayMeta> = {};
+  if (unique.length === 0) return result;
+  try {
+    for (let i = 0; i < unique.length; i += 150) {
+      const chunk = unique.slice(i, i + 150);
+      const { data, error } = await supabase
+        .from('products')
+        .select(
+          'id,dimension_l_mm,dimension_w_mm,dimension_h_mm,factories_display_name',
+        )
+        .in('id', chunk);
+      if (error || !data) continue;
+      for (const row of data) {
+        const id = String(row.id || '').trim();
+        if (!id) continue;
+        result[id] = {
+          dimensionLMm: numOrNullDim(row.dimension_l_mm),
+          dimensionWMm: numOrNullDim(row.dimension_w_mm),
+          dimensionHMm: numOrNullDim(row.dimension_h_mm),
+          factoryName: String(row.factories_display_name || '').trim(),
+        };
+      }
+    }
+  } catch {
+    return result;
+  }
+  return result;
+}
 
 /** 依分區內已分配產品的確認狀態計算專案進度 0–100。 */
 export function computeProjectProgress(products: ZoneProduct[]): number {
@@ -494,6 +536,7 @@ export async function fetchActiveShopifyProducts(
           dimensionLMm: source?.dimensionLMm ?? null,
           dimensionWMm: source?.dimensionWMm ?? null,
           dimensionHMm: source?.dimensionHMm ?? null,
+          factoryName: source?.factoryName || undefined,
           category: categories.level2 || categories.level1,
           level1Category: categories.level1,
           level2Category: categories.level2 || undefined,

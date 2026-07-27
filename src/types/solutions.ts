@@ -222,6 +222,8 @@ export interface SearchProduct {
   dimensionLMm?: number | null;
   dimensionWMm?: number | null;
   dimensionHMm?: number | null;
+  /** products.factories_display_name */
+  factoryName?: string;
   /** True only when a linked shopify_products row is currently active. */
   isOnShopify?: boolean;
   shopifyProductId?: string | null;
