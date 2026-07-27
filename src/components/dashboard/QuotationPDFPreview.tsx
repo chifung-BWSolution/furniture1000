@@ -525,15 +525,19 @@ const REMARKS_COL_WIDTH_PT = PDF_TABLE_WIDTH_PT * 0.09;
 const ILLUSTRATION_COL_WIDTH_PT = PDF_TABLE_WIDTH_PT * 0.114;
 
 /**
- * EN needs a slightly wider Description column so "Dimensions (mm)" fits on one line.
+ * EN needs a slightly wider Description column so category/dimension values fit.
  * Transfer just enough width from Materials & Details (sum stays 41.6%).
  * ZH: slightly wider 說明 (+0.8pp from 單價) so ~6 CJK chars fit in 類別 value.
  */
 const PDF_COL_DESC_PCT = { zh: 0.132, en: 0.195 } as const;
 const PDF_COL_MATERIAL_PCT = { zh: 0.292, en: 0.221 } as const;
-/** Label / value split inside Description — ZH ≈ 4:6 so 類別 data gets more room. */
-const PDF_DESC_LABEL_PCT = { zh: 0.4, en: 0.6 } as const;
-const PDF_DESC_VALUE_PCT = { zh: 0.6, en: 0.4 } as const;
+/**
+ * Label / value split inside Description (column width unchanged).
+ * Labels are fixed short text (Category / Dimensions\\n(mm) / Color) — keep them
+ * tight with small padding; give the rest to data. ZH ≈ 4:6; EN ≈ 32:68.
+ */
+const PDF_DESC_LABEL_PCT = { zh: 0.4, en: 0.32 } as const;
+const PDF_DESC_VALUE_PCT = { zh: 0.6, en: 0.68 } as const;
 /** 單價 column — ZH trimmed to fund wider 說明 (EN unchanged). */
 const PDF_COL_UNIT_PRICE_PCT = { zh: 0.097, en: 0.105 } as const;
 
