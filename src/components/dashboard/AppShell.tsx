@@ -463,8 +463,13 @@ export function AppShell() {
 
     if (parsed.kind === 'quote' && parsed.quoteId) {
       setEditingQuoteId(parsed.quoteId);
-      setEditingQuoteUuidRaw(null);
-      setEditingQuoteVersionRaw(parsed.version ?? null);
+      // Do not clear uuid on every deep-link pass — wiping it forces QuickQuote to
+      // re-fetch and briefly unmount step 4 / 提交審核 (black flash + lost wizard state).
+      if (parsed.version) {
+        setEditingQuoteVersionRaw(parsed.version);
+      } else {
+        setEditingQuoteVersionRaw(null);
+      }
       store.setCurrentView('quick-quote');
     }
   }, [location.pathname, location.search, navigate, store, user?.email, setEditingQuoteId]);

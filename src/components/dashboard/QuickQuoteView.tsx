@@ -463,12 +463,20 @@ export function QuickQuoteView({
 
   useEffect(() => {
     if (freshSessionKey === 0) return;
+    // Never wipe an in-progress / loaded quote when the fresh-key bumps (e.g. remount).
+    if (editingQuoteId || loadedQuoteData) return;
     resetToNewQuote();
     // Re-apply PMS query params after wiping local session (deep-link / SSO landing)
     pmsPrefillAppliedRef.current = false;
     pmsDefaultsLoadedForRef.current = null;
     applyPmsPrefillFromUrl();
-  }, [freshSessionKey, resetToNewQuote, applyPmsPrefillFromUrl]);
+  }, [
+    freshSessionKey,
+    resetToNewQuote,
+    applyPmsPrefillFromUrl,
+    editingQuoteId,
+    loadedQuoteData,
+  ]);
 
   // Load PMS industry catalog always; resolve project↔pitching + enrich defaults
   useEffect(() => {
@@ -584,8 +592,20 @@ export function QuickQuoteView({
     const loadKey = `${editingQuoteId}::${editingQuoteUuid || editingQuoteVersion || 'latest'}`;
     if (loadedQuoteIdRef.current === loadKey) return;
 
+    // Same quote already on screen (uuid dropped by URL sync) — just retarget the
+    // cache key; do not full-page reload / unmount the editor.
+    const sameQuoteAlreadyLoaded =
+      loadedQuoteData?.quoteId === editingQuoteId &&
+      Boolean(loadedQuoteData?.quoteUuid);
+    if (sameQuoteAlreadyLoaded && !editingQuoteUuid && !editingQuoteVersion) {
+      loadedQuoteIdRef.current = loadKey;
+      return;
+    }
+
     const loadQuote = async () => {
-      setIsLoadingQuote(true);
+      // Only block the whole view on the first load for this mount.
+      const isInitialLoad = !loadedQuoteData;
+      if (isInitialLoad) setIsLoadingQuote(true);
       try {
         let data: Record<string, unknown> | null = null;
 
@@ -771,18 +791,23 @@ export function QuickQuoteView({
         setIsQuotationReady(true);
         setCurrentStep(4);
       } catch (err: unknown) {
-        loadedQuoteIdRef.current = null;
         const message = err instanceof Error ? err.message : '無法載入報價單';
         toast.error('載入失敗', { description: message });
-        // Go back to list
-        onClearEditingQuote?.();
+        // If the editor already has a snapshot, keep it — exiting to the list (or a
+        // fresh step-1 shell) is what made users see「資料全遺失」after 版本審核.
+        if (!loadedQuoteData) {
+          loadedQuoteIdRef.current = null;
+          onClearEditingQuote?.();
+        } else {
+          loadedQuoteIdRef.current = loadKey;
+        }
       } finally {
         setIsLoadingQuote(false);
       }
     };
 
     loadQuote();
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- onClearEditingQuote is intentionally unstable from parent
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- onClearEditingQuote / loadedQuoteData read for guards only
   }, [editingQuoteId, editingQuoteUuid, editingQuoteVersion, userEmail, authLoading]);
 
   const updateField = (field: keyof QuoteFormData, value: string | string[]) => {
@@ -885,8 +910,12 @@ export function QuickQuoteView({
     }
   };
 
-  // Loading state for fetching an existing quote
-  if (isLoadingQuote || isLoadingCopy) {
+  // Full-page spinner only for the *first* load/copy. Never unmount step-4 editor
+  // (or an open 提交審核 modal) on background re-fetch — that caused a black flash
+  // and wiped in-progress wizard state when users later returned to step 1.
+  const blockUiForInitialLoad =
+    (isLoadingQuote || isLoadingCopy) && !loadedQuoteData && currentStep !== 4;
+  if (blockUiForInitialLoad) {
     return (
       <div className="flex h-full items-center justify-center">
         <div className="flex flex-col items-center gap-3">
@@ -932,12 +961,10 @@ export function QuickQuoteView({
               <button
                 type="button"
                 onClick={() => {
-                  if (loadedQuoteData) {
-                    setLoadedQuoteData(null);
-                    onClearEditingQuote?.();
-                  } else {
-                    setCurrentStep(3);
-                  }
+                  // Stay in the wizard with formData / loaded quote intact.
+                  // (Previously, loaded quotes called onClearEditingQuote → list,
+                  // which felt like「黑屏後資料全遺失」when users re-opened 快速報價.)
+                  setCurrentStep(3);
                 }}
                 className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-border px-4 py-2 font-body text-sm font-medium text-foreground transition-colors hover:bg-accent"
               >
@@ -1062,7 +1089,9 @@ export function QuickQuoteView({
                   </div>
                   <div className="mt-0.5 truncate font-mono-data text-sm font-semibold text-foreground">
                     {selectedPitchingLabel ||
-                      formData.quoteId ||
+                      [formData.quoteId || loadedQuoteData?.quoteId, formData.clientName]
+                        .filter(Boolean)
+                        .join(' · ') ||
                       formData.pmsPitchingId ||
                       '—'}
                   </div>
@@ -1173,7 +1202,7 @@ export function QuickQuoteView({
                     isLoadingPmsDefaults && 'opacity-60',
                   )}
                 >
-                  {formData.quoteId || '—'}
+                  {formData.quoteId || loadedQuoteData?.quoteId || '—'}
                 </div>
                 {errors.quoteId && (
                   <p className="mt-1 text-xs text-red-500">{errors.quoteId}</p>
@@ -1538,13 +1567,7 @@ export function QuickQuoteView({
               initialCopyPayload={copyPayload}
               forceNewQuote={Boolean(copyFromUuid && copyPayload)}
               onBack={() => {
-                if (!unsavedGuard.confirmLeave()) return;
-                if (loadedQuoteData) {
-                  setLoadedQuoteData(null);
-                  onClearEditingQuote?.();
-                } else {
-                  setCurrentStep(3);
-                }
+                setCurrentStep(3);
               }}
               onQuotePersisted={(result) => {
                 writeQuickQuoteCopyFrom(userEmail, null);

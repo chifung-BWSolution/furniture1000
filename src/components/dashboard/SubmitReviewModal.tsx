@@ -107,14 +107,17 @@ export function SubmitReviewModal({
       const parsed = parseQuotePathname(window.location.pathname);
       return parsed.kind === 'quote' ? parsed.quoteId : '';
     })();
-    lockedChainIdRef.current = pickQuoteChainId(
+    const locked = pickQuoteChainId(
       quoteIdProp,
       existingQuoteId,
       pitchingCode,
       typeof meta?.quoteNumber === 'string' ? meta.quoteNumber : null,
       typeof meta?.projectName === 'string' ? meta.projectName : null,
       fromUrl,
+      lockedChainIdRef.current,
     );
+    // Never clear a previously locked id if a transient re-render lost props.
+    if (locked) lockedChainIdRef.current = locked;
     const defaultName = (staffName ?? user?.email ?? '').trim();
     if (!defaultName) return;
     setSubmitter((prev) => (prev.trim() ? prev : defaultName));
