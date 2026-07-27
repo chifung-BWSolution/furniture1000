@@ -513,6 +513,7 @@ function ZoneProductRow({
     ? (item.dimensionHMm ?? null)
     : (catalogMeta?.dimensionHMm ?? null);
   const factoryName = (catalogMeta?.factoryName || '').trim();
+  const sku = (catalogMeta?.sku || '').trim();
   const canUploadImage = custom || !item.productImageUrl;
 
   const commitDimAxis = (
@@ -653,12 +654,24 @@ function ZoneProductRow({
                     {item.productTitle}
                   </p>
                 )}
-                {factoryName ? (
-                  <span className="inline-flex max-w-full items-center rounded-full border border-border bg-muted/60 px-2.5 py-0.5 text-[12px] font-medium text-muted-foreground">
-                    <span className="truncate" title={factoryName}>
-                      {factoryName}
-                    </span>
-                  </span>
+                {factoryName || sku ? (
+                  <div className="flex max-w-full flex-wrap items-center gap-1.5">
+                    {factoryName ? (
+                      <span className="inline-flex max-w-full items-center rounded-full border border-border bg-muted/60 px-2.5 py-0.5 text-[12px] font-medium text-muted-foreground">
+                        <span className="truncate" title={factoryName}>
+                          {factoryName}
+                        </span>
+                      </span>
+                    ) : null}
+                    {sku ? (
+                      <span
+                        className="inline-flex max-w-full items-center rounded-full border border-border bg-muted/40 px-2.5 py-0.5 font-mono text-[12px] font-medium text-muted-foreground"
+                        title={`SKU ${sku}`}
+                      >
+                        <span className="truncate">SKU {sku}</span>
+                      </span>
+                    ) : null}
+                  </div>
                 ) : null}
               </div>
               <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -1382,19 +1395,22 @@ export function DesignProjectsView() {
       for (const row of rows) {
         const id = String(row.id || '').trim();
         if (!id) continue;
+        const prev = next[id];
         const meta: ProductDisplayMeta = {
           dimensionLMm: row.dimensionLMm ?? null,
           dimensionWMm: row.dimensionWMm ?? null,
           dimensionHMm: row.dimensionHMm ?? null,
           factoryName: (row.factoryName || '').trim(),
+          // Prefer search/Shopify SKU; keep previously loaded catalog SKU as fallback.
+          sku: (row.sku || prev?.sku || '').trim(),
         };
-        const prev = next[id];
         if (
           !prev ||
           prev.dimensionLMm !== meta.dimensionLMm ||
           prev.dimensionWMm !== meta.dimensionWMm ||
           prev.dimensionHMm !== meta.dimensionHMm ||
-          prev.factoryName !== meta.factoryName
+          prev.factoryName !== meta.factoryName ||
+          prev.sku !== meta.sku
         ) {
           next[id] = meta;
           changed = true;

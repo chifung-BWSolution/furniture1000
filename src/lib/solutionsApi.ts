@@ -192,6 +192,7 @@ function mapSearchProduct(r: any, descLimit = 80): SearchProduct {
     shopifyProductId: r.shopify_product_id
       ? String(r.shopify_product_id)
       : null,
+    sku: r.sku ? String(r.sku).trim() || undefined : undefined,
     tier: deriveTier(sale),
     inStock: (r.delivery_term_name ?? '').includes('現貨') || (r.total_lead_time ?? 99) <= 7,
     deliveryDays: r.total_lead_time ?? r.shipping_days ?? 14,
@@ -199,14 +200,15 @@ function mapSearchProduct(r: any, descLimit = 80): SearchProduct {
 }
 
 const PORTAL_PRODUCT_SELECT =
-  'id,title,description,price,sale_price,image_url,collection,category,color,material,level1_category,level2_category,dimension_l_mm,dimension_w_mm,dimension_h_mm,factories_display_name,total_lead_time,shipping_days,delivery_term_name,shopify_product_id';
+  'id,title,description,price,sale_price,image_url,collection,category,color,material,level1_category,level2_category,dimension_l_mm,dimension_w_mm,dimension_h_mm,factories_display_name,total_lead_time,shipping_days,delivery_term_name,shopify_product_id,sku';
 
-/** Lightweight dims + factory for 設計專案 product rows. */
+/** Lightweight dims + factory + SKU for 設計專案 product rows. */
 export type ProductDisplayMeta = {
   dimensionLMm: number | null;
   dimensionWMm: number | null;
   dimensionHMm: number | null;
   factoryName: string;
+  sku: string;
 };
 
 export async function fetchProductsDisplayMeta(
@@ -221,7 +223,7 @@ export async function fetchProductsDisplayMeta(
       const { data, error } = await supabase
         .from('products')
         .select(
-          'id,dimension_l_mm,dimension_w_mm,dimension_h_mm,factories_display_name',
+          'id,dimension_l_mm,dimension_w_mm,dimension_h_mm,factories_display_name,sku',
         )
         .in('id', chunk);
       if (error || !data) continue;
@@ -233,6 +235,26 @@ export async function fetchProductsDisplayMeta(
           dimensionWMm: numOrNullDim(row.dimension_w_mm),
           dimensionHMm: numOrNullDim(row.dimension_h_mm),
           factoryName: String(row.factories_display_name || '').trim(),
+          sku: String(row.sku || '').trim(),
+        };
+      }
+    }
+    // Prefer active Shopify main-product SKU when available.
+    const shopifyInfo = await fetchActiveMainProductInfo(
+      unique.map((id) => ({ key: id, productId: id })),
+    );
+    for (const id of unique) {
+      const shopifySku = (shopifyInfo[id]?.sku || '').trim();
+      if (!shopifySku || shopifySku === '—') continue;
+      if (result[id]) {
+        result[id] = { ...result[id], sku: shopifySku };
+      } else {
+        result[id] = {
+          dimensionLMm: null,
+          dimensionWMm: null,
+          dimensionHMm: null,
+          factoryName: '',
+          sku: shopifySku,
         };
       }
     }
