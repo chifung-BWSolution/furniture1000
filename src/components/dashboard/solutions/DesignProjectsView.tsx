@@ -1816,19 +1816,6 @@ export function DesignProjectsView() {
                     尚未儲存
                   </span>
                 ) : null}
-                <button
-                  type="button"
-                  disabled={!project || savingFurniture || loading}
-                  onClick={() => void saveFurniture()}
-                  className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-[15px] font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-60"
-                >
-                  {savingFurniture ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Save className="h-4 w-4" />
-                  )}
-                  儲存
-                </button>
                 <span className="font-mono-data text-[15px] text-muted-foreground">
                   {zones.length} 個間隔 · {zoneProducts.filter((z) => z.zoneId).length} 件產品
                 </span>
@@ -1884,11 +1871,6 @@ export function DesignProjectsView() {
                       {group.zones.length} 個{group.label}
                     </p>
                   </div>
-                  {groupIndex === 0 ? (
-                    <p className="pb-0.5 font-mono-data text-base font-bold text-foreground">
-                      總計 : HKD ${furnitureGrandTotal.toLocaleString()}
-                    </p>
-                  ) : null}
                 </div>
                 <div className="space-y-3">
                 {group.zones.map((zone) => {
@@ -2108,7 +2090,10 @@ export function DesignProjectsView() {
           )}
 
           {!loading && zones.length > 0 ? (
-            <div className="flex justify-end pt-2">
+            <div className="flex flex-col items-end gap-3 pt-2">
+              <p className="font-mono-data text-base font-bold text-foreground">
+                總計 : HKD ${furnitureGrandTotal.toLocaleString()}
+              </p>
               <button
                 type="button"
                 onClick={() => void submitProject()}
