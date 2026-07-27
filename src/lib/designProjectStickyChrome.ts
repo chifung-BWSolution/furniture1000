@@ -4,6 +4,8 @@ export type DesignProjectStickyZoneChip = {
   key: string;
   label: string;
   count: number;
+  /** Sum of planned furniture-division quantities across zones in this group. */
+  plannedTotal?: number;
 };
 
 export type DesignProjectStickyChrome = {

@@ -230,6 +230,50 @@ function normalizeFurnitureDivisions(
   return next;
 }
 
+function normalizeOptionalZoneProductIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const ids = value
+    .map((id) => String(id || '').trim())
+    .filter(Boolean);
+  return [...new Set(ids)];
+}
+
+function withOptionalFlags(
+  products: ZoneProduct[],
+  optionalIds: Iterable<string>,
+): ZoneProduct[] {
+  const optionalSet = new Set(
+    [...optionalIds].map((id) => String(id || '').trim()).filter(Boolean),
+  );
+  return products.map((product) => ({
+    ...product,
+    isOptional: optionalSet.has(product.id),
+  }));
+}
+
+function zoneProductPieceCount(item: ZoneProduct): number {
+  return Math.max(1, Math.floor(Number(item.quantity) || 1));
+}
+
+/** Line total for zone 小計 / project 總計 — 可選 products contribute 0. */
+function zoneProductBillableTotal(item: ZoneProduct): number {
+  if (item.isOptional) return 0;
+  return Number(item.salePrice || 0) * zoneProductPieceCount(item);
+}
+
+function plannedFurnitureTotalForZones(
+  zoneIds: string[],
+  divisions: Record<string, ZoneFurnitureDivision[]>,
+): number {
+  let total = 0;
+  for (const zoneId of zoneIds) {
+    for (const row of divisions[zoneId] || []) {
+      total += Math.max(0, Math.floor(Number(row.quantity) || 0));
+    }
+  }
+  return total;
+}
+
 function parseSqftInput(value: string): number | null {
   const trimmed = value.trim();
   if (!trimmed) return null;
@@ -320,6 +364,7 @@ function ZoneProductRow({
   onSetQuantity,
   onSetStatus,
   onRemove,
+  onToggleOptional,
   onSetTitle,
   onSetSalePrice,
   onSetDimensions,
@@ -340,6 +385,7 @@ function ZoneProductRow({
   onSetQuantity: (item: ZoneProduct, quantity: number) => void;
   onSetStatus: (id: string, status: ZoneProductStatus) => void;
   onRemove: (item: ZoneProduct) => void;
+  onToggleOptional: (item: ZoneProduct) => void;
   onSetTitle: (item: ZoneProduct, value: string) => void;
   onSetSalePrice: (item: ZoneProduct, value: number) => void;
   onSetDimensions: (
@@ -472,15 +518,26 @@ function ZoneProductRow({
                     className="h-9 w-28 rounded-lg border border-border bg-background px-2 font-mono-data text-[15px] text-primary outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
                     aria-label="單價"
                   />
-                  <span className="font-mono-data text-primary">
+                  <span
+                    className={cn(
+                      'font-mono-data',
+                      item.isOptional ? 'text-muted-foreground' : 'text-primary',
+                    )}
+                  >
                     × {item.quantity} = 小計 $
                     {(
                       Number(item.salePrice || 0) * item.quantity
                     ).toLocaleString()}
+                    {item.isOptional ? '（可選，不計入總計）' : ''}
                   </span>
                 </div>
               ) : (
-                <p className="font-mono-data text-[15px] text-primary">
+                <p
+                  className={cn(
+                    'font-mono-data text-[15px]',
+                    item.isOptional ? 'text-muted-foreground' : 'text-primary',
+                  )}
+                >
                   單價 ${Number(item.salePrice || 0).toLocaleString()} ×{' '}
                   {item.quantity}
                   {' = '}
@@ -488,10 +545,11 @@ function ZoneProductRow({
                   {(
                     Number(item.salePrice || 0) * item.quantity
                   ).toLocaleString()}
+                  {item.isOptional ? '（可選，不計入總計）' : ''}
                 </p>
               )}
             </div>
-            <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <div className="flex shrink-0 flex-wrap items-start gap-2">
               <button
                 type="button"
                 onClick={() => onOpenPicker(item.zoneId || zoneId, item.id)}
@@ -545,20 +603,40 @@ function ZoneProductRow({
                 <option value="discussing">待討論</option>
                 <option value="confirmed">已確定</option>
               </select>
-              <button
-                type="button"
-                disabled={deletingProductId === item.id}
-                onClick={() => onRemove(item)}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/30 px-2.5 py-1.5 text-[15px] font-medium text-rose-600 hover:bg-rose-500/10 disabled:opacity-50"
-                title="從間隔移除產品"
-              >
-                {deletingProductId === item.id ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Trash2 className="h-4 w-4" />
-                )}
-                刪除
-              </button>
+              <div className="flex flex-col gap-1.5">
+                <button
+                  type="button"
+                  disabled={deletingProductId === item.id}
+                  onClick={() => onRemove(item)}
+                  className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-rose-500/30 px-2.5 py-1.5 text-[15px] font-medium text-rose-600 hover:bg-rose-500/10 disabled:opacity-50"
+                  title="從間隔移除產品"
+                >
+                  {deletingProductId === item.id ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="h-4 w-4" />
+                  )}
+                  刪除
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onToggleOptional(item)}
+                  className={cn(
+                    'inline-flex items-center justify-center rounded-lg border px-2.5 py-1.5 text-[15px] font-medium transition-colors',
+                    item.isOptional
+                      ? 'border-amber-500/40 bg-amber-500/10 text-amber-700'
+                      : 'border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground',
+                  )}
+                  title={
+                    item.isOptional
+                      ? '取消可選：價錢將重新計入總計'
+                      : '標記為可選：價錢不計入總計，產品仍顯示'
+                  }
+                  aria-pressed={Boolean(item.isOptional)}
+                >
+                  可選
+                </button>
+              </div>
             </div>
           </div>
 
@@ -898,8 +976,11 @@ export function DesignProjectsView() {
       if (gen !== reloadGenRef.current) return;
 
       // Paint first — never block the spinner on sequential zone sync.
+      const optionalIds = normalizeOptionalZoneProductIds(
+        projectRow?.meta?.optionalZoneProductIds,
+      );
       setZones(z);
-      setZoneProducts(zp);
+      setZoneProducts(withOptionalFlags(zp, optionalIds));
       setFurnitureDirty(false);
       setLoading(false);
 
@@ -953,7 +1034,7 @@ export function DesignProjectsView() {
         const nextProducts = await fetchZoneProducts(projectId);
         if (gen !== reloadGenRef.current) return synced.data;
         setZones(synced.data);
-        setZoneProducts(nextProducts);
+        setZoneProducts(withOptionalFlags(nextProducts, optionalIds));
         toast.success('已同步房間清單', {
           description: '已與方案列表的房間類型及數量對齊',
         });
@@ -1140,8 +1221,7 @@ export function DesignProjectsView() {
   const furnitureGrandTotal = useMemo(
     () =>
       zoneProducts.reduce(
-        (sum, item) =>
-          sum + Number(item.salePrice || 0) * Math.max(1, item.quantity || 1),
+        (sum, item) => sum + zoneProductBillableTotal(item),
         0,
       ),
     [zoneProducts],
@@ -1557,6 +1637,10 @@ export function DesignProjectsView() {
     patchProduct(item.id, { quantity });
   };
 
+  const toggleOptional = (item: ZoneProduct) => {
+    patchProduct(item.id, { isOptional: !item.isOptional });
+  };
+
   const saveFurniture = async () => {
     if (!project || savingFurniture) return;
     if (typeof document !== 'undefined') {
@@ -1567,12 +1651,16 @@ export function DesignProjectsView() {
     try {
       // Allow controlled inputs to flush latest keystrokes into state.
       await new Promise((resolve) => window.setTimeout(resolve, 0));
+      const optionalZoneProductIds = zoneProducts
+        .filter((product) => product.isOptional)
+        .map((product) => product.id);
       const projectWithPlanning = {
         ...project,
         meta: {
           ...project.meta,
           zoneAreasSqft: zoneAreasSqftMetaFromState(zoneAreasSqft),
           furnitureDivisions,
+          optionalZoneProductIds,
           furnitureSnapshot: project.meta?.furnitureSnapshot,
         },
       };
@@ -1585,7 +1673,9 @@ export function DesignProjectsView() {
         toast.error('儲存失敗', { description: result.error });
         return;
       }
-      setZoneProducts(result.data.products);
+      setZoneProducts(
+        withOptionalFlags(result.data.products, optionalZoneProductIds),
+      );
       setProjects((current) =>
         current.map((row) =>
           row.id === project.id
@@ -1595,6 +1685,7 @@ export function DesignProjectsView() {
                   ...row.meta,
                   zoneAreasSqft: zoneAreasSqftMetaFromState(zoneAreasSqft),
                   furnitureDivisions,
+                  optionalZoneProductIds,
                   furnitureSnapshot: result.data!.snapshot,
                 },
               }
@@ -1619,6 +1710,9 @@ export function DesignProjectsView() {
     }
     setConfirmingProject(true);
     if (furnitureDirty) {
+      const optionalZoneProductIds = zoneProducts
+        .filter((product) => product.isOptional)
+        .map((product) => product.id);
       const flushed = await persistDesignProjectFurniture({
         project: {
           ...project,
@@ -1626,6 +1720,7 @@ export function DesignProjectsView() {
             ...project.meta,
             zoneAreasSqft: zoneAreasSqftMetaFromState(zoneAreasSqft),
             furnitureDivisions,
+            optionalZoneProductIds,
           },
         },
         zones,
@@ -1636,7 +1731,9 @@ export function DesignProjectsView() {
         toast.error('提交前儲存失敗', { description: flushed.error });
         return;
       }
-      setZoneProducts(flushed.data.products);
+      setZoneProducts(
+        withOptionalFlags(flushed.data.products, optionalZoneProductIds),
+      );
       setProjects((current) =>
         current.map((row) =>
           row.id === project.id
@@ -1644,6 +1741,9 @@ export function DesignProjectsView() {
                 ...row,
                 meta: {
                   ...row.meta,
+                  zoneAreasSqft: zoneAreasSqftMetaFromState(zoneAreasSqft),
+                  furnitureDivisions,
+                  optionalZoneProductIds,
                   furnitureSnapshot: flushed.data!.snapshot,
                 },
               }
@@ -1696,6 +1796,10 @@ export function DesignProjectsView() {
         key: group.key,
         label: group.label,
         count: group.zones.length,
+        plannedTotal: plannedFurnitureTotalForZones(
+          group.zones.map((zone) => zone.id),
+          furnitureDivisions,
+        ),
       })),
       saving: savingFurniture,
       hasFloorPlan: Boolean(project.floorPlanUrl),
@@ -1706,6 +1810,7 @@ export function DesignProjectsView() {
     // Depend on stable project fields only — not the whole `project` object
     // (sqft keystrokes used to rewrite project.meta and republish TopBar every char).
   }, [
+    furnitureDivisions,
     partitionHeaderPinned,
     project?.floorPlanUrl,
     project?.id,
@@ -1975,7 +2080,12 @@ export function DesignProjectsView() {
                 <span className="mr-1 text-[15px] font-semibold text-muted-foreground">
                   間隔數量
                 </span>
-                {zoneGroups.map((group) => (
+                {zoneGroups.map((group) => {
+                  const plannedTotal = plannedFurnitureTotalForZones(
+                    group.zones.map((zone) => zone.id),
+                    furnitureDivisions,
+                  );
+                  return (
                   <button
                     key={group.key}
                     type="button"
@@ -1989,8 +2099,15 @@ export function DesignProjectsView() {
                     <span className="text-muted-foreground">
                       ：{group.zones.length}
                     </span>
+                    {plannedTotal > 0 ? (
+                      <span className="text-muted-foreground">
+                        {' '}
+                        × 總數 {plannedTotal}
+                      </span>
+                    ) : null}
                   </button>
-                ))}
+                  );
+                })}
               </div>
             ) : null}
           </div>
@@ -2015,6 +2132,17 @@ export function DesignProjectsView() {
                   <div>
                     <h3 className="font-display text-lg font-bold">
                       {group.label}
+                      {(() => {
+                        const plannedTotal = plannedFurnitureTotalForZones(
+                          group.zones.map((zone) => zone.id),
+                          furnitureDivisions,
+                        );
+                        return plannedTotal > 0 ? (
+                          <span className="ml-2 text-[15px] font-semibold text-muted-foreground">
+                            × 總數 {plannedTotal}
+                          </span>
+                        ) : null;
+                      })()}
                     </h3>
                     <p className="mt-0.5 text-[15px] text-muted-foreground">
                       {group.zones.length} 個{group.label}
@@ -2055,6 +2183,7 @@ export function DesignProjectsView() {
                     onRemove={(row) => {
                       void removeProduct(row);
                     }}
+                    onToggleOptional={toggleOptional}
                     onSetTitle={setProductTitle}
                     onSetSalePrice={setSalePrice}
                     onSetDimensions={setDimensions}
@@ -2136,24 +2265,35 @@ export function DesignProjectsView() {
                             const divisionItems = items.filter((item) =>
                               (division.productIds || []).includes(item.id),
                             );
+                            const addedCount = divisionItems.reduce(
+                              (sum, item) => sum + zoneProductPieceCount(item),
+                              0,
+                            );
+                            const shortage =
+                              addedCount < Math.max(1, division.quantity || 1);
                             const label = division.level2
                               ? `${division.level1} > ${division.level2}`
                               : division.level1;
                             return (
                               <div key={division.id}>
                                 <div className="flex flex-wrap items-center justify-between gap-2 bg-muted/15 px-5 py-3">
-                                  <div>
+                                  <div className="min-w-0">
                                     <p className="font-display text-[15px] font-bold text-foreground">
                                       {label}
                                     </p>
                                     <p className="text-[14px] text-muted-foreground">
                                       {division.quantity} 件傢俬
-                                      {divisionItems.length > 0
-                                        ? ` · 已加入 ${divisionItems.length}`
+                                      {addedCount > 0
+                                        ? ` · 已加入 ${addedCount}`
                                         : ''}
                                     </p>
                                   </div>
-                                  <div className="flex flex-wrap items-center gap-2">
+                                  <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+                                    {shortage ? (
+                                      <p className="text-[13px] font-semibold text-rose-600">
+                                        產品數量與計劃不符，請加入產品
+                                      </p>
+                                    ) : null}
                                     <button
                                       type="button"
                                       onClick={() =>
@@ -2218,8 +2358,7 @@ export function DesignProjectsView() {
                           {items
                             .reduce(
                               (sum, item) =>
-                                sum +
-                                Number(item.salePrice || 0) * item.quantity,
+                                sum + zoneProductBillableTotal(item),
                               0,
                             )
                             .toLocaleString()}

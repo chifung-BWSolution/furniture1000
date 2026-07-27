@@ -1104,6 +1104,7 @@ export async function persistDesignProjectFurniture(input: {
       const zone = product.zoneId ? zoneById.get(product.zoneId) : undefined;
       const salePrice = Number(product.salePrice) || 0;
       const quantity = product.quantity || 1;
+      const isOptional = Boolean(product.isOptional);
       return {
         id: product.id,
         zoneId: product.zoneId,
@@ -1114,7 +1115,7 @@ export async function persistDesignProjectFurniture(input: {
         productImageUrl: product.productImageUrl,
         salePrice,
         quantity,
-        subtotal: salePrice * quantity,
+        subtotal: isOptional ? 0 : salePrice * quantity,
         notes: product.notes || '',
         status: product.status,
         scheme: product.scheme,
@@ -1122,8 +1123,13 @@ export async function persistDesignProjectFurniture(input: {
         dimensionLMm: product.dimensionLMm ?? null,
         dimensionWMm: product.dimensionWMm ?? null,
         dimensionHMm: product.dimensionHMm ?? null,
+        isOptional,
       };
     });
+
+    const optionalZoneProductIds = normalized
+      .filter((product) => product.isOptional)
+      .map((product) => product.id);
 
     const snapshot: FurnitureSnapshot = {
       savedAt: new Date().toISOString(),
@@ -1137,6 +1143,7 @@ export async function persistDesignProjectFurniture(input: {
     const meta = {
       ...project.meta,
       furnitureSnapshot: snapshot,
+      optionalZoneProductIds,
     };
     const saved = await saveProject(project.id, { meta });
     if (!saved.ok) {

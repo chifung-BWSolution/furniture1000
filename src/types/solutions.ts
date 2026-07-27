@@ -50,6 +50,11 @@ export interface ZoneProduct {
   dimensionLMm?: number | null;
   dimensionWMm?: number | null;
   dimensionHMm?: number | null;
+  /**
+   * Optional / 可選 line — still shown on 設計專案, but excluded from
+   * zone 小計 and project 總計. Persisted via design_projects.meta.
+   */
+  isOptional?: boolean;
 }
 
 /** Custom room rows created via「新增房間」, stored in design_projects.meta. */
@@ -71,7 +76,7 @@ export interface FurnitureSnapshotItem {
   productImageUrl: string;
   salePrice: number;
   quantity: number;
-  /** salePrice × quantity */
+  /** salePrice × quantity (0 when isOptional). */
   subtotal: number;
   notes: string;
   status: ZoneProductStatus;
@@ -80,6 +85,8 @@ export interface FurnitureSnapshotItem {
   dimensionLMm?: number | null;
   dimensionWMm?: number | null;
   dimensionHMm?: number | null;
+  /** Optional line — excluded from snapshot grandTotal. */
+  isOptional?: boolean;
 }
 
 /** Full furniture inventory snapshot under design_projects.meta. */
@@ -148,6 +155,8 @@ export interface DesignProjectMeta {
    * (一級分類 / 二級分類 + quantity), with assigned zone_product ids.
    */
   furnitureDivisions?: Record<string, ZoneFurnitureDivision[]>;
+  /** zone_products.id marked 可選 — excluded from furniture totals. */
+  optionalZoneProductIds?: string[];
   [key: string]: unknown;
 }
 
