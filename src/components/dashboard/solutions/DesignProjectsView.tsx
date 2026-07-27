@@ -794,7 +794,8 @@ export function DesignProjectsView() {
   const pageScrollRef = useRef<HTMLDivElement | null>(null);
   const partitionStickySentinelRef = useRef<HTMLDivElement | null>(null);
   const [partitionHeaderPinned, setPartitionHeaderPinned] = useState(false);
-  const confirmProjectRef = useRef<() => void>(() => {});
+  const saveFurnitureRef = useRef<() => void>(() => {});
+  const openFloorPlanRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     const node = partitionStickySentinelRef.current;
@@ -1068,7 +1069,7 @@ export function DesignProjectsView() {
         ),
       );
       setFurnitureDirty(false);
-      toast.success('已儲存傢俬配置', {
+      toast.success('已儲存方案', {
         description: `${result.data.snapshot.zoneCount} 個間隔 · ${result.data.snapshot.productCount} 件產品已寫入 design_projects`,
       });
     } finally {
@@ -1076,7 +1077,7 @@ export function DesignProjectsView() {
     }
   };
 
-  const confirmProject = async () => {
+  const submitProject = async () => {
     if (!project || confirmingProject) return;
     const selectedProducts = zoneProducts.filter((product) => product.zoneId);
     if (zones.length === 0 || selectedProducts.length === 0) {
@@ -1092,7 +1093,7 @@ export function DesignProjectsView() {
       });
       if (!flushed.ok || !flushed.data) {
         setConfirmingProject(false);
-        toast.error('確定前儲存失敗', { description: flushed.error });
+        toast.error('提交前儲存失敗', { description: flushed.error });
         return;
       }
       setZoneProducts(flushed.data.products);
@@ -1117,7 +1118,7 @@ export function DesignProjectsView() {
     });
     setConfirmingProject(false);
     if (!result.ok) {
-      toast.error('確定方案失敗', { description: result.error });
+      toast.error('提交方案失敗', { description: result.error });
       return;
     }
     setProjects((current) =>
@@ -1127,14 +1128,21 @@ export function DesignProjectsView() {
           : row,
       ),
     );
-    toast.success('方案已確定', {
-      description: `${zones.length} 個間隔 · ${selectedProducts.length} 件產品`,
+    toast.success('方案已提交', {
+      description: `${zones.length} 個間隔 · ${selectedProducts.length} 件產品；已標示為已確認`,
     });
     appStore.setCurrentView('confirmed-projects');
   };
 
-  confirmProjectRef.current = () => {
-    void confirmProject();
+  saveFurnitureRef.current = () => {
+    void saveFurniture();
+  };
+  openFloorPlanRef.current = () => {
+    if (!project?.floorPlanUrl) {
+      toast.error('尚未上傳平面圖');
+      return;
+    }
+    setFloorPlanViewerOpen(true);
   };
 
   useEffect(() => {
@@ -1149,14 +1157,16 @@ export function DesignProjectsView() {
         label: group.label,
         count: group.zones.length,
       })),
-      confirming: confirmingProject,
-      onConfirm: () => confirmProjectRef.current(),
+      saving: savingFurniture,
+      hasFloorPlan: Boolean(project.floorPlanUrl),
+      onSave: () => saveFurnitureRef.current(),
+      onViewFloorPlan: () => openFloorPlanRef.current(),
       onJump: (label) => scrollToZoneGroup(label),
     });
   }, [
-    confirmingProject,
     partitionHeaderPinned,
     project,
+    savingFurniture,
     scrollToZoneGroup,
     zoneGroups,
   ]);
@@ -1297,19 +1307,31 @@ export function DesignProjectsView() {
                 {pmNames[project.id] || '正在讀取…'}
               </span>
             </div>
-            <button
-              type="button"
-              onClick={() => void confirmProject()}
-              disabled={confirmingProject}
-              className="mt-1 inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-[15px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
-            >
-              {confirmingProject ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <CheckCircle2 className="h-4 w-4" />
-              )}
-              確定方案
-            </button>
+            <div className="mt-1 flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={!hasFloorPlan}
+                onClick={() => setFloorPlanViewerOpen(true)}
+                className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg border border-border bg-background px-4 py-2.5 text-[15px] font-semibold text-foreground hover:bg-muted disabled:opacity-50"
+                title={hasFloorPlan ? '檢視平面圖' : '尚未上傳平面圖'}
+              >
+                <ZoomIn className="h-4 w-4" />
+                檢視平面圖
+              </button>
+              <button
+                type="button"
+                onClick={() => void saveFurniture()}
+                disabled={savingFurniture || loading}
+                className="inline-flex flex-1 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-[15px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+              >
+                {savingFurniture ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4" />
+                )}
+                儲存方案
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -1552,6 +1574,24 @@ export function DesignProjectsView() {
             ))}
             </div>
           )}
+
+          {!loading && zones.length > 0 ? (
+            <div className="flex justify-end pt-2">
+              <button
+                type="button"
+                onClick={() => void submitProject()}
+                disabled={confirmingProject || savingFurniture}
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-5 py-3 text-[15px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+              >
+                {confirmingProject ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="h-4 w-4" />
+                )}
+                提交方案
+              </button>
+            </div>
+          ) : null}
         </section>
 
       </div>

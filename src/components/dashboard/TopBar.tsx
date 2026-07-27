@@ -7,7 +7,7 @@ import {
   Save,
   Loader2,
   Check,
-  CheckCircle2,
+  ZoomIn,
   Moon,
   Sun,
 } from 'lucide-react';
@@ -102,19 +102,33 @@ export function TopBar({
               <p className="text-[13px] text-muted-foreground">尚無間隔</p>
             )}
           </div>
-          <button
-            type="button"
-            onClick={() => designSticky.onConfirm()}
-            disabled={designSticky.confirming}
-            className="ml-auto inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-[15px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
-          >
-            {designSticky.confirming ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <CheckCircle2 className="h-4 w-4" />
-            )}
-            確定方案
-          </button>
+          <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => designSticky.onViewFloorPlan()}
+              disabled={!designSticky.hasFloorPlan}
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-[15px] font-semibold text-foreground hover:bg-muted disabled:opacity-50"
+              title={
+                designSticky.hasFloorPlan ? '檢視平面圖' : '尚未上傳平面圖'
+              }
+            >
+              <ZoomIn className="h-4 w-4" />
+              檢視平面圖
+            </button>
+            <button
+              type="button"
+              onClick={() => designSticky.onSave()}
+              disabled={designSticky.saving}
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-[15px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+            >
+              {designSticky.saving ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4" />
+              )}
+              儲存方案
+            </button>
+          </div>
         </div>
       </header>
     );

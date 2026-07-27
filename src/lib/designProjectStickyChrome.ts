@@ -9,8 +9,10 @@ export type DesignProjectStickyZoneChip = {
 export type DesignProjectStickyChrome = {
   active: boolean;
   zoneGroups: DesignProjectStickyZoneChip[];
-  confirming: boolean;
-  onConfirm: () => void;
+  saving: boolean;
+  hasFloorPlan: boolean;
+  onSave: () => void;
+  onViewFloorPlan: () => void;
   onJump: (label: string) => void;
 };
 
