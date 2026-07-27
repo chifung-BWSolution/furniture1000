@@ -292,6 +292,23 @@ function formatPlannedFurnitureTotalLabel(plannedTotal: number): string {
 }
 
 /**
+ * Product total shown on 間隔數量 chips — same number as the zone header
+ * 「× 總數 N件傢俬」(planned division qty), falling back to actual pieces.
+ */
+function zoneGroupProductTotal(
+  zoneIds: string[],
+  divisions: Record<string, ZoneFurnitureDivision[]>,
+  products: ZoneProduct[],
+): number {
+  const planned = plannedFurnitureTotalForZones(zoneIds, divisions);
+  if (planned > 0) return planned;
+  const zoneIdSet = new Set(zoneIds);
+  return products
+    .filter((product) => product.zoneId && zoneIdSet.has(product.zoneId))
+    .reduce((sum, product) => sum + zoneProductPieceCount(product), 0);
+}
+
+/**
  * Divisions where non-optional piece count exceeds the planned quantity.
  * Excess lines must be marked 可選 (or removed) before save.
  */
@@ -1910,15 +1927,18 @@ export function DesignProjectsView() {
     }
     publishDesignProjectStickyChrome({
       active: partitionHeaderPinned,
-      zoneGroups: zoneGroups.map((group) => ({
-        key: group.key,
-        label: group.label,
-        count: group.zones.length,
-        plannedTotal: plannedFurnitureTotalForZones(
-          group.zones.map((zone) => zone.id),
-          furnitureDivisions,
-        ),
-      })),
+      zoneGroups: zoneGroups.map((group) => {
+        const zoneIds = group.zones.map((zone) => zone.id);
+        return {
+          key: group.key,
+          label: group.label,
+          count: zoneGroupProductTotal(
+            zoneIds,
+            furnitureDivisions,
+            zoneProducts,
+          ),
+        };
+      }),
       saving: savingFurniture,
       hasFloorPlan: Boolean(project.floorPlanUrl),
       onSave: () => saveFurnitureRef.current(),
@@ -1935,6 +1955,7 @@ export function DesignProjectsView() {
     savingFurniture,
     scrollToZoneGroup,
     zoneGroups,
+    zoneProducts,
   ]);
 
   const factoryOptions = useMemo(
@@ -2230,9 +2251,11 @@ export function DesignProjectsView() {
                   間隔數量
                 </span>
                 {zoneGroups.map((group) => {
-                  const plannedTotal = plannedFurnitureTotalForZones(
-                    group.zones.map((zone) => zone.id),
+                  const zoneIds = group.zones.map((zone) => zone.id);
+                  const productTotal = zoneGroupProductTotal(
+                    zoneIds,
                     furnitureDivisions,
+                    zoneProducts,
                   );
                   return (
                   <button
@@ -2240,20 +2263,14 @@ export function DesignProjectsView() {
                     type="button"
                     onClick={() => scrollToZoneGroup(group.label)}
                     className="inline-flex items-center gap-1 rounded-lg border border-primary/20 bg-primary/5 px-3 py-1.5 text-[15px] transition-colors hover:border-primary/50 hover:bg-primary/10"
-                    title={`跳至「${group.label}」`}
+                    title={`跳至「${group.label}」· 產品總數 ${productTotal}`}
                   >
                     <span className="font-semibold text-foreground">
                       {group.label}
                     </span>
                     <span className="text-muted-foreground">
-                      ：{group.zones.length}
+                      ：{productTotal}
                     </span>
-                    {plannedTotal > 0 ? (
-                      <span className="text-muted-foreground">
-                        {' '}
-                        {formatPlannedFurnitureTotalLabel(plannedTotal)}
-                      </span>
-                    ) : null}
                   </button>
                   );
                 })}

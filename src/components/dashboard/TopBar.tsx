@@ -95,12 +95,6 @@ export function TopBar({
                       {group.label}
                     </span>
                     <span className="text-muted-foreground">：{group.count}</span>
-                    {(group.plannedTotal || 0) > 0 ? (
-                      <span className="text-muted-foreground">
-                        {' '}
-                        × 總數 {group.plannedTotal}件傢俬
-                      </span>
-                    ) : null}
                   </button>
                 ))}
               </div>

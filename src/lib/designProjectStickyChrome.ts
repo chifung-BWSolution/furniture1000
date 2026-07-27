@@ -3,9 +3,11 @@ import { useEffect, useState } from 'react';
 export type DesignProjectStickyZoneChip = {
   key: string;
   label: string;
+  /**
+   * Product total for the chip（與間隔標題「× 總數 N件傢俬」相同；
+   * 無劃分時為實際件數）.
+   */
   count: number;
-  /** Sum of planned furniture-division quantities across zones in this group. */
-  plannedTotal?: number;
 };
 
 export type DesignProjectStickyChrome = {
