@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import {
   Plus, Loader2, Search, Check, CheckCircle2, Trash2, X, LayoutGrid, UserRound, Tag,
-  ImagePlus, PenLine, ZoomIn, Save, Link2, RefreshCw,
+  ImagePlus, PenLine, ZoomIn, Save, Link2, RefreshCw, MessageSquare,
 } from 'lucide-react';
 import {
   fetchProjects, fetchZones, fetchZoneProducts, fetchActiveShopifyProducts,
@@ -1315,6 +1315,58 @@ export function DesignProjectsView() {
       </div>
 
       <div className="mx-auto max-w-[1440px] space-y-6 px-3.5 py-8 md:px-5 md:py-10">
+        {(() => {
+          const reply = project.meta?.clientQuoteReply;
+          if (!reply || typeof reply !== 'object') return null;
+          const note = typeof reply.note === 'string' ? reply.note.trim() : '';
+          const decision =
+            reply.decision === 'approved'
+              ? '確認整張報價'
+              : reply.decision === 'rejected'
+                ? '拒絕整張報價'
+                : '僅回覆意見';
+          const submittedAt =
+            typeof reply.submittedAt === 'string' ? reply.submittedAt : '';
+          const submittedLabel = submittedAt
+            ? new Intl.DateTimeFormat('zh-HK', {
+                timeZone: 'Asia/Hong_Kong',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: false,
+              }).format(new Date(submittedAt))
+            : '';
+          return (
+            <section className="rounded-2xl border border-sky-500/25 bg-sky-500/5 p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <h2 className="inline-flex items-center gap-2 font-display text-lg font-bold">
+                  <MessageSquare className="h-5 w-5 text-sky-600" />
+                  客戶回覆
+                </h2>
+                {submittedLabel ? (
+                  <span className="font-mono-data text-[13px] text-muted-foreground">
+                    {submittedLabel}
+                  </span>
+                ) : null}
+              </div>
+              <p className="mt-2 text-[15px] font-semibold text-foreground">
+                決定：{decision}
+              </p>
+              {note ? (
+                <p className="mt-2 whitespace-pre-wrap rounded-xl border border-border bg-card px-4 py-3 text-[15px] text-foreground">
+                  {note}
+                </p>
+              ) : (
+                <p className="mt-2 text-[15px] text-muted-foreground">
+                  （客戶未輸入文字意見）
+                </p>
+              )}
+            </section>
+          );
+        })()}
+
         {/* Text zone list + furniture */}
         <section className="space-y-3">
           <div ref={partitionStickySentinelRef}>

@@ -45,7 +45,6 @@ import {
 
 const STATUS_FILTERS = [
   { id: 'all', label: '全部狀態' },
-  { id: 'draft', label: '草稿' },
   { id: 'in_progress', label: '進行中' },
   { id: 'confirmed', label: '已確認' },
 ] as const;
@@ -56,10 +55,16 @@ function fmtDate(iso: string) {
   return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
 }
 
+/** Legacy `draft` projects are treated as 進行中 in the list UI. */
+function normalizeListStatus(status: string | null | undefined): 'in_progress' | 'confirmed' | 'archived' {
+  if (status === 'confirmed') return 'confirmed';
+  if (status === 'archived') return 'archived';
+  return 'in_progress';
+}
+
 function statusLabel(status: string) {
   if (status === 'confirmed') return '已確認';
-  if (status === 'in_progress') return '進行中';
-  return '草稿';
+  return '進行中';
 }
 
 function isPdfFloorPlan(url: string | null | undefined, type: string | null | undefined) {
@@ -160,7 +165,8 @@ export function SolutionProjectListView() {
   const filtered = useMemo(() => {
     const q = keyword.trim().toLowerCase();
     return projects.filter((p) => {
-      if (status !== 'all' && (p.status || 'draft') !== status) return false;
+      const normalized = normalizeListStatus(p.status);
+      if (status !== 'all' && normalized !== status) return false;
       if (!q) return true;
       return (
         p.name.toLowerCase().includes(q) ||
@@ -445,7 +451,7 @@ export function SolutionProjectListView() {
                         <div className="flex flex-wrap items-center gap-2">
                           <h2 className="truncate font-display text-base font-bold">{p.name}</h2>
                           <span className="rounded-full bg-primary/10 px-2 py-0.5 font-body text-xs font-medium text-primary">
-                            {statusLabel(p.status || 'draft')}
+                            {statusLabel(normalizeListStatus(p.status))}
                           </span>
                           {p.meta?.projectType ? (
                             <span className="rounded-full border border-border px-2 py-0.5 font-body text-xs text-muted-foreground">

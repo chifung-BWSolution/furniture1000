@@ -831,7 +831,7 @@ export async function createProject(input: {
       client_company: input.clientCompany ?? null,
       floor_plan_url: floorPlanUrl,
       floor_plan_type: floorPlanUrl ? input.floorPlanType ?? null : null,
-      status: 'draft',
+      status: 'in_progress',
       active_scheme: 'A',
       progress: 0,
       meta: input.meta ?? {},

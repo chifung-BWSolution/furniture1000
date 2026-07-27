@@ -8,7 +8,6 @@ import {
   ExternalLink,
   FileText,
   Loader2,
-  Mail,
   MessageSquare,
   Printer,
   RefreshCw,
@@ -35,7 +34,6 @@ import { useAuth } from '@/contexts/AuthProvider';
 import { useClientZoneContext } from '@/hooks/use-client-zone-context';
 import { usePlatformRole } from '@/hooks/use-platform-role';
 import { usePmsStaffName } from '@/hooks/use-pms-staff-name';
-import { BW_COMPANY } from '@/content/bwCorporate';
 import { ROLE_META, type UserRole } from '@/constants/analytics-mock';
 import {
   fetchProjects,
@@ -43,6 +41,7 @@ import {
   fetchZoneProducts,
   applyZoneProductClientReview,
   updateZoneProductNotes,
+  saveProject,
 } from '@/lib/solutionsApi';
 import type {
   DesignProject,
@@ -89,6 +88,26 @@ type QuoteRecord = {
 
 type ItemReview = ClientItemReview;
 type QuoteDecision = 'pending' | 'approved' | 'rejected';
+
+function hydrateQuoteReplyFromProject(project: DesignProject | null | undefined): {
+  decision: QuoteDecision;
+  note: string;
+} {
+  const reply = project?.meta?.clientQuoteReply;
+  if (!reply || typeof reply !== 'object') {
+    return { decision: 'pending', note: '' };
+  }
+  const decision =
+    reply.decision === 'approved'
+      ? 'approved'
+      : reply.decision === 'rejected'
+        ? 'rejected'
+        : 'pending';
+  return {
+    decision,
+    note: typeof reply.note === 'string' ? reply.note : '',
+  };
+}
 type CommentBadgeRole = Extract<UserRole, 'pm' | 'designer'>;
 type ItemMessage = {
   id: string;
@@ -340,6 +359,7 @@ export function CustomerQuoteSchemesView() {
   >({});
   const [quoteDecision, setQuoteDecision] = useState<QuoteDecision>('pending');
   const [quoteNote, setQuoteNote] = useState('');
+  const [submittingQuote, setSubmittingQuote] = useState(false);
   const [currentUserRole, setCurrentUserRole] =
     useState<CommentBadgeRole | null>(null);
 
@@ -474,9 +494,7 @@ export function CustomerQuoteSchemesView() {
           status:
             project.status === 'confirmed'
               ? '已確認'
-              : project.status === 'in_progress'
-                ? '進行中'
-                : '草稿',
+              : '進行中',
           total_amount: portalTotals[project.id] || 0,
           created_at: project.createdAt,
           modified_date: project.updatedAt,
@@ -991,33 +1009,99 @@ export function CustomerQuoteSchemesView() {
     window.setTimeout(() => popup.print(), 300);
   };
 
-  const submitResponse = () => {
-    if (!active || quoteDecision === 'pending') {
-      toast.error('請先選擇確認或拒絕整張報價');
+  const resolveLinkedProject = useCallback((): DesignProject | null => {
+    if (!activeId) return null;
+    const syntheticProjectId = activeId.startsWith('design-project:')
+      ? activeId.replace('design-project:', '')
+      : activeId.startsWith('confirmed-project:')
+        ? activeId.replace('confirmed-project:', '')
+        : '';
+    if (syntheticProjectId) {
+      return (
+        portalProjects.find((project) => project.id === syntheticProjectId) ||
+        null
+      );
+    }
+    if (!active) return null;
+    return (
+      portalProjects.find(
+        (project) => projectQuoteId(project) === active.quote_id,
+      ) || null
+    );
+  }, [active, activeId, portalProjects]);
+
+  const submitResponse = async () => {
+    if (!active) return;
+    const note = quoteNote.trim();
+    if (quoteDecision === 'pending' && !note) {
+      toast.error('請選擇確認／拒絕整張報價，或輸入回覆後再提交');
       return;
     }
-    const lines = pricedItems.map((item, index) => {
-      const key = itemKey(item, index);
-      const notes = (itemMessages[key] || [])
-        .map((message) => {
-          const roleLabel = message.authorRole
-            ? ROLE_META[message.authorRole].label
-            : '';
-          return `${message.authorName}${roleLabel ? ` [${roleLabel}]` : ''} ${fmtUtc8DateTime(message.createdAt)} ${message.text}`;
-        })
-        .join('；');
-      return `${quoteItemDisplayName(item)}：${
-        itemReviews[key] ? REVIEW_LABEL[itemReviews[key]] : '尚未決定'
-      }${notes ? `（${notes}）` : ''}`;
-    });
-    const body = encodeURIComponent(
-      `報價：${active.quote_id} ${displayQuoteVersion(active.version)}\n整張決定：${
-        quoteDecision === 'approved' ? '確認' : '拒絕'
-      }\n\n${lines.join('\n')}\n\n備註：${quoteNote || '沒有'}`,
-    );
-    window.location.href = `mailto:${BW_COMPANY.email}?subject=${encodeURIComponent(
-      `客戶報價回覆 ${active.quote_id}`,
-    )}&body=${body}`;
+    const linkedProject = resolveLinkedProject();
+    if (!linkedProject) {
+      toast.error('找不到對應的設計專案，無法提交');
+      return;
+    }
+
+    const decision =
+      quoteDecision === 'approved'
+        ? 'approved'
+        : quoteDecision === 'rejected'
+          ? 'rejected'
+          : 'comment';
+    const clientQuoteReply = {
+      decision: decision as 'approved' | 'rejected' | 'comment',
+      note,
+      submittedAt: new Date().toISOString(),
+      quoteId: active.quote_id,
+      version: active.version,
+    };
+    const nextMeta = {
+      ...linkedProject.meta,
+      clientQuoteReply,
+    };
+    const patch =
+      decision === 'approved'
+        ? { status: 'confirmed', progress: 100, meta: nextMeta }
+        : { meta: nextMeta };
+
+    setSubmittingQuote(true);
+    try {
+      const saved = await saveProject(linkedProject.id, patch);
+      if (!saved.ok) {
+        toast.error('提交失敗', { description: saved.error });
+        return;
+      }
+      setPortalProjects((current) =>
+        current.map((row) =>
+          row.id === linkedProject.id
+            ? {
+                ...row,
+                status:
+                  decision === 'approved' ? 'confirmed' : row.status,
+                progress:
+                  decision === 'approved' ? 100 : row.progress,
+                meta: nextMeta,
+              }
+            : row,
+        ),
+      );
+      if (decision === 'approved') {
+        toast.success('已確認整張報價並提交', {
+          description: '方案已標示為已確認，可在「已確定方案」查看',
+        });
+      } else if (decision === 'rejected') {
+        toast.success('已提交拒絕整張報價的回覆', {
+          description: '方案仍為進行中；回覆已顯示於設計專案',
+        });
+      } else {
+        toast.success('已提交回覆', {
+          description: '方案仍為進行中；回覆已顯示於設計專案',
+        });
+      }
+    } finally {
+      setSubmittingQuote(false);
+    }
   };
 
   return (
@@ -1082,8 +1166,26 @@ export function CustomerQuoteSchemesView() {
                     setItemReviews({});
                     setItemDraftNotes({});
                     setItemMessages({});
-                    setQuoteDecision('pending');
-                    setQuoteNote('');
+                    const linked =
+                      quote.id.startsWith('design-project:')
+                        ? portalProjects.find(
+                            (project) =>
+                              project.id ===
+                              quote.id.replace('design-project:', ''),
+                          )
+                        : quote.id.startsWith('confirmed-project:')
+                          ? portalProjects.find(
+                              (project) =>
+                                project.id ===
+                                quote.id.replace('confirmed-project:', ''),
+                            )
+                          : portalProjects.find(
+                              (project) =>
+                                projectQuoteId(project) === quote.quote_id,
+                            );
+                    const hydrated = hydrateQuoteReplyFromProject(linked);
+                    setQuoteDecision(hydrated.decision);
+                    setQuoteNote(hydrated.note);
                   }}
                   className={cn(
                     'rounded-2xl border bg-card p-5 text-left shadow-sm transition-all',
@@ -1164,12 +1266,35 @@ export function CustomerQuoteSchemesView() {
                 <select
                   value={activeId}
                   onChange={(event) => {
-                    setActiveId(event.target.value);
+                    const nextId = event.target.value;
+                    setActiveId(nextId);
                     setItemReviews({});
                     setItemDraftNotes({});
                     setItemMessages({});
-                    setQuoteDecision('pending');
-                    setQuoteNote('');
+                    const nextQuote = activeVersions.find(
+                      (version) => version.id === nextId,
+                    );
+                    const linked = nextQuote
+                      ? nextId.startsWith('design-project:')
+                        ? portalProjects.find(
+                            (project) =>
+                              project.id ===
+                              nextId.replace('design-project:', ''),
+                          )
+                        : nextId.startsWith('confirmed-project:')
+                          ? portalProjects.find(
+                              (project) =>
+                                project.id ===
+                                nextId.replace('confirmed-project:', ''),
+                            )
+                          : portalProjects.find(
+                              (project) =>
+                                projectQuoteId(project) === nextQuote.quote_id,
+                            )
+                      : null;
+                    const hydrated = hydrateQuoteReplyFromProject(linked);
+                    setQuoteDecision(hydrated.decision);
+                    setQuoteNote(hydrated.note);
                   }}
                   className="h-10 rounded-lg border border-border bg-background px-3 text-sm font-semibold"
                 >
@@ -1444,7 +1569,7 @@ export function CustomerQuoteSchemesView() {
           <section className="rounded-2xl border border-primary/20 bg-primary/5 p-5">
             <h2 className="font-display text-lg font-bold">整張報價決定</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              可先逐件提出意見，再確認或拒絕整張報價。
+              選擇「確認整張報價」並按「提交」後，方案會標示為已確認；拒絕或只輸入回覆再提交，則只傳送意見，方案仍為進行中。
             </p>
             <div className="mt-4 flex flex-wrap gap-3">
               <button
@@ -1483,11 +1608,16 @@ export function CustomerQuoteSchemesView() {
             />
             <button
               type="button"
-              onClick={submitResponse}
-              className="mt-4 inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-3 font-semibold text-primary-foreground"
+              onClick={() => void submitResponse()}
+              disabled={submittingQuote}
+              className="mt-4 inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-3 font-semibold text-primary-foreground disabled:opacity-60"
             >
-              <Mail className="h-5 w-5" />
-              提交回覆給 BW
+              {submittingQuote ? (
+                <Loader2 className="h-5 w-5 animate-spin" />
+              ) : (
+                <CheckCircle2 className="h-5 w-5" />
+              )}
+              提交
             </button>
           </section>
         </section>

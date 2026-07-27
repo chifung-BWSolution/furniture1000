@@ -115,6 +115,17 @@ export interface DesignProjectMeta {
   floorPlanPreviewUrl?: string;
   /** Latest furniture inventory from 設計專案「儲存». */
   furnitureSnapshot?: FurnitureSnapshot;
+  /**
+   * Whole-quote reply from 客戶專區 > 報價方案「提交」。
+   * Only decision=approved confirms the design project.
+   */
+  clientQuoteReply?: {
+    decision: 'approved' | 'rejected' | 'comment';
+    note: string;
+    submittedAt: string;
+    quoteId?: string;
+    version?: string;
+  };
   [key: string]: unknown;
 }
 
