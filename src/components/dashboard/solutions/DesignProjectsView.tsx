@@ -621,20 +621,6 @@ function ZoneProductRow({
                 <RefreshCw className="h-3.5 w-3.5" />
                 更換產品
               </button>
-              <select
-                value={item.status}
-                onChange={(e) =>
-                  onSetStatus(item.id, e.target.value as ZoneProductStatus)
-                }
-                className={cn(
-                  'rounded-full border px-3 py-1.5 text-[15px] font-medium',
-                  ZONE_PRODUCT_STATUS_META[item.status]?.className,
-                )}
-              >
-                <option value="pending">未確定</option>
-                <option value="discussing">待討論</option>
-                <option value="confirmed">已確定</option>
-              </select>
               <button
                 type="button"
                 disabled={deletingProductId === item.id}
@@ -668,7 +654,7 @@ function ZoneProductRow({
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
             <div className="flex min-w-0 flex-wrap items-center gap-1.5">
               <span className="shrink-0 text-[15px] font-medium text-muted-foreground">
                 尺寸
@@ -719,7 +705,22 @@ function ZoneProductRow({
                 (H) (mm)
               </span>
             </div>
-            <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-1.5 text-[15px] text-foreground">
+            <select
+              value={item.status}
+              onChange={(e) =>
+                onSetStatus(item.id, e.target.value as ZoneProductStatus)
+              }
+              className={cn(
+                'shrink-0 rounded-full border px-3 py-1.5 text-[15px] font-medium',
+                ZONE_PRODUCT_STATUS_META[item.status]?.className,
+              )}
+              aria-label={`${titleLabel}狀態`}
+            >
+              <option value="pending">未確定</option>
+              <option value="discussing">待討論</option>
+              <option value="confirmed">已確定</option>
+            </select>
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5 text-[15px] text-foreground">
               {custom ? (
                 <>
                   <span className="text-foreground">單價 $</span>
