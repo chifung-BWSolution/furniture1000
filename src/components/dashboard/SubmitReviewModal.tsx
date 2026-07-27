@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { X, AlertTriangle } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
@@ -19,7 +19,12 @@ import {
 import {
   nextQuoteVersionFromChain,
 } from '@/lib/quoteVersions';
-import { resolveQuoteChainId, isLegacyQFormatQuoteId } from '@/lib/quoteChainId';
+import {
+  resolveQuoteChainId,
+  isLegacyQFormatQuoteId,
+  pickQuoteChainId,
+} from '@/lib/quoteChainId';
+import { parseQuotePathname } from '@/lib/quoteRoutes';
 import { fetchPmsPitchingQuoteDefaults } from '@/lib/pmsPitchingQuoteDefaults';
 
 export interface SubmitReviewResult {
@@ -84,6 +89,8 @@ export function SubmitReviewModal({
   const [staffOptionsLoading, setStaffOptionsLoading] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
+  /** Snapshot ids when modal opens — parent remount must not wipe chain key mid-submit. */
+  const lockedChainIdRef = useRef<string | null>(null);
 
   // Default 提交者姓名 from auth user → public.users → staff.name (same as top-nav).
   // Reset when closed so the next open always starts from the logged-in account name.
@@ -91,12 +98,35 @@ export function SubmitReviewModal({
     if (!open) {
       setSubmitter('');
       setError('');
+      lockedChainIdRef.current = null;
       return;
     }
+    const meta = projectData.quoteMeta as Record<string, unknown> | undefined;
+    const fromUrl = (() => {
+      if (typeof window === 'undefined') return '';
+      const parsed = parseQuotePathname(window.location.pathname);
+      return parsed.kind === 'quote' ? parsed.quoteId : '';
+    })();
+    lockedChainIdRef.current = pickQuoteChainId(
+      quoteIdProp,
+      existingQuoteId,
+      pitchingCode,
+      typeof meta?.quoteNumber === 'string' ? meta.quoteNumber : null,
+      typeof meta?.projectName === 'string' ? meta.projectName : null,
+      fromUrl,
+    );
     const defaultName = (staffName ?? user?.email ?? '').trim();
     if (!defaultName) return;
     setSubmitter((prev) => (prev.trim() ? prev : defaultName));
-  }, [open, staffName, user?.email]);
+  }, [
+    open,
+    staffName,
+    user?.email,
+    quoteIdProp,
+    existingQuoteId,
+    pitchingCode,
+    projectData.quoteMeta,
+  ]);
 
   useEffect(() => {
     if (!open) return;
@@ -167,11 +197,17 @@ export function SubmitReviewModal({
 
       const formDataRaw =
         (projectData.formData as Record<string, unknown> | undefined) || {};
+      const quoteMeta =
+        (projectData.quoteMeta as Record<string, unknown> | undefined) || {};
       let code = resolvePitchingCode({
-        quoteId: quoteIdProp || existingQuoteId,
+        quoteId: pickQuoteChainId(
+          lockedChainIdRef.current,
+          quoteIdProp,
+          existingQuoteId,
+        ),
         pitchingCode,
         formData: formDataRaw,
-        quoteMeta: projectData.quoteMeta as Record<string, unknown> | undefined,
+        quoteMeta,
       });
 
       // Legacy Q… draft URL ids are not valid chain keys — treat as missing.
@@ -191,14 +227,29 @@ export function SubmitReviewModal({
           '';
       }
 
+      const fromUrl = (() => {
+        if (typeof window === 'undefined') return '';
+        const parsed = parseQuotePathname(window.location.pathname);
+        return parsed.kind === 'quote' ? parsed.quoteId : '';
+      })();
+
       // Sole persisted code: bwf_quote.quote_id (no pitching_code / pitching_name columns).
       const quoteId = resolveQuoteChainId({
         code,
         existingQuoteId,
+        fallbacks: [
+          lockedChainIdRef.current,
+          quoteIdProp,
+          pitchingCode,
+          typeof quoteMeta.quoteNumber === 'string' ? quoteMeta.quoteNumber : null,
+          typeof quoteMeta.projectName === 'string' ? quoteMeta.projectName : null,
+          fromUrl,
+        ],
       });
       if (!quoteId) {
         throw new Error('缺少報價單號（PMS Pitching Code），無法提交');
       }
+      lockedChainIdRef.current = quoteId;
 
       // Always append a new version row on this quote_id chain.
       const { data: versionRows, error: versionErr } = await supabase

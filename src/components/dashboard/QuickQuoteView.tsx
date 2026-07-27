@@ -742,8 +742,10 @@ export function QuickQuoteView({
           }
         }
 
+        const loadedQuoteId =
+          typeof data.quote_id === 'string' ? data.quote_id.trim() : '';
         setLoadedQuoteData({
-          quoteId: data.quote_id as string,
+          quoteId: loadedQuoteId,
           version: data.version as string,
           status: data.status as string,
           totalAmount: data.total_amount as number,
@@ -754,6 +756,15 @@ export function QuickQuoteView({
           quoteUuid: data.id as string,
           maxVersionInChain,
         });
+        // Keep wizard formData.quoteId aligned with DB quote_id even when
+        // project_data.formData omitted the code (stripped on prior 版本審核).
+        if (loadedQuoteId && !isLegacyQFormatQuoteId(loadedQuoteId)) {
+          setFormData((prev) =>
+            prev.quoteId.trim() === loadedQuoteId
+              ? prev
+              : { ...prev, quoteId: loadedQuoteId },
+          );
+        }
         loadedQuoteIdRef.current = loadKey;
 
         // Skip directly to step 4 editor

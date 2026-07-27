@@ -91,8 +91,12 @@ import {
   resolvePitchingCode,
   type BwfQuoteItemInput,
 } from "@/lib/bwfQuoteItems";
-import { isLegacyQFormatQuoteId } from "@/lib/quoteChainId";
+import {
+  isLegacyQFormatQuoteId,
+  pickQuoteChainId,
+} from "@/lib/quoteChainId";
 import type { QuoteCopyPayload } from "@/lib/quoteCopy";
+import { parseQuotePathname } from "@/lib/quoteRoutes";
 import { bumpQuoteVersion, displayQuoteVersion } from "@/lib/quoteVersions";
 import { isUrgentWorkPeriod } from "@/lib/quoteStockFilter";
 import {
@@ -1798,22 +1802,53 @@ export function QuotationDraftEditor({
       const preferredExisting = isLegacyQFormatQuoteId(existingId)
         ? ''
         : existingId;
-      return resolvePitchingCode({
+      const fromFormMeta = resolvePitchingCode({
         quoteId: preferredExisting || formData.quoteId,
         pitchingCode: formData.pitchingCode,
         formData: formData as unknown as Record<string, unknown>,
         quoteMeta: (meta ?? quoteMeta) as unknown as Record<string, unknown>,
       });
+      const fromUrl =
+        typeof window !== 'undefined'
+          ? (() => {
+              const parsed = parseQuotePathname(window.location.pathname);
+              return parsed.kind === 'quote' ? parsed.quoteId : '';
+            })()
+          : '';
+      return (
+        pickQuoteChainId(
+          fromFormMeta,
+          preferredExisting,
+          formData.quoteId,
+          formData.pitchingCode,
+          formData.projectName,
+          draftQuoteId,
+          fromUrl,
+        ) || ''
+      );
     },
     [
       existingQuote?.quoteId,
       formData.quoteId,
       formData.pitchingCode,
+      formData.projectName,
       formData,
       quoteMeta,
+      draftQuoteId,
     ],
   );
   const quoteId = useMemo(() => resolveEditorQuoteId(), [resolveEditorQuoteId]);
+  /** Locked at 版本審核 open — survives parent remount clearing formData.quoteId. */
+  const submitChainIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const locked = pickQuoteChainId(
+      quoteId,
+      existingQuote?.quoteId,
+      formData.quoteId,
+      draftQuoteId,
+    );
+    if (locked) submitChainIdRef.current = locked;
+  }, [quoteId, existingQuote?.quoteId, formData.quoteId, draftQuoteId]);
 
   // Delivery details (editable) — zh / en kept separately (like company address).
   const [deliveryDetails, setDeliveryDetails] = useState(
@@ -2408,6 +2443,31 @@ export function QuotationDraftEditor({
       });
       return;
     }
+    const fromUrl =
+      typeof window !== 'undefined'
+        ? (() => {
+            const parsed = parseQuotePathname(window.location.pathname);
+            return parsed.kind === 'quote' ? parsed.quoteId : '';
+          })()
+        : '';
+    const chainId = pickQuoteChainId(
+      submitChainIdRef.current,
+      quoteId,
+      existingQuote?.quoteId,
+      formData.quoteId,
+      formData.pitchingCode,
+      formData.projectName,
+      draftQuoteId,
+      fromUrl,
+    );
+    if (!chainId) {
+      toast.error("缺少報價單號", {
+        description:
+          "無法確認 PMS Pitching 報價單號。請返回選擇 Pitching，或重新整理後再提交審核。",
+      });
+      return;
+    }
+    submitChainIdRef.current = chainId;
     setShowSubmitModal(true);
   };
   const currentVersion = useMemo(() => {
@@ -3926,24 +3986,30 @@ export function QuotationDraftEditor({
         items={items.filter(hasQuoteItemContent)}
         bwfPitchingId={formData.pmsPitchingId || existingQuote?.bwfPitchingId || null}
         bwfProjectId={formData.pmsProjectId || existingQuote?.bwfProjectId || null}
-        quoteId={
-          formData.quoteId?.trim() ||
-          quoteId ||
-          formData.pitchingCode?.trim() ||
-          formData.projectName?.trim() ||
-          null
-        }
-        pitchingCode={
-          formData.quoteId?.trim() ||
-          formData.pitchingCode?.trim() ||
-          formData.projectName?.trim() ||
-          null
-        }
-        existingQuoteId={
-          existingQuote?.quoteId && !isLegacyQFormatQuoteId(existingQuote.quoteId)
-            ? existingQuote.quoteId
-            : null
-        }
+        quoteId={pickQuoteChainId(
+          submitChainIdRef.current,
+          quoteId,
+          existingQuote?.quoteId,
+          formData.quoteId,
+          formData.pitchingCode,
+          formData.projectName,
+          draftQuoteId,
+        )}
+        pitchingCode={pickQuoteChainId(
+          submitChainIdRef.current,
+          quoteId,
+          existingQuote?.quoteId,
+          formData.quoteId,
+          formData.pitchingCode,
+          formData.projectName,
+          draftQuoteId,
+        )}
+        existingQuoteId={pickQuoteChainId(
+          existingQuote?.quoteId,
+          submitChainIdRef.current,
+          quoteId,
+          draftQuoteId,
+        )}
         existingQuoteUuid={existingQuote?.quoteUuid ?? null}
         forceNewQuote={forceNewQuote}
       />

@@ -11,6 +11,30 @@ export function isLegacyQFormatQuoteId(
   return LEGACY_Q_QUOTE_ID_RE.test((value || '').trim());
 }
 
+/** True for placeholder / non-persistable draft keys. */
+export function isPlaceholderQuoteId(
+  value: string | null | undefined,
+): boolean {
+  const v = (value || '').trim();
+  if (!v) return true;
+  if (v === 'NEW' || v.endsWith('::NEW')) return true;
+  return isLegacyQFormatQuoteId(v);
+}
+
+/**
+ * First usable chain id from candidates (skips empty / NEW / legacy Q…).
+ */
+export function pickQuoteChainId(
+  ...candidates: Array<string | null | undefined>
+): string | null {
+  for (const raw of candidates) {
+    const v = (raw || '').trim();
+    if (!v || isPlaceholderQuoteId(v)) continue;
+    return v;
+  }
+  return null;
+}
+
 /**
  * Resolve the chain id written to bwf_quote.quote_id.
  * Accepts PMS/wizard code or an existing non-legacy quote_id.
@@ -21,12 +45,13 @@ export function resolveQuoteChainId(options: {
   /** @deprecated alias of code */
   pitchingCode?: string | null;
   existingQuoteId?: string | null;
+  /** Extra fallbacks (URL segment, quoteMeta.quoteNumber, locked ref, …). */
+  fallbacks?: Array<string | null | undefined>;
 }): string | null {
-  const code = (options.code || options.pitchingCode || '').trim();
-  if (code && !isLegacyQFormatQuoteId(code)) return code;
-
-  const existing = (options.existingQuoteId || '').trim();
-  if (existing && !isLegacyQFormatQuoteId(existing)) return existing;
-
-  return null;
+  return pickQuoteChainId(
+    options.code,
+    options.pitchingCode,
+    options.existingQuoteId,
+    ...(options.fallbacks || []),
+  );
 }
