@@ -279,6 +279,62 @@ function plannedFurnitureTotalForZones(
   return total;
 }
 
+function furnitureDivisionLabel(division: ZoneFurnitureDivision): string {
+  return division.level2
+    ? `${division.level1} > ${division.level2}`
+    : division.level1;
+}
+
+/** Display: 「入口及前臺大堂 × 總數 9件傢俬」 */
+function formatPlannedFurnitureTotalLabel(plannedTotal: number): string {
+  return `× 總數 ${plannedTotal}件傢俬`;
+}
+
+/**
+ * Divisions where non-optional piece count exceeds the planned quantity.
+ * Excess lines must be marked 可選 (or removed) before save.
+ */
+function collectDivisionExcessWarnings(
+  zones: ProjectZone[],
+  products: ZoneProduct[],
+  divisionsByZone: Record<string, ZoneFurnitureDivision[]>,
+): string[] {
+  const warnings: string[] = [];
+  for (const zone of zones) {
+    const divisions = divisionsByZone[zone.id] || [];
+    if (divisions.length === 0) continue;
+    const items = products.filter((product) => product.zoneId === zone.id);
+    const assignedIds = new Set(
+      divisions.flatMap((row) => row.productIds || []),
+    );
+
+    for (const division of divisions) {
+      const planned = Math.max(1, Math.floor(Number(division.quantity) || 1));
+      const nonOptionalCount = items
+        .filter(
+          (item) =>
+            (division.productIds || []).includes(item.id) && !item.isOptional,
+        )
+        .reduce((sum, item) => sum + zoneProductPieceCount(item), 0);
+      if (nonOptionalCount <= planned) continue;
+      const excess = nonOptionalCount - planned;
+      warnings.push(
+        `「${zone.name}」${furnitureDivisionLabel(division)}：計劃 ${planned} 件，非可選已有 ${nonOptionalCount} 件（多 ${excess} 件請轉為可選）`,
+      );
+    }
+
+    const unassignedNonOptional = items
+      .filter((item) => !assignedIds.has(item.id) && !item.isOptional)
+      .reduce((sum, item) => sum + zoneProductPieceCount(item), 0);
+    if (unassignedNonOptional > 0) {
+      warnings.push(
+        `「${zone.name}」未劃分：有 ${unassignedNonOptional} 件非可選產品超出劃分計劃，請劃分或轉為可選`,
+      );
+    }
+  }
+  return warnings;
+}
+
 function parseSqftInput(value: string): number | null {
   const trimmed = value.trim();
   if (!trimmed) return null;
@@ -1666,6 +1722,23 @@ export function DesignProjectsView() {
       const active = document.activeElement;
       if (active instanceof HTMLElement) active.blur();
     }
+    const excessWarnings = collectDivisionExcessWarnings(
+      zones,
+      zoneProducts,
+      furnitureDivisions,
+    );
+    if (excessWarnings.length > 0) {
+      toast.error('部份二級分類傢俬數量過多', {
+        description:
+          excessWarnings.slice(0, 4).join('；') +
+          (excessWarnings.length > 4
+            ? `；…另有 ${excessWarnings.length - 4} 項`
+            : '') +
+          '。請將超出計劃的產品轉為「可選」後再儲存。',
+        duration: 8000,
+      });
+      return;
+    }
     setSavingFurniture(true);
     try {
       // Allow controlled inputs to flush latest keystrokes into state.
@@ -1725,6 +1798,23 @@ export function DesignProjectsView() {
     const selectedProducts = zoneProducts.filter((product) => product.zoneId);
     if (zones.length === 0 || selectedProducts.length === 0) {
       toast.error('請先設定間隔並加入產品');
+      return;
+    }
+    const excessWarnings = collectDivisionExcessWarnings(
+      zones,
+      zoneProducts,
+      furnitureDivisions,
+    );
+    if (excessWarnings.length > 0) {
+      toast.error('部份二級分類傢俬數量過多', {
+        description:
+          excessWarnings.slice(0, 4).join('；') +
+          (excessWarnings.length > 4
+            ? `；…另有 ${excessWarnings.length - 4} 項`
+            : '') +
+          '。請將超出計劃的產品轉為「可選」後再提交。',
+        duration: 8000,
+      });
       return;
     }
     setConfirmingProject(true);
@@ -2167,7 +2257,7 @@ export function DesignProjectsView() {
                     {plannedTotal > 0 ? (
                       <span className="text-muted-foreground">
                         {' '}
-                        × 總數 {plannedTotal}
+                        {formatPlannedFurnitureTotalLabel(plannedTotal)}
                       </span>
                     ) : null}
                   </button>
@@ -2206,7 +2296,7 @@ export function DesignProjectsView() {
                         {group.label}
                         {groupPlannedTotal > 0 ? (
                           <span className="ml-2 text-[15px] font-semibold text-muted-foreground">
-                            × 總數 {groupPlannedTotal}
+                            {formatPlannedFurnitureTotalLabel(groupPlannedTotal)}
                           </span>
                         ) : null}
                       </h3>
@@ -2264,25 +2354,28 @@ export function DesignProjectsView() {
                     }}
                   />
                 ));
+              const displayPlannedTotal = isSingleZoneGroup
+                ? groupPlannedTotal
+                : zonePlannedTotal;
               const zoneToolbar = (
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/30 px-5 py-3.5">
                   <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
                     <h3 className="font-display text-base font-bold md:text-lg">
                       {isSingleZoneGroup ? group.label : zone.name}
-                      {(isSingleZoneGroup
-                        ? groupPlannedTotal
-                        : zonePlannedTotal) > 0 ? (
+                      {displayPlannedTotal > 0 ? (
                         <span className="ml-2 text-[15px] font-semibold text-muted-foreground">
-                          × 總數{' '}
-                          {isSingleZoneGroup
-                            ? groupPlannedTotal
-                            : zonePlannedTotal}
+                          {formatPlannedFurnitureTotalLabel(displayPlannedTotal)}
                         </span>
-                      ) : null}
+                      ) : (
+                        <span className="ml-2 text-[15px] font-normal text-muted-foreground">
+                          {items.reduce(
+                            (sum, item) => sum + zoneProductPieceCount(item),
+                            0,
+                          )}{' '}
+                          件傢俬
+                        </span>
+                      )}
                     </h3>
-                    <span className="text-[15px] text-muted-foreground">
-                      {items.length} 件傢俬
-                    </span>
                     <label className="inline-flex items-center gap-1.5 text-[15px] text-muted-foreground">
                       <input
                         type="text"

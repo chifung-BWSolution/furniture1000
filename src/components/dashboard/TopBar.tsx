@@ -98,7 +98,7 @@ export function TopBar({
                     {(group.plannedTotal || 0) > 0 ? (
                       <span className="text-muted-foreground">
                         {' '}
-                        × 總數 {group.plannedTotal}
+                        × 總數 {group.plannedTotal}件傢俬
                       </span>
                     ) : null}
                   </button>
