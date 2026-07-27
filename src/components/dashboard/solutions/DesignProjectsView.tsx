@@ -818,7 +818,7 @@ export function DesignProjectsView() {
     <div className="h-full overflow-y-auto bg-background">
       {/* Header */}
       <div className="border-b border-border bg-background">
-        <div className="mx-auto flex max-w-[1440px] flex-col gap-4 px-7 py-4 md:flex-row md:items-center md:px-10">
+        <div className="mx-auto flex max-w-[1440px] flex-col gap-4 px-3.5 py-4 md:flex-row md:items-center md:px-5">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="truncate font-display text-2xl font-bold tracking-tight">
@@ -914,7 +914,7 @@ export function DesignProjectsView() {
         </div>
       </div>
 
-      <div className="mx-auto max-w-[1440px] space-y-6 px-7 py-8 md:px-10 md:py-10">
+      <div className="mx-auto max-w-[1440px] space-y-6 px-3.5 py-8 md:px-5 md:py-10">
         {/* Text zone list + furniture */}
         <section className="space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -1045,9 +1045,9 @@ export function DesignProjectsView() {
                         const custom = isCustomZoneProduct(item);
                         const titleLabel = item.productTitle || '未命名產品';
                         return (
-                        <li key={item.id} className="space-y-2.5 px-5 py-3.5">
-                          <div className="flex items-start gap-4">
-                            <div className="relative shrink-0">
+                        <li key={item.id} className="px-5 py-3.5">
+                          <div className="flex items-stretch gap-4">
+                            <div className="relative w-fit shrink-0 self-stretch">
                               <input
                                 ref={(node) => {
                                   imageInputRefs.current[item.id] = node;
@@ -1070,7 +1070,7 @@ export function DesignProjectsView() {
                                       title: titleLabel,
                                     })
                                   }
-                                  className="group relative h-14 w-14 overflow-hidden rounded-lg bg-muted ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                                  className="group relative h-full min-h-[140px] aspect-square overflow-hidden rounded-xl bg-muted ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                                   title="點擊放大圖片"
                                   aria-label={`${titleLabel}圖片預覽`}
                                 >
@@ -1080,7 +1080,7 @@ export function DesignProjectsView() {
                                     className="h-full w-full object-cover transition group-hover:scale-105"
                                   />
                                   <span className="absolute inset-0 flex items-center justify-center bg-black/0 text-white opacity-0 transition group-hover:bg-black/35 group-hover:opacity-100">
-                                    <ZoomIn className="h-4 w-4" />
+                                    <ZoomIn className="h-5 w-5" />
                                   </span>
                                 </button>
                               ) : custom ? (
@@ -1090,18 +1090,18 @@ export function DesignProjectsView() {
                                   onClick={() =>
                                     imageInputRefs.current[item.id]?.click()
                                   }
-                                  className="flex h-14 w-14 items-center justify-center rounded-lg border border-dashed border-border bg-muted/40 text-muted-foreground hover:border-primary/40 hover:text-primary disabled:opacity-60"
+                                  className="flex h-full min-h-[140px] aspect-square items-center justify-center rounded-xl border border-dashed border-border bg-muted/40 text-muted-foreground hover:border-primary/40 hover:text-primary disabled:opacity-60"
                                   title="上傳產品圖片"
                                   aria-label="上傳產品圖片"
                                 >
                                   {uploadingImageId === item.id ? (
-                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                    <Loader2 className="h-5 w-5 animate-spin" />
                                   ) : (
-                                    <ImagePlus className="h-4 w-4" />
+                                    <ImagePlus className="h-6 w-6" />
                                   )}
                                 </button>
                               ) : (
-                                <div className="h-14 w-14 rounded-lg bg-muted" />
+                                <div className="h-full min-h-[140px] aspect-square rounded-xl bg-muted" />
                               )}
                               {custom && item.productImageUrl ? (
                                 <button
@@ -1110,197 +1110,238 @@ export function DesignProjectsView() {
                                   onClick={() =>
                                     imageInputRefs.current[item.id]?.click()
                                   }
-                                  className="mt-1 w-full rounded border border-border px-1 py-0.5 text-[11px] text-muted-foreground hover:bg-muted disabled:opacity-60"
+                                  className="absolute bottom-2 left-1/2 z-10 -translate-x-1/2 rounded-md border border-border/80 bg-background/90 px-2 py-0.5 text-[11px] font-medium text-muted-foreground shadow-sm backdrop-blur hover:bg-background disabled:opacity-60"
                                 >
-                                  {uploadingImageId === item.id ? '上傳中…' : '更換圖片'}
+                                  {uploadingImageId === item.id
+                                    ? '上傳中…'
+                                    : '更換圖片'}
                                 </button>
                               ) : null}
                             </div>
-                            <div className="min-w-0 flex-1 space-y-1.5">
-                              {custom ? (
-                                <input
-                                  type="text"
-                                  value={item.productTitle || ''}
-                                  onChange={(event) =>
-                                    setProductTitle(item, event.target.value)
-                                  }
-                                  placeholder="輸入產品名稱…"
-                                  className="h-10 w-full rounded-lg border border-border bg-background px-3 text-base font-medium outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
-                                  aria-label="產品名稱"
-                                />
-                              ) : (
-                                <p className="truncate text-base font-medium">
-                                  {item.productTitle}
-                                </p>
-                              )}
-                              {custom ? (
-                                <div className="flex flex-wrap items-center gap-2 text-[15px]">
-                                  <span className="text-muted-foreground">單價 $</span>
-                                  <input
-                                    type="number"
-                                    min={0}
-                                    step={1}
-                                    value={Number(item.salePrice || 0)}
-                                    onChange={(event) =>
-                                      setSalePrice(item, Number(event.target.value))
-                                    }
-                                    className="h-9 w-28 rounded-lg border border-border bg-background px-2 font-mono-data text-[15px] text-primary outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
-                                    aria-label="單價"
-                                  />
-                                  <span className="font-mono-data text-primary">
-                                    × {item.quantity} = 小計 $
-                                    {(
-                                      Number(item.salePrice || 0) * item.quantity
-                                    ).toLocaleString()}
-                                  </span>
-                                </div>
-                              ) : (
-                                <p className="font-mono-data text-[15px] text-primary">
-                                  單價 ${Number(item.salePrice || 0).toLocaleString()} × {item.quantity}
-                                  {' = '}
-                                  小計 ${(Number(item.salePrice || 0) * item.quantity).toLocaleString()}
-                                </p>
-                              )}
-                            </div>
-                            <div className="flex shrink-0 items-center gap-2">
-                              <button
-                                type="button"
-                                onClick={() =>
-                                  void openPicker(item.zoneId || zone.id, item.id)
-                                }
-                                className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 px-2.5 text-[14px] font-medium text-primary hover:bg-primary/15"
-                                title="更換此產品的名稱、圖片與價錢"
-                              >
-                                <RefreshCw className="h-3.5 w-3.5" />
-                                更換產品
-                              </button>
-                              <div className="inline-flex items-center overflow-hidden rounded-lg border border-border bg-background">
-                                <button
-                                  type="button"
-                                  onClick={() => setQuantity(item, item.quantity - 1)}
-                                  disabled={item.quantity <= 1}
-                                  className="flex h-9 w-9 items-center justify-center text-[17px] text-muted-foreground hover:bg-muted disabled:opacity-35"
-                                  aria-label="數量減一"
-                                >
-                                  −
-                                </button>
-                                <input
-                                  type="number"
-                                  min={1}
-                                  max={9999}
-                                  value={item.quantity}
-                                  onChange={(event) =>
-                                    setQuantity(item, Number(event.target.value))
-                                  }
-                                  className="h-9 w-12 border-x border-border bg-background text-center font-mono-data text-[15px] font-semibold outline-none"
-                                  aria-label={`${titleLabel}數量`}
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() => setQuantity(item, item.quantity + 1)}
-                                  className="flex h-9 w-9 items-center justify-center text-[17px] text-muted-foreground hover:bg-muted"
-                                  aria-label="數量加一"
-                                >
-                                  +
-                                </button>
-                              </div>
-                              <select
-                                value={item.status}
-                                onChange={(e) =>
-                                  setStatus(item.id, e.target.value as ZoneProductStatus)
-                                }
-                                className={cn(
-                                  'rounded-full border px-3 py-1.5 text-[15px] font-medium',
-                                  ZONE_PRODUCT_STATUS_META[item.status]?.className,
-                                )}
-                              >
-                                <option value="pending">未確定</option>
-                                <option value="discussing">待討論</option>
-                                <option value="confirmed">已確定</option>
-                              </select>
-                              <button
-                                type="button"
-                                disabled={deletingProductId === item.id}
-                                onClick={() => void removeProduct(item)}
-                                className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/30 px-2.5 py-1.5 text-[15px] font-medium text-rose-600 hover:bg-rose-500/10 disabled:opacity-50"
-                                title="從間隔移除產品"
-                              >
-                                {deletingProductId === item.id ? (
-                                  <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : (
-                                  <Trash2 className="h-4 w-4" />
-                                )}
-                                刪除
-                              </button>
-                            </div>
-                          </div>
-                          <div className="space-y-2 pl-[4.5rem]">
-                            <div className="flex items-start gap-2">
-                              <span className="mt-2 shrink-0 text-[15px] font-medium text-muted-foreground">
-                                備註
-                              </span>
-                              <textarea
-                                value={staffNotesValue(item.notes)}
-                                onChange={(event) =>
-                                  setNotes(item, event.target.value)
-                                }
-                                rows={3}
-                                placeholder="輸入意見或補充說明…"
-                                className="min-h-[72px] min-w-0 flex-1 resize-y rounded-lg border border-border bg-background px-3 py-2 text-[15px] leading-relaxed outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
-                                aria-label={`${titleLabel}備註`}
-                              />
-                            </div>
-                            {splitStaffNotesAndFeedback(item.notes).feedback
-                              .length > 0 ? (
-                              <div className="space-y-2 pl-[3.25rem]">
-                                {splitStaffNotesAndFeedback(
-                                  item.notes,
-                                ).feedback.map((feedback, feedbackIndex) => {
-                                  const feedbackKey = `${item.id}:${feedbackIndex}`;
-                                  return (
-                                  <div
-                                    key={`${item.id}-feedback-${feedbackIndex}-${feedback.at}`}
-                                    className="rounded-lg border border-amber-500/25 bg-amber-500/5 px-3 py-2.5"
-                                  >
-                                    <div className="flex items-start justify-between gap-3">
-                                      <p className="text-[13px] font-medium text-amber-800 dark:text-amber-200">
-                                        客戶意見 · {reviewLabelZh(feedback.review)}
-                                        {' · '}
-                                        {fmtFeedbackTime(feedback.at)}
-                                        {feedback.author
-                                          ? ` · ${feedback.author}`
-                                          : ''}
-                                      </p>
-                                      <button
-                                        type="button"
-                                        disabled={deletingFeedbackKey === feedbackKey}
-                                        onClick={() =>
-                                          void deleteClientFeedback(
+
+                            <div className="flex min-w-0 flex-1 flex-col gap-2.5">
+                              <div className="flex flex-wrap items-start gap-3">
+                                <div className="min-w-0 flex-1 space-y-1.5">
+                                  {custom ? (
+                                    <input
+                                      type="text"
+                                      value={item.productTitle || ''}
+                                      onChange={(event) =>
+                                        setProductTitle(item, event.target.value)
+                                      }
+                                      placeholder="輸入產品名稱…"
+                                      className="h-10 w-full rounded-lg border border-border bg-background px-3 text-base font-medium outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+                                      aria-label="產品名稱"
+                                    />
+                                  ) : (
+                                    <p className="text-base font-medium leading-snug">
+                                      {item.productTitle}
+                                    </p>
+                                  )}
+                                  {custom ? (
+                                    <div className="flex flex-wrap items-center gap-2 text-[15px]">
+                                      <span className="text-muted-foreground">
+                                        單價 $
+                                      </span>
+                                      <input
+                                        type="number"
+                                        min={0}
+                                        step={1}
+                                        value={Number(item.salePrice || 0)}
+                                        onChange={(event) =>
+                                          setSalePrice(
                                             item,
-                                            feedbackIndex,
+                                            Number(event.target.value),
                                           )
                                         }
-                                        className="inline-flex shrink-0 items-center gap-1 rounded-md border border-rose-500/30 px-2 py-1 text-xs font-medium text-rose-700 hover:bg-rose-500/10 disabled:opacity-50"
-                                        title="刪除此客戶意見"
-                                      >
-                                        {deletingFeedbackKey === feedbackKey ? (
-                                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                        ) : (
-                                          <Trash2 className="h-3.5 w-3.5" />
-                                        )}
-                                        刪除
-                                      </button>
+                                        className="h-9 w-28 rounded-lg border border-border bg-background px-2 font-mono-data text-[15px] text-primary outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+                                        aria-label="單價"
+                                      />
+                                      <span className="font-mono-data text-primary">
+                                        × {item.quantity} = 小計 $
+                                        {(
+                                          Number(item.salePrice || 0) *
+                                          item.quantity
+                                        ).toLocaleString()}
+                                      </span>
                                     </div>
-                                    {feedback.text ? (
-                                      <p className="mt-1 whitespace-pre-wrap text-[15px] text-foreground">
-                                        {feedback.text}
-                                      </p>
-                                    ) : null}
+                                  ) : (
+                                    <p className="font-mono-data text-[15px] text-primary">
+                                      單價 $
+                                      {Number(item.salePrice || 0).toLocaleString()}{' '}
+                                      × {item.quantity}
+                                      {' = '}
+                                      小計 $
+                                      {(
+                                        Number(item.salePrice || 0) *
+                                        item.quantity
+                                      ).toLocaleString()}
+                                    </p>
+                                  )}
+                                </div>
+                                <div className="flex shrink-0 flex-wrap items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      void openPicker(
+                                        item.zoneId || zone.id,
+                                        item.id,
+                                      )
+                                    }
+                                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 px-2.5 text-[14px] font-medium text-primary hover:bg-primary/15"
+                                    title="更換此產品的名稱、圖片與價錢"
+                                  >
+                                    <RefreshCw className="h-3.5 w-3.5" />
+                                    更換產品
+                                  </button>
+                                  <div className="inline-flex items-center overflow-hidden rounded-lg border border-border bg-background">
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setQuantity(item, item.quantity - 1)
+                                      }
+                                      disabled={item.quantity <= 1}
+                                      className="flex h-9 w-9 items-center justify-center text-[17px] text-muted-foreground hover:bg-muted disabled:opacity-35"
+                                      aria-label="數量減一"
+                                    >
+                                      −
+                                    </button>
+                                    <input
+                                      type="number"
+                                      min={1}
+                                      max={9999}
+                                      value={item.quantity}
+                                      onChange={(event) =>
+                                        setQuantity(
+                                          item,
+                                          Number(event.target.value),
+                                        )
+                                      }
+                                      className="h-9 w-12 border-x border-border bg-background text-center font-mono-data text-[15px] font-semibold outline-none"
+                                      aria-label={`${titleLabel}數量`}
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setQuantity(item, item.quantity + 1)
+                                      }
+                                      className="flex h-9 w-9 items-center justify-center text-[17px] text-muted-foreground hover:bg-muted"
+                                      aria-label="數量加一"
+                                    >
+                                      +
+                                    </button>
                                   </div>
-                                  );
-                                })}
+                                  <select
+                                    value={item.status}
+                                    onChange={(e) =>
+                                      setStatus(
+                                        item.id,
+                                        e.target.value as ZoneProductStatus,
+                                      )
+                                    }
+                                    className={cn(
+                                      'rounded-full border px-3 py-1.5 text-[15px] font-medium',
+                                      ZONE_PRODUCT_STATUS_META[item.status]
+                                        ?.className,
+                                    )}
+                                  >
+                                    <option value="pending">未確定</option>
+                                    <option value="discussing">待討論</option>
+                                    <option value="confirmed">已確定</option>
+                                  </select>
+                                  <button
+                                    type="button"
+                                    disabled={deletingProductId === item.id}
+                                    onClick={() => void removeProduct(item)}
+                                    className="inline-flex items-center gap-1.5 rounded-lg border border-rose-500/30 px-2.5 py-1.5 text-[15px] font-medium text-rose-600 hover:bg-rose-500/10 disabled:opacity-50"
+                                    title="從間隔移除產品"
+                                  >
+                                    {deletingProductId === item.id ? (
+                                      <Loader2 className="h-4 w-4 animate-spin" />
+                                    ) : (
+                                      <Trash2 className="h-4 w-4" />
+                                    )}
+                                    刪除
+                                  </button>
+                                </div>
                               </div>
-                            ) : null}
+
+                              <div className="space-y-2">
+                                <div className="flex items-start gap-2">
+                                  <span className="mt-2 shrink-0 text-[15px] font-medium text-muted-foreground">
+                                    備註
+                                  </span>
+                                  <textarea
+                                    value={staffNotesValue(item.notes)}
+                                    onChange={(event) =>
+                                      setNotes(item, event.target.value)
+                                    }
+                                    rows={3}
+                                    placeholder="輸入意見或補充說明…"
+                                    className="min-h-[72px] min-w-0 flex-1 resize-y rounded-lg border border-border bg-background px-3 py-2 text-[15px] leading-relaxed outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+                                    aria-label={`${titleLabel}備註`}
+                                  />
+                                </div>
+                                {splitStaffNotesAndFeedback(item.notes).feedback
+                                  .length > 0 ? (
+                                  <div className="space-y-2">
+                                    {splitStaffNotesAndFeedback(
+                                      item.notes,
+                                    ).feedback.map(
+                                      (feedback, feedbackIndex) => {
+                                        const feedbackKey = `${item.id}:${feedbackIndex}`;
+                                        return (
+                                          <div
+                                            key={`${item.id}-feedback-${feedbackIndex}-${feedback.at}`}
+                                            className="rounded-lg border border-amber-500/25 bg-amber-500/5 px-3 py-2.5"
+                                          >
+                                            <div className="flex items-start justify-between gap-3">
+                                              <p className="text-[13px] font-medium text-amber-800 dark:text-amber-200">
+                                                客戶意見 ·{' '}
+                                                {reviewLabelZh(feedback.review)}
+                                                {' · '}
+                                                {fmtFeedbackTime(feedback.at)}
+                                                {feedback.author
+                                                  ? ` · ${feedback.author}`
+                                                  : ''}
+                                              </p>
+                                              <button
+                                                type="button"
+                                                disabled={
+                                                  deletingFeedbackKey ===
+                                                  feedbackKey
+                                                }
+                                                onClick={() =>
+                                                  void deleteClientFeedback(
+                                                    item,
+                                                    feedbackIndex,
+                                                  )
+                                                }
+                                                className="inline-flex shrink-0 items-center gap-1 rounded-md border border-rose-500/30 px-2 py-1 text-xs font-medium text-rose-700 hover:bg-rose-500/10 disabled:opacity-50"
+                                                title="刪除此客戶意見"
+                                              >
+                                                {deletingFeedbackKey ===
+                                                feedbackKey ? (
+                                                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                                ) : (
+                                                  <Trash2 className="h-3.5 w-3.5" />
+                                                )}
+                                                刪除
+                                              </button>
+                                            </div>
+                                            {feedback.text ? (
+                                              <p className="mt-1 whitespace-pre-wrap text-[15px] text-foreground">
+                                                {feedback.text}
+                                              </p>
+                                            ) : null}
+                                          </div>
+                                        );
+                                      },
+                                    )}
+                                  </div>
+                                ) : null}
+                              </div>
+                            </div>
                           </div>
                         </li>
                         );
