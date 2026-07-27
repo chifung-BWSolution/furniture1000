@@ -128,16 +128,53 @@ export function inferProjectType(name: string, clientCompany?: string | null): P
   return 'office';
 }
 
-/**
- * Starting room counts when selecting / creating a project type.
- * All quantities start at 0 — no auto-filled presets.
- * After the user edits and presses「儲存」, reopen uses saved meta.roomCounts.
- */
-export function defaultRoomCounts(type: ProjectEngineeringType): Record<string, number> {
+/** All template rooms at quantity 0 — used when switching to an unsaved 工程類型. */
+export function zeroRoomCounts(type: ProjectEngineeringType): Record<string, number> {
   const rooms = roomsForProjectType(type);
   const counts: Record<string, number> = {};
   for (const r of rooms) counts[r.key] = 0;
   return counts;
+}
+
+/**
+ * Default room counts for a brand-new project of this type.
+ * Switching to another type uses zeroRoomCounts instead; after「儲存」,
+ * reopen uses saved meta.roomCounts / roomsByType.
+ */
+export function defaultRoomCounts(type: ProjectEngineeringType): Record<string, number> {
+  const counts = zeroRoomCounts(type);
+  if (type === 'office') {
+    counts.meeting = 1;
+    counts.manager = 1;
+    counts.reception = 1;
+    counts.open = 1;
+    counts.pantry = 1;
+  } else if (type === 'school') {
+    counts.classroom = 2;
+    counts.principal = 1;
+    counts.staff = 1;
+    counts.hall = 1;
+  } else if (type === 'clinic') {
+    counts.consult = 2;
+    counts.lobby = 1;
+    counts.treatment = 1;
+    counts.restroom = 1;
+  } else if (type === 'hotel') {
+    counts.lobby = 1;
+    counts.lounge = 1;
+    counts.meeting = 1;
+  } else {
+    counts.open = 1;
+    counts.meeting = 1;
+  }
+  return counts;
+}
+
+/** Per-engineering-type room draft stored in design_projects.meta.roomsByType. */
+export interface TypeRoomsSnapshot {
+  roomOrder: string[];
+  roomCounts: Record<string, number>;
+  customRooms: RoomTypeTemplate[];
 }
 
 export function codePrefixFromLabel(label: string): string {
@@ -246,4 +283,6 @@ export interface ProjectPartitionMeta {
   roomCounts?: Record<string, number>;
   customRooms?: RoomTypeTemplate[];
   roomOrder?: string[];
+  /** Drafts per 工程類型 so switching back restores that type's last edit/save. */
+  roomsByType?: Partial<Record<ProjectEngineeringType, TypeRoomsSnapshot>>;
 }

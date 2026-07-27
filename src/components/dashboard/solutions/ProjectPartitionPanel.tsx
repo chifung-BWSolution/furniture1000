@@ -25,11 +25,14 @@ import {
   defaultRoomCounts,
   inferProjectType,
   normalizeRoomOrder,
+  orderedRoomsForProjectType,
   projectTypeLabel,
   roomsForProjectType,
   zoneSeedsFromRoomCounts,
+  zeroRoomCounts,
   type ProjectEngineeringType,
   type RoomTypeTemplate,
+  type TypeRoomsSnapshot,
 } from '@/lib/projectPartitionTemplates';
 import { syncProjectZones } from '@/lib/syncProjectZones';
 import type {
@@ -114,6 +117,53 @@ function countsForOrder(
   return next;
 }
 
+function normalizeTypeSnapshot(value: unknown): TypeRoomsSnapshot | null {
+  if (!value || typeof value !== 'object') return null;
+  const row = value as Record<string, unknown>;
+  const customRooms = normalizeCustomRooms(row.customRooms);
+  const hasOrder = Array.isArray(row.roomOrder);
+  const roomOrder = hasOrder ? normalizeRoomOrder(row.roomOrder) : [];
+  const roomCounts =
+    row.roomCounts && typeof row.roomCounts === 'object'
+      ? countsForOrder(
+          roomOrder.length > 0
+            ? roomOrder
+            : customRooms.map((room) => room.key),
+          row.roomCounts as Record<string, number>,
+        )
+      : {};
+  return {
+    roomOrder,
+    roomCounts,
+    customRooms: customRooms as RoomTypeTemplate[],
+  };
+}
+
+function normalizeRoomsByType(
+  value: unknown,
+): Partial<Record<ProjectEngineeringType, TypeRoomsSnapshot>> {
+  if (!value || typeof value !== 'object') return {};
+  const raw = value as Record<string, unknown>;
+  const next: Partial<Record<ProjectEngineeringType, TypeRoomsSnapshot>> = {};
+  for (const option of PROJECT_TYPE_OPTIONS) {
+    const snap = normalizeTypeSnapshot(raw[option.id]);
+    if (snap) next[option.id] = snap;
+  }
+  return next;
+}
+
+function snapshotFromState(
+  roomOrder: string[],
+  roomCounts: Record<string, number>,
+  customRooms: CustomRoomType[],
+): TypeRoomsSnapshot {
+  return {
+    roomOrder: [...roomOrder],
+    roomCounts: { ...roomCounts },
+    customRooms: customRooms.map((room) => ({ ...room })),
+  };
+}
+
 export function ProjectPartitionPanel({
   project,
   onProjectMetaChange,
@@ -143,6 +193,17 @@ export function ProjectPartitionPanel({
       Object.keys(project.meta.roomCounts).length > 0)
       ? countsForOrder(initialOrder, project.meta?.roomCounts)
       : defaultRoomCounts(initialType);
+  const initialRoomsByType = (() => {
+    const cached = normalizeRoomsByType(project.meta?.roomsByType);
+    // Always hydrate the active saved type from top-level meta so reopen
+    // shows the last「儲存」version, not stale per-type drafts.
+    cached[initialType] = snapshotFromState(
+      initialOrder,
+      initialCounts,
+      initialCustom,
+    );
+    return cached;
+  })();
   const [projectType, setProjectType] =
     useState<ProjectEngineeringType>(initialType);
   const [roomCounts, setRoomCounts] =
@@ -150,6 +211,10 @@ export function ProjectPartitionPanel({
   const [customRooms, setCustomRooms] =
     useState<CustomRoomType[]>(initialCustom);
   const [roomOrder, setRoomOrder] = useState<string[]>(initialOrder);
+  const [roomsByType, setRoomsByType] =
+    useState<Partial<Record<ProjectEngineeringType, TypeRoomsSnapshot>>>(
+      initialRoomsByType,
+    );
   const [zones, setZones] = useState<ProjectZone[]>([]);
   const [zoneProducts, setZoneProducts] = useState<ZoneProduct[]>([]);
   const [loading, setLoading] = useState(true);
@@ -165,40 +230,57 @@ export function ProjectPartitionPanel({
     () => roomsForProjectType(projectType),
     [projectType],
   );
-  // Resolve room chips from the saved/current roomOrder so switching 工程類型
-  // does not hide existing rooms before「儲存」.
-  const orderedRooms = useMemo(() => {
-    const byKey = new Map<string, RoomTypeTemplate>();
-    for (const option of PROJECT_TYPE_OPTIONS) {
-      for (const room of roomsForProjectType(option.id)) {
-        byKey.set(room.key, room);
-      }
+  const orderedRooms = useMemo(
+    () =>
+      orderedRoomsForProjectType(
+        projectType,
+        customRooms as RoomTypeTemplate[],
+        roomOrder,
+      ).filter((room) => !EXCLUDED_DEFAULT_ROOM_KEYS.has(room.key)),
+    [projectType, customRooms, roomOrder],
+  );
+
+  const applyTypeSnapshot = (
+    type: ProjectEngineeringType,
+    snap: TypeRoomsSnapshot | undefined,
+  ) => {
+    if (snap) {
+      const nextCustom = normalizeCustomRooms(snap.customRooms);
+      const nextOrder = resolveRoomOrder(
+        type,
+        nextCustom,
+        Array.isArray(snap.roomOrder) ? normalizeRoomOrder(snap.roomOrder) : null,
+      );
+      setCustomRooms(nextCustom);
+      setRoomOrder(nextOrder);
+      setRoomCounts(countsForOrder(nextOrder, snap.roomCounts));
+      return;
     }
-    for (const room of customRooms) {
-      byKey.set(room.key, room);
-    }
-    if (roomOrder.length === 0) {
-      return [
-        ...roomsForProjectType(projectType),
-        ...(customRooms as RoomTypeTemplate[]),
-      ].filter((room) => !EXCLUDED_DEFAULT_ROOM_KEYS.has(room.key));
-    }
-    return roomOrder
-      .map((key) => byKey.get(key))
-      .filter((room): room is RoomTypeTemplate => Boolean(room))
-      .filter((room) => !EXCLUDED_DEFAULT_ROOM_KEYS.has(room.key));
-  }, [customRooms, projectType, roomOrder]);
+    // No draft for this type yet → show that type's default room list at qty 0.
+    const nextCustom: CustomRoomType[] = [];
+    const nextOrder = defaultOrderFor(type, nextCustom);
+    setCustomRooms(nextCustom);
+    setRoomOrder(nextOrder);
+    setRoomCounts(zeroRoomCounts(type));
+  };
 
   const changeType = (type: ProjectEngineeringType) => {
-    // Single-select only: re-clicking current type is a no-op.
+    // Single-select only: re-clicking current type is a no-op (keeps saved edits).
     if (type === projectType) return;
-    // Do NOT reset roomCounts / roomOrder here. Unsaved switch only updates the
-    // selected type in UI; original rooms stay until「儲存」writes the new type.
-    // Closing without save reloads meta and restores the previous type + rooms.
+    // Stash the current type's draft, then load the target type's draft or
+    // its template rooms with quantity 0. Unsaved leave remounts from meta.
+    const nextCache = {
+      ...roomsByType,
+      [projectType]: snapshotFromState(roomOrder, roomCounts, customRooms),
+    };
+    setRoomsByType(nextCache);
     setProjectType(type);
+    applyTypeSnapshot(type, nextCache[type]);
     setDirty(true);
     toast.message(`已選擇「${projectTypeLabel(type)}」`, {
-      description: '請按「儲存」才會更新專案；未儲存離開會保留原本的工程類型與房間設定',
+      description: nextCache[type]
+        ? '已還原此工程類型上次的房間設定；請按「儲存」才會寫入專案'
+        : '已載入此工程類型的預設房間（數量為 0）；請按「儲存」才會寫入專案',
     });
   };
 
@@ -230,19 +312,25 @@ export function ProjectPartitionPanel({
           savedCounts && Object.keys(savedCounts).length > 0,
         );
 
-        setProjectType(type);
-        setCustomRooms(nextCustom);
-        setRoomOrder(nextOrder);
-
+        let nextCounts: Record<string, number>;
         // Never re-merge template defaultRoomCounts over a user save — that
         // reintroduces deleted room types with qty 1 on reopen.
         if (hasSavedOrder || hasSavedCounts) {
-          setRoomCounts(countsForOrder(nextOrder, savedCounts));
+          nextCounts = countsForOrder(nextOrder, savedCounts);
         } else if (loadedZones.length > 0) {
-          setRoomCounts(countRoomsFromZones(type, loadedZones, nextCustom));
+          nextCounts = countRoomsFromZones(type, loadedZones, nextCustom);
         } else {
-          setRoomCounts(defaultRoomCounts(type));
+          nextCounts = defaultRoomCounts(type);
         }
+
+        const cached = normalizeRoomsByType(project.meta?.roomsByType);
+        cached[type] = snapshotFromState(nextOrder, nextCounts, nextCustom);
+
+        setProjectType(type);
+        setCustomRooms(nextCustom);
+        setRoomOrder(nextOrder);
+        setRoomCounts(nextCounts);
+        setRoomsByType(cached);
 
         // Existing projects may still contain removed defaults — prompt save cleanup.
         if (
@@ -264,25 +352,7 @@ export function ProjectPartitionPanel({
     setSaving(true);
     try {
       const nextOrder = roomOrder;
-      // Rooms kept after switching 工程類型 may belong to another type's
-      // template. Promote them into customRooms so zoneSeeds / reload still
-      // resolve labels and pruneEmpty does not drop those zones.
-      const typeKeys = new Set(
-        roomsForProjectType(projectType).map((room) => room.key),
-      );
-      const existingCustomKeys = new Set(customRooms.map((room) => room.key));
-      const promoted: CustomRoomType[] = [];
-      for (const room of orderedRooms) {
-        if (!typeKeys.has(room.key) && !existingCustomKeys.has(room.key)) {
-          promoted.push({
-            key: room.key,
-            label: room.label,
-            codePrefix: room.codePrefix,
-          });
-        }
-      }
-      const nextCustom = [...customRooms, ...promoted];
-
+      const nextCustom = customRooms;
       const desired = zoneSeedsFromRoomCounts(
         projectType,
         roomCounts,
@@ -307,12 +377,22 @@ export function ProjectPartitionPanel({
         visibleCounts[key] = Math.max(0, roomCounts[key] || 0);
       }
 
+      const nextRoomsByType = {
+        ...roomsByType,
+        [projectType]: snapshotFromState(
+          nextOrder,
+          visibleCounts,
+          nextCustom,
+        ),
+      };
+
       const meta = {
         ...project.meta,
         projectType,
         roomCounts: visibleCounts,
         customRooms: nextCustom,
         roomOrder: nextOrder,
+        roomsByType: nextRoomsByType,
       };
       const saved = await saveProject(project.id, { meta });
       if (!saved.ok) throw new Error(saved.error || '儲存專案失敗');
@@ -336,6 +416,7 @@ export function ProjectPartitionPanel({
       setCustomRooms(nextCustom);
       setRoomCounts(visibleCounts);
       setRoomOrder(nextOrder);
+      setRoomsByType(nextRoomsByType);
       setDirty(false);
       onProjectMetaChange?.(project.id, meta);
       toast.success('已儲存房間設定', {
@@ -355,11 +436,12 @@ export function ProjectPartitionPanel({
     customRooms,
     onProjectFloorPlanChange,
     onProjectMetaChange,
-    orderedRooms,
+    orderedRooms.length,
     project,
     projectType,
     roomCounts,
     roomOrder,
+    roomsByType,
     saving,
     zoneProducts,
     zones,
@@ -468,7 +550,7 @@ export function ProjectPartitionPanel({
 
       <div>
         <p className="mb-2 text-[15px] font-semibold text-muted-foreground">
-          工程類型（單選；切換後請按儲存才會寫入）
+          工程類型（單選；各類型有獨立預設房間，切換後請按儲存才會寫入）
         </p>
         <div className="flex flex-wrap gap-2">
           {PROJECT_TYPE_OPTIONS.map((option) => {
@@ -687,7 +769,7 @@ export function ProjectPartitionPanel({
         ) : null}
         <p className="mt-3 flex items-center gap-1.5 text-[15px] text-muted-foreground">
           <Sparkles className="h-4 w-4 text-primary" />
-          切換工程類型、刪除、排序與數量調整後，記得按「儲存」才會寫入；未儲存離開會還原原本設定。
+          切換工程類型會載入該類型房間（未設定過則數量為 0）；已儲存的類型會還原上次設定。按「儲存」才會寫入專案。
         </p>
       </div>
     </div>

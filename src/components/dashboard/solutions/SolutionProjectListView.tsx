@@ -223,12 +223,20 @@ export function SolutionProjectListView() {
       const roomOrder = roomsForProjectType(form.projectType).map(
         (room) => room.key,
       );
+      const typeSnapshot = {
+        roomOrder,
+        roomCounts,
+        customRooms: [] as DesignProject['meta']['customRooms'],
+      };
       const baseMeta = {
         projectType: form.projectType,
         existingPartition: 'none' as const,
         roomCounts,
         customRooms: [] as DesignProject['meta']['customRooms'],
         roomOrder,
+        roomsByType: {
+          [form.projectType]: typeSnapshot,
+        },
       };
       const res = await createProject({
         name: form.name.trim(),

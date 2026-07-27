@@ -96,6 +96,20 @@ export interface DesignProjectMeta {
   customRooms?: CustomRoomType[];
   /** Display/sync order of room type keys (templates + custom). */
   roomOrder?: string[];
+  /**
+   * Per-工程類型 room drafts. Switching type shows that type's template
+   * (qty 0) or restores a previous draft/save for that type.
+   */
+  roomsByType?: Partial<
+    Record<
+      'office' | 'school' | 'clinic' | 'hotel' | 'other',
+      {
+        roomOrder: string[];
+        roomCounts: Record<string, number>;
+        customRooms: CustomRoomType[];
+      }
+    >
+  >;
   floorPlanFileName?: string;
   /** JPEG preview for PDF floor plans (Storage HTTP URL). */
   floorPlanPreviewUrl?: string;
