@@ -165,9 +165,9 @@ function zoneGroupDomId(label: string): string {
   return `design-zone-group-${encodeURIComponent(label)}`;
 }
 
-/** Original thumb was 56px (h-14); 200% = 112px minimum square. */
-const PRODUCT_IMAGE_MIN_PX = 112;
-const PRODUCT_IMAGE_MAX_PX = 220;
+/** Original thumb was 56px (h-14); ~2.6× ≈ 146px after +30% on the 200% size. */
+const PRODUCT_IMAGE_MIN_PX = 146;
+const PRODUCT_IMAGE_MAX_PX = 286;
 
 /** Keep product image square: ≥200% of old thumb, grow with content, cap for overflow. */
 function useProductImageSquareSize() {
@@ -180,7 +180,7 @@ function useProductImageSquareSize() {
 
     const update = () => {
       const contentH = Math.ceil(node.getBoundingClientRect().height);
-      const viewportCap = Math.floor(window.innerWidth * 0.28);
+      const viewportCap = Math.floor(window.innerWidth * 0.32);
       const maxSide = Math.max(
         PRODUCT_IMAGE_MIN_PX,
         Math.min(PRODUCT_IMAGE_MAX_PX, viewportCap),
@@ -249,9 +249,9 @@ function ZoneProductRow({
 
   return (
     <li className="px-5 py-3.5">
-      <div className="flex items-start gap-4">
+      <div className="flex items-stretch gap-4">
         <div
-          className="relative shrink-0"
+          className="relative shrink-0 self-start"
           style={{ width: size, height: size }}
         >
           <input
@@ -314,7 +314,11 @@ function ZoneProductRow({
           ) : null}
         </div>
 
-        <div ref={contentRef} className="min-w-0 flex-1 space-y-2.5">
+        <div
+          className="flex min-w-0 flex-1 flex-col justify-start"
+          style={{ minHeight: size }}
+        >
+          <div ref={contentRef} className="space-y-2.5">
           <div className="flex flex-wrap items-start gap-3">
             <div className="min-w-0 flex-1 space-y-1.5">
               {custom ? (
@@ -492,6 +496,7 @@ function ZoneProductRow({
                 })}
               </div>
             ) : null}
+          </div>
           </div>
         </div>
       </div>
@@ -1152,7 +1157,7 @@ export function DesignProjectsView() {
     <div className="h-full overflow-y-auto bg-background">
       {/* Header */}
       <div className="border-b border-border bg-background">
-        <div className="mx-auto flex max-w-[1440px] flex-col gap-4 px-7 py-4 md:flex-row md:items-center md:px-10">
+        <div className="mx-auto flex max-w-[1440px] flex-col gap-4 px-3.5 py-4 md:flex-row md:items-center md:px-5">
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="truncate font-display text-2xl font-bold tracking-tight">
@@ -1248,7 +1253,7 @@ export function DesignProjectsView() {
         </div>
       </div>
 
-      <div className="mx-auto max-w-[1440px] space-y-6 px-7 py-8 md:px-10 md:py-10">
+      <div className="mx-auto max-w-[1440px] space-y-6 px-3.5 py-8 md:px-5 md:py-10">
         {/* Text zone list + furniture */}
         <section className="space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
