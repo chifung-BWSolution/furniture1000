@@ -637,19 +637,15 @@ const QUOTE_LEFT_COL_CLASS = "w-[15em] max-w-full shrink-0";
  */
 const QUOTE_CARD_GRID = cn(
   "grid w-full auto-rows-min items-start gap-x-3 gap-y-3",
-  "grid-cols-[1.75rem_minmax(0,15em)_minmax(6.5rem,min(16rem,1fr))_minmax(6.5rem,min(16rem,1fr))_6em_6em_minmax(0,1fr)_6.5rem_auto]",
-  "xl:gap-x-2 xl:grid-cols-[1.75rem_minmax(0,15em)_minmax(8rem,calc((56%-1.75rem-15em-2rem)/2))_minmax(8rem,calc((56%-1.75rem-15em-2rem)/2))_6em_6em_minmax(0,1fr)_6.5rem_auto]",
+  // Col 7 spacer keeps min gap so HKD$單價 (col 6) and HKD$小計 (col 8) never sit flush.
+  "grid-cols-[1.75rem_minmax(0,15em)_minmax(6.5rem,min(16rem,1fr))_minmax(6.5rem,min(16rem,1fr))_6em_7em_minmax(0.75rem,1fr)_7em_auto]",
+  "xl:gap-x-3 xl:grid-cols-[1.75rem_minmax(0,15em)_minmax(8rem,calc((56%-1.75rem-15em-2rem)/2))_minmax(8rem,calc((56%-1.75rem-15em-2rem)/2))_6em_7em_minmax(1rem,1fr)_7em_auto]",
 );
 
 /** xl: shift media block right — align with 「案」 in 專案分類 (position only) */
 const QUOTE_CARD_MEDIA_XL_SHIFT = "xl:ml-[4rem]";
-/** xl: shift 單價 only — 數量/成本 use separate offset below */
+/** xl: shift 單位/單價 · 可選/小計 pair — 數量/成本 use separate offset below */
 const QUOTE_CARD_PRICING_XL_SHIFT = "xl:ml-[15rem]";
-/** ~6 Chinese chars — 單價 (single-line label + input) */
-const QUOTE_PRICING_FIELD_CLASS = cn(
-  "w-[6em] min-w-[6em] max-w-[6em] shrink-0 [&_label]:whitespace-nowrap",
-  QUOTE_CARD_PRICING_XL_SHIFT,
-);
 /** 數量 · 成本價 — same col, left-aligned labels, 6rem left of 單價 offset */
 const QUOTE_QTY_COST_FIELD_CLASS = cn(
   "w-[6em] min-w-[6em] max-w-[6em] shrink-0 [&_label]:whitespace-nowrap",
@@ -1056,20 +1052,41 @@ function QuoteProductItemCard({
           </QuoteFieldBlock>
         </div>
 
-        {/* Row 1 — col 6: 單位 (aligned with 單價 below) */}
-        <QuoteFieldBlock
-          label={labels.unit}
-          className={cn("col-start-6 row-start-1", QUOTE_PRICING_FIELD_CLASS)}
+        {/* Row 1 — 單位 · 可選 (gap so labels never collide with 小計 column) */}
+        <div
+          className={cn(
+            "col-start-6 col-span-3 row-start-1 flex min-w-0 items-end gap-3",
+            QUOTE_CARD_PRICING_XL_SHIFT,
+          )}
         >
-          <input
-            type="text"
-            value={item.unit || ""}
-            placeholder="—"
-            maxLength={4}
-            onChange={(e) => updateItem(item.id, "unit", e.target.value)}
-            className={QUOTE_INPUT_CLASS}
-          />
-        </QuoteFieldBlock>
+          <QuoteFieldBlock
+            label={labels.unit}
+            className="w-[7em] min-w-[7em] max-w-[7em] shrink-0 [&_label]:whitespace-nowrap"
+          >
+            <input
+              type="text"
+              value={item.unit || ""}
+              placeholder="—"
+              maxLength={4}
+              onChange={(e) => updateItem(item.id, "unit", e.target.value)}
+              className={QUOTE_INPUT_CLASS}
+            />
+          </QuoteFieldBlock>
+          <div className="flex w-[7em] min-w-[7em] shrink-0 items-end justify-end">
+            <label className="flex cursor-pointer items-center gap-1.5">
+              <Checkbox
+                checked={item.isOptional ?? false}
+                onCheckedChange={(checked) =>
+                  updateItem(item.id, "isOptional", checked === true)
+                }
+                className="border-foreground/60 data-[state=checked]:border-primary"
+              />
+              <span className="whitespace-nowrap font-body text-xs text-muted-foreground">
+                {labels.optionalProduct}
+              </span>
+            </label>
+          </div>
+        </div>
 
         {/* Row 2 — col 2: 備註 */}
         <QuoteFieldBlock label={labels.remarks} className="col-start-2 row-start-2 min-w-0">
@@ -1111,51 +1128,44 @@ function QuoteProductItemCard({
           />
         </QuoteFieldBlock>
 
-        <QuoteFieldBlock
-          label={labels.hkdUnitPrice}
-          className={cn("col-start-6 row-start-2", QUOTE_PRICING_FIELD_CLASS)}
+        {/* Row 2 — HKD$單價 · HKD$小計 (fixed gap-3; avoid xl margin overlap) */}
+        <div
+          className={cn(
+            "col-start-6 col-span-3 row-start-2 flex min-w-0 items-start gap-3",
+            QUOTE_CARD_PRICING_XL_SHIFT,
+          )}
         >
-          <input
-            type="number"
-            value={typeof item.unitPrice === "number" ? item.unitPrice : ""}
-            placeholder="0"
-            min={0}
-            onChange={(e) =>
-              updateItem(item.id, "unitPrice", parseFloat(e.target.value) || 0)
-            }
-            className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
-          />
-        </QuoteFieldBlock>
-
-        {/* Row 1 — col 8: 可選產品 (above HKD$小計) */}
-        <div className="col-start-8 row-start-1 flex min-w-0 items-end justify-end">
-          <label className="flex cursor-pointer items-center gap-1.5">
-            <Checkbox
-              checked={item.isOptional ?? false}
-              onCheckedChange={(checked) =>
-                updateItem(item.id, "isOptional", checked === true)
+          <QuoteFieldBlock
+            label={labels.hkdUnitPrice}
+            className="w-[7em] min-w-[7em] max-w-[7em] shrink-0 [&_label]:whitespace-nowrap"
+          >
+            <input
+              type="number"
+              value={typeof item.unitPrice === "number" ? item.unitPrice : ""}
+              placeholder="0"
+              min={0}
+              onChange={(e) =>
+                updateItem(item.id, "unitPrice", parseFloat(e.target.value) || 0)
               }
-              className="border-foreground/60 data-[state=checked]:border-primary"
+              className={QUOTE_COMPACT_NUMBER_INPUT_CLASS}
             />
-            <span className="whitespace-nowrap font-body text-xs text-muted-foreground">
-              {labels.optionalProduct}
-            </span>
-          </label>
+          </QuoteFieldBlock>
+          <QuoteFieldBlock
+            label={labels.hkdSubtotal}
+            className="w-[7em] min-w-[7em] max-w-[7em] shrink-0 [&_label]:whitespace-nowrap"
+          >
+            <div className="flex h-[34px] items-center rounded-md border border-border/60 bg-muted/20 px-2">
+              <span
+                className={cn(
+                  "truncate font-mono-data text-xs font-medium",
+                  item.isOptional ? "text-muted-foreground" : "text-foreground",
+                )}
+              >
+                ${quoteItemLineSubtotal(item).toLocaleString()}
+              </span>
+            </div>
+          </QuoteFieldBlock>
         </div>
-
-        {/* Row 2 — col 8: 小計 */}
-        <QuoteFieldBlock label={labels.hkdSubtotal} className="col-start-8 row-start-2 min-w-0">
-          <div className="flex h-[34px] items-center rounded-md border border-border/60 bg-muted/20 px-2">
-            <span
-              className={cn(
-                "truncate font-mono-data text-xs font-medium",
-                item.isOptional ? "text-muted-foreground" : "text-foreground",
-              )}
-            >
-              ${quoteItemLineSubtotal(item).toLocaleString()}
-            </span>
-          </div>
-        </QuoteFieldBlock>
 
         {/* Row 2 — col 9: 剪下 / 複製 / 刪除 */}
         <div className="col-start-9 row-start-2 shrink-0">
