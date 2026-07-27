@@ -92,10 +92,12 @@ function resolveRoomOrder(
   savedOrder: string[] | null,
 ): string[] {
   if (savedOrder == null) return defaultOrderFor(type, customRooms);
+  // Honor the saved list exactly — never re-inject deleted template rooms.
   const known = new Set(defaultOrderFor(type, customRooms));
   const next = savedOrder.filter(
     (key) => known.has(key) && !EXCLUDED_DEFAULT_ROOM_KEYS.has(key),
   );
+  // Keep custom rooms that exist in meta but are missing from order (recovery only).
   for (const room of customRooms) {
     if (!next.includes(room.key)) next.push(room.key);
   }
@@ -318,6 +320,13 @@ export function ProjectPartitionPanel({
   ]);
 
   const changeType = (type: ProjectEngineeringType) => {
+    // Clicking the already-selected 工程類型 must NOT rebuild the default room
+    // list — that was re-adding deleted rooms and marking the panel dirty.
+    if (type === projectType) return;
+    const confirmed = window.confirm(
+      `切換工程類型為「${projectTypeLabel(type)}」會重置房間類型清單（數量歸 0，自訂房間會保留）。確定繼續？`,
+    );
+    if (!confirmed) return;
     const counts = {
       ...defaultRoomCounts(type),
       ...Object.fromEntries(
@@ -360,10 +369,7 @@ export function ProjectPartitionPanel({
       { key, label, codePrefix: codePrefixFromLabel(label) },
     ]);
     setRoomCounts((current) => ({ ...current, [key]: qty }));
-    setRoomOrder((current) => [
-      ...(current.length ? current : defaultOrderFor(projectType, customRooms)),
-      key,
-    ]);
+    setRoomOrder((current) => [...current, key]);
     setShowAddRoom(false);
     setNewRoomLabel('');
     setNewRoomQty(1);
@@ -383,11 +389,7 @@ export function ProjectPartitionPanel({
       delete next[key];
       return next;
     });
-    setRoomOrder((current) =>
-      (current.length ? current : defaultOrderFor(projectType, customRooms)).filter(
-        (item) => item !== key,
-      ),
-    );
+    setRoomOrder((current) => current.filter((item) => item !== key));
     setDirty(true);
     toast.message('已移除房間類型', {
       description: '請按「儲存」更新專案資料',
