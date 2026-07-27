@@ -39,10 +39,12 @@ import {
   fetchProjects,
   fetchZones,
   fetchZoneProducts,
+  fetchProductsDisplayMeta,
   applyZoneProductClientReview,
   updateZoneProductNotes,
   saveProject,
 } from '@/lib/solutionsApi';
+import { formatProductDimensionsMm } from '@/lib/productDimensions';
 import { readStoredPortalToken } from '@/lib/customerPortalRoutes';
 import type {
   DesignProject,
@@ -551,6 +553,11 @@ export function CustomerQuoteSchemesView() {
         fetchZoneProducts(linkedProject.id),
       ]);
       const selectedProducts = zoneProducts.filter((product) => product.zoneId);
+      const catalogMeta = await fetchProductsDisplayMeta(
+        selectedProducts
+          .map((product) => String(product.productId || '').trim())
+          .filter(Boolean),
+      );
       const grouped: BwfQuoteItemInput[] = [];
       for (const zone of zones) {
         const products = selectedProducts.filter(
@@ -563,6 +570,9 @@ export function CustomerQuoteSchemesView() {
           image: '',
         });
         for (const product of products) {
+          const meta = product.productId
+            ? catalogMeta[product.productId]
+            : undefined;
           grouped.push({
             id: product.id,
             name: product.productTitle,
@@ -572,6 +582,13 @@ export function CustomerQuoteSchemesView() {
             unit: '件',
             notes: product.notes || '',
             zoneStatus: product.status,
+            // Prefer project-local dims; fall back to catalog. Never show factory here.
+            dimensionLMm:
+              product.dimensionLMm ?? meta?.dimensionLMm ?? null,
+            dimensionWMm:
+              product.dimensionWMm ?? meta?.dimensionWMm ?? null,
+            dimensionHMm:
+              product.dimensionHMm ?? meta?.dimensionHMm ?? null,
           });
         }
       }
@@ -931,6 +948,13 @@ export function CustomerQuoteSchemesView() {
                   <div class="grow">
                     <div class="name-row"><strong>${escapeHtml(quoteItemDisplayName(item))}</strong></div>
                     <p>${escapeHtml(item.material || '')} ${escapeHtml(item.color || '')}</p>
+                    <p>${escapeHtml(
+                      formatProductDimensionsMm(
+                        item.dimensionLMm,
+                        item.dimensionWMm,
+                        item.dimensionHMm,
+                      ) || '—',
+                    )}</p>
                     <p>${escapeHtml(portalNotesDisplay(item.notes) || '—')}</p>
                     <p>${fmtMoney(Number(item.unitPrice || 0))} × ${escapeHtml(item.quantity || 1)} ${escapeHtml(item.unit || '')}</p>
                     <p class="review">客戶決定：${escapeHtml(review)}${notes ? `（${escapeHtml(notes)}）` : ''}</p>
@@ -1386,6 +1410,11 @@ export function CustomerQuoteSchemesView() {
                               const key = itemKey(item, index);
                               const review = itemReviews[key];
                               const messages = itemMessages[key] || [];
+                              const dimsLabel = formatProductDimensionsMm(
+                                item.dimensionLMm,
+                                item.dimensionWMm,
+                                item.dimensionHMm,
+                              );
                               return (
                                 <article key={key} className="p-5">
                                   <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
@@ -1417,6 +1446,11 @@ export function CustomerQuoteSchemesView() {
                                           </p>
                                         ) : null}
                                       </div>
+                                      {dimsLabel ? (
+                                        <p className="mt-1 font-mono-data text-sm text-muted-foreground">
+                                          {dimsLabel}
+                                        </p>
+                                      ) : null}
                                       <p className="mt-2 font-mono-data text-sm text-primary">
                                         {fmtMoney(Number(item.unitPrice || 0))} ×{' '}
                                         {item.quantity || 1} {item.unit || ''}

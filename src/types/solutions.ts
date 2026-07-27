@@ -43,6 +43,13 @@ export interface ZoneProduct {
   sortOrder: number;
   /** Staff remark / note entered on 設計專案. */
   notes: string;
+  /**
+   * Project-local dimensions (mm). Null = fall back to catalog for display
+   * until staff edits; edits never write back to products table.
+   */
+  dimensionLMm?: number | null;
+  dimensionWMm?: number | null;
+  dimensionHMm?: number | null;
 }
 
 /** Custom room rows created via「新增房間」, stored in design_projects.meta. */
@@ -70,6 +77,9 @@ export interface FurnitureSnapshotItem {
   status: ZoneProductStatus;
   scheme: SchemeLabel;
   sortOrder: number;
+  dimensionLMm?: number | null;
+  dimensionWMm?: number | null;
+  dimensionHMm?: number | null;
 }
 
 /** Full furniture inventory snapshot under design_projects.meta. */

@@ -33,7 +33,7 @@ import {
 } from '@/lib/projectPartitionTemplates';
 import {
   syncProjectZones,
-  zonesMissingFromSeeds,
+  zonesOutOfSyncWithSeeds,
 } from '@/lib/syncProjectZones';
 import { uploadFileToStorage } from '@/lib/imageStorage';
 import { remarksPlainText } from '@/lib/remarksContent';
@@ -292,6 +292,19 @@ function useProductImageSquareSize() {
   return { contentRef, size };
 }
 
+function dimInputValue(value: number | null | undefined): string {
+  if (value == null || !Number.isFinite(value)) return '';
+  return String(Math.round(value));
+}
+
+function parseDimInput(raw: string): number | null {
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const num = Number(trimmed.replace(/[^\d.]/g, ''));
+  if (!Number.isFinite(num) || num < 0) return null;
+  return Math.round(num);
+}
+
 function ZoneProductRow({
   item,
   zoneId,
@@ -309,6 +322,7 @@ function ZoneProductRow({
   onRemove,
   onSetTitle,
   onSetSalePrice,
+  onSetDimensions,
   onSetNotes,
   onDeleteFeedback,
 }: {
@@ -328,18 +342,48 @@ function ZoneProductRow({
   onRemove: (item: ZoneProduct) => void;
   onSetTitle: (item: ZoneProduct, value: string) => void;
   onSetSalePrice: (item: ZoneProduct, value: number) => void;
+  onSetDimensions: (
+    item: ZoneProduct,
+    patch: {
+      dimensionLMm: number | null;
+      dimensionWMm: number | null;
+      dimensionHMm: number | null;
+    },
+  ) => void;
   onSetNotes: (item: ZoneProduct, value: string) => void;
   onDeleteFeedback: (item: ZoneProduct, index: number) => void;
 }) {
   const { contentRef, size } = useProductImageSquareSize();
   const feedback = splitStaffNotesAndFeedback(item.notes).feedback;
-  const dimensionsLabel = formatProductDimensionsMm(
-    catalogMeta?.dimensionLMm,
-    catalogMeta?.dimensionWMm,
-    catalogMeta?.dimensionHMm,
-  );
+  // Once any project-local dim is saved, stop falling back to catalog (so clears stick).
+  const hasProjectDims =
+    item.dimensionLMm != null ||
+    item.dimensionWMm != null ||
+    item.dimensionHMm != null;
+  const effectiveL = hasProjectDims
+    ? (item.dimensionLMm ?? null)
+    : (catalogMeta?.dimensionLMm ?? null);
+  const effectiveW = hasProjectDims
+    ? (item.dimensionWMm ?? null)
+    : (catalogMeta?.dimensionWMm ?? null);
+  const effectiveH = hasProjectDims
+    ? (item.dimensionHMm ?? null)
+    : (catalogMeta?.dimensionHMm ?? null);
   const factoryName = (catalogMeta?.factoryName || '').trim();
   const canUploadImage = custom || !item.productImageUrl;
+
+  const commitDimAxis = (
+    axis: 'dimensionLMm' | 'dimensionWMm' | 'dimensionHMm',
+    raw: string,
+  ) => {
+    const nextValue = parseDimInput(raw);
+    // First edit snapshots the other axes from catalog so project-local row is complete.
+    onSetDimensions(item, {
+      dimensionLMm: axis === 'dimensionLMm' ? nextValue : effectiveL,
+      dimensionWMm: axis === 'dimensionWMm' ? nextValue : effectiveW,
+      dimensionHMm: axis === 'dimensionHMm' ? nextValue : effectiveH,
+    });
+  };
 
   return (
     <li className="px-5 py-3.5">
@@ -518,25 +562,61 @@ function ZoneProductRow({
             </div>
           </div>
 
-          {dimensionsLabel || factoryName ? (
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="shrink-0 text-[15px] font-medium text-muted-foreground">
-                尺寸
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="shrink-0 text-[15px] font-medium text-muted-foreground">
+              尺寸
+            </span>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={dimInputValue(effectiveL)}
+              onChange={(event) =>
+                commitDimAxis('dimensionLMm', event.target.value)
+              }
+              placeholder="—"
+              className="h-8 w-[4.5rem] rounded-md border border-border bg-background px-2 text-right font-mono-data text-[14px] text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+              aria-label={`${titleLabel}長度 W`}
+              title="長 (W) mm — 僅存於此設計專案"
+            />
+            <span className="font-mono-data text-[13px] text-muted-foreground">
+              (W) x
+            </span>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={dimInputValue(effectiveW)}
+              onChange={(event) =>
+                commitDimAxis('dimensionWMm', event.target.value)
+              }
+              placeholder="—"
+              className="h-8 w-[4.5rem] rounded-md border border-border bg-background px-2 text-right font-mono-data text-[14px] text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+              aria-label={`${titleLabel}闊度 D`}
+              title="闊 (D) mm — 僅存於此設計專案"
+            />
+            <span className="font-mono-data text-[13px] text-muted-foreground">
+              (D) x
+            </span>
+            <input
+              type="text"
+              inputMode="numeric"
+              value={dimInputValue(effectiveH)}
+              onChange={(event) =>
+                commitDimAxis('dimensionHMm', event.target.value)
+              }
+              placeholder="—"
+              className="h-8 w-[4.5rem] rounded-md border border-border bg-background px-2 text-right font-mono-data text-[14px] text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+              aria-label={`${titleLabel}高度 H`}
+              title="高 (H) mm — 僅存於此設計專案"
+            />
+            <span className="font-mono-data text-[13px] text-muted-foreground">
+              (H) (mm)
+            </span>
+            {factoryName ? (
+              <span className="rounded-full border border-border bg-muted/60 px-2.5 py-0.5 text-[12px] font-medium text-muted-foreground">
+                {factoryName}
               </span>
-              {dimensionsLabel ? (
-                <span className="font-mono-data text-[15px] text-muted-foreground">
-                  {dimensionsLabel}
-                </span>
-              ) : (
-                <span className="text-[15px] text-muted-foreground/70">—</span>
-              )}
-              {factoryName ? (
-                <span className="rounded-full border border-border bg-muted/60 px-2.5 py-0.5 text-[12px] font-medium text-muted-foreground">
-                  {factoryName}
-                </span>
-              ) : null}
-            </div>
-          ) : null}
+            ) : null}
+          </div>
 
           <div className="space-y-2">
             <div className="flex items-start gap-2">
@@ -811,21 +891,29 @@ export function DesignProjectsView() {
           hasSavedOrder ? roomOrder : null,
           labelOverrides,
         );
-        if (zonesMissingFromSeeds(desired, z)) {
+        // Keep 設計專案 intervals identical to 方案列表 (create missing + drop orphans).
+        if (hasSavedOrder && zonesOutOfSyncWithSeeds(desired, z)) {
           const synced = await syncProjectZones({
             projectId,
             desired,
             zones: z,
             zoneProducts: zp,
-            // Only create missing rooms here; pruning stays on 方案列表「儲存」.
-            pruneEmpty: false,
+            pruneEmpty: true,
+            dropOrphanZones: true,
           });
           if (synced.ok && synced.data) {
             nextZones = synced.data;
+            // Orphan zones drop products into basket (zone_id null) — refresh list.
+            const refreshedProducts = await fetchZoneProducts(projectId);
+            setZoneProducts(refreshedProducts);
             toast.success('已同步房間清單', {
-              description: '已依方案列表的房間類型及數量補齊間隔',
+              description: '已與方案列表的房間類型及數量對齊',
             });
-          } else if (!synced.ok) {
+            setZones(nextZones);
+            setFurnitureDirty(false);
+            return nextZones;
+          }
+          if (!synced.ok) {
             toast.error('同步房間失敗', {
               description: synced.error || '請到方案列表重新按「儲存」',
             });
@@ -935,6 +1023,7 @@ export function DesignProjectsView() {
     }
     const list = [...groups.values()];
     // Prefer explicit meta.roomOrder (方案列表「儲存」) over zone sort_order alone.
+    // Only show room types that still exist on 方案列表.
     const savedOrder = normalizeRoomOrder(project?.meta?.roomOrder);
     if (savedOrder.length > 0) {
       const labelRank = roomOrderLabels(
@@ -943,16 +1032,25 @@ export function DesignProjectsView() {
         savedOrder,
         normalizeRoomLabelOverrides(project?.meta?.roomLabelOverrides),
       );
+      const allowed = new Set(labelRank);
       const rank = new Map(labelRank.map((label, index) => [label, index]));
-      return list.sort((a, b) => {
-        const aRank = rank.has(a.label) ? rank.get(a.label)! : 1000 + a.minSort;
-        const bRank = rank.has(b.label) ? rank.get(b.label)! : 1000 + b.minSort;
-        if (aRank !== bRank) return aRank - bRank;
-        return a.minSort - b.minSort;
-      });
+      return list
+        .filter((group) => allowed.has(group.label))
+        .sort((a, b) => {
+          const aRank = rank.has(a.label) ? rank.get(a.label)! : 1000 + a.minSort;
+          const bRank = rank.has(b.label) ? rank.get(b.label)! : 1000 + b.minSort;
+          if (aRank !== bRank) return aRank - bRank;
+          return a.minSort - b.minSort;
+        });
     }
     return list.sort((a, b) => a.minSort - b.minSort);
-  }, [project?.meta?.customRooms, project?.meta?.roomOrder, projectType, zones]);
+  }, [
+    project?.meta?.customRooms,
+    project?.meta?.roomLabelOverrides,
+    project?.meta?.roomOrder,
+    projectType,
+    zones,
+  ]);
 
   const scrollToZoneGroup = useCallback((label: string) => {
     const target = document.getElementById(zoneGroupDomId(label));
@@ -1199,6 +1297,10 @@ export function DesignProjectsView() {
       productTitle: product.title,
       productImageUrl: product.imageUrl || '',
       salePrice: Number(product.salePrice) || 0,
+      // Snapshot catalog dims into this project row (never writes products table).
+      dimensionLMm: product.dimensionLMm ?? null,
+      dimensionWMm: product.dimensionWMm ?? null,
+      dimensionHMm: product.dimensionHMm ?? null,
     });
     toast.success('已更換產品', {
       description: `${current.productTitle || '未命名產品'} → ${product.title}（記得按儲存）`,
@@ -1228,6 +1330,9 @@ export function DesignProjectsView() {
       scheme: project?.activeScheme || 'A',
       quantity: 1,
       status: 'pending',
+      dimensionLMm: product.dimensionLMm ?? null,
+      dimensionWMm: product.dimensionWMm ?? null,
+      dimensionHMm: product.dimensionHMm ?? null,
     });
     if (res.ok && res.data) {
       setZoneProducts((prev) => [...prev, res.data!]);
@@ -1361,6 +1466,21 @@ export function DesignProjectsView() {
   const setSalePrice = (item: ZoneProduct, value: number) => {
     const salePrice = Math.max(0, Number.isFinite(value) ? value : 0);
     patchProduct(item.id, { salePrice });
+  };
+
+  const setDimensions = (
+    item: ZoneProduct,
+    patch: {
+      dimensionLMm: number | null;
+      dimensionWMm: number | null;
+      dimensionHMm: number | null;
+    },
+  ) => {
+    patchProduct(item.id, {
+      dimensionLMm: patch.dimensionLMm,
+      dimensionWMm: patch.dimensionWMm,
+      dimensionHMm: patch.dimensionHMm,
+    });
   };
 
   const uploadProductImage = async (item: ZoneProduct, file: File | null) => {
@@ -1891,6 +2011,7 @@ export function DesignProjectsView() {
                     }}
                     onSetTitle={setProductTitle}
                     onSetSalePrice={setSalePrice}
+                    onSetDimensions={setDimensions}
                     onSetNotes={setNotes}
                     onDeleteFeedback={(row, index) => {
                       void deleteClientFeedback(row, index);

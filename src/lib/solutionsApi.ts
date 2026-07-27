@@ -85,6 +85,9 @@ function mapZoneProduct(r: any): ZoneProduct {
     quantity: r.quantity ?? 1,
     sortOrder: r.sort_order ?? 0,
     notes: typeof r.notes === 'string' ? r.notes : '',
+    dimensionLMm: numOrNullDim(r.dimension_l_mm),
+    dimensionWMm: numOrNullDim(r.dimension_w_mm),
+    dimensionHMm: numOrNullDim(r.dimension_h_mm),
   };
 }
 
@@ -931,6 +934,9 @@ export async function createZoneProduct(input: {
   quantity?: number;
   status?: string;
   notes?: string;
+  dimensionLMm?: number | null;
+  dimensionWMm?: number | null;
+  dimensionHMm?: number | null;
 }): Promise<WriteResult<ZoneProduct>> {
   try {
     const insertPayload = await withInsertAuditFields({
@@ -945,6 +951,9 @@ export async function createZoneProduct(input: {
       quantity: input.quantity ?? 1,
       sort_order: 0,
       notes: (input.notes ?? '').trim(),
+      dimension_l_mm: numOrNullDim(input.dimensionLMm),
+      dimension_w_mm: numOrNullDim(input.dimensionWMm),
+      dimension_h_mm: numOrNullDim(input.dimensionHMm),
     });
     const { data, error } = await supabase
       .from('zone_products')
@@ -970,6 +979,9 @@ export async function updateZoneProductFields(
     quantity?: number;
     status?: string;
     sortOrder?: number;
+    dimensionLMm?: number | null;
+    dimensionWMm?: number | null;
+    dimensionHMm?: number | null;
   },
 ): Promise<WriteResult> {
   try {
@@ -997,6 +1009,15 @@ export async function updateZoneProductFields(
     }
     if (patch.sortOrder !== undefined) {
       row.sort_order = patch.sortOrder;
+    }
+    if (patch.dimensionLMm !== undefined) {
+      row.dimension_l_mm = numOrNullDim(patch.dimensionLMm);
+    }
+    if (patch.dimensionWMm !== undefined) {
+      row.dimension_w_mm = numOrNullDim(patch.dimensionWMm);
+    }
+    if (patch.dimensionHMm !== undefined) {
+      row.dimension_h_mm = numOrNullDim(patch.dimensionHMm);
     }
     if (Object.keys(row).length === 0) return { ok: true };
     const updatePayload = await withUpdateAuditFields(row);
@@ -1052,6 +1073,9 @@ export async function persistDesignProjectFurniture(input: {
         salePrice: Math.max(0, Number(product.salePrice) || 0),
         quantity: Math.max(1, Math.min(9999, Math.floor(product.quantity || 1))),
         notes: (product.notes || '').trim(),
+        dimensionLMm: numOrNullDim(product.dimensionLMm),
+        dimensionWMm: numOrNullDim(product.dimensionWMm),
+        dimensionHMm: numOrNullDim(product.dimensionHMm),
       };
 
       const updated = await updateZoneProductFields(next.id, {
@@ -1063,6 +1087,9 @@ export async function persistDesignProjectFurniture(input: {
         quantity: next.quantity,
         status: next.status,
         sortOrder: next.sortOrder,
+        dimensionLMm: next.dimensionLMm,
+        dimensionWMm: next.dimensionWMm,
+        dimensionHMm: next.dimensionHMm,
       });
       if (!updated.ok) {
         return {
@@ -1092,6 +1119,9 @@ export async function persistDesignProjectFurniture(input: {
         status: product.status,
         scheme: product.scheme,
         sortOrder: product.sortOrder,
+        dimensionLMm: product.dimensionLMm ?? null,
+        dimensionWMm: product.dimensionWMm ?? null,
+        dimensionHMm: product.dimensionHMm ?? null,
       };
     });
 

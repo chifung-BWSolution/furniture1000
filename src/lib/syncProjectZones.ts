@@ -25,6 +25,12 @@ export async function syncProjectZones(options: {
   zoneProducts: ZoneProduct[];
   /** Delete empty zones that are not in the desired list. Default true. */
   pruneEmpty?: boolean;
+  /**
+   * Delete leftover zones whose names are not in desired (including ones with
+   * products — products are unassigned via deleteZone). Used by 設計專案 to
+   * mirror 方案列表 exactly.
+   */
+  dropOrphanZones?: boolean;
 }): Promise<WriteResult<ProjectZone[]>> {
   const {
     projectId,
@@ -32,6 +38,7 @@ export async function syncProjectZones(options: {
     zones,
     zoneProducts,
     pruneEmpty = true,
+    dropOrphanZones = false,
   } = options;
 
   try {
@@ -107,9 +114,16 @@ export async function syncProjectZones(options: {
       orderedZones.push({ ...match, code: seed.code, sortOrder: i });
     }
 
-    // Keep leftover product-bearing zones (or unpruned empties) at the end.
+    // Leftover zones not in 方案列表 desired names.
     for (const zone of pool) {
       if (orderedIds.has(zone.id)) continue;
+      if (dropOrphanZones) {
+        const removed = await deleteZone(zone.id);
+        if (!removed.ok) {
+          return { ok: false, error: removed.error || '刪除多餘間隔失敗' };
+        }
+        continue;
+      }
       const sortOrder = orderedZones.length;
       if (zone.sortOrder !== sortOrder) {
         const updated = await updateZone(zone.id, { sortOrder });
@@ -138,4 +152,28 @@ export function zonesMissingFromSeeds(
   if (desired.length === 0) return false;
   const names = new Set(zones.map((z) => z.name));
   return desired.some((seed) => !names.has(seed.name));
+}
+
+/** True when zones don't match 方案列表 seeds (missing, extras, or count drift). */
+export function zonesOutOfSyncWithSeeds(
+  desired: ZoneSeed[],
+  zones: ProjectZone[],
+): boolean {
+  if (zonesMissingFromSeeds(desired, zones)) return true;
+  const desiredCount = new Map<string, number>();
+  for (const seed of desired) {
+    desiredCount.set(seed.name, (desiredCount.get(seed.name) || 0) + 1);
+  }
+  const zoneCount = new Map<string, number>();
+  for (const zone of zones) {
+    zoneCount.set(zone.name, (zoneCount.get(zone.name) || 0) + 1);
+  }
+  if (desiredCount.size !== zoneCount.size) return true;
+  for (const [name, count] of desiredCount) {
+    if ((zoneCount.get(name) || 0) !== count) return true;
+  }
+  for (const name of zoneCount.keys()) {
+    if (!desiredCount.has(name)) return true;
+  }
+  return false;
 }
