@@ -163,15 +163,26 @@ async function registerPdfFonts(mod: ReactPdfModule): Promise<void> {
     mod.Font.register({ family, fonts });
   }
 
-  // Soft-break after every code point. Empty segments are wrap opportunities
-  // without inserting a visible "-" (react-pdf's default syllable join).
+  // Soft-break CJK per code point (no visible "-"). Latin words stay whole so
+  // EN text wraps on word boundaries (e.g. "medium", not "mediu"/"m").
   mod.Font.registerHyphenationCallback(pdfSoftBreakNoHyphen);
 }
 
-/** Soft-wrap without inserting "-" between break segments. */
+/** CJK / Hangul / Kana — need per-glyph soft wrap in narrow PDF cells. */
+const PDF_CJK_OR_KANA =
+  /[\u3400-\u9FFF\uF900-\uFAFF\u3040-\u30FF\uAC00-\uD7AF]/;
+
+/**
+ * Soft-wrap without inserting "-" between break segments.
+ * - Latin / digit runs: keep the whole word (wrap only at spaces).
+ * - CJK (and mixed tokens containing CJK): soft-break after each code point.
+ */
 function pdfSoftBreakNoHyphen(word: string): string[] {
+  if (!word) return [''];
+  if (!PDF_CJK_OR_KANA.test(word)) {
+    return [word];
+  }
   const chars = Array.from(word);
-  if (chars.length === 0) return [''];
   return chars.flatMap((ch) => [ch, '']);
 }
 
