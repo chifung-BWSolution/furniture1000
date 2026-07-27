@@ -238,6 +238,19 @@ function parseSqftInput(value: string): number | null {
   return num;
 }
 
+/** Convert local sqft string map → meta numbers for design_projects.meta. */
+function zoneAreasSqftMetaFromState(
+  nextSqft: Record<string, string>,
+): Record<string, number> {
+  const zoneAreasSqftMeta: Record<string, number> = {};
+  for (const [zoneId, raw] of Object.entries(nextSqft)) {
+    const parsed = parseSqftInput(raw);
+    if (parsed == null) continue;
+    zoneAreasSqftMeta[zoneId] = parsed;
+  }
+  return zoneAreasSqftMeta;
+}
+
 /** Original thumb was 56px (h-14); ~2.6× ≈ 146px after +30% on the 200% size. */
 const PRODUCT_IMAGE_MIN_PX = 146;
 const PRODUCT_IMAGE_MAX_PX = 286;
@@ -885,12 +898,8 @@ export function DesignProjectsView() {
       nextDivisions: Record<string, ZoneFurnitureDivision[]>,
     ) => {
       if (!project) return;
-      const zoneAreasSqftMeta: Record<string, number> = {};
-      for (const [zoneId, raw] of Object.entries(nextSqft)) {
-        const parsed = parseSqftInput(raw);
-        if (parsed == null) continue;
-        zoneAreasSqftMeta[zoneId] = parsed;
-      }
+      // Keep planning fields on the in-memory project so「儲存方案」can write them,
+      // but avoid doing this on every sqft keystroke (causes TopBar sticky republish jump).
       setProjects((current) =>
         current.map((row) =>
           row.id === project.id
@@ -898,7 +907,7 @@ export function DesignProjectsView() {
                 ...row,
                 meta: {
                   ...row.meta,
-                  zoneAreasSqft: zoneAreasSqftMeta,
+                  zoneAreasSqft: zoneAreasSqftMetaFromState(nextSqft),
                   furnitureDivisions: nextDivisions,
                 },
               }
@@ -1165,10 +1174,28 @@ export function DesignProjectsView() {
       parts.length <= 1
         ? cleaned
         : `${parts[0]}.${parts.slice(1).join('').replace(/\./g, '')}`;
-    const next = { ...zoneAreasSqft, [zoneId]: normalized };
-    setZoneAreasSqft(next);
-    persistPlanningMeta(next, furnitureDivisions);
+    // Local state only while typing — sync into project.meta on blur / save.
+    setZoneAreasSqft((current) => ({ ...current, [zoneId]: normalized }));
+    setFurnitureDirty(true);
   };
+
+  const flushZoneSqftToProjectMeta = useCallback(() => {
+    if (!project) return;
+    setProjects((current) =>
+      current.map((row) =>
+        row.id === project.id
+          ? {
+              ...row,
+              meta: {
+                ...row.meta,
+                zoneAreasSqft: zoneAreasSqftMetaFromState(zoneAreasSqft),
+                furnitureDivisions,
+              },
+            }
+          : row,
+      ),
+    );
+  }, [furnitureDivisions, project, zoneAreasSqft]);
 
   const replaceZoneProduct = (product: SearchProduct) => {
     if (!replacingZoneProductId) return;
@@ -1391,8 +1418,17 @@ export function DesignProjectsView() {
     try {
       // Allow controlled inputs to flush latest keystrokes into state.
       await new Promise((resolve) => window.setTimeout(resolve, 0));
+      const projectWithPlanning = {
+        ...project,
+        meta: {
+          ...project.meta,
+          zoneAreasSqft: zoneAreasSqftMetaFromState(zoneAreasSqft),
+          furnitureDivisions,
+          furnitureSnapshot: project.meta?.furnitureSnapshot,
+        },
+      };
       const result = await persistDesignProjectFurniture({
-        project,
+        project: projectWithPlanning,
         zones,
         products: zoneProducts,
       });
@@ -1408,6 +1444,8 @@ export function DesignProjectsView() {
                 ...row,
                 meta: {
                   ...row.meta,
+                  zoneAreasSqft: zoneAreasSqftMetaFromState(zoneAreasSqft),
+                  furnitureDivisions,
                   furnitureSnapshot: result.data!.snapshot,
                 },
               }
@@ -1433,7 +1471,14 @@ export function DesignProjectsView() {
     setConfirmingProject(true);
     if (furnitureDirty) {
       const flushed = await persistDesignProjectFurniture({
-        project,
+        project: {
+          ...project,
+          meta: {
+            ...project.meta,
+            zoneAreasSqft: zoneAreasSqftMetaFromState(zoneAreasSqft),
+            furnitureDivisions,
+          },
+        },
         zones,
         products: zoneProducts,
       });
@@ -1492,7 +1537,7 @@ export function DesignProjectsView() {
   };
 
   useEffect(() => {
-    if (!project) {
+    if (!project?.id) {
       publishDesignProjectStickyChrome(null);
       return;
     }
@@ -1509,9 +1554,12 @@ export function DesignProjectsView() {
       onViewFloorPlan: () => openFloorPlanRef.current(),
       onJump: (label) => scrollToZoneGroup(label),
     });
+    // Depend on stable project fields only — not the whole `project` object
+    // (sqft keystrokes used to rewrite project.meta and republish TopBar every char).
   }, [
     partitionHeaderPinned,
-    project,
+    project?.floorPlanUrl,
+    project?.id,
     savingFurniture,
     scrollToZoneGroup,
     zoneGroups,
@@ -1908,6 +1956,7 @@ export function DesignProjectsView() {
                           onChange={(event) =>
                             setZoneSqft(zone.id, event.target.value)
                           }
+                          onBlur={() => flushZoneSqftToProjectMeta()}
                           placeholder="0"
                           className="h-9 w-24 rounded-lg border border-border bg-background px-2.5 text-right font-mono-data text-[15px] text-foreground"
                           aria-label={`${zone.name} 平方尺`}
