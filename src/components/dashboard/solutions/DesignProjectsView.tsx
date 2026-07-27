@@ -3,7 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
 import {
   Plus, Loader2, Search, Check, CheckCircle2, Trash2, X, LayoutGrid, UserRound, Tag,
-  ImagePlus, PenLine, ZoomIn, Save, Link2, RefreshCw, MessageSquare,
+  ImagePlus, PenLine, ZoomIn, Save, Link2, RefreshCw, MessageSquare, Layers,
 } from 'lucide-react';
 import {
   fetchProjects, fetchZones, fetchZoneProducts, fetchActiveShopifyProducts,
@@ -41,6 +41,7 @@ import {
   type ZoneProduct,
   type SearchProduct,
   type ZoneProductStatus,
+  type ZoneFurnitureDivision,
 } from '@/types/solutions';
 import {
   removeClientFeedbackFromNotes,
@@ -48,6 +49,10 @@ import {
   serializeStaffNotesAndFeedback,
   splitStaffNotesAndFeedback,
 } from '@/lib/zoneProductClientFeedback';
+import {
+  fetchProductCategoryPairs,
+  type ProductCategoryPair,
+} from '@/lib/productCategoryOptions';
 import {
   FloorPlanThumb,
   FloorPlanViewerModal,
@@ -164,6 +169,69 @@ function zoneBaseName(name: string): string {
 
 function zoneGroupDomId(label: string): string {
   return `design-zone-group-${encodeURIComponent(label)}`;
+}
+
+function newDivisionId(): string {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID();
+  }
+  return `div_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function normalizeZoneAreasSqft(
+  value: unknown,
+): Record<string, string> {
+  if (!value || typeof value !== 'object') return {};
+  const next: Record<string, string> = {};
+  for (const [zoneId, raw] of Object.entries(value as Record<string, unknown>)) {
+    if (!zoneId) continue;
+    const num = Number(raw);
+    if (!Number.isFinite(num) || num < 0) continue;
+    next[zoneId] = String(raw).trim() === '' ? '' : String(num);
+  }
+  return next;
+}
+
+function normalizeFurnitureDivisions(
+  value: unknown,
+): Record<string, ZoneFurnitureDivision[]> {
+  if (!value || typeof value !== 'object') return {};
+  const next: Record<string, ZoneFurnitureDivision[]> = {};
+  for (const [zoneId, rows] of Object.entries(value as Record<string, unknown>)) {
+    if (!zoneId || !Array.isArray(rows)) continue;
+    next[zoneId] = rows
+      .map((row) => {
+        if (!row || typeof row !== 'object') return null;
+        const item = row as Record<string, unknown>;
+        const id = String(item.id || '').trim();
+        const level1 = String(item.level1 || '').trim();
+        const level2 = String(item.level2 || '').trim();
+        const quantity = Math.max(1, Math.floor(Number(item.quantity) || 1));
+        if (!id || !level1) return null;
+        const productIds = Array.isArray(item.productIds)
+          ? item.productIds.map((pid) => String(pid || '').trim()).filter(Boolean)
+          : [];
+        const next: ZoneFurnitureDivision = {
+          id,
+          level1,
+          level2,
+          quantity,
+          productIds,
+        };
+        return next;
+      })
+      .filter((row): row is ZoneFurnitureDivision => Boolean(row));
+  }
+  return next;
+}
+
+function parseSqftInput(value: string): number | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (!/^\d*\.?\d+$/.test(trimmed)) return null;
+  const num = Number(trimmed);
+  if (!Number.isFinite(num) || num < 0) return null;
+  return num;
 }
 
 /** Original thumb was 56px (h-14); ~2.6× ≈ 146px after +30% on the 200% size. */
@@ -545,11 +613,26 @@ export function DesignProjectsView() {
   const [replacingZoneProductId, setReplacingZoneProductId] = useState<
     string | null
   >(null);
+  /** Assign newly added products to this furniture division (if any). */
+  const [pickerDivisionId, setPickerDivisionId] = useState<string | null>(null);
   const [products, setProducts] = useState<SearchProduct[]>([]);
   const [productsLoading, setProductsLoading] = useState(false);
   const [keyword, setKeyword] = useState('');
   const [productLevel1, setProductLevel1] = useState('');
   const [productLevel2, setProductLevel2] = useState('');
+  const [zoneAreasSqft, setZoneAreasSqft] = useState<Record<string, string>>(
+    {},
+  );
+  const [furnitureDivisions, setFurnitureDivisions] = useState<
+    Record<string, ZoneFurnitureDivision[]>
+  >({});
+  const [divisionModalZoneId, setDivisionModalZoneId] = useState<string | null>(
+    null,
+  );
+  const [divisionLevel1, setDivisionLevel1] = useState('');
+  const [divisionLevel2, setDivisionLevel2] = useState('');
+  const [divisionQty, setDivisionQty] = useState(1);
+  const [categoryPairs, setCategoryPairs] = useState<ProductCategoryPair[]>([]);
   const [confirmingProject, setConfirmingProject] = useState(false);
   const [deletingProductId, setDeletingProductId] = useState<string | null>(null);
   const [creatingBlankZoneId, setCreatingBlankZoneId] = useState<string | null>(null);
@@ -737,6 +820,51 @@ export function DesignProjectsView() {
   const projectType =
     project?.meta?.projectType ||
     inferProjectType(project?.name || '', project?.clientCompany);
+
+  useEffect(() => {
+    if (!project) {
+      setZoneAreasSqft({});
+      setFurnitureDivisions({});
+      return;
+    }
+    setZoneAreasSqft(normalizeZoneAreasSqft(project.meta?.zoneAreasSqft));
+    setFurnitureDivisions(
+      normalizeFurnitureDivisions(project.meta?.furnitureDivisions),
+    );
+    // Hydrate planning fields when switching projects only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [project?.id]);
+
+  const persistPlanningMeta = useCallback(
+    (
+      nextSqft: Record<string, string>,
+      nextDivisions: Record<string, ZoneFurnitureDivision[]>,
+    ) => {
+      if (!project) return;
+      const zoneAreasSqftMeta: Record<string, number> = {};
+      for (const [zoneId, raw] of Object.entries(nextSqft)) {
+        const parsed = parseSqftInput(raw);
+        if (parsed == null) continue;
+        zoneAreasSqftMeta[zoneId] = parsed;
+      }
+      setProjects((current) =>
+        current.map((row) =>
+          row.id === project.id
+            ? {
+                ...row,
+                meta: {
+                  ...row.meta,
+                  zoneAreasSqft: zoneAreasSqftMeta,
+                  furnitureDivisions: nextDivisions,
+                },
+              }
+            : row,
+        ),
+      );
+      setFurnitureDirty(true);
+    },
+    [project],
+  );
   const zoneGroups = useMemo(() => {
     const groups = new Map<
       string,
@@ -837,14 +965,20 @@ export function DesignProjectsView() {
   const closePicker = () => {
     setPickerOpen(false);
     setReplacingZoneProductId(null);
+    setPickerDivisionId(null);
   };
 
   const openPicker = async (
     zoneId?: string | null,
     replaceZoneProductId?: string | null,
+    opts?: { level1?: string; level2?: string; divisionId?: string | null },
   ) => {
     setPickerZoneId(zoneId ?? null);
     setReplacingZoneProductId(replaceZoneProductId ?? null);
+    setPickerDivisionId(opts?.divisionId ?? null);
+    setProductLevel1(opts?.level1 ?? '');
+    setProductLevel2(opts?.level2 ?? '');
+    setKeyword('');
     setPickerOpen(true);
     if (products.length === 0) {
       setProductsLoading(true);
@@ -852,6 +986,88 @@ export function DesignProjectsView() {
         .then(setProducts)
         .finally(() => setProductsLoading(false));
     }
+  };
+
+  const openDivisionModal = async (zoneId: string) => {
+    setDivisionModalZoneId(zoneId);
+    setDivisionLevel1('');
+    setDivisionLevel2('');
+    setDivisionQty(1);
+    if (categoryPairs.length === 0) {
+      const pairs = await fetchProductCategoryPairs();
+      setCategoryPairs(pairs);
+    }
+    if (products.length === 0) {
+      setProductsLoading(true);
+      fetchActiveShopifyProducts(1000)
+        .then(setProducts)
+        .finally(() => setProductsLoading(false));
+    }
+  };
+
+  const confirmDivisionModal = () => {
+    if (!divisionModalZoneId) return;
+    const level1 = divisionLevel1.trim();
+    if (!level1) {
+      toast.error('請選擇一級分類');
+      return;
+    }
+    const qty = Math.max(1, Math.min(9999, Math.floor(divisionQty || 1)));
+    const division: ZoneFurnitureDivision = {
+      id: newDivisionId(),
+      level1,
+      level2: divisionLevel2.trim(),
+      quantity: qty,
+      productIds: [],
+    };
+    const next = {
+      ...furnitureDivisions,
+      [divisionModalZoneId]: [
+        ...(furnitureDivisions[divisionModalZoneId] || []),
+        division,
+      ],
+    };
+    setFurnitureDivisions(next);
+    persistPlanningMeta(zoneAreasSqft, next);
+    setDivisionModalZoneId(null);
+    toast.success('已加入傢俬劃分', {
+      description: `${level1}${division.level2 ? ` > ${division.level2}` : ''} · ${qty} 件（記得按儲存方案）`,
+    });
+  };
+
+  const removeDivision = (zoneId: string, divisionId: string) => {
+    const target = (furnitureDivisions[zoneId] || []).find(
+      (row) => row.id === divisionId,
+    );
+    if (!target) return;
+    if (
+      !window.confirm(
+        `確定刪除劃分「${target.level1}${target.level2 ? ` > ${target.level2}` : ''}」？劃分下的產品會改為未劃分。`,
+      )
+    ) {
+      return;
+    }
+    const next = {
+      ...furnitureDivisions,
+      [zoneId]: (furnitureDivisions[zoneId] || []).filter(
+        (row) => row.id !== divisionId,
+      ),
+    };
+    setFurnitureDivisions(next);
+    persistPlanningMeta(zoneAreasSqft, next);
+    setFurnitureDirty(true);
+  };
+
+  const setZoneSqft = (zoneId: string, value: string) => {
+    const cleaned = value.replace(/[^\d.]/g, '');
+    const parts = cleaned.split('.');
+    const normalized =
+      parts.length <= 1
+        ? cleaned
+        : `${parts[0]}.${parts.slice(1).join('').replace(/\./g, '')}`;
+    const next = { ...zoneAreasSqft, [zoneId]: normalized };
+    setZoneAreasSqft(next);
+    persistPlanningMeta(next, furnitureDivisions);
   };
 
   const replaceZoneProduct = (product: SearchProduct) => {
@@ -899,7 +1115,23 @@ export function DesignProjectsView() {
     });
     if (res.ok && res.data) {
       setZoneProducts((prev) => [...prev, res.data!]);
-      setFurnitureDirty(true);
+      if (pickerDivisionId) {
+        const next = {
+          ...furnitureDivisions,
+          [zoneId]: (furnitureDivisions[zoneId] || []).map((row) =>
+            row.id === pickerDivisionId
+              ? {
+                  ...row,
+                  productIds: [...(row.productIds || []), res.data!.id],
+                }
+              : row,
+          ),
+        };
+        setFurnitureDivisions(next);
+        persistPlanningMeta(zoneAreasSqft, next);
+      } else {
+        setFurnitureDirty(true);
+      }
       toast.success('已加入間隔', {
         description: `${product.title} → ${zones.find((z) => z.id === zoneId)?.name || '間隔'}（記得按儲存）`,
       });
@@ -933,7 +1165,19 @@ export function DesignProjectsView() {
     setZoneProducts((current) =>
       current.filter((product) => product.id !== item.id),
     );
-    setFurnitureDirty(true);
+    if (item.zoneId && (furnitureDivisions[item.zoneId] || []).length > 0) {
+      const next = {
+        ...furnitureDivisions,
+        [item.zoneId]: (furnitureDivisions[item.zoneId] || []).map((row) => ({
+          ...row,
+          productIds: (row.productIds || []).filter((pid) => pid !== item.id),
+        })),
+      };
+      setFurnitureDivisions(next);
+      persistPlanningMeta(zoneAreasSqft, next);
+    } else {
+      setFurnitureDirty(true);
+    }
     toast.success('已從間隔移除產品', {
       description: item.productTitle || '未命名產品',
     });
@@ -1203,6 +1447,28 @@ export function DesignProjectsView() {
       ],
     [productLevel1, products],
   );
+
+  const divisionLevel1Options = useMemo(() => {
+    const fromPairs = categoryPairs.map((pair) => pair.level1);
+    const fromProducts = products
+      .map((product) => product.level1Category)
+      .filter(Boolean) as string[];
+    return [...new Set([...fromPairs, ...fromProducts])];
+  }, [categoryPairs, products]);
+
+  const divisionLevel2Options = useMemo(() => {
+    if (!divisionLevel1) return [] as string[];
+    const fromPairs = categoryPairs
+      .filter((pair) => pair.level1 === divisionLevel1 && pair.level2)
+      .map((pair) => pair.level2);
+    const fromProducts = products
+      .filter(
+        (product) =>
+          product.level1Category === divisionLevel1 && product.level2Category,
+      )
+      .map((product) => product.level2Category as string);
+    return [...new Set([...fromPairs, ...fromProducts])];
+  }, [categoryPairs, divisionLevel1, products]);
 
   if (!project) {
     if (!projectsLoaded) {
@@ -1477,17 +1743,80 @@ export function DesignProjectsView() {
                 <div className="space-y-3">
                 {group.zones.map((zone) => {
               const items = zoneProducts.filter((zp) => zp.zoneId === zone.id);
+              const divisions = furnitureDivisions[zone.id] || [];
+              const assignedIds = new Set(
+                divisions.flatMap((row) => row.productIds || []),
+              );
+              const unassignedItems = items.filter(
+                (item) => !assignedIds.has(item.id),
+              );
+              const renderProductRows = (rows: ZoneProduct[]) =>
+                rows.map((item) => (
+                  <ZoneProductRow
+                    key={item.id}
+                    item={item}
+                    zoneId={zone.id}
+                    custom={isCustomZoneProduct(item)}
+                    titleLabel={item.productTitle || '未命名產品'}
+                    uploading={uploadingImageId === item.id}
+                    deletingProductId={deletingProductId}
+                    deletingFeedbackKey={deletingFeedbackKey}
+                    imageInputRefs={imageInputRefs}
+                    onUploadImage={(row, file) => {
+                      void uploadProductImage(row, file);
+                    }}
+                    onPreview={(src, title) => setLightbox({ src, title })}
+                    onOpenPicker={(zId, itemId) => void openPicker(zId, itemId)}
+                    onSetQuantity={setQuantity}
+                    onSetStatus={setStatus}
+                    onRemove={(row) => {
+                      void removeProduct(row);
+                    }}
+                    onSetTitle={setProductTitle}
+                    onSetSalePrice={setSalePrice}
+                    onSetNotes={setNotes}
+                    onDeleteFeedback={(row, index) => {
+                      void deleteClientFeedback(row, index);
+                    }}
+                  />
+                ));
               return (
                 <div
                   key={zone.id}
                   className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/30 px-5 py-3.5">
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-display text-base font-bold">{zone.name}</h3>
-                      <span className="text-[15px] text-muted-foreground">{items.length} 件傢俬</span>
+                    <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
+                      <h3 className="font-display text-base font-bold">
+                        {zone.name}
+                      </h3>
+                      <span className="text-[15px] text-muted-foreground">
+                        {items.length} 件傢俬
+                      </span>
+                      <label className="inline-flex items-center gap-1.5 text-[15px] text-muted-foreground">
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={zoneAreasSqft[zone.id] ?? ''}
+                          onChange={(event) =>
+                            setZoneSqft(zone.id, event.target.value)
+                          }
+                          placeholder="0"
+                          className="h-9 w-24 rounded-lg border border-border bg-background px-2.5 text-right font-mono-data text-[15px] text-foreground"
+                          aria-label={`${zone.name} 平方尺`}
+                        />
+                        <span>平方尺 sqft</span>
+                      </label>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void openDivisionModal(zone.id)}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 text-[15px] font-medium text-foreground hover:bg-muted"
+                      >
+                        <Layers className="h-3.5 w-3.5" />
+                        傢俬劃分
+                      </button>
                       <button
                         type="button"
                         disabled={creatingBlankZoneId === zone.id}
@@ -1503,67 +1832,114 @@ export function DesignProjectsView() {
                       </button>
                       <button
                         type="button"
-                        onClick={() => openPicker(zone.id)}
+                        onClick={() => void openPicker(zone.id)}
                         className="inline-flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-[15px] font-medium text-primary hover:bg-primary/15"
                       >
                         <Plus className="h-3 w-3" /> 加入產品
                       </button>
                     </div>
                   </div>
-                  {items.length === 0 ? (
+                  {divisions.length === 0 && items.length === 0 ? (
                     <p className="px-5 py-6 text-[15px] text-muted-foreground">
-                      尚未配置傢俬 — 按右上角「新欄位」自行填寫，或「加入產品」從目錄選取
+                      尚未配置傢俬 — 可先按「傢俬劃分」規劃類型，或按「新欄位／加入產品」直接加入
                     </p>
                   ) : (
                     <>
-                    <ul className="divide-y divide-border/70">
-                      {items.map((item) => (
-                        <ZoneProductRow
-                          key={item.id}
-                          item={item}
-                          zoneId={zone.id}
-                          custom={isCustomZoneProduct(item)}
-                          titleLabel={item.productTitle || '未命名產品'}
-                          uploading={uploadingImageId === item.id}
-                          deletingProductId={deletingProductId}
-                          deletingFeedbackKey={deletingFeedbackKey}
-                          imageInputRefs={imageInputRefs}
-                          onUploadImage={(row, file) => {
-                            void uploadProductImage(row, file);
-                          }}
-                          onPreview={(src, title) =>
-                            setLightbox({ src, title })
-                          }
-                          onOpenPicker={(zId, itemId) =>
-                            void openPicker(zId, itemId)
-                          }
-                          onSetQuantity={setQuantity}
-                          onSetStatus={setStatus}
-                          onRemove={(row) => {
-                            void removeProduct(row);
-                          }}
-                          onSetTitle={setProductTitle}
-                          onSetSalePrice={setSalePrice}
-                          onSetNotes={setNotes}
-                          onDeleteFeedback={(row, index) => {
-                            void deleteClientFeedback(row, index);
-                          }}
-                        />
-                      ))}
-                    </ul>
-                    <div className="flex justify-end border-t border-border bg-muted/20 px-5 py-3.5">
-                      <p className="font-mono-data text-[15px] font-bold text-foreground">
-                        小計：$
-                        {items
-                          .reduce(
-                            (sum, item) =>
-                              sum +
-                              Number(item.salePrice || 0) * item.quantity,
-                            0,
-                          )
-                          .toLocaleString()}
-                      </p>
-                    </div>
+                      {divisions.length > 0 ? (
+                        <div className="divide-y divide-border/70">
+                          {divisions.map((division) => {
+                            const divisionItems = items.filter((item) =>
+                              (division.productIds || []).includes(item.id),
+                            );
+                            const label = division.level2
+                              ? `${division.level1} > ${division.level2}`
+                              : division.level1;
+                            return (
+                              <div key={division.id}>
+                                <div className="flex flex-wrap items-center justify-between gap-2 bg-muted/15 px-5 py-3">
+                                  <div>
+                                    <p className="font-display text-[15px] font-bold text-foreground">
+                                      {label}
+                                    </p>
+                                    <p className="text-[14px] text-muted-foreground">
+                                      {division.quantity} 件傢俬
+                                      {divisionItems.length > 0
+                                        ? ` · 已加入 ${divisionItems.length}`
+                                        : ''}
+                                    </p>
+                                  </div>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        void openPicker(zone.id, null, {
+                                          level1: division.level1,
+                                          level2: division.level2 || '',
+                                          divisionId: division.id,
+                                        })
+                                      }
+                                      className="inline-flex items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 px-3 py-1.5 text-[14px] font-medium text-primary hover:bg-primary/15"
+                                    >
+                                      <Plus className="h-3 w-3" /> 加入產品
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        removeDivision(zone.id, division.id)
+                                      }
+                                      className="inline-flex items-center gap-1 rounded-lg border border-rose-500/30 px-2.5 py-1.5 text-[13px] font-medium text-rose-600 hover:bg-rose-500/10"
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                      刪除劃分
+                                    </button>
+                                  </div>
+                                </div>
+                                {divisionItems.length === 0 ? (
+                                  <p className="px-5 py-4 text-[14px] text-muted-foreground">
+                                    尚未在此劃分加入產品 — 按右上角「加入產品」（預設已選 {label}）
+                                  </p>
+                                ) : (
+                                  <ul className="divide-y divide-border/70">
+                                    {renderProductRows(divisionItems)}
+                                  </ul>
+                                )}
+                              </div>
+                            );
+                          })}
+                          {unassignedItems.length > 0 ? (
+                            <div>
+                              <div className="bg-muted/15 px-5 py-3">
+                                <p className="font-display text-[15px] font-bold text-foreground">
+                                  未劃分
+                                </p>
+                                <p className="text-[14px] text-muted-foreground">
+                                  {unassignedItems.length} 件傢俬
+                                </p>
+                              </div>
+                              <ul className="divide-y divide-border/70">
+                                {renderProductRows(unassignedItems)}
+                              </ul>
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <ul className="divide-y divide-border/70">
+                          {renderProductRows(items)}
+                        </ul>
+                      )}
+                      <div className="flex justify-end border-t border-border bg-muted/20 px-5 py-3.5">
+                        <p className="font-mono-data text-[15px] font-bold text-foreground">
+                          小計：$
+                          {items
+                            .reduce(
+                              (sum, item) =>
+                                sum +
+                                Number(item.salePrice || 0) * item.quantity,
+                              0,
+                            )
+                            .toLocaleString()}
+                        </p>
+                      </div>
                     </>
                   )}
                 </div>
@@ -1595,6 +1971,157 @@ export function DesignProjectsView() {
         </section>
 
       </div>
+
+      {/* Furniture division modal */}
+      {divisionModalZoneId ? (
+        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4 sm:items-center sm:p-6">
+          <div className="w-full max-w-xl overflow-hidden rounded-2xl border border-border bg-card shadow-xl">
+            <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
+              <div>
+                <h3 className="font-display text-lg font-bold">傢俬劃分</h3>
+                <p className="mt-1 text-[15px] text-muted-foreground">
+                  {zones.find((zone) => zone.id === divisionModalZoneId)?.name ||
+                    '間隔'}
+                  — 選擇一級／二級分類與數量
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDivisionModalZoneId(null)}
+                className="rounded-md p-1.5 hover:bg-muted"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="space-y-4 px-5 py-4">
+              <div>
+                <p className="mb-2 text-[13px] font-semibold text-muted-foreground">
+                  一級分類
+                </p>
+                <div className="flex max-h-36 flex-wrap gap-1.5 overflow-y-auto">
+                  {divisionLevel1Options.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">
+                      {productsLoading ? '載入分類中…' : '暫無分類資料'}
+                    </p>
+                  ) : (
+                    divisionLevel1Options.map((category) => (
+                      <button
+                        key={category}
+                        type="button"
+                        onClick={() => {
+                          setDivisionLevel1(category);
+                          setDivisionLevel2('');
+                        }}
+                        className={cn(
+                          'rounded-full border px-2.5 py-1 text-[14px]',
+                          divisionLevel1 === category
+                            ? 'border-primary/50 bg-primary/10 text-primary'
+                            : 'border-border text-muted-foreground',
+                        )}
+                      >
+                        {category}
+                      </button>
+                    ))
+                  )}
+                </div>
+              </div>
+              {divisionLevel1 ? (
+                <div>
+                  <p className="mb-2 text-[13px] font-semibold text-muted-foreground">
+                    二級分類
+                  </p>
+                  <div className="flex max-h-36 flex-wrap gap-1.5 overflow-y-auto">
+                    <button
+                      type="button"
+                      onClick={() => setDivisionLevel2('')}
+                      className={cn(
+                        'rounded-full border px-2.5 py-1 text-[14px]',
+                        !divisionLevel2
+                          ? 'border-primary/50 bg-primary/10 text-primary'
+                          : 'border-border text-muted-foreground',
+                      )}
+                    >
+                      不指定
+                    </button>
+                    {divisionLevel2Options.map((category) => (
+                      <button
+                        key={category}
+                        type="button"
+                        onClick={() => setDivisionLevel2(category)}
+                        className={cn(
+                          'rounded-full border px-2.5 py-1 text-[14px]',
+                          divisionLevel2 === category
+                            ? 'border-primary/50 bg-primary/10 text-primary'
+                            : 'border-border text-muted-foreground',
+                        )}
+                      >
+                        {category}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+              <div>
+                <p className="mb-2 text-[13px] font-semibold text-muted-foreground">
+                  數量
+                </p>
+                <div className="inline-flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setDivisionQty((current) => Math.max(1, current - 1))
+                    }
+                    className="flex h-9 w-9 items-center justify-center rounded-lg border border-border"
+                  >
+                    -
+                  </button>
+                  <input
+                    type="number"
+                    min={1}
+                    max={9999}
+                    value={divisionQty}
+                    onChange={(event) =>
+                      setDivisionQty(
+                        Math.max(
+                          1,
+                          Math.min(9999, Math.floor(Number(event.target.value) || 1)),
+                        ),
+                      )
+                    }
+                    className="h-9 w-20 rounded-lg border border-border bg-background px-2 text-center font-mono-data"
+                  />
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setDivisionQty((current) => Math.min(9999, current + 1))
+                    }
+                    className="flex h-9 w-9 items-center justify-center rounded-lg border border-border"
+                  >
+                    +
+                  </button>
+                  <span className="text-[15px] text-muted-foreground">件</span>
+                </div>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2 border-t border-border px-5 py-4">
+              <button
+                type="button"
+                onClick={() => setDivisionModalZoneId(null)}
+                className="rounded-lg border border-border px-4 py-2 text-[15px] font-medium hover:bg-muted"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={confirmDivisionModal}
+                className="rounded-lg bg-primary px-4 py-2 text-[15px] font-semibold text-primary-foreground hover:bg-primary/90"
+              >
+                確定
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* Product picker modal */}
       {pickerOpen ? (

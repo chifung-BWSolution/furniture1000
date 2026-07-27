@@ -126,7 +126,25 @@ export interface DesignProjectMeta {
     quoteId?: string;
     version?: string;
   };
+  /** Per project_zones.id → area in square feet. */
+  zoneAreasSqft?: Record<string, number>;
+  /**
+   * Per project_zones.id → planned furniture category partitions
+   * (一級分類 / 二級分類 + quantity), with assigned zone_product ids.
+   */
+  furnitureDivisions?: Record<string, ZoneFurnitureDivision[]>;
   [key: string]: unknown;
+}
+
+/** Planned furniture category bucket under a project zone. */
+export interface ZoneFurnitureDivision {
+  id: string;
+  level1: string;
+  level2: string;
+  /** Planned piece count for this category partition. */
+  quantity: number;
+  /** zone_products.id assigned under this partition. */
+  productIds?: string[];
 }
 
 export interface DesignProject {
