@@ -128,35 +128,15 @@ export function inferProjectType(name: string, clientCompany?: string | null): P
   return 'office';
 }
 
-/** Default room counts when creating a new project of this type. */
+/**
+ * Starting room counts when selecting / creating a project type.
+ * All quantities start at 0 — no auto-filled presets.
+ * After the user edits and presses「儲存」, reopen uses saved meta.roomCounts.
+ */
 export function defaultRoomCounts(type: ProjectEngineeringType): Record<string, number> {
   const rooms = roomsForProjectType(type);
   const counts: Record<string, number> = {};
   for (const r of rooms) counts[r.key] = 0;
-  if (type === 'office') {
-    counts.meeting = 1;
-    counts.manager = 1;
-    counts.reception = 1;
-    counts.open = 1;
-    counts.pantry = 1;
-  } else if (type === 'school') {
-    counts.classroom = 2;
-    counts.principal = 1;
-    counts.staff = 1;
-    counts.hall = 1;
-  } else if (type === 'clinic') {
-    counts.consult = 2;
-    counts.lobby = 1;
-    counts.treatment = 1;
-    counts.restroom = 1;
-  } else if (type === 'hotel') {
-    counts.lobby = 1;
-    counts.lounge = 1;
-    counts.meeting = 1;
-  } else {
-    counts.open = 1;
-    counts.meeting = 1;
-  }
   return counts;
 }
 

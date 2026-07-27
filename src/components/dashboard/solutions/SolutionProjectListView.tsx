@@ -244,7 +244,12 @@ export function SolutionProjectListView() {
       }
       const project = res.data;
 
-      const seeds = zoneSeedsFromRoomCounts(form.projectType, roomCounts);
+      const seeds = zoneSeedsFromRoomCounts(
+        form.projectType,
+        roomCounts,
+        [],
+        roomOrder,
+      );
       const createdZones = [];
       for (let i = 0; i < seeds.length; i++) {
         const s = seeds[i];
