@@ -21,6 +21,7 @@ import {
   inferProjectType,
   normalizeRoomOrder,
   projectTypeLabel,
+  roomsForProjectType,
   zoneSeedsFromRoomCounts,
   type ProjectEngineeringType,
   type RoomTypeTemplate,
@@ -158,6 +159,28 @@ function zoneBaseName(name: string): string {
       .replace(/[（(]\d+[）)]$/, '')
       .trim() || '其他間隔'
   );
+}
+
+function zoneGroupDomId(label: string): string {
+  return `design-zone-group-${encodeURIComponent(label)}`;
+}
+
+/** Map saved roomOrder keys → display labels for 設計專案 group sequencing. */
+function roomOrderLabels(
+  projectType: ProjectEngineeringType | string,
+  customRooms: CustomRoomType[],
+  roomOrder: string[],
+): string[] {
+  const templates = roomsForProjectType(projectType as ProjectEngineeringType);
+  const byKey = new Map<string, string>();
+  for (const room of templates) byKey.set(room.key, room.label);
+  for (const room of customRooms) byKey.set(room.key, room.label);
+  const labels: string[] = [];
+  for (const key of roomOrder) {
+    const label = byKey.get(key);
+    if (label && !labels.includes(label)) labels.push(label);
+  }
+  return labels;
 }
 
 export function DesignProjectsView() {
@@ -402,8 +425,31 @@ export function DesignProjectsView() {
       group.minSort = Math.min(group.minSort, zone.sortOrder || 0);
       groups.set(key, group);
     }
-    return [...groups.values()].sort((a, b) => a.minSort - b.minSort);
-  }, [zones]);
+    const list = [...groups.values()];
+    // Prefer explicit meta.roomOrder (方案列表「儲存」) over zone sort_order alone.
+    const savedOrder = normalizeRoomOrder(project?.meta?.roomOrder);
+    if (savedOrder.length > 0) {
+      const labelRank = roomOrderLabels(
+        projectType,
+        normalizeCustomRooms(project?.meta?.customRooms),
+        savedOrder,
+      );
+      const rank = new Map(labelRank.map((label, index) => [label, index]));
+      return list.sort((a, b) => {
+        const aRank = rank.has(a.label) ? rank.get(a.label)! : 1000 + a.minSort;
+        const bRank = rank.has(b.label) ? rank.get(b.label)! : 1000 + b.minSort;
+        if (aRank !== bRank) return aRank - bRank;
+        return a.minSort - b.minSort;
+      });
+    }
+    return list.sort((a, b) => a.minSort - b.minSort);
+  }, [project?.meta?.customRooms, project?.meta?.roomOrder, projectType, zones]);
+
+  const scrollToZoneGroup = useCallback((label: string) => {
+    const target = document.getElementById(zoneGroupDomId(label));
+    if (!target) return;
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
 
   const furnitureGrandTotal = useMemo(
     () =>
@@ -903,9 +949,12 @@ export function DesignProjectsView() {
                 間隔數量
               </span>
               {zoneGroups.map((group) => (
-                <span
+                <button
                   key={group.key}
-                  className="inline-flex items-center gap-1 rounded-lg border border-primary/20 bg-primary/5 px-3 py-1.5 text-[15px]"
+                  type="button"
+                  onClick={() => scrollToZoneGroup(group.label)}
+                  className="inline-flex items-center gap-1 rounded-lg border border-primary/20 bg-primary/5 px-3 py-1.5 text-[15px] transition-colors hover:border-primary/50 hover:bg-primary/10"
+                  title={`跳至「${group.label}」`}
                 >
                   <span className="font-semibold text-foreground">
                     {group.label}
@@ -913,7 +962,7 @@ export function DesignProjectsView() {
                   <span className="text-muted-foreground">
                     ：{group.zones.length}
                   </span>
-                </span>
+                </button>
               ))}
             </div>
           ) : null}
@@ -929,7 +978,11 @@ export function DesignProjectsView() {
           ) : (
             <div className="space-y-7">
             {zoneGroups.map((group, groupIndex) => (
-              <section key={group.key} className="space-y-3">
+              <section
+                key={group.key}
+                id={zoneGroupDomId(group.label)}
+                className="scroll-mt-6 space-y-3"
+              >
                 <div className="flex flex-wrap items-end justify-between gap-3 border-b border-border pb-2.5">
                   <div>
                     <h3 className="font-display text-lg font-bold">
