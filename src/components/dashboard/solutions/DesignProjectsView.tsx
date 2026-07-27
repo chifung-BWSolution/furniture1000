@@ -529,39 +529,26 @@ function ZoneProductRow({
     });
   };
 
-  const imageColumnWidth = size + PRODUCT_IMAGE_PAD_PX;
-
   return (
     <li>
       {divisionHeading || divisionToolbar ? (
-        <div
-          className="flex flex-wrap items-start justify-between gap-2"
-          style={{
-            paddingTop: PRODUCT_IMAGE_PAD_PX,
-            paddingRight: PRODUCT_IMAGE_PAD_PX,
-            paddingLeft: PRODUCT_IMAGE_PAD_PX,
-          }}
-        >
-          <div
-            className="min-w-0 space-y-0.5"
-            style={{ width: imageColumnWidth, maxWidth: '100%' }}
-          >
+        // Same full-row pattern as zone header「入口及前臺大堂 × 總數 N件傢俬」, ~70% scale.
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/30 px-3.5 py-2.5">
+          <div className="min-w-0">
             {divisionHeading ? (
-              <>
-                <p className="font-display text-[15px] font-bold leading-snug text-foreground">
-                  {divisionHeading.label}
-                </p>
-                <p className="text-[14px] leading-snug text-muted-foreground">
+              <h4 className="font-display text-[13px] font-bold leading-snug text-foreground md:text-[14px]">
+                {divisionHeading.label}
+                <span className="ml-1.5 text-[12px] font-semibold text-muted-foreground">
                   {divisionHeading.planned} 件傢俬
                   {divisionHeading.added > 0
                     ? ` · 已加入 ${divisionHeading.added}`
                     : ''}
-                </p>
-              </>
+                </span>
+              </h4>
             ) : null}
           </div>
           {divisionToolbar ? (
-            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
               {divisionToolbar}
             </div>
           ) : null}
@@ -2641,16 +2628,16 @@ export function DesignProjectsView() {
                               <div key={division.id}>
                                 {divisionItems.length === 0 ? (
                                   <>
-                                    <div className="flex flex-wrap items-center justify-between gap-2 bg-muted/15 px-3 py-2">
+                                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/30 px-3.5 py-2.5">
                                       <div className="min-w-0">
-                                        <p className="font-display text-[15px] font-bold text-foreground">
+                                        <h4 className="font-display text-[13px] font-bold leading-snug text-foreground md:text-[14px]">
                                           {label}
-                                        </p>
-                                        <p className="text-[14px] text-muted-foreground">
-                                          {division.quantity} 件傢俬
-                                        </p>
+                                          <span className="ml-1.5 text-[12px] font-semibold text-muted-foreground">
+                                            {division.quantity} 件傢俬
+                                          </span>
+                                        </h4>
                                       </div>
-                                      <div className="flex flex-wrap items-center justify-end gap-2">
+                                      <div className="flex flex-wrap items-center justify-end gap-1.5">
                                         {divisionToolbar}
                                       </div>
                                     </div>
