@@ -412,13 +412,18 @@ function formatItemDimensions(item: QuotationPDFData['items'][0] | undefined): s
   if (!item) return '';
   const mode = item.dimensionMode ?? 'lwh';
   const parts: string[] = [];
+  const push = (v: string | number | null | undefined) => {
+    if (v == null) return;
+    const s = String(v).trim();
+    if (s) parts.push(s);
+  };
   if (mode === 'dh') {
-    if (item.dimensionLMm != null) parts.push(String(item.dimensionLMm));
-    if (item.dimensionHMm != null) parts.push(String(item.dimensionHMm));
+    push(item.dimensionLMm);
+    push(item.dimensionHMm);
   } else {
-    if (item.dimensionLMm != null) parts.push(String(item.dimensionLMm));
-    if (item.dimensionWMm != null) parts.push(String(item.dimensionWMm));
-    if (item.dimensionHMm != null) parts.push(String(item.dimensionHMm));
+    push(item.dimensionLMm);
+    push(item.dimensionWMm);
+    push(item.dimensionHMm);
   }
   return parts.length > 0 ? parts.join('*') : '';
 }

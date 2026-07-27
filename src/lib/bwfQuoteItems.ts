@@ -27,9 +27,10 @@ export type BwfQuoteItemInput = QuoteItemImageFields & {
   category?: string;
   material?: string;
   color?: string;
-  dimensionLMm?: number | null;
-  dimensionWMm?: number | null;
-  dimensionHMm?: number | null;
+  /** Freeform mm text (e.g. 1000+600). Legacy numeric values coerced to string. */
+  dimensionLMm?: string | number | null;
+  dimensionWMm?: string | number | null;
+  dimensionHMm?: string | number | null;
   deliveryTermName?: string;
   factoryName?: string;
   factoryFromCatalog?: boolean;
@@ -61,9 +62,9 @@ export type BwfQuoteItemRow = {
   material: string | null;
   color: string | null;
   remarks: string | null;
-  dimension_l_mm: number | null;
-  dimension_w_mm: number | null;
-  dimension_h_mm: number | null;
+  dimension_l_mm: string | number | null;
+  dimension_w_mm: string | number | null;
+  dimension_h_mm: string | number | null;
   delivery_term_name: string | null;
   factory_name: string | null;
   factory_from_catalog: boolean | null;
@@ -85,6 +86,13 @@ function numOrZero(v: unknown): number {
   return n == null ? 0 : n;
 }
 
+/** Preserve freeform dimension text (1000+600); coerce legacy numbers to string. */
+export function dimTextOrNull(v: unknown): string | null {
+  if (v == null) return null;
+  const s = String(v).trim();
+  return s ? s : null;
+}
+
 /** Map DB row → frontend item (preserves client_item_id as `id` when present). */
 export function mapRowToItem(row: BwfQuoteItemRow): BwfQuoteItemInput {
   return {
@@ -103,9 +111,9 @@ export function mapRowToItem(row: BwfQuoteItemRow): BwfQuoteItemInput {
     category: row.category || undefined,
     material: row.material || undefined,
     color: row.color || undefined,
-    dimensionLMm: numOrNull(row.dimension_l_mm),
-    dimensionWMm: numOrNull(row.dimension_w_mm),
-    dimensionHMm: numOrNull(row.dimension_h_mm),
+    dimensionLMm: dimTextOrNull(row.dimension_l_mm),
+    dimensionWMm: dimTextOrNull(row.dimension_w_mm),
+    dimensionHMm: dimTextOrNull(row.dimension_h_mm),
     deliveryTermName: row.delivery_term_name || undefined,
     factoryName: row.factory_name || undefined,
     factoryFromCatalog: Boolean(row.factory_from_catalog),
@@ -165,9 +173,9 @@ export function mapItemToRow(
     material: material || null,
     color: color || null,
     remarks: remarks ?? null,
-    dimension_l_mm: numOrNull(dimensionLMm),
-    dimension_w_mm: numOrNull(dimensionWMm),
-    dimension_h_mm: numOrNull(dimensionHMm),
+    dimension_l_mm: dimTextOrNull(dimensionLMm),
+    dimension_w_mm: dimTextOrNull(dimensionWMm),
+    dimension_h_mm: dimTextOrNull(dimensionHMm),
     delivery_term_name: deliveryTermName || null,
     factory_name: factoryName || null,
     factory_from_catalog: Boolean(factoryFromCatalog),

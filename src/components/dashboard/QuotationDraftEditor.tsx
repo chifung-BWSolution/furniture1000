@@ -154,9 +154,10 @@ interface QuotationItem {
   color?: string;
   remarks?: string;
   remarksImage?: string;
-  dimensionLMm?: number | null;
-  dimensionWMm?: number | null;
-  dimensionHMm?: number | null;
+  /** Freeform mm text — may include expressions like 1000+600 / 1000-600. */
+  dimensionLMm?: string | null;
+  dimensionWMm?: string | null;
+  dimensionHMm?: string | null;
   /** lwh = 長×闊×高 (default); dh = 直徑×高 */
   dimensionMode?: QuotationDimensionMode;
   deliveryTermName?: string;
@@ -884,12 +885,12 @@ function QuoteProductItemCard({
             </div>
             <div className="grid w-full min-w-0 grid-cols-[1fr_auto_1fr_auto_1fr] items-center gap-x-1">
               <input
-                type="number"
-                min={0}
+                type="text"
+                inputMode="text"
                 value={item.dimensionLMm ?? ""}
                 placeholder={isDiameterHeight ? "D" : "L"}
                 onChange={(e) =>
-                  updateItem(item.id, "dimensionLMm", parseNonNegativeDimension(e.target.value))
+                  updateItem(item.id, "dimensionLMm", parseDimensionInput(e.target.value))
                 }
                 className={QUOTE_DIMENSION_INPUT_CLASS}
               />
@@ -897,12 +898,12 @@ function QuoteProductItemCard({
               {isDiameterHeight ? (
                 <>
                   <input
-                    type="number"
-                    min={0}
+                    type="text"
+                    inputMode="text"
                     value={item.dimensionHMm ?? ""}
                     placeholder="H"
                     onChange={(e) =>
-                      updateItem(item.id, "dimensionHMm", parseNonNegativeDimension(e.target.value))
+                      updateItem(item.id, "dimensionHMm", parseDimensionInput(e.target.value))
                     }
                     className={QUOTE_DIMENSION_INPUT_CLASS}
                   />
@@ -917,23 +918,23 @@ function QuoteProductItemCard({
               ) : (
                 <>
                   <input
-                    type="number"
-                    min={0}
+                    type="text"
+                    inputMode="text"
                     value={item.dimensionWMm ?? ""}
                     placeholder="W"
                     onChange={(e) =>
-                      updateItem(item.id, "dimensionWMm", parseNonNegativeDimension(e.target.value))
+                      updateItem(item.id, "dimensionWMm", parseDimensionInput(e.target.value))
                     }
                     className={QUOTE_DIMENSION_INPUT_CLASS}
                   />
                   <span className="shrink-0 text-xs text-muted-foreground">×</span>
                   <input
-                    type="number"
-                    min={0}
+                    type="text"
+                    inputMode="text"
                     value={item.dimensionHMm ?? ""}
                     placeholder="H"
                     onChange={(e) =>
-                      updateItem(item.id, "dimensionHMm", parseNonNegativeDimension(e.target.value))
+                      updateItem(item.id, "dimensionHMm", parseDimensionInput(e.target.value))
                     }
                     className={QUOTE_DIMENSION_INPUT_CLASS}
                   />
@@ -1425,11 +1426,9 @@ function InfoPanelColumn({
 const DIMENSION_INPUT_CLASS =
   "w-12 rounded-md border border-border bg-background px-1 py-1.5 font-mono-data text-xs text-foreground placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none";
 
-function parseNonNegativeDimension(value: string): number | null {
-  if (value.trim() === "") return null;
-  const n = parseInt(value, 10);
-  if (Number.isNaN(n)) return null;
-  return Math.max(0, n);
+function parseDimensionInput(value: string): string | null {
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
 }
 
 function createBlankProductItem(): QuotationItem {
@@ -1599,9 +1598,9 @@ function hasQuoteItemContent(item: QuotationItem): boolean {
       item.remarksImage ||
       (item.unitPrice ?? 0) > 0 ||
       item.costPrice != null ||
-      item.dimensionLMm != null ||
-      item.dimensionWMm != null ||
-      item.dimensionHMm != null ||
+      (item.dimensionLMm != null && String(item.dimensionLMm).trim() !== "") ||
+      (item.dimensionWMm != null && String(item.dimensionWMm).trim() !== "") ||
+      (item.dimensionHMm != null && String(item.dimensionHMm).trim() !== "") ||
       (item.factoryName || "").trim(),
   );
 }
@@ -1669,9 +1668,18 @@ function mapInputToQuotationItem(item: BwfQuoteItemInput): QuotationItem {
     remarks: item.remarks,
     remarksImage: item.remarksImage,
     referenceImage: item.referenceImage,
-    dimensionLMm: item.dimensionLMm ?? null,
-    dimensionWMm: item.dimensionWMm ?? null,
-    dimensionHMm: item.dimensionHMm ?? null,
+    dimensionLMm:
+      item.dimensionLMm == null || item.dimensionLMm === ""
+        ? null
+        : String(item.dimensionLMm).trim() || null,
+    dimensionWMm:
+      item.dimensionWMm == null || item.dimensionWMm === ""
+        ? null
+        : String(item.dimensionWMm).trim() || null,
+    dimensionHMm:
+      item.dimensionHMm == null || item.dimensionHMm === ""
+        ? null
+        : String(item.dimensionHMm).trim() || null,
     dimensionMode:
       (item as { dimensionMode?: QuotationDimensionMode }).dimensionMode ?? "lwh",
     deliveryTermName: item.deliveryTermName,
@@ -2798,9 +2806,12 @@ export function QuotationDraftEditor({
         material: p.material,
         color: p.color?.trim() || "",
         remarks: p.remarks,
-        dimensionLMm: p.dimensionLMm,
-        dimensionWMm: p.dimensionWMm,
-        dimensionHMm: p.dimensionHMm,
+        dimensionLMm:
+          p.dimensionLMm == null ? null : String(p.dimensionLMm).trim() || null,
+        dimensionWMm:
+          p.dimensionWMm == null ? null : String(p.dimensionWMm).trim() || null,
+        dimensionHMm:
+          p.dimensionHMm == null ? null : String(p.dimensionHMm).trim() || null,
         dimensionMode: 'lwh' as const,
         deliveryTermName: p.deliveryTermName,
         factoryName: p.factoryName?.trim() || "",

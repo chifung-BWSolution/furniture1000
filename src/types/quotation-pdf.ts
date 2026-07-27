@@ -51,9 +51,9 @@ export interface QuotationPDFData {
     color?: string;
     remarks?: string;
     remarksImage?: string;
-    dimensionLMm?: number | null;
-    dimensionWMm?: number | null;
-    dimensionHMm?: number | null;
+    dimensionLMm?: string | number | null;
+    dimensionWMm?: string | number | null;
+    dimensionHMm?: string | number | null;
     /** lwh = 長×闊×高 (default); dh = 直徑×高 */
     dimensionMode?: QuotationDimensionMode;
     isCustomTerm?: boolean;
