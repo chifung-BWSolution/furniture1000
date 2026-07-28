@@ -77,7 +77,8 @@ export function ProductSelectorModal({
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
-  const PAGE_SIZE = 20;
+  /** Fewer per page — each row shows a 300px image. */
+  const PAGE_SIZE = 10;
 
   const level1Options = useMemo(
     () => Array.from(new Set(categoryPairs.map((p) => p.level1))),
@@ -288,7 +289,7 @@ export function ProductSelectorModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="relative mx-4 flex max-h-[85vh] w-full max-w-[1024px] flex-col rounded-2xl border border-border bg-card shadow-2xl">
+      <div className="relative mx-4 flex max-h-[92vh] w-full max-w-[1180px] flex-col rounded-2xl border border-border bg-card shadow-2xl">
         <div className="flex items-start justify-between border-b border-border px-6 py-4">
           <div className="min-w-0 flex-1 pr-4">
             <h2 className="font-display text-lg font-bold text-foreground">產品目錄</h2>
@@ -425,130 +426,129 @@ export function ProductSelectorModal({
               <span className="font-body text-sm">找不到符合條件的產品</span>
             </div>
           ) : (
-            <table className="w-full table-fixed text-left">
-              <thead>
-                <tr className="border-b border-border">
-                  <th className="w-8 pb-2 pr-2">
-                    <button
-                      type="button"
-                      onClick={toggleSelectAll}
-                      className={cn(
-                        'flex h-4 w-4 items-center justify-center rounded border transition-colors',
-                        isAllSelected
-                          ? 'border-primary bg-primary'
-                          : isSomeSelected
-                            ? 'border-primary/60 bg-primary/30'
-                            : 'border-border bg-background hover:border-primary/50',
-                      )}
-                    >
-                      {isAllSelected && <Check className="h-3 w-3 text-primary-foreground" />}
-                      {isSomeSelected && !isAllSelected && (
-                        <div className="h-1.5 w-1.5 rounded-sm bg-primary" />
-                      )}
-                    </button>
-                  </th>
-                  <th className="w-12 pb-2 pr-3 font-body text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                    圖片
-                  </th>
-                  <th className="w-[34%] pb-2 pr-3 font-body text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                    產品名稱
-                  </th>
-                  <th className="w-[14%] pb-2 pr-3 font-body text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                    廠家
-                  </th>
-                  <th className="w-[12%] pb-2 pr-3 font-body text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                    類別
-                  </th>
-                  <th className="w-[10%] pb-2 pr-3 font-body text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                    成本價
-                  </th>
-                  <th className="w-[10%] pb-2 pr-3 font-body text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-                    售價
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 border-b border-border pb-2">
+                <button
+                  type="button"
+                  onClick={toggleSelectAll}
+                  className={cn(
+                    'flex h-4 w-4 shrink-0 items-center justify-center rounded border transition-colors',
+                    isAllSelected
+                      ? 'border-primary bg-primary'
+                      : isSomeSelected
+                        ? 'border-primary/60 bg-primary/30'
+                        : 'border-border bg-background hover:border-primary/50',
+                  )}
+                  aria-label="全選本頁"
+                >
+                  {isAllSelected && <Check className="h-3 w-3 text-primary-foreground" />}
+                  {isSomeSelected && !isAllSelected && (
+                    <div className="h-1.5 w-1.5 rounded-sm bg-primary" />
+                  )}
+                </button>
+                <span className="font-body text-[11px] text-muted-foreground">
+                  全選本頁
+                </span>
+              </div>
+
+              <ul className="space-y-3">
                 {products.map((product) => {
                   const isSelected = selectedProducts.has(product.id);
                   return (
-                    <tr
-                      key={product.id}
-                      onClick={() => toggleProduct(product)}
-                      className={cn(
-                        'cursor-pointer border-b border-border/40 transition-colors last:border-b-0',
-                        isSelected
-                          ? 'bg-primary/10 ring-1 ring-inset ring-primary/30'
-                          : 'hover:bg-accent/50',
-                      )}
-                    >
-                      <td className="py-2.5 pr-2">
+                    <li key={product.id}>
+                      <button
+                        type="button"
+                        onClick={() => toggleProduct(product)}
+                        className={cn(
+                          'flex w-full items-start gap-4 rounded-xl border px-3 py-3 text-left transition-colors',
+                          isSelected
+                            ? 'border-primary/40 bg-primary/10 ring-1 ring-primary/25'
+                            : 'border-border/60 bg-background hover:border-primary/25 hover:bg-accent/40',
+                        )}
+                      >
                         <div
                           className={cn(
-                            'flex h-4 w-4 items-center justify-center rounded border transition-colors',
+                            'mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors',
                             isSelected
                               ? 'border-primary bg-primary'
                               : 'border-border bg-background',
                           )}
                         >
-                          {isSelected && <Check className="h-3 w-3 text-primary-foreground" />}
+                          {isSelected && (
+                            <Check className="h-3.5 w-3.5 text-primary-foreground" />
+                          )}
                         </div>
-                      </td>
-                      <td className="py-2.5 pr-3">
-                        <div className="h-10 w-10 overflow-hidden rounded-md border border-border bg-muted/30">
+
+                        <div className="h-[300px] w-[300px] shrink-0 overflow-hidden rounded-lg border border-border bg-muted/30">
                           {product.image_url ? (
                             <img
                               src={product.image_url}
-                              alt=""
+                              alt={product.title || ''}
                               className="h-full w-full object-cover"
+                              loading="lazy"
                             />
                           ) : (
                             <div className="flex h-full w-full items-center justify-center">
-                              <Package className="h-4 w-4 text-muted-foreground/40" />
+                              <Package className="h-12 w-12 text-muted-foreground/40" />
                             </div>
                           )}
                         </div>
-                      </td>
-                      <td className="py-2.5 pr-3">
-                        <div className="min-w-0">
-                          <div className="truncate font-body text-xs font-medium text-foreground">
+
+                        <div className="min-w-0 flex-1 self-stretch py-0.5">
+                          <div className="font-body text-base font-semibold leading-snug text-foreground">
                             {product.title || '—'}
                           </div>
                           {product.sku ? (
-                            <div className="truncate font-mono-data text-[10px] text-muted-foreground">
-                              {product.sku}
+                            <div className="mt-1 font-mono-data text-sm text-muted-foreground">
+                              SKU：{product.sku}
                             </div>
                           ) : null}
+
+                          <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
+                            <div className="min-w-0">
+                              <dt className="font-body text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                                廠家
+                              </dt>
+                              <dd className="mt-0.5 break-words font-body text-sm text-foreground">
+                                {product.factory_name || '—'}
+                              </dd>
+                            </div>
+                            <div className="min-w-0">
+                              <dt className="font-body text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                                類別
+                              </dt>
+                              <dd className="mt-0.5 break-words font-body text-sm text-foreground">
+                                {product.category || '—'}
+                              </dd>
+                            </div>
+                            <div className="min-w-0">
+                              <dt className="font-body text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                                成本價
+                              </dt>
+                              <dd className="mt-0.5 font-mono-data text-sm font-semibold text-foreground">
+                                {product.cost_price
+                                  ? `$${Number(product.cost_price).toLocaleString()}`
+                                  : '—'}
+                              </dd>
+                            </div>
+                            <div className="min-w-0">
+                              <dt className="font-body text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                                售價
+                              </dt>
+                              <dd className="mt-0.5 font-mono-data text-sm font-semibold text-foreground">
+                                {product.sale_price
+                                  ? `$${Number(product.sale_price).toLocaleString()}`
+                                  : '—'}
+                              </dd>
+                            </div>
+                          </dl>
                         </div>
-                      </td>
-                      <td className="py-2.5 pr-3">
-                        <span className="block truncate font-body text-xs text-muted-foreground">
-                          {product.factory_name || '—'}
-                        </span>
-                      </td>
-                      <td className="py-2.5 pr-3">
-                        <span className="block truncate font-body text-xs text-muted-foreground">
-                          {product.category || '—'}
-                        </span>
-                      </td>
-                      <td className="py-2.5 pr-3">
-                        <span className="font-mono-data text-xs font-medium text-foreground">
-                          {product.cost_price
-                            ? `$${Number(product.cost_price).toLocaleString()}`
-                            : '—'}
-                        </span>
-                      </td>
-                      <td className="py-2.5 pr-3">
-                        <span className="font-mono-data text-xs font-medium text-foreground">
-                          {product.sale_price
-                            ? `$${Number(product.sale_price).toLocaleString()}`
-                            : '—'}
-                        </span>
-                      </td>
-                    </tr>
+                      </button>
+                    </li>
                   );
                 })}
-              </tbody>
-            </table>
+              </ul>
+            </div>
           )}
         </div>
 
