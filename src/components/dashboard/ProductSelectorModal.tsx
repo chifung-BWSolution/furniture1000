@@ -460,7 +460,7 @@ export function ProductSelectorModal({
                         type="button"
                         onClick={() => toggleProduct(product)}
                         className={cn(
-                          'flex w-full items-start gap-4 rounded-xl border px-3 py-3 text-left transition-colors',
+                          'flex w-full flex-col items-start gap-4 rounded-xl border px-3 py-3 text-left transition-colors sm:flex-row',
                           isSelected
                             ? 'border-primary/40 bg-primary/10 ring-1 ring-primary/25'
                             : 'border-border/60 bg-background hover:border-primary/25 hover:bg-accent/40',
@@ -479,7 +479,7 @@ export function ProductSelectorModal({
                           )}
                         </div>
 
-                        <div className="h-[300px] w-[300px] shrink-0 overflow-hidden rounded-lg border border-border bg-muted/30">
+                        <div className="mx-auto h-[300px] w-[300px] max-w-full shrink-0 overflow-hidden rounded-lg border border-border bg-muted/30 sm:mx-0">
                           {product.image_url ? (
                             <img
                               src={product.image_url}
