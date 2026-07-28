@@ -12,6 +12,8 @@ export type DesignProjectStickyZoneChip = {
 
 export type DesignProjectStickyChrome = {
   active: boolean;
+  /** design = 儲存／平面圖；quote = 僅間隔跳轉 */
+  mode?: 'design' | 'quote';
   zoneGroups: DesignProjectStickyZoneChip[];
   saving: boolean;
   hasFloorPlan: boolean;

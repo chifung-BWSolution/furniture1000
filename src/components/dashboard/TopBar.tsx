@@ -59,8 +59,11 @@ export function TopBar({
   const showParent = !hideBreadcrumbParent && meta.sectionLabel && meta.sectionLabel !== meta.viewLabel;
   const viewInfo = { label: meta.viewLabel, parent: showParent ? meta.sectionLabel : '' };
   const designSticky = useDesignProjectStickyChrome();
-  const showDesignSticky =
-    currentView === 'design-projects' && Boolean(designSticky?.active);
+  const stickyMode = designSticky?.mode || 'design';
+  const showPartitionSticky =
+    Boolean(designSticky?.active) &&
+    ((currentView === 'design-projects' && stickyMode === 'design') ||
+      (currentView === 'customer-quote-schemes' && stickyMode === 'quote'));
 
   // Show stats (總共/已選) on product list views
   const showProductButtons = currentView === 'listed-products' || currentView === 'ready-to-publish' || currentView === 'product-catalog';
@@ -68,7 +71,8 @@ export function TopBar({
   const showUploadButton = currentView === 'listed-products' || currentView === 'ready-to-publish';
   const uploadLabel = currentView === 'listed-products' ? '上傳到產品目錄' : '上傳到 Shopify';
 
-  if (showDesignSticky && designSticky) {
+  if (showPartitionSticky && designSticky) {
+    const isQuoteSticky = stickyMode === 'quote';
     return (
       <header className="sticky top-0 z-30 border-b border-border bg-background/95 px-4 py-2.5 backdrop-blur-xl md:px-6">
         <div className="flex flex-wrap items-center gap-2 md:gap-3">
@@ -102,33 +106,35 @@ export function TopBar({
               <p className="text-[13px] text-muted-foreground">尚無間隔</p>
             )}
           </div>
-          <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => designSticky.onViewFloorPlan()}
-              disabled={!designSticky.hasFloorPlan}
-              className="inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-[15px] font-semibold text-foreground hover:bg-muted disabled:opacity-50"
-              title={
-                designSticky.hasFloorPlan ? '檢視平面圖' : '尚未上傳平面圖'
-              }
-            >
-              <ZoomIn className="h-4 w-4" />
-              檢視平面圖
-            </button>
-            <button
-              type="button"
-              onClick={() => designSticky.onSave()}
-              disabled={designSticky.saving}
-              className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-[15px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
-            >
-              {designSticky.saving ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Save className="h-4 w-4" />
-              )}
-              儲存方案
-            </button>
-          </div>
+          {!isQuoteSticky ? (
+            <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => designSticky.onViewFloorPlan()}
+                disabled={!designSticky.hasFloorPlan}
+                className="inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-[15px] font-semibold text-foreground hover:bg-muted disabled:opacity-50"
+                title={
+                  designSticky.hasFloorPlan ? '檢視平面圖' : '尚未上傳平面圖'
+                }
+              >
+                <ZoomIn className="h-4 w-4" />
+                檢視平面圖
+              </button>
+              <button
+                type="button"
+                onClick={() => designSticky.onSave()}
+                disabled={designSticky.saving}
+                className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-[15px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+              >
+                {designSticky.saving ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4" />
+                )}
+                儲存方案
+              </button>
+            </div>
+          ) : null}
         </div>
       </header>
     );

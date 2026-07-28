@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { ReactNode, Ref } from 'react';
 import { cn } from '@/lib/utils';
 
 /** Shared chrome for Client Portal secondary pages (staff preview of client experience). */
@@ -10,6 +10,7 @@ export function PortalPageShell({
   children,
   className,
   maxWidthClass = 'max-w-none',
+  scrollRef,
 }: {
   title: string;
   subtitle?: string;
@@ -18,9 +19,14 @@ export function PortalPageShell({
   children: ReactNode;
   className?: string;
   maxWidthClass?: string;
+  /** Ref to the scrollable shell — used for sticky partition observers. */
+  scrollRef?: Ref<HTMLDivElement>;
 }) {
   return (
-    <div className={cn('h-full overflow-y-auto bg-background p-4 md:p-6', className)}>
+    <div
+      ref={scrollRef}
+      className={cn('h-full overflow-y-auto bg-background p-4 md:p-6', className)}
+    >
       <div className={cn('mx-auto w-full space-y-7', maxWidthClass)}>
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>

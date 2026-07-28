@@ -1259,10 +1259,11 @@ export async function updateZoneProductNotes(
 /**
  * Client Portal review → zone_products.status (+ optional feedback under notes).
  * Accept→confirmed, 要求修改→discussing, 不接受→pending.
+ * Pass `review: null` to clear back to 未選擇 (status pending).
  */
 export async function applyZoneProductClientReview(input: {
   zoneProductId: string;
-  review: 'accepted' | 'change' | 'rejected';
+  review: 'accepted' | 'change' | 'rejected' | null;
   feedbackText?: string;
   authorName?: string;
   previousNotes?: string;
@@ -1272,9 +1273,11 @@ export async function applyZoneProductClientReview(input: {
       REVIEW_TO_ZONE_STATUS,
       appendClientFeedbackToNotes,
     } = await import('@/lib/zoneProductClientFeedback');
-    const status = REVIEW_TO_ZONE_STATUS[input.review];
+    const status =
+      input.review == null ? 'pending' : REVIEW_TO_ZONE_STATUS[input.review];
     let notes = input.previousNotes ?? '';
     if (
+      input.review &&
       (input.review === 'change' || input.review === 'rejected') &&
       (input.feedbackText || '').trim()
     ) {

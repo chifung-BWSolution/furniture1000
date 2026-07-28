@@ -1992,6 +1992,7 @@ export function DesignProjectsView() {
     }
     publishDesignProjectStickyChrome({
       active: partitionHeaderPinned,
+      mode: 'design',
       zoneGroups: zoneGroups.map((group) => {
         const zoneIds = group.zones.map((zone) => zone.id);
         return {

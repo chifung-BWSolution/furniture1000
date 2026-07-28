@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Ban,
   ArrowLeft,
@@ -15,6 +15,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { Checkbox } from '@/components/ui/checkbox';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import {
@@ -46,6 +47,7 @@ import {
 } from '@/lib/solutionsApi';
 import { formatProductDimensionsMm } from '@/lib/productDimensions';
 import { readStoredPortalToken } from '@/lib/customerPortalRoutes';
+import { publishDesignProjectStickyChrome } from '@/lib/designProjectStickyChrome';
 import type {
   DesignProject,
   ProjectZone,
@@ -346,6 +348,20 @@ function roomProductCount(room: QuoteRoomGroup): number {
   return room.sections.reduce((sum, section) => sum + section.items.length, 0);
 }
 
+function zoneGroupDomId(label: string): string {
+  return `quote-zone-group-${encodeURIComponent(label.trim() || 'zone')}`;
+}
+
+/** Required products always billable; optional only when client checks「選擇」. */
+function isQuoteItemSelected(
+  item: BwfQuoteItemInput,
+  optionalChosen: Record<string, boolean>,
+): boolean {
+  const id = String(item.id || '').trim();
+  if (!item.isOptional) return true;
+  return Boolean(id && optionalChosen[id]);
+}
+
 function furnitureDivisionLabel(division: {
   level1: string;
   level2: string;
@@ -409,6 +425,13 @@ export function CustomerQuoteSchemesView() {
   const [submittingQuote, setSubmittingQuote] = useState(false);
   const [currentUserRole, setCurrentUserRole] =
     useState<CommentBadgeRole | null>(null);
+  /** Optional products the client has opted into (設計專案「可選」→ 預設未選). */
+  const [optionalChosen, setOptionalChosen] = useState<Record<string, boolean>>(
+    {},
+  );
+  const pageScrollRef = useRef<HTMLDivElement | null>(null);
+  const partitionStickySentinelRef = useRef<HTMLDivElement | null>(null);
+  const [partitionHeaderPinned, setPartitionHeaderPinned] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -713,6 +736,7 @@ export function CustomerQuoteSchemesView() {
         // Hydrate Accept / 要求修改 / 不接受 + persisted client opinions.
         const nextReviews: Record<string, ItemReview> = {};
         const nextMessages: Record<string, ItemMessage[]> = {};
+        const nextOptionalChosen: Record<string, boolean> = {};
         const hydrateFromNotes = (
           productId: string,
           status: ZoneProduct['status'] | undefined,
@@ -736,13 +760,17 @@ export function CustomerQuoteSchemesView() {
         };
         for (const product of zoneProducts) {
           hydrateFromNotes(product.id, product.status, product.notes);
+          // 可選 → 客戶端預設未選；非可選 → 不需記錄（永遠計價）
+          if (product.isOptional) nextOptionalChosen[product.id] = false;
         }
         for (const row of rows) {
           if (!row.id || row.isSectionTitle || row.isDivisionTitle) continue;
           hydrateFromNotes(row.id, row.zoneStatus, row.notes);
+          if (row.isOptional) nextOptionalChosen[row.id] = false;
         }
         setItemReviews(nextReviews);
         setItemMessages(nextMessages);
+        setOptionalChosen(nextOptionalChosen);
         setItemsLoading(false);
       })
       .catch(() => {
@@ -838,10 +866,14 @@ export function CustomerQuoteSchemesView() {
     () => groupQuoteItemsByZoneType(items),
     [items],
   );
-  const pricedItems = items.filter(
-    (item) => !item.isSectionTitle && !item.isCustomTerm && !item.isOptional,
+  const billableItems = items.filter(
+    (item) =>
+      !item.isSectionTitle &&
+      !item.isDivisionTitle &&
+      !item.isCustomTerm &&
+      isQuoteItemSelected(item, optionalChosen),
   );
-  const itemSubtotal = pricedItems.reduce(
+  const itemSubtotal = billableItems.reduce(
     (sum, item) => sum + quoteItemLineSubtotal(item),
     0,
   );
@@ -849,16 +881,88 @@ export function CustomerQuoteSchemesView() {
   const itemKey = (item: BwfQuoteItemInput, index: number) =>
     item.id || `${quoteItemDisplayName(item)}-${index}`;
 
+  const scrollToZoneGroup = useCallback((label: string) => {
+    const target = document.getElementById(zoneGroupDomId(label));
+    if (!target) return;
+    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
+
+  useEffect(() => {
+    if (!showDetail || itemsLoading) {
+      setPartitionHeaderPinned(false);
+      return;
+    }
+    const node = partitionStickySentinelRef.current;
+    const root = pageScrollRef.current;
+    if (!node || !root || typeof IntersectionObserver === 'undefined') {
+      setPartitionHeaderPinned(false);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        const nextPinned =
+          !entry.isIntersecting &&
+          entry.boundingClientRect.top < root.getBoundingClientRect().top;
+        setPartitionHeaderPinned((current) =>
+          current === nextPinned ? current : nextPinned,
+        );
+      },
+      { root, threshold: 0 },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [showDetail, itemsLoading, zoneTypeGroups.length, activeId]);
+
+  useEffect(
+    () => () => {
+      publishDesignProjectStickyChrome(null);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!showDetail || !active) {
+      publishDesignProjectStickyChrome(null);
+      return;
+    }
+    publishDesignProjectStickyChrome({
+      active: partitionHeaderPinned,
+      mode: 'quote',
+      zoneGroups: zoneTypeGroups.map((group) => ({
+        key: group.key,
+        label: group.label,
+        count: group.rooms.reduce(
+          (sum, room) => sum + roomProductCount(room),
+          0,
+        ),
+      })),
+      saving: false,
+      hasFloorPlan: false,
+      onSave: () => {},
+      onViewFloorPlan: () => {},
+      onJump: (label) => scrollToZoneGroup(label),
+    });
+  }, [
+    active,
+    partitionHeaderPinned,
+    scrollToZoneGroup,
+    showDetail,
+    zoneTypeGroups,
+  ]);
+
   const syncItemReview = async (
     item: BwfQuoteItemInput,
-    review: ItemReview,
+    review: ItemReview | null,
     feedbackText?: string,
   ): Promise<boolean> => {
     const key = item.id || '';
-    setItemReviews((current) => ({
-      ...current,
-      [key || itemKey(item, 0)]: review,
-    }));
+    const reviewKey = key || itemKey(item, 0);
+    setItemReviews((current) => {
+      const next = { ...current };
+      if (review == null) delete next[reviewKey];
+      else next[reviewKey] = review;
+      return next;
+    });
     if (!isZoneProductId(key)) {
       if (feedbackText?.trim()) {
         toast.error('此產品尚未連結設計專案，意見無法儲存');
@@ -919,6 +1023,9 @@ export function CustomerQuoteSchemesView() {
           : row,
       ),
     );
+    if (review == null) {
+      toast.success('已取消選擇');
+    }
     if (feedbackText?.trim()) {
       const { feedback } = splitStaffNotesAndFeedback(result.data.notes);
       setItemMessages((current) => ({
@@ -1241,6 +1348,7 @@ export function CustomerQuoteSchemesView() {
 
   return (
     <PortalPageShell
+      scrollRef={pageScrollRef}
       title={showDetail && active ? quoteDisplayName(active) : '報價方案'}
       badge="Client Portal"
       subtitle="查看自己的 HTML 報價、切換版本、按工程分區批核產品，並回覆整張報價。"
@@ -1459,6 +1567,55 @@ export function CustomerQuoteSchemesView() {
             </div>
           </div>
 
+          <section className="space-y-3">
+            <div ref={partitionStickySentinelRef}>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 className="font-display text-lg font-bold">
+                  間隔清單與傢俬配置
+                </h2>
+                <span className="font-mono-data text-[15px] text-muted-foreground">
+                  {zoneTypeGroups.length} 個間隔 ·{' '}
+                  {items.filter(
+                    (item) =>
+                      !item.isSectionTitle &&
+                      !item.isDivisionTitle &&
+                      !item.isCustomTerm,
+                  ).length}{' '}
+                  件產品
+                </span>
+              </div>
+              {!itemsLoading && zoneTypeGroups.length > 0 ? (
+                <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-border bg-card px-4 py-3">
+                  <span className="mr-1 text-[15px] font-semibold text-muted-foreground">
+                    間隔數量
+                  </span>
+                  {zoneTypeGroups.map((group) => {
+                    const productTotal = group.rooms.reduce(
+                      (sum, room) => sum + roomProductCount(room),
+                      0,
+                    );
+                    return (
+                      <button
+                        key={group.key}
+                        type="button"
+                        onClick={() => scrollToZoneGroup(group.label)}
+                        className="inline-flex items-center gap-1 rounded-lg border border-primary/20 bg-primary/5 px-3 py-1.5 text-[15px] transition-colors hover:border-primary/50 hover:bg-primary/10"
+                        title={`跳至「${group.label}」· 產品總數 ${productTotal}`}
+                      >
+                        <span className="font-semibold text-foreground">
+                          {group.label}
+                        </span>
+                        <span className="text-muted-foreground">
+                          ：{productTotal}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
+          </section>
+
           {itemsLoading ? (
             <div className="flex justify-center py-16">
               <Loader2 className="h-6 w-6 animate-spin text-primary" />
@@ -1475,7 +1632,11 @@ export function CustomerQuoteSchemesView() {
                   0,
                 );
                 return (
-                  <section key={group.key} className="space-y-3">
+                  <section
+                    key={group.key}
+                    id={zoneGroupDomId(group.label)}
+                    className="scroll-mt-28 space-y-3"
+                  >
                     <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-2.5">
                       <div>
                         <h3 className="font-display text-lg font-bold">
@@ -1493,6 +1654,21 @@ export function CustomerQuoteSchemesView() {
                     <div className="space-y-3">
                       {group.rooms.map((room) => {
                         const roomCount = roomProductCount(room);
+                        const roomSubtotal = room.sections.reduce(
+                          (sum, section) =>
+                            sum +
+                            section.items.reduce((sectionSum, item) => {
+                              if (
+                                !isQuoteItemSelected(item, optionalChosen)
+                              ) {
+                                return sectionSum;
+                              }
+                              return (
+                                sectionSum + quoteItemLineSubtotal(item)
+                              );
+                            }, 0),
+                          0,
+                        );
                         return (
                         <section
                           key={room.id}
@@ -1536,6 +1712,11 @@ export function CustomerQuoteSchemesView() {
                                 item.dimensionHMm,
                               );
                               const notesLabel = portalNotesDisplay(item.notes);
+                              const selected = isQuoteItemSelected(
+                                item,
+                                optionalChosen,
+                              );
+                              const lineTotal = quoteItemLineSubtotal(item);
                               return (
                                 <article
                                   key={key}
@@ -1563,13 +1744,50 @@ export function CustomerQuoteSchemesView() {
                                         <h5 className="min-w-0 flex-1 text-base font-bold leading-snug">
                                           {quoteItemDisplayName(item)}
                                         </h5>
-                                        <div className="shrink-0 text-right">
-                                          <p className="font-mono-data text-lg font-bold">
-                                            {item.isOptional
-                                              ? '可選'
-                                              : fmtMoney(
-                                                  quoteItemLineSubtotal(item),
-                                                )}
+                                        <div className="flex shrink-0 flex-col items-end gap-2">
+                                          <label
+                                            className={cn(
+                                              'inline-flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[14px]',
+                                              selected
+                                                ? 'border-primary/40 bg-primary/10 text-primary'
+                                                : 'border-border bg-background text-muted-foreground',
+                                              !item.isOptional &&
+                                                'cursor-default opacity-90',
+                                            )}
+                                            title={
+                                              item.isOptional
+                                                ? selected
+                                                  ? '取消選擇：價錢不計入小計'
+                                                  : '選擇此可選產品：價錢計入小計'
+                                                : '設計專案非可選產品，預設需要'
+                                            }
+                                          >
+                                            <Checkbox
+                                              checked={selected}
+                                              disabled={!item.isOptional}
+                                              onCheckedChange={(checked) => {
+                                                if (!item.isOptional || !item.id)
+                                                  return;
+                                                setOptionalChosen((current) => ({
+                                                  ...current,
+                                                  [item.id!]: checked === true,
+                                                }));
+                                              }}
+                                              className="border-foreground/60 data-[state=checked]:border-primary"
+                                              aria-label={`選擇 ${quoteItemDisplayName(item)}`}
+                                            />
+                                            <span>選擇</span>
+                                          </label>
+                                          <p
+                                            className={cn(
+                                              'font-mono-data text-lg font-bold',
+                                              !selected &&
+                                                'text-muted-foreground',
+                                            )}
+                                          >
+                                            {selected
+                                              ? fmtMoney(lineTotal)
+                                              : '未選'}
                                           </p>
                                         </div>
                                       </div>
@@ -1589,13 +1807,20 @@ export function CustomerQuoteSchemesView() {
                                         </p>
                                       </div>
 
-                                      <p className="font-mono-data text-sm text-primary">
+                                      <p
+                                        className={cn(
+                                          'font-mono-data text-sm',
+                                          selected
+                                            ? 'text-primary'
+                                            : 'text-muted-foreground',
+                                        )}
+                                      >
                                         {fmtMoney(Number(item.unitPrice || 0))} ×{' '}
                                         {item.quantity || 1} {item.unit || ''}
+                                        {item.isOptional ? '（可選）' : ''}
                                       </p>
 
-                                      {!item.isOptional ? (
-                                        <div className="mt-auto flex flex-wrap gap-2 border-t border-border pt-4">
+                                      <div className="mt-auto flex flex-wrap gap-2 border-t border-border pt-4">
                                           {(
                                             [
                                               ['accepted', '接受', Check],
@@ -1612,12 +1837,26 @@ export function CustomerQuoteSchemesView() {
                                               type="button"
                                               disabled={savingReviewKey === key}
                                               onClick={() => {
-                                                void syncItemReview(item, value);
-                                                if (value === 'accepted') {
-                                                  toast.success(
-                                                    '已同步為「已確定」',
+                                                if (review === value) {
+                                                  void syncItemReview(
+                                                    item,
+                                                    null,
                                                   );
+                                                  return;
                                                 }
+                                                void syncItemReview(
+                                                  item,
+                                                  value,
+                                                ).then((ok) => {
+                                                  if (
+                                                    ok &&
+                                                    value === 'accepted'
+                                                  ) {
+                                                    toast.success(
+                                                      '已同步為「已確定」',
+                                                    );
+                                                  }
+                                                });
                                               }}
                                               className={cn(
                                                 'inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium disabled:opacity-60',
@@ -1634,8 +1873,7 @@ export function CustomerQuoteSchemesView() {
                                               {label}
                                             </button>
                                           ))}
-                                        </div>
-                                      ) : null}
+                                      </div>
                                       {messages.length > 0 ? (
                                         <div className="space-y-2">
                                           {messages.map((message) => (
@@ -1734,6 +1972,14 @@ export function CustomerQuoteSchemesView() {
                                 })}
                               </div>
                             ))}
+                            {roomCount > 0 ? (
+                              <div className="flex justify-end border-t border-border bg-muted/20 px-5 py-3.5">
+                                <p className="font-mono-data text-[15px] font-semibold text-foreground">
+                                  {room.name} : 小計 $
+                                  {Math.round(roomSubtotal).toLocaleString()}
+                                </p>
+                              </div>
+                            ) : null}
                           </div>
                         </section>
                         );
@@ -1748,7 +1994,7 @@ export function CustomerQuoteSchemesView() {
           <div className="flex items-center justify-between rounded-xl bg-primary/5 px-4 py-3">
             <span className="font-semibold">報價總額</span>
             <strong className="font-mono-data text-xl text-primary">
-              {fmtMoney(active.total_amount || itemSubtotal)}
+              {fmtMoney(itemSubtotal || active.total_amount || 0)}
             </strong>
           </div>
 
