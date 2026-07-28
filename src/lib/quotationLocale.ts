@@ -60,6 +60,13 @@ export const QUOTE_UI = {
     editTerms: '編輯條款',
     doneEditTerms: '完成編輯',
     installFeeSectionHint: '安裝費用列（客戶 PDF）',
+    quoteInfo: '報價資訊',
+    quoteNo: '報價單號',
+    pic: '負責人',
+    quoteDate: '日期',
+    validityDays: '報價有效期 (天)',
+    deliveryAddress: '送貨地址',
+    deliveryAddressPlaceholder: '請輸入送貨地址',
   },
   en: {
     previewPdf: 'Preview PDF',
@@ -111,6 +118,13 @@ export const QUOTE_UI = {
     editTerms: 'Edit Terms',
     doneEditTerms: 'Done',
     installFeeSectionHint: 'Installation fee row (customer PDF)',
+    quoteInfo: 'Quotation Info',
+    quoteNo: 'Quotation No.',
+    pic: 'Person in Charge',
+    quoteDate: 'Date',
+    validityDays: 'Validity (days)',
+    deliveryAddress: 'Delivery Address',
+    deliveryAddressPlaceholder: 'Enter delivery address',
   },
 } as const;
 
@@ -209,4 +223,59 @@ export function quoteUi(locale: QuoteLocale): QuoteUiLabels {
 
 export function quotePdf(locale: QuoteLocale): QuotePdfLabels {
   return QUOTE_PDF[locale];
+}
+
+/** Today's calendar date as YYYY-MM-DD (local timezone). */
+export function todayQuoteDateIso(): string {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/**
+ * Normalize a stored quote date to YYYY-MM-DD for `<input type="date">`.
+ * Accepts ISO, or common D/M/YYYY display strings from zh-HK / en-GB.
+ * Empty / unparseable → today.
+ */
+export function normalizeQuoteDateInput(raw?: string | null): string {
+  const s = (raw ?? '').trim();
+  if (!s) return todayQuoteDateIso();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+
+  const slash = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(s);
+  if (slash) {
+    const day = Number(slash[1]);
+    const month = Number(slash[2]);
+    const year = Number(slash[3]);
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    }
+  }
+
+  const parsed = new Date(s);
+  if (!Number.isNaN(parsed.getTime())) {
+    const y = parsed.getFullYear();
+    const m = String(parsed.getMonth() + 1).padStart(2, '0');
+    const day = String(parsed.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+
+  return todayQuoteDateIso();
+}
+
+/** Format a quote date (ISO or display) for PDF / preview labels. */
+export function formatQuoteDisplayDate(
+  raw: string | undefined | null,
+  locale: QuoteLocale,
+): string {
+  const iso = normalizeQuoteDateInput(raw);
+  const [y, m, d] = iso.split('-').map(Number);
+  const date = new Date(y, m - 1, d);
+  return date.toLocaleDateString(locale === 'en' ? 'en-GB' : 'zh-HK', {
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+  });
 }

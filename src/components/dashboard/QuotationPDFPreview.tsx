@@ -6,7 +6,11 @@ import { multiColorToChineseDisplay } from '@/constants/color-map';
 import { normalizeQuotationPdfGlyphs, pdfDisplayText } from '@/lib/quotationPdfGlyphs';
 import { quoteItemLineSubtotal } from '@/lib/quoteItemTotals';
 import { buildQuotationPdfFilename } from '@/lib/quotationPdfFilename';
-import { quotePdf, type QuotePdfLabels } from '@/lib/quotationLocale';
+import {
+  quotePdf,
+  formatQuoteDisplayDate,
+  type QuotePdfLabels,
+} from '@/lib/quotationLocale';
 import {
   formatSectionTitleLabel,
   productSerialAt,
@@ -998,13 +1002,7 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
   const locale = data.locale === 'en' ? 'en' : 'zh';
   const labels = quotePdf(locale);
 
-  const today =
-    data.quoteMeta?.date ||
-    new Date().toLocaleDateString(locale === 'en' ? 'en-GB' : 'zh-HK', {
-      year: 'numeric',
-      month: 'numeric',
-      day: 'numeric',
-    });
+  const today = formatQuoteDisplayDate(data.quoteMeta?.date, locale);
   const quoteNumber = data.quoteMeta?.quoteNumber || '';
   const discountValue = (() => {
     const raw = data.discountNote;

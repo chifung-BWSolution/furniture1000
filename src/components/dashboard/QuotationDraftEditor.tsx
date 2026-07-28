@@ -106,6 +106,9 @@ import {
   quotePdf,
   DEFAULT_COMPANY_ADDRESS,
   DEFAULT_COMPANY_WEBSITE,
+  normalizeQuoteDateInput,
+  formatQuoteDisplayDate,
+  todayQuoteDateIso,
 } from "@/lib/quotationLocale";
 import {
   DEFAULT_QUOTATION_DELIVERY_DETAILS_EN,
@@ -1738,6 +1741,7 @@ export function QuotationDraftEditor({
         pmName?: string;
         validity?: string;
         deliveryAddress?: string;
+        date?: string;
       }
     | undefined;
   const savedDeliveryDetails = savedProjectData.deliveryDetails as
@@ -1793,6 +1797,7 @@ export function QuotationDraftEditor({
   // Quote meta (editable) — pitching code is read-only from PMS
   const [quoteMeta, setQuoteMeta] = useState({
     pmName: savedQuoteMeta?.pmName || formData.projectManager,
+    date: normalizeQuoteDateInput(savedQuoteMeta?.date) || todayQuoteDateIso(),
     validity: savedQuoteMeta?.validity || formData.validityDays || "30",
     deliveryAddress: savedQuoteMeta?.deliveryAddress || "",
   });
@@ -2562,9 +2567,11 @@ export function QuotationDraftEditor({
             validity?: string;
             deliveryAddress?: string;
             projectName?: string;
+            date?: string;
           };
           setQuoteMeta({
             pmName: meta.pmName || quoteMeta.pmName,
+            date: normalizeQuoteDateInput(meta.date || quoteMeta.date),
             validity: meta.validity || quoteMeta.validity,
             deliveryAddress: meta.deliveryAddress || "",
           });
@@ -2956,7 +2963,7 @@ export function QuotationDraftEditor({
       activeTermsHtml,
       quoteMeta.deliveryAddress,
     );
-    const dateLocale = quoteLocale === 'en' ? 'en-GB' : 'zh-HK';
+    const displayDate = formatQuoteDisplayDate(quoteMeta.date, quoteLocale);
 
     if (quoteLocale === 'en') {
       const pdfLabels = quotePdf('en');
@@ -2981,11 +2988,7 @@ export function QuotationDraftEditor({
           version: existingQuote?.version
             ? displayQuoteVersion(existingQuote.version)
             : undefined,
-          date: new Date().toLocaleDateString(dateLocale, {
-            year: "numeric",
-            month: "numeric",
-            day: "numeric",
-          }),
+          date: displayDate,
         },
         locale: 'en',
         deliveryDetails: deliveryDetailsEn,
@@ -3049,11 +3052,7 @@ export function QuotationDraftEditor({
       version: existingQuote?.version
         ? displayQuoteVersion(existingQuote.version)
         : undefined,
-      date: new Date().toLocaleDateString(dateLocale, {
-        year: "numeric",
-        month: "numeric",
-        day: "numeric",
-      }),
+      date: displayDate,
     },
     locale: 'zh',
     deliveryDetails,
@@ -3340,13 +3339,13 @@ export function QuotationDraftEditor({
               </InfoPanelColumn>
 
               <InfoPanelColumn
-                title="報價資訊"
+                title={t.quoteInfo}
                 collapsed={collapseQuoteMeta}
                 onToggle={() => setCollapseQuoteMeta((v) => !v)}
               >
                 <div>
                   <label className="mb-1 block font-body text-xs text-muted-foreground">
-                    報價單號
+                    {t.quoteNo}
                   </label>
                   <div className="rounded-md border border-border/50 bg-muted/30 px-3 py-2 font-mono-data text-xs text-foreground/80">
                     {quoteId || "—"}
@@ -3354,7 +3353,7 @@ export function QuotationDraftEditor({
                 </div>
                 <div>
                   <label className="mb-1 block font-body text-xs text-muted-foreground">
-                    負責人
+                    {t.pic}
                   </label>
                   <input
                     type="text"
@@ -3367,7 +3366,23 @@ export function QuotationDraftEditor({
                 </div>
                 <div>
                   <label className="mb-1 block font-body text-xs text-muted-foreground">
-                    報價有效期 (天)
+                    {t.quoteDate}
+                  </label>
+                  <input
+                    type="date"
+                    value={quoteMeta.date}
+                    onChange={(e) =>
+                      setQuoteMeta((p) => ({
+                        ...p,
+                        date: e.target.value || todayQuoteDateIso(),
+                      }))
+                    }
+                    className="w-full rounded-md border border-border bg-background px-3 py-2 font-mono-data text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block font-body text-xs text-muted-foreground">
+                    {t.validityDays}
                   </label>
                   <input
                     type="number"
@@ -3383,7 +3398,7 @@ export function QuotationDraftEditor({
                 </div>
                 <div>
                   <label className="mb-1 block font-body text-xs text-muted-foreground">
-                    送貨地址
+                    {t.deliveryAddress}
                   </label>
                   <textarea
                     value={quoteMeta.deliveryAddress}
@@ -3401,7 +3416,7 @@ export function QuotationDraftEditor({
                         ),
                       }));
                     }}
-                    placeholder="請輸入送貨地址"
+                    placeholder={t.deliveryAddressPlaceholder}
                     rows={3}
                     className="w-full rounded-md border border-border bg-background px-3 py-2 font-body text-xs text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
                   />
