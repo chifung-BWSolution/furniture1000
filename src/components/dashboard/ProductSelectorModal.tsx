@@ -65,7 +65,7 @@ export function ProductSelectorModal({
   priorityLevel1Categories = [],
   stockOnly = false,
 }: ProductSelectorModalProps) {
-  const [catalogSource, setCatalogSource] = useState<CatalogSourceType>('system');
+  const [catalogSource, setCatalogSource] = useState<CatalogSourceType>('shopify');
   const [search, setSearch] = useState('');
   const [factoryFilter, setFactoryFilter] = useState('');
   const [level1Filter, setLevel1Filter] = useState('');
@@ -197,7 +197,7 @@ export function ProductSelectorModal({
     setLevel1Filter('');
     setLevel2Filter('');
     setPage(1);
-    setCatalogSource('system');
+    setCatalogSource('shopify');
   }, [open]);
 
   useEffect(() => {
