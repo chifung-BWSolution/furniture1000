@@ -276,7 +276,6 @@ export function ProductSelectorModal({
     setFactoryQuery('');
     setFactoryFilterOpen(false);
     setCatalogSource(next);
-    setFactoryFilter('');
     setPage(1);
   };
 
