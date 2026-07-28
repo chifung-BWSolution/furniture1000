@@ -49,7 +49,6 @@ import {
   zonesOutOfSyncWithSeeds,
 } from '@/lib/syncProjectZones';
 import { uploadFileToStorage } from '@/lib/imageStorage';
-import { remarksPlainText } from '@/lib/remarksContent';
 import { toast } from 'sonner';
 import {
   ZONE_PRODUCT_STATUS_META,
@@ -77,13 +76,11 @@ import {
   floorPlanPreviewOf,
 } from './FloorPlanViewerModal';
 import { publishDesignProjectStickyChrome } from '@/lib/designProjectStickyChrome';
+import { RemarksRichEditor } from '@/components/dashboard/RemarksRichEditor';
 
-/** Staff-editable notes only (strip client feedback + unwrap rich-text JSON). */
-function staffNotesValue(notes: string | null | undefined): string {
-  const { staffNotes } = splitStaffNotesAndFeedback(notes);
-  if (!staffNotes.trim()) return '';
-  if (staffNotes.trim().startsWith('[')) return remarksPlainText(staffNotes);
-  return staffNotes;
+/** Staff-editable notes for RemarksRichEditor (keep rich-text JSON; strip client feedback). */
+function staffNotesForEditor(notes: string | null | undefined): string {
+  return splitStaffNotesAndFeedback(notes).staffNotes;
 }
 
 function mergeStaffNotesKeepingFeedback(
@@ -765,14 +762,17 @@ function ZoneProductRow({
                 <span className="mt-2 shrink-0 text-[15px] font-medium text-muted-foreground">
                   備註
                 </span>
-                <textarea
-                  value={staffNotesValue(item.notes)}
-                  onChange={(event) => onSetNotes(item, event.target.value)}
-                  rows={3}
-                  placeholder="輸入意見或補充說明…"
-                  className="min-h-[72px] min-w-0 w-full flex-1 resize-y rounded-lg border border-border bg-background px-3 py-2.5 text-[15px] leading-relaxed outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
-                  aria-label={`${titleLabel}備註`}
-                />
+                <div className="min-w-0 flex-1" aria-label={`${titleLabel}備註`}>
+                  <RemarksRichEditor
+                    key={item.id}
+                    compact
+                    value={staffNotesForEditor(item.notes)}
+                    onChange={(next) => onSetNotes(item, next)}
+                    textRows={3}
+                    placeholder="輸入意見或補充說明…"
+                    textClassName="min-h-[72px] rounded-lg px-3 py-2 text-[12px] leading-relaxed focus:ring-2 focus:ring-primary/20"
+                  />
+                </div>
               </div>
               <div
                 className={cn(
