@@ -39,6 +39,8 @@ export type BwfQuoteItemInput = QuoteItemImageFields & {
   isOptional?: boolean;
   /** Section heading row (一、開放區) — not priced. */
   isSectionTitle?: boolean;
+  /** Furniture-division heading within a zone (設計專案 傢俬劃分). */
+  isDivisionTitle?: boolean;
   /** Transient UI field — never persisted. */
   exchangeRateInput?: string;
 };
