@@ -1989,7 +1989,7 @@ export function ListedProductsView({
           ) : (
             /* ── LIST VIEW ── */
             <table className="w-full min-w-[1580px]">
-              <thead className="sticky top-0 z-10 bg-background/95 backdrop-blur-sm">
+              <thead className="sticky top-0 z-10 bg-muted/90 backdrop-blur-sm">
                 <tr className="border-b border-border">
                   <th className="px-3 py-3 text-left w-[40px]">
                     <Checkbox
