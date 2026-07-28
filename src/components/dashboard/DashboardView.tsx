@@ -102,7 +102,7 @@ function MetricCard({ label, value, sub, icon, valueColor = 'text-foreground', d
     >
       <div className="flex items-center justify-between">
         <p className="text-sm font-medium text-foreground">{label}</p>
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/15 text-primary">
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/15 text-primary ring-1 ring-primary/15">
           {icon}
         </div>
       </div>
@@ -188,13 +188,13 @@ export function DashboardView({ onNavigate }: DashboardViewProps) {
 
   return (
     <div className="h-full overflow-y-auto bg-background">
+      <div className="border-b border-border bg-page-tint px-6 py-5">
+        <h1 className="font-display text-xl font-bold tracking-tight text-foreground">儀表板</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          平台關鍵指標與常用功能捷徑
+        </p>
+      </div>
       <div className="space-y-8 p-6">
-        <div>
-          <h1 className="font-display text-xl font-bold tracking-tight text-foreground">儀表板</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            平台關鍵指標與常用功能捷徑
-          </p>
-        </div>
 
         <div>
           <SectionLabel>關鍵指標</SectionLabel>
