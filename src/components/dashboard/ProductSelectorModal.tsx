@@ -1,5 +1,14 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { Search, X, ChevronLeft, ChevronRight, Package, Loader2, Check } from 'lucide-react';
+import {
+  Search,
+  X,
+  ChevronLeft,
+  ChevronRight,
+  ChevronDown,
+  Package,
+  Loader2,
+  Check,
+} from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
 import {
@@ -70,11 +79,19 @@ export function ProductSelectorModal({
   /** User toggle — 現貨（3-7天）. Forced on when parent stockOnly (urgent quote). */
   const [readyStockOnly, setReadyStockOnly] = useState(false);
   const [factoryFilter, setFactoryFilter] = useState('');
+  const [factoryQuery, setFactoryQuery] = useState('');
+  const [factoryFilterOpen, setFactoryFilterOpen] = useState(false);
+  const factoryFilterRef = useRef<HTMLDivElement | null>(null);
   const [level1Filter, setLevel1Filter] = useState('');
   const [level2Filter, setLevel2Filter] = useState('');
   const stockFilterActive = stockOnly || readyStockOnly;
   const [categoryPairs, setCategoryPairs] = useState<{ level1: string; level2: string }[]>([]);
   const [factories, setFactories] = useState<string[]>([]);
+  const filteredFactories = useMemo(() => {
+    const q = factoryQuery.trim().toLowerCase();
+    if (!q) return factories;
+    return factories.filter((name) => name.toLowerCase().includes(q));
+  }, [factories, factoryQuery]);
   const [products, setProducts] = useState<MasterProduct[]>([]);
   const [selectedProducts, setSelectedProducts] = useState<Map<string, MasterProduct>>(new Map());
   const [isLoading, setIsLoading] = useState(false);
@@ -197,12 +214,27 @@ export function ProductSelectorModal({
     setSelectedProducts(new Map());
     setSearch('');
     setFactoryFilter('');
+    setFactoryQuery('');
+    setFactoryFilterOpen(false);
     setLevel1Filter('');
     setLevel2Filter('');
     setPage(1);
     setCatalogSource('shopify');
     setReadyStockOnly(Boolean(stockOnly));
   }, [open, stockOnly]);
+
+  useEffect(() => {
+    if (!factoryFilterOpen) return;
+    const onPointerDown = (event: MouseEvent) => {
+      const node = factoryFilterRef.current;
+      if (!node) return;
+      if (event.target instanceof Node && !node.contains(event.target)) {
+        setFactoryFilterOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onPointerDown);
+    return () => document.removeEventListener('mousedown', onPointerDown);
+  }, [factoryFilterOpen]);
 
   useEffect(() => {
     if (open && products.length > 0 && existingProductNames.length > 0) {
@@ -240,6 +272,9 @@ export function ProductSelectorModal({
 
   const handleCatalogSourceChange = (next: CatalogSourceType) => {
     if (next === catalogSource) return;
+    setFactoryFilter('');
+    setFactoryQuery('');
+    setFactoryFilterOpen(false);
     setCatalogSource(next);
     setFactoryFilter('');
     setPage(1);
@@ -374,25 +409,97 @@ export function ProductSelectorModal({
             現貨
           </button>
 
-          <Select
-            value={factoryFilter || '__all__'}
-            onValueChange={(value) => {
-              setFactoryFilter(value === '__all__' ? '' : value);
-              setPage(1);
-            }}
-          >
-            <SelectTrigger className="h-10 w-full min-w-[6.5rem] max-w-[7.5rem] shrink-0 font-body text-sm lg:w-[7.5rem]">
-              <SelectValue placeholder="所有廠家" />
-            </SelectTrigger>
-            <SelectContent className="max-h-64 max-w-[min(20rem,90vw)]">
-              <SelectItem value="__all__">所有廠家</SelectItem>
-              {factories.map((f) => (
-                <SelectItem key={f} value={f} className="whitespace-normal break-words">
-                  {f}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <div className="relative shrink-0" ref={factoryFilterRef}>
+            <button
+              type="button"
+              onClick={() => setFactoryFilterOpen((v) => !v)}
+              className={cn(
+                'inline-flex h-10 w-full min-w-[6.5rem] max-w-[9rem] items-center gap-1.5 rounded-lg border px-3 font-body text-sm lg:w-[8.5rem]',
+                factoryFilter
+                  ? 'border-primary/50 bg-primary/10 font-medium text-primary'
+                  : 'border-border bg-background text-foreground hover:bg-accent/50',
+              )}
+              aria-expanded={factoryFilterOpen}
+              aria-haspopup="listbox"
+              title="以廠家篩選產品"
+            >
+              <span className="min-w-0 flex-1 truncate text-left">
+                {factoryFilter || '所有廠家'}
+              </span>
+              <ChevronDown className="h-3.5 w-3.5 shrink-0 opacity-70" />
+            </button>
+            {factoryFilterOpen ? (
+              <div className="absolute left-0 top-full z-50 mt-1 w-[min(20rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-border bg-card shadow-lg">
+                <div className="border-b border-border p-2">
+                  <div className="relative">
+                    <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                    <input
+                      value={factoryQuery}
+                      onChange={(e) => setFactoryQuery(e.target.value)}
+                      placeholder="搜尋廠家…"
+                      className="w-full rounded-lg border border-border bg-background py-1.5 pl-8 pr-2 font-body text-[13px] text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                      autoFocus
+                    />
+                  </div>
+                </div>
+                <div
+                  className="max-h-[22.5rem] overflow-y-auto overscroll-contain p-1.5"
+                  role="listbox"
+                >
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFactoryFilter('');
+                      setFactoryFilterOpen(false);
+                      setFactoryQuery('');
+                      setPage(1);
+                    }}
+                    className={cn(
+                      'flex w-full items-center justify-between rounded-lg px-2.5 py-2 text-left font-body text-[13px]',
+                      !factoryFilter
+                        ? 'bg-primary/10 font-semibold text-primary'
+                        : 'text-foreground hover:bg-muted',
+                    )}
+                  >
+                    <span>所有廠家</span>
+                    {!factoryFilter ? <Check className="h-3.5 w-3.5" /> : null}
+                  </button>
+                  {filteredFactories.length === 0 ? (
+                    <p className="px-2.5 py-3 font-body text-[13px] text-muted-foreground">
+                      找不到廠家
+                    </p>
+                  ) : (
+                    filteredFactories.map((name) => {
+                      const selected = factoryFilter === name;
+                      return (
+                        <button
+                          key={name}
+                          type="button"
+                          role="option"
+                          aria-selected={selected}
+                          onClick={() => {
+                            setFactoryFilter(name);
+                            setFactoryFilterOpen(false);
+                            setFactoryQuery('');
+                            setPage(1);
+                          }}
+                          className={cn(
+                            'flex w-full items-center justify-between gap-2 rounded-lg px-2.5 py-2 text-left font-body text-[13px]',
+                            selected
+                              ? 'bg-primary/10 font-semibold text-primary'
+                              : 'text-foreground hover:bg-muted',
+                          )}
+                        >
+                          <span className="min-w-0 whitespace-normal break-words">{name}</span>
+                          {selected ? <Check className="h-3.5 w-3.5 shrink-0" /> : null}
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            ) : null}
+          </div>
 
           <Select
             value={level1Filter || '__all__'}
