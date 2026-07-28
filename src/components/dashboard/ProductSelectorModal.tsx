@@ -8,6 +8,7 @@ import {
   type CatalogProductRow,
   type CatalogSourceType,
 } from '@/lib/productCatalogQuery';
+import { formatProductDimensionsMm } from '@/lib/productDimensions';
 import {
   Select,
   SelectContent,
@@ -77,8 +78,8 @@ export function ProductSelectorModal({
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [total, setTotal] = useState(0);
-  /** Fewer per page — each row shows a 300px image. */
-  const PAGE_SIZE = 10;
+  /** 4-column grid — show a full page of cards. */
+  const PAGE_SIZE = 20;
 
   const level1Options = useMemo(
     () => Array.from(new Set(categoryPairs.map((p) => p.level1))),
@@ -451,103 +452,117 @@ export function ProductSelectorModal({
                 </span>
               </div>
 
-              <ul className="space-y-3">
+              {/* Same 4-col card grid as 傢私方案「選擇產品」 */}
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
                 {products.map((product) => {
                   const isSelected = selectedProducts.has(product.id);
+                  const dims = formatProductDimensionsMm(
+                    product.dimension_l_mm,
+                    product.dimension_w_mm,
+                    product.dimension_h_mm,
+                  );
                   return (
-                    <li key={product.id}>
-                      <button
-                        type="button"
-                        onClick={() => toggleProduct(product)}
-                        className={cn(
-                          'flex w-full flex-col items-start gap-4 rounded-xl border px-3 py-3 text-left transition-colors sm:flex-row',
-                          isSelected
-                            ? 'border-primary/40 bg-primary/10 ring-1 ring-primary/25'
-                            : 'border-border/60 bg-background hover:border-primary/25 hover:bg-accent/40',
+                    <button
+                      key={product.id}
+                      type="button"
+                      onClick={() => toggleProduct(product)}
+                      className={cn(
+                        'overflow-hidden rounded-xl border bg-background text-left transition-colors',
+                        isSelected
+                          ? 'border-primary/50 ring-2 ring-primary/30'
+                          : 'border-border hover:border-primary/30',
+                      )}
+                    >
+                      <div className="relative aspect-[4/3] bg-muted">
+                        {product.image_url ? (
+                          <img
+                            src={product.image_url}
+                            alt={product.title || ''}
+                            className="h-full w-full object-cover"
+                            loading="lazy"
+                          />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center">
+                            <Package className="h-8 w-8 text-muted-foreground/40" />
+                          </div>
                         )}
-                      >
                         <div
                           className={cn(
-                            'mt-1 flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors',
+                            'absolute left-2 top-2 flex h-5 w-5 items-center justify-center rounded border shadow-sm',
                             isSelected
                               ? 'border-primary bg-primary'
-                              : 'border-border bg-background',
+                              : 'border-border bg-background/90',
                           )}
                         >
                           {isSelected && (
-                            <Check className="h-3.5 w-3.5 text-primary-foreground" />
+                            <Check className="h-3 w-3 text-primary-foreground" />
                           )}
                         </div>
-
-                        <div className="mx-auto h-[300px] w-[300px] max-w-full shrink-0 overflow-hidden rounded-lg border border-border bg-muted/30 sm:mx-0">
-                          {product.image_url ? (
-                            <img
-                              src={product.image_url}
-                              alt={product.title || ''}
-                              className="h-full w-full object-cover"
-                              loading="lazy"
-                            />
-                          ) : (
-                            <div className="flex h-full w-full items-center justify-center">
-                              <Package className="h-12 w-12 text-muted-foreground/40" />
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="min-w-0 flex-1 self-stretch py-0.5">
-                          <div className="font-body text-base font-semibold leading-snug text-foreground">
-                            {product.title || '—'}
-                          </div>
-                          {product.sku ? (
-                            <div className="mt-1 font-mono-data text-sm text-muted-foreground">
-                              SKU：{product.sku}
-                            </div>
-                          ) : null}
-
-                          <dl className="mt-4 grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
-                            <div className="min-w-0">
-                              <dt className="font-body text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                                廠家
-                              </dt>
-                              <dd className="mt-0.5 break-words font-body text-sm text-foreground">
-                                {product.factory_name || '—'}
-                              </dd>
-                            </div>
-                            <div className="min-w-0">
-                              <dt className="font-body text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                                類別
-                              </dt>
-                              <dd className="mt-0.5 break-words font-body text-sm text-foreground">
-                                {product.category || '—'}
-                              </dd>
-                            </div>
-                            <div className="min-w-0">
-                              <dt className="font-body text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                                成本價
-                              </dt>
-                              <dd className="mt-0.5 font-mono-data text-sm font-semibold text-foreground">
+                      </div>
+                      <div className="space-y-1.5 p-2.5">
+                        <p className="line-clamp-2 font-body text-[13px] font-medium leading-snug text-foreground">
+                          {product.title || '—'}
+                        </p>
+                        {product.sku ? (
+                          <p className="truncate font-mono-data text-[11px] text-muted-foreground">
+                            {product.sku}
+                          </p>
+                        ) : null}
+                        {product.factory_name ? (
+                          <span className="inline-flex max-w-full items-center rounded-full border border-border bg-muted/60 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                            <span className="truncate" title={product.factory_name}>
+                              {product.factory_name}
+                            </span>
+                          </span>
+                        ) : null}
+                        {product.category ? (
+                          <p className="truncate font-body text-[11px] text-muted-foreground">
+                            {product.category}
+                          </p>
+                        ) : null}
+                        {dims ? (
+                          <p className="font-mono-data text-[11px] text-muted-foreground">
+                            {dims}
+                          </p>
+                        ) : null}
+                        <div className="flex items-end justify-between gap-2 pt-0.5">
+                          <div className="min-w-0">
+                            <p className="font-body text-[10px] text-muted-foreground">
+                              成本
+                              <span className="ml-1 font-mono-data text-[12px] font-medium text-foreground">
                                 {product.cost_price
                                   ? `$${Number(product.cost_price).toLocaleString()}`
                                   : '—'}
-                              </dd>
-                            </div>
-                            <div className="min-w-0">
-                              <dt className="font-body text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
-                                售價
-                              </dt>
-                              <dd className="mt-0.5 font-mono-data text-sm font-semibold text-foreground">
-                                {product.sale_price
-                                  ? `$${Number(product.sale_price).toLocaleString()}`
-                                  : '—'}
-                              </dd>
-                            </div>
-                          </dl>
+                              </span>
+                            </p>
+                            <p className="font-mono-data text-[14px] font-bold text-primary">
+                              {product.sale_price
+                                ? `$${Number(product.sale_price).toLocaleString()}`
+                                : '—'}
+                            </p>
+                          </div>
+                          <span
+                            className={cn(
+                              'inline-flex shrink-0 items-center gap-1 rounded-md border px-2 py-1 text-[12px] font-medium',
+                              isSelected
+                                ? 'border-primary/40 bg-primary/10 text-primary'
+                                : 'border-border bg-muted/40 text-muted-foreground',
+                            )}
+                          >
+                            {isSelected ? (
+                              <>
+                                <Check className="h-3 w-3" /> 已選
+                              </>
+                            ) : (
+                              '選擇'
+                            )}
+                          </span>
                         </div>
-                      </button>
-                    </li>
+                      </div>
+                    </button>
                   );
                 })}
-              </ul>
+              </div>
             </div>
           )}
         </div>
