@@ -148,6 +148,19 @@ export interface DesignProjectMeta {
     quoteId?: string;
     version?: string;
   };
+  /**
+   * Client portal「報價方案」draft — selections / quantities from「儲存」。
+   * Also links the created/updated `bwf_quote` document when present.
+   */
+  clientQuoteScheme?: {
+    savedAt: string;
+    quoteUuid?: string;
+    quoteId?: string;
+    /** zone_products / item id → selected (計入小計). */
+    selections: Record<string, boolean>;
+    /** zone_products / item id → quantity. */
+    quantities: Record<string, number>;
+  };
   /** Per project_zones.id → area in square feet. */
   zoneAreasSqft?: Record<string, number>;
   /**

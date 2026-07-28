@@ -11,6 +11,7 @@ import {
   MessageSquare,
   Printer,
   RefreshCw,
+  Save,
   Shield,
   Trash2,
 } from 'lucide-react';
@@ -20,11 +21,11 @@ import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import {
   loadClientQuoteItems,
+  replaceQuoteItems,
   type BwfQuoteItemInput,
 } from '@/lib/bwfQuoteItems';
 import { compareQuoteVersion, displayQuoteVersion } from '@/lib/quoteVersions';
 import { quoteStatusBadgeClass } from '@/lib/listTableUtils';
-import { quoteItemLineSubtotal } from '@/lib/quoteItemTotals';
 import {
   fetchPmsPitchings,
   pitchingDisplayTitle,
@@ -43,13 +44,16 @@ import {
   fetchProductsDisplayMeta,
   applyZoneProductClientReview,
   updateZoneProductNotes,
+  updateZoneProductQuantity,
   saveProject,
 } from '@/lib/solutionsApi';
+import { withInsertAuditFields, withUpdateAuditFields } from '@/lib/pmsAudit';
 import { formatProductDimensionsMm } from '@/lib/productDimensions';
 import { readStoredPortalToken } from '@/lib/customerPortalRoutes';
 import { publishDesignProjectStickyChrome } from '@/lib/designProjectStickyChrome';
 import type {
   DesignProject,
+  DesignProjectMeta,
   ProjectZone,
   ZoneProduct,
 } from '@/types/solutions';
@@ -352,14 +356,35 @@ function zoneGroupDomId(label: string): string {
   return `quote-zone-group-${encodeURIComponent(label.trim() || 'zone')}`;
 }
 
-/** Required products always billable; optional only when client checks「選擇」. */
+/**
+ * Client「選擇」state.
+ * Default: non-optional = selected; optional / 可選 = unselected.
+ * Guests may toggle any product; unselected lines are excluded from totals.
+ */
 function isQuoteItemSelected(
   item: BwfQuoteItemInput,
-  optionalChosen: Record<string, boolean>,
+  itemSelected: Record<string, boolean>,
 ): boolean {
   const id = String(item.id || '').trim();
-  if (!item.isOptional) return true;
-  return Boolean(id && optionalChosen[id]);
+  if (!id) return !item.isOptional;
+  if (Object.prototype.hasOwnProperty.call(itemSelected, id)) {
+    return Boolean(itemSelected[id]);
+  }
+  return !item.isOptional;
+}
+
+/** Portal line total — ignores catalog `isOptional` (selection handled separately). */
+function clientQuoteLineTotal(item: BwfQuoteItemInput): number {
+  if (item.isSectionTitle || item.isDivisionTitle || item.isCustomTerm) return 0;
+  return (Number(item.unitPrice) || 0) * Math.max(1, Number(item.quantity) || 1);
+}
+
+function readClientQuoteScheme(
+  meta: DesignProjectMeta | null | undefined,
+): DesignProjectMeta['clientQuoteScheme'] | null {
+  const scheme = meta?.clientQuoteScheme;
+  if (!scheme || typeof scheme !== 'object') return null;
+  return scheme;
 }
 
 function furnitureDivisionLabel(division: {
@@ -425,10 +450,9 @@ export function CustomerQuoteSchemesView() {
   const [submittingQuote, setSubmittingQuote] = useState(false);
   const [currentUserRole, setCurrentUserRole] =
     useState<CommentBadgeRole | null>(null);
-  /** Optional products the client has opted into (設計專案「可選」→ 預設未選). */
-  const [optionalChosen, setOptionalChosen] = useState<Record<string, boolean>>(
-    {},
-  );
+  /** Per-item「選擇」— default on for required, off for 可選; all toggleable. */
+  const [itemSelected, setItemSelected] = useState<Record<string, boolean>>({});
+  const [savingScheme, setSavingScheme] = useState(false);
   const pageScrollRef = useRef<HTMLDivElement | null>(null);
   const partitionStickySentinelRef = useRef<HTMLDivElement | null>(null);
   const [partitionHeaderPinned, setPartitionHeaderPinned] = useState(false);
@@ -732,11 +756,30 @@ export function CustomerQuoteSchemesView() {
             [linkedProjectId]: { zones, products: zoneProducts },
           }));
         }
-        setItems(rows);
+        const savedScheme = linkedProjectId
+          ? readClientQuoteScheme(
+              portalProjects.find((project) => project.id === linkedProjectId)
+                ?.meta,
+            )
+          : null;
+        const savedSelections = savedScheme?.selections || {};
+        const savedQuantities = savedScheme?.quantities || {};
+        const hydratedRows = rows.map((row) => {
+          if (!row.id || row.isSectionTitle || row.isDivisionTitle) return row;
+          const savedQty = savedQuantities[row.id];
+          if (typeof savedQty !== 'number' || !Number.isFinite(savedQty)) {
+            return row;
+          }
+          return {
+            ...row,
+            quantity: Math.max(1, Math.floor(savedQty)),
+          };
+        });
+        setItems(hydratedRows);
         // Hydrate Accept / 要求修改 / 不接受 + persisted client opinions.
         const nextReviews: Record<string, ItemReview> = {};
         const nextMessages: Record<string, ItemMessage[]> = {};
-        const nextOptionalChosen: Record<string, boolean> = {};
+        const nextSelected: Record<string, boolean> = {};
         const hydrateFromNotes = (
           productId: string,
           status: ZoneProduct['status'] | undefined,
@@ -758,19 +801,26 @@ export function CustomerQuoteSchemesView() {
             }));
           }
         };
+        const hydrateSelection = (productId: string, isOptional?: boolean) => {
+          if (Object.prototype.hasOwnProperty.call(savedSelections, productId)) {
+            nextSelected[productId] = Boolean(savedSelections[productId]);
+            return;
+          }
+          // 可選 → 預設未選；非可選 → 預設選擇（可再取消）
+          nextSelected[productId] = !isOptional;
+        };
         for (const product of zoneProducts) {
           hydrateFromNotes(product.id, product.status, product.notes);
-          // 可選 → 客戶端預設未選；非可選 → 不需記錄（永遠計價）
-          if (product.isOptional) nextOptionalChosen[product.id] = false;
+          hydrateSelection(product.id, product.isOptional);
         }
-        for (const row of rows) {
+        for (const row of hydratedRows) {
           if (!row.id || row.isSectionTitle || row.isDivisionTitle) continue;
           hydrateFromNotes(row.id, row.zoneStatus, row.notes);
-          if (row.isOptional) nextOptionalChosen[row.id] = false;
+          hydrateSelection(row.id, row.isOptional);
         }
         setItemReviews(nextReviews);
         setItemMessages(nextMessages);
-        setOptionalChosen(nextOptionalChosen);
+        setItemSelected(nextSelected);
         setItemsLoading(false);
       })
       .catch(() => {
@@ -871,10 +921,10 @@ export function CustomerQuoteSchemesView() {
       !item.isSectionTitle &&
       !item.isDivisionTitle &&
       !item.isCustomTerm &&
-      isQuoteItemSelected(item, optionalChosen),
+      isQuoteItemSelected(item, itemSelected),
   );
   const itemSubtotal = billableItems.reduce(
-    (sum, item) => sum + quoteItemLineSubtotal(item),
+    (sum, item) => sum + clientQuoteLineTotal(item),
     0,
   );
 
@@ -919,36 +969,6 @@ export function CustomerQuoteSchemesView() {
     },
     [],
   );
-
-  useEffect(() => {
-    if (!showDetail || !active) {
-      publishDesignProjectStickyChrome(null);
-      return;
-    }
-    publishDesignProjectStickyChrome({
-      active: partitionHeaderPinned,
-      mode: 'quote',
-      zoneGroups: zoneTypeGroups.map((group) => ({
-        key: group.key,
-        label: group.label,
-        count: group.rooms.reduce(
-          (sum, room) => sum + roomProductCount(room),
-          0,
-        ),
-      })),
-      saving: false,
-      hasFloorPlan: false,
-      onSave: () => {},
-      onViewFloorPlan: () => {},
-      onJump: (label) => scrollToZoneGroup(label),
-    });
-  }, [
-    active,
-    partitionHeaderPinned,
-    scrollToZoneGroup,
-    showDetail,
-    zoneTypeGroups,
-  ]);
 
   const syncItemReview = async (
     item: BwfQuoteItemInput,
@@ -1168,7 +1188,7 @@ export function CustomerQuoteSchemesView() {
                     <p>${fmtMoney(Number(item.unitPrice || 0))} × ${escapeHtml(item.quantity || 1)} ${escapeHtml(item.unit || '')}</p>
                     <p class="review">客戶決定：${escapeHtml(review)}${feedbackNotes ? `（${escapeHtml(feedbackNotes)}）` : ''}</p>
                   </div>
-                  <b>${item.isOptional ? '可選' : fmtMoney(quoteItemLineSubtotal(item))}</b>
+                  <b>${isQuoteItemSelected(item, itemSelected) ? fmtMoney(clientQuoteLineTotal(item)) : '未選'}</b>
                 </div>`;
                   })
                   .join('');
@@ -1272,6 +1292,251 @@ export function CustomerQuoteSchemesView() {
     );
   }, [active, activeId, portalProjects]);
 
+  const setItemQuantity = useCallback((itemId: string, rawQuantity: number) => {
+    const nextQuantity = Math.max(
+      1,
+      Math.min(9999, Math.floor(Number(rawQuantity) || 1)),
+    );
+    setItems((current) =>
+      current.map((row) =>
+        row.id === itemId ? { ...row, quantity: nextQuantity } : row,
+      ),
+    );
+  }, []);
+
+  const saveQuoteScheme = useCallback(async () => {
+    if (!active) return;
+    setSavingScheme(true);
+    try {
+      const productItems = items.filter(
+        (item) =>
+          Boolean(item.id) &&
+          !item.isSectionTitle &&
+          !item.isDivisionTitle &&
+          !item.isCustomTerm,
+      );
+      const selections: Record<string, boolean> = {};
+      const quantities: Record<string, number> = {};
+      for (const item of productItems) {
+        const id = item.id!;
+        selections[id] = isQuoteItemSelected(item, itemSelected);
+        quantities[id] = Math.max(1, Math.floor(Number(item.quantity) || 1));
+      }
+      const totalAmount = productItems.reduce((sum, item) => {
+        const id = item.id!;
+        if (!selections[id]) return sum;
+        return sum + (Number(item.unitPrice) || 0) * quantities[id];
+      }, 0);
+
+      const linkedProject = resolveLinkedProject();
+      const savedScheme = readClientQuoteScheme(linkedProject?.meta);
+      const isSynthetic =
+        activeId.startsWith('design-project:') ||
+        activeId.startsWith('confirmed-project:');
+
+      for (const item of productItems) {
+        if (!isZoneProductId(item.id)) continue;
+        const result = await updateZoneProductQuantity(
+          item.id!,
+          quantities[item.id!],
+        );
+        if (!result.ok) {
+          toast.error('儲存數量失敗', { description: result.error });
+          return;
+        }
+      }
+
+      let quoteUuid = '';
+      if (!isSynthetic && /^[0-9a-f-]{36}$/i.test(activeId)) {
+        quoteUuid = activeId;
+      } else if (savedScheme?.quoteUuid) {
+        quoteUuid = savedScheme.quoteUuid;
+      }
+
+      if (quoteUuid) {
+        const { data: existingQuote, error: existingError } = await supabase
+          .from('bwf_quote')
+          .select('id, project_data')
+          .eq('id', quoteUuid)
+          .maybeSingle();
+        if (existingError) throw existingError;
+        if (!existingQuote) {
+          quoteUuid = '';
+        } else {
+          const prevProjectData =
+            existingQuote.project_data &&
+            typeof existingQuote.project_data === 'object' &&
+            !Array.isArray(existingQuote.project_data)
+              ? (existingQuote.project_data as Record<string, unknown>)
+              : {};
+          const updatePayload = await withUpdateAuditFields({
+            total_amount: totalAmount,
+            project_data: {
+              ...prevProjectData,
+              clientQuoteScheme: {
+                savedAt: new Date().toISOString(),
+                selections,
+                quantities,
+              },
+              ...(linkedProject?.id
+                ? { designProjectId: linkedProject.id }
+                : {}),
+            },
+          });
+          const { error: updateError } = await supabase
+            .from('bwf_quote')
+            .update(updatePayload)
+            .eq('id', quoteUuid);
+          if (updateError) throw updateError;
+          await replaceQuoteItems(
+            quoteUuid,
+            productItems.map((item) => ({
+              ...item,
+              quantity: quantities[item.id!],
+            })),
+          );
+        }
+      }
+
+      if (!quoteUuid) {
+        const insertPayload = await withInsertAuditFields({
+          quote_id: active.quote_id,
+          version: active.version || 'v1',
+          status: '客戶方案',
+          total_amount: totalAmount,
+          submitter: currentUserName,
+          project_data: {
+            formData: active.project_data?.formData || {
+              clientName: active.quote_id,
+            },
+            clientQuoteScheme: {
+              savedAt: new Date().toISOString(),
+              selections,
+              quantities,
+            },
+            ...(linkedProject?.id
+              ? { designProjectId: linkedProject.id }
+              : {}),
+          },
+        });
+        const { data: inserted, error: insertError } = await supabase
+          .from('bwf_quote')
+          .insert(insertPayload)
+          .select('id')
+          .single();
+        if (insertError) throw insertError;
+        if (!inserted?.id) throw new Error('報價文件已建立但缺少 id');
+        quoteUuid = inserted.id;
+        await replaceQuoteItems(
+          quoteUuid,
+          productItems.map((item) => ({
+            ...item,
+            quantity: quantities[item.id!],
+          })),
+        );
+      }
+
+      if (linkedProject) {
+        const nextMeta: DesignProjectMeta = {
+          ...linkedProject.meta,
+          clientQuoteScheme: {
+            savedAt: new Date().toISOString(),
+            quoteUuid,
+            quoteId: active.quote_id,
+            selections,
+            quantities,
+          },
+        };
+        const saved = await saveProject(linkedProject.id, { meta: nextMeta });
+        if (!saved.ok) {
+          toast.error('儲存方案失敗', { description: saved.error });
+          return;
+        }
+        setPortalProjects((current) =>
+          current.map((row) =>
+            row.id === linkedProject.id ? { ...row, meta: nextMeta } : row,
+          ),
+        );
+        setPortalProjectData((current) => {
+          const entry = current[linkedProject.id];
+          if (!entry) return current;
+          return {
+            ...current,
+            [linkedProject.id]: {
+              ...entry,
+              products: entry.products.map((product) =>
+                quantities[product.id]
+                  ? { ...product, quantity: quantities[product.id] }
+                  : product,
+              ),
+            },
+          };
+        });
+        setPortalTotals((current) => ({
+          ...current,
+          [linkedProject.id]: totalAmount,
+        }));
+      }
+
+      setItemSelected(selections);
+      await fetchQuotes();
+      toast.success('已儲存報價方案', {
+        description: linkedProject
+          ? '選擇、數量已寫入設計專案與報價文件'
+          : '選擇、數量已寫入報價文件',
+      });
+    } catch (error) {
+      toast.error('儲存失敗', {
+        description:
+          error instanceof Error ? error.message : '請稍後再試',
+      });
+    } finally {
+      setSavingScheme(false);
+    }
+  }, [
+    active,
+    activeId,
+    currentUserName,
+    fetchQuotes,
+    itemSelected,
+    items,
+    resolveLinkedProject,
+  ]);
+
+  useEffect(() => {
+    if (!showDetail || !active) {
+      publishDesignProjectStickyChrome(null);
+      return;
+    }
+    publishDesignProjectStickyChrome({
+      active: partitionHeaderPinned,
+      mode: 'quote',
+      zoneGroups: zoneTypeGroups.map((group) => ({
+        key: group.key,
+        label: group.label,
+        count: group.rooms.reduce(
+          (sum, room) => sum + roomProductCount(room),
+          0,
+        ),
+      })),
+      saving: savingScheme,
+      hasFloorPlan: false,
+      onSave: () => {
+        void saveQuoteScheme();
+      },
+      onViewFloorPlan: () => {},
+      onJump: (label) => scrollToZoneGroup(label),
+    });
+  }, [
+    active,
+    partitionHeaderPinned,
+    saveQuoteScheme,
+    savingScheme,
+    scrollToZoneGroup,
+    showDetail,
+    zoneTypeGroups,
+  ]);
+
   const submitResponse = async () => {
     if (!active) return;
     const note = quoteNote.trim();
@@ -1354,10 +1619,27 @@ export function CustomerQuoteSchemesView() {
       subtitle="查看自己的 HTML 報價、切換版本、按工程分區批核產品，並回覆整張報價。"
       maxWidthClass="max-w-none"
       actions={
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/5 px-3 py-1.5 text-xs text-primary">
-          <Shield className="h-4 w-4" />
-          只顯示售價，成本已隱藏
-        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/5 px-3 py-1.5 text-xs text-primary">
+            <Shield className="h-4 w-4" />
+            只顯示售價，成本已隱藏
+          </span>
+          {showDetail && active ? (
+            <button
+              type="button"
+              onClick={() => void saveQuoteScheme()}
+              disabled={savingScheme}
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+            >
+              {savingScheme ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4" />
+              )}
+              儲存
+            </button>
+          ) : null}
+        </div>
       }
     >
       {!showDetail ? (
@@ -1589,28 +1871,43 @@ export function CustomerQuoteSchemesView() {
                   <span className="mr-1 text-[15px] font-semibold text-muted-foreground">
                     間隔數量
                   </span>
-                  {zoneTypeGroups.map((group) => {
-                    const productTotal = group.rooms.reduce(
-                      (sum, room) => sum + roomProductCount(room),
-                      0,
-                    );
-                    return (
-                      <button
-                        key={group.key}
-                        type="button"
-                        onClick={() => scrollToZoneGroup(group.label)}
-                        className="inline-flex items-center gap-1 rounded-lg border border-primary/20 bg-primary/5 px-3 py-1.5 text-[15px] transition-colors hover:border-primary/50 hover:bg-primary/10"
-                        title={`跳至「${group.label}」· 產品總數 ${productTotal}`}
-                      >
-                        <span className="font-semibold text-foreground">
-                          {group.label}
-                        </span>
-                        <span className="text-muted-foreground">
-                          ：{productTotal}
-                        </span>
-                      </button>
-                    );
-                  })}
+                  <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+                    {zoneTypeGroups.map((group) => {
+                      const productTotal = group.rooms.reduce(
+                        (sum, room) => sum + roomProductCount(room),
+                        0,
+                      );
+                      return (
+                        <button
+                          key={group.key}
+                          type="button"
+                          onClick={() => scrollToZoneGroup(group.label)}
+                          className="inline-flex items-center gap-1 rounded-lg border border-primary/20 bg-primary/5 px-3 py-1.5 text-[15px] transition-colors hover:border-primary/50 hover:bg-primary/10"
+                          title={`跳至「${group.label}」· 產品總數 ${productTotal}`}
+                        >
+                          <span className="font-semibold text-foreground">
+                            {group.label}
+                          </span>
+                          <span className="text-muted-foreground">
+                            ：{productTotal}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void saveQuoteScheme()}
+                    disabled={savingScheme}
+                    className="ml-auto inline-flex shrink-0 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2 text-[15px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+                  >
+                    {savingScheme ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Save className="h-4 w-4" />
+                    )}
+                    儲存
+                  </button>
                 </div>
               ) : null}
             </div>
@@ -1658,14 +1955,10 @@ export function CustomerQuoteSchemesView() {
                           (sum, section) =>
                             sum +
                             section.items.reduce((sectionSum, item) => {
-                              if (
-                                !isQuoteItemSelected(item, optionalChosen)
-                              ) {
+                              if (!isQuoteItemSelected(item, itemSelected)) {
                                 return sectionSum;
                               }
-                              return (
-                                sectionSum + quoteItemLineSubtotal(item)
-                              );
+                              return sectionSum + clientQuoteLineTotal(item);
                             }, 0),
                           0,
                         );
@@ -1714,9 +2007,10 @@ export function CustomerQuoteSchemesView() {
                               const notesLabel = portalNotesDisplay(item.notes);
                               const selected = isQuoteItemSelected(
                                 item,
-                                optionalChosen,
+                                itemSelected,
                               );
-                              const lineTotal = quoteItemLineSubtotal(item);
+                              const lineTotal = clientQuoteLineTotal(item);
+                              const qty = Math.max(1, Number(item.quantity) || 1);
                               return (
                                 <article
                                   key={key}
@@ -1743,6 +2037,11 @@ export function CustomerQuoteSchemesView() {
                                       <div className="flex flex-wrap items-start justify-between gap-3">
                                         <h5 className="min-w-0 flex-1 text-base font-bold leading-snug">
                                           {quoteItemDisplayName(item)}
+                                          {item.isOptional ? (
+                                            <span className="ml-2 text-[12px] font-normal text-muted-foreground">
+                                              （可選）
+                                            </span>
+                                          ) : null}
                                         </h5>
                                         <div className="flex shrink-0 flex-col items-end gap-2">
                                           <label
@@ -1751,24 +2050,18 @@ export function CustomerQuoteSchemesView() {
                                               selected
                                                 ? 'border-primary/40 bg-primary/10 text-primary'
                                                 : 'border-border bg-background text-muted-foreground',
-                                              !item.isOptional &&
-                                                'cursor-default opacity-90',
                                             )}
                                             title={
-                                              item.isOptional
-                                                ? selected
-                                                  ? '取消選擇：價錢不計入小計'
-                                                  : '選擇此可選產品：價錢計入小計'
-                                                : '設計專案非可選產品，預設需要'
+                                              selected
+                                                ? '取消選擇：價錢不計入小計'
+                                                : '選擇此產品：價錢計入小計'
                                             }
                                           >
                                             <Checkbox
                                               checked={selected}
-                                              disabled={!item.isOptional}
                                               onCheckedChange={(checked) => {
-                                                if (!item.isOptional || !item.id)
-                                                  return;
-                                                setOptionalChosen((current) => ({
+                                                if (!item.id) return;
+                                                setItemSelected((current) => ({
                                                   ...current,
                                                   [item.id!]: checked === true,
                                                 }));
@@ -1778,17 +2071,92 @@ export function CustomerQuoteSchemesView() {
                                             />
                                             <span>選擇</span>
                                           </label>
-                                          <p
+                                          <div
                                             className={cn(
-                                              'font-mono-data text-lg font-bold',
+                                              'flex flex-col items-end gap-1',
                                               !selected &&
                                                 'text-muted-foreground',
                                             )}
                                           >
-                                            {selected
-                                              ? fmtMoney(lineTotal)
-                                              : '未選'}
-                                          </p>
+                                            <div className="flex flex-nowrap items-center justify-end gap-1 whitespace-nowrap font-mono-data text-sm">
+                                              <span
+                                                className={cn(
+                                                  selected
+                                                    ? 'text-primary'
+                                                    : 'text-muted-foreground',
+                                                )}
+                                              >
+                                                {fmtMoney(
+                                                  Number(item.unitPrice || 0),
+                                                )}
+                                              </span>
+                                              <span>×</span>
+                                              <div className="inline-flex shrink-0 items-center overflow-hidden rounded-md border border-border bg-background">
+                                                <button
+                                                  type="button"
+                                                  onClick={() =>
+                                                    item.id &&
+                                                    setItemQuantity(
+                                                      item.id,
+                                                      qty - 1,
+                                                    )
+                                                  }
+                                                  disabled={qty <= 1}
+                                                  className="flex h-7 w-7 items-center justify-center text-[14px] text-muted-foreground hover:bg-muted disabled:opacity-35"
+                                                  aria-label="數量減一"
+                                                >
+                                                  −
+                                                </button>
+                                                <input
+                                                  type="number"
+                                                  min={1}
+                                                  max={9999}
+                                                  value={qty}
+                                                  onChange={(event) => {
+                                                    if (!item.id) return;
+                                                    setItemQuantity(
+                                                      item.id,
+                                                      Number(
+                                                        event.target.value,
+                                                      ),
+                                                    );
+                                                  }}
+                                                  className="h-7 w-10 border-x border-border bg-background text-center font-mono-data text-[13px] font-semibold text-foreground outline-none"
+                                                  aria-label={`${quoteItemDisplayName(item)}數量`}
+                                                />
+                                                <button
+                                                  type="button"
+                                                  onClick={() =>
+                                                    item.id &&
+                                                    setItemQuantity(
+                                                      item.id,
+                                                      qty + 1,
+                                                    )
+                                                  }
+                                                  className="flex h-7 w-7 items-center justify-center text-[14px] text-muted-foreground hover:bg-muted"
+                                                  aria-label="數量加一"
+                                                >
+                                                  +
+                                                </button>
+                                              </div>
+                                              {item.unit ? (
+                                                <span className="text-muted-foreground">
+                                                  {item.unit}
+                                                </span>
+                                              ) : null}
+                                            </div>
+                                            <p
+                                              className={cn(
+                                                'font-mono-data text-lg font-bold',
+                                                !selected &&
+                                                  'text-muted-foreground',
+                                              )}
+                                            >
+                                              {selected
+                                                ? fmtMoney(lineTotal)
+                                                : '未選'}
+                                            </p>
+                                          </div>
                                         </div>
                                       </div>
 
@@ -1806,19 +2174,6 @@ export function CustomerQuoteSchemesView() {
                                           {notesLabel || '—'}
                                         </p>
                                       </div>
-
-                                      <p
-                                        className={cn(
-                                          'font-mono-data text-sm',
-                                          selected
-                                            ? 'text-primary'
-                                            : 'text-muted-foreground',
-                                        )}
-                                      >
-                                        {fmtMoney(Number(item.unitPrice || 0))} ×{' '}
-                                        {item.quantity || 1} {item.unit || ''}
-                                        {item.isOptional ? '（可選）' : ''}
-                                      </p>
 
                                       <div className="mt-auto flex flex-wrap gap-2 border-t border-border pt-4">
                                           {(

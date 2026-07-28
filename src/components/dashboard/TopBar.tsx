@@ -106,8 +106,8 @@ export function TopBar({
               <p className="text-[13px] text-muted-foreground">尚無間隔</p>
             )}
           </div>
-          {!isQuoteSticky ? (
-            <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2">
+          <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2">
+            {!isQuoteSticky ? (
               <button
                 type="button"
                 onClick={() => designSticky.onViewFloorPlan()}
@@ -120,21 +120,21 @@ export function TopBar({
                 <ZoomIn className="h-4 w-4" />
                 檢視平面圖
               </button>
-              <button
-                type="button"
-                onClick={() => designSticky.onSave()}
-                disabled={designSticky.saving}
-                className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-[15px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
-              >
-                {designSticky.saving ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Save className="h-4 w-4" />
-                )}
-                儲存方案
-              </button>
-            </div>
-          ) : null}
+            ) : null}
+            <button
+              type="button"
+              onClick={() => designSticky.onSave()}
+              disabled={designSticky.saving}
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-[15px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+            >
+              {designSticky.saving ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4" />
+              )}
+              {isQuoteSticky ? '儲存' : '儲存方案'}
+            </button>
+          </div>
         </div>
       </header>
     );
