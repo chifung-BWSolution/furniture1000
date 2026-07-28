@@ -114,7 +114,13 @@ function App() {
             <Route path="/quote/quick" element={<Home />} />
             <Route path="/quote/:quoteId" element={<Home />} />
             <Route path="/quote" element={<Home />} />
-            {/* Stable deep links for 設計專案 */}
+            {/* 傢俬方案 / 產品管理 / 網上發佈 / 分析報表 / 設定 */}
+            <Route path="/project/*" element={<Home />} />
+            <Route path="/products/*" element={<Home />} />
+            <Route path="/publish/*" element={<Home />} />
+            <Route path="/reports/*" element={<Home />} />
+            <Route path="/settings/*" element={<Home />} />
+            {/* Legacy 設計專案 deep links → redirected to /project/design-projects */}
             <Route path="/design-projects/:projectId" element={<Home />} />
             <Route path="/design-projects" element={<Home />} />
             {/* Stable deep links for 客戶專區 */}

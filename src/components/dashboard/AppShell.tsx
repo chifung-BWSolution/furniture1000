@@ -29,6 +29,7 @@ import {
 } from "@/lib/quoteRoutes";
 import {
   DESIGN_PROJECTS_PATH,
+  canonicalDesignProjectPath,
   isDesignProjectPath,
   parseDesignProjectPathname,
 } from "@/lib/designProjectRoutes";
@@ -42,6 +43,11 @@ import {
   readStoredPortalToken,
   storePortalToken,
 } from "@/lib/customerPortalRoutes";
+import {
+  appViewFromPath,
+  isAppSectionPath,
+  pathFromAppView,
+} from "@/lib/appSectionRoutes";
 import { SidebarNav } from "./SidebarNav";
 import { PrimaryTopNav } from "./PrimaryTopNav";
 import { TopBar } from "./TopBar";
@@ -512,19 +518,38 @@ export function AppShell() {
     if (saved) setEditingQuoteIdRaw(saved);
   }, [user?.email, store.currentView, location.pathname, navigate, store]);
 
-  // Deep links: /design-projects, /design-projects/:projectId
+  // Deep links: /project/design-projects[/:id] (+ legacy /design-projects…)
   useEffect(() => {
     const parsed = parseDesignProjectPathname(location.pathname);
     if (!parsed) return;
+    const canonical = canonicalDesignProjectPath(parsed);
+    const normalized = location.pathname.replace(/\/+$/, '') || '/';
+    if (normalized !== canonical) {
+      navigate(canonical, { replace: true });
+      return;
+    }
     if (
       store.currentView !== 'design-projects' &&
       store.currentView !== 'product-search'
     ) {
       store.setCurrentView('design-projects');
     }
+  }, [location.pathname, navigate, store]);
+
+  // /project|products|publish|reports|settings/… → active view
+  useEffect(() => {
+    if (isCustomerPortalPath(location.pathname)) return;
+    if (location.pathname.startsWith('/quote')) return;
+    if (isDesignProjectPath(location.pathname)) return;
+    if (!isAppSectionPath(location.pathname) && location.pathname !== '/') return;
+    const view = appViewFromPath(location.pathname);
+    if (!view) return;
+    if (view !== store.currentView) {
+      store.setCurrentView(view);
+    }
   }, [location.pathname, store]);
 
-  // Keep browser URL aligned with quote / design-project / customer-portal views.
+  // Keep browser URL aligned with quote / design-project / customer / section views.
   useEffect(() => {
     let target: string | null = null;
     const token =
@@ -545,19 +570,31 @@ export function AppShell() {
       store.currentView === 'design-projects' ||
       store.currentView === 'product-search'
     ) {
-      // DesignProjectsView owns `/design-projects/:id` once a project is selected.
+      // DesignProjectsView owns `/project/design-projects/:id` once a project is selected.
       if (!isDesignProjectPath(location.pathname)) {
         target = DESIGN_PROJECTS_PATH;
+      } else {
+        const parsed = parseDesignProjectPathname(location.pathname);
+        if (parsed) {
+          const canonical = canonicalDesignProjectPath(parsed);
+          const normalized = location.pathname.replace(/\/+$/, '') || '/';
+          if (normalized !== canonical) target = canonical;
+        }
       }
     } else if (isCustomerPortalView(store.currentView)) {
       target = withToken(pathFromCustomerView(store.currentView));
-    } else if (location.pathname.startsWith('/quote')) {
-      target = '/';
-    } else if (isDesignProjectPath(location.pathname)) {
-      target = '/';
-    } else if (isCustomerPortalPath(location.pathname)) {
-      // Left 客戶專區 — drop portal path (token kept for logout cleanup only).
-      target = '/';
+    } else {
+      const sectionPath = pathFromAppView(store.currentView);
+      if (sectionPath) {
+        target = sectionPath;
+      } else if (
+        location.pathname.startsWith('/quote') ||
+        isDesignProjectPath(location.pathname) ||
+        isCustomerPortalPath(location.pathname) ||
+        isAppSectionPath(location.pathname)
+      ) {
+        target = '/';
+      }
     }
 
     if (!target) return;
@@ -1020,10 +1057,20 @@ export function AppShell() {
       setEditingQuoteId(null);
       return;
     }
+    const sectionPath = pathFromAppView(view);
+    if (sectionPath) {
+      quoteUrlSyncRef.current = sectionPath;
+      navigate(sectionPath, { replace: true });
+      store.setCurrentView(view);
+      store.setFilterProductId(null);
+      setEditingQuoteId(null);
+      return;
+    }
     if (
       location.pathname.startsWith('/quote') ||
       isDesignProjectPath(location.pathname) ||
-      isCustomerPortalPath(location.pathname)
+      isCustomerPortalPath(location.pathname) ||
+      isAppSectionPath(location.pathname)
     ) {
       quoteUrlSyncRef.current = '/';
       navigate('/', { replace: true });

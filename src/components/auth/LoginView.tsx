@@ -41,7 +41,7 @@ export function LoginView() {
     }
     try {
       const start = new URL(PMS_SSO_START_URL, window.location.origin);
-      // Preserve deep links (e.g. /design-projects/:id, /quote/...) across SSO.
+      // Preserve deep links (e.g. /project/design-projects/:id, /quote/...) across SSO.
       const redirectTo = `${window.location.pathname}${window.location.search}`;
       if (redirectTo && redirectTo !== '/') {
         start.searchParams.set('redirect_to', redirectTo);

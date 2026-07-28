@@ -234,9 +234,32 @@
   line-height: 1.5;
 }
 
-[data-typography-zone='cjk-portal'] .zone-top-nav .text-\[13\.5px\] {
-  font-size: 15px;
+/*
+ * Top primary nav must match every other section (e.g. 網上發佈).
+ * Do not let cjk-portal scale / re-font the shell chrome.
+ */
+[data-typography-zone='cjk-portal'] .zone-top-nav {
+  font-family: 'Manrope', sans-serif;
+  font-size: 14px;
+  font-weight: 400;
   line-height: 1.5;
+}
+
+[data-typography-zone='cjk-portal'] .zone-top-nav .font-display {
+  font-family: 'Syne', sans-serif;
+}
+
+[data-typography-zone='cjk-portal'] .zone-top-nav .font-body {
+  font-family: 'Manrope', sans-serif;
+}
+
+[data-typography-zone='cjk-portal'] .zone-top-nav .text-\[13\.5px\] {
+  font-size: 13.5px;
+  line-height: 1.5;
+}
+
+[data-typography-zone='cjk-portal'] .zone-top-nav button {
+  font-family: inherit;
 }
 
 /* Consistent hierarchy even when legacy components use text-sm on headings. */
