@@ -503,18 +503,20 @@ export function ProductSelectorModal({
                         <p className="line-clamp-2 font-body text-[13px] font-medium leading-snug text-foreground">
                           {product.title || '—'}
                         </p>
-                        {product.sku ? (
-                          <p className="truncate font-mono-data text-[11px] text-muted-foreground">
-                            {product.sku}
-                          </p>
-                        ) : null}
-                        {product.factory_name ? (
-                          <span className="inline-flex max-w-full items-center rounded-full border border-border bg-muted/60 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-                            <span className="truncate" title={product.factory_name}>
-                              {product.factory_name}
-                            </span>
+                        <div className="flex items-center justify-between gap-2">
+                          <span
+                            className="min-w-0 truncate font-body text-[11px] font-medium text-muted-foreground"
+                            title={product.factory_name || undefined}
+                          >
+                            {product.factory_name || '—'}
                           </span>
-                        ) : null}
+                          <span
+                            className="shrink-0 truncate font-mono-data text-[11px] text-muted-foreground"
+                            title={product.sku || undefined}
+                          >
+                            {product.sku || '—'}
+                          </span>
+                        </div>
                         {product.category ? (
                           <p className="truncate font-body text-[11px] text-muted-foreground">
                             {product.category}
@@ -525,25 +527,26 @@ export function ProductSelectorModal({
                             {dims}
                           </p>
                         ) : null}
-                        <div className="flex items-end justify-between gap-2 pt-0.5">
-                          <div className="min-w-0">
-                            <p className="font-body text-[10px] text-muted-foreground">
-                              成本
-                              <span className="ml-1 font-mono-data text-[12px] font-medium text-foreground">
-                                {product.cost_price
-                                  ? `$${Number(product.cost_price).toLocaleString()}`
-                                  : '—'}
-                              </span>
-                            </p>
-                            <p className="font-mono-data text-[14px] font-bold text-primary">
-                              {product.sale_price
-                                ? `$${Number(product.sale_price).toLocaleString()}`
-                                : '—'}
-                            </p>
-                          </div>
+                        <div className="flex items-baseline justify-between gap-2 pt-0.5 font-mono-data text-[12px]">
+                          <span className="min-w-0 truncate text-foreground">
+                            <span className="font-body text-muted-foreground">成本</span>
+                            {product.cost_price
+                              ? `$${Number(product.cost_price).toLocaleString()}`
+                              : '—'}
+                          </span>
+                          <span className="shrink-0 font-semibold text-primary">
+                            <span className="font-body font-normal text-muted-foreground">
+                              售價
+                            </span>
+                            {product.sale_price
+                              ? `$${Number(product.sale_price).toLocaleString()}`
+                              : '—'}
+                          </span>
+                        </div>
+                        <div className="flex justify-end">
                           <span
                             className={cn(
-                              'inline-flex shrink-0 items-center gap-1 rounded-md border px-2 py-1 text-[12px] font-medium',
+                              'inline-flex items-center gap-1 rounded-md border px-2 py-1 text-[12px] font-medium',
                               isSelected
                                 ? 'border-primary/40 bg-primary/10 text-primary'
                                 : 'border-border bg-muted/40 text-muted-foreground',
