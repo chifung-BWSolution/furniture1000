@@ -382,46 +382,9 @@ function zoneAreasSqftMetaFromState(
   return zoneAreasSqftMeta;
 }
 
-/** Square product image grows with row content height; equal small padding on sides. */
+/** Fixed square product image; equal small padding on sides. */
 const PRODUCT_IMAGE_PAD_PX = 8;
-const PRODUCT_IMAGE_MIN_PX = 200;
-const PRODUCT_IMAGE_MAX_PX = 480;
-
-/** Keep product image square: match content column height, cap for overflow. */
-function useProductImageSquareSize() {
-  const contentRef = useRef<HTMLDivElement | null>(null);
-  const [size, setSize] = useState(PRODUCT_IMAGE_MIN_PX);
-
-  useEffect(() => {
-    const node = contentRef.current;
-    if (!node || typeof ResizeObserver === 'undefined') return;
-
-    const update = () => {
-      const contentH = Math.ceil(node.getBoundingClientRect().height);
-      const viewportCap = Math.floor(window.innerWidth * 0.42);
-      const maxSide = Math.max(
-        PRODUCT_IMAGE_MIN_PX,
-        Math.min(PRODUCT_IMAGE_MAX_PX, viewportCap),
-      );
-      const next = Math.max(
-        PRODUCT_IMAGE_MIN_PX,
-        Math.min(contentH || PRODUCT_IMAGE_MIN_PX, maxSide),
-      );
-      setSize((current) => (current === next ? current : next));
-    };
-
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(node);
-    window.addEventListener('resize', update);
-    return () => {
-      observer.disconnect();
-      window.removeEventListener('resize', update);
-    };
-  }, []);
-
-  return { contentRef, size };
-}
+const PRODUCT_IMAGE_SIZE_PX = 360;
 
 function dimInputValue(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return '';
@@ -496,7 +459,7 @@ function ZoneProductRow({
   onSetNotes: (item: ZoneProduct, value: string) => void;
   onDeleteFeedback: (item: ZoneProduct, index: number) => void;
 }) {
-  const { contentRef, size } = useProductImageSquareSize();
+  const size = PRODUCT_IMAGE_SIZE_PX;
   const feedback = splitStaffNotesAndFeedback(item.notes).feedback;
   // Once any project-local dim is saved, stop falling back to catalog (so clears stick).
   const hasProjectDims =
@@ -624,7 +587,7 @@ function ZoneProductRow({
             paddingLeft: PRODUCT_IMAGE_PAD_PX,
           }}
         >
-          <div ref={contentRef} className="flex min-h-0 flex-1 flex-col gap-2">
+          <div className="flex min-h-0 flex-1 flex-col gap-2">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="min-w-0 flex-1 space-y-1">
                 {custom ? (
