@@ -385,6 +385,8 @@ function zoneAreasSqftMetaFromState(
 /** Fixed square product image; equal small padding on sides. */
 const PRODUCT_IMAGE_PAD_PX = 8;
 const PRODUCT_IMAGE_SIZE_PX = 300;
+/** Right column width so「單價 $ × 數量」stays on one line. */
+const PRODUCT_PRICE_COL_CLASS = 'w-[15.75rem]';
 
 function dimInputValue(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return '';
@@ -674,7 +676,7 @@ function ZoneProductRow({
 
             {/* Dims share the left column width (stop before 單價). */}
             <div className="flex items-start gap-4">
-              <div className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-x-3 gap-y-2 py-1">
+              <div className="flex min-w-0 max-w-[min(100%,32rem)] flex-1 flex-wrap items-center justify-between gap-x-3 gap-y-2 py-1">
                 <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                   <span className="shrink-0 text-[15px] font-medium text-muted-foreground">
                     尺寸
@@ -741,27 +743,30 @@ function ZoneProductRow({
                   <option value="confirmed">已確定</option>
                 </select>
               </div>
-              {/* Reserve same width as 單價 column so 未確定 stays left of it */}
-              <div className="hidden w-[13.5rem] shrink-0 sm:block" aria-hidden />
             </div>
 
-            {/* 備註 stops before 單價; bottoms of 備註 & 單價 row align */}
-            <div className="mt-auto space-y-1">
-              <div className="flex items-end gap-4">
-                <div className="flex min-w-0 flex-1 items-start gap-2.5 py-1">
-                  <span className="mt-2 shrink-0 text-[15px] font-medium text-muted-foreground">
-                    備註
-                  </span>
-                  <textarea
-                    value={staffNotesValue(item.notes)}
-                    onChange={(event) => onSetNotes(item, event.target.value)}
-                    rows={3}
-                    placeholder="輸入意見或補充說明…"
-                    className="min-h-[72px] min-w-0 w-full flex-1 resize-y rounded-lg border border-border bg-background px-3 py-2.5 text-[15px] leading-relaxed outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
-                    aria-label={`${titleLabel}備註`}
-                  />
-                </div>
-                <div className="flex w-[13.5rem] shrink-0 flex-wrap items-center justify-end gap-1 pb-1 text-[13px] text-muted-foreground">
+            {/* 備註 narrower; price col: line1 單價×數量, line2 小計 — both right-aligned */}
+            <div className="mt-auto flex items-end gap-4">
+              <div className="flex min-w-0 w-full max-w-[min(100%,32rem)] items-start gap-2.5 py-1">
+                <span className="mt-2 shrink-0 text-[15px] font-medium text-muted-foreground">
+                  備註
+                </span>
+                <textarea
+                  value={staffNotesValue(item.notes)}
+                  onChange={(event) => onSetNotes(item, event.target.value)}
+                  rows={3}
+                  placeholder="輸入意見或補充說明…"
+                  className="min-h-[72px] min-w-0 w-full flex-1 resize-y rounded-lg border border-border bg-background px-3 py-2.5 text-[15px] leading-relaxed outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+                  aria-label={`${titleLabel}備註`}
+                />
+              </div>
+              <div
+                className={cn(
+                  'ml-auto flex shrink-0 flex-col items-end justify-end gap-1 text-foreground',
+                  PRODUCT_PRICE_COL_CLASS,
+                )}
+              >
+                <div className="flex flex-nowrap items-center justify-end gap-1 whitespace-nowrap text-[13px] text-muted-foreground">
                   <span>單價 $</span>
                   <input
                     type="number"
@@ -771,12 +776,12 @@ function ZoneProductRow({
                     onChange={(event) =>
                       onSetSalePrice(item, Number(event.target.value))
                     }
-                    className="h-7 w-20 rounded-md border border-border bg-background px-1.5 font-mono-data text-[13px] text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+                    className="h-7 w-[4.75rem] shrink-0 rounded-md border border-border bg-background px-1.5 font-mono-data text-[13px] text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
                     aria-label={`${titleLabel}單價`}
                     title="修改此產品在設計專案中的單價"
                   />
                   <span>×</span>
-                  <div className="inline-flex items-center overflow-hidden rounded-md border border-border bg-background">
+                  <div className="inline-flex shrink-0 items-center overflow-hidden rounded-md border border-border bg-background">
                     <button
                       type="button"
                       onClick={() => onSetQuantity(item, item.quantity - 1)}
@@ -807,9 +812,7 @@ function ZoneProductRow({
                     </button>
                   </div>
                 </div>
-              </div>
-              <div className="flex justify-end">
-                <div className="w-[13.5rem] text-right font-mono-data text-[16px] font-semibold text-foreground">
+                <div className="w-full text-right font-mono-data text-[16px] font-semibold text-foreground">
                   小計 $
                   {(
                     Number(item.salePrice || 0) * item.quantity
