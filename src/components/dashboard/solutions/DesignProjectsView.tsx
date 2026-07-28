@@ -802,26 +802,19 @@ function ZoneProductRow({
               {/* Bottom-right: unit × qty (secondary), subtotal (primary) */}
               <div className="ml-auto flex shrink-0 flex-col items-end justify-end gap-1 self-end text-foreground">
                 <div className="flex flex-wrap items-center justify-end gap-1 text-[13px] text-muted-foreground">
-                  {custom ? (
-                    <>
-                      <span>單價 $</span>
-                      <input
-                        type="number"
-                        min={0}
-                        step={1}
-                        value={Number(item.salePrice || 0)}
-                        onChange={(event) =>
-                          onSetSalePrice(item, Number(event.target.value))
-                        }
-                        className="h-7 w-20 rounded-md border border-border bg-background px-1.5 font-mono-data text-[13px] text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
-                        aria-label="單價"
-                      />
-                    </>
-                  ) : (
-                    <span className="font-mono-data">
-                      單價 ${Number(item.salePrice || 0).toLocaleString()}
-                    </span>
-                  )}
+                  <span>單價 $</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={Number(item.salePrice || 0)}
+                    onChange={(event) =>
+                      onSetSalePrice(item, Number(event.target.value))
+                    }
+                    className="h-7 w-24 rounded-md border border-border bg-background px-1.5 font-mono-data text-[13px] text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+                    aria-label={`${titleLabel}單價`}
+                    title="修改此產品在設計專案中的單價"
+                  />
                   <span>×</span>
                   <div className="inline-flex items-center overflow-hidden rounded-md border border-border bg-background">
                     <button
