@@ -384,9 +384,13 @@ function zoneAreasSqftMetaFromState(
 
 /** Fixed square product image; equal small padding on sides. */
 const PRODUCT_IMAGE_PAD_PX = 8;
+/** Extra gap between product image and the right-side fields. */
+const PRODUCT_CONTENT_LEFT_PAD_PX = 18;
 const PRODUCT_IMAGE_SIZE_PX = 300;
 /** Right column width so「單價 $ × 數量」stays on one line. */
 const PRODUCT_PRICE_COL_CLASS = 'w-[15.75rem]';
+/** 備註 / 尺寸 left-column max width (32rem × 1.15). */
+const PRODUCT_NOTES_MAX_CLASS = 'max-w-[min(100%,36.8rem)]';
 
 function dimInputValue(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return '';
@@ -586,7 +590,7 @@ function ZoneProductRow({
             paddingTop: PRODUCT_IMAGE_PAD_PX,
             paddingBottom: PRODUCT_IMAGE_PAD_PX,
             paddingRight: PRODUCT_IMAGE_PAD_PX,
-            paddingLeft: PRODUCT_IMAGE_PAD_PX,
+            paddingLeft: PRODUCT_CONTENT_LEFT_PAD_PX,
           }}
         >
           {/*
@@ -676,7 +680,12 @@ function ZoneProductRow({
 
             {/* Dims share the left column width (stop before 單價). */}
             <div className="flex items-start gap-4">
-              <div className="flex min-w-0 max-w-[min(100%,32rem)] flex-1 flex-wrap items-center justify-between gap-x-3 gap-y-2 py-1">
+              <div
+                className={cn(
+                  'flex min-w-0 flex-1 flex-wrap items-center justify-between gap-x-3 gap-y-2 py-1',
+                  PRODUCT_NOTES_MAX_CLASS,
+                )}
+              >
                 <div className="flex min-w-0 flex-wrap items-center gap-1.5">
                   <span className="shrink-0 text-[15px] font-medium text-muted-foreground">
                     尺寸
@@ -747,7 +756,12 @@ function ZoneProductRow({
 
             {/* 備註 narrower; price col: line1 單價×數量, line2 小計 — both right-aligned */}
             <div className="mt-auto flex items-end gap-4">
-              <div className="flex min-w-0 w-full max-w-[min(100%,32rem)] items-start gap-2.5 py-1">
+              <div
+                className={cn(
+                  'flex min-w-0 w-full items-start gap-2.5 py-1',
+                  PRODUCT_NOTES_MAX_CLASS,
+                )}
+              >
                 <span className="mt-2 shrink-0 text-[15px] font-medium text-muted-foreground">
                   備註
                 </span>
