@@ -67,9 +67,12 @@ export function ProductSelectorModal({
 }: ProductSelectorModalProps) {
   const [catalogSource, setCatalogSource] = useState<CatalogSourceType>('shopify');
   const [search, setSearch] = useState('');
+  /** User toggle — 現貨（3-7天）. Forced on when parent stockOnly (urgent quote). */
+  const [readyStockOnly, setReadyStockOnly] = useState(false);
   const [factoryFilter, setFactoryFilter] = useState('');
   const [level1Filter, setLevel1Filter] = useState('');
   const [level2Filter, setLevel2Filter] = useState('');
+  const stockFilterActive = stockOnly || readyStockOnly;
   const [categoryPairs, setCategoryPairs] = useState<{ level1: string; level2: string }[]>([]);
   const [factories, setFactories] = useState<string[]>([]);
   const [products, setProducts] = useState<MasterProduct[]>([]);
@@ -181,10 +184,10 @@ export function ProductSelectorModal({
         level1Filter,
         level2Filter,
         priorityLevel1,
-        stockOnly,
+        stockFilterActive,
       );
     },
-    [catalogSource, search, factoryFilter, level1Filter, level2Filter, priorityLevel1, stockOnly, fetchProducts],
+    [catalogSource, search, factoryFilter, level1Filter, level2Filter, priorityLevel1, stockFilterActive, fetchProducts],
   );
 
   const existingCount = existingProductNames.length;
@@ -198,7 +201,8 @@ export function ProductSelectorModal({
     setLevel2Filter('');
     setPage(1);
     setCatalogSource('shopify');
-  }, [open]);
+    setReadyStockOnly(Boolean(stockOnly));
+  }, [open, stockOnly]);
 
   useEffect(() => {
     if (open && products.length > 0 && existingProductNames.length > 0) {
@@ -227,7 +231,7 @@ export function ProductSelectorModal({
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [search, factoryFilter, level1Filter, level2Filter, catalogSource, open, runFetch]);
+  }, [search, factoryFilter, level1Filter, level2Filter, catalogSource, stockFilterActive, open, runFetch]);
 
   useEffect(() => {
     if (!open || page === 1) return;
@@ -297,9 +301,9 @@ export function ProductSelectorModal({
             <div className="mt-1 flex flex-wrap items-center gap-2">
               <p className="font-body text-xs text-muted-foreground">
                 從資料庫搜尋產品並加入報價單
-                {stockOnly ? (
+                {stockFilterActive ? (
                   <span className="ml-1 text-primary">
-                    · 僅顯示現貨（3-7天送貨）
+                    · 僅顯示現貨（3-7天）
                   </span>
                 ) : null}
                 {priorityActive ? (
@@ -345,6 +349,30 @@ export function ProductSelectorModal({
               className="w-full rounded-lg border border-border bg-background py-2.5 pl-10 pr-4 font-body text-sm text-foreground placeholder:text-muted-foreground/50 focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
             />
           </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              if (stockOnly) return;
+              setReadyStockOnly((v) => !v);
+              setPage(1);
+            }}
+            disabled={stockOnly}
+            title={
+              stockOnly
+                ? '緊急工期已強制只顯示現貨'
+                : '只顯示現貨：貨期 3-7天 / in_stock'
+            }
+            className={cn(
+              'h-10 shrink-0 rounded-lg border px-3 font-body text-sm font-medium transition-colors',
+              stockFilterActive
+                ? 'border-primary bg-primary/10 text-primary'
+                : 'border-border bg-background text-foreground hover:border-primary/40 hover:bg-accent/50',
+              stockOnly && 'cursor-not-allowed opacity-90',
+            )}
+          >
+            現貨
+          </button>
 
           <Select
             value={factoryFilter || '__all__'}

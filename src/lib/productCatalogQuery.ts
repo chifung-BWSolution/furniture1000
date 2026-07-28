@@ -1,7 +1,8 @@
 import { supabase } from '@/lib/supabase';
 import {
-  passesUrgentStockFilter,
-  URGENT_DELIVERY_TAG,
+  passesShopifyCatalogReadyStock,
+  passesSystemCatalogReadyStock,
+  READY_STOCK_LEAD_TIME,
 } from '@/lib/quoteStockFilter';
 
 export type CatalogSourceType = 'shopify' | 'system';
@@ -38,7 +39,7 @@ export type CatalogQueryParams = {
   level2?: string;
   /** When set (and level1 filter empty), matching products appear first in results. */
   priority_level1?: string[];
-  /** Urgent quote — only in-stock products (現貨) with 3-7天送貨 tag. */
+  /** Only ready-stock products (現貨 / 3-7天). */
   stock_only?: boolean;
   page?: number;
   page_size?: number;
@@ -282,7 +283,7 @@ async function loadProductsByIds(ids: string[]): Promise<Map<string, Record<stri
     const { data, error } = await supabase
       .from('products')
       .select(
-        'id, title, sku, image_url, images, sale_price, price, cost_price, factories_display_name, level1_category, level2_category, category, material, dimension_l_mm, dimension_w_mm, dimension_h_mm, color, remarks, delivery_term_name, shopify_product_id, modified_date, created_at, in_stock, tags',
+        'id, title, sku, image_url, images, sale_price, price, cost_price, factories_display_name, level1_category, level2_category, category, material, dimension_l_mm, dimension_w_mm, dimension_h_mm, color, remarks, delivery_term_name, shopify_product_id, modified_date, created_at, in_stock, customize, tags',
       )
       .in('id', chunk);
     if (error) throw error;
@@ -322,7 +323,13 @@ function sortByPriorityLevel1(
 }
 
 const PRODUCTS_CATALOG_SELECT =
-  'id, title, sku, image_url, images, sale_price, price, cost_price, factories_display_name, level1_category, level2_category, category, material, dimension_l_mm, dimension_w_mm, dimension_h_mm, color, remarks, delivery_term_name, shopify_product_id, modified_date, created_at, in_stock, tags';
+  'id, title, sku, image_url, images, sale_price, price, cost_price, factories_display_name, level1_category, level2_category, category, material, dimension_l_mm, dimension_w_mm, dimension_h_mm, color, remarks, delivery_term_name, shopify_product_id, modified_date, created_at, in_stock, customize, tags';
+
+const SHOPIFY_CATALOG_SELECT =
+  'id, shopify_product_id, source_product_id, title, sku, image_url, images, price, cost, vendor, product_type, variants, imported_at, published_at, shopify_updated_at, in_stock, customize, "my_fields.production_time"';
+
+const RTS_CATALOG_SELECT =
+  'id, product_id, shopify_product_id, title, sku, image_url, images, price, vendor, product_type, material, dimension_l_mm, dimension_w_mm, dimension_h_mm, color, remarks, imported_at, cost, in_stock, customize, tags';
 
 function applyProductsCatalogFilters(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -346,7 +353,8 @@ function applyProductsCatalogFilters(
     q = q.or(`level1_category.is.null,level1_category.not.in.(${quoted})`);
   }
   if (params.stock_only) {
-    q = q.eq('in_stock', true).contains('tags', [URGENT_DELIVERY_TAG]);
+    // products.in_stock = true OR products.customize = 3-7天
+    q = q.or(`in_stock.eq.true,customize.eq."${READY_STOCK_LEAD_TIME}"`);
   }
   return q;
 }
@@ -357,9 +365,7 @@ async function fetchShopifySourceRows(params: CatalogQueryParams): Promise<Catal
 
   let spQuery = supabase
     .from('shopify_products')
-    .select(
-      'id, shopify_product_id, source_product_id, title, sku, image_url, images, price, cost, vendor, product_type, variants, imported_at, published_at, shopify_updated_at',
-    )
+    .select(SHOPIFY_CATALOG_SELECT)
     .is('configurable', null)
     .order('imported_at', { ascending: false })
     .limit(MAX_SCAN_PER_TABLE);
@@ -368,9 +374,7 @@ async function fetchShopifySourceRows(params: CatalogQueryParams): Promise<Catal
 
   let rtsQuery = supabase
     .from('ready_to_shopify')
-    .select(
-      'id, product_id, shopify_product_id, title, sku, image_url, images, price, vendor, product_type, material, dimension_l_mm, dimension_w_mm, dimension_h_mm, color, remarks, imported_at, cost, in_stock, tags',
-    )
+    .select(RTS_CATALOG_SELECT)
     .order('imported_at', { ascending: false })
     .limit(MAX_SCAN_PER_TABLE);
   rtsQuery = applySearchToQuery(rtsQuery, search);
@@ -390,38 +394,35 @@ async function fetchShopifySourceRows(params: CatalogQueryParams): Promise<Catal
     ),
   ];
   const productsById = await loadProductsByIds(productIds);
-  const rtsByProductId = new Map<string, Record<string, unknown>>();
-  for (const row of rtsData || []) {
-    const pid = strOrNull((row as { product_id?: string }).product_id);
-    if (pid) rtsByProductId.set(pid, row as Record<string, unknown>);
-  }
 
   const merged = new Map<string, CatalogProductRow>();
   for (const row of spData || []) {
     const rec = row as Record<string, unknown>;
+    if (
+      params.stock_only &&
+      !passesShopifyCatalogReadyStock(rec, null)
+    ) {
+      continue;
+    }
     const pid = strOrNull(rec.source_product_id);
     const mapped = mapShopifyProductsRow(rec, pid ? productsById.get(pid) : null);
     merged.set(catalogDedupeKey(mapped), mapped);
   }
   for (const row of rtsData || []) {
     const rec = row as Record<string, unknown>;
+    if (
+      params.stock_only &&
+      !passesShopifyCatalogReadyStock(null, rec)
+    ) {
+      continue;
+    }
     const pid = strOrNull(rec.product_id);
     const mapped = mapRtsRow(rec, pid ? productsById.get(pid) : null);
     const key = catalogDedupeKey(mapped);
     if (!merged.has(key)) merged.set(key, mapped);
   }
 
-  let filtered = applyClientFilters([...merged.values()], params);
-  if (params.stock_only) {
-    filtered = filtered.filter((row) => {
-      const pid = row.productId;
-      if (!pid) return false;
-      return passesUrgentStockFilter(
-        productsById.get(pid),
-        rtsByProductId.get(pid),
-      );
-    });
-  }
+  const filtered = applyClientFilters([...merged.values()], params);
   const priority = (params.priority_level1 || []).filter(Boolean);
   if (priority.length > 0 && !(params.level1 || '').trim()) {
     return sortByPriorityLevel1(filtered, priority);
@@ -439,24 +440,19 @@ async function enrichProductRows(
     productIds.length
       ? supabase
           .from('shopify_products')
-          .select(
-            'id, shopify_product_id, source_product_id, title, sku, image_url, images, price, cost, vendor, product_type, variants, imported_at, published_at, shopify_updated_at',
-          )
+          .select(SHOPIFY_CATALOG_SELECT)
           .in('source_product_id', productIds)
       : Promise.resolve({ data: [], error: null }),
     productIds.length
       ? supabase
           .from('ready_to_shopify')
-          .select(
-            'id, product_id, shopify_product_id, title, sku, image_url, images, price, vendor, product_type, material, dimension_l_mm, dimension_w_mm, dimension_h_mm, color, remarks, imported_at, cost, in_stock, tags',
-          )
+          .select(RTS_CATALOG_SELECT)
           .in('product_id', productIds)
       : Promise.resolve({ data: [], error: null }),
   ]);
   if (spRes.error) throw spRes.error;
   if (rtsRes.error) throw rtsRes.error;
 
-  const productsById = new Map(productRows.map((row) => [String(row.id), row]));
   const spByProductId = new Map<string, Record<string, unknown>>();
   for (const row of spRes.data || []) {
     const pid = strOrNull((row as { source_product_id?: string }).source_product_id);
@@ -471,10 +467,10 @@ async function enrichProductRows(
   const rows: CatalogProductRow[] = [];
   for (const product of productRows) {
     const pid = String(product.id);
-    const rts = rtsByProductId.get(pid);
-    if (opts?.stockOnly && !passesUrgentStockFilter(product, rts)) continue;
-
     const sp = spByProductId.get(pid);
+    const rts = rtsByProductId.get(pid);
+    if (opts?.stockOnly && !passesSystemCatalogReadyStock(product, sp, rts)) continue;
+
     if (sp) rows.push(mapShopifyProductsRow(sp, product));
     else if (rts) rows.push(mapRtsRow(rts, product));
     else rows.push(mapProductsRow(product));
@@ -619,31 +615,45 @@ export async function fetchProductCatalog(
   };
 }
 
+/** Page through all rows — PostgREST defaults to ~1000, which truncated B-class factories. */
+async function collectDistinctColumnValues(
+  table: 'products' | 'shopify_products' | 'ready_to_shopify',
+  column: 'vendor' | 'factories_display_name',
+): Promise<Set<string>> {
+  const names = new Set<string>();
+  const pageSize = 1000;
+  let from = 0;
+  for (;;) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let query: any = supabase.from(table).select(column).not(column, 'is', null);
+    if (column === 'factories_display_name') {
+      query = query.neq(column, '');
+    }
+    const { data, error } = await query.range(from, from + pageSize - 1);
+    if (error) throw error;
+    const rows = (data || []) as Array<Record<string, unknown>>;
+    for (const row of rows) {
+      const v = strOrNull(row[column]);
+      if (v) names.add(v);
+    }
+    if (rows.length < pageSize) break;
+    from += pageSize;
+  }
+  return names;
+}
+
 export async function fetchCatalogFactoryNames(
   source: CatalogSourceType,
 ): Promise<string[]> {
   if (source === 'shopify') {
-    const [sp, rts] = await Promise.all([
-      supabase.from('shopify_products').select('vendor').not('vendor', 'is', null),
-      supabase.from('ready_to_shopify').select('vendor').not('vendor', 'is', null),
+    const [spNames, rtsNames] = await Promise.all([
+      collectDistinctColumnValues('shopify_products', 'vendor'),
+      collectDistinctColumnValues('ready_to_shopify', 'vendor'),
     ]);
-    const names = new Set<string>();
-    for (const row of [...(sp.data || []), ...(rts.data || [])]) {
-      const v = strOrNull((row as { vendor?: string }).vendor);
-      if (v) names.add(v);
-    }
+    const names = new Set<string>([...spNames, ...rtsNames]);
     return [...names].sort((a, b) => a.localeCompare(b, 'zh-Hant'));
   }
 
-  const { data } = await supabase
-    .from('products')
-    .select('factories_display_name')
-    .not('factories_display_name', 'is', null)
-    .neq('factories_display_name', '');
-  const names = new Set<string>();
-  for (const row of data || []) {
-    const v = strOrNull((row as { factories_display_name?: string }).factories_display_name);
-    if (v) names.add(v);
-  }
+  const names = await collectDistinctColumnValues('products', 'factories_display_name');
   return [...names].sort((a, b) => a.localeCompare(b, 'zh-Hant'));
 }
