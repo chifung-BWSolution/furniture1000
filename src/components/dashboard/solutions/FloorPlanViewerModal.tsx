@@ -109,6 +109,8 @@ export function FloorPlanViewerModal({
   const [zoomIndex, setZoomIndex] = useState(0);
   const [naturalSize, setNaturalSize] = useState({ w: 0, h: 0 });
   const [viewportSize, setViewportSize] = useState({ w: 0, h: 0 });
+  /** Outer non-scrolling box — measure this so scrollbar show/hide cannot loop. */
+  const viewportRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const zoom = ZOOM_LEVELS[zoomIndex] ?? 1;
   const canZoomIn = zoomIndex < ZOOM_LEVELS.length - 1;
@@ -197,12 +199,15 @@ export function FloorPlanViewerModal({
 
   useLayoutEffect(() => {
     if (!open) return;
-    const node = scrollRef.current;
+    const node = viewportRef.current;
     if (!node) return;
     const measure = () => {
-      setViewportSize({
-        w: node.clientWidth,
-        h: node.clientHeight,
+      const w = Math.round(node.clientWidth);
+      const h = Math.round(node.clientHeight);
+      setViewportSize((prev) => {
+        // Ignore sub-pixel / scrollbar jitter that re-triggers layout.
+        if (Math.abs(prev.w - w) < 2 && Math.abs(prev.h - h) < 2) return prev;
+        return { w, h };
       });
     };
     measure();
@@ -234,18 +239,32 @@ export function FloorPlanViewerModal({
   }, [naturalSize.h, naturalSize.w, viewportSize.h, viewportSize.w, zoom]);
 
   useEffect(() => {
-    // After zoom changes, keep scroll range valid (especially top/left).
+    // Only recenter / clamp when the user changes zoom — not on viewport flicker.
     const node = scrollRef.current;
     if (!node) return;
-    if (zoom <= 1) {
-      node.scrollLeft = Math.max(0, (node.scrollWidth - node.clientWidth) / 2);
-      node.scrollTop = Math.max(0, (node.scrollHeight - node.clientHeight) / 2);
-      return;
-    }
-    // Clamp so users can always reach left/top edges.
-    node.scrollLeft = Math.min(node.scrollLeft, node.scrollWidth - node.clientWidth);
-    node.scrollTop = Math.min(node.scrollTop, node.scrollHeight - node.clientHeight);
-  }, [displaySize.h, displaySize.w, zoom]);
+    const frame = window.requestAnimationFrame(() => {
+      if (zoom <= 1) {
+        node.scrollLeft = Math.max(
+          0,
+          (node.scrollWidth - node.clientWidth) / 2,
+        );
+        node.scrollTop = Math.max(
+          0,
+          (node.scrollHeight - node.clientHeight) / 2,
+        );
+        return;
+      }
+      node.scrollLeft = Math.min(
+        node.scrollLeft,
+        Math.max(0, node.scrollWidth - node.clientWidth),
+      );
+      node.scrollTop = Math.min(
+        node.scrollTop,
+        Math.max(0, node.scrollHeight - node.clientHeight),
+      );
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [zoom, zoomIndex]);
 
   if (!open || !url) return null;
 
@@ -316,56 +335,64 @@ export function FloorPlanViewerModal({
           </div>
         </div>
 
-        <div
-          ref={scrollRef}
-          className="relative min-h-0 flex-1 overflow-auto bg-muted/30"
-        >
-          {loading ? (
-            <div className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground">
-              <Loader2 className="h-6 w-6 animate-spin text-primary" />
-              <span className="text-sm">正在轉成可檢視圖片…</span>
-            </div>
-          ) : current ? (
-            <div
-              className="grid place-items-center"
-              style={{
-                width: Math.max(viewportSize.w || 0, (displaySize.w || 0) + 32),
-                height: Math.max(viewportSize.h || 0, (displaySize.h || 0) + 32),
-                minWidth: '100%',
-                minHeight: '100%',
-              }}
-            >
-              <img
-                src={current}
-                alt={`${title} 平面圖`}
-                onLoad={(event) => {
-                  const img = event.currentTarget;
-                  setNaturalSize({
-                    w: img.naturalWidth || img.width,
-                    h: img.naturalHeight || img.height,
-                  });
-                }}
-                onClick={zoomIn}
-                className="rounded-lg border border-border bg-white object-contain shadow-sm"
+        <div ref={viewportRef} className="relative min-h-0 flex-1 bg-muted/30">
+          <div ref={scrollRef} className="absolute inset-0 overflow-auto">
+            {loading ? (
+              <div className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground">
+                <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                <span className="text-sm">正在轉成可檢視圖片…</span>
+              </div>
+            ) : current ? (
+              <div
+                className="grid place-items-center p-4"
                 style={{
-                  cursor: canZoomIn ? 'zoom-in' : 'default',
-                  width: displaySize.w || undefined,
-                  height: displaySize.h || undefined,
-                  maxWidth: displaySize.w ? undefined : '100%',
-                  maxHeight: displaySize.h ? undefined : '100%',
+                  // Content box can grow with zoom; viewport measure stays on the outer box.
+                  width: Math.max(
+                    viewportSize.w || 0,
+                    (displaySize.w || 0) + 32,
+                  ),
+                  height: Math.max(
+                    viewportSize.h || 0,
+                    (displaySize.h || 0) + 32,
+                  ),
+                  boxSizing: 'border-box',
                 }}
-                title={
-                  canZoomIn
-                    ? `點擊放大至 ${Math.round((ZOOM_LEVELS[zoomIndex + 1] || zoom) * 100)}%`
-                    : '已達最大放大 500%'
-                }
-              />
-            </div>
-          ) : (
-            <div className="flex h-full items-center justify-center">
-              <p className="text-sm text-muted-foreground">暫無可顯示的平面圖</p>
-            </div>
-          )}
+              >
+                <img
+                  src={current}
+                  alt={`${title} 平面圖`}
+                  onLoad={(event) => {
+                    const img = event.currentTarget;
+                    const w = img.naturalWidth || img.width;
+                    const h = img.naturalHeight || img.height;
+                    setNaturalSize((prev) =>
+                      prev.w === w && prev.h === h ? prev : { w, h },
+                    );
+                  }}
+                  onClick={zoomIn}
+                  className="rounded-lg border border-border bg-white object-contain shadow-sm"
+                  style={{
+                    cursor: canZoomIn ? 'zoom-in' : 'default',
+                    width: displaySize.w || undefined,
+                    height: displaySize.h || undefined,
+                    maxWidth: displaySize.w ? undefined : '100%',
+                    maxHeight: displaySize.h ? undefined : '100%',
+                  }}
+                  title={
+                    canZoomIn
+                      ? `點擊放大至 ${Math.round((ZOOM_LEVELS[zoomIndex + 1] || zoom) * 100)}%`
+                      : '已達最大放大 500%'
+                  }
+                />
+              </div>
+            ) : (
+              <div className="flex h-full items-center justify-center">
+                <p className="text-sm text-muted-foreground">
+                  暫無可顯示的平面圖
+                </p>
+              </div>
+            )}
+          </div>
         </div>
 
         {pageUrls.length > 1 ? (
