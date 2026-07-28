@@ -384,7 +384,7 @@ function zoneAreasSqftMetaFromState(
 
 /** Fixed square product image; equal small padding on sides. */
 const PRODUCT_IMAGE_PAD_PX = 8;
-const PRODUCT_IMAGE_SIZE_PX = 360;
+const PRODUCT_IMAGE_SIZE_PX = 300;
 
 function dimInputValue(value: number | null | undefined): string {
   if (value == null || !Number.isFinite(value)) return '';
