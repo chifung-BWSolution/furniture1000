@@ -1300,7 +1300,7 @@ export function PublishedProductsView() {
                 <div>
                   <p className="font-body text-sm font-semibold text-foreground">找相似產品</p>
                   <p className="mt-0.5 font-body text-xs text-muted-foreground">
-                    可選 1 項或全選。兩項都選時須同時符合（同名＋同廠家，且 SKU 相同／約 9 成相似），再按組別排列以便合併
+                    可選 1 項或全選。兩項都選時須同時符合（同名＋同廠家，且為同一產品碼的 SKU 變體），再按組別排列以便合併
                   </p>
                 </div>
                 <div className="space-y-2">
@@ -1330,7 +1330,7 @@ export function PublishedProductsView() {
                         2. 相似產品 SKU
                       </span>
                       <span className="mt-0.5 block font-body text-[11px] leading-snug text-muted-foreground">
-                        SKU 完全相同，或約 9 成相似（如 CYJ-DQ-13O 與 CYJ-DQ-13O-1）
+                        同一產品碼的變體才算相似（如 CUF-D366、CUF-D366-1、CUF-D366-A、CUF-D366A、CUFD366；不含 CUF-D380）
                       </span>
                     </span>
                   </label>

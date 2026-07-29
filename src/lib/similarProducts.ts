@@ -3,7 +3,9 @@
  *
  * Criteria:
  * 1. Same product title (exact trim) AND same factory/vendor
- * 2. Same SKU (exact) OR ~90% similar (e.g. CYJ-DQ-13O vs CYJ-DQ-13O-1)
+ * 2. Same SKU stem (variant forms of one code), e.g.
+ *    CUF-D366 / CUF-D366-1 / CUF-D366-A / CUF-D366A / CUFD366
+ *    — NOT CUF-D366 vs CUF-D380 / CUF-D365
  *
  * When both are selected, matches must satisfy BOTH (AND), not either.
  */
@@ -37,69 +39,59 @@ export function normalizeSku(sku: string): string {
   return sku.trim().toUpperCase();
 }
 
-/** Strip common trailing variant suffixes: -1, -01, -A, _1, etc. */
-export function skuBaseKey(sku: string): string {
-  const n = normalizeSku(sku);
-  if (!n || n === '—') return '';
-  return n.replace(/[-_][0-9A-Z]{1,3}$/i, '');
-}
-
-function levenshtein(a: string, b: string): number {
-  if (a === b) return 0;
-  if (!a.length) return b.length;
-  if (!b.length) return a.length;
-  const rows = a.length + 1;
-  const cols = b.length + 1;
-  const prev = new Array<number>(cols);
-  const curr = new Array<number>(cols);
-  for (let j = 0; j < cols; j++) prev[j] = j;
-  for (let i = 1; i < rows; i++) {
-    curr[0] = i;
-    const ca = a.charCodeAt(i - 1);
-    for (let j = 1; j < cols; j++) {
-      const cost = ca === b.charCodeAt(j - 1) ? 0 : 1;
-      curr[j] = Math.min(curr[j - 1] + 1, prev[j] + 1, prev[j - 1] + cost);
-    }
-    for (let j = 0; j < cols; j++) prev[j] = curr[j];
-  }
-  return prev[b.length];
-}
-
-/** Similarity ratio in [0, 1] via Levenshtein. */
-export function skuSimilarityRatio(a: string, b: string): number {
-  const na = normalizeSku(a);
-  const nb = normalizeSku(b);
-  if (!na || !nb || na === '—' || nb === '—') return 0;
-  if (na === nb) return 1;
-  const maxLen = Math.max(na.length, nb.length);
-  if (maxLen === 0) return 0;
-  return 1 - levenshtein(na, nb) / maxLen;
+/** Compact SKU: letters + digits only. */
+export function compactSku(sku: string): string {
+  return normalizeSku(sku).replace(/[^A-Z0-9]/g, '');
 }
 
 /**
- * SKUs are similar when exact, share a variant base (prefix + -N),
- * or Levenshtein similarity ≥ 0.9.
+ * Canonical product-code stem for similarity.
+ * Strips only short variant suffixes (-1, -A, glued A / 1), never the main product number.
+ *
+ * CUF-D366 / CUF-D366-1 / CUF-D366A / CUFD366 → CUFD366
+ * CUF-D380 → CUFD380 (distinct)
  */
-export function areSkusSimilar(a: string, b: string, threshold = 0.9): boolean {
+export function skuStem(sku: string): string {
+  let n = normalizeSku(sku);
+  if (!n || n === '—') return '';
+
+  // Trailing separator variants only: -1, -A, -12, -1A (1–2 chars).
+  // Do NOT strip -366 / -380 (3+ char product number segments).
+  n = n.replace(/[-_][0-9A-Z]{1,2}$/i, '');
+
+  let c = n.replace(/[^A-Z0-9]/g, '');
+  if (!c) return '';
+
+  // Glued letter variant after digits: CUFD366A → CUFD366
+  c = c.replace(/(\d)([A-Z]{1,2})$/, '$1');
+
+  // Glued short digit variant after a product digit run (≥3 digits): CUFD3661 → CUFD366
+  // CUFD366 alone does not match (no extra 1–2 digit variant group).
+  const glued = c.match(/^(.*\d{3,})(\d{1,2})$/);
+  if (glued && /[A-Z]/.test(glued[1])) {
+    c = glued[1];
+  }
+
+  return c;
+}
+
+/**
+ * SKUs are similar only when they share the same product-code stem
+ * (exact compact match, or variant suffixes of that stem).
+ */
+export function areSkusSimilar(a: string, b: string): boolean {
   const na = normalizeSku(a);
   const nb = normalizeSku(b);
   if (!na || !nb || na === '—' || nb === '—') return false;
   if (na === nb) return true;
+  if (compactSku(na) === compactSku(nb)) return true;
 
-  const baseA = skuBaseKey(na);
-  const baseB = skuBaseKey(nb);
-  if (baseA && baseB && baseA === baseB) return true;
-
-  // One is a near-prefix variant of the other (e.g. FOO vs FOO-1)
-  const [shorter, longer] = na.length <= nb.length ? [na, nb] : [nb, na];
-  if (
-    longer.startsWith(shorter) &&
-    /^[-_][0-9A-Z]{1,3}$/i.test(longer.slice(shorter.length))
-  ) {
-    return true;
-  }
-
-  return skuSimilarityRatio(na, nb) >= threshold;
+  const stemA = skuStem(na);
+  const stemB = skuStem(nb);
+  if (!stemA || !stemB) return false;
+  // Require a meaningful stem so tiny codes don't over-match
+  if (stemA.length < 4 || stemB.length < 4) return stemA === stemB && compactSku(na) === compactSku(nb);
+  return stemA === stemB;
 }
 
 class UnionFind {
