@@ -1324,7 +1324,7 @@ export function QuickQuoteView({
                               onClick={() => toggleTag('clientIndustry', industry)}
                               disabled={isLoadingPmsDefaults}
                               className={cn(
-                                'flex h-full min-h-[3.75rem] w-full items-start justify-start rounded-md border px-3 py-2 text-left font-body text-xs font-medium leading-snug transition-all disabled:cursor-not-allowed disabled:opacity-60',
+                                'flex h-full min-h-[3.75rem] w-full items-start justify-start rounded-md border px-3 py-2 text-left font-body text-[12px] font-medium leading-snug transition-all disabled:cursor-not-allowed disabled:opacity-60',
                                 formData.clientIndustry.includes(industry)
                                   ? 'border-primary bg-primary/10 text-primary shadow-sm'
                                   : 'border-border bg-card text-muted-foreground hover:border-primary/50 hover:text-foreground',
