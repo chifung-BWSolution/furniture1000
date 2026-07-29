@@ -8,6 +8,13 @@ export function quickQuoteStepKey(email: string | null | undefined): string {
   return `bwf:quickQuote:${normalizeEmail(email)}:currentStep`;
 }
 
+/** Bumped when wizard step numbering changes (migrate session step ids once). */
+const QUICK_QUOTE_WIZARD_VERSION = '3step';
+
+function quickQuoteWizardVersionKey(email: string | null | undefined): string {
+  return `bwf:quickQuote:${normalizeEmail(email)}:wizardVersion`;
+}
+
 export function quickQuoteFormKey(email: string | null | undefined): string {
   return `bwf:quickQuote:${normalizeEmail(email)}:formData`;
 }
@@ -55,6 +62,7 @@ export function resetQuickQuoteSessionStorage(
   sessionStorage.removeItem(quickQuoteCopyFromKey(email));
   sessionStorage.removeItem(resumeQuoteKey(email));
   sessionStorage.removeItem(useLocalDraftKey(email));
+  sessionStorage.removeItem(quickQuoteWizardVersionKey(email));
   if (copyFrom) writeQuickQuoteCopyFrom(email, copyFrom);
 }
 
@@ -94,11 +102,33 @@ export function shouldShowDraftRestoreNotice(
   return true;
 }
 
+export function writeQuickQuoteStep(
+  email: string | null | undefined,
+  step: number,
+): void {
+  if (typeof window === 'undefined') return;
+  const n = Number.isFinite(step) ? Math.min(3, Math.max(1, Math.trunc(step))) : 1;
+  sessionStorage.setItem(quickQuoteStepKey(email), String(n));
+  sessionStorage.setItem(quickQuoteWizardVersionKey(email), QUICK_QUOTE_WIZARD_VERSION);
+}
+
 export function readQuickQuoteStep(email: string | null | undefined): number {
   if (typeof window === 'undefined') return 1;
-  const saved = sessionStorage.getItem(quickQuoteStepKey(email));
-  const n = saved ? parseInt(saved, 10) : 1;
-  return Number.isFinite(n) && n >= 1 && n <= 4 ? n : 1;
+  const stepKey = quickQuoteStepKey(email);
+  const versionKey = quickQuoteWizardVersionKey(email);
+  const saved = sessionStorage.getItem(stepKey);
+  let n = saved ? parseInt(saved, 10) : 1;
+  if (!Number.isFinite(n) || n < 1) n = 1;
+
+  // One-time migrate from 4-step wizard (…工期時間=3, 生成報價單=4).
+  if (sessionStorage.getItem(versionKey) !== QUICK_QUOTE_WIZARD_VERSION) {
+    if (n >= 4) n = 3;
+    else if (n === 3) n = 2;
+    writeQuickQuoteStep(email, n);
+    return n;
+  }
+
+  return n <= 3 ? n : 1;
 }
 
 export const QUOTE_UNSAVED_LEAVE_MESSAGE =

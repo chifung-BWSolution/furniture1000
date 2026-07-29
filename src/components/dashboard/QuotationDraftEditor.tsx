@@ -56,12 +56,12 @@ import {
   QUOTE_UNSAVED_LEAVE_MESSAGE,
   clearUseLocalQuoteDraft,
   markUseLocalQuoteDraft,
-  quickQuoteStepKey,
   resetQuickQuoteSessionStorage,
   shouldShowDraftRestoreNotice,
   shouldUseLocalQuoteDraft,
   writeQuickQuoteCopyFrom,
   writeQuickQuoteEditingId,
+  writeQuickQuoteStep,
   writeResumeQuote,
 } from "@/lib/quickQuoteSession";
 import {
@@ -210,7 +210,7 @@ interface QuotationDraftEditorProps {
   initialCopyPayload?: QuoteCopyPayload | null;
   /** Always insert a new bwf_quote row (skip pitching dedup) — used for 複製報價單. */
   forceNewQuote?: boolean;
-  /** Pre-assigned quote id for new drafts (step 4 URL persistence). */
+  /** Pre-assigned quote id for new drafts (editor-step URL persistence). */
   draftQuoteId?: string | null;
 }
 
@@ -2783,9 +2783,9 @@ export function QuotationDraftEditor({
     if (existingQuote?.quoteId) {
       writeQuickQuoteEditingId(userEmail, existingQuote.quoteId);
     }
-    // NEW quotes have no editing id — keep wizard on step 4 after reload.
+    // NEW quotes have no editing id — keep wizard on editor step after reload.
     if (typeof window !== "undefined") {
-      sessionStorage.setItem(quickQuoteStepKey(userEmail), "4");
+      writeQuickQuoteStep(userEmail, 3);
     }
   }, [userEmail, existingQuote?.quoteId, existingQuote?.quoteUuid, rawQuoteId]);
 

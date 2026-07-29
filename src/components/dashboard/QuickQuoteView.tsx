@@ -10,13 +10,13 @@ import type { QuotationPDFData } from '@/types/quotation-pdf';
 import {
   markUseLocalQuoteDraft,
   quickQuoteFormKey,
-  quickQuoteStepKey,
   readQuickQuoteCopyFrom,
   readQuickQuoteStep,
   resetQuickQuoteSessionStorage,
   shouldUseLocalQuoteDraft,
   writeQuickQuoteCopyFrom,
   writeQuickQuoteEditingId,
+  writeQuickQuoteStep,
 } from '@/lib/quickQuoteSession';
 import { loadQuoteCopyPayload, type QuoteCopyPayload } from '@/lib/quoteCopy';
 import {
@@ -85,11 +85,10 @@ interface QuoteFormData {
   clientIndustry: string[];
   clientIndustryOther: string;
   quotationType: string[];
-  // Step 2
+  // Step 2 (傢俬類別 + 工期／有效期限／備註)
   serviceScope: string[];
   officeArea: string;
   headcount: string;
-  // Step 3
   workPeriod: string;
   validityDays: string;
   remarks: string;
@@ -113,8 +112,7 @@ const WORK_PERIODS = [
 const STEPS = [
   { id: 1, label: '基本資訊' },
   { id: 2, label: '傢俬類別' },
-  { id: 3, label: '工期時間' },
-  { id: 4, label: '生成報價單' },
+  { id: 3, label: '生成報價單' },
 ];
 
 interface QuickQuoteViewProps {
@@ -126,7 +124,7 @@ interface QuickQuoteViewProps {
   onClearEditingQuote?: () => void;
   /** Keep AppShell editing ids in sync after 版本審核 (new version row). */
   onEditingQuotePersisted?: (quoteId: string, quoteUuid: string, version?: string) => void;
-  /** Assign a quote id when entering step 4 for a new draft (updates URL + session). */
+  /** Assign a quote id when entering the editor step for a new draft (updates URL + session). */
   onAssignEditingQuoteId?: (quoteId: string) => void;
   /** Increment to reset wizard to 建立新報價單 step 1. */
   freshSessionKey?: number;
@@ -229,7 +227,7 @@ export function QuickQuoteView({
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    sessionStorage.setItem(quickQuoteStepKey(userEmail), String(currentStep));
+    writeQuickQuoteStep(userEmail, currentStep);
   }, [currentStep, userEmail]);
 
   const [loadedQuoteData, setLoadedQuoteData] = useState<{
@@ -252,7 +250,7 @@ export function QuickQuoteView({
   const [isLoadingCopy, setIsLoadingCopy] = useState(false);
   const assignedDraftQuoteIdRef = useRef<string | null>(null);
 
-  const enterStep4 = useCallback(
+  const enterEditorStep = useCallback(
     (opts?: { quoteId?: string }) => {
       // Chain id = PMS pitching code (BWF-…). Never invent legacy QYYYY-MMDD-NNN.
       const candidates = [
@@ -274,10 +272,8 @@ export function QuickQuoteView({
       }
 
       setIsQuotationReady(true);
-      setCurrentStep(4);
-      if (typeof window !== 'undefined') {
-        sessionStorage.setItem(quickQuoteStepKey(userEmail), '4');
-      }
+      setCurrentStep(3);
+      writeQuickQuoteStep(userEmail, 3);
 
       if (!editingQuoteId && !loadedQuoteData) {
         assignedDraftQuoteIdRef.current = nextQuoteId;
@@ -375,7 +371,7 @@ export function QuickQuoteView({
     sessionRestoredRef.current = true;
     const step = readQuickQuoteStep(userEmail);
     setCurrentStep(step);
-    setIsQuotationReady(step === 4);
+    setIsQuotationReady(step === 3);
     try {
       const raw = sessionStorage.getItem(quickQuoteFormKey(userEmail));
       if (raw) {
@@ -685,7 +681,7 @@ export function QuickQuoteView({
                 onAssignEditingQuoteId?.(pmsCode);
                 loadedQuoteIdRef.current = `${pmsCode}::`;
                 setIsQuotationReady(true);
-                setCurrentStep(4);
+                setCurrentStep(3);
                 return;
               }
             }
@@ -696,7 +692,7 @@ export function QuickQuoteView({
           markUseLocalQuoteDraft(userEmail, editingQuoteId);
           loadedQuoteIdRef.current = loadKey;
           setIsQuotationReady(true);
-          setCurrentStep(4);
+          setCurrentStep(3);
           return;
         }
 
@@ -790,9 +786,9 @@ export function QuickQuoteView({
         }
         loadedQuoteIdRef.current = loadKey;
 
-        // Skip directly to step 4 editor
+        // Skip directly to editor step
         setIsQuotationReady(true);
-        setCurrentStep(4);
+        setCurrentStep(3);
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : '無法載入報價單';
         toast.error('載入失敗', { description: message });
@@ -867,15 +863,6 @@ export function QuickQuoteView({
     if (formData.serviceScope.length === 0) {
       newErrors.serviceScope = `請選擇至少一個${OFFICE_FURNITURE_CATEGORY_LABEL}`;
     }
-
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
-
-  const validateStep3 = (): boolean => {
-    const newErrors: Partial<Record<keyof QuoteFormData, string>> = {};
-
     if (!formData.validityDays.trim()) {
       newErrors.validityDays = '請填寫有效期限';
     } else if (!/^\d+$/.test(formData.validityDays.trim())) {
@@ -890,15 +877,13 @@ export function QuickQuoteView({
     if (currentStep === 1 && validateStep1()) {
       setCurrentStep(2);
     } else if (currentStep === 2 && validateStep2()) {
-      setCurrentStep(3);
-    } else if (currentStep === 3 && validateStep3()) {
       const sourceUuid = readQuickQuoteCopyFrom(userEmail);
       if (sourceUuid) {
         setIsLoadingCopy(true);
         try {
           const payload = await loadQuoteCopyPayload(sourceUuid);
           setCopyPayload(payload);
-          enterStep4();
+          enterEditorStep();
         } catch (err: unknown) {
           const message = err instanceof Error ? err.message : '無法載入來源報價內容';
           toast.error('複製失敗', { description: message });
@@ -907,16 +892,16 @@ export function QuickQuoteView({
         }
       } else {
         setCopyPayload(null);
-        enterStep4();
+        enterEditorStep();
       }
     }
   };
 
-  // Full-page spinner only for the *first* load/copy. Never unmount step-4 editor
+  // Full-page spinner only for the *first* load/copy. Never unmount editor
   // (or an open 提交審核 modal) on background re-fetch — that caused a black flash
   // and wiped in-progress wizard state when users later returned to step 1.
   const blockUiForInitialLoad =
-    (isLoadingQuote || isLoadingCopy) && !loadedQuoteData && currentStep !== 4;
+    (isLoadingQuote || isLoadingCopy) && !loadedQuoteData && currentStep !== 3;
   if (blockUiForInitialLoad) {
     return (
       <div className="flex h-full items-center justify-center bg-background">
@@ -982,11 +967,11 @@ export function QuickQuoteView({
 
   return (
     <>
-    <div className={cn('h-full overflow-y-auto bg-background', currentStep === 4 ? 'px-3 py-5' : 'p-5')}>
-      <div className={cn('mx-auto', currentStep === 4 ? 'w-full max-w-none' : 'max-w-3xl')}>
+    <div className={cn('h-full overflow-y-auto bg-background', currentStep === 3 ? 'px-3 py-5' : 'p-5')}>
+      <div className={cn('mx-auto', currentStep === 3 ? 'w-full max-w-none' : 'max-w-3xl')}>
         {/* Header */}
         <div className="mb-8">
-          {currentStep === 4 ? (
+          {currentStep === 3 ? (
             <div className="flex items-center gap-3">
               <button
                 type="button"
@@ -994,7 +979,7 @@ export function QuickQuoteView({
                   // Stay in the wizard with formData / loaded quote intact.
                   // (Previously, loaded quotes called onClearEditingQuote → list,
                   // which felt like「黑屏後資料全遺失」when users re-opened 快速報價.)
-                  setCurrentStep(3);
+                  setCurrentStep(2);
                 }}
                 className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-border px-4 py-2 font-body text-sm font-medium text-foreground transition-colors hover:bg-accent"
               >
@@ -1045,8 +1030,8 @@ export function QuickQuoteView({
         <div className="mb-8">
           <div className="flex items-center justify-between">
             {STEPS.map((step, index) => {
-              const isDisabled = step.id === 4 && !isQuotationReady;
-              const isClickable = !isDisabled && step.id !== currentStep && (step.id < currentStep || (step.id === 4 && isQuotationReady));
+              const isDisabled = step.id === 3 && !isQuotationReady;
+              const isClickable = !isDisabled && step.id !== currentStep && (step.id < currentStep || (step.id === 3 && isQuotationReady));
               return (
               <div key={step.id} className="flex flex-1 items-center">
                 <div
@@ -1100,8 +1085,8 @@ export function QuickQuoteView({
           </div>
         </div>
 
-        {/* Form Card - only for steps 1-3 */}
-        {currentStep < 4 && (
+        {/* Form Card - only for steps 1-2 */}
+        {currentStep < 3 && (
         <div className="rounded-2xl border border-border bg-card p-6 shadow-sm md:p-8">
           {currentStep === 1 && (
             <div
@@ -1398,11 +1383,7 @@ export function QuickQuoteView({
                   <p className="mt-1.5 text-xs text-red-500">{errors.serviceScope}</p>
                 )}
               </div>
-            </div>
-          )}
 
-          {currentStep === 3 && (
-            <div className="space-y-6">
               {/* Work Period — rectangle pill single-select */}
               <div>
                 <label className="mb-2 block font-body text-sm font-medium text-foreground">
@@ -1471,48 +1452,10 @@ export function QuickQuoteView({
                   className="w-full rounded-lg border border-border bg-background px-4 py-2.5 font-body text-sm text-foreground placeholder:text-muted-foreground/60 transition-colors focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
                 />
               </div>
-
-              {/* Quotation Summary Card */}
-              <div className="rounded-xl border border-[#2A2D3E] bg-[#0F1117] p-5">
-                <h4 className="mb-4 font-body text-sm font-semibold text-white/90">
-                  📋 報價單摘要
-                </h4>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <span className="block font-body text-xs text-white/50">報價單號</span>
-                    <span className="mt-0.5 block font-mono-data text-sm text-white/90 truncate">
-                      {formData.quoteId || '—'}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="block font-body text-xs text-white/50">公司名稱</span>
-                    <span className="mt-0.5 block font-mono-data text-sm text-white/90 truncate">
-                      {formData.clientName || '—'}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="block font-body text-xs text-white/50">客戶名稱</span>
-                    <span className="mt-0.5 block font-mono-data text-sm text-white/90 truncate">
-                      {formData.clientContactName || '—'}
-                    </span>
-                  </div>
-                  <div className="col-span-2">
-                    <span className="block font-body text-xs text-white/50">辦公室傢俬類別</span>
-                    <span className="mt-0.5 block font-mono-data text-sm text-white/90">
-                      {formData.serviceScope.length > 0
-                        ? formData.serviceScope.join('、')
-                        : '—'}
-                    </span>
-                  </div>
-                </div>
-              </div>
             </div>
           )}
 
-
-
-          {/* Footer Actions - only show for steps 1-3 */}
-          {currentStep < 4 && (
+          {/* Footer Actions - only show for steps 1-2 */}
           <div className="mt-8 flex items-center justify-between border-t border-border pt-6">
             <button
               type="button"
@@ -1529,14 +1472,14 @@ export function QuickQuoteView({
               上一步
             </button>
 
-            {currentStep < 3 ? (
+            {currentStep === 1 ? (
               <button
                 type="button"
                 onClick={handleNext}
-                disabled={currentStep === 1 && isLoadingPmsDefaults}
+                disabled={isLoadingPmsDefaults}
                 className="inline-flex items-center gap-2 rounded-lg bg-primary px-5 py-2.5 font-body text-sm font-medium text-primary-foreground shadow-md shadow-primary/20 transition-all hover:bg-primary/90 hover:shadow-lg hover:shadow-primary/30 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-primary disabled:active:scale-100"
               >
-                {currentStep === 1 && isLoadingPmsDefaults ? (
+                {isLoadingPmsDefaults ? (
                   <>
                     <Loader2 className="h-4 w-4 animate-spin" />
                     載入 PMS 中…
@@ -1559,12 +1502,11 @@ export function QuickQuoteView({
               </button>
             )}
           </div>
-          )}
         </div>
         )}
 
-        {/* Step 4: Quotation Draft Editor (full width, outside the form card) */}
-        {currentStep === 4 && (
+        {/* Step 3: Quotation Draft Editor (full width, outside the form card) */}
+        {currentStep === 3 && (
           <div className="mt-6">
             <QuotationDraftEditor
               formData={formData}
@@ -1573,7 +1515,7 @@ export function QuickQuoteView({
               initialCopyPayload={copyPayload}
               forceNewQuote={Boolean(copyFromUuid && copyPayload)}
               onBack={() => {
-                setCurrentStep(3);
+                setCurrentStep(2);
               }}
               onQuotePersisted={(result) => {
                 writeQuickQuoteCopyFrom(userEmail, null);
