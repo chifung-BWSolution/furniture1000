@@ -102,7 +102,7 @@ export const NAV_CONFIG: PrimaryItem[] = [
     icon: BarChart3,
     children: [
       { view: 'report-factory', label: '廠家報告', icon: Building },
-      { view: 'report-product', label: '產品報告', icon: BarChart2 },
+      { view: 'report-product', label: '報價單產品報告', icon: BarChart2 },
       { view: 'upload-product-log', label: '上載產品紀錄', icon: ClipboardList, adminOnly: true },
     ],
   },

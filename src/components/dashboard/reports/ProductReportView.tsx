@@ -86,7 +86,7 @@ export function ProductReportView() {
       })
       .catch((err: unknown) => {
         if (cancelled) return;
-        setError(err instanceof Error ? err.message : '無法載入產品報告資料');
+        setError(err instanceof Error ? err.message : '無法載入報價單產品報告資料');
         setProducts([]);
         setFactories([]);
         setCatalogCounts([]);
@@ -121,7 +121,7 @@ export function ProductReportView() {
           <div className="flex items-center gap-2">
             <BarChart2 className="h-5 w-5 text-primary" />
             <h1 className="font-display text-2xl font-bold tracking-tight">
-              產品報告
+              報價單產品報告
             </h1>
           </div>
           <p className="mt-1 font-body text-xs text-muted-foreground">
