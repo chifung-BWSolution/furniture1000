@@ -397,9 +397,12 @@ export function ProductReportView() {
                 <h3 className="font-display text-sm font-bold">
                   廠家產品數量排名（產品目錄現況）
                 </h3>
+                <p className="mt-1 font-body text-[11px] text-muted-foreground">
+                  A類＝已上載／準備上載 Shopify；B類＝產品目錄；產品數量＝A＋B
+                </p>
               </div>
               {catalogCounts.length === 0 ? (
-                <EmptyHint text="產品目錄尚無廠家資料" />
+                <EmptyHint text="尚無廠家產品資料" />
               ) : (
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
@@ -407,6 +410,12 @@ export function ProductReportView() {
                       <tr>
                         <th className="px-5 py-2.5 text-left font-medium">
                           排名 / 廠家
+                        </th>
+                        <th className="px-3 py-2.5 text-right font-medium">
+                          A類產品
+                        </th>
+                        <th className="px-3 py-2.5 text-right font-medium">
+                          B類產品
                         </th>
                         <th className="px-3 py-2.5 text-right font-medium">
                           產品數量
@@ -423,6 +432,12 @@ export function ProductReportView() {
                                 {f.factoryName}
                               </span>
                             </div>
+                          </td>
+                          <td className="px-3 py-2.5 text-right font-mono-data text-muted-foreground">
+                            {f.classACount.toLocaleString()}
+                          </td>
+                          <td className="px-3 py-2.5 text-right font-mono-data text-muted-foreground">
+                            {f.classBCount.toLocaleString()}
                           </td>
                           <td className="px-3 py-2.5 text-right font-mono-data text-foreground">
                             {f.productCount.toLocaleString()}
