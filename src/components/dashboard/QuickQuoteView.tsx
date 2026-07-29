@@ -40,7 +40,10 @@ import {
   type PmsPitchingListItem,
 } from '@/lib/pmsPitchings';
 import { sortIndustryLabels } from '@/lib/clientIndustrySort';
-import { filterIndustriesBySearch } from '@/lib/clientIndustryCatalog';
+import {
+  GROUPED_INDUSTRY_LABELS,
+  resolveIndustryGroups,
+} from '@/lib/clientIndustryGroups';
 import { PmsPitchingGate } from '@/components/dashboard/PmsPitchingGate';
 import { fetchLevel1CategoryOptions } from '@/lib/productCategoryOptions';
 import { isLegacyQFormatQuoteId } from '@/lib/quoteChainId';
@@ -93,9 +96,7 @@ interface QuoteFormData {
 }
 
 /** Fallback when not opened from a PMS pitching (no industry catalog loaded). */
-const FALLBACK_INDUSTRIES = ['餐飲', '辦公', '零售', '醫療', '教育', '酒店', '住宅', '其他'];
-const OFFICE_FURNITURE_GRADE_LABEL = '辦公室傢俬級別';
-const QUOTATION_TYPES = ['國際品牌', '本地品牌', '基本傢俬'];
+const FALLBACK_INDUSTRIES = GROUPED_INDUSTRY_LABELS;
 
 const OFFICE_FURNITURE_CATEGORY_LABEL = '辦公室傢俬類別';
 
@@ -405,9 +406,9 @@ export function QuickQuoteView({
     };
   }, []);
 
-  const filteredIndustryOptions = useMemo(
+  const industryGroups = useMemo(
     () =>
-      filterIndustriesBySearch(
+      resolveIndustryGroups(
         industryOptions,
         industrySearchQuery,
         formData.clientIndustry,
@@ -855,9 +856,6 @@ export function QuickQuoteView({
     if (formData.clientIndustry.length === 0) {
       newErrors.clientIndustry = '請選擇至少一個客戶產業';
     }
-    if (formData.quotationType.length === 0) {
-      newErrors.quotationType = `請選擇至少一個${OFFICE_FURNITURE_GRADE_LABEL}`;
-    }
 
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
@@ -1288,7 +1286,7 @@ export function QuickQuoteView({
                 </div>
               </div>
 
-              {/* Client Industry Tags — PMS nos_customer_tags (collection industry) when available */}
+              {/* Client Industry Tags — grouped catalog; PMS labels matched when available */}
               <div>
                 <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                   <label className="font-body text-sm font-medium text-foreground">
@@ -1307,71 +1305,52 @@ export function QuickQuoteView({
                     />
                   </div>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  {filteredIndustryOptions.length === 0 ? (
-                    <p className="font-body text-sm text-muted-foreground">
-                      找不到符合「{industrySearchQuery.trim()}」的產業
-                    </p>
-                  ) : (
-                    filteredIndustryOptions.map((industry) => (
-                    <button
-                      key={industry}
-                      type="button"
-                      onClick={() => toggleTag('clientIndustry', industry)}
-                      disabled={isLoadingPmsDefaults}
-                      className={cn(
-                        'rounded-md border px-3 py-1.5 font-body text-sm font-medium transition-all disabled:cursor-not-allowed disabled:opacity-60',
-                        formData.clientIndustry.includes(industry)
-                          ? 'border-primary bg-primary/10 text-primary shadow-sm'
-                          : 'border-border bg-card text-muted-foreground hover:border-primary/50 hover:text-foreground'
-                      )}
-                    >
-                      {industry}
-                    </button>
-                    ))
-                  )}
-                  {pmsIndustryCatalog.length === 0 &&
-                    formData.clientIndustry.includes('其他') && (
-                    <input
-                      type="text"
-                      value={formData.clientIndustryOther}
-                      onChange={(e) => updateField('clientIndustryOther', e.target.value)}
-                      placeholder="請填寫產業"
-                      disabled={isLoadingPmsDefaults}
-                      className="border-b border-border bg-transparent px-1 py-1 font-body text-sm text-foreground placeholder:text-muted-foreground/60 focus:border-primary focus:outline-none w-32 disabled:cursor-not-allowed disabled:opacity-60"
-                    />
-                  )}
-                </div>
+                {industryGroups.length === 0 ? (
+                  <p className="font-body text-sm text-muted-foreground">
+                    找不到符合「{industrySearchQuery.trim()}」的產業
+                  </p>
+                ) : (
+                  <div className="space-y-4">
+                    {industryGroups.map((group) => (
+                      <div key={group.title}>
+                        <h4 className="mb-2 font-body text-xs font-semibold tracking-wide text-muted-foreground">
+                          {group.title}
+                        </h4>
+                        <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+                          {group.options.map((industry) => (
+                            <button
+                              key={industry}
+                              type="button"
+                              onClick={() => toggleTag('clientIndustry', industry)}
+                              disabled={isLoadingPmsDefaults}
+                              className={cn(
+                                'rounded-md border px-3 py-1.5 text-left font-body text-sm font-medium transition-all disabled:cursor-not-allowed disabled:opacity-60',
+                                formData.clientIndustry.includes(industry)
+                                  ? 'border-primary bg-primary/10 text-primary shadow-sm'
+                                  : 'border-border bg-card text-muted-foreground hover:border-primary/50 hover:text-foreground',
+                              )}
+                            >
+                              {industry}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {pmsIndustryCatalog.length === 0 &&
+                  formData.clientIndustry.includes('其他') && (
+                  <input
+                    type="text"
+                    value={formData.clientIndustryOther}
+                    onChange={(e) => updateField('clientIndustryOther', e.target.value)}
+                    placeholder="請填寫產業"
+                    disabled={isLoadingPmsDefaults}
+                    className="mt-2 border-b border-border bg-transparent px-1 py-1 font-body text-sm text-foreground placeholder:text-muted-foreground/60 focus:border-primary focus:outline-none w-32 disabled:cursor-not-allowed disabled:opacity-60"
+                  />
+                )}
                 {errors.clientIndustry && (
                   <p className="mt-1.5 text-xs text-red-500">{errors.clientIndustry}</p>
-                )}
-              </div>
-
-              {/* Office furniture grade */}
-              <div>
-                <label className="mb-2 block font-body text-sm font-medium text-foreground">
-                  {OFFICE_FURNITURE_GRADE_LABEL} <span className="text-red-500">*</span>
-                </label>
-                <div className="flex flex-wrap gap-2">
-                  {QUOTATION_TYPES.map((type) => (
-                    <button
-                      key={type}
-                      type="button"
-                      onClick={() => toggleTag('quotationType', type)}
-                      disabled={isLoadingPmsDefaults}
-                      className={cn(
-                        'rounded-full border px-4 py-1.5 font-body text-sm font-medium transition-all disabled:cursor-not-allowed disabled:opacity-60',
-                        formData.quotationType.includes(type)
-                          ? 'border-primary bg-primary/10 text-primary shadow-sm'
-                          : 'border-border bg-card text-muted-foreground hover:border-primary/50 hover:text-foreground'
-                      )}
-                    >
-                      {type}
-                    </button>
-                  ))}
-                </div>
-                {errors.quotationType && (
-                  <p className="mt-1.5 text-xs text-red-500">{errors.quotationType}</p>
                 )}
               </div>
             </div>
@@ -1385,11 +1364,6 @@ export function QuickQuoteView({
                   <label className="font-body text-sm font-medium text-foreground">
                     {OFFICE_FURNITURE_CATEGORY_LABEL} <span className="text-red-500">*</span>
                   </label>
-                  {formData.quotationType.length > 0 && (
-                    <span className="font-body text-xs text-muted-foreground">
-                      — {formData.quotationType.join('、')}
-                    </span>
-                  )}
                   <span className="ml-1 font-body text-xs text-muted-foreground">(可多選)</span>
                 </div>
                 {level1CategoriesLoading ? (
