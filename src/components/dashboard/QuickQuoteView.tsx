@@ -1498,7 +1498,7 @@ export function QuickQuoteView({
                 className="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-6 py-2.5 font-body text-sm font-semibold text-white shadow-md shadow-orange-500/25 transition-all hover:bg-orange-600 hover:shadow-lg hover:shadow-orange-500/30 active:scale-[0.98]"
               >
                 <Sparkles className="h-4 w-4" />
-                AI 產生報價
+                開始傢俬報價
               </button>
             )}
           </div>
