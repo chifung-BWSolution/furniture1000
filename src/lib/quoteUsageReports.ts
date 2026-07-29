@@ -34,6 +34,13 @@ export type QuoteFactoryUsageRow = {
 
 export type FactoryCatalogCountRow = {
   factoryName: string;
+  /**
+   * A類：會／已上載 Shopify（`shopify_products` + `ready_to_shopify`）。
+   */
+  classACount: number;
+  /** B類：產品目錄（`products`）。 */
+  classBCount: number;
+  /** A + B 合計（排名用）。 */
   productCount: number;
 };
 
@@ -300,33 +307,74 @@ export async function fetchQuoteUsageRankings(): Promise<{
   return { products: productRows, factories: factoryRows };
 }
 
-/** All factories ranked by current product catalog count (`products` table). */
-export async function fetchFactoryCatalogCounts(): Promise<FactoryCatalogCountRow[]> {
+async function countFactoriesFromColumn(
+  table: 'products' | 'shopify_products' | 'ready_to_shopify',
+  column: 'factories_display_name' | 'vendor',
+  opts?: { requireTitle?: boolean },
+): Promise<Map<string, number>> {
   const counts = new Map<string, number>();
   let from = 0;
   for (;;) {
-    const { data, error } = await supabase
-      .from('products')
-      .select('factories_display_name')
-      .not('title', 'is', null)
-      .neq('title', '')
-      .range(from, from + PAGE_SIZE - 1);
+    let query = supabase.from(table).select(column);
+    if (opts?.requireTitle) {
+      query = query.not('title', 'is', null).neq('title', '');
+    }
+    const { data, error } = await query.range(from, from + PAGE_SIZE - 1);
     if (error) throw error;
-    const chunk = (data || []) as Array<{ factories_display_name?: string | null }>;
+    const chunk = (data || []) as Array<Record<string, string | null | undefined>>;
     for (const row of chunk) {
-      const name = normalizeFactoryDisplayName(row.factories_display_name);
+      const name = normalizeFactoryDisplayName(row[column]);
       if (!name) continue;
       counts.set(name, (counts.get(name) || 0) + 1);
     }
     if (chunk.length < PAGE_SIZE) break;
     from += PAGE_SIZE;
   }
+  return counts;
+}
 
-  return [...counts.entries()]
-    .map(([factoryName, productCount]) => ({ factoryName, productCount }))
+/**
+ * Factory product counts:
+ * - B類 = 產品目錄 `products`
+ * - A類 = 已上載／準備上載 Shopify（`shopify_products` + `ready_to_shopify`）
+ * - 產品數量 = A + B
+ */
+export async function fetchFactoryCatalogCounts(): Promise<FactoryCatalogCountRow[]> {
+  const [classB, shopifyA, readyA] = await Promise.all([
+    countFactoriesFromColumn('products', 'factories_display_name', {
+      requireTitle: true,
+    }),
+    countFactoriesFromColumn('shopify_products', 'vendor'),
+    countFactoriesFromColumn('ready_to_shopify', 'vendor'),
+  ]);
+
+  const classA = new Map<string, number>();
+  for (const source of [shopifyA, readyA]) {
+    for (const [factoryName, n] of source) {
+      classA.set(factoryName, (classA.get(factoryName) || 0) + n);
+    }
+  }
+
+  const factoryNames = new Set<string>([
+    ...classA.keys(),
+    ...classB.keys(),
+  ]);
+
+  return [...factoryNames]
+    .map((factoryName) => {
+      const a = classA.get(factoryName) || 0;
+      const b = classB.get(factoryName) || 0;
+      return {
+        factoryName,
+        classACount: a,
+        classBCount: b,
+        productCount: a + b,
+      };
+    })
     .sort(
       (a, b) =>
         b.productCount - a.productCount ||
+        b.classBCount - a.classBCount ||
         a.factoryName.localeCompare(b.factoryName, 'zh-Hant'),
     );
 }

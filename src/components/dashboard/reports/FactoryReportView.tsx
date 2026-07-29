@@ -60,7 +60,7 @@ export function FactoryReportView() {
   }));
 
   const catalogByName = new Map(
-    catalog.map((row) => [row.factoryName, row.productCount]),
+    catalog.map((row) => [row.factoryName, row.classBCount] as const),
   );
 
   return (
@@ -245,10 +245,13 @@ export function FactoryReportView() {
                 <h3 className="font-display text-sm font-bold">
                   廠家產品數量排名（產品目錄）
                 </h3>
+                <p className="mt-1 font-body text-[11px] text-muted-foreground">
+                  A類＝已上載／準備上載 Shopify；B類＝產品目錄；產品數量＝A＋B
+                </p>
               </div>
               {catalog.length === 0 ? (
                 <p className="py-10 text-center font-body text-sm text-muted-foreground">
-                  產品目錄尚無廠家資料
+                  尚無廠家產品資料
                 </p>
               ) : (
                 <div className="overflow-x-auto">
@@ -257,6 +260,12 @@ export function FactoryReportView() {
                       <tr>
                         <th className="px-5 py-2.5 text-left font-medium">
                           排名 / 廠家
+                        </th>
+                        <th className="px-3 py-2.5 text-right font-medium">
+                          A類產品
+                        </th>
+                        <th className="px-3 py-2.5 text-right font-medium">
+                          B類產品
                         </th>
                         <th className="px-3 py-2.5 text-right font-medium">
                           產品數量
@@ -282,6 +291,12 @@ export function FactoryReportView() {
                                 {f.factoryName}
                               </span>
                             </div>
+                          </td>
+                          <td className="px-3 py-2.5 text-right font-mono-data text-muted-foreground">
+                            {f.classACount.toLocaleString()}
+                          </td>
+                          <td className="px-3 py-2.5 text-right font-mono-data text-muted-foreground">
+                            {f.classBCount.toLocaleString()}
                           </td>
                           <td className="px-3 py-2.5 text-right font-mono-data text-foreground">
                             {f.productCount.toLocaleString()}
