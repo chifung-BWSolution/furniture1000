@@ -125,7 +125,7 @@ export function ProductReportView() {
             </h1>
           </div>
           <p className="mt-1 font-body text-xs text-muted-foreground">
-            依傢俬報價單明細的使用次數統計；廠家產品數取自產品目錄現況
+            只統計報價明細中能對應產品目錄（products）的現有產品；增值服務／清走等非產品列不計入
           </p>
         </div>
 

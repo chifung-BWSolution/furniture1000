@@ -74,7 +74,7 @@ export function FactoryReportView() {
             </h1>
           </div>
           <p className="mt-1 font-body text-xs text-muted-foreground">
-            依傢俬報價單明細的廠家使用次數排名；並對照產品目錄現有產品數
+            只統計報價明細中能對應產品目錄的現有產品；並對照目錄廠家產品數
           </p>
         </div>
 

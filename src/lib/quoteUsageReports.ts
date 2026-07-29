@@ -43,8 +43,18 @@ type QuoteItemScanRow = {
   is_custom_term: boolean | null;
 };
 
+type CatalogProductRef = {
+  title: string;
+  factoryName: string | null;
+  image: string | null;
+};
+
 function normalizeProductName(name: string | null | undefined): string {
   return (name || '').trim().replace(/\s+/g, ' ');
+}
+
+function catalogKey(name: string): string {
+  return normalizeProductName(name).toLowerCase();
 }
 
 async function fetchAllQuoteItemRows(): Promise<QuoteItemScanRow[]> {
@@ -66,18 +76,61 @@ async function fetchAllQuoteItemRows(): Promise<QuoteItemScanRow[]> {
   return rows;
 }
 
+/** Load products.title → catalog metadata for matching quote line names. */
+async function fetchCatalogProductIndex(): Promise<Map<string, CatalogProductRef>> {
+  const index = new Map<string, CatalogProductRef>();
+  let from = 0;
+  for (;;) {
+    const { data, error } = await supabase
+      .from('products')
+      .select('title, factories_display_name, image_url')
+      .not('title', 'is', null)
+      .neq('title', '')
+      .range(from, from + PAGE_SIZE - 1);
+    if (error) throw error;
+    const chunk = (data || []) as Array<{
+      title?: string | null;
+      factories_display_name?: string | null;
+      image_url?: string | null;
+    }>;
+    for (const row of chunk) {
+      const title = normalizeProductName(row.title);
+      if (!title) continue;
+      const key = catalogKey(title);
+      if (index.has(key)) continue;
+      index.set(key, {
+        title,
+        factoryName: normalizeFactoryDisplayName(row.factories_display_name) || null,
+        image: row.image_url?.trim() || null,
+      });
+    }
+    if (chunk.length < PAGE_SIZE) break;
+    from += PAGE_SIZE;
+  }
+  return index;
+}
+
 function isCountableQuoteItem(row: QuoteItemScanRow): boolean {
   if (row.is_section_title) return false;
+  if (row.is_custom_term) return false;
   if (!normalizeProductName(row.name)) return false;
   return true;
 }
 
-/** Popular products & factories from 傢俬報價 line items. */
+/**
+ * Popular products & factories from 傢俬報價 line items.
+ * Only lines whose name matches an existing `products.title` are counted
+ * (excludes 增值服務 / 清走 / freeform labels like「老闆枱」).
+ */
 export async function fetchQuoteUsageRankings(): Promise<{
   products: QuoteProductUsageRow[];
   factories: QuoteFactoryUsageRow[];
 }> {
-  const rows = (await fetchAllQuoteItemRows()).filter(isCountableQuoteItem);
+  const [quoteRows, catalog] = await Promise.all([
+    fetchAllQuoteItemRows(),
+    fetchCatalogProductIndex(),
+  ]);
+  const rows = quoteRows.filter(isCountableQuoteItem);
 
   type ProductAgg = {
     name: string;
@@ -100,19 +153,27 @@ export async function fetchQuoteUsageRankings(): Promise<{
 
   for (const row of rows) {
     const name = normalizeProductName(row.name);
-    const factoryName = normalizeFactoryDisplayName(row.factory_name) || null;
+    const catalogHit = catalog.get(catalogKey(name));
+    // Only count real catalog products.
+    if (!catalogHit) continue;
+
+    const factoryName =
+      normalizeFactoryDisplayName(row.factory_name) ||
+      catalogHit.factoryName ||
+      null;
     const qty =
       typeof row.quantity === 'number' && Number.isFinite(row.quantity)
         ? row.quantity
         : 1;
     const quoteId = String(row.quote_uuid || '');
+    const displayName = catalogHit.title;
+    const pKey = catalogKey(displayName);
 
-    const pKey = name.toLowerCase();
     let p = products.get(pKey);
     if (!p) {
       p = {
-        name,
-        image: row.image?.trim() || null,
+        name: displayName,
+        image: catalogHit.image || row.image?.trim() || null,
         usageCount: 0,
         quantitySum: 0,
         quoteIds: new Set(),
@@ -123,7 +184,9 @@ export async function fetchQuoteUsageRankings(): Promise<{
     p.usageCount += 1;
     p.quantitySum += qty;
     if (quoteId) p.quoteIds.add(quoteId);
-    if (!p.image && row.image?.trim()) p.image = row.image.trim();
+    if (!p.image) {
+      p.image = catalogHit.image || row.image?.trim() || null;
+    }
     if (!p.factoryName && factoryName) p.factoryName = factoryName;
 
     if (factoryName) {
@@ -141,7 +204,7 @@ export async function fetchQuoteUsageRankings(): Promise<{
       f.usageCount += 1;
       f.quantitySum += qty;
       if (quoteId) f.quoteIds.add(quoteId);
-      f.productNames.add(name);
+      f.productNames.add(displayName);
     }
   }
 
