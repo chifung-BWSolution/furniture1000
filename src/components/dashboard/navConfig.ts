@@ -103,6 +103,7 @@ export const NAV_CONFIG: PrimaryItem[] = [
     children: [
       { view: 'report-factory', label: '廠家報告', icon: Building },
       { view: 'report-product', label: '產品報告', icon: BarChart2 },
+      { view: 'upload-product-log', label: '上載產品紀錄', icon: ClipboardList, adminOnly: true },
     ],
   },
   {
@@ -115,7 +116,6 @@ export const NAV_CONFIG: PrimaryItem[] = [
       { view: 'category-management', label: 'Shopify 分類', icon: FolderTree },
       { view: 'category-registry', label: '產品分類', icon: FolderTree },
       { view: 'settings', label: '系統設定', icon: SettingsIcon, adminOnly: true },
-      { view: 'upload-product-log', label: '上載產品紀錄', icon: ClipboardList, adminOnly: true },
     ],
   },
 ];

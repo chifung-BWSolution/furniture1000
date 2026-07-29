@@ -36,6 +36,7 @@ const VIEW_PATHS: { view: ViewType; path: string }[] = [
 
   { view: 'report-factory', path: `${REPORTS_BASE}/factory` },
   { view: 'report-product', path: `${REPORTS_BASE}/product` },
+  { view: 'upload-product-log', path: `${REPORTS_BASE}/upload-product-log` },
   /** Legacy 銷售報告 → 廠家報告 */
   { view: 'report-sales', path: `${REPORTS_BASE}/factory` },
 
@@ -44,7 +45,6 @@ const VIEW_PATHS: { view: ViewType; path: string }[] = [
   { view: 'category-management', path: `${SETTINGS_BASE}/category-management` },
   { view: 'category-registry', path: `${SETTINGS_BASE}/category-registry` },
   { view: 'settings', path: `${SETTINGS_BASE}/system` },
-  { view: 'upload-product-log', path: `${SETTINGS_BASE}/upload-product-log` },
 ];
 
 const PATH_BY_VIEW = new Map(
@@ -96,6 +96,11 @@ export function appViewFromPath(pathname: string): ViewType | null {
 
   // Removed 銷售報告 — old bookmarks land on 廠家報告
   if (path === `${REPORTS_BASE}/sales`) return 'report-factory';
+
+  // Moved 上載產品紀錄 from 設定 → 分析報表
+  if (path === `${SETTINGS_BASE}/upload-product-log`) {
+    return 'upload-product-log';
+  }
 
   // Prefix-only e.g. /project → project-list
   if (path === PROJECT_BASE) return 'solution-project-list';
