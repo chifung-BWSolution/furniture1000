@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
-import { BarChart2, Loader2, Package, Building2 } from 'lucide-react';
+import { BarChart2, Loader2, Package } from 'lucide-react';
 import {
   BarChart,
   Bar,
@@ -11,10 +11,7 @@ import {
   ResponsiveContainer,
 } from 'recharts';
 import {
-  fetchFactoryCatalogCounts,
   fetchQuoteUsageRankings,
-  type FactoryCatalogCountRow,
-  type QuoteFactoryUsageRow,
   type QuoteProductUsageRow,
 } from '@/lib/quoteUsageReports';
 import { CHART_COLORS } from '@/constants/analytics-mock';
@@ -68,28 +65,20 @@ export function ProductReportView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [products, setProducts] = useState<QuoteProductUsageRow[]>([]);
-  const [factories, setFactories] = useState<QuoteFactoryUsageRow[]>([]);
-  const [catalogCounts, setCatalogCounts] = useState<FactoryCatalogCountRow[]>(
-    [],
-  );
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    Promise.all([fetchQuoteUsageRankings(), fetchFactoryCatalogCounts()])
-      .then(([usage, catalog]) => {
+    fetchQuoteUsageRankings()
+      .then((usage) => {
         if (cancelled) return;
         setProducts(usage.products);
-        setFactories(usage.factories);
-        setCatalogCounts(catalog);
       })
       .catch((err: unknown) => {
         if (cancelled) return;
         setError(err instanceof Error ? err.message : '無法載入報價單產品報告資料');
         setProducts([]);
-        setFactories([]);
-        setCatalogCounts([]);
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -103,15 +92,6 @@ export function ProductReportView() {
     name: p.name.length > 16 ? `${p.name.slice(0, 16)}…` : p.name,
     fullName: p.name,
     count: p.usageCount,
-  }));
-
-  const factoryChart = factories.slice(0, TOP_CHART).map((f) => ({
-    name:
-      f.factoryName.length > 14
-        ? `${f.factoryName.slice(0, 14)}…`
-        : f.factoryName,
-    fullName: f.factoryName,
-    count: f.usageCount,
   }));
 
   return (
@@ -144,21 +124,11 @@ export function ProductReportView() {
 
         {!loading && !error ? (
           <div className="space-y-6">
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-1 max-w-xs">
               <StatCard
                 icon={<Package className="h-4 w-4" />}
                 label="有報價紀錄的產品"
                 value={products.length.toLocaleString()}
-              />
-              <StatCard
-                icon={<Building2 className="h-4 w-4" />}
-                label="有報價紀錄的廠家"
-                value={factories.length.toLocaleString()}
-              />
-              <StatCard
-                icon={<Building2 className="h-4 w-4" />}
-                label="目錄內廠家數"
-                value={catalogCounts.length.toLocaleString()}
               />
             </div>
 
@@ -274,173 +244,6 @@ export function ProductReportView() {
                           </td>
                           <td className="px-3 py-2.5 text-right font-mono-data text-muted-foreground">
                             {p.quantitySum.toLocaleString()}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-
-            <div className="rounded-xl border border-border bg-card p-5">
-              <h3 className="mb-4 font-display text-sm font-bold">
-                {`最受歡迎廠家 Top ${TOP_CHART}（報價使用次數）`}
-              </h3>
-              {factoryChart.length === 0 ? (
-                <EmptyHint text="尚無報價廠家使用紀錄" />
-              ) : (
-                <ResponsiveContainer width="100%" height={240}>
-                  <BarChart data={factoryChart} margin={{ left: 8, right: 8 }}>
-                    <CartesianGrid
-                      strokeDasharray="3 3"
-                      stroke="hsl(var(--border))"
-                    />
-                    <XAxis
-                      dataKey="name"
-                      tick={{ fontSize: 10 }}
-                      stroke="hsl(var(--muted-foreground))"
-                      interval={0}
-                      angle={-20}
-                      textAnchor="end"
-                      height={64}
-                    />
-                    <YAxis
-                      tick={{ fontSize: 11 }}
-                      stroke="hsl(var(--muted-foreground))"
-                      allowDecimals={false}
-                    />
-                    <Tooltip
-                      formatter={(value: number) => [`${value} 次`, '使用次數']}
-                      labelFormatter={(_label, payload) =>
-                        String(payload?.[0]?.payload?.fullName || '')
-                      }
-                      contentStyle={{
-                        borderRadius: 12,
-                        fontSize: 12,
-                        border: '1px solid hsl(var(--border))',
-                      }}
-                    />
-                    <Bar
-                      dataKey="count"
-                      fill={CHART_COLORS.sky}
-                      radius={[4, 4, 0, 0]}
-                    />
-                  </BarChart>
-                </ResponsiveContainer>
-              )}
-            </div>
-
-            <div className="overflow-hidden rounded-xl border border-border bg-card">
-              <div className="border-b border-border px-5 py-3">
-                <h3 className="font-display text-sm font-bold">
-                  最受歡迎廠家排名（報價使用）
-                </h3>
-              </div>
-              {factories.length === 0 ? (
-                <EmptyHint text="尚無報價廠家使用紀錄" />
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="bg-muted/50 text-[11px] uppercase tracking-wider text-muted-foreground">
-                      <tr>
-                        <th className="px-5 py-2.5 text-left font-medium">
-                          排名 / 廠家
-                        </th>
-                        <th className="px-3 py-2.5 text-right font-medium">
-                          使用次數
-                        </th>
-                        <th className="px-3 py-2.5 text-right font-medium">
-                          報價單數
-                        </th>
-                        <th className="px-3 py-2.5 text-right font-medium">
-                          產品種類
-                        </th>
-                        <th className="px-3 py-2.5 text-right font-medium">
-                          總數量
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border/60">
-                      {factories.map((f, i) => (
-                        <tr key={f.factoryName} className="hover:bg-muted/30">
-                          <td className="px-5 py-2.5">
-                            <div className="flex items-center gap-2.5">
-                              <RankBadge rank={i + 1} />
-                              <span className="font-body text-[13px] font-medium text-foreground">
-                                {f.factoryName}
-                              </span>
-                            </div>
-                          </td>
-                          <td className="px-3 py-2.5 text-right font-mono-data text-foreground">
-                            {f.usageCount.toLocaleString()}
-                          </td>
-                          <td className="px-3 py-2.5 text-right font-mono-data text-muted-foreground">
-                            {f.quoteCount.toLocaleString()}
-                          </td>
-                          <td className="px-3 py-2.5 text-right font-mono-data text-muted-foreground">
-                            {f.productCount.toLocaleString()}
-                          </td>
-                          <td className="px-3 py-2.5 text-right font-mono-data text-muted-foreground">
-                            {f.quantitySum.toLocaleString()}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </div>
-
-            <div className="overflow-hidden rounded-xl border border-border bg-card">
-              <div className="border-b border-border px-5 py-3">
-                <h3 className="font-display text-sm font-bold">
-                  廠家產品數量排名（產品目錄現況）
-                </h3>
-                <p className="mt-1 font-body text-[11px] text-muted-foreground">
-                  A類＝已上載／準備上載 Shopify；B類＝產品目錄；產品數量＝A＋B
-                </p>
-              </div>
-              {catalogCounts.length === 0 ? (
-                <EmptyHint text="尚無廠家產品資料" />
-              ) : (
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead className="bg-muted/50 text-[11px] uppercase tracking-wider text-muted-foreground">
-                      <tr>
-                        <th className="px-5 py-2.5 text-left font-medium">
-                          排名 / 廠家
-                        </th>
-                        <th className="px-3 py-2.5 text-right font-medium">
-                          A類產品
-                        </th>
-                        <th className="px-3 py-2.5 text-right font-medium">
-                          B類產品
-                        </th>
-                        <th className="px-3 py-2.5 text-right font-medium">
-                          產品數量
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border/60">
-                      {catalogCounts.map((f, i) => (
-                        <tr key={f.factoryName} className="hover:bg-muted/30">
-                          <td className="px-5 py-2.5">
-                            <div className="flex items-center gap-2.5">
-                              <RankBadge rank={i + 1} />
-                              <span className="font-body text-[13px] font-medium text-foreground">
-                                {f.factoryName}
-                              </span>
-                            </div>
-                          </td>
-                          <td className="px-3 py-2.5 text-right font-mono-data text-muted-foreground">
-                            {f.classACount.toLocaleString()}
-                          </td>
-                          <td className="px-3 py-2.5 text-right font-mono-data text-muted-foreground">
-                            {f.classBCount.toLocaleString()}
-                          </td>
-                          <td className="px-3 py-2.5 text-right font-mono-data text-foreground">
-                            {f.productCount.toLocaleString()}
                           </td>
                         </tr>
                       ))}
