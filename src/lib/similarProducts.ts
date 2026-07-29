@@ -57,7 +57,12 @@ export function skuStem(sku: string): string {
 
   // Trailing separator variants only: -1, -A, -12, -1A (1–2 chars).
   // Do NOT strip -366 / -380 (3+ char product number segments).
-  n = n.replace(/[-_][0-9A-Z]{1,2}$/i, '');
+  // Also keep codes like CYJ-DQ-13 (stripping -13 would leave no digits).
+  const withoutSepVariant = n.replace(/[-_][0-9A-Z]{1,2}$/i, '');
+  const withoutSepCompact = withoutSepVariant.replace(/[^A-Z0-9]/g, '');
+  if (withoutSepCompact !== compactSku(n) && /\d/.test(withoutSepCompact)) {
+    n = withoutSepVariant;
+  }
 
   let c = n.replace(/[^A-Z0-9]/g, '');
   if (!c) return '';
