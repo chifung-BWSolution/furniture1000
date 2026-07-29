@@ -439,12 +439,12 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
           <Select value={staffFilter} onValueChange={setStaffFilter}>
             <SelectTrigger
               className="h-10 w-[168px] shrink-0 rounded-xl border-border bg-card font-body text-sm shadow-sm"
-              aria-label="篩選主要 PM 及設計師"
+              aria-label="篩選主要 PM"
             >
-              <SelectValue placeholder="PM及設計師" />
+              <SelectValue placeholder="主要PM" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="__all__">全部 PM及設計師</SelectItem>
+              <SelectItem value="__all__">全部 PM</SelectItem>
               {staffFilterOptions.map((name) => (
                 <SelectItem key={name} value={name}>
                   {name}
@@ -476,7 +476,7 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
                   ['quote_status', '報價狀態'],
                   ['total_amount', '報價金額'],
                   ['cost_price', '成本'],
-                  ['staff', '主要PM及設計師'],
+                  ['staff', '主要PM'],
                   ['pitching_stages', 'Pitching'],
                 ] as const
               ).map(([key, label]) => (

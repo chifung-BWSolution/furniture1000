@@ -172,7 +172,7 @@ export function PmsPitchingGate({ onSelect, title, subtitle }: PmsPitchingGatePr
                 ['service_type', '服務類型'],
                 ['estimated_income', '預計收入'],
                 ['estimated_gross_profit', '預計毛利'],
-                ['staff', '主要PM及設計師'],
+                ['staff', '主要PM'],
                 ['pitching_stages', 'Status'],
               ] as const
             ).map(([key, label]) => (
