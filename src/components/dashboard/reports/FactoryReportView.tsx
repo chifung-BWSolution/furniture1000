@@ -74,7 +74,7 @@ export function FactoryReportView() {
             </h1>
           </div>
           <p className="mt-1 font-body text-xs text-muted-foreground">
-            只統計報價明細中能對應產品目錄的現有產品；並對照目錄廠家產品數
+            統計報價單一覽各報價單最新版本：每件有廠家的產品列計 1 次使用；並對照目錄廠家產品數
           </p>
         </div>
 
