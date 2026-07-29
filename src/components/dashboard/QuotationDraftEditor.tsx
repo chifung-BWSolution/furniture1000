@@ -115,6 +115,12 @@ import {
   englishTermsContentForPdf,
   buildDefaultTermsFullHtmlEn,
 } from "@/lib/quotationDefaultTermsEn";
+import {
+  DEFAULT_QUOTE_COMPANY_PHONE,
+  resolveQuoteCompanyPhone,
+} from "@/lib/quoteCompanyPhone";
+import { useAuth } from "@/contexts/AuthProvider";
+import { usePmsStaffName } from "@/hooks/use-pms-staff-name";
 
 interface QuoteFormData {
   company: string;
@@ -1719,6 +1725,9 @@ export function QuotationDraftEditor({
   forceNewQuote = false,
   draftQuoteId = null,
 }: QuotationDraftEditorProps) {
+  const { user } = useAuth();
+  const staffName = usePmsStaffName(user?.id);
+
   // Determine initial values from existingQuote or defaults
   const savedProjectData = existingQuote?.projectData || {};
   const copyPayload = initialCopyPayload ?? null;
@@ -1779,10 +1788,29 @@ export function QuotationDraftEditor({
     name: savedCompanyInfo?.name || formData.company || "Branding Works Design Ltd",
     address: savedCompanyInfo?.address || DEFAULT_COMPANY_ADDRESS.zh,
     addressEn: savedCompanyInfo?.addressEn || DEFAULT_COMPANY_ADDRESS.en,
-    phone: savedCompanyInfo?.phone || "51634839/ 97173545",
+    // Prefer the logged-in user's mapped phone when generating a quote.
+    phone:
+      resolveQuoteCompanyPhone({
+        email: userEmail,
+        name: null,
+      }) ||
+      savedCompanyInfo?.phone ||
+      DEFAULT_QUOTE_COMPANY_PHONE,
     email: savedCompanyInfo?.email || "sales@brandingworks-furniture.com",
     website: savedCompanyInfo?.website || DEFAULT_COMPANY_WEBSITE,
   });
+
+  // Keep「公司資訊 > 電話」aligned with the current login (email or PMS name).
+  useEffect(() => {
+    const resolved = resolveQuoteCompanyPhone({
+      email: userEmail || user?.email,
+      name: staffName,
+    });
+    if (!resolved) return;
+    setCompanyInfo((current) =>
+      current.phone === resolved ? current : { ...current, phone: resolved },
+    );
+  }, [staffName, user?.email, userEmail]);
 
   // Client info (editable, prefilled from steps or saved)
   // name = 公司名稱; contactName = 客戶名稱 (contact person)
@@ -2553,7 +2581,13 @@ export function QuotationDraftEditor({
               "Branding Works Design Ltd",
             address: cachedCompany.address || DEFAULT_COMPANY_ADDRESS.zh,
             addressEn: cachedCompany.addressEn || DEFAULT_COMPANY_ADDRESS.en,
-            phone: cachedCompany.phone || "51634839/ 97173545",
+            phone:
+              resolveQuoteCompanyPhone({
+                email: userEmail,
+                name: staffName,
+              }) ||
+              cachedCompany.phone ||
+              DEFAULT_QUOTE_COMPANY_PHONE,
             email: cachedCompany.email || "sales@brandingworks-furniture.com",
             website: cachedCompany.website || DEFAULT_COMPANY_WEBSITE,
           });
