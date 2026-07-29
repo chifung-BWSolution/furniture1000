@@ -73,6 +73,8 @@ export type BwfQuoteItemRow = {
   is_custom_term: boolean | null;
   is_optional: boolean | null;
   is_section_title: boolean | null;
+  /** Editor-only catalog SKU — not shown on customer PDF. */
+  sku?: string | null;
   created_at?: string | null;
   updated_at?: string | null;
 };
@@ -122,6 +124,7 @@ export function mapRowToItem(row: BwfQuoteItemRow): BwfQuoteItemInput {
     isCustomTerm: Boolean(row.is_custom_term),
     isOptional: Boolean(row.is_optional),
     isSectionTitle: Boolean(row.is_section_title),
+    sku: row.sku || undefined,
   };
 }
 
@@ -156,6 +159,7 @@ export function mapItemToRow(
     isCustomTerm,
     isOptional,
     isSectionTitle,
+    sku,
   } = item;
 
   return {
@@ -184,6 +188,7 @@ export function mapItemToRow(
     is_custom_term: Boolean(isCustomTerm),
     is_optional: Boolean(isOptional),
     is_section_title: Boolean(isSectionTitle),
+    sku: sku?.trim() || null,
   };
 }
 

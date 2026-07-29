@@ -162,6 +162,8 @@ interface QuotationItem {
   unitPrice: number;
   quantity: number;
   unit?: string;
+  /** Catalog / internal SKU — editable in draft; excluded from customer PDF. */
+  sku?: string;
   category?: string;
   material?: string;
   color?: string;
@@ -1065,40 +1067,56 @@ function QuoteProductItemCard({
           </QuoteFieldBlock>
         </div>
 
-        {/* Row 1 — 單位 · 可選 (gap so labels never collide with 小計 column) */}
+        {/* Row 1 — 單位 · 可選；SKU under 單位 (right of 廠家) */}
         <div
           className={cn(
-            "col-start-6 col-span-3 row-start-1 flex min-w-0 items-end gap-3",
+            "col-start-6 col-span-3 row-start-1 flex min-w-0 flex-col justify-end gap-1.5",
             QUOTE_CARD_PRICING_XL_SHIFT,
           )}
         >
+          <div className="flex min-w-0 items-end gap-3">
+            <QuoteFieldBlock
+              label={labels.unit}
+              className="w-[7em] min-w-[7em] max-w-[7em] shrink-0 [&_label]:whitespace-nowrap"
+            >
+              <input
+                type="text"
+                value={item.unit || ""}
+                placeholder="—"
+                maxLength={4}
+                onChange={(e) => updateItem(item.id, "unit", e.target.value)}
+                className={QUOTE_INPUT_CLASS}
+              />
+            </QuoteFieldBlock>
+            <div className="flex w-[7em] min-w-[7em] shrink-0 items-end justify-end">
+              <label className="flex cursor-pointer items-center gap-1.5">
+                <Checkbox
+                  checked={item.isOptional ?? false}
+                  onCheckedChange={(checked) =>
+                    updateItem(item.id, "isOptional", checked === true)
+                  }
+                  className="border-foreground/60 data-[state=checked]:border-primary"
+                />
+                <span className="whitespace-nowrap font-body text-xs text-muted-foreground">
+                  {labels.optionalProduct}
+                </span>
+              </label>
+            </div>
+          </div>
           <QuoteFieldBlock
-            label={labels.unit}
-            className="w-[7em] min-w-[7em] max-w-[7em] shrink-0 [&_label]:whitespace-nowrap"
+            label={labels.sku}
+            className="w-[14.75em] max-w-full shrink-0 [&_label]:whitespace-nowrap"
           >
             <input
               type="text"
-              value={item.unit || ""}
+              value={item.sku || ""}
               placeholder="—"
-              maxLength={4}
-              onChange={(e) => updateItem(item.id, "unit", e.target.value)}
+              onChange={(e) => updateItem(item.id, "sku", e.target.value)}
               className={QUOTE_INPUT_CLASS}
+              aria-label={labels.sku}
+              title="SKU（僅草稿編輯，不顯示於 PDF）"
             />
           </QuoteFieldBlock>
-          <div className="flex w-[7em] min-w-[7em] shrink-0 items-end justify-end">
-            <label className="flex cursor-pointer items-center gap-1.5">
-              <Checkbox
-                checked={item.isOptional ?? false}
-                onCheckedChange={(checked) =>
-                  updateItem(item.id, "isOptional", checked === true)
-                }
-                className="border-foreground/60 data-[state=checked]:border-primary"
-              />
-              <span className="whitespace-nowrap font-body text-xs text-muted-foreground">
-                {labels.optionalProduct}
-              </span>
-            </label>
-          </div>
         </div>
 
         {/* Row 2 — col 2: 備註 */}
@@ -1466,6 +1484,7 @@ function createBlankProductItem(): QuotationItem {
     unitPrice: 0,
     quantity: 1,
     unit: "",
+    sku: "",
     category: "",
     material: "",
     color: "",
@@ -1685,6 +1704,7 @@ function mapInputToQuotationItem(item: BwfQuoteItemInput): QuotationItem {
     unitPrice: item.unitPrice || 0,
     quantity: item.quantity || 1,
     unit: item.unit || "",
+    sku: item.sku || "",
     category: item.category,
     material: item.material,
     color: item.color,
@@ -2891,6 +2911,7 @@ export function QuotationDraftEditor({
       dimensionHMm?: number | null;
       deliveryTermName?: string;
       factoryName?: string;
+      sku?: string;
     }[],
   ) => {
     if (products.length === 0) {
@@ -2913,6 +2934,7 @@ export function QuotationDraftEditor({
         unitPrice: p.unitPrice || p.costPrice || 0,
         quantity: 1,
         unit: "",
+        sku: p.sku?.trim() || "",
         category: p.category?.trim() || "",
         material: p.material,
         color: p.color?.trim() || "",

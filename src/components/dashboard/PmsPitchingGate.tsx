@@ -6,6 +6,7 @@ import {
   pitchingDisplayTitle,
   type PmsPitchingListItem,
 } from '@/lib/pmsPitchings';
+import { overlayPitchingFinancialsFromQuotes } from '@/lib/quotePitchingFinancials';
 import {
   ListPageShell,
   ListTableCard,
@@ -71,7 +72,10 @@ export function PmsPitchingGate({ onSelect, title, subtitle }: PmsPitchingGatePr
       setLoadError(null);
       const rows = await fetchPmsPitchings({ search, limit: 100 });
       if (cancelled) return;
-      setItems(rows);
+      // Prefer Contract Sum / GP from the latest Furniture quote when present.
+      const withQuoteFinancials = await overlayPitchingFinancialsFromQuotes(rows);
+      if (cancelled) return;
+      setItems(withQuoteFinancials);
       setLoading(false);
       if (rows.length === 0 && !search.trim()) {
         setLoadError('未能載入 PMS Pitching 列表');

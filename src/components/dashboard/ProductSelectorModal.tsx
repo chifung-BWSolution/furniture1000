@@ -50,6 +50,7 @@ interface ProductSelectorModalProps {
     dimensionHMm?: number | null;
     deliveryTermName?: string;
     factoryName?: string;
+    sku?: string;
   }[]) => void;
   existingProductNames?: string[];
   /** Level-1 categories from quote wizard — products in these categories appear first when no level1 filter is set. */
@@ -319,6 +320,7 @@ export function ProductSelectorModal({
       dimensionHMm: p.dimension_h_mm,
       deliveryTermName: p.delivery_term_name || undefined,
       factoryName: p.factory_name?.trim() || undefined,
+      sku: p.sku?.trim() || undefined,
     }));
     onSelect(mapped);
     onClose();

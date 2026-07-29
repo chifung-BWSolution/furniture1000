@@ -142,6 +142,7 @@ export type Database = {
           factory_name: string | null
           factory_from_catalog: boolean | null
           is_custom_term: boolean | null
+          sku: string | null
           created_at: string | null
           updated_at: string | null
         }
@@ -171,6 +172,7 @@ export type Database = {
           factory_name?: string | null
           factory_from_catalog?: boolean | null
           is_custom_term?: boolean | null
+          sku?: string | null
           created_at?: string | null
           updated_at?: string | null
         }
@@ -200,6 +202,7 @@ export type Database = {
           factory_name?: string | null
           factory_from_catalog?: boolean | null
           is_custom_term?: boolean | null
+          sku?: string | null
           created_at?: string | null
           updated_at?: string | null
         }
