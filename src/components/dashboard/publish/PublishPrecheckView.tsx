@@ -107,7 +107,10 @@ export function PublishPrecheckView({ onNavigate, onProductsReadyToPublish }: Pr
       const mapped: CheckRow[] = (data || []).map((r: any) => {
         const hasImages = !!r.image_url;
         const skuValue = r.sku || r.model || '';
-        const dimHasAny = r.dimension_l_mm != null || r.dimension_w_mm != null || r.dimension_h_mm != null;
+        const dimComplete =
+          Number(r.dimension_l_mm) > 0 &&
+          Number(r.dimension_w_mm) > 0 &&
+          Number(r.dimension_h_mm) > 0;
 
         return {
           id: r.id,
@@ -123,7 +126,7 @@ export function PublishPrecheckView({ onNavigate, onProductsReadyToPublish }: Pr
             price:      Number(r.sale_price ?? r.price ?? 0) > 0,
             sku:        !!skuValue,
             delivery:   r.in_stock === true || !!(r.customize),
-            dimensions: dimHasAny,
+            dimensions: dimComplete,
             category:   !!(r.level1_category),
             tags:       Array.isArray(r.tags) && r.tags.length > 0,
           },

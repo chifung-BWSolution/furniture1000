@@ -55,6 +55,23 @@ function parseCostRefInput(raw: string): number | null {
   return Math.round(n * 100) / 100;
 }
 
+/** 產品尺寸長／闊／高皆必填（有效正數）。 */
+function isValidDimension(value: number | null | undefined): boolean {
+  return value != null && Number.isFinite(value) && value > 0;
+}
+
+function hasRequiredDimensions(it: Pick<InfoItem, 'dimL' | 'dimW' | 'dimH'>): boolean {
+  return isValidDimension(it.dimL) && isValidDimension(it.dimW) && isValidDimension(it.dimH);
+}
+
+function missingDimensionLabels(it: Pick<InfoItem, 'dimL' | 'dimW' | 'dimH'>): string[] {
+  const missing: string[] = [];
+  if (!isValidDimension(it.dimL)) missing.push('長');
+  if (!isValidDimension(it.dimW)) missing.push('闊');
+  if (!isValidDimension(it.dimH)) missing.push('高');
+  return missing;
+}
+
 interface InfoItem {
   id: string;
   rtsId: string | null;
@@ -349,6 +366,14 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
   const handleSaveOne = async (id: string) => {
     const it = items.find((x) => x.id === id);
     if (!it) return;
+    if (!hasRequiredDimensions(it)) {
+      const missing = missingDimensionLabels(it).join('、');
+      toast.error('無法儲存', {
+        description: `請先填寫產品尺寸（${missing} mm），三欄皆為必填`,
+      });
+      cardRefs.current[id]?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      return;
+    }
     setSavingId(id);
     try {
       await writeProductInfo(it, false);
@@ -369,12 +394,28 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
   const handleComplete = async () => {
     if (selected.size === 0) { toast.message('請先勾選產品'); return; }
     const ids = Array.from(selected);
+    const ready: InfoItem[] = [];
+    const blocked: InfoItem[] = [];
+    for (const id of ids) {
+      const it = items.find((x) => x.id === id);
+      if (!it) continue;
+      if (hasRequiredDimensions(it)) ready.push(it);
+      else blocked.push(it);
+    }
+    if (ready.length === 0) {
+      toast.error('無法完成', {
+        description: '所選產品尚未填寫完整產品尺寸（長／闊／高 mm），請補齊後再完成',
+      });
+      blocked[0] && cardRefs.current[blocked[0].id]?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'center',
+      });
+      return;
+    }
     setIsSaving(true);
     try {
       const completed: UploadLogEntry[] = [];
-      for (const id of ids) {
-        const it = items.find((x) => x.id === id);
-        if (!it) continue;
+      for (const it of ready) {
         await writeProductInfo(it, true);
         completed.push({
           productId: it.id,
@@ -384,9 +425,22 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
         });
       }
       await writeUploadLogBatch(completed);
-      setSelected(new Set());
+      // Incomplete products stay selected / on this page
+      setSelected(new Set(blocked.map((it) => it.id)));
       setReloadKey((k) => k + 1);
-      toast.success('已送往傢俬組檢查', { description: `${ids.length} 件產品的資訊已儲存，請到「傢俬組檢查」頁面確認後加入準備上載` });
+      if (blocked.length > 0) {
+        toast.success(`已送出 ${ready.length} 件至傢俬組檢查`, {
+          description: `另有 ${blocked.length} 件因尺寸未填齊而留在此頁，請補齊長／闊／高後再完成`,
+        });
+        blocked[0] && cardRefs.current[blocked[0].id]?.scrollIntoView({
+          behavior: 'smooth',
+          block: 'center',
+        });
+      } else {
+        toast.success('已送往傢俬組檢查', {
+          description: `${ready.length} 件產品的資訊已儲存，請到「傢俬組檢查」頁面確認後加入準備上載`,
+        });
+      }
       onComplete?.();
     } catch (e) {
       toast.error('儲存失敗', { description: e instanceof Error ? e.message : '請稍後再試' });
@@ -451,6 +505,7 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
           <div className="mx-auto max-w-5xl space-y-5">
             {items.map((it) => {
               const isSel = selected.has(it.id);
+              const dimsOk = hasRequiredDimensions(it);
               return (
                 <div key={it.id} ref={(el) => { cardRefs.current[it.id] = el; }} className={cn('rounded-2xl border bg-card transition-all', isSel ? 'border-emerald-500/50 ring-2 ring-emerald-500/20' : 'border-border')}>
                   {/* card head */}
@@ -469,6 +524,11 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
                         {it.factory && <span className="rounded bg-muted px-1.5 py-0.5 font-body text-[10px] text-muted-foreground">{it.factory}</span>}
                         {it.level1 && <span className="rounded bg-indigo-500/10 px-1.5 py-0.5 font-body text-[10px] text-indigo-600">{it.level1}</span>}
                         {it.level2 && <span className="rounded bg-muted px-1.5 py-0.5 font-body text-[10px] text-muted-foreground">{it.level2}</span>}
+                        {!dimsOk && (
+                          <span className="rounded bg-rose-500/10 px-1.5 py-0.5 font-body text-[10px] font-medium text-rose-600">
+                            尺寸未填齊
+                          </span>
+                        )}
                       </div>
                     </div>
                     {/* per-product save — persists data without advancing the flow */}
@@ -476,7 +536,8 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
                       size="sm"
                       variant="outline"
                       onClick={() => handleSaveOne(it.id)}
-                      disabled={savingId === it.id}
+                      disabled={savingId === it.id || !dimsOk}
+                      title={dimsOk ? '儲存產品資料' : '請先填寫產品尺寸（長／闊／高 mm）'}
                       className="shrink-0 gap-1.5 font-display text-xs"
                     >
                       {savingId === it.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Check className="h-3.5 w-3.5" />}
@@ -557,20 +618,39 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
                         )}
                       </div>
                     </Field>
-                    {/* dimensions */}
-                    <Field label="產品尺寸（長 / 闊 / 高 mm）" icon={<Ruler className="h-3 w-3" />}>
+                    {/* dimensions — all three required before 儲存 / 完成 */}
+                    <Field
+                      label="產品尺寸（長 / 闊 / 高 mm）"
+                      icon={<Ruler className="h-3 w-3" />}
+                      required
+                    >
                       <div className="flex items-center gap-1.5">
-                        {(['dimL', 'dimW', 'dimH'] as const).map((k, idx) => (
-                          <input
-                            key={k}
-                            type="number"
-                            value={it[k] ?? ''}
-                            onChange={(e) => patch(it.id, { [k]: e.target.value === '' ? null : Number(e.target.value) } as Partial<InfoItem>)}
-                            placeholder={['長', '闊', '高'][idx]}
-                            className="w-full rounded-lg border border-border bg-background px-2 py-2 text-center font-mono-data text-[12px] placeholder:text-muted-foreground/40 focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
-                          />
-                        ))}
+                        {(['dimL', 'dimW', 'dimH'] as const).map((k, idx) => {
+                          const empty = !isValidDimension(it[k]);
+                          return (
+                            <input
+                              key={k}
+                              type="number"
+                              min={0}
+                              value={it[k] ?? ''}
+                              onChange={(e) => patch(it.id, { [k]: e.target.value === '' ? null : Number(e.target.value) } as Partial<InfoItem>)}
+                              placeholder={['長', '闊', '高'][idx]}
+                              aria-required
+                              className={cn(
+                                'w-full rounded-lg border bg-background px-2 py-2 text-center font-mono-data text-[12px] placeholder:text-muted-foreground/40 focus:outline-none focus:ring-2',
+                                empty
+                                  ? 'border-rose-400/70 focus:border-rose-500 focus:ring-rose-500/20'
+                                  : 'border-border focus:border-primary/50 focus:ring-primary/20',
+                              )}
+                            />
+                          );
+                        })}
                       </div>
+                      {!dimsOk && (
+                        <p className="mt-1 font-body text-[11px] text-rose-600">
+                          長／闊／高皆為必填，未填齊前無法儲存或完成
+                        </p>
+                      )}
                     </Field>
                     {/* category — dropdowns from product_category */}
                     <Field label="產品分類（一級 / 二級）" icon={<FolderTree className="h-3 w-3" />}>
@@ -817,10 +897,24 @@ function LazyProductThumb({
   );
 }
 
-function Field({ label, icon, children }: { label: string; icon?: React.ReactNode; children: React.ReactNode }) {
+function Field({
+  label,
+  icon,
+  required,
+  children,
+}: {
+  label: string;
+  icon?: React.ReactNode;
+  required?: boolean;
+  children: React.ReactNode;
+}) {
   return (
     <div>
-      <label className="mb-1 flex items-center gap-1 font-body text-[12px] font-medium text-muted-foreground">{icon}{label}</label>
+      <label className="mb-1 flex items-center gap-1 font-body text-[12px] font-medium text-muted-foreground">
+        {icon}
+        {label}
+        {required ? <span className="text-rose-500">*</span> : null}
+      </label>
       {children}
     </div>
   );
