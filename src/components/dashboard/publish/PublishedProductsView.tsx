@@ -1,8 +1,9 @@
-import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import { Fragment, useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import {
   CheckCheck, Search, ArrowDownToLine, ArrowUpToLine, RotateCcw, ChevronDown,
   CloudDownload, Loader2, X, Store, RefreshCw, ArrowUp, ArrowDown, GitMerge, FolderTree,
+  ScanSearch,
 } from 'lucide-react';
 import {
   Select,
@@ -11,10 +12,21 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
+import { Checkbox } from '@/components/ui/checkbox';
 import { PUBLISH_STATE_META, type PublishState } from '@/constants/analytics-mock';
 import { supabase } from '@/lib/supabase';
 import { invokeEdgeFunctionDirect } from '@/lib/invokeEdgeFunction';
 import { resolveMirrorPrimaryImageUrl } from '@/lib/shopifyMirrorImages';
+import {
+  findSimilarProductGroups,
+  type SimilarProductCriterion,
+  type SimilarProductGroup,
+} from '@/lib/similarProducts';
 import { toast } from 'sonner';
 import { PublishedProductDetailModal, type PublishedDisplayProduct } from './PublishedProductDetailModal';
 import { PublishedProductMergeModal } from './PublishedProductMergeModal';
@@ -329,6 +341,14 @@ export function PublishedProductsView() {
   const [mergeProducts, setMergeProducts] = useState<DisplayProduct[]>([]);
   const [showMergeModal, setShowMergeModal] = useState(false);
   const [skuChipsExpanded, setSkuChipsExpanded] = useState(false);
+  const [similarPopoverOpen, setSimilarPopoverOpen] = useState(false);
+  const [similarCriteriaDraft, setSimilarCriteriaDraft] = useState<SimilarProductCriterion[]>([
+    'name',
+    'sku',
+  ]);
+  const [similarCriteriaActive, setSimilarCriteriaActive] = useState<SimilarProductCriterion[] | null>(
+    null,
+  );
 
   const loadProducts = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setIsLoading(true);
@@ -796,13 +816,7 @@ export function PublishedProductsView() {
     return Array.from(s);
   }, [items, level1Filter]);
 
-  const filtered = useMemo(() => items.filter((p) => {
-    if (search) {
-      const q = search.toLowerCase();
-      const title = p.title.toLowerCase();
-      const skuHay = resolveProductSku(p.raw).toLowerCase();
-      if (!title.includes(q) && !skuHay.includes(q)) return false;
-    }
+  const baseFiltered = useMemo(() => items.filter((p) => {
     if (stateFilter !== 'all' && p.state !== stateFilter) return false;
     if (factoryFilter !== '全部' && p.factory !== factoryFilter) return false;
     if (level1Filter) {
@@ -811,9 +825,59 @@ export function PublishedProductsView() {
       if (level2Filter && parts[1]?.trim() !== level2Filter) return false;
     }
     return true;
-  }), [items, search, stateFilter, factoryFilter, level1Filter, level2Filter]);
+  }), [items, stateFilter, factoryFilter, level1Filter, level2Filter]);
+
+  const similarGroups = useMemo((): SimilarProductGroup<DisplayProduct & { sku: string }>[] => {
+    if (!similarCriteriaActive?.length) return [];
+    const inputs = baseFiltered.map((p) => ({
+      ...p,
+      sku: resolveProductSku(p.raw),
+    }));
+    return findSimilarProductGroups(inputs, similarCriteriaActive);
+  }, [baseFiltered, similarCriteriaActive]);
+
+  const filtered = useMemo(() => {
+    const matchesSearch = (p: DisplayProduct) => {
+      if (!search) return true;
+      const q = search.toLowerCase();
+      const title = p.title.toLowerCase();
+      const skuHay = resolveProductSku(p.raw).toLowerCase();
+      return title.includes(q) || skuHay.includes(q);
+    };
+
+    if (similarCriteriaActive?.length) {
+      return similarGroups.flatMap((g) => g.products).filter(matchesSearch);
+    }
+    return baseFiltered.filter(matchesSearch);
+  }, [baseFiltered, search, similarCriteriaActive, similarGroups]);
 
   const sorted = useMemo(() => {
+    if (similarCriteriaActive?.length) {
+      // Keep cluster order; sort within each group by SKU.
+      const list: DisplayProduct[] = [];
+      for (const group of similarGroups) {
+        const members = [...group.products].sort((a, b) => {
+          const cmp = compareSkuNatural(
+            primarySortSku(a.raw),
+            primarySortSku(b.raw),
+          );
+          return skuSortDir === 'asc' ? cmp : -cmp;
+        });
+        if (search) {
+          const q = search.toLowerCase();
+          const kept = members.filter((p) => {
+            const title = p.title.toLowerCase();
+            const skuHay = resolveProductSku(p.raw).toLowerCase();
+            return title.includes(q) || skuHay.includes(q);
+          });
+          if (kept.length >= 2) list.push(...kept);
+        } else {
+          list.push(...members);
+        }
+      }
+      return list;
+    }
+
     const list = [...filtered];
     list.sort((a, b) => {
       const cmp = compareSkuNatural(
@@ -823,7 +887,34 @@ export function PublishedProductsView() {
       return skuSortDir === 'asc' ? cmp : -cmp;
     });
     return list;
-  }, [filtered, skuSortDir]);
+  }, [filtered, skuSortDir, similarCriteriaActive, similarGroups, search]);
+
+  const visibleSimilarGroups = useMemo(() => {
+    if (!similarCriteriaActive?.length) return [];
+    const idSet = new Set(sorted.map((p) => p.id));
+    return similarGroups
+      .map((g) => ({
+        ...g,
+        products: g.products.filter((p) => idSet.has(p.id)),
+      }))
+      .filter((g) => g.products.length >= 2);
+  }, [similarCriteriaActive, similarGroups, sorted]);
+
+  const groupMetaByProductId = useMemo(() => {
+    const map = new Map<string, { groupId: string; label: string; count: number; skus: string[] }>();
+    for (const group of visibleSimilarGroups) {
+      const skus = group.products.map((p) => resolveProductSku(p.raw));
+      for (const p of group.products) {
+        map.set(p.id, {
+          groupId: group.id,
+          label: group.label,
+          count: group.products.length,
+          skus,
+        });
+      }
+    }
+    return map;
+  }, [visibleSimilarGroups]);
 
   // Page-size pagination over the sorted list.
   const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
@@ -831,7 +922,53 @@ export function PublishedProductsView() {
     () => sorted.slice((currentPage - 1) * pageSize, currentPage * pageSize),
     [sorted, currentPage, pageSize]
   );
-  useEffect(() => { setCurrentPage(1); }, [search, stateFilter, factoryFilter, level1Filter, level2Filter, pageSize, skuSortDir]);
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [
+    search,
+    stateFilter,
+    factoryFilter,
+    level1Filter,
+    level2Filter,
+    pageSize,
+    skuSortDir,
+    similarCriteriaActive,
+  ]);
+
+  const toggleSimilarCriterionDraft = (criterion: SimilarProductCriterion, checked: boolean) => {
+    setSimilarCriteriaDraft((prev) => {
+      if (checked) return prev.includes(criterion) ? prev : [...prev, criterion];
+      return prev.filter((c) => c !== criterion);
+    });
+  };
+
+  const applySimilarSearch = () => {
+    if (similarCriteriaDraft.length === 0) {
+      toast.message('請至少選擇一個準則');
+      return;
+    }
+    setSimilarCriteriaActive([...similarCriteriaDraft]);
+    setSimilarPopoverOpen(false);
+    setSelectedIds([]);
+    const pool = baseFiltered.map((p) => ({
+      ...p,
+      sku: resolveProductSku(p.raw),
+    }));
+    const groups = findSimilarProductGroups(pool, similarCriteriaDraft);
+    const total = groups.reduce((n, g) => n + g.products.length, 0);
+    if (groups.length === 0) {
+      toast.message('找不到符合準則的相似產品');
+    } else {
+      toast.success(`已找到 ${groups.length} 組相似產品`, {
+        description: `共 ${total} 件，已按組別排列以便合併`,
+      });
+    }
+  };
+
+  const clearSimilarSearch = () => {
+    setSimilarCriteriaActive(null);
+    setSimilarPopoverOpen(false);
+  };
 
   // Only drop selections when the product row no longer exists (e.g. deleted), not when filtered out by search.
   useEffect(() => {
@@ -1137,6 +1274,100 @@ export function PublishedProductsView() {
             </select>
             <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           </div>
+          <Popover open={similarPopoverOpen} onOpenChange={setSimilarPopoverOpen}>
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                className={cn(
+                  'inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold transition-colors',
+                  similarCriteriaActive?.length
+                    ? 'border-violet-500/40 bg-violet-500/10 text-violet-700 dark:text-violet-300'
+                    : 'border-border bg-card text-foreground hover:bg-muted/50',
+                )}
+                title="依名稱或 SKU 找出可合併的相似產品"
+              >
+                <ScanSearch className="h-3.5 w-3.5" />
+                找相似產品
+                {similarCriteriaActive?.length ? (
+                  <span className="rounded-full bg-violet-500/15 px-1.5 py-0.5 font-mono-data text-[10px]">
+                    {visibleSimilarGroups.length} 組
+                  </span>
+                ) : null}
+              </button>
+            </PopoverTrigger>
+            <PopoverContent align="start" className="w-80 p-3">
+              <div className="space-y-3">
+                <div>
+                  <p className="font-body text-sm font-semibold text-foreground">找相似產品</p>
+                  <p className="mt-0.5 font-body text-xs text-muted-foreground">
+                    可選 1 項或全選準則，篩選後按組別排列以便合併
+                  </p>
+                </div>
+                <div className="space-y-2">
+                  <label className="flex cursor-pointer items-start gap-2.5 rounded-md border border-border/80 px-2.5 py-2 hover:bg-muted/40">
+                    <Checkbox
+                      checked={similarCriteriaDraft.includes('name')}
+                      onCheckedChange={(v) => toggleSimilarCriterionDraft('name', v === true)}
+                      className="mt-0.5"
+                    />
+                    <span className="min-w-0">
+                      <span className="block font-body text-xs font-semibold text-foreground">
+                        1. 相似產品名稱
+                      </span>
+                      <span className="mt-0.5 block font-body text-[11px] leading-snug text-muted-foreground">
+                        產品名稱完全相同，且廠家名稱相同
+                      </span>
+                    </span>
+                  </label>
+                  <label className="flex cursor-pointer items-start gap-2.5 rounded-md border border-border/80 px-2.5 py-2 hover:bg-muted/40">
+                    <Checkbox
+                      checked={similarCriteriaDraft.includes('sku')}
+                      onCheckedChange={(v) => toggleSimilarCriterionDraft('sku', v === true)}
+                      className="mt-0.5"
+                    />
+                    <span className="min-w-0">
+                      <span className="block font-body text-xs font-semibold text-foreground">
+                        2. 相似產品 SKU
+                      </span>
+                      <span className="mt-0.5 block font-body text-[11px] leading-snug text-muted-foreground">
+                        SKU 完全相同，或約 9 成相似（如 CYJ-DQ-13O 與 CYJ-DQ-13O-1）
+                      </span>
+                    </span>
+                  </label>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  {similarCriteriaActive?.length ? (
+                    <button
+                      type="button"
+                      onClick={clearSimilarSearch}
+                      className="rounded-md px-2 py-1.5 font-body text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+                    >
+                      清除篩選
+                    </button>
+                  ) : (
+                    <span />
+                  )}
+                  <button
+                    type="button"
+                    onClick={applySimilarSearch}
+                    className="inline-flex h-8 items-center rounded-lg bg-primary px-3 font-body text-xs font-semibold text-primary-foreground hover:bg-primary/90"
+                  >
+                    開始尋找
+                  </button>
+                </div>
+              </div>
+            </PopoverContent>
+          </Popover>
+          {similarCriteriaActive?.length ? (
+            <button
+              type="button"
+              onClick={clearSimilarSearch}
+              className="inline-flex h-8 items-center gap-1 rounded-lg border border-border px-2.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+            >
+              <X className="h-3.5 w-3.5" />
+              清除相似篩選
+            </button>
+          ) : null}
         </div>
       </div>
 
@@ -1265,14 +1496,63 @@ export function PublishedProductsView() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border/60">
-              {paged.map((p) => {
+              {similarCriteriaActive?.length && visibleSimilarGroups.length === 0 && !isLoading ? (
+                <tr>
+                  <td colSpan={14} className="px-4 py-10 text-center font-body text-sm text-muted-foreground">
+                    找不到符合所選準則的相似產品
+                  </td>
+                </tr>
+              ) : null}
+              {paged.map((p, pageIndex) => {
                 const r = p.raw;
                 const variants: ShopifyVariant[] = Array.isArray(r.variants) ? r.variants : [];
                 const tags: string[] = Array.isArray(r.tags) ? r.tags : [];
                 const bodyText = r.body_html ? r.body_html.replace(/<[^>]*>/g, '') : '';
                 const skuText = resolveProductSku(r);
+                const groupMeta = groupMetaByProductId.get(p.id);
+                const prevGroupId =
+                  pageIndex > 0
+                    ? groupMetaByProductId.get(paged[pageIndex - 1].id)?.groupId
+                    : null;
+                const showGroupHeader =
+                  Boolean(similarCriteriaActive?.length) &&
+                  Boolean(groupMeta) &&
+                  groupMeta!.groupId !== prevGroupId;
                 return (
-                  <tr key={p.id} className="hover:bg-muted/30 cursor-pointer" onClick={() => openDetail(p)}>
+                  <Fragment key={p.id}>
+                  {showGroupHeader && groupMeta ? (
+                    <tr className="bg-violet-500/[0.07]">
+                      <td colSpan={14} className="px-4 py-2.5">
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                          <span className="font-body text-xs font-semibold text-violet-800 dark:text-violet-200">
+                            {groupMeta.label} 已找到 {groupMeta.count} 款
+                          </span>
+                          <span className="font-mono-data text-[11px] text-muted-foreground">
+                            {groupMeta.skus.join(' · ')}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              const ids =
+                                visibleSimilarGroups
+                                  .find((g) => g.id === groupMeta.groupId)
+                                  ?.products.map((x) => x.id) ?? [];
+                              setSelectedIds((prev) => {
+                                const next = new Set(prev);
+                                for (const id of ids) next.add(id);
+                                return Array.from(next);
+                              });
+                            }}
+                            className="ml-auto rounded-md border border-violet-500/30 bg-violet-500/10 px-2 py-0.5 font-body text-[11px] font-medium text-violet-700 hover:bg-violet-500/15 dark:text-violet-300"
+                          >
+                            選取此組
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : null}
+                  <tr className="hover:bg-muted/30 cursor-pointer" onClick={() => openDetail(p)}>
                     <td className="px-4 py-2.5 sticky left-0 bg-card z-10" onClick={e => e.stopPropagation()}>
                       <input type="checkbox" className="rounded border-border" checked={selectedIds.includes(p.id)} onChange={() => toggle(p.id)} />
                     </td>
@@ -1388,11 +1668,12 @@ export function PublishedProductsView() {
                       </div>
                     </td>
                   </tr>
+                  </Fragment>
                 );
               })}
-              {sorted.length === 0 && (
+              {sorted.length === 0 && !(similarCriteriaActive?.length && visibleSimilarGroups.length === 0) && (
                 <tr><td colSpan={14} className="px-6 py-10 text-center text-[12px] text-muted-foreground/60">
-                  {isLoading ? '載入中...' : '尚未從 Shopify 導入產品'}
+                  {isLoading ? '載入中...' : similarCriteriaActive?.length ? '找不到符合所選準則的相似產品' : '尚未從 Shopify 導入產品'}
                 </td></tr>
               )}
             </tbody>
