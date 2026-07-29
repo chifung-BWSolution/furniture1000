@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { dedupeFactoryNames, expandFactoryFilterSelection } from '@/lib/factoryNames';
+import { fetchFactories } from '@/lib/factorySupabase';
 import { cn } from '@/lib/utils';
 import { ProductVariant } from '@/types/product';
 import { StatusBadge } from './StatusBadge';
@@ -192,6 +193,8 @@ export function ListedProductsView({
   const [factoryFilterOpen, setFactoryFilterOpen] = useState(false);
   const [selectedFactories, setSelectedFactories] = useState<string[]>([]);
   const [availableFactories, setAvailableFactories] = useState<string[]>([]);
+  const [factoryQuery, setFactoryQuery] = useState('');
+  const [factoriesLoading, setFactoriesLoading] = useState(false);
   // 重複商品篩選：只顯示 product_sku 重複或為空的產品
   const [showDuplicates, setShowDuplicates] = useState(false);
   // Set of duplicate product_sku values (fetched when showDuplicates is toggled on)
@@ -210,6 +213,11 @@ export function ListedProductsView({
     () => Array.from(new Set(categoryPairs.filter((p) => p.level1 === level1Filter && p.level2).map((p) => p.level2))),
     [categoryPairs, level1Filter]
   );
+  const filteredFactories = useMemo(() => {
+    const q = factoryQuery.trim().toLowerCase();
+    if (!q) return availableFactories;
+    return availableFactories.filter((name) => name.toLowerCase().includes(q));
+  }, [availableFactories, factoryQuery]);
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const factoryDropdownRef = useRef<HTMLDivElement>(null);
 
@@ -329,46 +337,53 @@ export function ListedProductsView({
     return () => { cancelled = true; };
   }, [isCatalog, selectedFactories, categoryPairs]);
 
-  // Fetch unique factory names for filter — DEFERRED: only runs the first time
-  // the user opens the factory dropdown, so it never competes with the
-  // first-screen product query (previously scanned all 1464 rows on mount).
+  // Fetch factory names for filter — DEFERRED until the dropdown opens.
+  // Prefer the full manufacturer directory (edge function); also merge names
+  // that appear on products in the current view so filters stay accurate.
   const factoriesLoadedRef = useRef(false);
   useEffect(() => {
     if (!factoryFilterOpen || factoriesLoadedRef.current) return;
     factoriesLoadedRef.current = true;
 
-    const fetchFactories = async () => {
-      let allFactoryNames: string[] = [];
-      let page = 0;
-      const batchSize = 1000;
-      let hasMore = true;
+    const loadFactories = async () => {
+      setFactoriesLoading(true);
+      try {
+        const fromMaster = await fetchFactories();
 
-      while (hasMore) {
-        const { data } = await supabase
-          .from('products')
-          .select('factories_display_name')
-          .not('factories_display_name', 'is', null)
-          .neq('factories_display_name', '')
-          .range(page * batchSize, (page + 1) * batchSize - 1);
-
-        if (data && data.length > 0) {
-          allFactoryNames = allFactoryNames.concat(
-            data.map((r: any) => r.factories_display_name as string).filter(Boolean)
+        // Scan product display names in the current view (paginated + ordered)
+        // so any local-only / legacy names not in the master table still appear.
+        const batchSize = 1000;
+        let page = 0;
+        const fromProducts: string[] = [];
+        while (true) {
+          let q = supabase
+            .from('products')
+            .select('factories_display_name')
+            .not('factories_display_name', 'is', null)
+            .neq('factories_display_name', '')
+            .order('factories_display_name', { ascending: true })
+            .range(page * batchSize, (page + 1) * batchSize - 1);
+          q = isCatalog ? applyCatalogFilters(q) : applyPendingProductsFilters(q);
+          const { data } = await q;
+          if (!data || data.length === 0) break;
+          fromProducts.push(
+            ...data.map((r: { factories_display_name: string | null }) => r.factories_display_name || '').filter(Boolean)
           );
-          if (data.length < batchSize) {
-            hasMore = false;
-          } else {
-            page++;
-          }
-        } else {
-          hasMore = false;
+          if (data.length < batchSize) break;
+          page++;
         }
-      }
 
-      const unique = dedupeFactoryNames(allFactoryNames);
-      setAvailableFactories(unique);
+        setAvailableFactories(dedupeFactoryNames([...fromMaster, ...fromProducts]));
+      } finally {
+        setFactoriesLoading(false);
+      }
     };
-    fetchFactories();
+    loadFactories();
+  }, [factoryFilterOpen, isCatalog]);
+
+  // Clear factory search when the dropdown closes
+  useEffect(() => {
+    if (!factoryFilterOpen) setFactoryQuery('');
   }, [factoryFilterOpen]);
 
   // Close factory dropdown on outside click
@@ -1590,26 +1605,45 @@ export function ListedProductsView({
                 </button>
               )}
               {factoryFilterOpen && (
-                <div className="absolute top-full left-0 mt-1 z-50 w-[240px] max-h-[300px] overflow-auto rounded-lg border border-border bg-background shadow-lg p-2">
-                  {availableFactories.length === 0 ? (
-                    <p className="text-xs text-muted-foreground py-2 px-2">無可用廠家</p>
-                  ) : (
-                    <>
-                      <div className="flex items-center justify-between px-2 pb-2 border-b border-border mb-1">
-                        <span className="text-[10px] text-muted-foreground font-mono-data">
-                          {selectedFactories.length} / {availableFactories.length} 已選
-                        </span>
-                        <button
-                          onClick={() => {
-                            setSelectedFactories([]);
-                            setCurrentPage(1);
-                          }}
-                          className="text-[10px] text-indigo-500 hover:underline"
-                        >
-                          清除全部
-                        </button>
-                      </div>
-                      {availableFactories.map((factory) => (
+                <div className="absolute top-full left-0 mt-1 z-50 w-[260px] overflow-hidden rounded-lg border border-border bg-background shadow-lg">
+                  {/* Search — always first row */}
+                  <div className="border-b border-border p-2">
+                    <div className="relative">
+                      <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                      <input
+                        value={factoryQuery}
+                        onChange={(e) => setFactoryQuery(e.target.value)}
+                        onKeyDown={(e) => e.stopPropagation()}
+                        placeholder="搜尋廠家…"
+                        className="w-full rounded-md border border-border bg-background py-1.5 pl-8 pr-2 text-xs font-body outline-none focus:ring-1 focus:ring-indigo-500/40"
+                        autoFocus
+                      />
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between px-3 py-1.5 border-b border-border">
+                    <span className="text-[10px] text-muted-foreground font-mono-data">
+                      {selectedFactories.length} / {availableFactories.length} 已選
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSelectedFactories([]);
+                        setCurrentPage(1);
+                      }}
+                      className="text-[10px] text-indigo-500 hover:underline"
+                    >
+                      清除全部
+                    </button>
+                  </div>
+                  <div className="max-h-[260px] overflow-y-auto overscroll-contain p-1.5">
+                    {factoriesLoading ? (
+                      <p className="text-xs text-muted-foreground py-2 px-2">載入廠家中…</p>
+                    ) : availableFactories.length === 0 ? (
+                      <p className="text-xs text-muted-foreground py-2 px-2">無可用廠家</p>
+                    ) : filteredFactories.length === 0 ? (
+                      <p className="text-xs text-muted-foreground py-2 px-2">找不到符合的廠家</p>
+                    ) : (
+                      filteredFactories.map((factory) => (
                         <label
                           key={factory}
                           className="flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-muted/60 cursor-pointer"
@@ -1627,9 +1661,9 @@ export function ListedProductsView({
                           />
                           <span className="text-xs font-body truncate">{factory}</span>
                         </label>
-                      ))}
-                    </>
-                  )}
+                      ))
+                    )}
+                  </div>
                 </div>
               )}
             </div>
