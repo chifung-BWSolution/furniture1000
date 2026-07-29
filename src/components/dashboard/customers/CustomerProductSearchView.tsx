@@ -144,7 +144,7 @@ function materialTags(raw: string): string[] {
 
 function fmtDimMm(mm: number | null | undefined): string | null {
   if (mm == null || !Number.isFinite(mm) || mm <= 0) return null;
-  if (mm >= 1000) return `${(mm / 1000).toFixed(mm % 100 === 0 ? 1 : 2)}m`;
+  // Catalog stores mm only — never display meters on 產品搜尋.
   return `${Math.round(mm)}mm`;
 }
 
@@ -334,17 +334,25 @@ export function CustomerProductSearchView() {
     const lengthMm = bounds(source.map((product) => product.dimensionLMm));
     const widthMm = bounds(source.map((product) => product.dimensionWMm));
     const heightMm = bounds(source.map((product) => product.dimensionHMm));
-    const toMeters = (range: { min: number; max: number }) => ({
-      min: Number((range.min / 1000).toFixed(2)),
-      max: Number((range.max / 1000).toFixed(2)),
-    });
     return {
       price,
-      length: toMeters(lengthMm),
-      width: toMeters(widthMm),
-      height: toMeters(heightMm),
+      length: lengthMm,
+      width: widthMm,
+      height: heightMm,
     };
   }, [all]);
+
+  const dimStep = useMemo(() => {
+    const span = Math.max(
+      productRanges.length.max - productRanges.length.min,
+      productRanges.width.max - productRanges.width.min,
+      productRanges.height.max - productRanges.height.min,
+      0,
+    );
+    if (span <= 500) return 1;
+    if (span <= 2000) return 10;
+    return 50;
+  }, [productRanges.height, productRanges.length, productRanges.width]);
 
   const priceStep = useMemo(() => {
     const span = productRanges.price.max - productRanges.price.min;
@@ -405,9 +413,9 @@ export function CustomerProductSearchView() {
       }
       if (priceMin != null && p.salePrice < priceMin) return false;
       if (priceMax != null && p.salePrice > priceMax) return false;
-      if (!rangeMatches(p.dimensionLMm, dimLMin == null ? null : dimLMin * 1000, dimLMax == null ? null : dimLMax * 1000)) return false;
-      if (!rangeMatches(p.dimensionWMm, dimWMin == null ? null : dimWMin * 1000, dimWMax == null ? null : dimWMax * 1000)) return false;
-      if (!rangeMatches(p.dimensionHMm, dimHMin == null ? null : dimHMin * 1000, dimHMax == null ? null : dimHMax * 1000)) return false;
+      if (!rangeMatches(p.dimensionLMm, dimLMin, dimLMax)) return false;
+      if (!rangeMatches(p.dimensionWMm, dimWMin, dimWMax)) return false;
+      if (!rangeMatches(p.dimensionHMm, dimHMin, dimHMax)) return false;
       return true;
     });
   }, [keyword, filters, all]);
@@ -621,15 +629,15 @@ export function CustomerProductSearchView() {
 
             <div className="border-t border-border pt-4">
               <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                尺寸範圍（米）
+                尺寸範圍（mm）
               </p>
               <div className="space-y-5">
                 <RangeFilter
                   title="長"
                   min={productRanges.length.min}
                   max={productRanges.length.max}
-                  step={0.01}
-                  inputStep="0.01"
+                  step={dimStep}
+                  inputStep={String(dimStep)}
                   minValue={filters.dimLMin}
                   maxValue={filters.dimLMax}
                   onMinChange={(value) =>
@@ -638,14 +646,14 @@ export function CustomerProductSearchView() {
                   onMaxChange={(value) =>
                     setFilters((current) => ({ ...current, dimLMax: value }))
                   }
-                  formatValue={(value) => `${Number(value.toFixed(2))}m`}
+                  formatValue={(value) => `${Math.round(value)}mm`}
                 />
                 <RangeFilter
                   title="闊"
                   min={productRanges.width.min}
                   max={productRanges.width.max}
-                  step={0.01}
-                  inputStep="0.01"
+                  step={dimStep}
+                  inputStep={String(dimStep)}
                   minValue={filters.dimWMin}
                   maxValue={filters.dimWMax}
                   onMinChange={(value) =>
@@ -654,14 +662,14 @@ export function CustomerProductSearchView() {
                   onMaxChange={(value) =>
                     setFilters((current) => ({ ...current, dimWMax: value }))
                   }
-                  formatValue={(value) => `${Number(value.toFixed(2))}m`}
+                  formatValue={(value) => `${Math.round(value)}mm`}
                 />
                 <RangeFilter
                   title="高"
                   min={productRanges.height.min}
                   max={productRanges.height.max}
-                  step={0.01}
-                  inputStep="0.01"
+                  step={dimStep}
+                  inputStep={String(dimStep)}
                   minValue={filters.dimHMin}
                   maxValue={filters.dimHMax}
                   onMinChange={(value) =>
@@ -670,7 +678,7 @@ export function CustomerProductSearchView() {
                   onMaxChange={(value) =>
                     setFilters((current) => ({ ...current, dimHMax: value }))
                   }
-                  formatValue={(value) => `${Number(value.toFixed(2))}m`}
+                  formatValue={(value) => `${Math.round(value)}mm`}
                 />
               </div>
             </div>
@@ -759,7 +767,7 @@ export function CustomerProductSearchView() {
                     找不到符合條件的產品
                   </p>
                   <p className="mt-1 text-xs text-muted-foreground">
-                    可放寬價錢上限，或調整長／闊／高（米）後再試
+                    可放寬價錢上限，或調整長／闊／高（mm）後再試
                   </p>
                 </div>
               )}

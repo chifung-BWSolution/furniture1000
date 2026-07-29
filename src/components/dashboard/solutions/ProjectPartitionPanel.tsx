@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   DoorOpen,
   GripVertical,
@@ -6,6 +7,7 @@ import {
   Minus,
   Plus,
   Save,
+  Sofa,
   Sparkles,
   Trash2,
   X,
@@ -18,6 +20,8 @@ import {
   updateProjectFloorPlan,
 } from '@/lib/solutionsApi';
 import { generateFloorPlanDataUrl } from '@/lib/floorPlanGenerator';
+import { buildDesignProjectPath } from '@/lib/designProjectRoutes';
+import { writeSolutionFocusProjectId } from '@/lib/solutionProjectFocus';
 import {
   PROJECT_TYPE_OPTIONS,
   EXCLUDED_DEFAULT_ROOM_KEYS,
@@ -178,6 +182,11 @@ export function ProjectPartitionPanel({
     floorPlanType: string,
   ) => void;
 }) {
+  const navigate = useNavigate();
+  const openDesignProject = useCallback(() => {
+    writeSolutionFocusProjectId(project.id);
+    navigate(buildDesignProjectPath(project.id));
+  }, [navigate, project.id]);
   const initialType =
     project.meta?.projectType ||
     inferProjectType(project.name, project.clientCompany);
@@ -595,29 +604,40 @@ export function ProjectPartitionPanel({
               點擊名稱可改名；可拖曳排序、刪除房間；按「儲存」後才寫入資料庫
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-col items-stretch gap-2 sm:items-end">
             <button
               type="button"
-              disabled={saving || !dirty}
-              onClick={() => void persistCurrentRooms()}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+              onClick={openDesignProject}
+              className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-emerald-500/35 bg-emerald-500/10 px-3 py-1.5 text-sm font-semibold text-emerald-700 hover:bg-emerald-500/15 dark:text-emerald-300"
+              title="前往此方案的設計專案"
             >
-              {saving ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Save className="h-4 w-4" />
-              )}
-              儲存
+              <Sofa className="h-4 w-4" />
+              準備傢俬方案
             </button>
-            <button
-              type="button"
-              disabled={saving}
-              onClick={() => setShowAddRoom((open) => !open)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/10 px-3 py-1.5 text-sm font-semibold text-primary hover:bg-primary/15 disabled:opacity-50"
-            >
-              <Plus className="h-4 w-4" />
-              新增房間
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                disabled={saving || !dirty}
+                onClick={() => void persistCurrentRooms()}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+              >
+                {saving ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="h-4 w-4" />
+                )}
+                儲存
+              </button>
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => setShowAddRoom((open) => !open)}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/10 px-3 py-1.5 text-sm font-semibold text-primary hover:bg-primary/15 disabled:opacity-50"
+              >
+                <Plus className="h-4 w-4" />
+                新增房間
+              </button>
+            </div>
           </div>
         </div>
 

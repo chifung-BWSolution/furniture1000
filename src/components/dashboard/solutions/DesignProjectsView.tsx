@@ -733,25 +733,63 @@ function ZoneProductRow({
                     (H) (mm)
                   </span>
                 </div>
-                <select
-                  value={item.status}
-                  onChange={(e) =>
-                    onSetStatus(item.id, e.target.value as ZoneProductStatus)
-                  }
-                  className={cn(
-                    'shrink-0 rounded-full border px-3 py-1.5 text-[15px] font-medium',
-                    ZONE_PRODUCT_STATUS_META[item.status]?.className,
-                  )}
-                  aria-label={`${titleLabel}狀態`}
-                >
-                  <option value="pending">未確定</option>
-                  <option value="discussing">待討論</option>
-                  <option value="confirmed">已確定</option>
-                </select>
+                <div className="flex shrink-0 flex-col items-end gap-1.5">
+                  <div className="inline-flex items-center gap-1.5">
+                    <span className="text-[13px] font-medium text-muted-foreground">
+                      數量
+                    </span>
+                    <div className="inline-flex shrink-0 items-center overflow-hidden rounded-md border border-border bg-background">
+                      <button
+                        type="button"
+                        onClick={() => onSetQuantity(item, item.quantity - 1)}
+                        disabled={item.quantity <= 1}
+                        className="flex h-7 w-7 items-center justify-center text-[14px] text-muted-foreground hover:bg-muted disabled:opacity-35"
+                        aria-label="數量減一"
+                      >
+                        −
+                      </button>
+                      <input
+                        type="number"
+                        min={1}
+                        max={9999}
+                        value={item.quantity}
+                        onChange={(event) =>
+                          onSetQuantity(item, Number(event.target.value))
+                        }
+                        className="h-7 w-9 border-x border-border bg-background text-center font-mono-data text-[13px] font-semibold text-foreground outline-none"
+                        aria-label={`${titleLabel}數量`}
+                        title="修改產品數量"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => onSetQuantity(item, item.quantity + 1)}
+                        className="flex h-7 w-7 items-center justify-center text-[14px] text-muted-foreground hover:bg-muted"
+                        aria-label="數量加一"
+                      >
+                        +
+                      </button>
+                    </div>
+                  </div>
+                  <select
+                    value={item.status}
+                    onChange={(e) =>
+                      onSetStatus(item.id, e.target.value as ZoneProductStatus)
+                    }
+                    className={cn(
+                      'shrink-0 rounded-full border px-3 py-1.5 text-[15px] font-medium',
+                      ZONE_PRODUCT_STATUS_META[item.status]?.className,
+                    )}
+                    aria-label={`${titleLabel}狀態`}
+                  >
+                    <option value="pending">未確定</option>
+                    <option value="discussing">待討論</option>
+                    <option value="confirmed">已確定</option>
+                  </select>
+                </div>
               </div>
             </div>
 
-            {/* 備註 narrower; price col: line1 單價×數量, line2 小計 — both right-aligned */}
+            {/* 備註 narrower; price col: line1 單價×數量(唯讀), line2 小計 — both right-aligned */}
             <div className="mt-auto flex items-end gap-4">
               <div
                 className={cn(
@@ -795,36 +833,13 @@ function ZoneProductRow({
                     title="修改此產品在設計專案中的單價"
                   />
                   <span>×</span>
-                  <div className="inline-flex shrink-0 items-center overflow-hidden rounded-md border border-border bg-background">
-                    <button
-                      type="button"
-                      onClick={() => onSetQuantity(item, item.quantity - 1)}
-                      disabled={item.quantity <= 1}
-                      className="flex h-7 w-7 items-center justify-center text-[14px] text-muted-foreground hover:bg-muted disabled:opacity-35"
-                      aria-label="數量減一"
-                    >
-                      −
-                    </button>
-                    <input
-                      type="number"
-                      min={1}
-                      max={9999}
-                      value={item.quantity}
-                      onChange={(event) =>
-                        onSetQuantity(item, Number(event.target.value))
-                      }
-                      className="h-7 w-9 border-x border-border bg-background text-center font-mono-data text-[13px] font-semibold text-foreground outline-none"
-                      aria-label={`${titleLabel}數量`}
-                    />
-                    <button
-                      type="button"
-                      onClick={() => onSetQuantity(item, item.quantity + 1)}
-                      className="flex h-7 w-7 items-center justify-center text-[14px] text-muted-foreground hover:bg-muted"
-                      aria-label="數量加一"
-                    >
-                      +
-                    </button>
-                  </div>
+                  <span
+                    className="inline-flex h-7 min-w-[2.25rem] items-center justify-center rounded-md border border-border bg-muted/40 px-2 font-mono-data text-[13px] font-semibold text-foreground"
+                    title="請於上方「已確定」旁的數量修改"
+                    aria-label={`${titleLabel}數量（唯讀）`}
+                  >
+                    {item.quantity}
+                  </span>
                 </div>
                 <div className="w-full text-right font-mono-data text-[16px] font-semibold text-foreground">
                   小計 $
@@ -2449,16 +2464,16 @@ export function DesignProjectsView() {
                 ? groupPlannedTotal
                 : zonePlannedTotal;
               const zoneToolbar = (
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/30 px-5 py-3.5">
-                  <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2">
-                    <h3 className="font-display text-base font-bold md:text-lg">
+                <div className="relative flex flex-wrap items-center justify-end gap-3 border-b border-border bg-muted/30 px-5 py-3.5">
+                  <div className="flex w-full min-w-0 flex-wrap items-center justify-center gap-x-3 gap-y-2 md:absolute md:left-1/2 md:top-1/2 md:w-auto md:-translate-x-1/2 md:-translate-y-1/2">
+                    <h3 className="font-display text-lg font-bold md:text-xl">
                       {isSingleZoneGroup ? group.label : zone.name}
                       {displayPlannedTotal > 0 ? (
-                        <span className="ml-2 text-[15px] font-semibold text-muted-foreground">
+                        <span className="ml-2 text-[17px] font-semibold text-muted-foreground">
                           {formatPlannedFurnitureTotalLabel(displayPlannedTotal)}
                         </span>
                       ) : (
-                        <span className="ml-2 text-[15px] font-normal text-muted-foreground">
+                        <span className="ml-2 text-[17px] font-normal text-muted-foreground">
                           {items.reduce(
                             (sum, item) => sum + zoneProductPieceCount(item),
                             0,
@@ -2467,7 +2482,7 @@ export function DesignProjectsView() {
                         </span>
                       )}
                     </h3>
-                    <label className="inline-flex items-center gap-1.5 text-[15px] text-muted-foreground">
+                    <label className="inline-flex items-center gap-1.5 text-[17px] text-muted-foreground">
                       <input
                         type="text"
                         inputMode="decimal"
@@ -2477,13 +2492,13 @@ export function DesignProjectsView() {
                         }
                         onBlur={() => flushZoneSqftToProjectMeta()}
                         placeholder="0"
-                        className="h-9 w-24 rounded-lg border border-border bg-background px-2.5 text-right font-mono-data text-[15px] text-foreground"
+                        className="h-9 w-24 rounded-lg border border-border bg-background px-2.5 text-right font-mono-data text-[17px] text-foreground"
                         aria-label={`${zone.name} 平方尺`}
                       />
                       <span>平方尺 sqft</span>
                     </label>
                   </div>
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div className="relative z-10 flex flex-wrap items-center justify-end gap-2">
                     <button
                       type="button"
                       onClick={() => void openDivisionModal(zone.id)}
