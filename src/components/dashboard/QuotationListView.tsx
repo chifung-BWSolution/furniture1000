@@ -125,11 +125,10 @@ function latestQuoteInGroup(versions: QuoteListRow[]): QuoteListRow {
   return versions[0];
 }
 
-/** 提案顯示名稱 = live PMS pitching only (not stored on bwf_quote). */
+/** 提案顯示名稱 = live PMS only（與快速報價 PmsPitchingGate 相同，不用 bwf_quote formData）. */
 function quoteDisplayName(q: QuoteListRow): string {
   if (q.pitching) return pitchingDisplayTitle(q.pitching);
-  const client = q.project_data?.formData?.clientName?.trim() || '';
-  return client || q.quote_id?.trim() || '未命名專案';
+  return '未命名 Pitching';
 }
 
 /** 報價單號 = bwf_quote.quote_id (PMS code only as enrichment fallback). */
@@ -679,10 +678,7 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
                                 ) : null}
                               </div>
                               <div className="mt-0.5 truncate font-mono-data text-[11px] text-muted-foreground">
-                                {code}
-                                {quote.project_data?.formData?.clientName
-                                  ? ` · ${quote.project_data.formData.clientName}`
-                                  : ''}
+                                {quote.pitching?.pitching_code || '—'}
                               </div>
                             </>
                           )}
