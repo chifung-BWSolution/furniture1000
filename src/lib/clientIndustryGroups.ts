@@ -151,7 +151,7 @@ export function resolveIndustryGroups(
 
   const leftovers = available.filter((label) => !used.has(label));
   if (leftovers.length > 0) {
-    groups.push({ title: '其他', options: leftovers });
+    groups.push({ title: '7. 其他', options: leftovers });
   }
 
   const q = searchQuery.trim();

@@ -1310,13 +1310,13 @@ export function QuickQuoteView({
                     找不到符合「{industrySearchQuery.trim()}」的產業
                   </p>
                 ) : (
-                  <div className="space-y-4">
+                  <div className="space-y-5">
                     {industryGroups.map((group) => (
                       <div key={group.title}>
-                        <h4 className="mb-2 font-body text-xs font-semibold tracking-wide text-muted-foreground">
+                        <h4 className="mb-2.5 font-body text-base font-semibold leading-snug text-foreground">
                           {group.title}
                         </h4>
-                        <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
+                        <div className="grid grid-cols-2 items-stretch gap-2 md:grid-cols-4">
                           {group.options.map((industry) => (
                             <button
                               key={industry}
@@ -1324,13 +1324,13 @@ export function QuickQuoteView({
                               onClick={() => toggleTag('clientIndustry', industry)}
                               disabled={isLoadingPmsDefaults}
                               className={cn(
-                                'rounded-md border px-3 py-1.5 text-left font-body text-sm font-medium transition-all disabled:cursor-not-allowed disabled:opacity-60',
+                                'flex h-full min-h-[3.75rem] w-full items-start justify-start rounded-md border px-3 py-2 text-left font-body text-xs font-medium leading-snug transition-all disabled:cursor-not-allowed disabled:opacity-60',
                                 formData.clientIndustry.includes(industry)
                                   ? 'border-primary bg-primary/10 text-primary shadow-sm'
                                   : 'border-border bg-card text-muted-foreground hover:border-primary/50 hover:text-foreground',
                               )}
                             >
-                              {industry}
+                              <span className="block w-full text-left">{industry}</span>
                             </button>
                           ))}
                         </div>
