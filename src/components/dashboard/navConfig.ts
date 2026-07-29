@@ -4,7 +4,7 @@ import {
   Building2, Zap, ClipboardList,
   FileUp, FolderTree, BookOpen, Boxes,
   FileText, UploadCloud, CheckCheck, Sofa,
-  Building, BarChart2, TrendingUp,
+  Building, BarChart2,
   UserCog, History,
   Map, PenTool, Truck, PackageCheck,
   Film, Briefcase, Phone, Landmark,
@@ -103,7 +103,6 @@ export const NAV_CONFIG: PrimaryItem[] = [
     children: [
       { view: 'report-factory', label: '廠家報告', icon: Building },
       { view: 'report-product', label: '產品報告', icon: BarChart2 },
-      { view: 'report-sales', label: '銷售報告', icon: TrendingUp },
     ],
   },
   {

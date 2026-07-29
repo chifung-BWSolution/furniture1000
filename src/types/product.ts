@@ -141,6 +141,7 @@ export type ViewType =
   // 分析報表
   | 'report-factory'
   | 'report-product'
+  /** @deprecated Removed — redirects to report-factory */
   | 'report-sales'
   // 設定
   | 'settings'

@@ -1,116 +1,301 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
-import { Building, FileSpreadsheet, Database, ChevronRight } from 'lucide-react';
+import { Building, Loader2 } from 'lucide-react';
 import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
 } from 'recharts';
 import {
-  MOCK_FACTORY_STATS, MOCK_FACTORY_TREND, CHART_COLORS, TIME_RANGES, type TimeRangeKey,
-} from '@/constants/analytics-mock';
-import { toast } from 'sonner';
+  fetchFactoryCatalogCounts,
+  fetchQuoteUsageRankings,
+  type FactoryCatalogCountRow,
+  type QuoteFactoryUsageRow,
+} from '@/lib/quoteUsageReports';
+import { CHART_COLORS } from '@/constants/analytics-mock';
+
+const TOP_CHART = 10;
 
 export function FactoryReportView() {
-  const [range, setRange] = useState<TimeRangeKey>('month');
-  const [drillId, setDrillId] = useState<string | null>(null);
-  const ranked = [...MOCK_FACTORY_STATS].sort((a, b) => b.orders - a.orders);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [usage, setUsage] = useState<QuoteFactoryUsageRow[]>([]);
+  const [catalog, setCatalog] = useState<FactoryCatalogCountRow[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    Promise.all([fetchQuoteUsageRankings(), fetchFactoryCatalogCounts()])
+      .then(([quoteUsage, catalogCounts]) => {
+        if (cancelled) return;
+        setUsage(quoteUsage.factories);
+        setCatalog(catalogCounts);
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        setError(err instanceof Error ? err.message : '無法載入廠家報告資料');
+        setUsage([]);
+        setCatalog([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const chartData = usage.slice(0, TOP_CHART).map((f) => ({
+    name:
+      f.factoryName.length > 14
+        ? `${f.factoryName.slice(0, 14)}…`
+        : f.factoryName,
+    fullName: f.factoryName,
+    count: f.usageCount,
+  }));
+
+  const catalogByName = new Map(
+    catalog.map((row) => [row.factoryName, row.productCount]),
+  );
 
   return (
     <div className="h-full overflow-y-auto bg-background p-6 md:p-8">
       <div className="mx-auto max-w-5xl space-y-6">
-        {/* header */}
-        <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
           <div className="flex items-center gap-2">
             <Building className="h-5 w-5 text-primary" />
-            <h1 className="font-display text-2xl font-bold tracking-tight">廠家報告</h1>
+            <h1 className="font-display text-2xl font-bold tracking-tight">
+              廠家報告
+            </h1>
           </div>
-          <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1 rounded-lg border border-border bg-card p-0.5">
-              {TIME_RANGES.map((r) => (
-                <button key={r.key} onClick={() => setRange(r.key)} className={cn('rounded-md px-3 py-1.5 text-xs font-medium transition-colors', range === r.key ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground')}>{r.label}</button>
-              ))}
+          <p className="mt-1 font-body text-xs text-muted-foreground">
+            依傢俬報價單明細的廠家使用次數排名；並對照產品目錄現有產品數
+          </p>
+        </div>
+
+        {loading ? (
+          <div className="flex h-48 items-center justify-center gap-2 text-muted-foreground">
+            <Loader2 className="h-5 w-5 animate-spin text-primary" />
+            <span className="font-body text-sm">載入廠家使用數據…</span>
+          </div>
+        ) : error ? (
+          <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-6 text-center font-body text-sm text-destructive">
+            {error}
+          </div>
+        ) : (
+          <>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="rounded-xl border border-border bg-card px-4 py-3">
+                <p className="font-body text-[11px] text-muted-foreground">
+                  有報價紀錄的廠家
+                </p>
+                <p className="mt-1 font-display text-xl font-bold text-foreground">
+                  {usage.length.toLocaleString()}
+                </p>
+              </div>
+              <div className="rounded-xl border border-border bg-card px-4 py-3">
+                <p className="font-body text-[11px] text-muted-foreground">
+                  報價使用總次數
+                </p>
+                <p className="mt-1 font-display text-xl font-bold text-foreground">
+                  {usage
+                    .reduce((sum, f) => sum + f.usageCount, 0)
+                    .toLocaleString()}
+                </p>
+              </div>
             </div>
-            <button onClick={() => toast.success('已匯出 Excel')} className="flex items-center gap-1.5 rounded-lg border border-border bg-card px-3 py-2 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground"><FileSpreadsheet className="h-3.5 w-3.5" /> 匯出 Excel</button>
-            <button onClick={() => toast.success('已同步至 PMS')} className="flex items-center gap-1.5 rounded-lg bg-primary px-3.5 py-2 text-xs font-semibold text-primary-foreground shadow-sm hover:opacity-90"><Database className="h-3.5 w-3.5" /> 同步 PMS</button>
-          </div>
-        </div>
 
-        {/* trend chart */}
-        <div className="rounded-xl border border-border bg-card p-5">
-          <h3 className="mb-4 font-display text-sm font-bold">訂貨量趨勢（Top 3 廠家）</h3>
-          <ResponsiveContainer width="100%" height={240}>
-            <LineChart data={MOCK_FACTORY_TREND}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-              <XAxis dataKey="month" tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
-              <YAxis tick={{ fontSize: 11 }} stroke="hsl(var(--muted-foreground))" />
-              <Tooltip contentStyle={{ borderRadius: 12, fontSize: 12, border: '1px solid hsl(var(--border))' }} />
-              <Legend wrapperStyle={{ fontSize: 12 }} />
-              <Line type="monotone" dataKey="華座" stroke={CHART_COLORS.primary} strokeWidth={2} dot={{ r: 3 }} />
-              <Line type="monotone" dataKey="永豐" stroke={CHART_COLORS.sky} strokeWidth={2} dot={{ r: 3 }} />
-              <Line type="monotone" dataKey="宏發" stroke={CHART_COLORS.amber} strokeWidth={2} dot={{ r: 3 }} />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
+            <div className="rounded-xl border border-border bg-card p-5">
+              <h3 className="mb-4 font-display text-sm font-bold">
+                報價使用次數 Top {TOP_CHART} 廠家
+              </h3>
+              {chartData.length === 0 ? (
+                <p className="py-10 text-center font-body text-sm text-muted-foreground">
+                  尚無報價廠家使用紀錄
+                </p>
+              ) : (
+                <ResponsiveContainer width="100%" height={260}>
+                  <BarChart data={chartData} margin={{ left: 8, right: 8 }}>
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      stroke="hsl(var(--border))"
+                    />
+                    <XAxis
+                      dataKey="name"
+                      tick={{ fontSize: 10 }}
+                      stroke="hsl(var(--muted-foreground))"
+                      interval={0}
+                      angle={-20}
+                      textAnchor="end"
+                      height={64}
+                    />
+                    <YAxis
+                      tick={{ fontSize: 11 }}
+                      stroke="hsl(var(--muted-foreground))"
+                      allowDecimals={false}
+                    />
+                    <Tooltip
+                      formatter={(value: number) => [`${value} 次`, '使用次數']}
+                      labelFormatter={(_, payload) =>
+                        String(payload?.[0]?.payload?.fullName || '')
+                      }
+                      contentStyle={{
+                        borderRadius: 12,
+                        fontSize: 12,
+                        border: '1px solid hsl(var(--border))',
+                      }}
+                    />
+                    <Bar
+                      dataKey="count"
+                      fill={CHART_COLORS.primary}
+                      radius={[4, 4, 0, 0]}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
+            </div>
 
-        {/* ranking table */}
-        <div className="overflow-hidden rounded-xl border border-border bg-card">
-          <div className="border-b border-border px-5 py-3"><h3 className="font-display text-sm font-bold">廠家績效排名</h3></div>
-          <table className="w-full text-sm">
-            <thead className="bg-muted/50 text-[11px] uppercase tracking-wider text-muted-foreground">
-              <tr>
-                <th className="px-5 py-2.5 text-left font-medium">排名 / 廠家</th>
-                <th className="px-3 py-2.5 text-right font-medium">訂貨量</th>
-                <th className="px-3 py-2.5 text-right font-medium">報價成功率</th>
-                <th className="px-3 py-2.5 text-right font-medium">平均交付期</th>
-                <th className="px-3 py-2.5 text-right font-medium">退貨率</th>
-                <th className="px-3 py-2.5 text-right font-medium"></th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border/60">
-              {ranked.map((f, i) => (
-                <>
-                  <tr key={f.id} className="hover:bg-muted/30">
-                    <td className="px-5 py-2.5">
-                      <div className="flex items-center gap-2.5">
-                        <span className={cn('flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-bold', i === 0 ? 'bg-primary text-primary-foreground' : 'bg-muted text-muted-foreground')}>{i + 1}</span>
-                        <span className="font-body text-[13px] font-medium text-foreground">{f.name}</span>
-                      </div>
-                    </td>
-                    <td className="px-3 py-2.5 text-right font-mono-data text-foreground">{f.orders}</td>
-                    <td className="px-3 py-2.5 text-right font-mono-data text-emerald-600">{f.quoteWinRate}%</td>
-                    <td className="px-3 py-2.5 text-right font-mono-data text-muted-foreground">{f.avgLeadDays} 天</td>
-                    <td className="px-3 py-2.5 text-right font-mono-data text-rose-500">{f.returnRate}%</td>
-                    <td className="px-3 py-2.5 text-right">
-                      <button onClick={() => setDrillId(drillId === f.id ? null : f.id)} className="inline-flex items-center gap-0.5 rounded-md px-2 py-1 text-[11px] font-medium text-primary hover:bg-primary/10">
-                        下鑽 <ChevronRight className={cn('h-3 w-3 transition-transform', drillId === f.id && 'rotate-90')} />
-                      </button>
-                    </td>
-                  </tr>
-                  {drillId === f.id && (
-                    <tr key={f.id + '-drill'}>
-                      <td colSpan={6} className="bg-muted/20 px-5 py-3">
-                        <div className="grid grid-cols-3 gap-3 text-center">
-                          <DrillStat label="本期最暢銷" value="行政辦公桌 1.8m" />
-                          <DrillStat label="平均報價金額" value={`$${(f.orders * 100).toLocaleString()}`} />
-                          <DrillStat label="活躍產品數" value={`${Math.round(f.orders / 12)} 件`} />
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </>
-              ))}
-            </tbody>
-          </table>
-        </div>
+            <div className="overflow-hidden rounded-xl border border-border bg-card">
+              <div className="border-b border-border px-5 py-3">
+                <h3 className="font-display text-sm font-bold">
+                  廠家報價使用排名
+                </h3>
+              </div>
+              {usage.length === 0 ? (
+                <p className="py-10 text-center font-body text-sm text-muted-foreground">
+                  尚無報價廠家使用紀錄
+                </p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted/50 text-[11px] uppercase tracking-wider text-muted-foreground">
+                      <tr>
+                        <th className="px-5 py-2.5 text-left font-medium">
+                          排名 / 廠家
+                        </th>
+                        <th className="px-3 py-2.5 text-right font-medium">
+                          使用次數
+                        </th>
+                        <th className="px-3 py-2.5 text-right font-medium">
+                          報價單數
+                        </th>
+                        <th className="px-3 py-2.5 text-right font-medium">
+                          報價產品種類
+                        </th>
+                        <th className="px-3 py-2.5 text-right font-medium">
+                          目錄產品數
+                        </th>
+                        <th className="px-3 py-2.5 text-right font-medium">
+                          總數量
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/60">
+                      {usage.map((f, i) => (
+                        <tr key={f.factoryName} className="hover:bg-muted/30">
+                          <td className="px-5 py-2.5">
+                            <div className="flex items-center gap-2.5">
+                              <span
+                                className={cn(
+                                  'flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-bold',
+                                  i === 0
+                                    ? 'bg-primary text-primary-foreground'
+                                    : 'bg-muted text-muted-foreground',
+                                )}
+                              >
+                                {i + 1}
+                              </span>
+                              <span className="font-body text-[13px] font-medium text-foreground">
+                                {f.factoryName}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-3 py-2.5 text-right font-mono-data text-foreground">
+                            {f.usageCount.toLocaleString()}
+                          </td>
+                          <td className="px-3 py-2.5 text-right font-mono-data text-muted-foreground">
+                            {f.quoteCount.toLocaleString()}
+                          </td>
+                          <td className="px-3 py-2.5 text-right font-mono-data text-muted-foreground">
+                            {f.productCount.toLocaleString()}
+                          </td>
+                          <td className="px-3 py-2.5 text-right font-mono-data text-muted-foreground">
+                            {(
+                              catalogByName.get(f.factoryName) || 0
+                            ).toLocaleString()}
+                          </td>
+                          <td className="px-3 py-2.5 text-right font-mono-data text-muted-foreground">
+                            {f.quantitySum.toLocaleString()}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div className="overflow-hidden rounded-xl border border-border bg-card">
+              <div className="border-b border-border px-5 py-3">
+                <h3 className="font-display text-sm font-bold">
+                  廠家產品數量排名（產品目錄）
+                </h3>
+              </div>
+              {catalog.length === 0 ? (
+                <p className="py-10 text-center font-body text-sm text-muted-foreground">
+                  產品目錄尚無廠家資料
+                </p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-muted/50 text-[11px] uppercase tracking-wider text-muted-foreground">
+                      <tr>
+                        <th className="px-5 py-2.5 text-left font-medium">
+                          排名 / 廠家
+                        </th>
+                        <th className="px-3 py-2.5 text-right font-medium">
+                          產品數量
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border/60">
+                      {catalog.map((f, i) => (
+                        <tr key={f.factoryName} className="hover:bg-muted/30">
+                          <td className="px-5 py-2.5">
+                            <div className="flex items-center gap-2.5">
+                              <span
+                                className={cn(
+                                  'flex h-6 w-6 items-center justify-center rounded-full text-[11px] font-bold',
+                                  i === 0
+                                    ? 'bg-primary text-primary-foreground'
+                                    : 'bg-muted text-muted-foreground',
+                                )}
+                              >
+                                {i + 1}
+                              </span>
+                              <span className="font-body text-[13px] font-medium text-foreground">
+                                {f.factoryName}
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-3 py-2.5 text-right font-mono-data text-foreground">
+                            {f.productCount.toLocaleString()}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </div>
-    </div>
-  );
-}
-
-function DrillStat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-lg border border-border bg-card px-3 py-2">
-      <p className="font-body text-[10.5px] text-muted-foreground">{label}</p>
-      <p className="mt-0.5 font-display text-[13px] font-bold text-foreground">{value}</p>
     </div>
   );
 }

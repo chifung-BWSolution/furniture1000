@@ -36,7 +36,8 @@ const VIEW_PATHS: { view: ViewType; path: string }[] = [
 
   { view: 'report-factory', path: `${REPORTS_BASE}/factory` },
   { view: 'report-product', path: `${REPORTS_BASE}/product` },
-  { view: 'report-sales', path: `${REPORTS_BASE}/sales` },
+  /** Legacy 銷售報告 → 廠家報告 */
+  { view: 'report-sales', path: `${REPORTS_BASE}/factory` },
 
   { view: 'user-management', path: `${SETTINGS_BASE}/user-management` },
   { view: 'login-history', path: `${SETTINGS_BASE}/login-history` },
@@ -51,9 +52,9 @@ const PATH_BY_VIEW = new Map(
 );
 
 const VIEW_BY_PATH = new Map(
-  VIEW_PATHS.filter((row) => row.view !== 'product-search').map(
-    (row) => [row.path, row.view] as const,
-  ),
+  VIEW_PATHS.filter(
+    (row) => row.view !== 'product-search' && row.view !== 'report-sales',
+  ).map((row) => [row.path, row.view] as const),
 );
 
 const SECTION_PREFIXES = [
@@ -92,6 +93,9 @@ export function appViewFromPath(pathname: string): ViewType | null {
   if (path.startsWith(`${PROJECT_BASE}/design-projects/`)) {
     return 'design-projects';
   }
+
+  // Removed 銷售報告 — old bookmarks land on 廠家報告
+  if (path === `${REPORTS_BASE}/sales`) return 'report-factory';
 
   // Prefix-only e.g. /project → project-list
   if (path === PROJECT_BASE) return 'solution-project-list';

@@ -114,9 +114,6 @@ const FactoryReportView = lazy(() =>
 const ProductReportView = lazy(() =>
   import("./reports/ProductReportView").then((mod) => ({ default: mod.ProductReportView }))
 );
-const SalesReportView = lazy(() =>
-  import("./reports/SalesReportView").then((mod) => ({ default: mod.SalesReportView }))
-);
 // 設定 (Settings)
 const UserManagementView = lazy(() =>
   import("./admin/UserManagementView").then((mod) => ({ default: mod.UserManagementView }))
@@ -223,7 +220,6 @@ const SELF_LOADING_VIEWS = new Set<ViewType>([
   "published-products",
   "report-factory",
   "report-product",
-  "report-sales",
   "user-management",
   "login-history",
   "upload-product-log",
@@ -336,6 +332,9 @@ export function AppShell() {
       store.currentView === 'customer-confirmed-products'
     ) {
       store.setCurrentView('customer-quote-schemes');
+    }
+    if (store.currentView === 'report-sales') {
+      store.setCurrentView('report-factory');
     }
     if (!roleLoading && !clientOnly && !isAdmin && isAdminOnlyView(store.currentView)) {
       store.setCurrentView('category-management');
@@ -932,7 +931,7 @@ export function AppShell() {
       case "report-product":
         return <ProductReportView />;
       case "report-sales":
-        return <SalesReportView />;
+        return <FactoryReportView />;
       case "user-management":
         return <UserManagementView />;
       case "login-history":
