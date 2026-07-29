@@ -1013,16 +1013,39 @@ export function QuickQuoteView({
               )}
             </div>
           ) : (
-            <>
-              <h1 className="font-display text-2xl font-bold tracking-tight text-foreground">
-                {copyFromUuid ? '複製報價單' : '建立新報價單'}
-              </h1>
-              <p className="mt-1 font-body text-sm text-muted-foreground">
-                {copyFromUuid
-                  ? '確認新專案資料後，將複製原報價的產品內容與條款'
-                  : '確認並補齊專案資料後生成報價'}
-              </p>
-            </>
+            <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-3">
+              <div className="min-w-0">
+                <h1 className="font-display text-2xl font-bold tracking-tight text-foreground">
+                  {copyFromUuid ? '複製報價單' : '建立新報價單'}
+                </h1>
+                <p className="mt-1 font-body text-sm text-muted-foreground">
+                  {copyFromUuid
+                    ? '確認新專案資料後，將複製原報價的產品內容與條款'
+                    : '確認並補齊專案資料後生成報價'}
+                </p>
+              </div>
+              {(formData.clientContactName.trim() ||
+                formData.clientPhone.trim()) && (
+                <div className="flex shrink-0 flex-wrap items-center gap-x-6 gap-y-2 pt-1">
+                  <div>
+                    <div className="font-body text-[11px] text-muted-foreground">
+                      客戶名稱
+                    </div>
+                    <div className="mt-0.5 font-body text-sm font-semibold text-foreground">
+                      {formData.clientContactName.trim() || '—'}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="font-body text-[11px] text-muted-foreground">
+                      客戶電話
+                    </div>
+                    <div className="mt-0.5 font-mono-data text-sm font-semibold text-foreground">
+                      {formData.clientPhone.trim() || '—'}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
           )}
         </div>
 
