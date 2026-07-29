@@ -33,6 +33,7 @@ type SortKey =
   | 'enquiry_date'
   | 'remaining_days'
   | 'customer_type'
+  | 'client_industry'
   | 'display_name'
   | 'service_type'
   | 'estimated_income'
@@ -98,6 +99,8 @@ export function PmsPitchingGate({ onSelect, title, subtitle }: PmsPitchingGatePr
           return compareNullable(a.remaining_days, b.remaining_days, sortDir);
         case 'customer_type':
           return compareNullable(a.customer_type, b.customer_type, sortDir);
+        case 'client_industry':
+          return compareNullable(a.client_industry, b.client_industry, sortDir);
         case 'display_name':
           return compareNullable(
             pitchingDisplayTitle(a),
@@ -168,6 +171,7 @@ export function PmsPitchingGate({ onSelect, title, subtitle }: PmsPitchingGatePr
                 ['enquiry_date', '查詢日期'],
                 ['remaining_days', '剩餘天數'],
                 ['customer_type', '客戶類型'],
+                ['client_industry', '客戶產業'],
                 ['display_name', '提案顯示名稱'],
                 ['service_type', '服務類型'],
                 ['estimated_income', '預計收入'],
@@ -191,10 +195,10 @@ export function PmsPitchingGate({ onSelect, title, subtitle }: PmsPitchingGatePr
         </thead>
         <tbody>
           {loading ? (
-            <ListTableLoadingRow colSpan={9} label="載入 Pitching 列表…" />
+            <ListTableLoadingRow colSpan={10} label="載入 Pitching 列表…" />
           ) : sortedItems.length === 0 ? (
             <ListTableEmptyRow
-              colSpan={9}
+              colSpan={10}
               message={
                 loadError ||
                 (search.trim()
@@ -249,6 +253,9 @@ export function PmsPitchingGate({ onSelect, title, subtitle }: PmsPitchingGatePr
                   </td>
                   <td className="max-w-[140px] px-3 py-3 font-body text-xs leading-snug text-foreground">
                     {item.customer_type || '—'}
+                  </td>
+                  <td className="max-w-[180px] px-3 py-3 font-body text-xs leading-snug text-foreground">
+                    {item.client_industry?.trim() || '—'}
                   </td>
                   <td className="min-w-[220px] max-w-[320px] px-3 py-3">
                     <div className="truncate font-body text-sm font-semibold text-primary">
