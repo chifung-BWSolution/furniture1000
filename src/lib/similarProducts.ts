@@ -62,8 +62,9 @@ export function skuStem(sku: string): string {
   let c = n.replace(/[^A-Z0-9]/g, '');
   if (!c) return '';
 
-  // Glued letter variant after digits: CUFD366A → CUFD366
-  c = c.replace(/(\d)([A-Z]{1,2})$/, '$1');
+  // Glued letter variant only after a product digit run (≥3 digits): CUFD366A → CUFD366
+  // Keep short digit+letter model codes intact (e.g. CYJDQ13O).
+  c = c.replace(/(\d{3,})([A-Z]{1,2})$/, '$1');
 
   // Glued short digit variant after a product digit run (≥3 digits): CUFD3661 → CUFD366
   // CUFD366 alone does not match (no extra 1–2 digit variant group).
