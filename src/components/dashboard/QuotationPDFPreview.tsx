@@ -514,7 +514,16 @@ function renderDescDimensionsValue(
   const valuePct = `${PDF_DESC_VALUE_PCT[locale] * 100}%`;
   const lines = wrapDimensionsForPdf(dimText, descDimMaxChars(locale));
   return (
-    <View style={{ width: valuePct, minWidth: 0, paddingHorizontal: 2, paddingVertical: 2 }}>
+    <View
+      style={{
+        width: valuePct,
+        height: '100%',
+        minWidth: 0,
+        justifyContent: 'center',
+        paddingHorizontal: 2,
+        paddingVertical: 2,
+      }}
+    >
       <Text style={styles.descDimLabelText}>{dimSubLabel}</Text>
       {lines.map((line, li) => (
         <Text
@@ -721,7 +730,9 @@ function renderQuotationTableRow(
     <View style={styles.tableRow} key={idx} wrap={false}>
       <View style={styles.colIndex}><Text style={styles.tableCellText}>{serial}</Text></View>
       <View style={{ ...styles.colDesc, width: pdfColWidthPct(locale, 'desc') }}>
-        {renderDescriptionPdfContent(item, View, Text, labels, locale)}
+        <View style={{ width: '100%', flex: 1, minHeight: 0 }}>
+          {renderDescriptionPdfContent(item, View, Text, labels, locale)}
+        </View>
       </View>
       <View style={{ ...styles.colMaterial, width: pdfColWidthPct(locale, 'material') }}>
         {renderMaterialPdfContent(item?.material, View, Text)}
@@ -850,17 +861,26 @@ function renderDescriptionPdfContent(
   ];
 
   return (
-    <View style={{ width: '100%', flexDirection: 'column' }}>
+    // Fill the product-row height so 類別 / 規格 / 顏色 can share it equally
+    // (otherwise extra height from「材質及明細」only stretches the last row).
+    <View
+      style={{
+        width: '100%',
+        height: '100%',
+        flexGrow: 1,
+        flexDirection: 'column',
+      }}
+    >
       {rows.map((row, i) => (
         <View
           key={row.label}
           style={{
             flexDirection: 'row',
-            alignItems:
-              row.kind === 'category' || row.kind === 'dimensions' ? 'flex-start' : 'center',
-            flexGrow: 0,
-            flexShrink: 0,
-            minHeight: row.kind === 'simple' ? 18 : undefined,
+            alignItems: 'center',
+            // Equal flex slots — same height for Category / Dimensions / Color.
+            flexGrow: 1,
+            flexShrink: 1,
+            flexBasis: 0,
             borderBottomWidth: i < rows.length - 1 ? 0.5 : 0,
             borderColor: '#ddd',
           }}
@@ -868,14 +888,13 @@ function renderDescriptionPdfContent(
           <View
             style={{
               width: labelPct,
-              justifyContent:
-                row.kind === 'category' || row.kind === 'dimensions' ? 'flex-start' : 'center',
+              height: '100%',
+              justifyContent: 'center',
               // Left-align Category / Dimensions / Color as one vertical column.
               alignItems: 'flex-start',
               paddingLeft: 2,
               paddingRight: 2,
-              paddingTop: row.kind === 'category' || row.kind === 'dimensions' ? 4 : 0,
-              paddingBottom: row.kind === 'category' ? 4 : 0,
+              paddingVertical: 2,
               borderRightWidth: 0.5,
               borderColor: '#ddd',
             }}
@@ -897,7 +916,15 @@ function renderDescriptionPdfContent(
           {row.kind === 'dimensions' ? (
             renderDescDimensionsValue(row.dimText, row.dimSubLabel, View, Text, locale)
           ) : row.kind === 'category' ? (
-            <View style={{ width: valuePct, justifyContent: 'flex-start', paddingHorizontal: 2, paddingVertical: 2 }}>
+            <View
+              style={{
+                width: valuePct,
+                height: '100%',
+                justifyContent: 'center',
+                paddingHorizontal: 2,
+                paddingVertical: 2,
+              }}
+            >
               <Text
                 style={styles.descCategoryValueText}
                 hyphenationCallback={pdfSoftBreakNoHyphen}
@@ -906,7 +933,14 @@ function renderDescriptionPdfContent(
               </Text>
             </View>
           ) : (
-            <View style={{ width: valuePct, justifyContent: 'center', paddingHorizontal: 2 }}>
+            <View
+              style={{
+                width: valuePct,
+                height: '100%',
+                justifyContent: 'center',
+                paddingHorizontal: 2,
+              }}
+            >
               <Text style={styles.descValueText} hyphenationCallback={pdfSoftBreakNoHyphen}>
                 {pdfDisplayText(row.value)}
               </Text>
@@ -935,7 +969,7 @@ const styles: Record<string, any> = {
   tableHeader: { display: 'flex', flexDirection: 'row', backgroundColor: '#f5f5f5', minHeight: 24, alignItems: 'center', ...tableBandBorder },
   tableRow: { display: 'flex', flexDirection: 'row', minHeight: 60, alignItems: 'stretch', ...tableBandBorder },
   colIndex: { width: '5%', display: 'flex', justifyContent: 'center', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd', paddingVertical: 4 },
-  colDesc: { width: '13.2%', paddingLeft: 0, paddingRight: 0, paddingTop: 0, paddingBottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'stretch', borderRightWidth: 0.5, borderColor: '#ddd' },
+  colDesc: { width: '13.2%', paddingLeft: 0, paddingRight: 0, paddingTop: 0, paddingBottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', alignSelf: 'stretch', borderRightWidth: 0.5, borderColor: '#ddd' },
   colMaterial: { width: '29.2%', paddingLeft: 4, paddingRight: 4, paddingTop: 4, paddingBottom: 4, display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', alignSelf: 'stretch', borderRightWidth: 0.5, borderColor: '#ddd' },
   colRemarks: { width: '9%', paddingLeft: 2, paddingRight: 2, paddingTop: 0, paddingBottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'stretch', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
   colImage: { width: '11.4%', paddingLeft: 0, paddingRight: 0, paddingTop: 0, paddingBottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'stretch', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
