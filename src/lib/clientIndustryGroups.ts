@@ -126,7 +126,7 @@ export interface ResolvedIndustryGroup {
 
 /**
  * Build visible industry groups from available options.
- * Keeps catalog order; unmatched available options go under 「其他」.
+ * Keeps catalog order; unmatched available options go under 「7. 其他」.
  */
 export function resolveIndustryGroups(
   available: string[],
