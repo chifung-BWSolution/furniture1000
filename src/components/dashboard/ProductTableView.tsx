@@ -237,7 +237,23 @@ const ProductTableRow = memo(function ProductTableRow({
 
       {/* Dimensions (產品尺寸 LWH) */}
       <td className="px-4 py-3">
-        {(product.dimensionLMm || product.dimensionWMm || product.dimensionHMm) ? (
+        {(product.dimensionLMm && product.dimensionWMm && product.dimensionHMm) ? (
+          <span className="font-mono-data text-[10px] text-foreground whitespace-nowrap">
+            {product.dimensionLMm} × {product.dimensionWMm} × {product.dimensionHMm} mm
+          </span>
+        ) : readyToPublishMode ? (
+          <span
+            className="inline-flex max-w-[160px] flex-col gap-0.5"
+            title="沒有「產品尺寸（長 / 闊 / 高 mm）」數據，無法上傳到 Shopify"
+          >
+            <span className="rounded bg-rose-500/10 px-1.5 py-0.5 font-body text-[10px] font-medium text-rose-600">
+              無法上傳
+            </span>
+            <span className="font-body text-[10px] leading-snug text-rose-600/90">
+              沒有「產品尺寸（長 / 闊 / 高 mm）」數據
+            </span>
+          </span>
+        ) : (product.dimensionLMm || product.dimensionWMm || product.dimensionHMm) ? (
           <span className="font-mono-data text-[10px] text-foreground whitespace-nowrap">
             {product.dimensionLMm ?? '—'} × {product.dimensionWMm ?? '—'} × {product.dimensionHMm ?? '—'} mm
           </span>

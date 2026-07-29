@@ -3,6 +3,7 @@ import { Product, ProductVariant, ProductStatus, ProductSource, AppSettings, Vie
 import { supabase } from '@/lib/supabase';
 import { removeProductFromPublishPipeline } from '@/lib/publishPipeline';
 import { resolveSelectedPublishProducts } from '@/lib/readyToPublishRow';
+import { hasCompleteProductDimensions } from '@/lib/productDimensions';
 import { parseRtsGalleryUrls, buildPublishGalleryUrls } from '@/lib/rtsImages';
 import { syncRtsGalleryToProduct } from '@/lib/rtsProductSync';
 import { writeUploadLog } from '@/lib/uploadLog';
@@ -968,6 +969,62 @@ export function useAppStore() {
       }
     }
 
+    // Fetch ready_to_shopify rows early — used for dimension gate + upload payload.
+    const { data: rtsRows, error: rtsErr } = await supabase
+      .from('ready_to_shopify')
+      .select('id,product_id,title,body_html,vendor,price,image_url,images,variants,product_type,tags,shopify_url,shopify_page_title,shopify_page_description,dimension_l_mm,dimension_w_mm,dimension_h_mm,material,"my_fields.materials",customize,sku,products(image_url,image_url_2,image_url_3,lifestyle_image_url,images,dimension_l_mm,dimension_w_mm,dimension_h_mm,material,customize)')
+      .in('product_id', productIdsToPublish);
+    if (rtsErr) {
+      console.warn('[publishToShopify] ready_to_shopify fetch error:', rtsErr.message);
+    }
+    const rtsMap = new Map<string, any>((rtsRows || []).map((r: any) => [r.product_id, r]));
+
+    // Guard: 產品尺寸（長／闊／高 mm）必須齊全，缺任一欄則跳過該產品並留在準備上載。
+    const missingDim: { selectionId: string; title: string }[] = [];
+    {
+      const withDims: typeof productsToPublish = [];
+      for (const p of productsToPublish) {
+        const productId = (p as any).productId || p.id;
+        const rts = rtsMap.get(productId);
+        const prod = rts?.products as {
+          dimension_l_mm?: number | null;
+          dimension_w_mm?: number | null;
+          dimension_h_mm?: number | null;
+        } | null | undefined;
+        const L = rts?.dimension_l_mm ?? prod?.dimension_l_mm ?? p.dimensionLMm;
+        const W = rts?.dimension_w_mm ?? prod?.dimension_w_mm ?? p.dimensionWMm;
+        const H = rts?.dimension_h_mm ?? prod?.dimension_h_mm ?? p.dimensionHMm;
+        if (hasCompleteProductDimensions({ l: L, w: W, h: H })) {
+          withDims.push(p);
+        } else {
+          missingDim.push({
+            selectionId: p.id,
+            title: String(rts?.title || p.title || '未命名產品'),
+          });
+        }
+      }
+      if (missingDim.length > 0) {
+        const preview = missingDim
+          .slice(0, 3)
+          .map((x) => x.title)
+          .join('、');
+        const more =
+          missingDim.length > 3 ? ` 等 ${missingDim.length} 件` : `（${missingDim.length} 件）`;
+        toast.error('部分產品無法上傳到 Shopify', {
+          description: `${preview}${more}：沒有「產品尺寸（長 / 闊 / 高 mm）」數據，已跳過；其餘產品繼續上傳。`,
+          duration: 8000,
+        });
+        productsToPublish = withDims;
+        productIdsToPublish = productsToPublish.map((p) => (p as any).productId || p.id);
+        if (productIdsToPublish.length === 0) {
+          setIsPublishing(false);
+          setSelectedProductIds(new Set(missingDim.map((x) => x.selectionId)));
+          return;
+        }
+      }
+    }
+    const keepSelectedAfterPublish = missingDim.map((x) => x.selectionId);
+
     // Save products to local DB first to ensure consistency.
     // RTS products have productId != id — skip them here; they're already in the products table.
     const productsToSave = productsToPublish.filter(p => !(p as any).productId);
@@ -1032,17 +1089,6 @@ export function useAppStore() {
     if (statusErr) {
       console.error('[uploadToMasterDb] Failed to set publishing status in DB:', statusErr.message);
     }
-
-    // Fetch ready_to_shopify rows for the selected products to get the
-    // finalised title, body_html, price, image_url, images, variants.
-    const { data: rtsRows, error: rtsErr } = await supabase
-      .from('ready_to_shopify')
-      .select('id,product_id,title,body_html,vendor,price,image_url,images,variants,product_type,tags,shopify_url,shopify_page_title,shopify_page_description,dimension_l_mm,dimension_w_mm,dimension_h_mm,material,"my_fields.materials",customize,sku,products(image_url,image_url_2,image_url_3,lifestyle_image_url,images,dimension_l_mm,dimension_w_mm,dimension_h_mm,material,customize)')
-      .in('product_id', productIdsToPublish);
-    if (rtsErr) {
-      console.warn('[publishToShopify] ready_to_shopify fetch error:', rtsErr.message);
-    }
-    const rtsMap = new Map<string, any>((rtsRows || []).map((r: any) => [r.product_id, r]));
 
     // Before upload: sync merged RTS+catalog gallery back to products so catalog
     // stays aligned and publish backfill never misses images split across tables.
@@ -1375,7 +1421,8 @@ export function useAppStore() {
       const errMsg = `Upload error: ${err instanceof Error ? err.message : 'Unknown error'}`;
       toast.error('上傳失敗', { description: errMsg });
     } finally {
-      setSelectedProductIds(new Set());
+      // Keep products that were skipped for missing dimensions selected
+      setSelectedProductIds(new Set(keepSelectedAfterPublish));
       setIsPublishing(false);
       setPublishProgress(null);
       await reloadProducts();

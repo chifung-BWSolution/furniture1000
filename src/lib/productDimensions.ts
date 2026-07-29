@@ -20,3 +20,21 @@ export function formatProductDimensionsMm(
   if (l == null && w == null && h == null) return '';
   return `${l ?? '—'}(W) x ${w ?? '—'}(D) x ${h ?? '—'}(H) (mm)`;
 }
+
+/** Shared L/W/H mm validation for 產品價錢 / 準備上載. */
+export function isValidDimensionMm(value: unknown): boolean {
+  const n = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(n) && n > 0;
+}
+
+export function hasCompleteProductDimensions(dims: {
+  l?: unknown;
+  w?: unknown;
+  h?: unknown;
+}): boolean {
+  return (
+    isValidDimensionMm(dims.l) &&
+    isValidDimensionMm(dims.w) &&
+    isValidDimensionMm(dims.h)
+  );
+}

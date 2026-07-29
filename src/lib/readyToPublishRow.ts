@@ -3,6 +3,7 @@ import { supabase } from '@/lib/supabase';
 
 const RTS_LIST_SELECT = `
   id, product_id, title, image_url, vendor, product_type, variants, tags, price, compare_at_price, shopify_product_id, sku,
+  dimension_l_mm, dimension_w_mm, dimension_h_mm,
   products (
     id, sku, model, factory_id, cost_price, sale_price, image_url,
     dimension_l_mm, dimension_w_mm, dimension_h_mm,
@@ -100,9 +101,19 @@ export function mapReadyToPublishRow(row: Record<string, unknown>): Product {
     sku: (p.sku ?? row.sku) ? String(p.sku ?? row.sku) : undefined,
     costPrice: p.cost_price != null ? parseFloat(String(p.cost_price)) : null,
     salePrice: p.sale_price != null ? parseFloat(String(p.sale_price)) : 0,
-    dimensionLMm: (p.dimension_l_mm as number | null) ?? null,
-    dimensionWMm: (p.dimension_w_mm as number | null) ?? null,
-    dimensionHMm: (p.dimension_h_mm as number | null) ?? null,
+    // Prefer ready_to_shopify dims (產品價錢 edits), fall back to products.
+    dimensionLMm:
+      (row.dimension_l_mm as number | null) ??
+      (p.dimension_l_mm as number | null) ??
+      null,
+    dimensionWMm:
+      (row.dimension_w_mm as number | null) ??
+      (p.dimension_w_mm as number | null) ??
+      null,
+    dimensionHMm:
+      (row.dimension_h_mm as number | null) ??
+      (p.dimension_h_mm as number | null) ??
+      null,
     category: p.category ? String(p.category) : undefined,
     material: p.material ? String(p.material) : '',
     factoryId: p.factory_id ? String(p.factory_id) : null,
