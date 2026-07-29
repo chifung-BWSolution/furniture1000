@@ -14,7 +14,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import {
-  fetchPmsPitchings,
+  loadPitchingsForQuoteRows,
   pitchingDisplayTitle,
   type PmsPitchingListItem,
 } from '@/lib/pmsPitchings';
@@ -128,7 +128,12 @@ function latestQuoteInGroup(versions: QuoteListRow[]): QuoteListRow {
 /** 提案顯示名稱 = live PMS only（與快速報價 PmsPitchingGate 相同，不用 bwf_quote formData）. */
 function quoteDisplayName(q: QuoteListRow): string {
   if (q.pitching) return pitchingDisplayTitle(q.pitching);
-  return '未命名 Pitching';
+  // Orphan / legacy row without PMS link — show chain key rather than「未命名」.
+  return q.quote_id?.trim() || '—';
+}
+
+function quotePitchingCode(q: QuoteListRow): string {
+  return q.pitching?.pitching_code?.trim() || q.quote_id?.trim() || '—';
 }
 
 /** 報價單號 = bwf_quote.quote_id (PMS code only as enrichment fallback). */
@@ -188,31 +193,8 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
       if (error) throw error;
       const allRows = (data as QuoteRecord[]) || [];
 
-      const pitchingIds = [
-        ...new Set(
-          allRows
-            .map((q) => q.bwf_pitching_id)
-            .filter((id): id is string => Boolean(id)),
-        ),
-      ];
-
-      let pitchingById = new Map<string, PmsPitchingListItem>();
-      if (pitchingIds.length > 0) {
-        const pitchings = await fetchPmsPitchings({
-          ids: pitchingIds,
-          limit: pitchingIds.length,
-        });
-        pitchingById = new Map(pitchings.map((p) => [p.id, p]));
-      }
-
-      setQuotes(
-        allRows.map((q) => ({
-          ...q,
-          pitching: q.bwf_pitching_id
-            ? pitchingById.get(q.bwf_pitching_id) || null
-            : null,
-        })),
-      );
+      // Prefer bwf_pitching_id; for older rows missing the uuid, match quote_id → pitching_code.
+      setQuotes(await loadPitchingsForQuoteRows(allRows));
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : '無法載入報價單列表';
       toast.error('載入失敗', { description: message });
@@ -678,7 +660,7 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
                                 ) : null}
                               </div>
                               <div className="mt-0.5 truncate font-mono-data text-[11px] text-muted-foreground">
-                                {quote.pitching?.pitching_code || '—'}
+                                {quotePitchingCode(quote)}
                               </div>
                             </>
                           )}

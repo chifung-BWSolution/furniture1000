@@ -26,6 +26,7 @@ import {
 } from '@/lib/quoteChainId';
 import { parseQuotePathname } from '@/lib/quoteRoutes';
 import { fetchPmsPitchingQuoteDefaults } from '@/lib/pmsPitchingQuoteDefaults';
+import { fetchPmsPitchings } from '@/lib/pmsPitchings';
 
 export interface SubmitReviewResult {
   quoteId: string;
@@ -189,7 +190,7 @@ export function SubmitReviewModal({
     setIsSubmitting(true);
 
     try {
-      const pitchingId =
+      let pitchingId =
         bwfPitchingId ||
         extractPmsPitchingIdFromProjectData(projectData) ||
         null;
@@ -253,6 +254,19 @@ export function SubmitReviewModal({
         throw new Error('缺少報價單號（PMS Pitching Code），無法提交');
       }
       lockedChainIdRef.current = quoteId;
+
+      // Older drafts may have quote_id (pitching code) but lost pmsPitchingId —
+      // resolve live PMS uuid so bwf_pitching_id is always persisted.
+      if (!pitchingId) {
+        const matches = await fetchPmsPitchings({
+          codes: [quoteId],
+          limit: 5,
+        });
+        const match = matches.find(
+          (row) => row.pitching_code?.trim() === quoteId.trim(),
+        );
+        if (match?.id) pitchingId = match.id;
+      }
 
       // Always append a new version row on this quote_id chain.
       const { data: versionRows, error: versionErr } = await supabase

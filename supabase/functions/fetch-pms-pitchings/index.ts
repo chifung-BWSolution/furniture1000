@@ -81,7 +81,13 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: "Unauthorized" }, 401);
   }
 
-  let body: { search?: string; limit?: number; ids?: string[] } = {};
+  let body: {
+    search?: string;
+    limit?: number;
+    ids?: string[];
+    /** Exact pitching_code matches (e.g. BWF-OB26-113). */
+    codes?: string[];
+  } = {};
   try {
     body = await req.json();
   } catch {
@@ -92,8 +98,21 @@ Deno.serve(async (req: Request) => {
   const idList = Array.isArray(body.ids)
     ? [...new Set(body.ids.map((id) => String(id || "").trim()).filter(Boolean))]
     : [];
+  const codeList = Array.isArray(body.codes)
+    ? [
+        ...new Set(
+          body.codes.map((code) => String(code || "").trim()).filter(Boolean),
+        ),
+      ]
+    : [];
   const limit = Math.min(
-    Math.max(Number(body.limit) || (idList.length > 0 ? idList.length : DEFAULT_LIMIT), 1),
+    Math.max(
+      Number(body.limit) ||
+        (idList.length > 0 || codeList.length > 0
+          ? Math.max(idList.length, codeList.length)
+          : DEFAULT_LIMIT),
+      1,
+    ),
     MAX_LIMIT,
   );
 
@@ -108,10 +127,17 @@ Deno.serve(async (req: Request) => {
         "id, pitching_code, pitching_name, customer_id, real_customer_display_name, real_customer_name, main_pm_id, main_designer_id, pitching_stages, estimated_income, estimated_expense, enquiry_date, n_customer_type_id, n_bwf_service_types_id",
       )
       .order("enquiry_date", { ascending: false, nullsFirst: false })
-      .limit(Math.min(Math.max(limit, idList.length || 1), MAX_LIMIT));
+      .limit(
+        Math.min(
+          Math.max(limit, idList.length || codeList.length || 1),
+          MAX_LIMIT,
+        ),
+      );
 
     if (idList.length > 0) {
       query = query.in("id", idList.slice(0, MAX_LIMIT));
+    } else if (codeList.length > 0) {
+      query = query.in("pitching_code", codeList.slice(0, MAX_LIMIT));
     } else if (search) {
       const pattern = `%${escapeIlike(search)}%`;
       query = query.or(

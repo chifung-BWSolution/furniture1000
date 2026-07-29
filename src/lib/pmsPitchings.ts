@@ -22,27 +22,100 @@ export interface PmsPitchingListItem {
   service_type?: string | null;
 }
 
+const EDGE_MAX = 150;
+
+function chunkList<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+}
+
+function mapPitchingRows(items: unknown[]): PmsPitchingListItem[] {
+  return items
+    .map((row) => {
+      const r = row as Record<string, unknown>;
+      return {
+        id: String(r.id || ''),
+        pitching_code: r.pitching_code ? String(r.pitching_code) : null,
+        pitching_name: r.pitching_name ? String(r.pitching_name) : null,
+        customer_id: r.customer_id ? String(r.customer_id) : null,
+        customer_name: r.customer_name ? String(r.customer_name) : null,
+        main_pm_id: r.main_pm_id ? String(r.main_pm_id) : null,
+        main_pm_name: r.main_pm_name ? String(r.main_pm_name) : null,
+        main_designer_id: r.main_designer_id
+          ? String(r.main_designer_id)
+          : null,
+        main_designer_name: r.main_designer_name
+          ? String(r.main_designer_name)
+          : null,
+        pitching_stages: r.pitching_stages
+          ? String(r.pitching_stages)
+          : null,
+        estimated_income: (r.estimated_income as number | string | null) ?? null,
+        estimated_expense:
+          (r.estimated_expense as number | string | null) ?? null,
+        estimated_gross_profit:
+          (r.estimated_gross_profit as number | string | null) ?? null,
+        enquiry_date: r.enquiry_date ? String(r.enquiry_date) : null,
+        remaining_days:
+          typeof r.remaining_days === 'number'
+            ? r.remaining_days
+            : r.remaining_days != null
+              ? Number(r.remaining_days)
+              : null,
+        customer_type: r.customer_type ? String(r.customer_type) : null,
+        client_industry: r.client_industry
+          ? String(r.client_industry)
+          : null,
+        service_type: r.service_type ? String(r.service_type) : null,
+      } satisfies PmsPitchingListItem;
+    })
+    .filter((row) => Boolean(row.id));
+}
+
 /**
  * Search PMS v3 bwf_pitchings for 快速報價 pitching selection.
- * Pass `ids` to batch-load related pitchings for 報價單一覽 enrichment.
+ * Pass `ids` and/or `codes` to batch-load related pitchings for 報價單一覽 enrichment.
  */
 export async function fetchPmsPitchings(options?: {
   search?: string;
   limit?: number;
   ids?: string[];
+  /** Exact pitching_code values (e.g. BWF-OB26-113). */
+  codes?: string[];
 }): Promise<PmsPitchingListItem[]> {
   try {
-    const ids = (options?.ids || []).map((id) => id.trim()).filter(Boolean);
+    const ids = [...new Set((options?.ids || []).map((id) => id.trim()).filter(Boolean))];
+    const codes = [
+      ...new Set((options?.codes || []).map((code) => code.trim()).filter(Boolean)),
+    ];
 
-    // Chunk id lookups — edge MAX_LIMIT is 150
-    if (ids.length > 150) {
-      const chunks: string[][] = [];
-      for (let i = 0; i < ids.length; i += 150) {
-        chunks.push(ids.slice(i, i + 150));
-      }
+    // ids + codes: parallel fetch then merge (edge accepts one filter mode at a time).
+    if (ids.length > 0 && codes.length > 0) {
+      const [byId, byCode] = await Promise.all([
+        fetchPmsPitchings({ ids, limit: ids.length }),
+        fetchPmsPitchings({ codes, limit: codes.length }),
+      ]);
+      const map = new Map<string, PmsPitchingListItem>();
+      for (const row of [...byId, ...byCode]) map.set(row.id, row);
+      return [...map.values()];
+    }
+
+    if (ids.length > EDGE_MAX) {
       const parts = await Promise.all(
-        chunks.map((chunk) =>
+        chunkList(ids, EDGE_MAX).map((chunk) =>
           fetchPmsPitchings({ ids: chunk, limit: chunk.length }),
+        ),
+      );
+      return parts.flat();
+    }
+
+    if (codes.length > EDGE_MAX) {
+      const parts = await Promise.all(
+        chunkList(codes, EDGE_MAX).map((chunk) =>
+          fetchPmsPitchings({ codes: chunk, limit: chunk.length }),
         ),
       );
       return parts.flat();
@@ -53,8 +126,13 @@ export async function fetchPmsPitchings(options?: {
       {
         body: {
           search: options?.search?.trim() || '',
-          limit: options?.limit ?? (ids.length > 0 ? ids.length : 80),
+          limit:
+            options?.limit ??
+            (ids.length > 0 || codes.length > 0
+              ? Math.max(ids.length, codes.length)
+              : 80),
           ...(ids.length > 0 ? { ids } : {}),
+          ...(codes.length > 0 ? { codes } : {}),
         },
       },
     );
@@ -69,47 +147,64 @@ export async function fetchPmsPitchings(options?: {
     }
 
     const items = Array.isArray(data?.items) ? data.items : [];
-    return items
-      .map((row: Record<string, unknown>) => ({
-        id: String(row.id || ''),
-        pitching_code: row.pitching_code ? String(row.pitching_code) : null,
-        pitching_name: row.pitching_name ? String(row.pitching_name) : null,
-        customer_id: row.customer_id ? String(row.customer_id) : null,
-        customer_name: row.customer_name ? String(row.customer_name) : null,
-        main_pm_id: row.main_pm_id ? String(row.main_pm_id) : null,
-        main_pm_name: row.main_pm_name ? String(row.main_pm_name) : null,
-        main_designer_id: row.main_designer_id
-          ? String(row.main_designer_id)
-          : null,
-        main_designer_name: row.main_designer_name
-          ? String(row.main_designer_name)
-          : null,
-        pitching_stages: row.pitching_stages
-          ? String(row.pitching_stages)
-          : null,
-        estimated_income: (row.estimated_income as number | string | null) ?? null,
-        estimated_expense:
-          (row.estimated_expense as number | string | null) ?? null,
-        estimated_gross_profit:
-          (row.estimated_gross_profit as number | string | null) ?? null,
-        enquiry_date: row.enquiry_date ? String(row.enquiry_date) : null,
-        remaining_days:
-          typeof row.remaining_days === 'number'
-            ? row.remaining_days
-            : row.remaining_days != null
-              ? Number(row.remaining_days)
-              : null,
-        customer_type: row.customer_type ? String(row.customer_type) : null,
-        client_industry: row.client_industry
-          ? String(row.client_industry)
-          : null,
-        service_type: row.service_type ? String(row.service_type) : null,
-      }))
-      .filter((row: PmsPitchingListItem) => Boolean(row.id));
+    return mapPitchingRows(items);
   } catch (err) {
     console.warn('[fetchPmsPitchings] invoke failed:', err);
     return [];
   }
+}
+
+/** Attach live PMS pitching by bwf_pitching_id, else by quote_id === pitching_code. */
+export function attachPitchingsToQuoteRows<
+  T extends { bwf_pitching_id?: string | null; quote_id: string },
+>(
+  rows: T[],
+  pitchings: PmsPitchingListItem[],
+): Array<T & { pitching: PmsPitchingListItem | null }> {
+  const byId = new Map(pitchings.map((p) => [p.id, p]));
+  const byCode = new Map<string, PmsPitchingListItem>();
+  for (const p of pitchings) {
+    const code = p.pitching_code?.trim();
+    if (code && !byCode.has(code)) byCode.set(code, p);
+  }
+  return rows.map((row) => {
+    const pitching =
+      (row.bwf_pitching_id ? byId.get(row.bwf_pitching_id) : undefined) ||
+      byCode.get((row.quote_id || '').trim()) ||
+      null;
+    return { ...row, pitching };
+  });
+}
+
+/** Load + attach live PMS pitchings for quote list rows. */
+export async function loadPitchingsForQuoteRows<
+  T extends { bwf_pitching_id?: string | null; quote_id: string },
+>(rows: T[]): Promise<Array<T & { pitching: PmsPitchingListItem | null }>> {
+  if (rows.length === 0) return [];
+  const ids = [
+    ...new Set(
+      rows
+        .map((row) => row.bwf_pitching_id)
+        .filter((id): id is string => Boolean(id)),
+    ),
+  ];
+  const codes = [
+    ...new Set(
+      rows
+        .filter((row) => !row.bwf_pitching_id)
+        .map((row) => (row.quote_id || '').trim())
+        .filter(Boolean),
+    ),
+  ];
+  const pitchings =
+    ids.length === 0 && codes.length === 0
+      ? []
+      : await fetchPmsPitchings({
+          ...(ids.length > 0 ? { ids } : {}),
+          ...(codes.length > 0 ? { codes } : {}),
+          limit: Math.max(ids.length, codes.length, 1),
+        });
+  return attachPitchingsToQuoteRows(rows, pitchings);
 }
 
 export function formatPmsPitchingLabel(item: PmsPitchingListItem): string {

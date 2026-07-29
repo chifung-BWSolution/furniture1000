@@ -27,7 +27,7 @@ import {
 import { compareQuoteVersion, displayQuoteVersion } from '@/lib/quoteVersions';
 import { quoteStatusBadgeClass } from '@/lib/listTableUtils';
 import {
-  fetchPmsPitchings,
+  loadPitchingsForQuoteRows,
   pitchingDisplayTitle,
   type PmsPitchingListItem,
 } from '@/lib/pmsPitchings';
@@ -489,23 +489,7 @@ export function CustomerQuoteSchemesView() {
         .limit(120);
       if (error) throw error;
       const rows = (data as QuoteRecord[]) || [];
-      const pitchingIds = [
-        ...new Set(
-          rows
-            .map((quote) => quote.bwf_pitching_id)
-            .filter((id): id is string => Boolean(id)),
-        ),
-      ];
-      const pitchings = pitchingIds.length
-        ? await fetchPmsPitchings({ ids: pitchingIds, limit: pitchingIds.length })
-        : [];
-      const pitchingById = new Map(pitchings.map((pitching) => [pitching.id, pitching]));
-      const enriched = rows.map((quote) => ({
-        ...quote,
-        pitching: quote.bwf_pitching_id
-          ? pitchingById.get(quote.bwf_pitching_id) || null
-          : null,
-      }));
+      const enriched = await loadPitchingsForQuoteRows(rows);
       setQuotes(enriched);
       setActiveId((current) => current || enriched[0]?.id || '');
     } catch (error) {
