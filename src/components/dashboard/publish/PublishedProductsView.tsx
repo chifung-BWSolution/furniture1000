@@ -24,6 +24,7 @@ import { invokeEdgeFunctionDirect } from '@/lib/invokeEdgeFunction';
 import { resolveMirrorPrimaryImageUrl } from '@/lib/shopifyMirrorImages';
 import {
   findSimilarProductGroups,
+  paginateKeepingGroups,
   type SimilarProductCriterion,
   type SimilarProductGroup,
 } from '@/lib/similarProducts';
@@ -916,12 +917,48 @@ export function PublishedProductsView() {
     return map;
   }, [visibleSimilarGroups]);
 
-  // Page-size pagination over the sorted list.
-  const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
-  const paged = useMemo(
-    () => sorted.slice((currentPage - 1) * pageSize, currentPage * pageSize),
-    [sorted, currentPage, pageSize]
+  /**
+   * When「找相似產品」is active, paginate by whole groups so a cluster
+   * (e.g. 2 款禮堂椅) is never split across pages. If the next group would
+   * exceed pageSize, move the entire group to the following page.
+   */
+  const similarPages = useMemo(() => {
+    if (!similarCriteriaActive?.length) return null;
+    const orderedGroups: DisplayProduct[][] = [];
+    let currentGroupId: string | null = null;
+    let bucket: DisplayProduct[] = [];
+    for (const product of sorted) {
+      const groupId = groupMetaByProductId.get(product.id)?.groupId ?? product.id;
+      if (currentGroupId == null) {
+        currentGroupId = groupId;
+        bucket = [product];
+        continue;
+      }
+      if (groupId === currentGroupId) {
+        bucket.push(product);
+        continue;
+      }
+      orderedGroups.push(bucket);
+      currentGroupId = groupId;
+      bucket = [product];
+    }
+    if (bucket.length > 0) orderedGroups.push(bucket);
+    return paginateKeepingGroups(orderedGroups, pageSize);
+  }, [similarCriteriaActive, sorted, groupMetaByProductId, pageSize]);
+
+  const totalPages = Math.max(
+    1,
+    similarPages
+      ? similarPages.length
+      : Math.ceil(sorted.length / pageSize),
   );
+  const paged = useMemo(() => {
+    if (similarPages) {
+      return similarPages[currentPage - 1] ?? [];
+    }
+    return sorted.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  }, [similarPages, sorted, currentPage, pageSize]);
+
   useEffect(() => {
     setCurrentPage(1);
   }, [
@@ -934,6 +971,10 @@ export function PublishedProductsView() {
     skuSortDir,
     similarCriteriaActive,
   ]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) setCurrentPage(totalPages);
+  }, [currentPage, totalPages]);
 
   const toggleSimilarCriterionDraft = (criterion: SimilarProductCriterion, checked: boolean) => {
     setSimilarCriteriaDraft((prev) => {
@@ -1681,7 +1722,7 @@ export function PublishedProductsView() {
         </div>
         </div>
 
-        {sorted.length > pageSize && (
+        {totalPages > 1 && (
           <div className="flex shrink-0 items-center justify-center gap-2 border-t border-border bg-card px-6 py-2.5">
             <button
               onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
@@ -1691,7 +1732,8 @@ export function PublishedProductsView() {
               上一頁
             </button>
             <span className="font-mono-data text-xs text-muted-foreground">
-              第 {currentPage} / {totalPages} 頁 · 共 {sorted.length} 件
+              第 {currentPage} / {totalPages} 頁 · 本頁 {paged.length} 件 · 共 {sorted.length} 件
+              {similarCriteriaActive?.length ? '（同類不拆頁）' : ''}
             </span>
             <button
               onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}

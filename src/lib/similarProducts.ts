@@ -239,3 +239,33 @@ export function findSimilarProductGroups<T extends SimilarProductInput>(
 
   return [];
 }
+
+/**
+ * Pack ordered product groups into pages without splitting a group across pages.
+ * If adding a group would exceed `pageSize`, start a new page.
+ * A single group larger than `pageSize` still occupies one page by itself
+ * so similar products always stay together.
+ */
+export function paginateKeepingGroups<T>(
+  orderedGroups: readonly (readonly T[])[],
+  pageSize: number,
+): T[][] {
+  const size = Math.max(1, Math.floor(Number(pageSize) || 1));
+  const pages: T[][] = [];
+  let page: T[] = [];
+  let count = 0;
+
+  for (const group of orderedGroups) {
+    if (!group.length) continue;
+    if (count > 0 && count + group.length > size) {
+      pages.push(page);
+      page = [];
+      count = 0;
+    }
+    page.push(...group);
+    count += group.length;
+  }
+
+  if (page.length > 0) pages.push(page);
+  return pages;
+}
