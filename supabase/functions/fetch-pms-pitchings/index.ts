@@ -13,6 +13,9 @@ const PMS_PROJECT_URL = "https://kqwktnplkqucsbasyfjl.supabase.co";
 /** SLA window used for 剩餘天數 (enquiry_date + 90 days). */
 const ENQUIRY_SLA_DAYS = 90;
 
+/** Same industry collection as fetch-pms-pitching-quote-defaults / 客戶產業 *. */
+const INDUSTRY_COLLECTION_ID = "4f5de598-2dcb-45a6-a106-9d933e9a8007";
+
 const DEFAULT_LIMIT = 80;
 const MAX_LIMIT = 150;
 
@@ -205,6 +208,55 @@ Deno.serve(async (req: Request) => {
       }
     }
 
+    // 客戶產業：PMS customer_tags ∩ industry collection (same as quote form prefill)
+    const industryDisplayById = new Map<string, string>();
+    {
+      const { data: industryRows, error: industryError } = await pmsAdmin
+        .from("nos_customer_tags")
+        .select("id, display")
+        .eq("collection_id", INDUSTRY_COLLECTION_ID);
+      if (industryError) {
+        console.warn(
+          "[fetch-pms-pitchings] industry tags:",
+          industryError.message,
+        );
+      } else {
+        for (const t of industryRows || []) {
+          const display = String(t.display || "").trim();
+          if (t.id && display) industryDisplayById.set(t.id as string, display);
+        }
+      }
+    }
+
+    const customerIds = [
+      ...new Set(
+        pitchings
+          .map((r) => r.customer_id as string | null)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    const industriesByCustomerId = new Map<string, string[]>();
+    if (customerIds.length > 0 && industryDisplayById.size > 0) {
+      const { data: tagRows, error: tagError } = await pmsAdmin
+        .from("customer_tags")
+        .select("customer_uuid, tag_uuid")
+        .in("customer_uuid", customerIds);
+      if (tagError) {
+        console.warn("[fetch-pms-pitchings] customer_tags:", tagError.message);
+      } else {
+        for (const row of tagRows || []) {
+          const customerUuid = row.customer_uuid as string | null;
+          const tagUuid = row.tag_uuid as string | null;
+          if (!customerUuid || !tagUuid) continue;
+          const display = industryDisplayById.get(tagUuid);
+          if (!display) continue;
+          const list = industriesByCustomerId.get(customerUuid) || [];
+          if (!list.includes(display)) list.push(display);
+          industriesByCustomerId.set(customerUuid, list);
+        }
+      }
+    }
+
     const items = pitchings.map((r) => {
       const customerName =
         String(r.real_customer_display_name || "").trim() ||
@@ -248,6 +300,12 @@ Deno.serve(async (req: Request) => {
         customer_type: customerTypeId
           ? customerTypeById.get(customerTypeId) || null
           : null,
+        client_industry: (() => {
+          const cid = (r.customer_id as string | null) || null;
+          if (!cid) return null;
+          const labels = industriesByCustomerId.get(cid) || [];
+          return labels.length > 0 ? labels.join("、") : null;
+        })(),
         service_type: serviceTypeId
           ? serviceTypeById.get(serviceTypeId) || null
           : null,

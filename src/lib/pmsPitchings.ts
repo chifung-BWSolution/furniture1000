@@ -17,6 +17,8 @@ export interface PmsPitchingListItem {
   enquiry_date: string | null;
   remaining_days?: number | null;
   customer_type?: string | null;
+  /** PMS customer industry tags (客戶產業), joined with 、 */
+  client_industry?: string | null;
   service_type?: string | null;
 }
 
@@ -98,6 +100,9 @@ export async function fetchPmsPitchings(options?: {
               ? Number(row.remaining_days)
               : null,
         customer_type: row.customer_type ? String(row.customer_type) : null,
+        client_industry: row.client_industry
+          ? String(row.client_industry)
+          : null,
         service_type: row.service_type ? String(row.service_type) : null,
       }))
       .filter((row: PmsPitchingListItem) => Boolean(row.id));

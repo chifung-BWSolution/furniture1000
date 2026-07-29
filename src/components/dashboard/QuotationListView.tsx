@@ -50,6 +50,7 @@ import {
 } from '@/lib/staffDisplay';
 import { collectStaffNamesFromQuoteRows } from '@/lib/quoteStaffOptions';
 import { compareQuoteVersion, displayQuoteVersion } from '@/lib/quoteVersions';
+import { formatClientIndustryLabel } from '@/lib/clientIndustryDisplay';
 
 interface QuoteRecord {
   id: string;
@@ -66,6 +67,8 @@ interface QuoteRecord {
       clientContactName?: string;
       company?: string;
       projectManager?: string;
+      clientIndustry?: string[];
+      clientIndustryOther?: string;
     };
     clientInfo?: {
       name?: string;
@@ -95,6 +98,7 @@ type SortKey =
   | 'enquiry_date'
   | 'remaining_days'
   | 'customer_type'
+  | 'client_industry'
   | 'display_name'
   | 'quote_status'
   | 'total_amount'
@@ -151,6 +155,13 @@ function staffLabel(q: QuoteListRow): string {
         q.submitter?.trim() ||
         '',
     ) || '—'
+  );
+}
+
+function quoteClientIndustry(q: QuoteListRow): string {
+  return formatClientIndustryLabel(
+    q.project_data?.formData?.clientIndustry,
+    q.project_data?.formData?.clientIndustryOther,
   );
 }
 
@@ -323,6 +334,12 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
             b.pitching?.customer_type,
             sortDir,
           );
+        case 'client_industry':
+          return compareNullable(
+            quoteClientIndustry(a),
+            quoteClientIndustry(b),
+            sortDir,
+          );
         case 'display_name':
           return compareNullable(
             quoteDisplayName(a),
@@ -472,6 +489,7 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
                   ['enquiry_date', '查詢日期'],
                   ['remaining_days', '剩餘天數'],
                   ['customer_type', '客戶類型'],
+                  ['client_industry', '客戶產業'],
                   ['display_name', '提案顯示名稱'],
                   ['quote_status', '報價狀態'],
                   ['total_amount', '報價金額'],
@@ -498,10 +516,10 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
           </thead>
           <tbody>
             {isLoading ? (
-              <ListTableLoadingRow colSpan={10} label="載入報價單列表…" />
+              <ListTableLoadingRow colSpan={11} label="載入報價單列表…" />
             ) : displayRows.length === 0 ? (
               <ListTableEmptyRow
-                colSpan={10}
+                colSpan={11}
                 message={emptyMessage}
               />
             ) : (
@@ -595,6 +613,16 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
                       )}
                     >
                       {isOldExpanded ? '—' : quote.pitching?.customer_type || '—'}
+                    </td>
+                    <td
+                      className={cn(
+                        'max-w-[180px] font-body leading-snug',
+                        isOldExpanded
+                          ? 'px-3 py-2 text-[11px] text-muted-foreground/60'
+                          : 'px-3 py-3 text-xs text-foreground',
+                      )}
+                    >
+                      {isOldExpanded ? '—' : quoteClientIndustry(quote)}
                     </td>
                     <td
                       className={cn(

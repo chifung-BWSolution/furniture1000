@@ -936,7 +936,7 @@ export function QuickQuoteView({
             onClick={() => onClearEditingQuote?.()}
             className="inline-flex items-center justify-center rounded-lg bg-primary px-4 py-2 font-body text-sm font-semibold text-primary-foreground"
           >
-            返回報價一覽
+            返回報價單一覽
           </button>
         </div>
       </div>

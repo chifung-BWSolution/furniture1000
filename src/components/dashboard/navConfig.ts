@@ -70,7 +70,7 @@ export const NAV_CONFIG: PrimaryItem[] = [
     icon: Calculator,
     children: [
       { view: 'quick-quote', label: '快速報價', icon: Zap },
-      { view: 'quotation-list', label: '報價一覽', icon: ClipboardList },
+      { view: 'quotation-list', label: '報價單一覽', icon: ClipboardList },
     ],
   },
   {
