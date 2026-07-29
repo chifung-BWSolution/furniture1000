@@ -1300,7 +1300,7 @@ export function PublishedProductsView() {
                 <div>
                   <p className="font-body text-sm font-semibold text-foreground">找相似產品</p>
                   <p className="mt-0.5 font-body text-xs text-muted-foreground">
-                    可選 1 項或全選準則，篩選後按組別排列以便合併
+                    可選 1 項或全選。兩項都選時須同時符合（同名＋同廠家，且 SKU 相同／約 9 成相似），再按組別排列以便合併
                   </p>
                 </div>
                 <div className="space-y-2">

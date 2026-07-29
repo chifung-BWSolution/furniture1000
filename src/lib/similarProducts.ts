@@ -4,6 +4,8 @@
  * Criteria:
  * 1. Same product title (exact trim) AND same factory/vendor
  * 2. Same SKU (exact) OR ~90% similar (e.g. CYJ-DQ-13O vs CYJ-DQ-13O-1)
+ *
+ * When both are selected, matches must satisfy BOTH (AND), not either.
  */
 
 export interface SimilarProductInput {
@@ -122,6 +124,93 @@ class UnionFind {
   }
 }
 
+/** Cluster products whose SKUs are exact / ~90% similar (union-find). */
+function clusterBySimilarSku<T extends SimilarProductInput>(
+  products: T[],
+): T[][] {
+  const withSku = products.filter((p) => {
+    const s = normalizeSku(p.sku);
+    return Boolean(s) && s !== '—';
+  });
+  if (withSku.length < 2) return [];
+
+  const uf = new UnionFind();
+  const linked = new Set<string>();
+  for (let i = 0; i < withSku.length; i++) {
+    for (let j = i + 1; j < withSku.length; j++) {
+      if (areSkusSimilar(withSku[i].sku, withSku[j].sku)) {
+        uf.union(withSku[i].id, withSku[j].id);
+        linked.add(withSku[i].id);
+        linked.add(withSku[j].id);
+      }
+    }
+  }
+
+  const buckets = new Map<string, T[]>();
+  for (const p of withSku) {
+    if (!linked.has(p.id)) continue;
+    const root = uf.find(p.id);
+    const list = buckets.get(root) ?? [];
+    list.push(p);
+    buckets.set(root, list);
+  }
+  return [...buckets.values()].filter((list) => list.length >= 2);
+}
+
+function groupByNameAndFactory<T extends SimilarProductInput>(
+  products: T[],
+): T[][] {
+  const byKey = new Map<string, T[]>();
+  for (const p of products) {
+    const title = normalizeTitle(p.title);
+    const factory = normalizeFactory(p.factory);
+    if (!title || title === '(未命名)' || !factory || factory === '—') continue;
+    const key = `${title}\0${factory}`;
+    const list = byKey.get(key) ?? [];
+    list.push(p);
+    byKey.set(key, list);
+  }
+  return [...byKey.values()].filter((list) => list.length >= 2);
+}
+
+function toGroups<T extends SimilarProductInput>(
+  clusters: T[][],
+  criterion: SimilarProductCriterion | 'mixed',
+): SimilarProductGroup<T>[] {
+  const groups: SimilarProductGroup<T>[] = clusters.map((list) => {
+    const sorted = [...list].sort((a, b) =>
+      normalizeSku(a.sku).localeCompare(normalizeSku(b.sku), undefined, {
+        numeric: true,
+        sensitivity: 'base',
+      }),
+    );
+    const label =
+      normalizeTitle(sorted[0].title) ||
+      normalizeSku(sorted[0].sku) ||
+      '相似產品';
+    return {
+      id: sorted.map((p) => p.id).sort().join('|'),
+      label,
+      criterion,
+      products: sorted,
+    };
+  });
+
+  groups.sort((a, b) => {
+    if (b.products.length !== a.products.length) {
+      return b.products.length - a.products.length;
+    }
+    return a.label.localeCompare(b.label, 'zh-Hant');
+  });
+  return groups;
+}
+
+/**
+ * Find similar-product clusters.
+ * - name only: same title + same factory
+ * - sku only: exact / ~90% similar SKU
+ * - both: AND — same title + same factory, AND SKUs similar within that set
+ */
 export function findSimilarProductGroups<T extends SimilarProductInput>(
   products: T[],
   criteria: SimilarProductCriterion[],
@@ -129,98 +218,26 @@ export function findSimilarProductGroups<T extends SimilarProductInput>(
   const enabled = new Set(criteria);
   if (enabled.size === 0 || products.length < 2) return [];
 
-  const uf = new UnionFind();
-  const criterionHint = new Map<string, Set<SimilarProductCriterion>>();
+  const useName = enabled.has('name');
+  const useSku = enabled.has('sku');
 
-  const mark = (id: string, c: SimilarProductCriterion) => {
-    const set = criterionHint.get(id) ?? new Set();
-    set.add(c);
-    criterionHint.set(id, set);
-  };
-
-  if (enabled.has('name')) {
-    const byKey = new Map<string, T[]>();
-    for (const p of products) {
-      const title = normalizeTitle(p.title);
-      const factory = normalizeFactory(p.factory);
-      if (!title || title === '(未命名)' || !factory || factory === '—') continue;
-      const key = `${title}\0${factory}`;
-      const list = byKey.get(key) ?? [];
-      list.push(p);
-      byKey.set(key, list);
+  // Both selected → AND: name+factory groups, then SKU-similar subsets only
+  if (useName && useSku) {
+    const nameGroups = groupByNameAndFactory(products);
+    const clusters: T[][] = [];
+    for (const nameGroup of nameGroups) {
+      clusters.push(...clusterBySimilarSku(nameGroup));
     }
-    for (const list of byKey.values()) {
-      if (list.length < 2) continue;
-      for (let i = 1; i < list.length; i++) {
-        uf.union(list[0].id, list[i].id);
-      }
-      for (const p of list) mark(p.id, 'name');
-    }
+    return toGroups(clusters, 'mixed');
   }
 
-  if (enabled.has('sku')) {
-    const withSku = products.filter((p) => {
-      const s = normalizeSku(p.sku);
-      return Boolean(s) && s !== '—';
-    });
-    for (let i = 0; i < withSku.length; i++) {
-      for (let j = i + 1; j < withSku.length; j++) {
-        if (areSkusSimilar(withSku[i].sku, withSku[j].sku)) {
-          uf.union(withSku[i].id, withSku[j].id);
-          mark(withSku[i].id, 'sku');
-          mark(withSku[j].id, 'sku');
-        }
-      }
-    }
+  if (useName) {
+    return toGroups(groupByNameAndFactory(products), 'name');
   }
 
-  const buckets = new Map<string, T[]>();
-  for (const p of products) {
-    const root = uf.find(p.id);
-    // Only keep products that were actually linked by a criterion
-    if (!criterionHint.has(p.id)) continue;
-    const list = buckets.get(root) ?? [];
-    list.push(p);
-    buckets.set(root, list);
+  if (useSku) {
+    return toGroups(clusterBySimilarSku(products), 'sku');
   }
 
-  const groups: SimilarProductGroup<T>[] = [];
-  for (const [root, list] of buckets) {
-    if (list.length < 2) continue;
-    const hints = new Set<SimilarProductCriterion>();
-    for (const p of list) {
-      for (const c of criterionHint.get(p.id) ?? []) hints.add(c);
-    }
-    const criterion: SimilarProductCriterion | 'mixed' =
-      hints.size === 1 ? [...hints][0]! : 'mixed';
-
-    const label =
-      normalizeTitle(list[0].title) ||
-      normalizeSku(list[0].sku) ||
-      '相似產品';
-
-    list.sort((a, b) =>
-      normalizeSku(a.sku).localeCompare(normalizeSku(b.sku), undefined, {
-        numeric: true,
-        sensitivity: 'base',
-      }),
-    );
-
-    groups.push({
-      id: root,
-      label,
-      criterion,
-      products: list,
-    });
-  }
-
-  // Stable order: larger groups first, then label
-  groups.sort((a, b) => {
-    if (b.products.length !== a.products.length) {
-      return b.products.length - a.products.length;
-    }
-    return a.label.localeCompare(b.label, 'zh-Hant');
-  });
-
-  return groups;
+  return [];
 }
