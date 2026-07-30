@@ -3,7 +3,7 @@ import { cn } from '@/lib/utils';
 import {
   CheckCheck, Search, ArrowDownToLine, ArrowUpToLine, RotateCcw, ChevronDown,
   CloudDownload, Loader2, X, Store, RefreshCw, ArrowUp, ArrowDown, GitMerge, FolderTree,
-  ScanSearch,
+  ScanSearch, Tag,
 } from 'lucide-react';
 import {
   Select,
@@ -48,6 +48,7 @@ import { withUpdateAuditFields } from '@/lib/pmsAudit';
 import { toast } from 'sonner';
 import { PublishedProductDetailModal, type PublishedDisplayProduct } from './PublishedProductDetailModal';
 import { PublishedProductMergeModal } from './PublishedProductMergeModal';
+import { CategoryTagPicker, type BwfCat } from './CategoryTagPicker';
 
 /** Bulk sync: low concurrency + spacing to avoid Shopify 429 (2 req/s). */
 const SHOPIFY_PUSH_CONCURRENCY_BULK = 1;
@@ -368,11 +369,15 @@ export function PublishedProductsView() {
     null,
   );
   const [categoryPairs, setCategoryPairs] = useState<{ level1: string; level2: string }[]>([]);
+  const [bwfCats, setBwfCats] = useState<BwfCat[]>([]);
   const [bulkCategoryPickerOpen, setBulkCategoryPickerOpen] = useState(false);
   const [bulkEditL1, setBulkEditL1] = useState('');
   const [bulkEditL2, setBulkEditL2] = useState('');
   const [categoryConfirmOpen, setCategoryConfirmOpen] = useState(false);
   const [isBulkUpdatingCategory, setIsBulkUpdatingCategory] = useState(false);
+  const [bulkAddTagsOpen, setBulkAddTagsOpen] = useState(false);
+  const [bulkAddTags, setBulkAddTags] = useState<string[]>([]);
+  const [isBulkAddingTags, setIsBulkAddingTags] = useState(false);
 
   useEffect(() => {
     supabase
@@ -382,6 +387,13 @@ export function PublishedProductsView() {
       .then(({ data: cats }) => {
         if (cats) setCategoryPairs(cats as { level1: string; level2: string }[]);
       });
+    supabase
+      .from('bwf_product_categories')
+      .select('id,name,parent_id,level,sort_order')
+      .order('sort_order', { ascending: true })
+      .then(({ data }) => {
+        if (data) setBwfCats(data as BwfCat[]);
+      });
   }, []);
 
   useEffect(() => {
@@ -390,6 +402,8 @@ export function PublishedProductsView() {
       setBulkEditL1('');
       setBulkEditL2('');
       setCategoryConfirmOpen(false);
+      setBulkAddTagsOpen(false);
+      setBulkAddTags([]);
     }
   }, [selectedIds.length]);
 
@@ -1212,6 +1226,98 @@ export function PublishedProductsView() {
     setCategoryConfirmOpen(false);
   };
 
+  const resetBulkAddTags = () => {
+    setBulkAddTagsOpen(false);
+    setBulkAddTags([]);
+  };
+
+  const mergeTagsUnique = (existing: string[], toAdd: string[]): string[] => {
+    const out = [...existing];
+    for (const t of toAdd) {
+      if (t && !out.includes(t)) out.push(t);
+    }
+    return out;
+  };
+
+  const confirmBulkAddTags = async () => {
+    const ids = [...selectedIds];
+    if (!ids.length) { toast.message('請先勾選產品'); return; }
+    if (!bulkAddTags.length) { toast.message('請先選擇要加入的標籤'); return; }
+    setIsBulkAddingTags(true);
+    const toastId = toast.loading(`正在為 ${ids.length} 件產品加入標籤...`);
+    try {
+      let updatedCount = 0;
+      let skippedCount = 0;
+      const nextById = new Map<string, string[]>();
+
+      for (const p of items.filter((row) => ids.includes(row.id))) {
+        const existing = Array.isArray(p.raw.tags) ? p.raw.tags.filter(Boolean) : [];
+        const merged = mergeTagsUnique(existing, bulkAddTags);
+        const unchanged =
+          merged.length === existing.length && merged.every((t) => existing.includes(t));
+        if (unchanged) {
+          skippedCount += 1;
+          continue;
+        }
+
+        const { error } = await supabase
+          .from('shopify_products')
+          .update({ tags: merged })
+          .eq('id', p.id);
+        if (error) {
+          toast.error('加入標籤失敗', { id: toastId, description: error.message });
+          return;
+        }
+
+        if (p.raw.source_product_id) {
+          const sourceId = p.raw.source_product_id;
+          const { error: productsErr } = await supabase
+            .from('products')
+            .update(await withUpdateAuditFields({ tags: merged }))
+            .eq('id', sourceId);
+          if (productsErr) {
+            console.warn('[PublishedProductsView] products tags sync failed:', productsErr.message);
+          }
+          const { error: rtsErr } = await supabase
+            .from('ready_to_shopify')
+            .update({ tags: merged })
+            .eq('product_id', sourceId);
+          if (rtsErr) {
+            console.warn('[PublishedProductsView] RTS tags sync failed:', rtsErr.message);
+          }
+        }
+
+        nextById.set(p.id, merged);
+        updatedCount += 1;
+      }
+
+      if (nextById.size > 0) {
+        setItems((prev) => prev.map((p) => {
+          const tags = nextById.get(p.id);
+          return tags ? { ...p, raw: { ...p.raw, tags } } : p;
+        }));
+      }
+
+      resetBulkAddTags();
+      if (updatedCount === 0) {
+        toast.message('所選產品皆已具備這些標籤，無需更新', { id: toastId });
+      } else {
+        toast.success(
+          `已為 ${updatedCount} 件產品加入標籤` +
+            (skippedCount > 0 ? `（${skippedCount} 件已具備、略過）` : ''),
+          { id: toastId },
+        );
+      }
+    } catch (err) {
+      toast.error('加入標籤失敗', {
+        id: toastId,
+        description: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setIsBulkAddingTags(false);
+    }
+  };
+
   const confirmBulkCategoryChange = async () => {
     const ids = [...selectedIds];
     if (!ids.length || !bulkEditL1 || !bulkEditL2) return;
@@ -1563,16 +1669,6 @@ export function PublishedProductsView() {
               )}
             </span>
             <div className="flex shrink-0 items-center gap-2">
-              {selectedIds.length > SELECTED_SKU_COLLAPSE_THRESHOLD && (
-                <button
-                  type="button"
-                  onClick={() => setSkuChipsExpanded((v) => !v)}
-                  className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-                >
-                  <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', showSkuChipList && 'rotate-180')} />
-                  {showSkuChipList ? '收起 SKU' : '展開 SKU'}
-                </button>
-              )}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button
@@ -1594,6 +1690,7 @@ export function PublishedProductsView() {
                   <DropdownMenuItem
                     className="text-xs"
                     onSelect={() => {
+                      resetBulkAddTags();
                       setBulkCategoryPickerOpen(true);
                       setBulkEditL1('');
                       setBulkEditL2('');
@@ -1602,12 +1699,34 @@ export function PublishedProductsView() {
                     <FolderTree className="h-3.5 w-3.5" />
                     更改一級/二級分類
                   </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className="text-xs"
+                    onSelect={() => {
+                      resetBulkCategoryPicker();
+                      setBulkAddTags([]);
+                      setBulkAddTagsOpen(true);
+                    }}
+                  >
+                    <Tag className="h-3.5 w-3.5" />
+                    加入標籤
+                  </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
+              {selectedIds.length > SELECTED_SKU_COLLAPSE_THRESHOLD && (
+                <button
+                  type="button"
+                  onClick={() => setSkuChipsExpanded((v) => !v)}
+                  className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                >
+                  <ChevronDown className={cn('h-3.5 w-3.5 transition-transform', showSkuChipList && 'rotate-180')} />
+                  {showSkuChipList ? '收起 SKU' : '展開 SKU'}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => {
                   resetBulkCategoryPicker();
+                  resetBulkAddTags();
                   clearAllSelection();
                 }}
                 className="rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
@@ -1658,6 +1777,34 @@ export function PublishedProductsView() {
                 type="button"
                 onClick={resetBulkCategoryPicker}
                 className="rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+              >
+                取消
+              </button>
+            </div>
+          )}
+          {bulkAddTagsOpen && (
+            <div className="mb-1.5 flex flex-wrap items-start gap-2">
+              <div className="min-w-[260px] max-w-md flex-1">
+                <CategoryTagPicker
+                  tags={bulkAddTags}
+                  categories={bwfCats}
+                  onChange={setBulkAddTags}
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => { void confirmBulkAddTags(); }}
+                disabled={isBulkAddingTags || bulkAddTags.length === 0}
+                className="inline-flex h-9 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isBulkAddingTags ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Tag className="h-3.5 w-3.5" />}
+                儲存
+              </button>
+              <button
+                type="button"
+                onClick={resetBulkAddTags}
+                disabled={isBulkAddingTags}
+                className="h-9 rounded-md border border-border px-2.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-50"
               >
                 取消
               </button>
