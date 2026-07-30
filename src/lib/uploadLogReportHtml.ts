@@ -94,11 +94,11 @@ export function formatUploadLogReportAsHtml(
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>上載產品紀錄</title>
+  <title>Shopify 上載產品紀錄</title>
 </head>
 <body style="margin:0;padding:20px;background:#ffffff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;color:#111827;line-height:1.5;">
   <div style="max-width:760px;margin:0 auto;">
-    <h2 style="margin:0 0 8px;font-size:20px;font-weight:700;">上載產品紀錄</h2>
+    <h2 style="margin:0 0 8px;font-size:20px;font-weight:700;">Shopify 上載產品紀錄</h2>
     <p style="margin:0 0 4px;font-size:13px;color:#6b7280;">最近 30 日 · 香港時間 ${escapeHtml(formatHkDateTime())}</p>
     <p style="margin:0 0 16px;font-size:13px;color:#6b7280;">資料更新於 ${escapeHtml(generatedLabel)}（香港時間）</p>
     ${daySections}

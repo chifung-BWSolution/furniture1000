@@ -76,7 +76,7 @@ export function formatUploadLogReportAsText(
     : options.dates ?? report.dailyRows.map((r) => r.hkDate);
 
   const lines: string[] = [
-    "上載產品紀錄",
+    "Shopify 上載產品紀錄",
     `最近 30 日 · 香港時間 ${formatHkDateTime()}`,
     `資料更新於 ${generatedLabel}（香港時間）`,
     "",
