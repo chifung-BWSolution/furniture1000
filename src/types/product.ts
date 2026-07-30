@@ -131,6 +131,7 @@ export type ViewType =
   // 傢俬報價
   | 'quick-quote'
   | 'quotation-list'
+  | 'quotation-large-amount'
   // 網上發佈
   | 'publish-copywriting'
   | 'publish-product-info'

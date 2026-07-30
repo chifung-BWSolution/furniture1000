@@ -24,6 +24,7 @@ import { usePlatformRole } from "@/hooks/use-platform-role";
 import {
   buildQuoteEditorPath,
   parseQuotePathname,
+  QUOTE_LARGE_AMOUNT_PATH,
   QUOTE_LIST_PATH,
   QUOTE_QUICK_PATH,
 } from "@/lib/quoteRoutes";
@@ -199,6 +200,7 @@ const SELF_LOADING_VIEWS = new Set<ViewType>([
   // Otherwise /quote/:id waits on store.isLoading and can look like a blank/black screen.
   "quick-quote",
   "quotation-list",
+  "quotation-large-amount",
   "solution-project-list",
   "design-projects",
   "invite-clients",
@@ -412,13 +414,17 @@ export function AppShell() {
     [navigate, setEditingQuoteId],
   );
 
-  // Deep links: /quote, /quote/quick, /quote/:quoteId(Vn)
+  // Deep links: /quote, /quote/large-amount, /quote/quick, /quote/:quoteId(Vn)
   useEffect(() => {
     const parsed = parseQuotePathname(location.pathname);
     if (parsed.kind === 'list' && location.pathname.replace(/\/+$/, '') !== QUOTE_LIST_PATH) {
       return;
     }
-    if (parsed.kind !== 'list' && !location.pathname.startsWith('/quote/')) {
+    if (
+      parsed.kind !== 'list' &&
+      parsed.kind !== 'large-amount' &&
+      !location.pathname.startsWith('/quote/')
+    ) {
       return;
     }
 
@@ -444,6 +450,12 @@ export function AppShell() {
     if (parsed.kind === 'list') {
       setEditingQuoteId(null);
       store.setCurrentView('quotation-list');
+      return;
+    }
+
+    if (parsed.kind === 'large-amount') {
+      setEditingQuoteId(null);
+      store.setCurrentView('quotation-large-amount');
       return;
     }
 
@@ -559,6 +571,8 @@ export function AppShell() {
 
     if (store.currentView === 'quotation-list') {
       target = QUOTE_LIST_PATH;
+    } else if (store.currentView === 'quotation-large-amount') {
+      target = QUOTE_LARGE_AMOUNT_PATH;
     } else if (store.currentView === 'quick-quote') {
       if (editingQuoteId) {
         target = buildQuoteEditorPath(editingQuoteId, editingQuoteVersion);
@@ -952,8 +966,14 @@ export function AppShell() {
           />
         );
       case "quotation-list":
+      case "quotation-large-amount":
         return (
           <QuotationListView
+            mode={
+              store.currentView === 'quotation-large-amount'
+                ? 'large-amount'
+                : 'all'
+            }
             onOpenQuote={openQuoteForEdit}
             onCopyQuote={(quoteUuid) => {
               if (!unsavedGuard.confirmLeave()) return;
@@ -1006,13 +1026,17 @@ export function AppShell() {
       return;
     }
 
-    if (view === "quotation-list") {
+    if (view === "quotation-list" || view === "quotation-large-amount") {
       if (view !== store.currentView && unsavedGuard.isDirty && !unsavedGuard.confirmLeave()) {
         return;
       }
-      quoteUrlSyncRef.current = QUOTE_LIST_PATH;
-      navigate(QUOTE_LIST_PATH, { replace: true });
-      store.setCurrentView("quotation-list");
+      const targetPath =
+        view === "quotation-large-amount"
+          ? QUOTE_LARGE_AMOUNT_PATH
+          : QUOTE_LIST_PATH;
+      quoteUrlSyncRef.current = targetPath;
+      navigate(targetPath, { replace: true });
+      store.setCurrentView(view);
       store.setFilterProductId(null);
       setEditingQuoteId(null);
       return;

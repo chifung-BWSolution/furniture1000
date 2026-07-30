@@ -1,7 +1,7 @@
 import {
   Layers, Users, Calculator, Package, Globe, BarChart3, Settings as SettingsIcon,
   LayoutDashboard, Search, UserPlus, CheckCircle2,
-  Building2, Zap, ClipboardList,
+  Building2, Zap, ClipboardList, CircleDollarSign,
   FileUp, FolderTree, BookOpen, Boxes,
   FileText, UploadCloud, CheckCheck, Sofa,
   Building, BarChart2,
@@ -71,6 +71,7 @@ export const NAV_CONFIG: PrimaryItem[] = [
     children: [
       { view: 'quick-quote', label: '快速報價', icon: Zap },
       { view: 'quotation-list', label: '報價單一覽', icon: ClipboardList },
+      { view: 'quotation-large-amount', label: '大金額投標 (>$50000)', icon: CircleDollarSign },
     ],
   },
   {

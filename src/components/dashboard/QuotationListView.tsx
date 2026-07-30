@@ -89,13 +89,17 @@ type QuoteListRow = QuoteRecord & {
 interface QuotationListViewProps {
   onOpenQuote?: (quoteId: string, opts?: { quoteUuid?: string; version?: string }) => void;
   onCopyQuote?: (quoteUuid: string) => void;
+  /** `large-amount` = 大金額投標 (>$50000)，其餘與報價單一覽相同。 */
+  mode?: 'all' | 'large-amount';
 }
 
 const LIST_SELECT =
   'id, quote_id, version, status, total_amount, cost_price, submitter, bwf_pitching_id, created_at, modified_date, project_data';
 
+const LARGE_AMOUNT_THRESHOLD = 50000;
+
 type SortKey =
-  | 'enquiry_date'
+  | 'created_date'
   | 'remaining_days'
   | 'customer_type'
   | 'client_industry'
@@ -105,6 +109,11 @@ type SortKey =
   | 'cost_price'
   | 'staff'
   | 'pitching_stages';
+
+/** 建立日期 = 該報價版本列自己的 created_at（不用 pitching enquiry_date）。 */
+function quoteCreatedAt(q: QuoteListRow): string {
+  return q.created_at || q.modified_date || '';
+}
 
 /** Group by quote_id; each group sorted newest version first. */
 function groupQuoteVersions(rows: QuoteRecord[]): Map<string, QuoteListRow[]> {
@@ -169,14 +178,19 @@ function quoteClientIndustry(q: QuoteListRow): string {
   );
 }
 
-export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListViewProps) {
+export function QuotationListView({
+  onOpenQuote,
+  onCopyQuote,
+  mode = 'all',
+}: QuotationListViewProps) {
+  const isLargeAmount = mode === 'large-amount';
   const [quotes, setQuotes] = useState<QuoteListRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [staffFilter, setStaffFilter] = useState('__all__');
   const [deleteTarget, setDeleteTarget] = useState<QuoteListRow | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
-  const [sortKey, setSortKey] = useState<SortKey>('enquiry_date');
+  const [sortKey, setSortKey] = useState<SortKey>('created_date');
   const [sortDir, setSortDir] = useState<ListSortDir>('desc');
   const [expandedQuoteIds, setExpandedQuoteIds] = useState<Set<string>>(
     () => new Set(),
@@ -243,6 +257,12 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
 
     let rows = latestRows;
 
+    if (isLargeAmount) {
+      rows = rows.filter(
+        (q) => Number(q.total_amount || 0) > LARGE_AMOUNT_THRESHOLD,
+      );
+    }
+
     if (staffFilter !== '__all__') {
       rows = rows.filter((q) =>
         matchesStaffFilter(
@@ -286,17 +306,15 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
         q.version.toLowerCase().includes(query)
       );
     });
-  }, [quoteGroups, searchQuery, staffFilter]);
+  }, [isLargeAmount, quoteGroups, searchQuery, staffFilter]);
 
   const sortedLatestQuotes = useMemo(() => {
     const rows = [...filteredLatestQuotes];
     rows.sort((a, b) => {
       switch (sortKey) {
-        case 'enquiry_date': {
-          const aDate =
-            a.pitching?.enquiry_date || a.modified_date || a.created_at;
-          const bDate =
-            b.pitching?.enquiry_date || b.modified_date || b.created_at;
+        case 'created_date': {
+          const aDate = quoteCreatedAt(a);
+          const bDate = quoteCreatedAt(b);
           return compareNullable(
             aDate ? new Date(aDate).getTime() : null,
             bDate ? new Date(bDate).getTime() : null,
@@ -397,7 +415,7 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
     } else {
       setSortKey(key);
       setSortDir(
-        key === 'enquiry_date' ||
+        key === 'created_date' ||
           key === 'remaining_days' ||
           key === 'total_amount'
           ? 'desc'
@@ -422,14 +440,20 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
     if (searchQuery.trim()) {
       return `找不到「${searchQuery.trim()}」`;
     }
-    return '尚無報價記錄';
-  }, [searchQuery, staffFilter]);
+    return isLargeAmount
+      ? '尚無報價金額大於 $50,000 的記錄'
+      : '尚無報價記錄';
+  }, [isLargeAmount, searchQuery, staffFilter]);
 
   return (
     <>
       <ListPageShell
-        title="報價單一覽"
-        subtitle="管理和追蹤所有已提交的報價記錄（含關聯 PMS Pitching）"
+        title={isLargeAmount ? '大金額投標 (>$50000)' : '報價單一覽'}
+        subtitle={
+          isLargeAmount
+            ? '顯示報價金額大於 $50,000 的報價記錄（含關聯 PMS Pitching），預設按建立日期由近到遠'
+            : '管理和追蹤所有已提交的報價記錄（含關聯 PMS Pitching）'
+        }
         search={searchQuery}
         onSearchChange={setSearchQuery}
         searchPlaceholder="搜尋 pitching code / 客戶名稱 / 提案名稱 / 提交者…"
@@ -459,7 +483,13 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
           minWidthClassName="min-w-[1280px]"
           footer={
             !isLoading && displayRows.length > 0
-              ? `共 ${sortedLatestQuotes.length} 張報價 · ${quotes.length} 個版本紀錄`
+              ? `共 ${sortedLatestQuotes.length} 張報價 · ${
+                  sortedLatestQuotes.reduce(
+                    (sum, row) =>
+                      sum + (quoteGroups.get(row.quote_id)?.length || 1),
+                    0,
+                  )
+                } 個版本紀錄`
               : null
           }
         >
@@ -467,11 +497,11 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
             <tr className="border-b border-border bg-muted/50">
               {(
                 [
-                  ['enquiry_date', '查詢日期'],
+                  ['created_date', '建立日期'],
+                  ['display_name', '提案顯示名稱'],
                   ['remaining_days', '剩餘天數'],
                   ['customer_type', '客戶類型'],
                   ['client_industry', '客戶產業'],
-                  ['display_name', '提案顯示名稱'],
                   ['quote_status', '報價狀態'],
                   ['total_amount', '報價金額'],
                   ['cost_price', '成本'],
@@ -509,13 +539,9 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
                 const title = quoteDisplayName(quote);
                 const code = quoteCode(quote);
                 const days = quote.pitching?.remaining_days ?? null;
-                const enquiryDate =
-                  quote.pitching?.enquiry_date ||
-                  quote.modified_date ||
-                  quote.created_at;
+                const createdDate = quoteCreatedAt(quote);
                 const isLatestExpanded = expanded && showExpandControl;
                 const isOldExpanded = expanded && isOlderVersion;
-                const versionDate = quote.modified_date || quote.created_at;
 
                 const openQuote = () =>
                   onOpenQuote?.(quote.quote_id, {
@@ -557,53 +583,7 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
                         isOldExpanded ? 'px-3 py-2 text-[11px] text-muted-foreground/80' : 'px-3 py-3 text-xs',
                       )}
                     >
-                      {formatListDate(isOldExpanded ? versionDate : enquiryDate)}
-                    </td>
-                    <td
-                      className={cn(
-                        'whitespace-nowrap',
-                        isOldExpanded ? 'px-3 py-2' : 'px-3 py-3',
-                      )}
-                    >
-                      {isOldExpanded || days == null ? (
-                        <span className="font-body text-xs text-muted-foreground/60">
-                          —
-                        </span>
-                      ) : (
-                        <span
-                          className={cn(
-                            'inline-flex items-center gap-1 font-body text-xs font-medium',
-                            days < 0
-                              ? 'text-rose-600'
-                              : days <= 14
-                                ? 'text-amber-600'
-                                : 'text-emerald-600',
-                          )}
-                        >
-                          <Clock className="h-3.5 w-3.5" />
-                          {days} 天
-                        </span>
-                      )}
-                    </td>
-                    <td
-                      className={cn(
-                        'max-w-[140px] font-body leading-snug',
-                        isOldExpanded
-                          ? 'px-3 py-2 text-[11px] text-muted-foreground/60'
-                          : 'px-3 py-3 text-xs text-foreground',
-                      )}
-                    >
-                      {isOldExpanded ? '—' : quote.pitching?.customer_type || '—'}
-                    </td>
-                    <td
-                      className={cn(
-                        'max-w-[180px] font-body leading-snug',
-                        isOldExpanded
-                          ? 'px-3 py-2 text-[11px] text-muted-foreground/60'
-                          : 'px-3 py-3 text-xs text-foreground',
-                      )}
-                    >
-                      {isOldExpanded ? '—' : quoteClientIndustry(quote)}
+                      {formatListDate(createdDate)}
                     </td>
                     <td
                       className={cn(
@@ -673,25 +653,64 @@ export function QuotationListView({ onOpenQuote, onCopyQuote }: QuotationListVie
                         isOldExpanded ? 'px-3 py-2' : 'px-3 py-3',
                       )}
                     >
-                      <div className="flex flex-wrap items-center gap-1.5">
+                      {isOldExpanded || days == null ? (
+                        <span className="font-body text-xs text-muted-foreground/60">
+                          —
+                        </span>
+                      ) : (
                         <span
                           className={cn(
-                            'inline-flex rounded-md border px-2 py-0.5 font-body font-medium',
-                            quoteStatusBadgeClass(quote.status),
-                            isOldExpanded
-                              ? 'text-[10px] opacity-75'
-                              : 'text-[11px]',
-                            isLatestExpanded && 'ring-1 ring-primary/20',
+                            'inline-flex items-center gap-1 font-body text-xs font-medium',
+                            days < 0
+                              ? 'text-rose-600'
+                              : days <= 14
+                                ? 'text-amber-600'
+                                : 'text-emerald-600',
                           )}
                         >
-                          {displayQuoteVersion(quote.version)} · {quote.status}
+                          <Clock className="h-3.5 w-3.5" />
+                          {days} 天
                         </span>
-                        {showExpandControl && !expanded ? (
-                          <span className="font-body text-[10px] text-muted-foreground">
-                            {versionCount} 版
-                          </span>
-                        ) : null}
-                      </div>
+                      )}
+                    </td>
+                    <td
+                      className={cn(
+                        'max-w-[140px] font-body leading-snug',
+                        isOldExpanded
+                          ? 'px-3 py-2 text-[11px] text-muted-foreground/60'
+                          : 'px-3 py-3 text-xs text-foreground',
+                      )}
+                    >
+                      {isOldExpanded ? '—' : quote.pitching?.customer_type || '—'}
+                    </td>
+                    <td
+                      className={cn(
+                        'max-w-[180px] font-body leading-snug',
+                        isOldExpanded
+                          ? 'px-3 py-2 text-[11px] text-muted-foreground/60'
+                          : 'px-3 py-3 text-xs text-foreground',
+                      )}
+                    >
+                      {isOldExpanded ? '—' : quoteClientIndustry(quote)}
+                    </td>
+                    <td
+                      className={cn(
+                        'whitespace-nowrap',
+                        isOldExpanded ? 'px-3 py-2' : 'px-3 py-3',
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          'inline-flex rounded-md border px-2 py-0.5 font-body font-medium',
+                          quoteStatusBadgeClass(quote.status),
+                          isOldExpanded
+                            ? 'text-[10px] opacity-75'
+                            : 'text-[11px]',
+                          isLatestExpanded && 'ring-1 ring-primary/20',
+                        )}
+                      >
+                        {displayQuoteVersion(quote.version)} · {quote.status}
+                      </span>
                     </td>
                     <td
                       className={cn(

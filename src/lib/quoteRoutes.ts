@@ -2,6 +2,7 @@ import { displayQuoteVersion, quoteVersionSequence } from '@/lib/quoteVersions';
 
 export const QUOTE_LIST_PATH = '/quote';
 export const QUOTE_QUICK_PATH = '/quote/quick';
+export const QUOTE_LARGE_AMOUNT_PATH = '/quote/large-amount';
 
 /** Business quote id: Q{YYYY}-{MMDD}-{100-999} */
 export function generateQuoteId(): string {
@@ -15,6 +16,7 @@ export function generateQuoteId(): string {
 
 export type ParsedQuotePath =
   | { kind: 'list' }
+  | { kind: 'large-amount' }
   | { kind: 'quick' }
   | { kind: 'quote'; quoteId: string; version?: string; versionNum?: number };
 
@@ -23,6 +25,7 @@ export function parseQuotePathSegment(segment: string): ParsedQuotePath {
   const decoded = decodeURIComponent(segment || '').trim();
   if (!decoded) return { kind: 'list' };
   if (decoded.toLowerCase() === 'quick') return { kind: 'quick' };
+  if (decoded.toLowerCase() === 'large-amount') return { kind: 'large-amount' };
 
   // Version suffix: /quote/BWF-FD26-001V5 or /quote/Q2026-0717-263V2
   const versionMatch = decoded.match(/^(.+)V(\d+)$/i);
@@ -58,6 +61,7 @@ export function buildQuoteEditorPath(
 export function parseQuotePathname(pathname: string): ParsedQuotePath {
   const normalized = pathname.replace(/\/+$/, '') || '/';
   if (normalized === QUOTE_LIST_PATH) return { kind: 'list' };
+  if (normalized === QUOTE_LARGE_AMOUNT_PATH) return { kind: 'large-amount' };
   const match = normalized.match(/^\/quote\/([^/]+)$/);
   if (!match) return { kind: 'list' };
   return parseQuotePathSegment(match[1]);
