@@ -413,6 +413,8 @@ export function PublishedProductsView() {
 
   const loadProducts = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setIsLoading(true);
+    // Only standalone listings: merged children have configurable = parent SKU and
+    // must never appear in 全部 / 已發佈 / 已下架 (已下架 = manual delist only).
     const { data, error } = await supabase
       .from('shopify_products')
       .select('*')
@@ -423,7 +425,9 @@ export function PublishedProductsView() {
       toast.error('讀取產品失敗', { description: error.message });
       setItems([]);
     } else {
-      const rows = data ?? [];
+      const rows = (data ?? []).filter(
+        (r) => !(typeof r.configurable === 'string' && r.configurable.trim()),
+      );
       const sourceIds = rows
         .map((r) => r.source_product_id)
         .filter(Boolean) as string[];

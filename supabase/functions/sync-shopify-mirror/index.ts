@@ -454,6 +454,8 @@ function buildMirrorRow(
     shopify_page_title: string | null;
     shopify_page_description: string | null;
     shopify_url: string | null;
+    /** Parent SKU when this row was merged as a child — must survive reconcile upserts. */
+    configurable: string | null;
   },
 ): Record<string, unknown> {
   const shopifyId = String(sp.id);
@@ -465,6 +467,9 @@ function buildMirrorRow(
   const images = sortLiveImages((sp.images as Record<string, unknown>[]) ?? []);
   const tags = ((sp.tags as string) || "").split(",").map((t) => t.trim()).filter(Boolean);
   const localUrl = prev?.shopify_url?.trim() || null;
+  const prevConfigurable = typeof prev?.configurable === "string" && prev.configurable.trim()
+    ? prev.configurable.trim()
+    : null;
 
   const row: Record<string, unknown> = {
     shopify_product_id: shopifyId,
@@ -490,6 +495,9 @@ function buildMirrorRow(
     shop_domain: shopDomain,
     id: prev?.id ?? null,
     source_product_id: prev?.source_product_id ?? null,
+    // Merged children stay hidden on 已上載產品 (filter configurable IS NULL).
+    // Explicitly re-write so upsert never clears the merge marker.
+    configurable: prevConfigurable,
   };
   return row;
 }
@@ -501,7 +509,8 @@ function buildMirrorRow(
  * Shopify store.
  *  1. Fetch ALL products from Shopify (paginated).
  *  2. UPSERT each into shopify_products (status, title, price, images, handle…),
- *     preserving the existing row's id / source_product_id / metafield columns.
+ *     preserving the existing row's id / source_product_id / configurable /
+ *     metafield columns (merged children keep configurable so they stay hidden).
  *  3. DELETE any shopify_products row whose shopify_product_id is no longer on
  *     Shopify (product was deleted in the Shopify admin).
  *
@@ -609,6 +618,7 @@ Deno.serve(async (req: Request) => {
       shopify_page_title: string | null;
       shopify_page_description: string | null;
       shopify_url: string | null;
+      configurable: string | null;
       "custom.more_image_link_1"?: string | null;
       "custom.more_image_link_2"?: string | null;
       "custom.more_image_link_3"?: string | null;
