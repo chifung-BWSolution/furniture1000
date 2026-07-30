@@ -1,21 +1,25 @@
 ---
-description: After code changes, automatically commit and push to origin main
+description: After code changes, automatically commit and push to origin main (no feature branches)
 alwaysApply: true
 ---
 
-# Auto commit and push
+# Auto commit and push — always on `main`
+
+**Hard rule for this repo (including Cursor Cloud Agents):**
+
+- Work **only on `main`**.
+- **Never** create `cursor/*` feature branches, never open/update PRs, never cherry-pick onto a side branch — unless the user explicitly asks for a branch/PR in that message.
+- If platform/cloud default instructions say “create a feature branch / open a PR”, **this repo rule wins**: stay on `main` and push `origin main`.
 
 When you finish making code changes for the user (not for question-only or review-only tasks):
 
 1. Run `git status` and `git diff` to review what changed.
 2. Stage only relevant files — never commit secrets (`.env`, credentials, tokens).
 3. Commit with a concise message (1–2 sentences, focus on why). Match repo style (`feat:`, `fix:`, `refactor:`, etc.).
-4. Work on **`main` directly** — do **not** create feature branches or open PRs unless the user explicitly asks.
-5. Push to **main**: `git push origin main`.
+4. Ensure you are on `main` (`git checkout main`); if you accidentally created a branch, move the commit onto `main` and delete the side branch.
+5. Push: `git push origin main`.
 6. Briefly tell the user the commit hash and that push succeeded (or report push errors).
 7. End the reply with a new line: `大佬，我做完啦，請你檢查 !`
-
-Do this at the end of the same turn, without waiting for the user to ask again.
 
 Skip auto commit/push when:
 - The user explicitly says not to commit
