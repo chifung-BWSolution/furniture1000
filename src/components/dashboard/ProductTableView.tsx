@@ -515,6 +515,10 @@ export const ProductTableView = memo(function ProductTableView({
       : displayedProducts.slice(currentPageIndex * PAGE_SIZE, (currentPageIndex + 1) * PAGE_SIZE),
     [displayedProducts, currentPageIndex, PAGE_SIZE, serverMode]
   );
+  const detailPageIndex = useMemo(
+    () => (detailProduct ? paginatedProducts.findIndex((p) => p.id === detailProduct.id) : -1),
+    [detailProduct, paginatedProducts],
+  );
   // Select-all applies to the current page only (e.g. 25 rows), not every filtered row.
   const pageIds = useMemo(() => paginatedProducts.map(p => p.id), [paginatedProducts]);
   const allPageSelected = useMemo(
@@ -1359,6 +1363,16 @@ export const ProductTableView = memo(function ProductTableView({
             rtsId={detailProduct.id}
             onClose={() => setDetailProduct(null)}
             onSaved={() => { setDetailProduct(null); onVariantsSaved?.(); }}
+            canGoPrev={detailPageIndex > 0}
+            canGoNext={detailPageIndex >= 0 && detailPageIndex < paginatedProducts.length - 1}
+            onGoPrev={() => {
+              if (detailPageIndex > 0) setDetailProduct(paginatedProducts[detailPageIndex - 1]);
+            }}
+            onGoNext={() => {
+              if (detailPageIndex >= 0 && detailPageIndex < paginatedProducts.length - 1) {
+                setDetailProduct(paginatedProducts[detailPageIndex + 1]);
+              }
+            }}
           />
         )}
         {detailProduct && !readyToPublishMode && (

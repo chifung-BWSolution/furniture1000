@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
 import {
-  Sofa, Loader2, CheckCheck, ChevronRight, Image as ImageIcon,
+  Sofa, Loader2, CheckCheck, ChevronLeft, ChevronRight, Image as ImageIcon,
   X, Package, Tag, DollarSign, Search, RotateCcw, Save, Check, Ruler, Truck,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
@@ -255,10 +255,18 @@ export function FGProductDetailModal({
   rtsId,
   onClose,
   onSaved,
+  canGoPrev = false,
+  canGoNext = false,
+  onGoPrev,
+  onGoNext,
 }: {
   rtsId: string;
   onClose: () => void;
   onSaved?: () => void;
+  canGoPrev?: boolean;
+  canGoNext?: boolean;
+  onGoPrev?: () => void;
+  onGoNext?: () => void;
 }) {
   const [data, setData] = useState<FGDetail | null>(null);
   const [loading, setLoading] = useState(true);
@@ -594,17 +602,52 @@ export function FGProductDetailModal({
               </span>
             )}
           </div>
-          {/* Save button */}
-          {!loading && data && (
-            <button
-              onClick={handleSave}
-              disabled={isSaving}
-              className="shrink-0 flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-bold text-primary-foreground shadow hover:opacity-90 disabled:opacity-50 transition-opacity"
-            >
-              {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-              儲存
-            </button>
-          )}
+          <div className="flex shrink-0 items-center gap-2">
+            {!loading && data && (
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={onGoPrev}
+                  disabled={!canGoPrev || isSaving}
+                  title="上一個產品"
+                  aria-label="上一個產品"
+                  className={cn(
+                    'flex h-9 w-9 items-center justify-center rounded-xl border transition-colors',
+                    canGoPrev && !isSaving
+                      ? 'border-border bg-card text-foreground hover:bg-accent'
+                      : 'cursor-not-allowed border-border/50 bg-muted/40 text-muted-foreground/40',
+                  )}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={onGoNext}
+                  disabled={!canGoNext || isSaving}
+                  title="下一個產品"
+                  aria-label="下一個產品"
+                  className={cn(
+                    'flex h-9 w-9 items-center justify-center rounded-xl border transition-colors',
+                    canGoNext && !isSaving
+                      ? 'border-border bg-card text-foreground hover:bg-accent'
+                      : 'cursor-not-allowed border-border/50 bg-muted/40 text-muted-foreground/40',
+                  )}
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              </div>
+            )}
+            {!loading && data && (
+              <button
+                onClick={handleSave}
+                disabled={isSaving}
+                className="shrink-0 flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-bold text-primary-foreground shadow hover:opacity-90 disabled:opacity-50 transition-opacity"
+              >
+                {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                儲存
+              </button>
+            )}
+          </div>
         </div>
 
         {/* ── Modal Body ── */}
@@ -1123,6 +1166,10 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
   useEffect(() => { setCurrentPage(1); }, [level1Filter, level2Filter, factoryFilter, pageSize]);
 
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
+  const detailPageIndex = useMemo(
+    () => (detailRtsId ? items.findIndex((row) => row.rtsId === detailRtsId) : -1),
+    [detailRtsId, items],
+  );
 
   const toggleRow = (id: string) =>
     setSelected(prev => {
@@ -1496,6 +1543,16 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
           rtsId={detailRtsId}
           onClose={() => setDetailRtsId(null)}
           onSaved={() => setReloadKey((k) => k + 1)}
+          canGoPrev={detailPageIndex > 0}
+          canGoNext={detailPageIndex >= 0 && detailPageIndex < items.length - 1}
+          onGoPrev={() => {
+            if (detailPageIndex > 0) setDetailRtsId(items[detailPageIndex - 1].rtsId);
+          }}
+          onGoNext={() => {
+            if (detailPageIndex >= 0 && detailPageIndex < items.length - 1) {
+              setDetailRtsId(items[detailPageIndex + 1].rtsId);
+            }
+          }}
         />
       )}
     </div>
