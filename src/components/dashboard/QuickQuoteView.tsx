@@ -1013,7 +1013,8 @@ export function QuickQuoteView({
               )}
             </div>
           ) : (
-            <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-3">
+            {/* 3 cols align with stepper: title | 客戶資料（約在「傢俬類別」上方）| empty */}
+            <div className="grid grid-cols-1 items-start gap-y-3 sm:grid-cols-3">
               <div className="min-w-0">
                 <h1 className="font-display text-2xl font-bold tracking-tight text-foreground">
                   {copyFromUuid ? '複製報價單' : '建立新報價單'}
@@ -1026,7 +1027,7 @@ export function QuickQuoteView({
               </div>
               {(formData.clientContactName.trim() ||
                 formData.clientPhone.trim()) && (
-                <div className="flex shrink-0 flex-wrap items-center gap-x-6 gap-y-2 pt-1">
+                <div className="flex min-w-0 flex-wrap items-center gap-x-6 gap-y-2 pt-1 sm:justify-start">
                   <div>
                     <div className="font-body text-[11px] text-muted-foreground">
                       客戶名稱
