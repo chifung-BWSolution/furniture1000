@@ -187,6 +187,7 @@ export function QuotationListView({
   const [quotes, setQuotes] = useState<QuoteListRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
+  const [pitchingStatusFilter, setPitchingStatusFilter] = useState('__all__');
   const [staffFilter, setStaffFilter] = useState('__all__');
   const [deleteTarget, setDeleteTarget] = useState<QuoteListRow | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -252,6 +253,16 @@ export function QuotationListView({
 
   const quoteGroups = useMemo(() => groupQuoteVersions(quotes), [quotes]);
 
+  const pitchingStatusFilterOptions = useMemo(() => {
+    const labels = new Set<string>();
+    for (const versions of quoteGroups.values()) {
+      const latest = latestQuoteInGroup(versions);
+      const label = pitchingStatusLabel(latest.pitching?.pitching_stages);
+      if (label && label !== '—') labels.add(label);
+    }
+    return Array.from(labels).sort((a, b) => a.localeCompare(b, 'en'));
+  }, [quoteGroups]);
+
   const filteredLatestQuotes = useMemo(() => {
     const latestRows = [...quoteGroups.values()].map(latestQuoteInGroup);
 
@@ -260,6 +271,14 @@ export function QuotationListView({
     if (isLargeAmount) {
       rows = rows.filter(
         (q) => Number(q.total_amount || 0) > LARGE_AMOUNT_THRESHOLD,
+      );
+    }
+
+    if (pitchingStatusFilter !== '__all__') {
+      rows = rows.filter(
+        (q) =>
+          pitchingStatusLabel(q.pitching?.pitching_stages) ===
+          pitchingStatusFilter,
       );
     }
 
@@ -306,7 +325,13 @@ export function QuotationListView({
         q.version.toLowerCase().includes(query)
       );
     });
-  }, [isLargeAmount, quoteGroups, searchQuery, staffFilter]);
+  }, [
+    isLargeAmount,
+    pitchingStatusFilter,
+    quoteGroups,
+    searchQuery,
+    staffFilter,
+  ]);
 
   const sortedLatestQuotes = useMemo(() => {
     const rows = [...filteredLatestQuotes];
@@ -431,11 +456,14 @@ export function QuotationListView({
     : '';
 
   const emptyMessage = useMemo(() => {
-    if (staffFilter !== '__all__' && searchQuery.trim()) {
-      return `找不到「${staffFilter}」且符合「${searchQuery.trim()}」的報價`;
+    const parts: string[] = [];
+    if (pitchingStatusFilter !== '__all__') parts.push(pitchingStatusFilter);
+    if (staffFilter !== '__all__') parts.push(staffFilter);
+    if (parts.length > 0 && searchQuery.trim()) {
+      return `找不到「${parts.join(' · ')}」且符合「${searchQuery.trim()}」的報價`;
     }
-    if (staffFilter !== '__all__') {
-      return `找不到「${staffFilter}」的報價`;
+    if (parts.length > 0) {
+      return `找不到「${parts.join(' · ')}」的報價`;
     }
     if (searchQuery.trim()) {
       return `找不到「${searchQuery.trim()}」`;
@@ -443,7 +471,7 @@ export function QuotationListView({
     return isLargeAmount
       ? '尚無報價金額大於 $50,000 的記錄'
       : '尚無報價記錄';
-  }, [isLargeAmount, searchQuery, staffFilter]);
+  }, [isLargeAmount, pitchingStatusFilter, searchQuery, staffFilter]);
 
   return (
     <>
@@ -458,22 +486,43 @@ export function QuotationListView({
         onSearchChange={setSearchQuery}
         searchPlaceholder="搜尋 pitching code / 客戶名稱 / 提案名稱 / 提交者…"
         searchLeading={
-          <Select value={staffFilter} onValueChange={setStaffFilter}>
-            <SelectTrigger
-              className="h-10 w-[168px] shrink-0 rounded-xl border-border bg-card font-body text-sm shadow-sm"
-              aria-label="篩選主要 PM"
+          <>
+            <Select
+              value={pitchingStatusFilter}
+              onValueChange={setPitchingStatusFilter}
             >
-              <SelectValue placeholder="主要PM" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="__all__">全部 PM</SelectItem>
-              {staffFilterOptions.map((name) => (
-                <SelectItem key={name} value={name}>
-                  {name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+              <SelectTrigger
+                className="h-10 w-[168px] shrink-0 rounded-xl border-border bg-card font-body text-sm shadow-sm"
+                aria-label="篩選 Pitching 狀態"
+              >
+                <SelectValue placeholder="狀態" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">全部狀態</SelectItem>
+                {pitchingStatusFilterOptions.map((label) => (
+                  <SelectItem key={label} value={label}>
+                    {label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={staffFilter} onValueChange={setStaffFilter}>
+              <SelectTrigger
+                className="h-10 w-[168px] shrink-0 rounded-xl border-border bg-card font-body text-sm shadow-sm"
+                aria-label="篩選主要 PM"
+              >
+                <SelectValue placeholder="主要PM" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__all__">全部 PM</SelectItem>
+                {staffFilterOptions.map((name) => (
+                  <SelectItem key={name} value={name}>
+                    {name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </>
         }
         searchActions={
           <ListRefreshButton onClick={fetchQuotes} loading={isLoading} />

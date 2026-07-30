@@ -43,7 +43,7 @@ export function ListPageShell({
           <div
             className={cn(
               'flex w-full items-center gap-2',
-              searchLeading ? 'md:max-w-2xl' : 'md:max-w-lg',
+              searchLeading ? 'md:max-w-3xl' : 'md:max-w-lg',
             )}
           >
             {searchLeading}
