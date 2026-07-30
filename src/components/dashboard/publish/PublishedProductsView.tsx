@@ -1849,14 +1849,34 @@ export function PublishedProductsView() {
         </div>
       )}
 
-      {/* table — min-h-0 lets flex child shrink; pagination pinned below scroll area */}
+      {/* table — default cols fill viewport (操作 at right); Factory ID / 成本 need horizontal scroll */}
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="min-h-0 flex-1 overflow-auto p-6">
-        <div className="min-w-max overflow-hidden rounded-xl border border-border bg-card">
-          <table className="w-full text-sm">
+        {/* +168px forces Factory ID + 成本 past the default viewport edge */}
+        <div
+          className="overflow-hidden rounded-xl border border-border bg-card"
+          style={{ width: 'calc(100% + 168px)', minWidth: 'calc(100% + 168px)' }}
+        >
+          <table className="w-full table-fixed text-sm">
+            <colgroup>
+              <col style={{ width: 40 }} />
+              <col style={{ width: 290 }} />
+              <col style={{ width: 96 }} />
+              <col />{/* 描述 — absorbs remaining default width */}
+              <col style={{ width: 120 }} />
+              <col style={{ width: 150 }} />
+              <col style={{ width: 72 }} />
+              <col style={{ width: 72 }} />
+              <col style={{ width: 120 }} />
+              <col style={{ width: 100 }} />
+              <col style={{ width: 72 }} />
+              <col style={{ width: 112 }} />
+              <col style={{ width: 88 }} />
+              <col style={{ width: 80 }} />
+            </colgroup>
             <thead className="bg-muted/50 text-[11px] uppercase tracking-wider text-muted-foreground">
               <tr>
-                <th className="w-10 px-4 py-2.5 sticky left-0 bg-muted/50 z-10">
+                <th className="px-2 py-2.5 sticky left-0 bg-muted/50 z-10">
                   <input
                     ref={pageSelectAllRef}
                     type="checkbox"
@@ -1866,9 +1886,15 @@ export function PublishedProductsView() {
                     onChange={(e) => togglePageSelectAll(e.target.checked)}
                   />
                 </th>
-                <th className="px-3 py-2.5 text-left font-medium min-w-[280px] sticky left-10 bg-muted/50 z-10">產品圖片</th>
-                <th className="px-3 py-2.5 text-left font-medium min-w-[110px]">廠家</th>
-                <th className="px-3 py-2.5 text-left font-medium min-w-[100px]">
+                <th className="px-3 py-2.5 text-left font-medium sticky left-10 bg-muted/50 z-10">產品圖片</th>
+                <th className="px-3 py-2.5 text-left font-medium">廠家</th>
+                <th className="px-3 py-2.5 text-left font-medium">描述</th>
+                <th className="px-3 py-2.5 text-left font-medium">材質描述</th>
+                <th className="px-3 py-2.5 text-left font-medium">標籤</th>
+                <th className="px-3 py-2.5 text-right font-medium">價格</th>
+                <th className="px-3 py-2.5 text-left font-medium">變體</th>
+                <th className="px-3 py-2.5 text-left font-medium">尺寸（LWH）</th>
+                <th className="px-3 py-2.5 text-left font-medium">
                   <button
                     type="button"
                     onClick={() => setSkuSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
@@ -1883,16 +1909,10 @@ export function PublishedProductsView() {
                     )}
                   </button>
                 </th>
-                <th className="px-3 py-2.5 text-left font-medium min-w-[140px]">描述</th>
-                <th className="px-3 py-2.5 text-left font-medium min-w-[120px]">材質描述</th>
-                <th className="px-3 py-2.5 text-left font-medium min-w-[110px]">標籤</th>
-                <th className="px-3 py-2.5 text-right font-medium min-w-[80px]">價格</th>
-                <th className="px-3 py-2.5 text-left font-medium min-w-[80px]">變體</th>
-                <th className="px-3 py-2.5 text-left font-medium min-w-[130px]">尺寸（LWH）</th>
-                <th className="px-3 py-2.5 text-left font-medium min-w-[70px]">狀態</th>
-                <th className="px-3 py-2.5 text-right font-medium min-w-[100px]">操作</th>
-                <th className="px-3 py-2.5 text-left font-medium min-w-[80px]">Factory ID</th>
-                <th className="px-3 py-2.5 text-right font-medium min-w-[70px]">成本</th>
+                <th className="px-3 py-2.5 text-left font-medium">狀態</th>
+                <th className="px-3 py-2.5 text-right font-medium">操作</th>
+                <th className="px-3 py-2.5 text-left font-medium">Factory ID</th>
+                <th className="px-3 py-2.5 text-right font-medium">成本</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border/60">
@@ -1953,12 +1973,12 @@ export function PublishedProductsView() {
                     </tr>
                   ) : null}
                   <tr className="hover:bg-muted/30 cursor-pointer" onClick={() => openDetail(p)}>
-                    <td className="px-4 py-2.5 sticky left-0 bg-card z-10 align-top" onClick={e => e.stopPropagation()}>
+                    <td className="px-2 py-2.5 sticky left-0 bg-card z-10 align-top" onClick={e => e.stopPropagation()}>
                       <input type="checkbox" className="rounded border-border" checked={selectedIds.includes(p.id)} onChange={() => toggle(p.id)} />
                     </td>
                     {/* 產品圖片（含名稱） */}
                     <td className="px-3 py-2.5 sticky left-10 bg-card z-10 align-top">
-                      <div className="flex items-start gap-3">
+                      <div className="flex items-start gap-2.5">
                         {p.imageUrl ? (
                           <img
                             key={p.imageUrl}
@@ -1972,47 +1992,44 @@ export function PublishedProductsView() {
                             <Store className="h-8 w-8 text-muted-foreground/40" />
                           </div>
                         )}
-                        <span className="font-body text-[12px] font-medium text-foreground line-clamp-4 max-w-[120px] pt-1">{p.title}</span>
+                        <span className="font-body text-[12px] font-medium text-foreground line-clamp-5 min-w-0 flex-1 pt-1">{p.title}</span>
                       </div>
                     </td>
                     {/* 廠家 */}
                     <td className="px-3 py-2.5 align-top">
                       {r.vendor ? (
-                        <span className="inline-block rounded-md bg-violet-500/10 px-2 py-0.5 font-body text-[11px] text-violet-600 truncate max-w-[100px]">{r.vendor}</span>
+                        <span className="inline-block rounded-md bg-violet-500/10 px-2 py-0.5 font-body text-[11px] text-violet-600 truncate max-w-full">{r.vendor}</span>
                       ) : <span className="text-muted-foreground/50 text-[11px]">—</span>}
                     </td>
-                    {/* SKU */}
+                    {/* 描述 — widened by remaining viewport space */}
                     <td className="px-3 py-2.5 align-top">
-                      <span className="font-mono-data text-[11px] text-foreground line-clamp-2 max-w-[120px] block" title={skuText}>
-                        {skuText}
-                      </span>
-                    </td>
-                    {/* 描述 */}
-                    <td className="px-3 py-2.5 align-top" style={{ maxWidth: '140px' }}>
                       <div
                         className="font-body text-muted-foreground"
                         style={{
                           fontSize: '11px',
                           lineHeight: '1.4',
-                          height: '92px',
+                          maxHeight: 'calc(11px * 1.4 * 8)',
                           overflow: 'hidden',
-                          maxWidth: '130px',
                           wordBreak: 'break-word',
+                          display: '-webkit-box',
+                          WebkitLineClamp: 8,
+                          WebkitBoxOrient: 'vertical',
                         }}
+                        title={bodyText || undefined}
                       >
                         {bodyText || '—'}
                       </div>
                     </td>
                     {/* 材質描述 */}
-                    <td className="px-3 py-2.5 align-top overflow-hidden" style={{ maxWidth: '120px' }}>
+                    <td className="px-3 py-2.5 align-top overflow-hidden">
                       {r['my_fields.materials'] ? (
                         <div
                           className="font-body text-[11px] text-muted-foreground break-words overflow-hidden"
                           style={{
                             lineHeight: 1.35,
-                            maxHeight: 'calc(11px * 1.35 * 4)',
+                            maxHeight: 'calc(11px * 1.35 * 6)',
                             display: '-webkit-box',
-                            WebkitLineClamp: 4,
+                            WebkitLineClamp: 6,
                             WebkitBoxOrient: 'vertical',
                           }}
                           title={r['my_fields.materials']}
@@ -2023,14 +2040,18 @@ export function PublishedProductsView() {
                         <span className="font-body text-[11px] text-muted-foreground">—</span>
                       )}
                     </td>
-                    {/* 標籤 */}
+                    {/* 標籤 — show up to 6, then +N */}
                     <td className="px-3 py-2.5 align-top">
                       {tags.length > 0 ? (
-                        <div className="flex flex-wrap gap-1 max-w-[100px]">
-                          {tags.slice(0, 2).map((t, i) => (
+                        <div className="flex flex-wrap gap-1">
+                          {tags.slice(0, 6).map((t, i) => (
                             <span key={i} className="rounded-full bg-muted px-1.5 py-0.5 font-body text-[10px] text-foreground whitespace-nowrap">{t}</span>
                           ))}
-                          {tags.length > 2 && <span className="rounded-full bg-muted px-1.5 py-0.5 font-body text-[10px] text-muted-foreground">+{tags.length - 2}</span>}
+                          {tags.length > 6 && (
+                            <span className="rounded-full bg-muted px-1.5 py-0.5 font-body text-[10px] text-muted-foreground">
+                              +{tags.length - 6}
+                            </span>
+                          )}
                         </div>
                       ) : <span className="text-muted-foreground/50 text-[11px]">—</span>}
                     </td>
@@ -2045,10 +2066,16 @@ export function PublishedProductsView() {
                     {/* 尺寸 (LWH) */}
                     <td className="px-3 py-2.5 align-top">
                       {r['my_fields.normal_size'] ? (
-                        <span className="font-mono-data text-[11px] text-muted-foreground line-clamp-3 max-w-[120px] block">{r['my_fields.normal_size']}</span>
+                        <span className="font-mono-data text-[11px] text-muted-foreground line-clamp-3 block">{r['my_fields.normal_size']}</span>
                       ) : (
                         <span className="font-mono-data text-[11px] text-muted-foreground/50">—</span>
                       )}
+                    </td>
+                    {/* SKU */}
+                    <td className="px-3 py-2.5 align-top">
+                      <span className="font-mono-data text-[11px] text-foreground line-clamp-2 block" title={skuText}>
+                        {skuText}
+                      </span>
                     </td>
                     {/* 狀態 */}
                     <td className="px-3 py-2.5 align-top">
@@ -2056,7 +2083,7 @@ export function PublishedProductsView() {
                         {PUBLISH_STATE_META[p.state].label}
                       </span>
                     </td>
-                    {/* 操作 */}
+                    {/* 操作 — rightmost default column */}
                     <td className="px-3 py-2.5 align-top" onClick={e => e.stopPropagation()}>
                       <div className="flex justify-end gap-1.5">
                         {p.state === 'published' ? (
@@ -2067,11 +2094,11 @@ export function PublishedProductsView() {
                         <button onClick={() => toast.success('已還原至上一版本')} className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground whitespace-nowrap"><RotateCcw className="h-3 w-3" /> 還原</button>
                       </div>
                     </td>
-                    {/* Factory ID — after 操作, requires horizontal scroll */}
+                    {/* Factory ID — scroll right to see */}
                     <td className="px-3 py-2.5 align-top">
                       <span className="font-mono-data text-[11px] text-muted-foreground/50">—</span>
                     </td>
-                    {/* 成本 — after 操作, requires horizontal scroll */}
+                    {/* 成本 — scroll right to see */}
                     <td className="px-3 py-2.5 text-right font-mono-data text-[11px] text-muted-foreground whitespace-nowrap align-top">
                       {fmtMoney(p.costPrice)}
                     </td>
