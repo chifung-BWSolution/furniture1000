@@ -600,11 +600,25 @@ export function PublishedProductMergeModal({
         return;
       }
 
-      toast.success('產品已合併', {
-        id: toastId,
-        description: `共 ${data.variant_count ?? rows.length} 個規格 · 已下架 ${(data.archived_on_shopify ?? data.deleted_on_shopify ?? []).length} 件子產品`,
-        duration: 8000,
-      });
+      const hiddenCount = Number(
+        data.hidden_child_count
+          ?? (data.archived_on_shopify ?? data.deleted_on_shopify ?? []).length
+          ?? 0,
+      );
+      const markErrors = Array.isArray(data.child_mark_errors) ? data.child_mark_errors : [];
+      if (markErrors.length > 0) {
+        toast.warning('產品已合併，但部分子產品隱藏標記失敗', {
+          id: toastId,
+          description: `共 ${data.variant_count ?? rows.length} 個規格 · 已隱藏 ${hiddenCount} 件 · ${markErrors.length} 件可能仍出現在列表，請再按「更新 Shopify 目錄」或聯絡支援`,
+          duration: 12000,
+        });
+      } else {
+        toast.success('產品已合併', {
+          id: toastId,
+          description: `共 ${data.variant_count ?? rows.length} 個規格 · 已隱藏 ${hiddenCount} 件子產品（不會出現在已下架）`,
+          duration: 8000,
+        });
+      }
       onOpenChange(false);
       onMerged?.();
     } catch (e) {

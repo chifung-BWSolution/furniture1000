@@ -165,6 +165,17 @@ Deno.serve(async (req: Request) => {
       const toImport = await fetchProductsByIds(shopDomain, shopifyToken, selectedIds);
       if (toImport.length === 0) return json({ error: "No matching products found" }, 400);
 
+      // Preserve merge markers so re-import never resurfaces merged children on 已上載產品.
+      const { data: existingMirror } = await supabase
+        .from("shopify_products")
+        .select("shopify_product_id, configurable")
+        .in("shopify_product_id", selectedIds.map(String));
+      const configurableById = new Map<string, string>();
+      for (const r of existingMirror || []) {
+        const cfg = typeof r.configurable === "string" ? r.configurable.trim() : "";
+        if (cfg) configurableById.set(String(r.shopify_product_id), cfg);
+      }
+
       const rows = toImport.map((p: Record<string, unknown>) => {
         const variants = (p.variants as any[]) ?? [];
         const minPrice = variants.length
@@ -174,8 +185,9 @@ Deno.serve(async (req: Request) => {
         const img = (p.images as any[])?.[0]?.src ?? null;
         const tags = typeof p.tags === "string"
           ? (p.tags as string).split(",").map((t: string) => t.trim()).filter(Boolean) : [];
+        const shopifyProductId = String(p.id);
         return {
-          shopify_product_id: String(p.id),
+          shopify_product_id: shopifyProductId,
           title: (p.title as string) ?? "Untitled",
           body_html: (p.body_html as string) ?? null,
           vendor: (p.vendor as string) ?? null,
@@ -194,6 +206,7 @@ Deno.serve(async (req: Request) => {
           shopify_updated_at: p.updated_at ? new Date(p.updated_at as string).toISOString() : null,
           imported_at: new Date().toISOString(),
           shop_domain: shopDomain,
+          configurable: configurableById.get(shopifyProductId) ?? null,
         };
       });
 

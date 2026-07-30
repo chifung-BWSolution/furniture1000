@@ -764,16 +764,35 @@ Deno.serve(async (req: Request) => {
       })
       .eq("shopify_product_id", parentId);
 
+    // Mark children as merged (configurable = parent SKU). They stay in DB but are
+    // filtered out of 已上載產品 (including 已下架) via configurable IS NULL.
+    const childMarkErrors: { shopify_product_id: string; error: string }[] = [];
     for (const childId of childProductIds) {
       const childSpec = specs.find((s) => String(s.shopify_product_id) === childId);
-      await supabase
+      const { data: marked, error: markErr } = await supabase
         .from("shopify_products")
         .update({
           configurable: parentSku,
           status: "archived",
           sku: childSpec?.sku ?? null,
         })
-        .eq("shopify_product_id", childId);
+        .eq("shopify_product_id", childId)
+        .select("shopify_product_id, configurable")
+        .maybeSingle();
+      if (markErr) {
+        childMarkErrors.push({ shopify_product_id: childId, error: markErr.message });
+      } else if (!marked || String(marked.configurable || "").trim() !== parentSku) {
+        childMarkErrors.push({
+          shopify_product_id: childId,
+          error: "configurable was not persisted after merge",
+        });
+      }
+    }
+    if (childMarkErrors.length > 0) {
+      console.error(
+        "[merge-shopify-product-variants] child configurable mark failed:",
+        JSON.stringify(childMarkErrors).slice(0, 500),
+      );
     }
 
     return json({
@@ -783,6 +802,8 @@ Deno.serve(async (req: Request) => {
       variant_count: mergedVariants.length,
       archived_on_shopify: archivedOnShopify,
       archive_errors: archiveErrors,
+      child_mark_errors: childMarkErrors,
+      hidden_child_count: childProductIds.length - childMarkErrors.length,
       /** @deprecated use archived_on_shopify */
       deleted_on_shopify: archivedOnShopify,
       images_attached: imagesAttached,
