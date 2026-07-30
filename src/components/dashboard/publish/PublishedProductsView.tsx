@@ -1866,16 +1866,8 @@ export function PublishedProductsView() {
                     onChange={(e) => togglePageSelectAll(e.target.checked)}
                   />
                 </th>
-                <th className="px-3 py-2.5 text-left font-medium min-w-[200px] sticky left-10 bg-muted/50 z-10">產品</th>
-                <th className="px-3 py-2.5 text-left font-medium min-w-[140px]">描述</th>
-                <th className="px-3 py-2.5 text-left font-medium min-w-[120px]">材質描述</th>
-                <th className="px-3 py-2.5 text-left font-medium min-w-[110px]">標籤</th>
-                <th className="px-3 py-2.5 text-right font-medium min-w-[80px]">價格</th>
-                <th className="px-3 py-2.5 text-right font-medium min-w-[70px]">成本</th>
-                <th className="px-3 py-2.5 text-left font-medium min-w-[80px]">變體</th>
-                <th className="px-3 py-2.5 text-left font-medium min-w-[130px]">尺寸（LWH）</th>
+                <th className="px-3 py-2.5 text-left font-medium min-w-[280px] sticky left-10 bg-muted/50 z-10">產品圖片</th>
                 <th className="px-3 py-2.5 text-left font-medium min-w-[110px]">廠家</th>
-                <th className="px-3 py-2.5 text-left font-medium min-w-[80px]">Factory ID</th>
                 <th className="px-3 py-2.5 text-left font-medium min-w-[100px]">
                   <button
                     type="button"
@@ -1891,8 +1883,16 @@ export function PublishedProductsView() {
                     )}
                   </button>
                 </th>
+                <th className="px-3 py-2.5 text-left font-medium min-w-[140px]">描述</th>
+                <th className="px-3 py-2.5 text-left font-medium min-w-[120px]">材質描述</th>
+                <th className="px-3 py-2.5 text-left font-medium min-w-[110px]">標籤</th>
+                <th className="px-3 py-2.5 text-right font-medium min-w-[80px]">價格</th>
+                <th className="px-3 py-2.5 text-left font-medium min-w-[80px]">變體</th>
+                <th className="px-3 py-2.5 text-left font-medium min-w-[130px]">尺寸（LWH）</th>
                 <th className="px-3 py-2.5 text-left font-medium min-w-[70px]">狀態</th>
                 <th className="px-3 py-2.5 text-right font-medium min-w-[100px]">操作</th>
+                <th className="px-3 py-2.5 text-left font-medium min-w-[80px]">Factory ID</th>
+                <th className="px-3 py-2.5 text-right font-medium min-w-[70px]">成本</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border/60">
@@ -1953,22 +1953,42 @@ export function PublishedProductsView() {
                     </tr>
                   ) : null}
                   <tr className="hover:bg-muted/30 cursor-pointer" onClick={() => openDetail(p)}>
-                    <td className="px-4 py-2.5 sticky left-0 bg-card z-10" onClick={e => e.stopPropagation()}>
+                    <td className="px-4 py-2.5 sticky left-0 bg-card z-10 align-top" onClick={e => e.stopPropagation()}>
                       <input type="checkbox" className="rounded border-border" checked={selectedIds.includes(p.id)} onChange={() => toggle(p.id)} />
                     </td>
-                    {/* 產品 */}
-                    <td className="px-3 py-2.5 sticky left-10 bg-card z-10">
-                      <div className="flex items-center gap-2.5">
+                    {/* 產品圖片（含名稱） */}
+                    <td className="px-3 py-2.5 sticky left-10 bg-card z-10 align-top">
+                      <div className="flex items-start gap-3">
                         {p.imageUrl ? (
-                          <img key={p.imageUrl} src={p.imageUrl} alt={p.title} loading="lazy" className="h-10 w-10 rounded-md object-contain bg-muted flex-shrink-0" />
+                          <img
+                            key={p.imageUrl}
+                            src={p.imageUrl}
+                            alt={p.title}
+                            loading="lazy"
+                            className="h-[150px] w-[150px] rounded-md object-contain bg-muted flex-shrink-0"
+                          />
                         ) : (
-                          <div className="h-10 w-10 rounded-md bg-muted flex items-center justify-center flex-shrink-0"><Store className="h-4 w-4 text-muted-foreground/40" /></div>
+                          <div className="flex h-[150px] w-[150px] items-center justify-center rounded-md bg-muted flex-shrink-0">
+                            <Store className="h-8 w-8 text-muted-foreground/40" />
+                          </div>
                         )}
-                        <span className="font-body text-[12px] font-medium text-foreground line-clamp-2 max-w-[140px]">{p.title}</span>
+                        <span className="font-body text-[12px] font-medium text-foreground line-clamp-4 max-w-[120px] pt-1">{p.title}</span>
                       </div>
                     </td>
+                    {/* 廠家 */}
+                    <td className="px-3 py-2.5 align-top">
+                      {r.vendor ? (
+                        <span className="inline-block rounded-md bg-violet-500/10 px-2 py-0.5 font-body text-[11px] text-violet-600 truncate max-w-[100px]">{r.vendor}</span>
+                      ) : <span className="text-muted-foreground/50 text-[11px]">—</span>}
+                    </td>
+                    {/* SKU */}
+                    <td className="px-3 py-2.5 align-top">
+                      <span className="font-mono-data text-[11px] text-foreground line-clamp-2 max-w-[120px] block" title={skuText}>
+                        {skuText}
+                      </span>
+                    </td>
                     {/* 描述 */}
-                    <td className="px-3 py-2.5" style={{ maxWidth: '140px' }}>
+                    <td className="px-3 py-2.5 align-top" style={{ maxWidth: '140px' }}>
                       <div
                         className="font-body text-muted-foreground"
                         style={{
@@ -1983,7 +2003,7 @@ export function PublishedProductsView() {
                         {bodyText || '—'}
                       </div>
                     </td>
-                    {/* 材質描述 — list view capped at 4 lines; full text in detail modal */}
+                    {/* 材質描述 */}
                     <td className="px-3 py-2.5 align-top overflow-hidden" style={{ maxWidth: '120px' }}>
                       {r['my_fields.materials'] ? (
                         <div
@@ -2004,7 +2024,7 @@ export function PublishedProductsView() {
                       )}
                     </td>
                     {/* 標籤 */}
-                    <td className="px-3 py-2.5">
+                    <td className="px-3 py-2.5 align-top">
                       {tags.length > 0 ? (
                         <div className="flex flex-wrap gap-1 max-w-[100px]">
                           {tags.slice(0, 2).map((t, i) => (
@@ -2015,49 +2035,29 @@ export function PublishedProductsView() {
                       ) : <span className="text-muted-foreground/50 text-[11px]">—</span>}
                     </td>
                     {/* 價格 */}
-                    <td className="px-3 py-2.5 text-right font-mono-data text-[12px] font-bold text-foreground whitespace-nowrap">
+                    <td className="px-3 py-2.5 text-right font-mono-data text-[12px] font-bold text-foreground whitespace-nowrap align-top">
                       {fmtMoney(r.price)}
                     </td>
-                    {/* 成本 */}
-                    <td className="px-3 py-2.5 text-right font-mono-data text-[11px] text-muted-foreground whitespace-nowrap">
-                      {fmtMoney(p.costPrice)}
-                    </td>
                     {/* 變體 */}
-                    <td className="px-3 py-2.5">
+                    <td className="px-3 py-2.5 align-top">
                       <span className="font-mono-data text-[11px] text-muted-foreground">{variants.length} 個變體</span>
                     </td>
-                    {/* 尺寸 (LWH) — my_fields.normal_size */}
-                    <td className="px-3 py-2.5">
+                    {/* 尺寸 (LWH) */}
+                    <td className="px-3 py-2.5 align-top">
                       {r['my_fields.normal_size'] ? (
                         <span className="font-mono-data text-[11px] text-muted-foreground line-clamp-3 max-w-[120px] block">{r['my_fields.normal_size']}</span>
                       ) : (
                         <span className="font-mono-data text-[11px] text-muted-foreground/50">—</span>
                       )}
                     </td>
-                    {/* 廠家 */}
-                    <td className="px-3 py-2.5">
-                      {r.vendor ? (
-                        <span className="inline-block rounded-md bg-violet-500/10 px-2 py-0.5 font-body text-[11px] text-violet-600 truncate max-w-[100px]">{r.vendor}</span>
-                      ) : <span className="text-muted-foreground/50 text-[11px]">—</span>}
-                    </td>
-                    {/* Factory ID */}
-                    <td className="px-3 py-2.5">
-                      <span className="font-mono-data text-[11px] text-muted-foreground/50">—</span>
-                    </td>
-                    {/* SKU — from shopify_products.variants[].sku */}
-                    <td className="px-3 py-2.5">
-                      <span className="font-mono-data text-[11px] text-foreground line-clamp-2 max-w-[120px] block" title={skuText}>
-                        {skuText}
-                      </span>
-                    </td>
                     {/* 狀態 */}
-                    <td className="px-3 py-2.5">
+                    <td className="px-3 py-2.5 align-top">
                       <span className={cn('rounded-full border px-2 py-0.5 text-[10.5px] font-medium whitespace-nowrap', PUBLISH_STATE_META[p.state].className)}>
                         {PUBLISH_STATE_META[p.state].label}
                       </span>
                     </td>
                     {/* 操作 */}
-                    <td className="px-3 py-2.5" onClick={e => e.stopPropagation()}>
+                    <td className="px-3 py-2.5 align-top" onClick={e => e.stopPropagation()}>
                       <div className="flex justify-end gap-1.5">
                         {p.state === 'published' ? (
                           <button onClick={() => setProductState(p, 'delisted', '已下架')} className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-rose-500 hover:bg-rose-500/10 whitespace-nowrap"><ArrowDownToLine className="h-3 w-3" /> 下架</button>
@@ -2066,6 +2066,14 @@ export function PublishedProductsView() {
                         )}
                         <button onClick={() => toast.success('已還原至上一版本')} className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground whitespace-nowrap"><RotateCcw className="h-3 w-3" /> 還原</button>
                       </div>
+                    </td>
+                    {/* Factory ID — after 操作, requires horizontal scroll */}
+                    <td className="px-3 py-2.5 align-top">
+                      <span className="font-mono-data text-[11px] text-muted-foreground/50">—</span>
+                    </td>
+                    {/* 成本 — after 操作, requires horizontal scroll */}
+                    <td className="px-3 py-2.5 text-right font-mono-data text-[11px] text-muted-foreground whitespace-nowrap align-top">
+                      {fmtMoney(p.costPrice)}
                     </td>
                   </tr>
                   </Fragment>
