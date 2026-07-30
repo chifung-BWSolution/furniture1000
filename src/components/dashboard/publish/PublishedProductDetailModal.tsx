@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
 import {
   X, Loader2, Package, Tag, DollarSign, Ruler, Boxes, Store, RefreshCw, ImageIcon, Search,
@@ -465,10 +466,23 @@ export function PublishedProductDetailModal({
     }
   };
 
+  const closeMediaLightbox = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setMediaLightboxSrc(null);
+  };
+  const closeVariantLightbox = (e?: React.MouseEvent) => {
+    e?.stopPropagation();
+    setVariantLightboxSrc(null);
+  };
+
   return (
     <div
       className="fixed inset-0 z-[200] flex items-center justify-center bg-black/60 backdrop-blur-sm"
-      onClick={onClose}
+      onClick={() => {
+        // Don't close product detail while an image lightbox is open
+        if (mediaLightboxSrc || variantLightboxSrc) return;
+        onClose();
+      }}
     >
       <div
         className="relative flex flex-col bg-background rounded-2xl shadow-2xl overflow-hidden border border-border"
@@ -1021,16 +1035,16 @@ export function PublishedProductDetailModal({
         </div>
       )}
 
-      {mediaLightboxSrc && (
+      {mediaLightboxSrc && createPortal(
         <div
-          className="fixed inset-0 z-[210] flex items-center justify-center bg-black/80 backdrop-blur-sm"
-          onClick={() => setMediaLightboxSrc(null)}
+          className="fixed inset-0 z-[300] flex items-center justify-center bg-black/80 backdrop-blur-sm"
+          onClick={closeMediaLightbox}
         >
           <button
             type="button"
-            onClick={() => setMediaLightboxSrc(null)}
+            onClick={closeMediaLightbox}
             className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20"
-            aria-label="關閉"
+            aria-label="關閉放大圖片"
           >
             <X className="h-4 w-4" />
           </button>
@@ -1040,19 +1054,20 @@ export function PublishedProductDetailModal({
             className="max-h-[90vh] max-w-[90vw] rounded-xl object-contain shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           />
-        </div>
+        </div>,
+        document.body,
       )}
 
-      {variantLightboxSrc && (
+      {variantLightboxSrc && createPortal(
         <div
-          className="fixed inset-0 z-[210] flex items-center justify-center bg-black/80 backdrop-blur-sm"
-          onClick={() => setVariantLightboxSrc(null)}
+          className="fixed inset-0 z-[300] flex items-center justify-center bg-black/80 backdrop-blur-sm"
+          onClick={closeVariantLightbox}
         >
           <button
             type="button"
-            onClick={() => setVariantLightboxSrc(null)}
+            onClick={closeVariantLightbox}
             className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20"
-            aria-label="關閉"
+            aria-label="關閉放大圖片"
           >
             <X className="h-4 w-4" />
           </button>
@@ -1062,7 +1077,8 @@ export function PublishedProductDetailModal({
             className="max-h-[90vh] max-w-[90vw] rounded-xl object-contain shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           />
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
