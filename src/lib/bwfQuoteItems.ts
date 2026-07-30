@@ -275,14 +275,23 @@ export function itemsFromLegacyProjectData(
   });
 }
 
-/** Strip `items` from project_data before writing quote header JSON. */
+/**
+ * Sanitize `bwf_quote.project_data` before write.
+ * - Line items live in `bwf_quote_item` (never embed `items`).
+ * - Quote total lives in `bwf_quote.total_amount` (never embed `grandTotal`).
+ */
 export function stripItemsFromProjectData(
   projectData: Record<string, unknown>,
 ): Record<string, unknown> {
-  const { items: _items, ...rest } = projectData;
+  const { items: _items, grandTotal: _grandTotal, ...rest } = projectData;
+  void _items;
+  void _grandTotal;
   // Defensive: also drop if somehow reassigned
   if ('items' in rest) {
     delete (rest as { items?: unknown }).items;
+  }
+  if ('grandTotal' in rest) {
+    delete (rest as { grandTotal?: unknown }).grandTotal;
   }
   return rest;
 }
