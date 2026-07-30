@@ -231,7 +231,7 @@ Deno.serve(async (req: Request) => {
     const dateLabel = `${y}/${m}/${d}`;
     const subjectPrefix = body.test ? "[測試] " : "";
     const forwardNotice = forwardTo ? buildForwardNotice(forwardTo) : null;
-    const subject = `${subjectPrefix}上載產品紀錄 ${dateLabel}（香港時間）${forwardNotice?.subjectSuffix ?? ""}`;
+    const subject = `${subjectPrefix}Shopify 上載產品紀錄 ${dateLabel}（香港時間）${forwardNotice?.subjectSuffix ?? ""}`;
 
     if (forwardNotice) {
       text = `${forwardNotice.text}${text}`;
