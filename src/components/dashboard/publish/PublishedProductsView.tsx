@@ -45,6 +45,11 @@ import {
   type SimilarProductGroup,
 } from '@/lib/similarProducts';
 import { withUpdateAuditFields } from '@/lib/pmsAudit';
+import {
+  sortByCategoryRegistryOrder,
+  uniqueLevel1InOrder,
+  uniqueLevel2InOrder,
+} from '@/lib/productCategoryOptions';
 import { toast } from 'sonner';
 import { PublishedProductDetailModal, type PublishedDisplayProduct } from './PublishedProductDetailModal';
 import { PublishedProductMergeModal } from './PublishedProductMergeModal';
@@ -858,20 +863,27 @@ export function PublishedProductsView() {
     return counts;
   }, [items]);
 
+  const registryL1Order = useMemo(() => uniqueLevel1InOrder(categoryPairs), [categoryPairs]);
   const l1Options = useMemo(() => {
-    const s = new Set<string>();
-    items.forEach((p) => { const l1 = (p.raw.product_type || '').split(' / ')[0]?.trim(); if (l1) s.add(l1); });
-    return Array.from(s);
-  }, [items]);
+    const present = new Set<string>();
+    items.forEach((p) => {
+      const l1 = (p.raw.product_type || '').split(' / ')[0]?.trim();
+      if (l1) present.add(l1);
+    });
+    return sortByCategoryRegistryOrder([...present], registryL1Order);
+  }, [items, registryL1Order]);
   const l2Options = useMemo(() => {
     if (!level1Filter) return [];
-    const s = new Set<string>();
+    const present = new Set<string>();
     items.forEach((p) => {
       const parts = (p.raw.product_type || '').split(' / ');
-      if (parts[0]?.trim() === level1Filter && parts[1]?.trim()) s.add(parts[1].trim());
+      if (parts[0]?.trim() === level1Filter && parts[1]?.trim()) present.add(parts[1].trim());
     });
-    return Array.from(s);
-  }, [items, level1Filter]);
+    return sortByCategoryRegistryOrder(
+      [...present],
+      uniqueLevel2InOrder(categoryPairs, level1Filter),
+    );
+  }, [items, level1Filter, categoryPairs]);
 
   const baseFiltered = useMemo(() => items.filter((p) => {
     if (stateFilter !== 'all' && p.state !== stateFilter) return false;
@@ -1207,15 +1219,11 @@ export function PublishedProductsView() {
   };
 
   const bulkEditL1Options = useMemo(
-    () => Array.from(new Set(categoryPairs.map((p) => p.level1).filter(Boolean))),
+    () => uniqueLevel1InOrder(categoryPairs),
     [categoryPairs],
   );
   const bulkEditL2Options = useMemo(
-    () => Array.from(new Set(
-      categoryPairs
-        .filter((p) => p.level1 === bulkEditL1 && p.level2)
-        .map((p) => p.level2),
-    )),
+    () => uniqueLevel2InOrder(categoryPairs, bulkEditL1),
     [categoryPairs, bulkEditL1],
   );
 

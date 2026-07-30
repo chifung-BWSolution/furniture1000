@@ -53,6 +53,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
+import { uniqueLevel1InOrder, uniqueLevel2InOrder } from '@/lib/productCategoryOptions';
 
 /** Letters a→z, then numeric chunks 1→9 (natural / alphanumeric order). */
 function compareSkuNatural(a: string, b: string): number {
@@ -422,10 +423,10 @@ export const ProductTableView = memo(function ProductTableView({
       .then(({ data }) => { if (data) setCategoryPairs(data as { level1: string; level2: string }[]); });
   }, []);
 
-  const level1Options = useMemo(() => Array.from(new Set(categoryPairs.map(p => p.level1))), [categoryPairs]);
+  const level1Options = useMemo(() => uniqueLevel1InOrder(categoryPairs), [categoryPairs]);
   const level2Options = useMemo(
-    () => Array.from(new Set(categoryPairs.filter(p => p.level1 === level1Filter && p.level2).map(p => p.level2))),
-    [categoryPairs, level1Filter]
+    () => uniqueLevel2InOrder(categoryPairs, level1Filter),
+    [categoryPairs, level1Filter],
   );
   const factoryOptions = useMemo(
     () => serverMode

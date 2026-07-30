@@ -12,6 +12,7 @@ import { syncRtsContentToProduct, syncRtsGalleryToProduct, syncRtsWorkflowToProd
 import { dedupeFactoryNames, normalizeFactoryDisplayName } from '@/lib/factoryNames';
 import { getPublishTimestampHk } from '@/lib/publishTimestamps';
 import { writeUploadLog, writeUploadLogBatch } from '@/lib/uploadLog';
+import { uniqueLevel1InOrder, uniqueLevel2InOrder } from '@/lib/productCategoryOptions';
 import { toast } from 'sonner';
 
 const ACCEPTED_IMAGE_TYPES = 'image/jpeg,image/jpg,image/webp,image/avif,image/png';
@@ -1096,10 +1097,10 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
     return () => { cancelled = true; };
   }, [reloadKey]);
 
-  const level1Options = useMemo(() => Array.from(new Set(categoryPairs.map(p => p.level1))), [categoryPairs]);
+  const level1Options = useMemo(() => uniqueLevel1InOrder(categoryPairs), [categoryPairs]);
   const level2Options = useMemo(
-    () => Array.from(new Set(categoryPairs.filter(p => p.level1 === level1Filter && p.level2).map(p => p.level2))),
-    [categoryPairs, level1Filter]
+    () => uniqueLevel2InOrder(categoryPairs, level1Filter),
+    [categoryPairs, level1Filter],
   );
 
   const load = useCallback(async () => {
