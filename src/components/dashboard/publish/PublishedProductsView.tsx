@@ -268,7 +268,6 @@ interface DisplayProduct extends PublishedDisplayProduct {
 const STATE_FILTERS: { key: PublishState | 'all'; label: string }[] = [
   { key: 'all', label: '全部' },
   { key: 'published', label: '已發佈' },
-  { key: 'unpublished', label: '未發佈' },
   { key: 'delisted', label: '已下架' },
 ];
 
@@ -1385,7 +1384,6 @@ export function PublishedProductsView() {
 
   const counts = {
     published: items.filter((p) => p.state === 'published').length,
-    unpublished: items.filter((p) => p.state === 'unpublished').length,
     delisted: items.filter((p) => p.state === 'delisted').length,
   };
 
@@ -1399,7 +1397,7 @@ export function PublishedProductsView() {
             <CheckCheck className="h-4 w-4 shrink-0 text-primary" />
             <h2 className="font-display text-sm font-bold shrink-0">已上載產品</h2>
             <span className="font-mono-data text-[11px] text-muted-foreground truncate">
-              已發佈 {counts.published} · 未發佈 {counts.unpublished} · 已下架 {counts.delisted}
+              已發佈 {counts.published} · 已下架 {counts.delisted}
             </span>
           </div>
           <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
