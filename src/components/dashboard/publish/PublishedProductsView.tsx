@@ -1668,7 +1668,54 @@ export function PublishedProductsView() {
                 <span className="ml-1 text-primary">· 含跨頁</span>
               )}
             </span>
-            <div className="flex shrink-0 items-center gap-2">
+            <div className="flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-2">
+              {bulkCategoryPickerOpen && (
+                <>
+                  <Select
+                    value={bulkEditL1 || undefined}
+                    onValueChange={(val) => {
+                      setBulkEditL1(val);
+                      setBulkEditL2('');
+                    }}
+                  >
+                    <SelectTrigger className="h-8 w-[150px] text-xs font-body gap-1">
+                      <FolderTree className="h-3 w-3 text-muted-foreground" />
+                      <SelectValue placeholder="一級分類" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {bulkEditL1Options.map((l1) => (
+                        <SelectItem key={l1} value={l1}>{l1}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {bulkEditL1 && (
+                    <Select
+                      value={bulkEditL2 || undefined}
+                      onValueChange={(val) => {
+                        setBulkEditL2(val);
+                        setCategoryConfirmOpen(true);
+                      }}
+                    >
+                      <SelectTrigger className="h-8 w-[150px] text-xs font-body gap-1">
+                        <FolderTree className="h-3 w-3 text-muted-foreground" />
+                        <SelectValue placeholder="二級分類" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {bulkEditL2Options.map((l2) => (
+                          <SelectItem key={l2} value={l2}>{l2}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
+                  <button
+                    type="button"
+                    onClick={resetBulkCategoryPicker}
+                    className="rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                  >
+                    取消
+                  </button>
+                </>
+              )}
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <button
@@ -1735,53 +1782,6 @@ export function PublishedProductsView() {
               </button>
             </div>
           </div>
-          {bulkCategoryPickerOpen && (
-            <div className="mb-1.5 flex flex-wrap items-center gap-2">
-              <Select
-                value={bulkEditL1 || undefined}
-                onValueChange={(val) => {
-                  setBulkEditL1(val);
-                  setBulkEditL2('');
-                }}
-              >
-                <SelectTrigger className="h-8 w-[150px] text-xs font-body gap-1">
-                  <FolderTree className="h-3 w-3 text-muted-foreground" />
-                  <SelectValue placeholder="一級分類" />
-                </SelectTrigger>
-                <SelectContent>
-                  {bulkEditL1Options.map((l1) => (
-                    <SelectItem key={l1} value={l1}>{l1}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {bulkEditL1 && (
-                <Select
-                  value={bulkEditL2 || undefined}
-                  onValueChange={(val) => {
-                    setBulkEditL2(val);
-                    setCategoryConfirmOpen(true);
-                  }}
-                >
-                  <SelectTrigger className="h-8 w-[150px] text-xs font-body gap-1">
-                    <FolderTree className="h-3 w-3 text-muted-foreground" />
-                    <SelectValue placeholder="二級分類" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {bulkEditL2Options.map((l2) => (
-                      <SelectItem key={l2} value={l2}>{l2}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              )}
-              <button
-                type="button"
-                onClick={resetBulkCategoryPicker}
-                className="rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-              >
-                取消
-              </button>
-            </div>
-          )}
           {bulkAddTagsOpen && (
             <div className="mb-1.5 flex flex-wrap items-start gap-2">
               <div className="min-w-[260px] max-w-md flex-1">
