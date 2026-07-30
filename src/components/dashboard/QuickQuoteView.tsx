@@ -1013,8 +1013,8 @@ export function QuickQuoteView({
               )}
             </div>
           ) : (
-            {/* 3 cols align with stepper: title | 客戶資料（約在「傢俬類別」上方）| empty */}
             <div className="grid grid-cols-1 items-start gap-y-3 sm:grid-cols-3">
+              {/* title | client info (above 傢俬類別 step) | empty */}
               <div className="min-w-0">
                 <h1 className="font-display text-2xl font-bold tracking-tight text-foreground">
                   {copyFromUuid ? '複製報價單' : '建立新報價單'}
