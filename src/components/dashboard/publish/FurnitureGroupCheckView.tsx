@@ -322,9 +322,8 @@ export function FGProductDetailModal({
       .then(({ data: bwf }) => { if (bwf) setBwfCats(bwf as BwfCat[]); });
   }, []);
 
-  const level1Options = Array.from(new Set(categoryPairs.map((p) => p.level1)));
-  const getLevel2Options = (l1: string) =>
-    Array.from(new Set(categoryPairs.filter((p) => p.level1 === l1 && p.level2).map((p) => p.level2)));
+  const level1Options = uniqueLevel1InOrder(categoryPairs);
+  const getLevel2Options = (l1: string) => uniqueLevel2InOrder(categoryPairs, l1);
 
   useEffect(() => {
     let cancelled = false;
