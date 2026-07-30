@@ -1859,34 +1859,42 @@ export function PublishedProductsView() {
         >
           <table className="w-full table-fixed text-sm">
             <colgroup>
-              <col style={{ width: 40 }} />
+              <col style={{ width: 44 }} />
               <col style={{ width: 290 }} />
               <col style={{ width: 96 }} />
-              <col />{/* 描述 — absorbs remaining default width */}
+              {/* 描述：保留彈性剩餘寬度，但已把約 25% 分給 SKU / 尺寸 */}
+              <col />
               <col style={{ width: 120 }} />
               <col style={{ width: 150 }} />
               <col style={{ width: 72 }} />
               <col style={{ width: 72 }} />
-              <col style={{ width: 120 }} />
-              <col style={{ width: 100 }} />
-              <col style={{ width: 72 }} />
-              <col style={{ width: 112 }} />
+              <col style={{ width: 180 }} />{/* 尺寸（LWH） */}
+              <col style={{ width: 160 }} />{/* SKU */}
+              <col style={{ width: 100 }} />{/* 狀態 */}
+              <col style={{ width: 168 }} />{/* 操作 */}
               <col style={{ width: 88 }} />
               <col style={{ width: 80 }} />
             </colgroup>
             <thead className="bg-muted/50 text-[11px] uppercase tracking-wider text-muted-foreground">
               <tr>
-                <th className="px-2 py-2.5 sticky left-0 bg-muted/50 z-10">
-                  <input
-                    ref={pageSelectAllRef}
-                    type="checkbox"
-                    className="rounded border-border"
-                    title="全選本頁"
-                    checked={pageAllSelected}
-                    onChange={(e) => togglePageSelectAll(e.target.checked)}
-                  />
+                <th
+                  className="px-0 py-2.5 sticky left-0 bg-muted/50 z-10 cursor-pointer"
+                  title="全選本頁"
+                  onClick={() => togglePageSelectAll(!pageAllSelected)}
+                >
+                  <div className="flex h-full min-h-[2.5rem] w-full items-center justify-center">
+                    <input
+                      ref={pageSelectAllRef}
+                      type="checkbox"
+                      className="pointer-events-none rounded border-border"
+                      title="全選本頁"
+                      checked={pageAllSelected}
+                      readOnly
+                      tabIndex={-1}
+                    />
+                  </div>
                 </th>
-                <th className="px-3 py-2.5 text-left font-medium sticky left-10 bg-muted/50 z-10">產品圖片</th>
+                <th className="px-3 py-2.5 text-left font-medium sticky left-[44px] bg-muted/50 z-10">產品圖片</th>
                 <th className="px-3 py-2.5 text-left font-medium">廠家</th>
                 <th className="px-3 py-2.5 text-left font-medium">描述</th>
                 <th className="px-3 py-2.5 text-left font-medium">材質描述</th>
@@ -1973,11 +1981,26 @@ export function PublishedProductsView() {
                     </tr>
                   ) : null}
                   <tr className="hover:bg-muted/30 cursor-pointer" onClick={() => openDetail(p)}>
-                    <td className="px-2 py-2.5 sticky left-0 bg-card z-10 align-top" onClick={e => e.stopPropagation()}>
-                      <input type="checkbox" className="rounded border-border" checked={selectedIds.includes(p.id)} onChange={() => toggle(p.id)} />
+                    <td
+                      className="px-0 py-0 sticky left-0 bg-card z-10 align-top cursor-pointer"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggle(p.id);
+                      }}
+                    >
+                      <div className="flex min-h-[150px] w-full items-start justify-center pt-3">
+                        <input
+                          type="checkbox"
+                          className="pointer-events-none rounded border-border"
+                          checked={selectedIds.includes(p.id)}
+                          readOnly
+                          tabIndex={-1}
+                          aria-label="選擇產品"
+                        />
+                      </div>
                     </td>
                     {/* 產品圖片（含名稱） */}
-                    <td className="px-3 py-2.5 sticky left-10 bg-card z-10 align-top">
+                    <td className="px-3 py-2.5 sticky left-[44px] bg-card z-10 align-top overflow-hidden">
                       <div className="flex items-start gap-2.5">
                         {p.imageUrl ? (
                           <img
@@ -1996,13 +2019,13 @@ export function PublishedProductsView() {
                       </div>
                     </td>
                     {/* 廠家 */}
-                    <td className="px-3 py-2.5 align-top">
+                    <td className="px-3 py-2.5 align-top overflow-hidden">
                       {r.vendor ? (
                         <span className="inline-block rounded-md bg-violet-500/10 px-2 py-0.5 font-body text-[11px] text-violet-600 truncate max-w-full">{r.vendor}</span>
                       ) : <span className="text-muted-foreground/50 text-[11px]">—</span>}
                     </td>
-                    {/* 描述 — widened by remaining viewport space */}
-                    <td className="px-3 py-2.5 align-top">
+                    {/* 描述 — 寬度已縮約 25%，空間分給 SKU / 尺寸 */}
+                    <td className="px-3 py-2.5 align-top overflow-hidden">
                       <div
                         className="font-body text-muted-foreground"
                         style={{
@@ -2041,7 +2064,7 @@ export function PublishedProductsView() {
                       )}
                     </td>
                     {/* 標籤 — show up to 6, then +N */}
-                    <td className="px-3 py-2.5 align-top">
+                    <td className="px-3 py-2.5 align-top overflow-hidden">
                       {tags.length > 0 ? (
                         <div className="flex flex-wrap gap-1">
                           {tags.slice(0, 6).map((t, i) => (
@@ -2056,42 +2079,52 @@ export function PublishedProductsView() {
                       ) : <span className="text-muted-foreground/50 text-[11px]">—</span>}
                     </td>
                     {/* 價格 */}
-                    <td className="px-3 py-2.5 text-right font-mono-data text-[12px] font-bold text-foreground whitespace-nowrap align-top">
+                    <td className="px-3 py-2.5 text-right font-mono-data text-[12px] font-bold text-foreground whitespace-nowrap align-top overflow-hidden">
                       {fmtMoney(r.price)}
                     </td>
                     {/* 變體 */}
-                    <td className="px-3 py-2.5 align-top">
+                    <td className="px-3 py-2.5 align-top overflow-hidden">
                       <span className="font-mono-data text-[11px] text-muted-foreground">{variants.length} 個變體</span>
                     </td>
-                    {/* 尺寸 (LWH) */}
-                    <td className="px-3 py-2.5 align-top">
+                    {/* 尺寸 (LWH) — wrap when wider than column */}
+                    <td className="px-3 py-2.5 align-top overflow-hidden">
                       {r['my_fields.normal_size'] ? (
-                        <span className="font-mono-data text-[11px] text-muted-foreground line-clamp-3 block">{r['my_fields.normal_size']}</span>
+                        <span
+                          className="font-mono-data text-[11px] text-muted-foreground block whitespace-normal break-words"
+                          style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}
+                          title={r['my_fields.normal_size']}
+                        >
+                          {r['my_fields.normal_size']}
+                        </span>
                       ) : (
                         <span className="font-mono-data text-[11px] text-muted-foreground/50">—</span>
                       )}
                     </td>
                     {/* SKU */}
-                    <td className="px-3 py-2.5 align-top">
-                      <span className="font-mono-data text-[11px] text-foreground line-clamp-2 block" title={skuText}>
+                    <td className="px-3 py-2.5 align-top overflow-hidden">
+                      <span
+                        className="font-mono-data text-[11px] text-foreground block whitespace-normal break-words"
+                        style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}
+                        title={skuText}
+                      >
                         {skuText}
                       </span>
                     </td>
                     {/* 狀態 */}
-                    <td className="px-3 py-2.5 align-top">
-                      <span className={cn('rounded-full border px-2 py-0.5 text-[10.5px] font-medium whitespace-nowrap', PUBLISH_STATE_META[p.state].className)}>
+                    <td className="px-2 py-2.5 align-top overflow-hidden">
+                      <span className={cn('inline-flex max-w-full rounded-full border px-2 py-0.5 text-[10.5px] font-medium whitespace-nowrap', PUBLISH_STATE_META[p.state].className)}>
                         {PUBLISH_STATE_META[p.state].label}
                       </span>
                     </td>
-                    {/* 操作 — rightmost default column */}
-                    <td className="px-3 py-2.5 align-top" onClick={e => e.stopPropagation()}>
-                      <div className="flex justify-end gap-1.5">
+                    {/* 操作 — rightmost default column; stack to avoid overlap */}
+                    <td className="px-2 py-2.5 align-top overflow-hidden" onClick={e => e.stopPropagation()}>
+                      <div className="flex flex-col items-stretch gap-1">
                         {p.state === 'published' ? (
-                          <button onClick={() => setProductState(p, 'delisted', '已下架')} className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-rose-500 hover:bg-rose-500/10 whitespace-nowrap"><ArrowDownToLine className="h-3 w-3" /> 下架</button>
+                          <button onClick={() => setProductState(p, 'delisted', '已下架')} className="inline-flex items-center justify-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-rose-500 hover:bg-rose-500/10 whitespace-nowrap"><ArrowDownToLine className="h-3 w-3 shrink-0" /> 下架</button>
                         ) : (
-                          <button onClick={() => setProductState(p, 'published', '已重新上架')} className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-emerald-600 hover:bg-emerald-500/10 whitespace-nowrap"><ArrowUpToLine className="h-3 w-3" /> 上架</button>
+                          <button onClick={() => setProductState(p, 'published', '已重新上架')} className="inline-flex items-center justify-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-emerald-600 hover:bg-emerald-500/10 whitespace-nowrap"><ArrowUpToLine className="h-3 w-3 shrink-0" /> 上架</button>
                         )}
-                        <button onClick={() => toast.success('已還原至上一版本')} className="flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground whitespace-nowrap"><RotateCcw className="h-3 w-3" /> 還原</button>
+                        <button onClick={() => toast.success('已還原至上一版本')} className="inline-flex items-center justify-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground whitespace-nowrap"><RotateCcw className="h-3 w-3 shrink-0" /> 還原</button>
                       </div>
                     </td>
                     {/* Factory ID — scroll right to see */}
