@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import {
   X, Loader2, Package, Tag, DollarSign, Ruler, Boxes, Store, RefreshCw, ImageIcon, Search,
-  Factory, ChevronsUpDown, Check, GripVertical,
+  Factory, ChevronsUpDown, Check, GripVertical, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { normalizeBodyHtmlForShopify } from '@/lib/bodyHtml';
@@ -174,10 +174,20 @@ export function PublishedProductDetailModal({
   product,
   onClose,
   onSaved,
+  canGoPrev = false,
+  canGoNext = false,
+  onGoPrev,
+  onGoNext,
 }: {
   product: PublishedDisplayProduct;
   onClose: () => void;
   onSaved: () => void;
+  /** Previous product on the current list page. */
+  canGoPrev?: boolean;
+  /** Next product on the current list page. */
+  canGoNext?: boolean;
+  onGoPrev?: () => void;
+  onGoNext?: () => void;
 }) {
   const r = product.raw;
   const [isSaving, setIsSaving] = useState(false);
@@ -469,14 +479,48 @@ export function PublishedProductDetailModal({
               {PUBLISH_STATE_META[product.state].label}
             </span>
           </div>
-          <button
-            onClick={handleSave}
-            disabled={isSaving || !r.shopify_product_id}
-            className="shrink-0 flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-bold text-primary-foreground shadow hover:opacity-90 disabled:opacity-50 transition-opacity"
-          >
-            {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-            儲存
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={onGoPrev}
+                disabled={!canGoPrev || isSaving}
+                title="上一個產品"
+                aria-label="上一個產品"
+                className={cn(
+                  'flex h-9 w-9 items-center justify-center rounded-xl border transition-colors',
+                  canGoPrev && !isSaving
+                    ? 'border-border bg-card text-foreground hover:bg-accent'
+                    : 'cursor-not-allowed border-border/50 bg-muted/40 text-muted-foreground/40',
+                )}
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={onGoNext}
+                disabled={!canGoNext || isSaving}
+                title="下一個產品"
+                aria-label="下一個產品"
+                className={cn(
+                  'flex h-9 w-9 items-center justify-center rounded-xl border transition-colors',
+                  canGoNext && !isSaving
+                    ? 'border-border bg-card text-foreground hover:bg-accent'
+                    : 'cursor-not-allowed border-border/50 bg-muted/40 text-muted-foreground/40',
+                )}
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+            <button
+              onClick={handleSave}
+              disabled={isSaving || !r.shopify_product_id}
+              className="shrink-0 flex items-center gap-2 rounded-xl bg-primary px-4 py-2 text-sm font-bold text-primary-foreground shadow hover:opacity-90 disabled:opacity-50 transition-opacity"
+            >
+              {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+              儲存
+            </button>
+          </div>
         </div>
 
         <div className="flex flex-1 min-h-0 overflow-hidden">

@@ -959,6 +959,20 @@ export function PublishedProductsView() {
     return sorted.slice((currentPage - 1) * pageSize, currentPage * pageSize);
   }, [similarPages, sorted, currentPage, pageSize]);
 
+  const detailPageIndex = useMemo(() => {
+    if (!detailProduct) return -1;
+    return paged.findIndex((p) => p.id === detailProduct.id);
+  }, [detailProduct, paged]);
+
+  const goDetailSibling = useCallback(
+    (dir: -1 | 1) => {
+      if (detailPageIndex < 0) return;
+      const next = paged[detailPageIndex + dir];
+      if (next) setDetailProduct(next);
+    },
+    [detailPageIndex, paged],
+  );
+
   useEffect(() => {
     setCurrentPage(1);
   }, [
@@ -1865,6 +1879,12 @@ export function PublishedProductsView() {
           product={detailProduct}
           onClose={() => setDetailProduct(null)}
           onSaved={loadProducts}
+          canGoPrev={detailPageIndex > 0}
+          canGoNext={
+            detailPageIndex >= 0 && detailPageIndex < paged.length - 1
+          }
+          onGoPrev={() => goDetailSibling(-1)}
+          onGoNext={() => goDetailSibling(1)}
         />
       )}
 
