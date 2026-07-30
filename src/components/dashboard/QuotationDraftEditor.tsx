@@ -2468,11 +2468,12 @@ export function QuotationDraftEditor({
   })();
   const isFreeInstallation = subtotal >= 12000;
   const installationAmount = isFreeInstallation ? 0 : (installationFee.amount ?? 0);
-  const grandTotal = Math.max(0, subtotal - discountValue + installationAmount);
+  /** Live editor total — persisted only as `bwf_quote.total_amount` (not in project_data). */
+  const totalAmount = Math.max(0, subtotal - discountValue + installationAmount);
   // Exclude 可選產品 from GP Cost (same rule as 合計 / quoteBillableSubtotal).
   const totalProductCost = quoteBillableProductCost(items);
-  const gpValue = grandTotal - totalProductCost - gpSummary.ship - gpSummary.installation;
-  const gpPercent = grandTotal > 0 ? (gpValue / grandTotal) * 100 : 0;
+  const gpValue = totalAmount - totalProductCost - gpSummary.ship - gpSummary.installation;
+  const gpPercent = totalAmount > 0 ? (gpValue / totalAmount) * 100 : 0;
   const totalCostPrice = totalProductCost;
 
   // Version & submission modal state
@@ -2491,7 +2492,7 @@ export function QuotationDraftEditor({
       });
       return;
     }
-    if (grandTotal <= 0) {
+    if (totalAmount <= 0) {
       toast.error("無法提交審核", {
         description:
           "報價總金額為 HK$0。請確認品項單價／數量後再提交；若資料異常消失，請重新整理以恢復草稿。",
@@ -2990,6 +2991,7 @@ export function QuotationDraftEditor({
       ...(projectId ? { pmsProjectId: projectId } : {}),
     };
     // Items live in bwf_quote_item — omit from project_data JSON.
+    // Quote total lives in bwf_quote.total_amount — never embed grandTotal here.
     return {
       formData: nextFormData,
       companyInfo,
@@ -3005,7 +3007,6 @@ export function QuotationDraftEditor({
       subtotal,
       discountNote,
       discountValue,
-      grandTotal,
       installationFee,
       gpSummary,
       priceMultiplier: parseFloat(priceMultiplier) || 1,
@@ -3679,7 +3680,7 @@ export function QuotationDraftEditor({
                       <div className="flex items-center justify-between gap-4 border-b border-border px-3 py-2">
                         <span className="font-body font-medium text-foreground">Contract Sum</span>
                         <span className="font-mono-data text-foreground">
-                          HKD ${grandTotal.toLocaleString()}
+                          HKD ${totalAmount.toLocaleString()}
                         </span>
                       </div>
                       <div className="flex items-center justify-between gap-4 border-b border-border px-3 py-2">
@@ -3805,13 +3806,13 @@ export function QuotationDraftEditor({
                         />
                       </div>
                     </div>
-                    {/* 合計 (after discount) */}
+                    {/* 合計 (after discount) — same value persisted as bwf_quote.total_amount */}
                     <div className="flex items-center">
                       <span className="mr-3 font-body text-xs text-muted-foreground" style={{ width: '80px', textAlign: 'center' }}>
                         {t.grandTotal}:
                       </span>
                       <span className="font-mono-data text-base font-bold text-foreground" style={{ width: '120px', textAlign: 'right' }}>
-                        HKD ${grandTotal.toLocaleString()}
+                        HKD ${totalAmount.toLocaleString()}
                       </span>
                     </div>
                   </div>
@@ -4052,7 +4053,7 @@ export function QuotationDraftEditor({
           itemsHydratedForUuidRef.current = result.quoteUuid;
           onQuotePersisted?.(result);
         }}
-        totalAmount={grandTotal}
+        totalAmount={totalAmount}
         totalCostPrice={totalCostPrice}
         version={currentVersion}
         projectData={buildProjectData()}

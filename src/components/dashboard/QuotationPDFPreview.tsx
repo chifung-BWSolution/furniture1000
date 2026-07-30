@@ -1047,7 +1047,8 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
   const isFreeInstallation = (data.subtotal || 0) >= 12000;
   const installationAmount = isFreeInstallation ? 0 : (data.installationFee?.amount ?? 0);
   const installFeeRaw = data.installationFee?.amount;
-  const grandTotal = Math.max(0, (data.subtotal || 0) - discountValue + installationAmount);
+  /** PDF total from live line math (same formula as editor → bwf_quote.total_amount). */
+  const totalAmount = Math.max(0, (data.subtotal || 0) - discountValue + installationAmount);
   const items = data.items || [];
 
   const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://26c0258f-253c-4e4e-9027-922d08aab63f.canvases.tempo.build';
@@ -1220,7 +1221,7 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
             {labels.grandTotal}:
           </Text>
           <View style={{ borderBottomWidth: 1, borderBottomColor: TABLE_BORDER, minWidth: 90, paddingBottom: 1 }}>
-            <Text style={{ ...styles.totalValue, width: 90, textAlign: 'right' }}>HK${grandTotal.toLocaleString()}</Text>
+            <Text style={{ ...styles.totalValue, width: 90, textAlign: 'right' }}>HK${totalAmount.toLocaleString()}</Text>
           </View>
         </View>
 

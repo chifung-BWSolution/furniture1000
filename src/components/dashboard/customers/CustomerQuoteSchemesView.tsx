@@ -22,6 +22,7 @@ import { toast } from 'sonner';
 import {
   loadClientQuoteItems,
   replaceQuoteItems,
+  stripItemsFromProjectData,
   type BwfQuoteItemInput,
 } from '@/lib/bwfQuoteItems';
 import { compareQuoteVersion, displayQuoteVersion } from '@/lib/quoteVersions';
@@ -1458,8 +1459,9 @@ export function CustomerQuoteSchemesView() {
               ? (existingQuote.project_data as Record<string, unknown>)
               : {};
           const updatePayload = await withUpdateAuditFields({
+            // total_amount is the single source of truth for quote total.
             total_amount: totalAmount,
-            project_data: {
+            project_data: stripItemsFromProjectData({
               ...prevProjectData,
               clientQuoteScheme: {
                 savedAt: new Date().toISOString(),
@@ -1469,7 +1471,7 @@ export function CustomerQuoteSchemesView() {
               ...(linkedProject?.id
                 ? { designProjectId: linkedProject.id }
                 : {}),
-            },
+            }),
           });
           const { error: updateError } = await supabase
             .from('bwf_quote')
@@ -1491,9 +1493,10 @@ export function CustomerQuoteSchemesView() {
           quote_id: active.quote_id,
           version: active.version || 'v1',
           status: '客戶方案',
+          // total_amount is the single source of truth for quote total.
           total_amount: totalAmount,
           submitter: currentUserName,
-          project_data: {
+          project_data: stripItemsFromProjectData({
             formData: active.project_data?.formData || {
               clientName: active.quote_id,
             },
@@ -1505,7 +1508,7 @@ export function CustomerQuoteSchemesView() {
             ...(linkedProject?.id
               ? { designProjectId: linkedProject.id }
               : {}),
-          },
+          }),
         });
         const { data: inserted, error: insertError } = await supabase
           .from('bwf_quote')

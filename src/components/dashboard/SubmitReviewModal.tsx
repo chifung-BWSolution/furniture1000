@@ -329,6 +329,7 @@ export function SubmitReviewModal({
         quote_id: quoteId,
         version: resolvedVersion,
         status: '待審核',
+        // Single source of truth for quote total (not duplicated in project_data).
         total_amount: totalAmount,
         cost_price: totalCostPrice ?? null,
         submitter: submitter.trim(),
