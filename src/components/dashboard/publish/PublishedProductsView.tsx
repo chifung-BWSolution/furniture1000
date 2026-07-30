@@ -17,6 +17,22 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Checkbox } from '@/components/ui/checkbox';
 import { PUBLISH_STATE_META, type PublishState } from '@/constants/analytics-mock';
 import { supabase } from '@/lib/supabase';
@@ -28,6 +44,7 @@ import {
   type SimilarProductCriterion,
   type SimilarProductGroup,
 } from '@/lib/similarProducts';
+import { withUpdateAuditFields } from '@/lib/pmsAudit';
 import { toast } from 'sonner';
 import { PublishedProductDetailModal, type PublishedDisplayProduct } from './PublishedProductDetailModal';
 import { PublishedProductMergeModal } from './PublishedProductMergeModal';
@@ -350,6 +367,31 @@ export function PublishedProductsView() {
   const [similarCriteriaActive, setSimilarCriteriaActive] = useState<SimilarProductCriterion[] | null>(
     null,
   );
+  const [categoryPairs, setCategoryPairs] = useState<{ level1: string; level2: string }[]>([]);
+  const [bulkCategoryPickerOpen, setBulkCategoryPickerOpen] = useState(false);
+  const [bulkEditL1, setBulkEditL1] = useState('');
+  const [bulkEditL2, setBulkEditL2] = useState('');
+  const [categoryConfirmOpen, setCategoryConfirmOpen] = useState(false);
+  const [isBulkUpdatingCategory, setIsBulkUpdatingCategory] = useState(false);
+
+  useEffect(() => {
+    supabase
+      .from('product_category')
+      .select('level1, level2, sort_order')
+      .order('sort_order', { ascending: true })
+      .then(({ data: cats }) => {
+        if (cats) setCategoryPairs(cats as { level1: string; level2: string }[]);
+      });
+  }, []);
+
+  useEffect(() => {
+    if (selectedIds.length === 0) {
+      setBulkCategoryPickerOpen(false);
+      setBulkEditL1('');
+      setBulkEditL2('');
+      setCategoryConfirmOpen(false);
+    }
+  }, [selectedIds.length]);
 
   const loadProducts = useCallback(async (opts?: { silent?: boolean }) => {
     if (!opts?.silent) setIsLoading(true);
@@ -1150,6 +1192,83 @@ export function PublishedProductsView() {
     toast.success(`已從 Shopify 下架 ${shopifyIds.length} 件產品`, { id: toastId });
   };
 
+  const bulkEditL1Options = useMemo(
+    () => Array.from(new Set(categoryPairs.map((p) => p.level1).filter(Boolean))),
+    [categoryPairs],
+  );
+  const bulkEditL2Options = useMemo(
+    () => Array.from(new Set(
+      categoryPairs
+        .filter((p) => p.level1 === bulkEditL1 && p.level2)
+        .map((p) => p.level2),
+    )),
+    [categoryPairs, bulkEditL1],
+  );
+
+  const resetBulkCategoryPicker = () => {
+    setBulkCategoryPickerOpen(false);
+    setBulkEditL1('');
+    setBulkEditL2('');
+    setCategoryConfirmOpen(false);
+  };
+
+  const confirmBulkCategoryChange = async () => {
+    const ids = [...selectedIds];
+    if (!ids.length || !bulkEditL1 || !bulkEditL2) return;
+    const productType = `${bulkEditL1} / ${bulkEditL2}`;
+    setIsBulkUpdatingCategory(true);
+    const toastId = toast.loading(`正在更新 ${ids.length} 件產品分類...`);
+    try {
+      const { error } = await supabase
+        .from('shopify_products')
+        .update({ product_type: productType })
+        .in('id', ids);
+      if (error) {
+        toast.error('分類更新失敗', { id: toastId, description: error.message });
+        return;
+      }
+
+      const sourceIds = items
+        .filter((p) => ids.includes(p.id) && p.raw.source_product_id)
+        .map((p) => p.raw.source_product_id as string);
+      if (sourceIds.length > 0) {
+        const { error: productsErr } = await supabase
+          .from('products')
+          .update(await withUpdateAuditFields({
+            level1_category: bulkEditL1,
+            level2_category: bulkEditL2,
+          }))
+          .in('id', sourceIds);
+        if (productsErr) {
+          console.warn('[PublishedProductsView] products category sync failed:', productsErr.message);
+        }
+
+        const { error: rtsErr } = await supabase
+          .from('ready_to_shopify')
+          .update({ product_type: productType })
+          .in('product_id', sourceIds);
+        if (rtsErr) {
+          console.warn('[PublishedProductsView] RTS category sync failed:', rtsErr.message);
+        }
+      }
+
+      setItems((prev) => prev.map((p) => (
+        ids.includes(p.id)
+          ? { ...p, raw: { ...p.raw, product_type: productType } }
+          : p
+      )));
+      resetBulkCategoryPicker();
+      toast.success(`已將 ${ids.length} 件產品改到「${bulkEditL1} > ${bulkEditL2}」`, { id: toastId });
+    } catch (err) {
+      toast.error('分類更新失敗', {
+        id: toastId,
+        description: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setIsBulkUpdatingCategory(false);
+    }
+  };
+
   const counts = {
     published: items.filter((p) => p.state === 'published').length,
     unpublished: items.filter((p) => p.state === 'unpublished').length,
@@ -1213,16 +1332,6 @@ export function PublishedProductsView() {
             >
               {isFetchingPreview ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <CloudDownload className="h-3.5 w-3.5" />}
               {isFetchingPreview ? '讀取中...' : '從 Shopify 導入'}
-            </button>
-            <button
-              type="button"
-              onClick={bulkDelist}
-              disabled={selectedIds.length === 0}
-              title={selectedIds.length > 0 ? `批量下架 ${selectedIds.length} 件產品` : '請先勾選要下架的產品'}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 text-xs font-semibold text-rose-600 hover:bg-rose-500/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <ArrowDownToLine className="h-3.5 w-3.5" />
-              {selectedIds.length > 0 ? `批量下架（${selectedIds.length}）` : '批量下架'}
             </button>
             <button
               type="button"
@@ -1464,15 +1573,96 @@ export function PublishedProductsView() {
                   {showSkuChipList ? '收起 SKU' : '展開 SKU'}
                 </button>
               )}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1 rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+                  >
+                    批量修改
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="min-w-[180px]">
+                  <DropdownMenuItem
+                    className="text-xs text-rose-600 focus:text-rose-600"
+                    onSelect={() => { void bulkDelist(); }}
+                  >
+                    <ArrowDownToLine className="h-3.5 w-3.5" />
+                    批量下架（{selectedIds.length}）
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className="text-xs"
+                    onSelect={() => {
+                      setBulkCategoryPickerOpen(true);
+                      setBulkEditL1('');
+                      setBulkEditL2('');
+                    }}
+                  >
+                    <FolderTree className="h-3.5 w-3.5" />
+                    更改一級/二級分類
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
               <button
                 type="button"
-                onClick={clearAllSelection}
+                onClick={() => {
+                  resetBulkCategoryPicker();
+                  clearAllSelection();
+                }}
                 className="rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
               >
                 清除全部
               </button>
             </div>
           </div>
+          {bulkCategoryPickerOpen && (
+            <div className="mb-1.5 flex flex-wrap items-center gap-2">
+              <Select
+                value={bulkEditL1 || undefined}
+                onValueChange={(val) => {
+                  setBulkEditL1(val);
+                  setBulkEditL2('');
+                }}
+              >
+                <SelectTrigger className="h-8 w-[150px] text-xs font-body gap-1">
+                  <FolderTree className="h-3 w-3 text-muted-foreground" />
+                  <SelectValue placeholder="一級分類" />
+                </SelectTrigger>
+                <SelectContent>
+                  {bulkEditL1Options.map((l1) => (
+                    <SelectItem key={l1} value={l1}>{l1}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {bulkEditL1 && (
+                <Select
+                  value={bulkEditL2 || undefined}
+                  onValueChange={(val) => {
+                    setBulkEditL2(val);
+                    setCategoryConfirmOpen(true);
+                  }}
+                >
+                  <SelectTrigger className="h-8 w-[150px] text-xs font-body gap-1">
+                    <FolderTree className="h-3 w-3 text-muted-foreground" />
+                    <SelectValue placeholder="二級分類" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {bulkEditL2Options.map((l2) => (
+                      <SelectItem key={l2} value={l2}>{l2}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+              <button
+                type="button"
+                onClick={resetBulkCategoryPicker}
+                className="rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+              >
+                取消
+              </button>
+            </div>
+          )}
           {showSkuChipList ? (
             <div className="max-h-20 overflow-y-auto overflow-x-hidden pr-1">
               <div className="flex flex-wrap gap-1.5">
@@ -1900,6 +2090,52 @@ export function PublishedProductsView() {
           void loadProducts({ silent: true });
         }}
       />
+
+      <AlertDialog
+        open={categoryConfirmOpen}
+        onOpenChange={(open) => {
+          setCategoryConfirmOpen(open);
+          if (!open) setBulkEditL2('');
+        }}
+      >
+        <AlertDialogContent className="max-w-md">
+          <AlertDialogHeader>
+            <AlertDialogTitle className="font-display text-base">確認更改分類</AlertDialogTitle>
+            <AlertDialogDescription className="font-body text-sm">
+              是否把所選的{' '}
+              <span className="font-mono-data font-semibold text-foreground">{selectedIds.length}</span>{' '}
+              件產品改到「
+              <span className="font-semibold text-foreground">{bulkEditL1} &gt; {bulkEditL2}</span>
+              」？
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              className="font-display text-xs font-bold"
+              disabled={isBulkUpdatingCategory}
+            >
+              否
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="font-display text-xs font-bold"
+              disabled={isBulkUpdatingCategory}
+              onClick={(e) => {
+                e.preventDefault();
+                void confirmBulkCategoryChange();
+              }}
+            >
+              {isBulkUpdatingCategory ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  更新中...
+                </>
+              ) : (
+                '是'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
