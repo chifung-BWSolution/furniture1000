@@ -137,10 +137,14 @@ type QuoteRoomSection = {
   id: string;
   /** Null = no division header (flat product list under the zone). */
   label: string | null;
+  /** Planned piece count from 設計專案 傢俬劃分; null when unknown. */
+  plannedQuantity: number | null;
   items: BwfQuoteItemInput[];
 };
 type QuoteRoomGroup = {
   id: string;
+  /** project_zones.id when the section title was built from a design project. */
+  zoneId: string | null;
   code: string;
   name: string;
   sections: QuoteRoomSection[];
@@ -282,6 +286,23 @@ function groupVersions(rows: QuoteRecord[]) {
   return map;
 }
 
+function zoneIdFromSectionTitleItem(
+  item: BwfQuoteItemInput,
+): string | null {
+  const id = String(item.id || '').trim();
+  if (!id.startsWith('zone-')) return null;
+  const zoneId = id.slice('zone-'.length).trim();
+  return zoneId || null;
+}
+
+function divisionPlannedQuantity(
+  item: BwfQuoteItemInput,
+): number | null {
+  const qty = Number(item.quantity);
+  if (!Number.isFinite(qty) || qty <= 0) return null;
+  return Math.floor(qty);
+}
+
 function groupQuoteItemsByZoneType(
   items: BwfQuoteItemInput[],
 ): QuoteZoneTypeGroup[] {
@@ -296,12 +317,13 @@ function groupQuoteItemsByZoneType(
     currentSection = {
       id: `${currentRoom.id}:default`,
       label: null,
+      plannedQuantity: null,
       items: [],
     };
     currentRoom.sections.push(currentSection);
   };
 
-  const ensureRoom = (title: string) => {
+  const ensureRoom = (title: string, zoneId: string | null = null) => {
     const parsed = parseZoneSectionTitle(title);
     const key = parsed.label;
     let groupIndex = indexByKey.get(key);
@@ -317,6 +339,7 @@ function groupQuoteItemsByZoneType(
     const group = groups[groupIndex];
     currentRoom = {
       id: `${key}:${parsed.name}:${group.rooms.length}`,
+      zoneId,
       code: '',
       name: parsed.name || parsed.label,
       sections: [],
@@ -327,7 +350,10 @@ function groupQuoteItemsByZoneType(
 
   for (const item of items) {
     if (item.isSectionTitle) {
-      ensureRoom(item.name?.trim() || '其他區域');
+      ensureRoom(
+        item.name?.trim() || '其他區域',
+        zoneIdFromSectionTitleItem(item),
+      );
       continue;
     }
     if (item.isDivisionTitle) {
@@ -335,6 +361,7 @@ function groupQuoteItemsByZoneType(
       currentSection = {
         id: item.id || `${currentRoom!.id}:div:${currentRoom!.sections.length}`,
         label: item.name?.trim() || '傢俬劃分',
+        plannedQuantity: divisionPlannedQuantity(item),
         items: [],
       };
       currentRoom!.sections.push(currentSection);
@@ -350,6 +377,42 @@ function groupQuoteItemsByZoneType(
 
 function roomProductCount(room: QuoteRoomGroup): number {
   return room.sections.reduce((sum, section) => sum + section.items.length, 0);
+}
+
+function roomPlannedFurnitureCount(room: QuoteRoomGroup): number {
+  return room.sections.reduce(
+    (sum, section) => sum + (section.plannedQuantity || 0),
+    0,
+  );
+}
+
+function sectionDisplayCount(section: QuoteRoomSection): number {
+  if (section.plannedQuantity != null && section.plannedQuantity > 0) {
+    return section.plannedQuantity;
+  }
+  return section.items.reduce(
+    (sum, item) => sum + Math.max(1, Number(item.quantity) || 1),
+    0,
+  );
+}
+
+/** Read-only sqft for 報價方案 — hide when missing / zero. */
+function zoneSqftForDisplay(
+  zoneAreasSqft: Record<string, number> | undefined,
+  zoneId: string | null | undefined,
+): number | null {
+  if (!zoneId || !zoneAreasSqft) return null;
+  const num = Number(zoneAreasSqft[zoneId]);
+  if (!Number.isFinite(num) || num <= 0) return null;
+  return num;
+}
+
+function formatZoneSqftLabel(sqft: number): string {
+  const rounded = Math.round(sqft * 100) / 100;
+  const text = Number.isInteger(rounded)
+    ? String(rounded)
+    : String(rounded);
+  return `${text} 平方尺 sqft`;
 }
 
 function zoneGroupDomId(label: string): string {
@@ -697,6 +760,8 @@ export function CustomerQuoteSchemesView() {
               id: `division-${zone.id}-${division.id}`,
               name: furnitureDivisionLabel(division),
               isDivisionTitle: true,
+              // Carry planned 傢俬劃分 qty for portal section headers.
+              quantity: Math.max(0, Math.floor(Number(division.quantity) || 0)),
               image: '',
             });
             for (const product of divisionProducts) {
@@ -711,6 +776,10 @@ export function CustomerQuoteSchemesView() {
               id: `division-${zone.id}-unassigned`,
               name: '未劃分',
               isDivisionTitle: true,
+              quantity: unassigned.reduce(
+                (sum, product) => sum + Math.max(1, Number(product.quantity) || 1),
+                0,
+              ),
               image: '',
             });
             for (const product of unassigned) {
@@ -1177,20 +1246,41 @@ export function CustomerQuoteSchemesView() {
                   })
                   .join('');
                 const divisionHeader = section.label
-                  ? `<h4>${escapeHtml(section.label)} <span class="meta">${section.items.length} 件傢俬</span></h4>`
+                  ? `<h4 class="division">${escapeHtml(section.label)} : ${sectionDisplayCount(section)}</h4>`
                   : '';
                 return `${divisionHeader}${itemsHtml}`;
               })
               .join('');
-            return `<div class="room"><h3>${escapeHtml(roomTitle)}</h3>${
+            const roomSqft = zoneSqftForDisplay(
+              activeZoneAreasSqft,
+              room.zoneId,
+            );
+            const plannedCount = roomPlannedFurnitureCount(room);
+            const roomCount = roomProductCount(room);
+            const displayRoomTitle =
+              group.rooms.length === 1 ? group.label : roomTitle;
+            const roomMeta =
+              plannedCount > 0
+                ? `× 總數 ${plannedCount}件傢俬`
+                : roomCount > 0
+                  ? `${roomCount} 件傢俬`
+                  : '';
+            const sqftHtml = roomSqft
+              ? `<p class="meta center">${escapeHtml(formatZoneSqftLabel(roomSqft))}</p>`
+              : '';
+            return `<div class="room"><h3 class="center">${escapeHtml(displayRoomTitle)}${roomMeta ? ` <span class="meta">${escapeHtml(roomMeta)}</span>` : ''}</h3>${sqftHtml}${
               sectionsHtml || '<p class="meta">此區域暫未選擇產品</p>'
             }</div>`;
           })
           .join('');
+        const groupHeader =
+          group.rooms.length === 1
+            ? ''
+            : `<h2>${escapeHtml(group.label)}</h2>
+            <p class="meta">${group.rooms.length} 個${escapeHtml(group.label)}</p>`;
         return `
           <section>
-            <h2>${escapeHtml(group.label)}</h2>
-            <p class="meta">${group.rooms.length} 個${escapeHtml(group.label)}</p>
+            ${groupHeader}
             ${roomsHtml}
           </section>`;
       })
@@ -1207,7 +1297,8 @@ export function CustomerQuoteSchemesView() {
       <style>
         body{font-family:"Noto Sans HK","Noto Sans TC",sans-serif;color:#16182a;max-width:1080px;margin:0 auto;padding:40px}
         header{border-bottom:2px solid #6366f1;padding-bottom:22px;margin-bottom:26px}
-        h1{margin:0 0 8px;font-size:28px} h2{font-size:19px;margin-top:28px} h3{font-size:16px;margin:18px 0 8px}
+        h1{margin:0 0 8px;font-size:28px} h2{font-size:19px;margin-top:28px} h3{font-size:18px;margin:18px 0 8px}
+        h3.center,h4.division,.center{text-align:center}
         h4{font-size:13px;margin:14px 0 8px;padding:8px 10px;background:#f5f6fb;border-radius:8px}
         .meta{color:#62677a}.room{margin:12px 0 18px;padding:12px;border:1px solid #ececf5;border-radius:12px}
         .item{display:flex;gap:18px;align-items:flex-start;border:1px solid #e4e5ef;border-radius:12px;padding:14px;margin:10px 0}
@@ -1275,6 +1366,19 @@ export function CustomerQuoteSchemesView() {
       ) || null
     );
   }, [active, activeId, portalProjects]);
+
+  const activeZoneAreasSqft = useMemo(() => {
+    const linked = resolveLinkedProject();
+    const raw = linked?.meta?.zoneAreasSqft;
+    if (!raw || typeof raw !== 'object') return {} as Record<string, number>;
+    const next: Record<string, number> = {};
+    for (const [zoneId, value] of Object.entries(raw)) {
+      const num = Number(value);
+      if (!zoneId || !Number.isFinite(num) || num <= 0) continue;
+      next[zoneId] = num;
+    }
+    return next;
+  }, [resolveLinkedProject]);
 
   const setItemQuantity = useCallback((itemId: string, rawQuantity: number) => {
     const nextQuantity = Math.max(
@@ -1908,6 +2012,7 @@ export function CustomerQuoteSchemesView() {
           ) : (
             <div className="space-y-7">
               {zoneTypeGroups.map((group) => {
+                const isSingleRoomGroup = group.rooms.length === 1;
                 const productCount = group.rooms.reduce(
                   (sum, room) => sum + roomProductCount(room),
                   0,
@@ -1918,23 +2023,33 @@ export function CustomerQuoteSchemesView() {
                     id={zoneGroupDomId(group.label)}
                     className="scroll-mt-28 space-y-3"
                   >
-                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-2.5">
-                      <div>
-                        <h3 className="font-display text-lg font-bold">
-                          {group.label}
-                        </h3>
-                        <p className="mt-0.5 text-sm text-muted-foreground">
-                          {group.rooms.length} 個{group.label}
-                        </p>
+                    {!isSingleRoomGroup ? (
+                      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-2.5">
+                        <div>
+                          <h3 className="font-display text-lg font-bold">
+                            {group.label}
+                          </h3>
+                          <p className="mt-0.5 text-sm text-muted-foreground">
+                            {group.rooms.length} 個{group.label}
+                          </p>
+                        </div>
+                        <span className="text-sm text-muted-foreground">
+                          {productCount} 件產品
+                        </span>
                       </div>
-                      <span className="text-sm text-muted-foreground">
-                        {productCount} 件產品
-                      </span>
-                    </div>
+                    ) : null}
 
                     <div className="space-y-3">
                       {group.rooms.map((room) => {
                         const roomCount = roomProductCount(room);
+                        const plannedCount = roomPlannedFurnitureCount(room);
+                        const roomTitle = isSingleRoomGroup
+                          ? group.label
+                          : room.name;
+                        const roomSqft = zoneSqftForDisplay(
+                          activeZoneAreasSqft,
+                          room.zoneId,
+                        );
                         const roomSubtotal = room.sections.reduce(
                           (sum, section) =>
                             sum +
@@ -1951,14 +2066,25 @@ export function CustomerQuoteSchemesView() {
                           key={room.id}
                           className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm"
                         >
-                          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/30 px-5 py-3.5">
-                            <div className="flex items-center gap-2">
-                              <h4 className="font-display text-base font-bold">
-                                {room.name}
+                          <div className="border-b border-border bg-muted/30 px-5 py-3.5">
+                            <div className="flex w-full min-w-0 flex-wrap items-center justify-center gap-x-3 gap-y-1 text-center">
+                              <h4 className="font-display text-lg font-bold md:text-xl">
+                                {roomTitle}
+                                {plannedCount > 0 ? (
+                                  <span className="ml-2 text-[17px] font-semibold text-muted-foreground">
+                                    × 總數 {plannedCount}件傢俬
+                                  </span>
+                                ) : roomCount > 0 ? (
+                                  <span className="ml-2 text-[17px] font-normal text-muted-foreground">
+                                    {roomCount} 件傢俬
+                                  </span>
+                                ) : null}
                               </h4>
-                              <span className="text-sm text-muted-foreground">
-                                {roomCount} 件產品
-                              </span>
+                              {roomSqft != null ? (
+                                <span className="text-[15px] text-muted-foreground md:text-[17px]">
+                                  {formatZoneSqftLabel(roomSqft)}
+                                </span>
+                              ) : null}
                             </div>
                           </div>
                           <div className="divide-y divide-border/70">
@@ -1971,10 +2097,10 @@ export function CustomerQuoteSchemesView() {
                               <div key={section.id}>
                                 {section.label ? (
                                   <div className="border-b border-border bg-muted/20 px-5 py-2.5">
-                                    <h5 className="font-display text-[13px] font-bold text-foreground md:text-[14px]">
+                                    <h5 className="text-center font-display text-[13px] font-bold text-foreground md:text-[14px]">
                                       {section.label}
                                       <span className="ml-1.5 text-[12px] font-semibold text-muted-foreground">
-                                        {section.items.length} 件傢俬
+                                        : {sectionDisplayCount(section)}
                                       </span>
                                     </h5>
                                   </div>
