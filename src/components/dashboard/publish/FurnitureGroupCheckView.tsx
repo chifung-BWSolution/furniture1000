@@ -799,14 +799,14 @@ export function FGProductDetailModal({
                 </div>
               </section>
 
-              {/* 分類 / Collection */}
+              {/* 分類 / Collection（含廠家、產品標籤） */}
               <section className="rounded-xl border border-border bg-card p-5 space-y-3">
                 <div className="flex items-center gap-2 text-sm font-bold text-foreground">
                   <Tag className="h-4 w-4 text-amber-500" />
                   分類 / Collection
                 </div>
-                {/* L1 / L2 cascading select → saved to ready_to_shopify.product_type */}
-                <div className="grid grid-cols-2 gap-3">
+                {/* L1 / L2 / Vendor — product_type + ready_to_shopify.vendor */}
+                <div className="grid grid-cols-3 gap-3">
                   <div>
                     <label className="mb-1 block text-xs font-medium text-muted-foreground">一級分類</label>
                     <select
@@ -830,12 +830,31 @@ export function FGProductDetailModal({
                       {getLevel2Options(editL1).map(l2 => <option key={l2} value={l2}>{l2}</option>)}
                     </select>
                   </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-muted-foreground">廠家 (Vendor)</label>
+                    <input
+                      className={inputCls}
+                      value={editVendor}
+                      onChange={e => setEditVendor(e.target.value)}
+                      placeholder="—"
+                    />
+                  </div>
                 </div>
                 {(editL1 || editL2) && (
                   <p className="text-[11px] text-muted-foreground">
                     product_type 將儲存為：<span className="text-foreground font-medium">{[editL1, editL2].filter(Boolean).join(' / ')}</span>
                   </p>
                 )}
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-muted-foreground">
+                    產品標籤 (選擇後自動加入一級及二級分類)
+                  </label>
+                  <CategoryTagPicker
+                    tags={editTags}
+                    categories={bwfCats}
+                    onChange={setEditTags}
+                  />
+                </div>
               </section>
 
               {/* 價格 */}
@@ -943,60 +962,6 @@ export function FGProductDetailModal({
                     )}
                     {editProductionType === null && <span className="text-[11px] text-muted-foreground/60 italic">未選擇</span>}
                   </div>
-                </div>
-              </section>
-
-              {/* 產品組織 */}
-              <section className="rounded-xl border border-border bg-card p-5 space-y-3">
-                <div className="flex items-center gap-2 text-sm font-bold text-foreground">
-                  <span className="text-orange-500 text-base leading-none">⬡</span>
-                  產品組織
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  {/* 類型 (Type) — editable L1/L2 dropdowns, kept in sync with 分類 */}
-                  <div>
-                    <label className="mb-1 block text-xs font-medium text-muted-foreground">類型 (Type)</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <select
-                        className={`${inputCls} cursor-pointer`}
-                        value={editL1}
-                        onChange={e => { setEditL1(e.target.value); setEditL2(''); }}
-                      >
-                        <option value="">一級</option>
-                        {level1Options.map(l1 => <option key={l1} value={l1}>{l1}</option>)}
-                      </select>
-                      <select
-                        className={`${inputCls} cursor-pointer`}
-                        value={editL2}
-                        onChange={e => setEditL2(e.target.value)}
-                        disabled={!editL1}
-                      >
-                        <option value="">二級</option>
-                        {getLevel2Options(editL1).map(l2 => <option key={l2} value={l2}>{l2}</option>)}
-                      </select>
-                    </div>
-                  </div>
-                  {/* ready_to_shopify.vendor */}
-                  <div>
-                    <label className="mb-1 block text-xs font-medium text-muted-foreground">廠家 (Vendor)</label>
-                    <input
-                      className={inputCls}
-                      value={editVendor}
-                      onChange={e => setEditVendor(e.target.value)}
-                      placeholder="—"
-                    />
-                  </div>
-                </div>
-                {/* ready_to_shopify.tags — same CategoryTagPicker as 產品信息 */}
-                <div>
-                  <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                    產品標籤 (選擇後自動加入一級及二級分類)
-                  </label>
-                  <CategoryTagPicker
-                    tags={editTags}
-                    categories={bwfCats}
-                    onChange={setEditTags}
-                  />
                 </div>
               </section>
 
