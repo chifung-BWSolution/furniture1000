@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import {
   X, Loader2, Package, Tag, DollarSign, Ruler, Boxes, Store, RefreshCw, ImageIcon, Search,
-  Factory, ChevronsUpDown, Check, GripVertical, ChevronLeft, ChevronRight,
+  Factory, ChevronsUpDown, Check, GripVertical, ChevronLeft, ChevronRight, ZoomIn,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { normalizeBodyHtmlForShopify } from '@/lib/bodyHtml';
@@ -192,6 +192,7 @@ export function PublishedProductDetailModal({
   const r = product.raw;
   const [isSaving, setIsSaving] = useState(false);
   const [selectedImg, setSelectedImg] = useState<string | null>(null);
+  const [mediaLightboxSrc, setMediaLightboxSrc] = useState<string | null>(null);
   const [variantLightboxSrc, setVariantLightboxSrc] = useState<string | null>(null);
   const [categoryPairs, setCategoryPairs] = useState<{ level1: string; level2: string }[]>([]);
   const [bwfCats, setBwfCats] = useState<BwfCat[]>([]);
@@ -290,10 +291,21 @@ export function PublishedProductDetailModal({
   }, [r]);
 
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (mediaLightboxSrc) {
+        setMediaLightboxSrc(null);
+        return;
+      }
+      if (variantLightboxSrc) {
+        setVariantLightboxSrc(null);
+        return;
+      }
+      onClose();
+    };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [onClose]);
+  }, [onClose, mediaLightboxSrc, variantLightboxSrc]);
 
   const level1Options = useMemo(
     () => Array.from(new Set(categoryPairs.map((p) => p.level1))),
@@ -524,15 +536,37 @@ export function PublishedProductDetailModal({
         </div>
 
         <div className="flex flex-1 min-h-0 overflow-hidden">
-          {/* Left: media + read-only meta */}
-          <div className="flex w-[320px] shrink-0 flex-col gap-4 overflow-y-auto border-r border-border p-6 bg-muted/10">
-            <div className="aspect-square w-full overflow-hidden rounded-xl border border-border bg-muted flex items-center justify-center">
-              {displayImg ? (
-                <img src={displayImg} alt={editTitle} className="h-full w-full object-contain" />
-              ) : (
-                <ImageIcon className="h-16 w-16 text-muted-foreground/30" />
+          {/* Left: media (primary) + Shopify meta at bottom */}
+          <div className="flex w-[320px] shrink-0 flex-col gap-4 overflow-y-auto border-r border-border p-[22px] bg-muted/10">
+            <div>
+              <button
+                type="button"
+                disabled={!displayImg}
+                onClick={() => { if (displayImg) setMediaLightboxSrc(displayImg); }}
+                title={displayImg ? '點擊放大檢視' : undefined}
+                className={cn(
+                  'group relative flex h-[250px] w-[250px] max-w-full items-center justify-center overflow-hidden rounded-xl border border-border bg-muted transition-colors mx-auto',
+                  displayImg ? 'cursor-zoom-in hover:border-primary/50' : 'cursor-default',
+                )}
+              >
+                {displayImg ? (
+                  <>
+                    <img src={displayImg} alt={editTitle} className="h-full w-full object-contain" />
+                    <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/0 transition-colors group-hover:bg-black/25">
+                      <span className="flex h-10 w-10 items-center justify-center rounded-full bg-black/55 text-white opacity-0 transition-opacity group-hover:opacity-100">
+                        <ZoomIn className="h-5 w-5" />
+                      </span>
+                    </span>
+                  </>
+                ) : (
+                  <ImageIcon className="h-16 w-16 text-muted-foreground/30" />
+                )}
+              </button>
+              {displayImg && (
+                <p className="mt-1.5 text-[10.5px] text-muted-foreground/60">點擊上方圖片可放大檢視</p>
               )}
             </div>
+
             {editImages.length > 0 && (
               <div>
                 <div className="mb-2 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
@@ -553,7 +587,9 @@ export function PublishedProductDetailModal({
                       onDrop={() => handleImageReorderDrop(i)}
                       className={cn(
                         'group relative h-14 w-14 cursor-grab overflow-hidden rounded-lg border-2 bg-muted transition-all active:cursor-grabbing',
-                        selectedImg === src ? 'border-primary ring-1 ring-primary/30' : 'border-transparent hover:border-muted-foreground/40',
+                        (selectedImg === src || (!selectedImg && i === 0) || displayImg === src)
+                          ? 'border-primary ring-1 ring-primary/30'
+                          : 'border-transparent hover:border-muted-foreground/40',
                         dragImgIndex === i && 'opacity-50',
                       )}
                     >
@@ -561,7 +597,7 @@ export function PublishedProductDetailModal({
                         type="button"
                         onClick={() => setSelectedImg(src)}
                         className="h-full w-full"
-                        title={i === 0 ? '產品主圖' : `圖片 ${i + 1}`}
+                        title={i === 0 ? '切換至產品主圖' : `切換至圖片 ${i + 1}`}
                       >
                         <img src={src} alt="" draggable={false} className="h-full w-full object-cover" />
                       </button>
@@ -577,15 +613,15 @@ export function PublishedProductDetailModal({
                   ))}
                 </div>
                 <p className="mt-2 text-[10.5px] text-muted-foreground/60">
-                  拖拉縮圖可調整順序，最左為產品主圖
+                  點擊縮圖可切換預覽；拖拉可調整順序，最左為產品主圖
                 </p>
               </div>
             )}
 
-            {/* Read-only Shopify metadata */}
-            <section className="rounded-xl border border-border bg-card p-4 space-y-3">
-              <div className="flex items-center gap-2 text-xs font-bold text-foreground">
-                <Store className="h-3.5 w-3.5 text-primary" />
+            {/* Read-only Shopify metadata — secondary, pinned below media */}
+            <section className="mt-auto rounded-xl border border-border bg-card p-4 space-y-3">
+              <div className="flex items-center gap-2 text-xs font-bold text-muted-foreground">
+                <Store className="h-3.5 w-3.5" />
                 Shopify 資訊（唯讀）
               </div>
               <ReadOnlyField label="Shopify ID" value={r.shopify_product_id} mono />
@@ -982,6 +1018,28 @@ export function PublishedProductDetailModal({
               </button>
             )}
           </div>
+        </div>
+      )}
+
+      {mediaLightboxSrc && (
+        <div
+          className="fixed inset-0 z-[210] flex items-center justify-center bg-black/80 backdrop-blur-sm"
+          onClick={() => setMediaLightboxSrc(null)}
+        >
+          <button
+            type="button"
+            onClick={() => setMediaLightboxSrc(null)}
+            className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-full bg-white/10 text-white hover:bg-white/20"
+            aria-label="關閉"
+          >
+            <X className="h-4 w-4" />
+          </button>
+          <img
+            src={mediaLightboxSrc}
+            alt={editTitle || '產品圖片'}
+            className="max-h-[90vh] max-w-[90vw] rounded-xl object-contain shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          />
         </div>
       )}
 
