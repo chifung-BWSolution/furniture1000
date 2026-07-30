@@ -1067,14 +1067,14 @@ function QuoteProductItemCard({
           </QuoteFieldBlock>
         </div>
 
-        {/* Row 1 — 單位 · 可選；SKU under 單位 (right of 廠家) */}
+        {/* Row 1 — 單位 · 可選；SKU 與左側「廠家」同高置中 */}
         <div
           className={cn(
-            "col-start-6 col-span-3 row-start-1 flex min-w-0 flex-col justify-end gap-1.5",
+            "col-start-6 col-span-3 row-start-1 flex min-h-0 min-w-0 flex-col self-stretch",
             QUOTE_CARD_PRICING_XL_SHIFT,
           )}
         >
-          <div className="flex min-w-0 items-end gap-3">
+          <div className="flex min-w-0 shrink-0 items-end gap-3">
             <QuoteFieldBlock
               label={labels.unit}
               className="w-[7em] min-w-[7em] max-w-[7em] shrink-0 [&_label]:whitespace-nowrap"
@@ -1103,20 +1103,22 @@ function QuoteProductItemCard({
               </label>
             </div>
           </div>
-          <QuoteFieldBlock
-            label={labels.sku}
-            className="w-[14.75em] max-w-full shrink-0 [&_label]:whitespace-nowrap"
-          >
-            <input
-              type="text"
-              value={item.sku || ""}
-              placeholder="—"
-              onChange={(e) => updateItem(item.id, "sku", e.target.value)}
-              className={QUOTE_INPUT_CLASS}
-              aria-label={labels.sku}
-              title="SKU（僅草稿編輯，不顯示於 PDF）"
-            />
-          </QuoteFieldBlock>
+          <div className="flex min-h-0 flex-1 items-center">
+            <QuoteFieldBlock
+              label={labels.sku}
+              className="w-[14.75em] max-w-full shrink-0 [&_label]:whitespace-nowrap"
+            >
+              <input
+                type="text"
+                value={item.sku || ""}
+                placeholder="—"
+                onChange={(e) => updateItem(item.id, "sku", e.target.value)}
+                className={QUOTE_INPUT_CLASS}
+                aria-label={labels.sku}
+                title="SKU（僅草稿編輯，不顯示於 PDF）"
+              />
+            </QuoteFieldBlock>
+          </div>
         </div>
 
         {/* Row 2 — col 2: 備註 */}
