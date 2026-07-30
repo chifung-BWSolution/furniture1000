@@ -333,7 +333,7 @@ export function UploadProductLogView() {
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-border bg-muted/30 px-6 py-3">
         <div className="flex items-center gap-2">
           <ClipboardList className="h-4 w-4 text-primary" />
-          <h2 className="font-display text-base font-bold">上載產品紀錄</h2>
+          <h2 className="font-display text-base font-bold">Shopify 上載產品紀錄</h2>
           {report && (
             <span className="font-mono-data text-xs text-muted-foreground">
               最近 30 日 · 香港時間 {clock}
@@ -476,7 +476,7 @@ export function UploadProductLogView() {
                 ))}
                 {displayRows.length === 0 && (
                   <div className="rounded-xl border border-border bg-card px-6 py-12 text-center text-xs text-muted-foreground">
-                    尚無上載產品紀錄
+                    尚無 Shopify 上載產品紀錄
                   </div>
                 )}
               </div>

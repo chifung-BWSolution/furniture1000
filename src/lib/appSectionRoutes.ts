@@ -97,7 +97,7 @@ export function appViewFromPath(pathname: string): ViewType | null {
   // Removed 銷售報告 — old bookmarks land on 廠家報告
   if (path === `${REPORTS_BASE}/sales`) return 'report-factory';
 
-  // Moved 上載產品紀錄 from 設定 → 分析報表
+  // Moved Shopify 上載產品紀錄 from 設定 → 分析報表
   if (path === `${SETTINGS_BASE}/upload-product-log`) {
     return 'upload-product-log';
   }
