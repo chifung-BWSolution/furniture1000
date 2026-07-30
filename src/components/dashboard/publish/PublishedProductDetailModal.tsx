@@ -595,19 +595,11 @@ export function PublishedProductDetailModal({
                     >
                       <button
                         type="button"
-                        onClick={() => {
-                          setSelectedImg(src);
-                          setMediaLightboxSrc(src);
-                        }}
-                        className="relative h-full w-full cursor-zoom-in"
-                        title={i === 0 ? '放大檢視產品主圖' : `放大檢視圖片 ${i + 1}`}
+                        onClick={() => setSelectedImg(src)}
+                        className="h-full w-full"
+                        title={i === 0 ? '切換至產品主圖' : `切換至圖片 ${i + 1}`}
                       >
                         <img src={src} alt="" draggable={false} className="h-full w-full object-cover" />
-                        <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/0 transition-colors group-hover:bg-black/25">
-                          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-black/55 text-white opacity-0 transition-opacity group-hover:opacity-100">
-                            <ZoomIn className="h-3.5 w-3.5" />
-                          </span>
-                        </span>
                       </button>
                       {i === 0 && (
                         <span className="pointer-events-none absolute left-0.5 top-0.5 rounded bg-primary px-1 py-px text-[8px] font-bold leading-none text-primary-foreground">
@@ -621,7 +613,7 @@ export function PublishedProductDetailModal({
                   ))}
                 </div>
                 <p className="mt-2 text-[10.5px] text-muted-foreground/60">
-                  點擊縮圖可放大檢視並切換預覽；拖拉可調整順序，最左為產品主圖
+                  點擊縮圖可切換上方預覽；拖拉可調整順序，最左為產品主圖
                 </p>
               </div>
             )}
