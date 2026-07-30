@@ -592,12 +592,12 @@ function ZoneProductRow({
         >
           {/*
             Layout:
-            - Larger unified padding: name → factory → dims → notes
+            - name → factory/SKU + 數量 (same row) → 尺寸 + 狀態 (same row) → notes/price
             - Notes width stops before 單價 column; bottoms align via items-end
           */}
           <div className="flex min-h-0 flex-1 flex-col gap-4">
             <div className="flex flex-wrap items-start justify-between gap-4">
-              <div className="min-w-0 flex-1 space-y-3 py-1">
+              <div className="min-w-0 flex-1 py-1">
                 {custom ? (
                   <input
                     type="text"
@@ -612,25 +612,6 @@ function ZoneProductRow({
                     {item.productTitle}
                   </p>
                 )}
-                {factoryName || sku ? (
-                  <div className="flex max-w-full flex-wrap items-center gap-2 py-0.5">
-                    {factoryName ? (
-                      <span className="inline-flex max-w-full items-center rounded-full border border-border bg-muted/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground">
-                        <span className="truncate" title={factoryName}>
-                          {factoryName}
-                        </span>
-                      </span>
-                    ) : null}
-                    {sku ? (
-                      <span
-                        className="inline-flex max-w-full items-center rounded-full border border-border bg-muted/40 px-3 py-1.5 font-mono text-[12px] font-medium text-muted-foreground"
-                        title={`SKU ${sku}`}
-                      >
-                        <span className="truncate">SKU {sku}</span>
-                      </span>
-                    ) : null}
-                  </div>
-                ) : null}
               </div>
               <div className="flex shrink-0 flex-wrap items-center gap-2">
                 <button
@@ -675,122 +656,144 @@ function ZoneProductRow({
               </div>
             </div>
 
-            {/* Dims share the left column width (stop before 單價). */}
-            <div className="flex items-start gap-4">
-              <div
-                className={cn(
-                  'flex min-w-0 flex-1 flex-wrap items-center justify-between gap-x-3 gap-y-2 py-1',
-                  PRODUCT_NOTES_MAX_CLASS,
-                )}
-              >
-                <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                  <span className="shrink-0 text-[15px] font-medium text-muted-foreground">
-                    尺寸
-                  </span>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    value={dimInputValue(effectiveL)}
-                    onChange={(event) =>
-                      commitDimAxis('dimensionLMm', event.target.value)
-                    }
-                    placeholder="—"
-                    className="h-8 w-[4.5rem] rounded-md border border-border bg-background px-2 text-right font-mono-data text-[14px] text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
-                    aria-label={`${titleLabel}長度 W`}
-                    title="長 (W) mm — 僅存於此設計專案"
-                  />
-                  <span className="font-mono-data text-[13px] text-muted-foreground">
-                    (W) x
-                  </span>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    value={dimInputValue(effectiveW)}
-                    onChange={(event) =>
-                      commitDimAxis('dimensionWMm', event.target.value)
-                    }
-                    placeholder="—"
-                    className="h-8 w-[4.5rem] rounded-md border border-border bg-background px-2 text-right font-mono-data text-[14px] text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
-                    aria-label={`${titleLabel}闊度 D`}
-                    title="闊 (D) mm — 僅存於此設計專案"
-                  />
-                  <span className="font-mono-data text-[13px] text-muted-foreground">
-                    (D) x
-                  </span>
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    value={dimInputValue(effectiveH)}
-                    onChange={(event) =>
-                      commitDimAxis('dimensionHMm', event.target.value)
-                    }
-                    placeholder="—"
-                    className="h-8 w-[4.5rem] rounded-md border border-border bg-background px-2 text-right font-mono-data text-[14px] text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
-                    aria-label={`${titleLabel}高度 H`}
-                    title="高 (H) mm — 僅存於此設計專案"
-                  />
-                  <span className="font-mono-data text-[13px] text-muted-foreground">
-                    (H) (mm)
-                  </span>
-                </div>
-                <div className="flex shrink-0 flex-col items-end gap-1.5">
-                  <div className="inline-flex items-center gap-1.5">
-                    <span className="text-[13px] font-medium text-muted-foreground">
-                      數量
+            {/* 廠家 / SKU 與 數量 同一水平行 */}
+            <div
+              className={cn(
+                'flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 py-0.5',
+                PRODUCT_NOTES_MAX_CLASS,
+              )}
+            >
+              <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
+                {factoryName ? (
+                  <span className="inline-flex max-w-full items-center rounded-full border border-border bg-muted/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground">
+                    <span className="truncate" title={factoryName}>
+                      {factoryName}
                     </span>
-                    <div className="inline-flex shrink-0 items-center overflow-hidden rounded-md border border-border bg-background">
-                      <button
-                        type="button"
-                        onClick={() => onSetQuantity(item, item.quantity - 1)}
-                        disabled={item.quantity <= 1}
-                        className="flex h-7 w-7 items-center justify-center text-[14px] text-muted-foreground hover:bg-muted disabled:opacity-35"
-                        aria-label="數量減一"
-                      >
-                        −
-                      </button>
-                      <input
-                        type="number"
-                        min={1}
-                        max={9999}
-                        value={item.quantity}
-                        onChange={(event) =>
-                          onSetQuantity(item, Number(event.target.value))
-                        }
-                        className="h-7 w-9 border-x border-border bg-background text-center font-mono-data text-[13px] font-semibold text-foreground outline-none"
-                        aria-label={`${titleLabel}數量`}
-                        title="修改產品數量"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => onSetQuantity(item, item.quantity + 1)}
-                        className="flex h-7 w-7 items-center justify-center text-[14px] text-muted-foreground hover:bg-muted"
-                        aria-label="數量加一"
-                      >
-                        +
-                      </button>
-                    </div>
-                  </div>
-                  <select
-                    value={item.status}
-                    onChange={(e) =>
-                      onSetStatus(item.id, e.target.value as ZoneProductStatus)
-                    }
-                    className={cn(
-                      'shrink-0 rounded-full border px-3 py-1.5 text-[15px] font-medium',
-                      ZONE_PRODUCT_STATUS_META[item.status]?.className,
-                    )}
-                    aria-label={`${titleLabel}狀態`}
+                  </span>
+                ) : null}
+                {sku ? (
+                  <span
+                    className="inline-flex max-w-full items-center rounded-full border border-border bg-muted/40 px-3 py-1.5 font-mono text-[12px] font-medium text-muted-foreground"
+                    title={`SKU ${sku}`}
                   >
-                    <option value="pending">未確定</option>
-                    <option value="discussing">待討論</option>
-                    <option value="confirmed">已確定</option>
-                  </select>
+                    <span className="truncate">SKU {sku}</span>
+                  </span>
+                ) : null}
+              </div>
+              <div className="inline-flex shrink-0 items-center gap-1.5">
+                <span className="text-[13px] font-medium text-muted-foreground">
+                  數量
+                </span>
+                <div className="inline-flex shrink-0 items-center overflow-hidden rounded-md border border-border bg-background">
+                  <button
+                    type="button"
+                    onClick={() => onSetQuantity(item, item.quantity - 1)}
+                    disabled={item.quantity <= 1}
+                    className="flex h-7 w-7 items-center justify-center text-[14px] text-muted-foreground hover:bg-muted disabled:opacity-35"
+                    aria-label="數量減一"
+                  >
+                    −
+                  </button>
+                  <input
+                    type="number"
+                    min={1}
+                    max={9999}
+                    value={item.quantity}
+                    onChange={(event) =>
+                      onSetQuantity(item, Number(event.target.value))
+                    }
+                    className="h-7 w-9 border-x border-border bg-background text-center font-mono-data text-[13px] font-semibold text-foreground outline-none"
+                    aria-label={`${titleLabel}數量`}
+                    title="修改產品數量"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => onSetQuantity(item, item.quantity + 1)}
+                    className="flex h-7 w-7 items-center justify-center text-[14px] text-muted-foreground hover:bg-muted"
+                    aria-label="數量加一"
+                  >
+                    +
+                  </button>
                 </div>
               </div>
             </div>
 
+            {/* 尺寸 與 狀態（已確定）同一水平行 */}
+            <div
+              className={cn(
+                'flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 py-1',
+                PRODUCT_NOTES_MAX_CLASS,
+              )}
+            >
+              <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                <span className="shrink-0 text-[15px] font-medium text-muted-foreground">
+                  尺寸
+                </span>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={dimInputValue(effectiveL)}
+                  onChange={(event) =>
+                    commitDimAxis('dimensionLMm', event.target.value)
+                  }
+                  placeholder="—"
+                  className="h-8 w-[4.5rem] rounded-md border border-border bg-background px-2 text-right font-mono-data text-[14px] text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+                  aria-label={`${titleLabel}長度 W`}
+                  title="長 (W) mm — 僅存於此設計專案"
+                />
+                <span className="font-mono-data text-[13px] text-muted-foreground">
+                  (W) x
+                </span>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={dimInputValue(effectiveW)}
+                  onChange={(event) =>
+                    commitDimAxis('dimensionWMm', event.target.value)
+                  }
+                  placeholder="—"
+                  className="h-8 w-[4.5rem] rounded-md border border-border bg-background px-2 text-right font-mono-data text-[14px] text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+                  aria-label={`${titleLabel}闊度 D`}
+                  title="闊 (D) mm — 僅存於此設計專案"
+                />
+                <span className="font-mono-data text-[13px] text-muted-foreground">
+                  (D) x
+                </span>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={dimInputValue(effectiveH)}
+                  onChange={(event) =>
+                    commitDimAxis('dimensionHMm', event.target.value)
+                  }
+                  placeholder="—"
+                  className="h-8 w-[4.5rem] rounded-md border border-border bg-background px-2 text-right font-mono-data text-[14px] text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+                  aria-label={`${titleLabel}高度 H`}
+                  title="高 (H) mm — 僅存於此設計專案"
+                />
+                <span className="font-mono-data text-[13px] text-muted-foreground">
+                  (H) (mm)
+                </span>
+              </div>
+              <select
+                value={item.status}
+                onChange={(e) =>
+                  onSetStatus(item.id, e.target.value as ZoneProductStatus)
+                }
+                className={cn(
+                  'shrink-0 rounded-full border px-3 py-1.5 text-[15px] font-medium',
+                  ZONE_PRODUCT_STATUS_META[item.status]?.className,
+                )}
+                aria-label={`${titleLabel}狀態`}
+              >
+                <option value="pending">未確定</option>
+                <option value="discussing">待討論</option>
+                <option value="confirmed">已確定</option>
+              </select>
+            </div>
+
             {/* 備註 narrower; price col: line1 單價×數量(唯讀), line2 小計 — both right-aligned */}
-            <div className="mt-auto flex items-end gap-4">
+            <div className="mt-auto flex items-end gap-4 pb-1">
               <div
                 className={cn(
                   'flex min-w-0 w-full items-start gap-2.5 py-1',
@@ -814,11 +817,11 @@ function ZoneProductRow({
               </div>
               <div
                 className={cn(
-                  'ml-auto flex shrink-0 flex-col items-end justify-end gap-1 text-foreground',
+                  'mb-1 ml-auto flex shrink-0 flex-col items-end justify-end gap-1 pb-2 text-foreground',
                   PRODUCT_PRICE_COL_CLASS,
                 )}
               >
-                <div className="flex flex-nowrap items-center justify-end gap-1 whitespace-nowrap text-[13px] text-muted-foreground">
+                <div className="flex flex-nowrap items-center justify-end gap-1 whitespace-nowrap text-[15px] text-muted-foreground">
                   <span>單價 $</span>
                   <input
                     type="number"
@@ -828,26 +831,26 @@ function ZoneProductRow({
                     onChange={(event) =>
                       onSetSalePrice(item, Number(event.target.value))
                     }
-                    className="h-7 w-[4.75rem] shrink-0 rounded-md border border-border bg-background px-1.5 font-mono-data text-[13px] text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+                    className="h-7 w-[4.75rem] shrink-0 rounded-md border border-border bg-background px-1.5 font-mono-data text-[15px] text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
                     aria-label={`${titleLabel}單價`}
                     title="修改此產品在設計專案中的單價"
                   />
                   <span>×</span>
                   <span
-                    className="inline-flex h-7 min-w-[2.25rem] items-center justify-center rounded-md border border-border bg-muted/40 px-2 font-mono-data text-[13px] font-semibold text-foreground"
-                    title="請於上方「已確定」旁的數量修改"
+                    className="inline-flex h-7 min-w-[2.25rem] items-center justify-center rounded-md border border-border bg-muted/40 px-2 font-mono-data text-[15px] font-semibold text-foreground"
+                    title="請於上方廠家／SKU 旁的數量修改"
                     aria-label={`${titleLabel}數量（唯讀）`}
                   >
                     {item.quantity}
                   </span>
                 </div>
-                <div className="w-full text-right font-mono-data text-[16px] font-semibold text-foreground">
+                <div className="w-full text-right font-mono-data text-[18px] font-semibold text-foreground">
                   小計 $
                   {(
                     Number(item.salePrice || 0) * item.quantity
                   ).toLocaleString()}
                   {item.isOptional ? (
-                    <span className="ml-1 text-[12px] font-normal text-muted-foreground">
+                    <span className="ml-1 text-[14px] font-normal text-muted-foreground">
                       （可選，不計入總計）
                     </span>
                   ) : null}
