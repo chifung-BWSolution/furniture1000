@@ -573,7 +573,7 @@ export function PublishedProductDetailModal({
                   <ImageIcon className="h-3 w-3" />
                   媒體 ({editImages.length})
                 </div>
-                <div className="flex flex-wrap gap-2">
+                <div className="grid grid-cols-3 gap-2">
                   {editImages.map((src, i) => (
                     <div
                       key={src}
@@ -586,7 +586,7 @@ export function PublishedProductDetailModal({
                       onDragOver={(e) => e.preventDefault()}
                       onDrop={() => handleImageReorderDrop(i)}
                       className={cn(
-                        'group relative h-14 w-14 cursor-grab overflow-hidden rounded-lg border-2 bg-muted transition-all active:cursor-grabbing',
+                        'group relative aspect-square w-full cursor-grab overflow-hidden rounded-lg border-2 bg-muted transition-all active:cursor-grabbing',
                         (selectedImg === src || (!selectedImg && i === 0) || displayImg === src)
                           ? 'border-primary ring-1 ring-primary/30'
                           : 'border-transparent hover:border-muted-foreground/40',
@@ -595,11 +595,19 @@ export function PublishedProductDetailModal({
                     >
                       <button
                         type="button"
-                        onClick={() => setSelectedImg(src)}
-                        className="h-full w-full"
-                        title={i === 0 ? '切換至產品主圖' : `切換至圖片 ${i + 1}`}
+                        onClick={() => {
+                          setSelectedImg(src);
+                          setMediaLightboxSrc(src);
+                        }}
+                        className="relative h-full w-full cursor-zoom-in"
+                        title={i === 0 ? '放大檢視產品主圖' : `放大檢視圖片 ${i + 1}`}
                       >
                         <img src={src} alt="" draggable={false} className="h-full w-full object-cover" />
+                        <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/0 transition-colors group-hover:bg-black/25">
+                          <span className="flex h-7 w-7 items-center justify-center rounded-full bg-black/55 text-white opacity-0 transition-opacity group-hover:opacity-100">
+                            <ZoomIn className="h-3.5 w-3.5" />
+                          </span>
+                        </span>
                       </button>
                       {i === 0 && (
                         <span className="pointer-events-none absolute left-0.5 top-0.5 rounded bg-primary px-1 py-px text-[8px] font-bold leading-none text-primary-foreground">
@@ -613,7 +621,7 @@ export function PublishedProductDetailModal({
                   ))}
                 </div>
                 <p className="mt-2 text-[10.5px] text-muted-foreground/60">
-                  點擊縮圖可切換預覽；拖拉可調整順序，最左為產品主圖
+                  點擊縮圖可放大檢視並切換預覽；拖拉可調整順序，最左為產品主圖
                 </p>
               </div>
             )}
