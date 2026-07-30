@@ -572,39 +572,23 @@ export function ProjectPartitionPanel({
 
   return (
     <div className="space-y-5 border-t border-border bg-muted/15 p-5 md:p-6">
-      <div className="flex items-center justify-between gap-3">
-        <div>
+      <div>
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <h3 className="inline-flex items-center gap-2 font-display text-base font-bold">
             <DoorOpen className="h-5 w-5 text-primary" />
             間隔／功能房間
           </h3>
-          <p className="mt-1 text-[15px] text-muted-foreground">
-            在此設定房間類型及數量；完成後按「儲存」寫入專案資料。
-          </p>
-        </div>
-        {saving ? (
-          <span className="inline-flex items-center gap-2 text-[15px] text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            正在儲存
-          </span>
-        ) : dirty ? (
-          <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-700">
-            尚未儲存
-          </span>
-        ) : null}
-      </div>
-
-      <div>
-        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-          <div>
-            <p className="text-[15px] font-semibold text-muted-foreground">
-              房間類型及數量 — {projectTypeLabel(projectType)}
-            </p>
-            <p className="mt-0.5 text-xs text-muted-foreground">
-              點擊名稱可改名；可拖曳排序、刪除房間；按「儲存」後才寫入資料庫
-            </p>
-          </div>
-          <div className="flex flex-col items-stretch gap-2 sm:items-end">
+          <div className="flex flex-wrap items-center gap-2">
+            {saving ? (
+              <span className="inline-flex items-center gap-2 text-[15px] text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                正在儲存
+              </span>
+            ) : dirty ? (
+              <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-700">
+                尚未儲存
+              </span>
+            ) : null}
             <button
               type="button"
               onClick={openDesignProject}
@@ -614,6 +598,19 @@ export function ProjectPartitionPanel({
               <Sofa className="h-4 w-4" />
               準備傢俬方案
             </button>
+          </div>
+        </div>
+        <p className="mt-1 text-[15px] text-muted-foreground">
+          在此設定房間類型及數量；完成後按「儲存」寫入專案資料。
+        </p>
+      </div>
+
+      <div>
+        <div className="mb-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[15px] font-semibold text-muted-foreground">
+              房間類型及數量 — {projectTypeLabel(projectType)}
+            </p>
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
@@ -639,6 +636,9 @@ export function ProjectPartitionPanel({
               </button>
             </div>
           </div>
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            點擊名稱可改名；可拖曳排序、刪除房間；按「儲存」後才寫入資料庫
+          </p>
         </div>
 
         {showAddRoom ? (
