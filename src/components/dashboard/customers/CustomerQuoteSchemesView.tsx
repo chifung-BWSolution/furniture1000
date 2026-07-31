@@ -2156,192 +2156,134 @@ export function CustomerQuoteSchemesView() {
                                             </span>
                                           ) : null}
                                         </h5>
-                                        <div className="flex shrink-0 flex-col items-end gap-2">
-                                          <label
-                                            className={cn(
-                                              'inline-flex cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[14px]',
-                                              selected
-                                                ? 'border-primary/40 bg-primary/10 text-primary'
-                                                : 'border-border bg-background text-muted-foreground',
-                                            )}
-                                            title={
-                                              selected
-                                                ? '取消選擇：價錢不計入小計'
-                                                : '選擇此產品：價錢計入小計'
-                                            }
-                                          >
-                                            <Checkbox
-                                              checked={selected}
-                                              onCheckedChange={(checked) => {
-                                                if (!item.id) return;
-                                                setItemSelected((current) => ({
-                                                  ...current,
-                                                  [item.id!]: checked === true,
-                                                }));
-                                              }}
-                                              className="border-foreground/60 data-[state=checked]:border-primary"
-                                              aria-label={`選擇 ${quoteItemDisplayName(item)}`}
-                                            />
-                                            <span>選擇</span>
-                                          </label>
-                                          <div
-                                            className={cn(
-                                              'flex flex-col items-end gap-1',
-                                              !selected &&
-                                                'text-muted-foreground',
-                                            )}
-                                          >
-                                            <div className="flex flex-nowrap items-center justify-end gap-1 whitespace-nowrap font-mono-data text-sm">
-                                              <span
-                                                className={cn(
-                                                  selected
-                                                    ? 'text-primary'
-                                                    : 'text-muted-foreground',
-                                                )}
-                                              >
-                                                {fmtMoney(
-                                                  Number(item.unitPrice || 0),
-                                                )}
-                                              </span>
-                                              <span>×</span>
-                                              <div className="inline-flex shrink-0 items-center overflow-hidden rounded-md border border-border bg-background">
-                                                <button
-                                                  type="button"
-                                                  onClick={() =>
-                                                    item.id &&
-                                                    setItemQuantity(
-                                                      item.id,
-                                                      qty - 1,
-                                                    )
-                                                  }
-                                                  disabled={qty <= 1}
-                                                  className="flex h-7 w-7 items-center justify-center text-[14px] text-muted-foreground hover:bg-muted disabled:opacity-35"
-                                                  aria-label="數量減一"
-                                                >
-                                                  −
-                                                </button>
-                                                <input
-                                                  type="number"
-                                                  min={1}
-                                                  max={9999}
-                                                  value={qty}
-                                                  onChange={(event) => {
-                                                    if (!item.id) return;
-                                                    setItemQuantity(
-                                                      item.id,
-                                                      Number(
-                                                        event.target.value,
-                                                      ),
-                                                    );
-                                                  }}
-                                                  className="h-7 w-10 border-x border-border bg-background text-center font-mono-data text-[13px] font-semibold text-foreground outline-none"
-                                                  aria-label={`${quoteItemDisplayName(item)}數量`}
-                                                />
-                                                <button
-                                                  type="button"
-                                                  onClick={() =>
-                                                    item.id &&
-                                                    setItemQuantity(
-                                                      item.id,
-                                                      qty + 1,
-                                                    )
-                                                  }
-                                                  className="flex h-7 w-7 items-center justify-center text-[14px] text-muted-foreground hover:bg-muted"
-                                                  aria-label="數量加一"
-                                                >
-                                                  +
-                                                </button>
-                                              </div>
-                                              {item.unit ? (
-                                                <span className="text-muted-foreground">
-                                                  {item.unit}
-                                                </span>
-                                              ) : null}
-                                            </div>
-                                            <p
-                                              className={cn(
-                                                'font-mono-data text-lg font-bold',
-                                                !selected &&
-                                                  'text-muted-foreground',
-                                              )}
-                                            >
-                                              {selected
-                                                ? fmtMoney(lineTotal)
-                                                : '未選'}
-                                            </p>
-                                          </div>
-                                        </div>
+                                        <label
+                                          className={cn(
+                                            'inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[14px]',
+                                            selected
+                                              ? 'border-primary/40 bg-primary/10 text-primary'
+                                              : 'border-border bg-background text-muted-foreground',
+                                          )}
+                                          title={
+                                            selected
+                                              ? '取消選擇：價錢不計入小計'
+                                              : '選擇此產品：價錢計入小計'
+                                          }
+                                        >
+                                          <Checkbox
+                                            checked={selected}
+                                            onCheckedChange={(checked) => {
+                                              if (!item.id) return;
+                                              setItemSelected((current) => ({
+                                                ...current,
+                                                [item.id!]: checked === true,
+                                              }));
+                                            }}
+                                            className="border-foreground/60 data-[state=checked]:border-primary"
+                                            aria-label={`選擇 ${quoteItemDisplayName(item)}`}
+                                          />
+                                          <span>選擇</span>
+                                        </label>
                                       </div>
 
-                                      <div className="flex flex-wrap items-start gap-x-6 gap-y-2">
-                                        <p className="font-mono-data text-sm text-muted-foreground">
-                                          <span className="mr-1.5 font-medium">
-                                            尺寸
-                                          </span>
-                                          {dimsLabel || '—'}
-                                        </p>
-                                        <p className="min-w-0 flex-1 whitespace-pre-wrap font-mono-data text-sm text-muted-foreground">
-                                          <span className="mr-1.5 font-medium">
-                                            備註
-                                          </span>
-                                          {notesLabel || '—'}
-                                        </p>
-                                      </div>
+                                      <p className="font-mono-data text-sm text-muted-foreground">
+                                        <span className="mr-1.5 font-medium">
+                                          尺寸
+                                        </span>
+                                        {dimsLabel || '—'}
+                                      </p>
 
-                                      <div className="mt-auto flex flex-wrap gap-2 border-t border-border pt-4">
-                                          {(
-                                            [
-                                              ['accepted', '接受', Check],
-                                              [
-                                                'change',
-                                                '要求修改',
-                                                MessageSquare,
-                                              ],
-                                              ['rejected', '不接受', Ban],
-                                            ] as const
-                                          ).map(([value, label, Icon]) => (
+                                      {/* 單價 / 數量 / 小計 — under 尺寸 */}
+                                      <div
+                                        className={cn(
+                                          'flex flex-col items-start gap-1',
+                                          !selected && 'text-muted-foreground',
+                                        )}
+                                      >
+                                        <div className="flex flex-nowrap items-center gap-1.5 whitespace-nowrap font-mono-data text-sm">
+                                          <span
+                                            className={cn(
+                                              selected
+                                                ? 'text-primary'
+                                                : 'text-muted-foreground',
+                                            )}
+                                          >
+                                            {fmtMoney(
+                                              Number(item.unitPrice || 0),
+                                            )}
+                                          </span>
+                                          <span>×</span>
+                                          <div className="inline-flex shrink-0 items-center overflow-hidden rounded-md border border-border bg-background">
                                             <button
-                                              key={value}
                                               type="button"
-                                              disabled={savingReviewKey === key}
-                                              onClick={() => {
-                                                if (review === value) {
-                                                  void syncItemReview(
-                                                    item,
-                                                    null,
-                                                  );
-                                                  return;
-                                                }
-                                                void syncItemReview(
-                                                  item,
-                                                  value,
-                                                ).then((ok) => {
-                                                  if (
-                                                    ok &&
-                                                    value === 'accepted'
-                                                  ) {
-                                                    toast.success(
-                                                      '已同步為「已確定」',
-                                                    );
-                                                  }
-                                                });
-                                              }}
-                                              className={cn(
-                                                'inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium disabled:opacity-60',
-                                                review === value
-                                                  ? value === 'accepted'
-                                                    ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700'
-                                                    : value === 'change'
-                                                      ? 'border-amber-500/40 bg-amber-500/10 text-amber-700'
-                                                      : 'border-rose-500/40 bg-rose-500/10 text-rose-700'
-                                                  : 'border-border text-muted-foreground',
-                                              )}
+                                              onClick={() =>
+                                                item.id &&
+                                                setItemQuantity(
+                                                  item.id,
+                                                  qty - 1,
+                                                )
+                                              }
+                                              disabled={qty <= 1}
+                                              className="flex h-7 w-7 items-center justify-center text-[14px] text-muted-foreground hover:bg-muted disabled:opacity-35"
+                                              aria-label="數量減一"
                                             >
-                                              <Icon className="h-4 w-4" />
-                                              {label}
+                                              −
                                             </button>
-                                          ))}
+                                            <input
+                                              type="number"
+                                              min={1}
+                                              max={9999}
+                                              value={qty}
+                                              onChange={(event) => {
+                                                if (!item.id) return;
+                                                setItemQuantity(
+                                                  item.id,
+                                                  Number(event.target.value),
+                                                );
+                                              }}
+                                              className="h-7 w-10 border-x border-border bg-background text-center font-mono-data text-[13px] font-semibold text-foreground outline-none"
+                                              aria-label={`${quoteItemDisplayName(item)}數量`}
+                                            />
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                item.id &&
+                                                setItemQuantity(
+                                                  item.id,
+                                                  qty + 1,
+                                                )
+                                              }
+                                              className="flex h-7 w-7 items-center justify-center text-[14px] text-muted-foreground hover:bg-muted"
+                                              aria-label="數量加一"
+                                            >
+                                              +
+                                            </button>
+                                          </div>
+                                          {item.unit ? (
+                                            <span className="text-muted-foreground">
+                                              {item.unit}
+                                            </span>
+                                          ) : null}
+                                        </div>
+                                        <p
+                                          className={cn(
+                                            'font-mono-data text-lg font-bold',
+                                            !selected &&
+                                              'text-muted-foreground',
+                                          )}
+                                        >
+                                          {selected
+                                            ? fmtMoney(lineTotal)
+                                            : '未選'}
+                                        </p>
                                       </div>
+
+                                      <p className="whitespace-pre-wrap font-mono-data text-sm text-muted-foreground">
+                                        <span className="mr-1.5 font-medium">
+                                          備註
+                                        </span>
+                                        {notesLabel || '—'}
+                                      </p>
+
                                       {messages.length > 0 ? (
                                         <div className="space-y-2">
                                           {messages.map((message) => (
@@ -2433,6 +2375,62 @@ export function CustomerQuoteSchemesView() {
                                           </div>
                                         </div>
                                       ) : null}
+
+                                      {/* 接受 / 要求修改 / 不接受 — product card bottom-right */}
+                                      <div className="mt-auto flex flex-wrap justify-end gap-2 border-t border-border pt-4">
+                                        {(
+                                          [
+                                            ['accepted', '接受', Check],
+                                            [
+                                              'change',
+                                              '要求修改',
+                                              MessageSquare,
+                                            ],
+                                            ['rejected', '不接受', Ban],
+                                          ] as const
+                                        ).map(([value, label, Icon]) => (
+                                          <button
+                                            key={value}
+                                            type="button"
+                                            disabled={savingReviewKey === key}
+                                            onClick={() => {
+                                              if (review === value) {
+                                                void syncItemReview(
+                                                  item,
+                                                  null,
+                                                );
+                                                return;
+                                              }
+                                              void syncItemReview(
+                                                item,
+                                                value,
+                                              ).then((ok) => {
+                                                if (
+                                                  ok &&
+                                                  value === 'accepted'
+                                                ) {
+                                                  toast.success(
+                                                    '已同步為「已確定」',
+                                                  );
+                                                }
+                                              });
+                                            }}
+                                            className={cn(
+                                              'inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium disabled:opacity-60',
+                                              review === value
+                                                ? value === 'accepted'
+                                                  ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700'
+                                                  : value === 'change'
+                                                    ? 'border-amber-500/40 bg-amber-500/10 text-amber-700'
+                                                    : 'border-rose-500/40 bg-rose-500/10 text-rose-700'
+                                                : 'border-border text-muted-foreground',
+                                            )}
+                                          >
+                                            <Icon className="h-4 w-4" />
+                                            {label}
+                                          </button>
+                                        ))}
+                                      </div>
                                     </div>
                                   </div>
                                 </article>
