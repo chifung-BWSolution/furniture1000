@@ -8,7 +8,6 @@ import {
 } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
-import { Checkbox } from '@/components/ui/checkbox';
 import {
   Plus, Loader2, Search, Check, CheckCircle2, Trash2, X, LayoutGrid, UserRound, Tag,
   ImagePlus, PenLine, ZoomIn, Save, Link2, RefreshCw, MessageSquare, Layers,
@@ -340,6 +339,13 @@ function schemeSlotPieceCount(products: ZoneProduct[]): number {
   return zoneProductPieceCount(products[0]);
 }
 
+/** Slot subtotal — only the primary (方案 1) counts toward 小計 / 總計. */
+function schemeSlotBillableTotal(products: ZoneProduct[]): number {
+  if (products.length === 0) return 0;
+  const primary = products[0];
+  return Number(primary.salePrice || 0) * zoneProductPieceCount(primary);
+}
+
 /** Remove a product id from scheme groups; drop groups with fewer than 2 members. */
 function removeProductFromSchemeGroups(
   groupsByZone: Record<string, FurnitureSchemeGroup[]>,
@@ -362,6 +368,27 @@ function findSchemeGroupForProduct(
   productId: string,
 ): FurnitureSchemeGroup | null {
   return groups.find((row) => row.productIds.includes(productId)) || null;
+}
+
+/** Scheme alternatives (方案 2/3) are excluded from persisted furniture totals. */
+function withSchemeAlternativesNonBillable(
+  products: ZoneProduct[],
+  groupsByZone: Record<string, FurnitureSchemeGroup[]>,
+): ZoneProduct[] {
+  const alternativeIds = new Set<string>();
+  for (const groups of Object.values(groupsByZone)) {
+    for (const group of groups) {
+      for (const id of group.productIds.slice(1)) {
+        alternativeIds.add(id);
+      }
+    }
+  }
+  if (alternativeIds.size === 0) return products;
+  return products.map((product) =>
+    alternativeIds.has(product.id)
+      ? { ...product, isOptional: true }
+      : product,
+  );
 }
 
 function withOptionalFlags(
@@ -429,9 +456,9 @@ function zoneGroupProductTotal(
 }
 
 /**
- * Divisions where non-optional slot count exceeds the planned quantity.
+ * Divisions where slot count exceeds the planned quantity.
  * Alternative schemes in the same slot count as one. Excess slots must be
- * marked 可選 (or removed) before save.
+ * removed (or quantity reduced) before save.
  */
 function collectDivisionExcessWarnings(
   zones: ProjectZone[],
@@ -455,13 +482,14 @@ function collectDivisionExcessWarnings(
         (division.productIds || []).includes(item.id),
       );
       const slots = buildFurnitureSchemeSlots(divisionItems, zoneGroups);
-      const nonOptionalCount = slots
-        .filter((slot) => !slot.products[0]?.isOptional)
-        .reduce((sum, slot) => sum + schemeSlotPieceCount(slot.products), 0);
-      if (nonOptionalCount <= planned) continue;
-      const excess = nonOptionalCount - planned;
+      const slotCount = slots.reduce(
+        (sum, slot) => sum + schemeSlotPieceCount(slot.products),
+        0,
+      );
+      if (slotCount <= planned) continue;
+      const excess = slotCount - planned;
       warnings.push(
-        `「${zone.name}」${furnitureDivisionLabel(division)}：計劃 ${planned} 件，非可選已有 ${nonOptionalCount} 件（多 ${excess} 件請轉為可選）`,
+        `「${zone.name}」${furnitureDivisionLabel(division)}：計劃 ${planned} 件，已有 ${slotCount} 件（多 ${excess} 件請刪除）`,
       );
     }
 
@@ -470,12 +498,13 @@ function collectDivisionExcessWarnings(
       unassignedItems,
       zoneGroups,
     );
-    const unassignedNonOptional = unassignedSlots
-      .filter((slot) => !slot.products[0]?.isOptional)
-      .reduce((sum, slot) => sum + schemeSlotPieceCount(slot.products), 0);
-    if (unassignedNonOptional > 0) {
+    const unassignedCount = unassignedSlots.reduce(
+      (sum, slot) => sum + schemeSlotPieceCount(slot.products),
+      0,
+    );
+    if (unassignedCount > 0) {
       warnings.push(
-        `「${zone.name}」未劃分：有 ${unassignedNonOptional} 件非可選產品超出劃分計劃，請劃分或轉為可選`,
+        `「${zone.name}」未劃分：有 ${unassignedCount} 件產品超出劃分計劃，請劃分或刪除`,
       );
     }
   }
@@ -549,7 +578,6 @@ function ZoneProductRow({
   onSetQuantity,
   onSetStatus,
   onRemove,
-  onToggleOptional,
   onSetTitle,
   onSetSalePrice,
   onSetDimensions,
@@ -595,7 +623,6 @@ function ZoneProductRow({
   onSetQuantity: (item: ZoneProduct, quantity: number) => void;
   onSetStatus: (id: string, status: ZoneProductStatus) => void;
   onRemove: (item: ZoneProduct) => void;
-  onToggleOptional: (item: ZoneProduct) => void;
   onSetTitle: (item: ZoneProduct, value: string) => void;
   onSetSalePrice: (item: ZoneProduct, value: number) => void;
   onSetDimensions: (
@@ -612,9 +639,10 @@ function ZoneProductRow({
   const multiScheme = schemeCount > 1;
   const canAddMoreSchemes =
     Boolean(onMoreSchemes) && schemeCount < MAX_FURNITURE_SCHEME_PRODUCTS;
-  const size = multiScheme
-    ? Math.round(PRODUCT_IMAGE_SIZE_PX * 0.72)
-    : PRODUCT_IMAGE_SIZE_PX;
+  const size = PRODUCT_IMAGE_SIZE_PX;
+  const lineSubtotal = (
+    Number(item.salePrice || 0) * Math.max(1, Math.floor(Number(item.quantity) || 1))
+  ).toLocaleString();
   const feedback = splitStaffNotesAndFeedback(item.notes).feedback;
   // Once any project-local dim is saved, stop falling back to catalog (so clears stick).
   const hasProjectDims =
@@ -647,410 +675,462 @@ function ZoneProductRow({
     });
   };
 
-  const card = (
+  const actionButtons = (
+    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+      {schemeCount > 1 ? (
+        <span className="inline-flex h-8 shrink-0 items-center rounded-md border border-violet-500/30 bg-violet-500/10 px-2 text-[12px] font-semibold text-violet-700 dark:text-violet-300">
+          方案 {schemeIndex + 1}/{schemeCount}
+        </span>
+      ) : null}
+      {canAddMoreSchemes ? (
+        <button
+          type="button"
+          onClick={() => onMoreSchemes?.(item)}
+          className="inline-flex h-8 items-center gap-1 rounded-md border border-violet-500/40 bg-violet-500/10 px-2 text-[12px] font-medium text-violet-700 hover:bg-violet-500/15 dark:text-violet-300"
+          title={`加入替代方案（最多 ${MAX_FURNITURE_SCHEME_PRODUCTS} 款）`}
+        >
+          <LayoutGrid className="h-3.5 w-3.5 shrink-0" />
+          {multiScheme ? '方案' : '更多方案'}
+        </button>
+      ) : null}
+      <button
+        type="button"
+        onClick={() => onOpenPicker(item.zoneId || zoneId, item.id)}
+        className="inline-flex h-8 items-center gap-1 rounded-md border border-primary/40 bg-primary/10 px-2 text-[12px] font-medium text-primary hover:bg-primary/15"
+        title="更換此產品的名稱、圖片與價錢"
+      >
+        <RefreshCw className="h-3.5 w-3.5 shrink-0" />
+        {multiScheme ? '更換' : '更換產品'}
+      </button>
+      <button
+        type="button"
+        disabled={deletingProductId === item.id}
+        onClick={() => onRemove(item)}
+        className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-rose-500/30 text-rose-600 hover:bg-rose-500/10 disabled:opacity-50"
+        title="從間隔移除產品"
+        aria-label="刪除產品"
+      >
+        {deletingProductId === item.id ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <Trash2 className="h-3.5 w-3.5" />
+        )}
+      </button>
+    </div>
+  );
+
+  const productImage = (opts?: { className?: string; fixedPx?: number }) => (
+    <div
+      className={cn(
+        'relative overflow-hidden rounded-lg bg-muted',
+        opts?.className,
+      )}
+      style={
+        opts?.fixedPx
+          ? { width: opts.fixedPx, height: opts.fixedPx }
+          : undefined
+      }
+    >
+      {item.productImageUrl ? (
+        <button
+          type="button"
+          onClick={() => onPreview(item.productImageUrl, titleLabel)}
+          className="group relative h-full w-full overflow-hidden rounded-lg ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          title="點擊放大圖片"
+          aria-label={`${titleLabel}圖片預覽`}
+        >
+          <img
+            src={item.productImageUrl}
+            alt=""
+            className="h-full w-full object-cover transition group-hover:scale-105"
+          />
+          <span className="absolute inset-0 flex items-center justify-center bg-black/0 text-white opacity-0 transition group-hover:bg-black/35 group-hover:opacity-100">
+            <ZoomIn className="h-5 w-5" />
+          </span>
+        </button>
+      ) : (
+        <button
+          type="button"
+          disabled={uploading || !canUploadImage}
+          onClick={() => onOpenUpload(item)}
+          className="flex h-full w-full items-center justify-center rounded-lg border border-dashed border-border bg-muted/40 text-muted-foreground hover:border-primary/40 hover:text-primary disabled:opacity-60"
+          title="上傳產品圖片"
+          aria-label="上傳產品圖片"
+        >
+          {uploading ? (
+            <Loader2 className="h-5 w-5 animate-spin" />
+          ) : (
+            <ImagePlus className="h-6 w-6" />
+          )}
+        </button>
+      )}
+      {custom && item.productImageUrl ? (
+        <button
+          type="button"
+          disabled={uploading}
+          onClick={() => onOpenUpload(item)}
+          className="absolute bottom-1.5 left-1/2 z-10 -translate-x-1/2 rounded-md border border-border/80 bg-background/90 px-2 py-0.5 text-[11px] font-medium text-muted-foreground shadow-sm backdrop-blur hover:bg-background disabled:opacity-60"
+        >
+          {uploading ? '上傳中…' : '更換圖片'}
+        </button>
+      ) : null}
+    </div>
+  );
+
+  const notesEditor = (rows: number, minHClass: string) => (
+    <div className="flex min-w-0 w-full items-start gap-2">
+      <span className="mt-1.5 shrink-0 text-[13px] font-medium text-muted-foreground">
+        備註
+      </span>
+      <div className="min-w-0 flex-1" aria-label={`${titleLabel}備註`}>
+        <RemarksRichEditor
+          key={item.id}
+          compact
+          textOnly
+          value={staffNotesForEditor(item.notes)}
+          onChange={(next) => onSetNotes(item, next)}
+          textRows={rows}
+          placeholder="輸入意見或補充說明…"
+          textClassName={cn(
+            'rounded-lg px-2.5 py-1.5 text-[12px] leading-relaxed focus:ring-2 focus:ring-primary/20',
+            minHClass,
+          )}
+        />
+      </div>
+    </div>
+  );
+
+  const priceBlock = (compact: boolean) => (
+    <div
+      className={cn(
+        'ml-auto flex shrink-0 flex-col items-end justify-end gap-1 text-foreground',
+        !compact && PRODUCT_PRICE_COL_CLASS,
+      )}
+    >
       <div
         className={cn(
-          'flex min-w-0 items-stretch',
-          multiScheme && 'flex-1',
+          'flex flex-nowrap items-center justify-end gap-1 whitespace-nowrap text-muted-foreground',
+          compact ? 'text-[12px]' : 'text-[15px]',
         )}
       >
-        <div
-          className="shrink-0"
-          style={{
-            paddingTop: PRODUCT_IMAGE_PAD_PX,
-            paddingBottom: PRODUCT_IMAGE_PAD_PX,
-            paddingLeft: PRODUCT_IMAGE_PAD_PX,
-          }}
+        <span>單價 $</span>
+        <input
+          type="number"
+          min={0}
+          step={1}
+          value={Number(item.salePrice || 0)}
+          onChange={(event) => onSetSalePrice(item, Number(event.target.value))}
+          className={cn(
+            'shrink-0 rounded-md border border-border bg-background px-1.5 font-mono-data text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20',
+            compact ? 'h-6 w-[4.25rem] text-[12px]' : 'h-7 w-[4.75rem] text-[15px]',
+          )}
+          aria-label={`${titleLabel}單價`}
+          title="修改此產品在設計專案中的單價"
+        />
+        <span>×</span>
+        <span
+          className={cn(
+            'inline-flex min-w-[2rem] items-center justify-center rounded-md border border-border bg-muted/40 px-1.5 font-mono-data font-semibold text-foreground',
+            compact ? 'h-6 text-[12px]' : 'h-7 min-w-[2.25rem] px-2 text-[15px]',
+          )}
+          title="請於上方數量修改"
+          aria-label={`${titleLabel}數量（唯讀）`}
         >
-          <div
-            className="relative overflow-hidden rounded-lg"
-            style={{ width: size, height: size }}
-          >
-            {item.productImageUrl ? (
-              <button
-                type="button"
-                onClick={() => onPreview(item.productImageUrl, titleLabel)}
-                className="group relative h-full w-full overflow-hidden rounded-lg bg-muted ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-                title="點擊放大圖片"
-                aria-label={`${titleLabel}圖片預覽`}
-              >
-                <img
-                  src={item.productImageUrl}
-                  alt=""
-                  className="h-full w-full object-cover transition group-hover:scale-105"
-                />
-                <span className="absolute inset-0 flex items-center justify-center bg-black/0 text-white opacity-0 transition group-hover:bg-black/35 group-hover:opacity-100">
-                  <ZoomIn className="h-5 w-5" />
-                </span>
-              </button>
-            ) : (
-              <button
-                type="button"
-                disabled={uploading || !canUploadImage}
-                onClick={() => onOpenUpload(item)}
-                className="flex h-full w-full items-center justify-center rounded-lg border border-dashed border-border bg-muted/40 text-muted-foreground hover:border-primary/40 hover:text-primary disabled:opacity-60"
-                title="上傳產品圖片"
-                aria-label="上傳產品圖片"
-              >
-                {uploading ? (
-                  <Loader2 className="h-5 w-5 animate-spin" />
-                ) : (
-                  <ImagePlus className="h-6 w-6" />
-                )}
-              </button>
-            )}
-            {custom && item.productImageUrl ? (
-              <button
-                type="button"
-                disabled={uploading}
-                onClick={() => onOpenUpload(item)}
-                className="absolute bottom-1.5 left-1/2 z-10 -translate-x-1/2 rounded-md border border-border/80 bg-background/90 px-2 py-0.5 text-[11px] font-medium text-muted-foreground shadow-sm backdrop-blur hover:bg-background disabled:opacity-60"
-              >
-                {uploading ? '上傳中…' : '更換圖片'}
-              </button>
-            ) : null}
-          </div>
-        </div>
+          {item.quantity}
+        </span>
+      </div>
+      <div
+        className={cn(
+          'w-full text-right font-mono-data font-semibold text-foreground',
+          compact ? 'text-[15px]' : 'text-[18px]',
+        )}
+      >
+        小計 ${lineSubtotal}
+      </div>
+    </div>
+  );
 
-        <div
-          className="flex min-w-0 flex-1 flex-col"
-          style={{
-            minHeight: size + PRODUCT_IMAGE_PAD_PX * 2,
-            paddingTop: PRODUCT_IMAGE_PAD_PX,
-            paddingBottom: PRODUCT_IMAGE_PAD_PX,
-            paddingRight: PRODUCT_IMAGE_PAD_PX,
-            paddingLeft: PRODUCT_CONTENT_LEFT_PAD_PX,
-          }}
+  const qtyControl = (
+    <div className="inline-flex shrink-0 items-center gap-1.5">
+      <span className="text-[12px] font-medium text-muted-foreground">數量</span>
+      <div className="inline-flex shrink-0 items-center overflow-hidden rounded-md border border-border bg-background">
+        <button
+          type="button"
+          onClick={() => onSetQuantity(item, item.quantity - 1)}
+          disabled={item.quantity <= 1}
+          className="flex h-7 w-7 items-center justify-center text-[14px] text-muted-foreground hover:bg-muted disabled:opacity-35"
+          aria-label="數量減一"
         >
-          {/*
-            Layout:
-            - name → factory/SKU + 數量 (same row) → 尺寸 + 狀態 (same row) → notes/price
-            - Notes width stops before 單價 column; bottoms align via items-end
-          */}
-          <div className="flex min-h-0 flex-1 flex-col gap-4">
-            <div className="flex flex-wrap items-start justify-between gap-4">
-              <div className="min-w-0 flex-1 py-1">
-                {custom ? (
-                  <input
-                    type="text"
-                    value={item.productTitle || ''}
-                    onChange={(event) => onSetTitle(item, event.target.value)}
-                    placeholder="輸入產品名稱…"
-                    className="h-9 w-full rounded-lg border border-border bg-background px-3 text-base font-medium outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
-                    aria-label="產品名稱"
-                  />
-                ) : (
-                  <p className="py-0.5 text-base font-medium leading-relaxed">
-                    {item.productTitle}
-                  </p>
-                )}
-              </div>
-              <div className="flex shrink-0 flex-wrap items-center gap-2">
-                {schemeCount > 1 ? (
-                  <span className="inline-flex h-9 items-center rounded-lg border border-violet-500/30 bg-violet-500/10 px-2.5 text-[13px] font-semibold text-violet-700 dark:text-violet-300">
-                    方案 {schemeIndex + 1}/{schemeCount}
-                  </span>
-                ) : null}
-                {canAddMoreSchemes ? (
-                  <button
-                    type="button"
-                    onClick={() => onMoreSchemes?.(item)}
-                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-violet-500/40 bg-violet-500/10 px-2.5 text-[14px] font-medium text-violet-700 hover:bg-violet-500/15 dark:text-violet-300"
-                    title={`在同一分類加入替代方案（最多 ${MAX_FURNITURE_SCHEME_PRODUCTS} 款）`}
-                  >
-                    <LayoutGrid className="h-3.5 w-3.5" />
-                    更多方案
-                  </button>
-                ) : null}
+          −
+        </button>
+        <input
+          type="number"
+          min={1}
+          max={9999}
+          value={item.quantity}
+          onChange={(event) => onSetQuantity(item, Number(event.target.value))}
+          className="h-7 w-9 border-x border-border bg-background text-center font-mono-data text-[13px] font-semibold text-foreground outline-none"
+          aria-label={`${titleLabel}數量`}
+          title="修改產品數量"
+        />
+        <button
+          type="button"
+          onClick={() => onSetQuantity(item, item.quantity + 1)}
+          className="flex h-7 w-7 items-center justify-center text-[14px] text-muted-foreground hover:bg-muted"
+          aria-label="數量加一"
+        >
+          +
+        </button>
+      </div>
+    </div>
+  );
+
+  const dimInputs = (compact: boolean) => (
+    <div className="flex min-w-0 flex-wrap items-center gap-1">
+      <span className="shrink-0 text-[12px] font-medium text-muted-foreground">
+        尺寸
+      </span>
+      <input
+        type="text"
+        inputMode="numeric"
+        value={dimInputValue(effectiveL)}
+        onChange={(event) => commitDimAxis('dimensionLMm', event.target.value)}
+        placeholder="—"
+        className={cn(
+          'rounded-md border border-border bg-background px-1.5 text-right font-mono-data text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20',
+          compact ? 'h-7 w-[3.25rem] text-[12px]' : 'h-8 w-[4.5rem] text-[14px]',
+        )}
+        aria-label={`${titleLabel}長度 W`}
+        title="長 (W) mm"
+      />
+      <span className="font-mono-data text-[11px] text-muted-foreground">W×</span>
+      <input
+        type="text"
+        inputMode="numeric"
+        value={dimInputValue(effectiveW)}
+        onChange={(event) => commitDimAxis('dimensionWMm', event.target.value)}
+        placeholder="—"
+        className={cn(
+          'rounded-md border border-border bg-background px-1.5 text-right font-mono-data text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20',
+          compact ? 'h-7 w-[3.25rem] text-[12px]' : 'h-8 w-[4.5rem] text-[14px]',
+        )}
+        aria-label={`${titleLabel}闊度 D`}
+        title="闊 (D) mm"
+      />
+      <span className="font-mono-data text-[11px] text-muted-foreground">D×</span>
+      <input
+        type="text"
+        inputMode="numeric"
+        value={dimInputValue(effectiveH)}
+        onChange={(event) => commitDimAxis('dimensionHMm', event.target.value)}
+        placeholder="—"
+        className={cn(
+          'rounded-md border border-border bg-background px-1.5 text-right font-mono-data text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20',
+          compact ? 'h-7 w-[3.25rem] text-[12px]' : 'h-8 w-[4.5rem] text-[14px]',
+        )}
+        aria-label={`${titleLabel}高度 H`}
+        title="高 (H) mm"
+      />
+      <span className="font-mono-data text-[11px] text-muted-foreground">H mm</span>
+    </div>
+  );
+
+  const statusSelect = (
+    <select
+      value={item.status}
+      onChange={(e) =>
+        onSetStatus(item.id, e.target.value as ZoneProductStatus)
+      }
+      className={cn(
+        'shrink-0 rounded-full border px-2.5 py-1 text-[12px] font-medium',
+        ZONE_PRODUCT_STATUS_META[item.status]?.className,
+      )}
+      aria-label={`${titleLabel}狀態`}
+    >
+      <option value="pending">未確定</option>
+      <option value="discussing">待討論</option>
+      <option value="confirmed">已確定</option>
+    </select>
+  );
+
+  const feedbackBlock =
+    feedback.length > 0 ? (
+      <div className="space-y-2">
+        {feedback.map((row, feedbackIndex) => {
+          const feedbackKey = `${item.id}:${feedbackIndex}`;
+          return (
+            <div
+              key={`${item.id}-feedback-${feedbackIndex}-${row.at}`}
+              className="rounded-lg border border-amber-500/25 bg-amber-500/5 px-2.5 py-2"
+            >
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-[12px] font-medium text-amber-800 dark:text-amber-200">
+                  客戶意見 · {reviewLabelZh(row.review)}
+                  {' · '}
+                  {fmtFeedbackTime(row.at)}
+                  {row.author ? ` · ${row.author}` : ''}
+                </p>
                 <button
                   type="button"
-                  onClick={() => onOpenPicker(item.zoneId || zoneId, item.id)}
-                  className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-primary/40 bg-primary/10 px-2.5 text-[14px] font-medium text-primary hover:bg-primary/15"
-                  title="更換此產品的名稱、圖片與價錢"
+                  disabled={deletingFeedbackKey === feedbackKey}
+                  onClick={() => onDeleteFeedback(item, feedbackIndex)}
+                  className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-rose-500/30 text-rose-700 hover:bg-rose-500/10 disabled:opacity-50"
+                  title="刪除此客戶意見"
+                  aria-label="刪除客戶意見"
                 >
-                  <RefreshCw className="h-3.5 w-3.5" />
-                  更換產品
-                </button>
-                <button
-                  type="button"
-                  disabled={deletingProductId === item.id}
-                  onClick={() => onRemove(item)}
-                  className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-rose-500/30 px-2.5 py-1.5 text-[15px] font-medium text-rose-600 hover:bg-rose-500/10 disabled:opacity-50"
-                  title="從間隔移除產品"
-                >
-                  {deletingProductId === item.id ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                  {deletingFeedbackKey === feedbackKey ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
                   ) : (
-                    <Trash2 className="h-4 w-4" />
+                    <Trash2 className="h-3.5 w-3.5" />
                   )}
-                  刪除
                 </button>
-                <label
-                  className="inline-flex h-9 cursor-pointer items-center justify-center gap-1.5 rounded-lg border border-border bg-background px-2.5 text-[15px] text-muted-foreground hover:bg-muted"
-                  title={
-                    item.isOptional
-                      ? '取消可選：價錢將重新計入總計'
-                      : '標記為可選：價錢不計入總計，產品仍顯示'
-                  }
-                >
-                  <Checkbox
-                    checked={Boolean(item.isOptional)}
-                    onCheckedChange={() => onToggleOptional(item)}
-                    className="border-foreground/60 data-[state=checked]:border-primary"
-                    aria-label={`${titleLabel}可選`}
-                  />
-                  <span>可選</span>
-                </label>
               </div>
+              {row.text ? (
+                <p className="mt-1 whitespace-pre-wrap text-[13px] text-foreground">
+                  {row.text}
+                </p>
+              ) : null}
             </div>
+          );
+        })}
+      </div>
+    ) : null;
 
-            {/* 廠家 / SKU 與 數量 同一水平行 */}
-            <div
-              className={cn(
-                'flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 py-0.5',
-                PRODUCT_NOTES_MAX_CLASS,
+  // Multi-scheme (2–3 cols): vertical card — image → 備註 → specs → price bottom-right.
+  const card = multiScheme ? (
+    <div className="flex min-w-0 flex-col gap-2.5 p-3">
+      {actionButtons}
+      <div className="min-w-0">
+        {custom ? (
+          <input
+            type="text"
+            value={item.productTitle || ''}
+            onChange={(event) => onSetTitle(item, event.target.value)}
+            placeholder="輸入產品名稱…"
+            className="h-8 w-full rounded-md border border-border bg-background px-2 text-[13px] font-medium outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+            aria-label="產品名稱"
+          />
+        ) : (
+          <p className="line-clamp-2 text-[13px] font-medium leading-snug">
+            {item.productTitle}
+          </p>
+        )}
+      </div>
+      {productImage({ className: 'aspect-square w-full' })}
+      {notesEditor(2, 'min-h-[56px]')}
+      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+        {factoryName ? (
+          <span className="inline-flex max-w-full items-center rounded-full border border-border bg-muted/60 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+            <span className="truncate" title={factoryName}>
+              {factoryName}
+            </span>
+          </span>
+        ) : null}
+        {sku ? (
+          <span
+            className="inline-flex max-w-full items-center rounded-full border border-border bg-muted/40 px-2 py-0.5 font-mono text-[11px] font-medium text-muted-foreground"
+            title={`SKU ${sku}`}
+          >
+            <span className="truncate">SKU {sku}</span>
+          </span>
+        ) : null}
+        <div className="ml-auto">{qtyControl}</div>
+      </div>
+      <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
+        {dimInputs(true)}
+        {statusSelect}
+      </div>
+      {feedbackBlock}
+      <div className="mt-auto flex justify-end pt-1">{priceBlock(true)}</div>
+    </div>
+  ) : (
+    <div className="flex min-w-0 items-stretch">
+      <div
+        className="flex shrink-0 flex-col gap-2"
+        style={{
+          paddingTop: PRODUCT_IMAGE_PAD_PX,
+          paddingBottom: PRODUCT_IMAGE_PAD_PX,
+          paddingLeft: PRODUCT_IMAGE_PAD_PX,
+          width: size + PRODUCT_IMAGE_PAD_PX,
+        }}
+      >
+        {productImage({ fixedPx: size })}
+        <div style={{ width: size }}>{notesEditor(3, 'min-h-[72px]')}</div>
+      </div>
+
+      <div
+        className="flex min-w-0 flex-1 flex-col"
+        style={{
+          minHeight: size + PRODUCT_IMAGE_PAD_PX * 2,
+          paddingTop: PRODUCT_IMAGE_PAD_PX,
+          paddingBottom: PRODUCT_IMAGE_PAD_PX,
+          paddingRight: PRODUCT_IMAGE_PAD_PX,
+          paddingLeft: PRODUCT_CONTENT_LEFT_PAD_PX,
+        }}
+      >
+        <div className="flex min-h-0 flex-1 flex-col gap-3">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0 flex-1 py-0.5">
+              {custom ? (
+                <input
+                  type="text"
+                  value={item.productTitle || ''}
+                  onChange={(event) => onSetTitle(item, event.target.value)}
+                  placeholder="輸入產品名稱…"
+                  className="h-9 w-full rounded-lg border border-border bg-background px-3 text-base font-medium outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
+                  aria-label="產品名稱"
+                />
+              ) : (
+                <p className="py-0.5 text-base font-medium leading-relaxed">
+                  {item.productTitle}
+                </p>
               )}
-            >
-              <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
-                {factoryName ? (
-                  <span className="inline-flex max-w-full items-center rounded-full border border-border bg-muted/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground">
-                    <span className="truncate" title={factoryName}>
-                      {factoryName}
-                    </span>
-                  </span>
-                ) : null}
-                {sku ? (
-                  <span
-                    className="inline-flex max-w-full items-center rounded-full border border-border bg-muted/40 px-3 py-1.5 font-mono text-[12px] font-medium text-muted-foreground"
-                    title={`SKU ${sku}`}
-                  >
-                    <span className="truncate">SKU {sku}</span>
-                  </span>
-                ) : null}
-              </div>
-              <div className="inline-flex shrink-0 items-center gap-1.5">
-                <span className="text-[13px] font-medium text-muted-foreground">
-                  數量
-                </span>
-                <div className="inline-flex shrink-0 items-center overflow-hidden rounded-md border border-border bg-background">
-                  <button
-                    type="button"
-                    onClick={() => onSetQuantity(item, item.quantity - 1)}
-                    disabled={item.quantity <= 1}
-                    className="flex h-7 w-7 items-center justify-center text-[14px] text-muted-foreground hover:bg-muted disabled:opacity-35"
-                    aria-label="數量減一"
-                  >
-                    −
-                  </button>
-                  <input
-                    type="number"
-                    min={1}
-                    max={9999}
-                    value={item.quantity}
-                    onChange={(event) =>
-                      onSetQuantity(item, Number(event.target.value))
-                    }
-                    className="h-7 w-9 border-x border-border bg-background text-center font-mono-data text-[13px] font-semibold text-foreground outline-none"
-                    aria-label={`${titleLabel}數量`}
-                    title="修改產品數量"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => onSetQuantity(item, item.quantity + 1)}
-                    className="flex h-7 w-7 items-center justify-center text-[14px] text-muted-foreground hover:bg-muted"
-                    aria-label="數量加一"
-                  >
-                    +
-                  </button>
-                </div>
-              </div>
             </div>
-
-            {/* 尺寸 與 狀態（已確定）同一水平行 */}
-            <div
-              className={cn(
-                'flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-2 py-1',
-                PRODUCT_NOTES_MAX_CLASS,
-              )}
-            >
-              <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                <span className="shrink-0 text-[15px] font-medium text-muted-foreground">
-                  尺寸
-                </span>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={dimInputValue(effectiveL)}
-                  onChange={(event) =>
-                    commitDimAxis('dimensionLMm', event.target.value)
-                  }
-                  placeholder="—"
-                  className="h-8 w-[4.5rem] rounded-md border border-border bg-background px-2 text-right font-mono-data text-[14px] text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
-                  aria-label={`${titleLabel}長度 W`}
-                  title="長 (W) mm — 僅存於此設計專案"
-                />
-                <span className="font-mono-data text-[13px] text-muted-foreground">
-                  (W) x
-                </span>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={dimInputValue(effectiveW)}
-                  onChange={(event) =>
-                    commitDimAxis('dimensionWMm', event.target.value)
-                  }
-                  placeholder="—"
-                  className="h-8 w-[4.5rem] rounded-md border border-border bg-background px-2 text-right font-mono-data text-[14px] text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
-                  aria-label={`${titleLabel}闊度 D`}
-                  title="闊 (D) mm — 僅存於此設計專案"
-                />
-                <span className="font-mono-data text-[13px] text-muted-foreground">
-                  (D) x
-                </span>
-                <input
-                  type="text"
-                  inputMode="numeric"
-                  value={dimInputValue(effectiveH)}
-                  onChange={(event) =>
-                    commitDimAxis('dimensionHMm', event.target.value)
-                  }
-                  placeholder="—"
-                  className="h-8 w-[4.5rem] rounded-md border border-border bg-background px-2 text-right font-mono-data text-[14px] text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
-                  aria-label={`${titleLabel}高度 H`}
-                  title="高 (H) mm — 僅存於此設計專案"
-                />
-                <span className="font-mono-data text-[13px] text-muted-foreground">
-                  (H) (mm)
-                </span>
-              </div>
-              <select
-                value={item.status}
-                onChange={(e) =>
-                  onSetStatus(item.id, e.target.value as ZoneProductStatus)
-                }
-                className={cn(
-                  'shrink-0 rounded-full border px-3 py-1.5 text-[15px] font-medium',
-                  ZONE_PRODUCT_STATUS_META[item.status]?.className,
-                )}
-                aria-label={`${titleLabel}狀態`}
-              >
-                <option value="pending">未確定</option>
-                <option value="discussing">待討論</option>
-                <option value="confirmed">已確定</option>
-              </select>
-            </div>
-
-            {/* 備註 narrower; price col: line1 單價×數量(唯讀), line2 小計 — both right-aligned */}
-            <div className="mt-auto flex items-end gap-4 pb-1">
-              <div
-                className={cn(
-                  'flex min-w-0 w-full items-start gap-2.5 py-1',
-                  PRODUCT_NOTES_MAX_CLASS,
-                )}
-              >
-                <span className="mt-2 shrink-0 text-[15px] font-medium text-muted-foreground">
-                  備註
-                </span>
-                <div className="min-w-0 flex-1" aria-label={`${titleLabel}備註`}>
-                  <RemarksRichEditor
-                    key={item.id}
-                    compact
-                    textOnly
-                    value={staffNotesForEditor(item.notes)}
-                    onChange={(next) => onSetNotes(item, next)}
-                    textRows={3}
-                    placeholder="輸入意見或補充說明…"
-                    textClassName="min-h-[72px] rounded-lg px-3 py-2 text-[12px] leading-relaxed focus:ring-2 focus:ring-primary/20"
-                  />
-                </div>
-              </div>
-              <div
-                className={cn(
-                  'mb-1 ml-auto flex shrink-0 flex-col items-end justify-end gap-1 pb-2 text-foreground',
-                  PRODUCT_PRICE_COL_CLASS,
-                )}
-              >
-                <div className="flex flex-nowrap items-center justify-end gap-1 whitespace-nowrap text-[15px] text-muted-foreground">
-                  <span>單價 $</span>
-                  <input
-                    type="number"
-                    min={0}
-                    step={1}
-                    value={Number(item.salePrice || 0)}
-                    onChange={(event) =>
-                      onSetSalePrice(item, Number(event.target.value))
-                    }
-                    className="h-7 w-[4.75rem] shrink-0 rounded-md border border-border bg-background px-1.5 font-mono-data text-[15px] text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20"
-                    aria-label={`${titleLabel}單價`}
-                    title="修改此產品在設計專案中的單價"
-                  />
-                  <span>×</span>
-                  <span
-                    className="inline-flex h-7 min-w-[2.25rem] items-center justify-center rounded-md border border-border bg-muted/40 px-2 font-mono-data text-[15px] font-semibold text-foreground"
-                    title="請於上方廠家／SKU 旁的數量修改"
-                    aria-label={`${titleLabel}數量（唯讀）`}
-                  >
-                    {item.quantity}
-                  </span>
-                </div>
-                <div className="w-full text-right font-mono-data text-[18px] font-semibold text-foreground">
-                  小計 $
-                  {(
-                    Number(item.salePrice || 0) * item.quantity
-                  ).toLocaleString()}
-                  {item.isOptional ? (
-                    <span className="ml-1 text-[14px] font-normal text-muted-foreground">
-                      （可選，不計入總計）
-                    </span>
-                  ) : null}
-                </div>
-              </div>
-            </div>
-
-            {feedback.length > 0 ? (
-              <div className="space-y-3">
-                {feedback.map((row, feedbackIndex) => {
-                  const feedbackKey = `${item.id}:${feedbackIndex}`;
-                  return (
-                    <div
-                      key={`${item.id}-feedback-${feedbackIndex}-${row.at}`}
-                      className="rounded-lg border border-amber-500/25 bg-amber-500/5 px-3 py-2.5"
-                    >
-                      <div className="flex items-start justify-between gap-3">
-                        <p className="text-[13px] font-medium text-amber-800 dark:text-amber-200">
-                          客戶意見 · {reviewLabelZh(row.review)}
-                          {' · '}
-                          {fmtFeedbackTime(row.at)}
-                          {row.author ? ` · ${row.author}` : ''}
-                        </p>
-                        <button
-                          type="button"
-                          disabled={deletingFeedbackKey === feedbackKey}
-                          onClick={() => onDeleteFeedback(item, feedbackIndex)}
-                          className="inline-flex shrink-0 items-center gap-1 rounded-md border border-rose-500/30 px-2 py-1 text-xs font-medium text-rose-700 hover:bg-rose-500/10 disabled:opacity-50"
-                          title="刪除此客戶意見"
-                        >
-                          {deletingFeedbackKey === feedbackKey ? (
-                            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                          ) : (
-                            <Trash2 className="h-3.5 w-3.5" />
-                          )}
-                          刪除
-                        </button>
-                      </div>
-                      {row.text ? (
-                        <p className="mt-1 whitespace-pre-wrap text-[15px] text-foreground">
-                          {row.text}
-                        </p>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </div>
-            ) : null}
+            {actionButtons}
           </div>
+
+          <div
+            className={cn(
+              'flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-2',
+              PRODUCT_NOTES_MAX_CLASS,
+            )}
+          >
+            <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
+              {factoryName ? (
+                <span className="inline-flex max-w-full items-center rounded-full border border-border bg-muted/60 px-3 py-1.5 text-[12px] font-medium text-muted-foreground">
+                  <span className="truncate" title={factoryName}>
+                    {factoryName}
+                  </span>
+                </span>
+              ) : null}
+              {sku ? (
+                <span
+                  className="inline-flex max-w-full items-center rounded-full border border-border bg-muted/40 px-3 py-1.5 font-mono text-[12px] font-medium text-muted-foreground"
+                  title={`SKU ${sku}`}
+                >
+                  <span className="truncate">SKU {sku}</span>
+                </span>
+              ) : null}
+            </div>
+            {qtyControl}
+          </div>
+
+          <div
+            className={cn(
+              'flex min-w-0 flex-wrap items-center justify-between gap-x-3 gap-y-2',
+              PRODUCT_NOTES_MAX_CLASS,
+            )}
+          >
+            {dimInputs(false)}
+            {statusSelect}
+          </div>
+
+          {feedbackBlock}
+
+          <div className="mt-auto flex justify-end pb-1">{priceBlock(false)}</div>
         </div>
       </div>
+    </div>
   );
 
   if (embedded) return card;
@@ -1110,7 +1190,6 @@ function ZoneSchemeSlotRow({
   onSetQuantity,
   onSetStatus,
   onRemove,
-  onToggleOptional,
   onSetTitle,
   onSetSalePrice,
   onSetDimensions,
@@ -1142,7 +1221,6 @@ function ZoneSchemeSlotRow({
   onSetQuantity: (item: ZoneProduct, quantity: number) => void;
   onSetStatus: (id: string, status: ZoneProductStatus) => void;
   onRemove: (item: ZoneProduct) => void;
-  onToggleOptional: (item: ZoneProduct) => void;
   onSetTitle: (item: ZoneProduct, value: string) => void;
   onSetSalePrice: (item: ZoneProduct, value: number) => void;
   onSetDimensions: (
@@ -1156,7 +1234,7 @@ function ZoneSchemeSlotRow({
   onSetNotes: (item: ZoneProduct, value: string) => void;
   onDeleteFeedback: (item: ZoneProduct, index: number) => void;
 }) {
-  const multi = slot.products.length > 1;
+  const count = slot.products.length;
   return (
     <li>
       {divisionHeading || divisionToolbar ? (
@@ -1191,42 +1269,44 @@ function ZoneSchemeSlotRow({
       ) : null}
       <div
         className={cn(
-          'flex min-w-0',
-          multi
-            ? 'flex-col divide-y divide-border/70 xl:flex-row xl:divide-x xl:divide-y-0'
-            : 'flex-col',
+          'min-w-0',
+          count >= 3
+            ? 'grid grid-cols-1 gap-px bg-border md:grid-cols-2 xl:grid-cols-3'
+            : count === 2
+              ? 'grid grid-cols-1 gap-px bg-border xl:grid-cols-2'
+              : 'flex flex-col',
         )}
       >
         {slot.products.map((item, index) => (
-          <ZoneProductRow
-            key={item.id}
-            item={item}
-            zoneId={zoneId}
-            custom={isCustomZoneProduct(item)}
-            titleLabel={item.productTitle || '未命名產品'}
-            catalogMeta={
-              item.productId ? productMetaById[item.productId] || null : null
-            }
-            schemeIndex={index}
-            schemeCount={slot.products.length}
-            embedded
-            uploading={uploadingImageId === item.id}
-            deletingProductId={deletingProductId}
-            deletingFeedbackKey={deletingFeedbackKey}
-            onOpenUpload={onOpenUpload}
-            onPreview={onPreview}
-            onOpenPicker={onOpenPicker}
-            onMoreSchemes={onMoreSchemes}
-            onSetQuantity={onSetQuantity}
-            onSetStatus={onSetStatus}
-            onRemove={onRemove}
-            onToggleOptional={onToggleOptional}
-            onSetTitle={onSetTitle}
-            onSetSalePrice={onSetSalePrice}
-            onSetDimensions={onSetDimensions}
-            onSetNotes={onSetNotes}
-            onDeleteFeedback={onDeleteFeedback}
-          />
+          <div key={item.id} className="min-w-0 bg-card">
+            <ZoneProductRow
+              item={item}
+              zoneId={zoneId}
+              custom={isCustomZoneProduct(item)}
+              titleLabel={item.productTitle || '未命名產品'}
+              catalogMeta={
+                item.productId ? productMetaById[item.productId] || null : null
+              }
+              schemeIndex={index}
+              schemeCount={slot.products.length}
+              embedded
+              uploading={uploadingImageId === item.id}
+              deletingProductId={deletingProductId}
+              deletingFeedbackKey={deletingFeedbackKey}
+              onOpenUpload={onOpenUpload}
+              onPreview={onPreview}
+              onOpenPicker={onOpenPicker}
+              onMoreSchemes={onMoreSchemes}
+              onSetQuantity={onSetQuantity}
+              onSetStatus={onSetStatus}
+              onRemove={onRemove}
+              onSetTitle={onSetTitle}
+              onSetSalePrice={onSetSalePrice}
+              onSetDimensions={onSetDimensions}
+              onSetNotes={onSetNotes}
+              onDeleteFeedback={onDeleteFeedback}
+            />
+          </div>
         ))}
       </div>
     </li>
@@ -1807,14 +1887,31 @@ export function DesignProjectsView() {
     [],
   );
 
-  const furnitureGrandTotal = useMemo(
-    () =>
-      zoneProducts.reduce(
-        (sum, item) => sum + zoneProductBillableTotal(item),
-        0,
-      ),
-    [zoneProducts],
-  );
+  const furnitureGrandTotal = useMemo(() => {
+    const byZone = new Map<string, ZoneProduct[]>();
+    const unzoned: ZoneProduct[] = [];
+    for (const item of zoneProducts) {
+      if (!item.zoneId) {
+        unzoned.push(item);
+        continue;
+      }
+      const list = byZone.get(item.zoneId) || [];
+      list.push(item);
+      byZone.set(item.zoneId, list);
+    }
+    let total = 0;
+    for (const [zoneId, items] of byZone) {
+      total += buildFurnitureSchemeSlots(
+        items,
+        furnitureSchemeGroups[zoneId] || [],
+      ).reduce((sum, slot) => sum + schemeSlotBillableTotal(slot.products), 0);
+    }
+    total += buildFurnitureSchemeSlots(unzoned, []).reduce(
+      (sum, slot) => sum + schemeSlotBillableTotal(slot.products),
+      0,
+    );
+    return total;
+  }, [furnitureSchemeGroups, zoneProducts]);
 
   const mergeProductMetaFromSearch = useCallback((rows: SearchProduct[]) => {
     if (rows.length === 0) return;
@@ -2107,11 +2204,7 @@ export function DesignProjectsView() {
       dimensionHMm: product.dimensionHMm ?? null,
     });
     if (res.ok && res.data) {
-      const created = {
-        ...res.data,
-        // Alternative schemes default to 可選 so they don't inflate totals / planned qty.
-        isOptional: Boolean(anchorId) ? true : res.data.isOptional,
-      };
+      const created = res.data;
       setZoneProducts((prev) => [...prev, created]);
 
       let nextDivisions = furnitureDivisions;
@@ -2394,10 +2487,6 @@ export function DesignProjectsView() {
     patchProduct(item.id, { quantity });
   };
 
-  const toggleOptional = (item: ZoneProduct) => {
-    patchProduct(item.id, { isOptional: !item.isOptional });
-  };
-
   const saveFurniture = async () => {
     if (!project || savingFurniture) return;
     if (typeof document !== 'undefined') {
@@ -2417,7 +2506,7 @@ export function DesignProjectsView() {
           (excessWarnings.length > 4
             ? `；…另有 ${excessWarnings.length - 4} 項`
             : '') +
-          '。請將超出計劃的產品轉為「可選」後再儲存。',
+          '。請刪除多餘產品後再儲存。',
         duration: 8000,
       });
       return;
@@ -2426,7 +2515,11 @@ export function DesignProjectsView() {
     try {
       // Allow controlled inputs to flush latest keystrokes into state.
       await new Promise((resolve) => window.setTimeout(resolve, 0));
-      const optionalZoneProductIds = zoneProducts
+      const productsForPersist = withSchemeAlternativesNonBillable(
+        zoneProducts,
+        furnitureSchemeGroups,
+      );
+      const optionalZoneProductIds = productsForPersist
         .filter((product) => product.isOptional)
         .map((product) => product.id);
       const projectWithPlanning = {
@@ -2443,7 +2536,7 @@ export function DesignProjectsView() {
       const result = await persistDesignProjectFurniture({
         project: projectWithPlanning,
         zones,
-        products: zoneProducts,
+        products: productsForPersist,
       });
       if (!result.ok || !result.data) {
         toast.error('儲存失敗', { description: result.error });
@@ -2498,14 +2591,18 @@ export function DesignProjectsView() {
           (excessWarnings.length > 4
             ? `；…另有 ${excessWarnings.length - 4} 項`
             : '') +
-          '。請將超出計劃的產品轉為「可選」後再提交。',
+          '。請刪除多餘產品後再提交。',
         duration: 8000,
       });
       return;
     }
     setConfirmingProject(true);
     if (furnitureDirty) {
-      const optionalZoneProductIds = zoneProducts
+      const productsForPersist = withSchemeAlternativesNonBillable(
+        zoneProducts,
+        furnitureSchemeGroups,
+      );
+      const optionalZoneProductIds = productsForPersist
         .filter((product) => product.isOptional)
         .map((product) => product.id);
       const flushed = await persistDesignProjectFurniture({
@@ -2520,7 +2617,7 @@ export function DesignProjectsView() {
           },
         },
         zones,
-        products: zoneProducts,
+        products: productsForPersist,
       });
       if (!flushed.ok || !flushed.data) {
         setConfirmingProject(false);
@@ -3036,7 +3133,6 @@ export function DesignProjectsView() {
                     onRemove={(row) => {
                       void removeProduct(row);
                     }}
-                    onToggleOptional={toggleOptional}
                     onSetTitle={setProductTitle}
                     onSetSalePrice={setSalePrice}
                     onSetDimensions={setDimensions}
@@ -3291,10 +3387,10 @@ export function DesignProjectsView() {
                       <div className="flex justify-end border-t border-border bg-muted/20 px-5 py-3.5">
                         <p className="font-mono-data text-[15px] font-bold text-foreground">
                           小計：$
-                          {items
+                          {buildFurnitureSchemeSlots(items, zoneSchemeGroups)
                             .reduce(
-                              (sum, item) =>
-                                sum + zoneProductBillableTotal(item),
+                              (sum, slot) =>
+                                sum + schemeSlotBillableTotal(slot.products),
                               0,
                             )
                             .toLocaleString()}
