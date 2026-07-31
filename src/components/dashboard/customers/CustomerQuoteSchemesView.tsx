@@ -1061,6 +1061,9 @@ export function CustomerQuoteSchemesView() {
     quoteId: string;
   } | null>(null);
   const sharedQuoteOpenedRef = useRef(false);
+  /** Logged-in only: 全部 = design+quote list; BWA = 設計專案; BWF = 報價單一覽. */
+  const [sourceFilter, setSourceFilter] = useState<'all' | 'bwa' | 'bwf'>('all');
+  const showSourceFilter = Boolean(user) && !hasQuoteShareToken;
   const [itemReviews, setItemReviews] = useState<Record<string, ItemReview>>({});
   const [itemDraftNotes, setItemDraftNotes] = useState<Record<string, string>>(
     {},
@@ -1625,13 +1628,21 @@ export function CustomerQuoteSchemesView() {
         );
       });
     // Quote-share links: only the shared quotation is visible (no other portal cards).
-    const scoped = sharedQuoteTarget
+    let scoped = sharedQuoteTarget
       ? visible.filter(
           (quote) =>
             quote.id === sharedQuoteTarget.quoteUuid ||
             quote.quote_id === sharedQuoteTarget.quoteId,
         )
       : visible;
+    if (showSourceFilter && sourceFilter !== 'all') {
+      scoped = scoped.filter((quote) => {
+        const isDesignCard =
+          quote.id.startsWith('design-project:') ||
+          quote.id.startsWith('confirmed-project:');
+        return sourceFilter === 'bwa' ? isDesignCard : !isDesignCard;
+      });
+    }
     return [...scoped].sort((a, b) => {
       const aDesign = a.id.startsWith('design-project:') ? 1 : 0;
       const bDesign = b.id.startsWith('design-project:') ? 1 : 0;
@@ -1641,7 +1652,15 @@ export function CustomerQuoteSchemesView() {
         new Date(a.modified_date || a.created_at).getTime()
       );
     });
-  }, [clientOnly, clientProjects, portalProjects, sharedQuoteTarget, versionsByQuote]);
+  }, [
+    clientOnly,
+    clientProjects,
+    portalProjects,
+    sharedQuoteTarget,
+    showSourceFilter,
+    sourceFilter,
+    versionsByQuote,
+  ]);
 
   useEffect(() => {
     if (availableQuotes.length === 0) return;
@@ -2517,20 +2536,47 @@ export function CustomerQuoteSchemesView() {
       scrollRef={pageScrollRef}
       title={showDetail && active ? quoteDisplayName(active) : '報價方案'}
       badge="Client Portal"
+      titleExtra={
+        !showDetail && showSourceFilter ? (
+          <div className="flex flex-wrap items-center gap-1.5">
+            {(
+              [
+                { key: 'all', label: '全部' },
+                { key: 'bwa', label: 'BWA' },
+                { key: 'bwf', label: 'BWF' },
+              ] as const
+            ).map((opt) => (
+              <button
+                key={opt.key}
+                type="button"
+                onClick={() => setSourceFilter(opt.key)}
+                className={cn(
+                  'rounded-full border px-3 py-1 text-[11.5px] font-semibold transition-colors',
+                  sourceFilter === opt.key
+                    ? 'border-primary bg-primary text-primary-foreground'
+                    : 'border-border bg-background text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        ) : null
+      }
       subtitle="查看自己的 HTML 報價、切換版本、按工程分區批核產品，並回覆整張報價。"
       maxWidthClass="max-w-none"
       actions={
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/5 px-3 py-1.5 text-xs text-primary">
-            <Shield className="h-4 w-4" />
-            只顯示售價，成本已隱藏
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+          <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-primary/25 bg-primary/5 px-3 py-1.5 text-xs text-primary">
+            <Shield className="h-4 w-4 shrink-0" />
+            <span className="leading-snug">只顯示售價，成本已隱藏</span>
           </span>
           {showDetail && active ? (
             <button
               type="button"
               onClick={() => void saveQuoteScheme()}
               disabled={savingScheme}
-              className="inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60"
+              className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60 sm:flex-none"
             >
               {savingScheme ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -2545,17 +2591,23 @@ export function CustomerQuoteSchemesView() {
     >
       {!showDetail ? (
       <section>
-        <div className="flex items-center justify-between gap-3">
-          <div>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
             <h2 className="font-display text-lg font-bold">您的報價</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              一般只會顯示目前客戶的 1–2 張有效報價。
+              {showSourceFilter
+                ? sourceFilter === 'bwa'
+                  ? '顯示傢俬方案「設計專案」的訂單'
+                  : sourceFilter === 'bwf'
+                    ? '顯示傢俬報價「報價單一覽」的報價單'
+                    : '顯示設計專案與報價單一覽的全部項目'
+                : '一般只會顯示目前客戶的 1–2 張有效報價。'}
             </p>
           </div>
           <button
             type="button"
             onClick={() => void fetchQuotes()}
-            className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm"
+            className="inline-flex min-h-10 items-center justify-center gap-2 self-start rounded-lg border border-border px-3 py-2 text-sm sm:self-auto"
           >
             <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
             重新整理
@@ -2572,7 +2624,7 @@ export function CustomerQuoteSchemesView() {
             <p className="mt-3 font-semibold">目前沒有屬於您的報價</p>
           </div>
         ) : (
-          <div className="mt-5 grid gap-5 md:grid-cols-2">
+          <div className="mt-5 grid grid-cols-1 gap-4 sm:gap-5 md:grid-cols-2">
             {availableQuotes.map((quote) => {
               const selected = active?.quote_id === quote.quote_id;
               const versions = versionsByQuote.get(quote.quote_id) || [quote];
@@ -2614,14 +2666,14 @@ export function CustomerQuoteSchemesView() {
                     setQuoteNote(hydrated.note);
                   }}
                   className={cn(
-                    'rounded-2xl border bg-card p-5 text-left shadow-sm transition-all',
+                    'min-h-[44px] rounded-2xl border bg-card p-4 text-left shadow-sm transition-all sm:p-5',
                     selected
                       ? 'border-primary/50 ring-2 ring-primary/10'
                       : 'border-border hover:border-primary/30',
                   )}
                 >
                   <div className="flex items-start justify-between gap-3">
-                    <span className="rounded-lg bg-primary/10 px-2.5 py-1 font-mono-data text-xs font-bold text-primary">
+                    <span className="max-w-[70%] break-all rounded-lg bg-primary/10 px-2.5 py-1 font-mono-data text-xs font-bold text-primary">
                       {quote.quote_id}
                     </span>
                     <span
@@ -2669,7 +2721,7 @@ export function CustomerQuoteSchemesView() {
           <button
             type="button"
             onClick={() => setShowDetail(false)}
-            className="inline-flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium hover:bg-muted"
+            className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm font-medium hover:bg-muted"
           >
             <ArrowLeft className="h-4 w-4" />
             返回您的報價

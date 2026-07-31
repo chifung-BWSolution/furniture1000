@@ -267,6 +267,9 @@ export function AppShell() {
   const [showPublishModal, setShowPublishModal] = useState(false);
   const [publishModalProducts, setPublishModalProducts] = useState<Product[]>([]);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  /** Mobile (< lg): section sidebar is an overlay drawer, closed by default. */
+  const [isMobileLayout, setIsMobileLayout] = useState(false);
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [editingQuoteId, setEditingQuoteIdRaw] = useState<string | null>(() => {
     const parsed = parseQuotePathname(location.pathname);
     return parsed.kind === 'quote' ? parsed.quoteId : null;
@@ -284,6 +287,22 @@ export function AppShell() {
       return path.startsWith('/quote') ? path : null;
     })(),
   );
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const mq = window.matchMedia('(max-width: 1023px)');
+    const apply = () => {
+      const mobile = mq.matches;
+      setIsMobileLayout(mobile);
+      if (mobile) {
+        setSidebarCollapsed(true);
+        setMobileNavOpen(false);
+      }
+    };
+    apply();
+    mq.addEventListener('change', apply);
+    return () => mq.removeEventListener('change', apply);
+  }, []);
+
   const searchParams = new URLSearchParams(location.search);
   const portalToken = searchParams.get('portal_token');
   const quoteShareToken = searchParams.get('quote_share');
@@ -1201,7 +1220,8 @@ export function AppShell() {
       />
 
       <div className="flex flex-1 min-h-0 overflow-hidden">
-        {activeSection !== 'home' && (
+        {/* Desktop sidebar */}
+        {activeSection !== 'home' && !isMobileLayout ? (
           <SidebarNav
             activeSection={activeSection}
             currentView={store.currentView}
@@ -1213,9 +1233,37 @@ export function AppShell() {
             isAdmin={isAdmin}
             quoteShareOnly={quoteShareActive}
           />
-        )}
+        ) : null}
 
-        <main className="flex flex-1 flex-col min-w-0 overflow-hidden">
+        {/* Mobile section nav — overlay drawer, closed by default */}
+        {activeSection !== 'home' && isMobileLayout && mobileNavOpen ? (
+          <div className="fixed inset-0 z-[60] lg:hidden">
+            <button
+              type="button"
+              aria-label="關閉選單"
+              className="absolute inset-0 bg-black/45"
+              onClick={() => setMobileNavOpen(false)}
+            />
+            <div className="absolute inset-y-0 left-0 flex w-[min(280px,86vw)] max-w-full shadow-2xl">
+              <SidebarNav
+                activeSection={activeSection}
+                currentView={store.currentView}
+                onViewChange={(view) => {
+                  handleViewChange(view);
+                  setMobileNavOpen(false);
+                }}
+                isDarkMode={store.isDarkMode}
+                onToggleDarkMode={store.toggleDarkMode}
+                isCollapsed={false}
+                onCollapseChange={() => setMobileNavOpen(false)}
+                isAdmin={isAdmin}
+                quoteShareOnly={quoteShareActive}
+              />
+            </div>
+          </div>
+        ) : null}
+
+        <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {/* 方案 D: Unhealthy DB banner */}
         {dbUnhealthy && (
           <div className="flex items-center gap-2 bg-destructive/10 border-b border-destructive/20 px-4 py-2 text-sm text-destructive">
@@ -1246,6 +1294,10 @@ export function AppShell() {
           showDarkModeToggle={activeSection === 'home'}
           isDarkMode={store.isDarkMode}
           onToggleDarkMode={store.toggleDarkMode}
+          showMobileNavButton={
+            activeSection !== 'home' && isMobileLayout && !quoteShareActive
+          }
+          onOpenMobileNav={() => setMobileNavOpen(true)}
         />
 
         <div className="flex-1 overflow-hidden">

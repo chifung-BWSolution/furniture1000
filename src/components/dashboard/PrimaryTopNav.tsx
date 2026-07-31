@@ -22,11 +22,11 @@ export function PrimaryTopNav({
   const { user, signOut } = useAuth();
   const staffName = usePmsStaffName(user?.id);
   return (
-    <header className="zone-top-nav sticky top-0 z-40 flex h-[68px] shrink-0 items-center border-b border-shell-border bg-shell px-6 text-shell-foreground">
+    <header className="zone-top-nav sticky top-0 z-40 flex h-[56px] shrink-0 items-center border-b border-shell-border bg-shell px-3 text-shell-foreground sm:h-[68px] sm:px-6">
       {/* Logo */}
-      <div className="mr-8 flex shrink-0 items-center gap-3">
+      <div className="mr-3 flex shrink-0 items-center gap-2 sm:mr-8 sm:gap-3">
         <FdsLogo size="md" />
-        <div className="flex flex-col" style={{ gap: '2px' }}>
+        <div className="hidden min-w-0 flex-col sm:flex" style={{ gap: '2px' }}>
           <div
             className="text-shell-foreground"
             style={{
@@ -46,7 +46,7 @@ export function PrimaryTopNav({
       </div>
 
       {/* Primary nav */}
-      <nav className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+      <nav className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
         {NAV_CONFIG.filter((p) => !clientOnly || p.id === 'customers').map((p: PrimaryItem) => {
           const Icon = p.icon;
           const active = p.id === activeSection;
@@ -55,14 +55,14 @@ export function PrimaryTopNav({
               key={p.id}
               onClick={() => onSectionChange(p.id)}
               className={cn(
-                'flex h-10 shrink-0 items-center gap-2 rounded-lg px-3.5 text-[13.5px] font-medium transition-all',
+                'flex h-9 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-[12.5px] font-medium transition-all sm:h-10 sm:gap-2 sm:px-3.5 sm:text-[13.5px]',
                 active
                   ? 'bg-shell-primary text-shell-primary-foreground shadow-sm'
                   : 'text-shell-muted hover:bg-shell-accent hover:text-shell-accent-foreground',
               )}
             >
-              <Icon className="h-[18px] w-[18px]" />
-              <span className="font-display">{p.label}</span>
+              <Icon className="h-4 w-4 sm:h-[18px] sm:w-[18px]" />
+              <span className="font-display whitespace-nowrap">{p.label}</span>
             </button>
           );
         })}

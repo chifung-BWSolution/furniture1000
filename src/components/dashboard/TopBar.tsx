@@ -10,6 +10,7 @@ import {
   ZoomIn,
   Moon,
   Sun,
+  PanelLeft,
 } from 'lucide-react';
 import { ViewType } from '@/types/product';
 import { getViewMeta } from './navConfig';
@@ -36,6 +37,9 @@ interface TopBarProps {
   showDarkModeToggle?: boolean;
   isDarkMode?: boolean;
   onToggleDarkMode?: () => void;
+  /** Mobile: open section sidebar drawer (客戶專區 list etc.). */
+  showMobileNavButton?: boolean;
+  onOpenMobileNav?: () => void;
 }
 
 
@@ -54,6 +58,8 @@ export function TopBar({
   showDarkModeToggle = false,
   isDarkMode = false,
   onToggleDarkMode,
+  showMobileNavButton = false,
+  onOpenMobileNav,
 }: TopBarProps) {
   const meta = getViewMeta(currentView);
   const showParent = !hideBreadcrumbParent && meta.sectionLabel && meta.sectionLabel !== meta.viewLabel;
@@ -75,8 +81,19 @@ export function TopBar({
     const isQuoteSticky = stickyMode === 'quote';
     const activeZoneLabel = designSticky.activeZoneLabel || '';
     return (
-      <header className="sticky top-0 z-30 border-b border-border bg-background/95 px-4 py-2.5 backdrop-blur-xl md:px-6">
+      <header className="sticky top-0 z-30 border-b border-border bg-background/95 px-3 py-2.5 backdrop-blur-xl md:px-6">
         <div className="flex flex-wrap items-center gap-2 md:gap-3">
+          {showMobileNavButton && onOpenMobileNav ? (
+            <button
+              type="button"
+              onClick={onOpenMobileNav}
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-background text-foreground hover:bg-muted lg:hidden"
+              aria-label="打開側欄選單"
+              title="打開選單"
+            >
+              <PanelLeft className="h-4 w-4" />
+            </button>
+          ) : null}
           <div className="min-w-0 flex-1">
             <div className="mb-1.5 flex flex-wrap items-center gap-2">
               <h2 className="font-display text-base font-bold tracking-tight md:text-lg">
@@ -163,16 +180,31 @@ export function TopBar({
   }
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-border bg-page-tint/90 px-6 backdrop-blur-xl">
-      {/* Left — Breadcrumb */}
-      <div className="flex items-center gap-2">
+    <header className="sticky top-0 z-30 flex h-14 items-center justify-between gap-2 border-b border-border bg-page-tint/90 px-3 backdrop-blur-xl sm:h-16 sm:px-6">
+      {/* Left — Mobile nav + Breadcrumb */}
+      <div className="flex min-w-0 items-center gap-2">
+        {showMobileNavButton && onOpenMobileNav ? (
+          <button
+            type="button"
+            onClick={onOpenMobileNav}
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border bg-background text-foreground hover:bg-muted lg:hidden"
+            aria-label="打開側欄選單"
+            title="打開選單"
+          >
+            <PanelLeft className="h-4 w-4" />
+          </button>
+        ) : null}
         {viewInfo.parent && (
           <>
-            <span className="font-body text-xs text-muted-foreground">{viewInfo.parent}</span>
-            <ChevronRight className="h-3 w-3 text-muted-foreground/50" />
+            <span className="hidden font-body text-xs text-muted-foreground sm:inline">
+              {viewInfo.parent}
+            </span>
+            <ChevronRight className="hidden h-3 w-3 text-muted-foreground/50 sm:inline" />
           </>
         )}
-        <h2 className="font-display text-lg font-bold tracking-tight">{viewInfo.label}</h2>
+        <h2 className="truncate font-display text-base font-bold tracking-tight sm:text-lg">
+          {viewInfo.label}
+        </h2>
       </div>
 
       {/* Right — Stats & CTA (only on product catalog views) */}
