@@ -736,10 +736,11 @@ function QuotePortalProductCard({
         'flex h-full min-w-0 flex-col gap-3 p-4 transition-colors',
         dimmed && 'cursor-not-allowed bg-muted/40 opacity-55',
         !dimmed && 'cursor-pointer',
+        // Selected ≈ one step darker than hover (hover 5% → selected 10%).
         !dimmed &&
           selected &&
-          'bg-primary/5 ring-1 ring-inset ring-primary/15',
-        !dimmed && !selected && 'bg-card hover:bg-primary/[0.03]',
+          'bg-primary/10 ring-1 ring-inset ring-primary/25',
+        !dimmed && !selected && 'bg-card hover:bg-primary/5',
       )}
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -2953,7 +2954,7 @@ export function CustomerQuoteSchemesView() {
                                                   className={cn(
                                                     'min-w-0',
                                                     selected
-                                                      ? 'bg-primary/5'
+                                                      ? 'bg-primary/10'
                                                       : 'bg-card',
                                                   )}
                                                 >
