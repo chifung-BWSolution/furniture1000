@@ -3089,8 +3089,8 @@ export function CustomerQuoteSchemesView() {
                                     {sectionSlots.length > 0 ? (
                                       <div className="space-y-px bg-border">
                                         {/*
-                                          Each scheme slot (e.g. 7選1 / 2選1) owns its own
-                                          3-col grid so the next product always starts a new row.
+                                          Each scheme slot (e.g. 7選1 / 2選1) owns its own grid.
+                                          Multi-scheme → up to 3 cols; single product → 1-col layout.
                                         */}
                                         {sectionSlots.map((slot) => {
                                           const targetQty =
@@ -3107,10 +3107,18 @@ export function CustomerQuoteSchemesView() {
                                             targetQty != null &&
                                             slot.items.length > 1 &&
                                             selectedQty >= targetQty;
+                                          const multiScheme =
+                                            slot.items.length > 1;
                                           return (
                                           <div
                                             key={slot.key}
-                                            className="grid grid-cols-1 items-stretch gap-px bg-border md:grid-cols-2 xl:grid-cols-3"
+                                            className={cn(
+                                              'min-w-0',
+                                              // Match 設計專案: multi-scheme → up to 3 cols; single → 1-col stack.
+                                              multiScheme
+                                                ? 'grid grid-cols-1 items-stretch gap-px bg-border md:grid-cols-2 xl:grid-cols-3'
+                                                : 'flex flex-col bg-border',
+                                            )}
                                           >
                                             {slot.items.map((item, index) => {
                                               const key = itemKey(item, index);
