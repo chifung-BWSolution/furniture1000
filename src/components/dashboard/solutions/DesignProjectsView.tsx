@@ -510,7 +510,7 @@ function ZoneProductRow({
   return (
     <li>
       {divisionHeading || divisionToolbar ? (
-        {/* Division title = zone title (18/20px) − 4px → 14/16px */}
+        // Division title = zone title (18/20px) − 4px → 14/16px
         <div
           className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/30 px-3.5 py-2.5"
           data-partition-division={divisionSpy?.label || undefined}
@@ -827,6 +827,7 @@ function ZoneProductRow({
                   <RemarksRichEditor
                     key={item.id}
                     compact
+                    textOnly
                     value={staffNotesForEditor(item.notes)}
                     onChange={(next) => onSetNotes(item, next)}
                     textRows={3}

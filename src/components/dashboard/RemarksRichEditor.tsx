@@ -83,6 +83,11 @@ interface RemarksRichEditorProps {
   textRows?: number;
   /** Larger typography for 設計專案 product cards. */
   comfortable?: boolean;
+  /**
+   * Text-only mode (設計專案備註): hide「文字／圖片」add controls and
+   * block paste/upload of images. Existing image blocks stay removable.
+   */
+  textOnly?: boolean;
   /** Extra classes for the text textarea (e.g. text-[12px]). */
   textClassName?: string;
   /** Placeholder for empty text blocks. */
@@ -98,6 +103,7 @@ export function RemarksRichEditor({
   compact = false,
   textRows,
   comfortable = false,
+  textOnly = false,
   textClassName,
   placeholder = '備註文字...',
   uploadImage,
@@ -210,6 +216,7 @@ export function RemarksRichEditor({
   };
 
   const addImageBlock = async (fileOrSrc: File | string) => {
+    if (textOnly) return;
     if (imageCount >= MAX_REMARKS_IMAGES) {
       toast.error(`備註欄位最多上傳 ${MAX_REMARKS_IMAGES} 張圖片`);
       return;
@@ -259,6 +266,7 @@ export function RemarksRichEditor({
   };
 
   const handlePasteImage = async (e: React.ClipboardEvent) => {
+    if (textOnly) return;
     const items = e.clipboardData?.items;
     if (!items) return;
     for (const item of Array.from(items)) {
@@ -298,11 +306,13 @@ export function RemarksRichEditor({
           onDragOver={(e) => handleBlockDragOver(e, index)}
           onDrop={handleBlockDrop}
         >
-          <BlockDragHandle
-            blockId={block.id}
-            onDragStart={setDraggingId}
-            onDragEnd={clearDrag}
-          />
+          {!textOnly ? (
+            <BlockDragHandle
+              blockId={block.id}
+              onDragStart={setDraggingId}
+              onDragEnd={clearDrag}
+            />
+          ) : null}
           {block.type === "text" ? (
             <div className="min-w-0 flex-1">
               <textarea
@@ -355,44 +365,48 @@ export function RemarksRichEditor({
         </div>
       ))}
 
-      <div className="flex flex-wrap items-center gap-1 pt-0.5">
-        <button
-          type="button"
-          onClick={addTextBlock}
-          className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 font-body text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-          title="新增文字區塊"
-        >
-          <Plus className="h-2.5 w-2.5" />
-          文字
-        </button>
-        <button
-          type="button"
-          onClick={() => fileRef.current?.click()}
-          disabled={imageCount >= MAX_REMARKS_IMAGES}
-          className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 font-body text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
-          title={`上傳圖片 (${imageCount}/${MAX_REMARKS_IMAGES})`}
-        >
-          <Upload className="h-2.5 w-2.5" />
-          圖片 {imageCount}/{MAX_REMARKS_IMAGES}
-        </button>
-        <button
-          type="button"
-          onClick={() => fileRef.current?.click()}
-          disabled={imageCount >= MAX_REMARKS_IMAGES}
-          className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 font-body text-xs text-primary/70 transition-colors hover:bg-primary/5 hover:text-primary disabled:cursor-not-allowed disabled:opacity-40"
-          title="上傳或貼上圖片"
-        >
-          <ImagePlus className="h-2.5 w-2.5" />
-        </button>
-      </div>
+      {!textOnly ? (
+        <>
+          <div className="flex flex-wrap items-center gap-1 pt-0.5">
+            <button
+              type="button"
+              onClick={addTextBlock}
+              className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 font-body text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              title="新增文字區塊"
+            >
+              <Plus className="h-2.5 w-2.5" />
+              文字
+            </button>
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              disabled={imageCount >= MAX_REMARKS_IMAGES}
+              className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 font-body text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40"
+              title={`上傳圖片 (${imageCount}/${MAX_REMARKS_IMAGES})`}
+            >
+              <Upload className="h-2.5 w-2.5" />
+              圖片 {imageCount}/{MAX_REMARKS_IMAGES}
+            </button>
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              disabled={imageCount >= MAX_REMARKS_IMAGES}
+              className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 font-body text-xs text-primary/70 transition-colors hover:bg-primary/5 hover:text-primary disabled:cursor-not-allowed disabled:opacity-40"
+              title="上傳或貼上圖片"
+            >
+              <ImagePlus className="h-2.5 w-2.5" />
+            </button>
+          </div>
 
-      <input
-        ref={fileRef}
-        type="file"
-        accept="image/*"
-        className="hidden"
-        onChange={handleFileChange}
-      />
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleFileChange}
+          />
+        </>
+      ) : null}
     </div>
   );
 }
