@@ -2372,20 +2372,18 @@ export function DesignProjectsView() {
                 className="scroll-mt-28 space-y-3"
               >
                 {!isSingleZoneGroup ? (
-                  <div className="flex flex-wrap items-end justify-between gap-3 border-b border-border pb-2.5">
-                    <div>
-                      <h3 className="font-display text-lg font-bold">
-                        {group.label}
-                        {groupPlannedTotal > 0 ? (
-                          <span className="ml-2 text-[15px] font-semibold text-muted-foreground">
-                            {formatPlannedFurnitureTotalLabel(groupPlannedTotal)}
-                          </span>
-                        ) : null}
-                      </h3>
-                      <p className="mt-0.5 text-[15px] text-muted-foreground">
-                        {group.zones.length} 個{group.label}
-                      </p>
-                    </div>
+                  <div className="border-b border-border pb-2.5 text-center">
+                    <h3 className="font-display text-lg font-bold">
+                      {group.label}
+                      {groupPlannedTotal > 0 ? (
+                        <span className="ml-2 text-[15px] font-semibold text-muted-foreground">
+                          {formatPlannedFurnitureTotalLabel(groupPlannedTotal)}
+                        </span>
+                      ) : null}
+                    </h3>
+                    <p className="mt-0.5 text-[15px] text-muted-foreground">
+                      {group.zones.length} 個{group.label}
+                    </p>
                   </div>
                 ) : null}
                 <div className="space-y-3">
@@ -2454,8 +2452,9 @@ export function DesignProjectsView() {
                 ? groupPlannedTotal
                 : zonePlannedTotal;
               const zoneToolbar = (
-                <div className="relative flex flex-wrap items-center justify-end gap-3 border-b border-border bg-muted/30 px-5 py-3.5">
-                  <div className="flex w-full min-w-0 flex-wrap items-center justify-center gap-x-3 gap-y-2 md:absolute md:left-1/2 md:top-1/2 md:w-auto md:-translate-x-1/2 md:-translate-y-1/2">
+                <div className="grid grid-cols-1 items-center gap-3 border-b border-border bg-muted/30 px-5 py-3.5 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
+                  <div className="hidden md:block" aria-hidden />
+                  <div className="flex min-w-0 flex-wrap items-center justify-center gap-x-3 gap-y-2 text-center">
                     <h3 className="font-display text-lg font-bold md:text-xl">
                       {isSingleZoneGroup ? group.label : zone.name}
                       {displayPlannedTotal > 0 ? (
@@ -2488,7 +2487,7 @@ export function DesignProjectsView() {
                       <span>平方尺 sqft</span>
                     </label>
                   </div>
-                  <div className="relative z-10 flex flex-wrap items-center justify-end gap-2">
+                  <div className="flex flex-wrap items-center justify-center gap-2 md:justify-end">
                     <button
                       type="button"
                       onClick={() => void openDivisionModal(zone.id)}

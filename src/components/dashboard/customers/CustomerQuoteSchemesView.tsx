@@ -2027,18 +2027,14 @@ export function CustomerQuoteSchemesView() {
                     className="scroll-mt-28 space-y-3"
                   >
                     {!isSingleRoomGroup ? (
-                      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-2.5">
-                        <div>
-                          <h3 className="font-display text-lg font-bold">
-                            {group.label}
-                          </h3>
-                          <p className="mt-0.5 text-sm text-muted-foreground">
-                            {group.rooms.length} 個{group.label}
-                          </p>
-                        </div>
-                        <span className="text-sm text-muted-foreground">
-                          {productCount} 件產品
-                        </span>
+                      <div className="border-b border-border pb-2.5 text-center">
+                        <h3 className="font-display text-lg font-bold">
+                          {group.label}
+                        </h3>
+                        <p className="mt-0.5 text-sm text-muted-foreground">
+                          {group.rooms.length} 個{group.label}
+                          {productCount > 0 ? ` · ${productCount} 件產品` : ''}
+                        </p>
                       </div>
                     ) : null}
 
