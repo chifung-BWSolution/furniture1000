@@ -996,12 +996,20 @@ function ZoneProductRow({
       </div>
     ) : null;
 
-  // Multi-scheme (2–3 cols): stacked card with constrained image so text never sits under it.
-  // Order: actions → title → image → specs → 備註 → 單價/小計.
+  // Multi-scheme (2–3 cols):
+  // actions → 250×250 image → title → factory/SKU + 數量 → 尺寸 + 狀態 → 備註 → 單價/小計
+  const multiImagePx = 250;
   const card = multiScheme ? (
     <div className="flex h-full min-w-0 flex-col gap-2 bg-card p-3">
       <div className="relative z-10 flex flex-wrap items-center gap-1.5">
         {actionButtons}
+      </div>
+
+      <div
+        className="relative z-0 mx-auto shrink-0 overflow-hidden rounded-lg"
+        style={{ width: multiImagePx, height: multiImagePx }}
+      >
+        {productImage({ fixedPx: multiImagePx })}
       </div>
 
       <div className="relative z-10 min-w-0">
@@ -1024,32 +1032,31 @@ function ZoneProductRow({
         )}
       </div>
 
-      <div className="relative z-0 mx-auto aspect-square w-full max-w-[200px] shrink-0 overflow-hidden rounded-lg">
-        {productImage({ className: 'h-full w-full' })}
-      </div>
-
       <div className="relative z-10 flex min-w-0 flex-col gap-2">
-        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-          {factoryName ? (
-            <span className="inline-flex max-w-full items-center rounded-full border border-border bg-muted/60 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-              <span className="truncate" title={factoryName}>
-                {factoryName}
+        <div className="flex min-w-0 flex-wrap items-start justify-between gap-x-2 gap-y-1.5">
+          <div className="flex min-w-0 max-w-full flex-wrap items-center gap-1.5">
+            {factoryName ? (
+              <span className="inline-flex max-w-full items-center rounded-full border border-border bg-muted/60 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                <span className="truncate" title={factoryName}>
+                  {factoryName}
+                </span>
               </span>
-            </span>
-          ) : null}
-          {sku ? (
-            <span
-              className="inline-flex max-w-full items-center rounded-full border border-border bg-muted/40 px-2 py-0.5 font-mono text-[11px] font-medium text-muted-foreground"
-              title={`SKU ${sku}`}
-            >
-              <span className="truncate">SKU {sku}</span>
-            </span>
-          ) : null}
-          <div className="ml-auto">{qtyControl}</div>
+            ) : null}
+            {sku ? (
+              <span
+                className="inline-flex max-w-full items-center rounded-full border border-border bg-muted/40 px-2 py-0.5 font-mono text-[11px] font-medium text-muted-foreground"
+                title={`SKU ${sku}`}
+              >
+                <span className="truncate">SKU {sku}</span>
+              </span>
+            ) : null}
+          </div>
+          {qtyControl}
         </div>
-        <div className="flex min-w-0 flex-col gap-1.5">
+        {/* 尺寸 left · 狀態 under 數量 (right) */}
+        <div className="flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1.5">
           {dimInputs(true)}
-          <div>{statusSelect}</div>
+          <div className="ml-auto shrink-0">{statusSelect}</div>
         </div>
         {feedbackBlock}
       </div>
