@@ -15,6 +15,13 @@ export type DesignProjectStickyChrome = {
   /** design = 儲存／平面圖；quote = 間隔跳轉 + 儲存 */
   mode?: 'design' | 'quote';
   zoneGroups: DesignProjectStickyZoneChip[];
+  /** Currently visible zone-group chip label (scroll-spy). */
+  activeZoneLabel?: string | null;
+  /**
+   * Sticky subtitle under the title, e.g.
+   * 「間隔清單與傢俬配置 | Sofa 梳化 > 多人梳化 : 3」
+   */
+  activeContextLine?: string | null;
   saving: boolean;
   hasFloorPlan: boolean;
   onSave: () => void;

@@ -412,6 +412,7 @@ function ZoneProductRow({
   catalogMeta,
   divisionHeading,
   divisionToolbar,
+  divisionSpy,
   uploading,
   deletingProductId,
   deletingFeedbackKey,
@@ -441,6 +442,12 @@ function ZoneProductRow({
   } | null;
   /** Division action buttons shown on the same row as divisionHeading. */
   divisionToolbar?: ReactNode;
+  /** Scroll-spy markers for sticky「間隔清單與傢俬配置 | …」line. */
+  divisionSpy?: {
+    zoneLabel: string;
+    label: string;
+    count: number;
+  } | null;
   uploading: boolean;
   deletingProductId: string | null;
   deletingFeedbackKey: string | null;
@@ -501,7 +508,14 @@ function ZoneProductRow({
     <li>
       {divisionHeading || divisionToolbar ? (
         // Same full-row pattern as zone header「入口及前臺大堂 × 總數 N件傢俬」, ~70% scale.
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/30 px-3.5 py-2.5">
+        <div
+          className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/30 px-3.5 py-2.5"
+          data-partition-division={divisionSpy?.label || undefined}
+          data-partition-count={
+            divisionSpy != null ? String(divisionSpy.count) : undefined
+          }
+          data-partition-zone={divisionSpy?.zoneLabel || undefined}
+        >
           <div className="min-w-0">
             {divisionHeading ? (
               <h4 className="font-display text-[13px] font-bold leading-snug text-foreground md:text-[14px]">
@@ -1337,6 +1351,10 @@ export function DesignProjectsView() {
   const pageScrollRef = useRef<HTMLDivElement | null>(null);
   const partitionStickySentinelRef = useRef<HTMLDivElement | null>(null);
   const [partitionHeaderPinned, setPartitionHeaderPinned] = useState(false);
+  const [activeZoneLabel, setActiveZoneLabel] = useState<string | null>(null);
+  const [activeContextLine, setActiveContextLine] = useState<string | null>(
+    null,
+  );
   const saveFurnitureRef = useRef<() => void>(() => {});
   const openFloorPlanRef = useRef<() => void>(() => {});
 
@@ -1365,6 +1383,81 @@ export function DesignProjectsView() {
     observer.observe(node);
     return () => observer.disconnect();
   }, [project?.id, loading, zoneGroups.length]);
+
+  // Scroll-spy: highlight current zone chip + sticky division context line.
+  useEffect(() => {
+    const root = pageScrollRef.current;
+    if (!root || loading || zoneGroups.length === 0) return;
+
+    const updateSpy = () => {
+      const rootRect = root.getBoundingClientRect();
+      // Anchor just below sticky TopBar when pinned; otherwise near top of scroller.
+      const anchorY = rootRect.top + (partitionHeaderPinned ? 150 : 24);
+
+      let nextZone = zoneGroups[0]?.label || null;
+      for (const group of zoneGroups) {
+        const el = document.getElementById(zoneGroupDomId(group.label));
+        if (!el) continue;
+        if (el.getBoundingClientRect().top <= anchorY + 8) {
+          nextZone = group.label;
+        }
+      }
+
+      let nextDivisionLabel: string | null = null;
+      let nextDivisionCount = 0;
+      let nextDivisionZone: string | null = null;
+      const markers = root.querySelectorAll<HTMLElement>(
+        '[data-partition-division]',
+      );
+      markers.forEach((el) => {
+        if (el.getBoundingClientRect().top <= anchorY + 8) {
+          nextDivisionLabel = el.dataset.partitionDivision || null;
+          nextDivisionCount = Number(el.dataset.partitionCount || 0) || 0;
+          nextDivisionZone = el.dataset.partitionZone || null;
+        }
+      });
+
+      if (nextDivisionZone) nextZone = nextDivisionZone;
+
+      const contextLine =
+        nextDivisionLabel != null && nextDivisionLabel !== ''
+          ? `間隔清單與傢俬配置 | ${nextDivisionLabel} : ${nextDivisionCount}`
+          : nextZone
+            ? (() => {
+                const group = zoneGroups.find((g) => g.label === nextZone);
+                const count = group
+                  ? zoneGroupProductTotal(
+                      group.zones.map((z) => z.id),
+                      furnitureDivisions,
+                      zoneProducts,
+                    )
+                  : 0;
+                return `間隔清單與傢俬配置 | ${nextZone} : ${count}`;
+              })()
+            : null;
+
+      setActiveZoneLabel((current) =>
+        current === nextZone ? current : nextZone,
+      );
+      setActiveContextLine((current) =>
+        current === contextLine ? current : contextLine,
+      );
+    };
+
+    updateSpy();
+    root.addEventListener('scroll', updateSpy, { passive: true });
+    window.addEventListener('resize', updateSpy);
+    return () => {
+      root.removeEventListener('scroll', updateSpy);
+      window.removeEventListener('resize', updateSpy);
+    };
+  }, [
+    furnitureDivisions,
+    loading,
+    partitionHeaderPinned,
+    zoneGroups,
+    zoneProducts,
+  ]);
 
   useEffect(
     () => () => {
@@ -2044,6 +2137,11 @@ export function DesignProjectsView() {
           ),
         };
       }),
+      activeZoneLabel:
+        activeZoneLabel || zoneGroups[0]?.label || null,
+      activeContextLine: partitionHeaderPinned
+        ? activeContextLine
+        : null,
       saving: savingFurniture,
       hasFloorPlan: Boolean(project.floorPlanUrl),
       onSave: () => saveFurnitureRef.current(),
@@ -2053,6 +2151,8 @@ export function DesignProjectsView() {
     // Depend on stable project fields only — not the whole `project` object
     // (sqft keystrokes used to rewrite project.meta and republish TopBar every char).
   }, [
+    activeContextLine,
+    activeZoneLabel,
     furnitureDivisions,
     partitionHeaderPinned,
     project?.floorPlanUrl,
@@ -2336,18 +2436,35 @@ export function DesignProjectsView() {
                     furnitureDivisions,
                     zoneProducts,
                   );
+                  const isActive =
+                    (activeZoneLabel || zoneGroups[0]?.label) === group.label;
                   return (
                   <button
                     key={group.key}
                     type="button"
                     onClick={() => scrollToZoneGroup(group.label)}
-                    className="inline-flex items-center gap-1 rounded-lg border border-primary/20 bg-primary/5 px-3 py-1.5 text-[15px] transition-colors hover:border-primary/50 hover:bg-primary/10"
+                    className={cn(
+                      'inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-[15px] transition-colors',
+                      isActive
+                        ? 'border-primary/50 bg-primary/15 text-primary shadow-sm'
+                        : 'border-border bg-card text-muted-foreground hover:border-primary/40 hover:bg-primary/5 hover:text-foreground',
+                    )}
                     title={`跳至「${group.label}」· 產品總數 ${productTotal}`}
+                    aria-current={isActive ? 'true' : undefined}
                   >
-                    <span className="font-semibold text-foreground">
+                    <span
+                      className={cn(
+                        'font-semibold',
+                        isActive ? 'text-primary' : 'text-foreground',
+                      )}
+                    >
                       {group.label}
                     </span>
-                    <span className="text-muted-foreground">
+                    <span
+                      className={
+                        isActive ? 'text-primary/80' : 'text-muted-foreground'
+                      }
+                    >
                       ：{productTotal}
                     </span>
                   </button>
@@ -2408,6 +2525,7 @@ export function DesignProjectsView() {
                 [zone.id],
                 furnitureDivisions,
               );
+              const zoneSpyLabel = isSingleZoneGroup ? group.label : zone.name;
               const renderProductRows = (
                 rows: ZoneProduct[],
                 divisionMeta?: {
@@ -2435,6 +2553,15 @@ export function DesignProjectsView() {
                     divisionToolbar={
                       index === 0 && divisionMeta ? divisionToolbar : null
                     }
+                    divisionSpy={
+                      index === 0 && divisionMeta
+                        ? {
+                            zoneLabel: group.label,
+                            label: divisionMeta.label,
+                            count: divisionMeta.planned,
+                          }
+                        : null
+                    }
                     uploading={uploadingImageId === item.id}
                     deletingProductId={deletingProductId}
                     deletingFeedbackKey={deletingFeedbackKey}
@@ -2459,23 +2586,34 @@ export function DesignProjectsView() {
               const displayPlannedTotal = isSingleZoneGroup
                 ? groupPlannedTotal
                 : zonePlannedTotal;
+              const zonePieceCount = items.reduce(
+                (sum, item) => sum + zoneProductPieceCount(item),
+                0,
+              );
+              const zoneContextCount =
+                displayPlannedTotal > 0 ? displayPlannedTotal : zonePieceCount;
               const zoneToolbar = (
-                <div className="grid grid-cols-1 items-center gap-3 border-b border-border bg-muted/30 px-5 py-3.5 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
+                <div
+                  className="grid grid-cols-1 items-center gap-3 border-b border-border bg-muted/30 px-5 py-3.5 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]"
+                  data-partition-zone={group.label}
+                  {...(divisions.length === 0
+                    ? {
+                        'data-partition-division': zoneSpyLabel,
+                        'data-partition-count': String(zoneContextCount),
+                      }
+                    : {})}
+                >
                   <div className="hidden md:block" aria-hidden />
                   <div className="flex min-w-0 flex-wrap items-center justify-center gap-x-3 gap-y-2 text-center">
                     <h3 className="font-display text-lg font-bold md:text-xl">
-                      {isSingleZoneGroup ? group.label : zone.name}
+                      {zoneSpyLabel}
                       {displayPlannedTotal > 0 ? (
                         <span className="ml-2 text-[17px] font-semibold text-muted-foreground">
                           {formatPlannedFurnitureTotalLabel(displayPlannedTotal)}
                         </span>
                       ) : (
                         <span className="ml-2 text-[17px] font-normal text-muted-foreground">
-                          {items.reduce(
-                            (sum, item) => sum + zoneProductPieceCount(item),
-                            0,
-                          )}{' '}
-                          件傢俬
+                          {zonePieceCount} 件傢俬
                         </span>
                       )}
                     </h3>
@@ -2618,7 +2756,14 @@ export function DesignProjectsView() {
                               <div key={division.id}>
                                 {divisionItems.length === 0 ? (
                                   <>
-                                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/30 px-3.5 py-2.5">
+                                    <div
+                                      className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/30 px-3.5 py-2.5"
+                                      data-partition-division={label}
+                                      data-partition-count={String(
+                                        division.quantity,
+                                      )}
+                                      data-partition-zone={group.label}
+                                    >
                                       <div className="min-w-0">
                                         <h4 className="font-display text-[13px] font-bold leading-snug text-foreground md:text-[14px]">
                                           {label}

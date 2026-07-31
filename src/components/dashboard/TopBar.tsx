@@ -73,11 +73,12 @@ export function TopBar({
 
   if (showPartitionSticky && designSticky) {
     const isQuoteSticky = stickyMode === 'quote';
+    const activeZoneLabel = designSticky.activeZoneLabel || '';
     return (
       <header className="sticky top-0 z-30 border-b border-border bg-background/95 px-4 py-2.5 backdrop-blur-xl md:px-6">
         <div className="flex flex-wrap items-center gap-2 md:gap-3">
           <div className="min-w-0 flex-1">
-            <div className="mb-1.5 flex flex-wrap items-center gap-2">
+            <div className="mb-1 flex flex-wrap items-center gap-2">
               <h2 className="font-display text-base font-bold tracking-tight md:text-lg">
                 間隔清單與傢俬配置
               </h2>
@@ -85,22 +86,43 @@ export function TopBar({
                 間隔數量
               </span>
             </div>
+            {designSticky.activeContextLine ? (
+              <p className="mb-1.5 truncate font-body text-[13px] font-medium text-foreground md:text-[14px]">
+                {designSticky.activeContextLine}
+              </p>
+            ) : null}
             {designSticky.zoneGroups.length > 0 ? (
               <div className="flex max-h-[4.5rem] flex-wrap items-center gap-1.5 overflow-y-auto">
-                {designSticky.zoneGroups.map((group) => (
-                  <button
-                    key={group.key}
-                    type="button"
-                    onClick={() => designSticky.onJump(group.label)}
-                    className="inline-flex items-center gap-1 rounded-lg border border-primary/20 bg-primary/5 px-2.5 py-1 text-[13px] transition-colors hover:border-primary/50 hover:bg-primary/10 md:text-[14px]"
-                    title={`跳至「${group.label}」`}
-                  >
-                    <span className="font-semibold text-foreground">
-                      {group.label}
-                    </span>
-                    <span className="text-muted-foreground">：{group.count}</span>
-                  </button>
-                ))}
+                {designSticky.zoneGroups.map((group) => {
+                  const isActive = group.label === activeZoneLabel;
+                  return (
+                    <button
+                      key={group.key}
+                      type="button"
+                      onClick={() => designSticky.onJump(group.label)}
+                      className={cn(
+                        'inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-[13px] transition-colors md:text-[14px]',
+                        isActive
+                          ? 'border-primary/50 bg-primary/15 text-primary shadow-sm'
+                          : 'border-border bg-card text-muted-foreground hover:border-primary/40 hover:bg-primary/5 hover:text-foreground',
+                      )}
+                      title={`跳至「${group.label}」`}
+                      aria-current={isActive ? 'true' : undefined}
+                    >
+                      <span
+                        className={cn(
+                          'font-semibold',
+                          isActive ? 'text-primary' : 'text-foreground',
+                        )}
+                      >
+                        {group.label}
+                      </span>
+                      <span className={isActive ? 'text-primary/80' : 'text-muted-foreground'}>
+                        ：{group.count}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             ) : (
               <p className="text-[13px] text-muted-foreground">尚無間隔</p>
