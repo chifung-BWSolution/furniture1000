@@ -158,10 +158,8 @@ type QuoteZoneTypeGroup = {
   rooms: QuoteRoomGroup[];
 };
 
-/** Match 設計專案 product image size (single-product row). */
+/** Match 設計專案 product image size (single-product row / print). */
 const PORTAL_PRODUCT_IMAGE_PX = 300;
-/** Match 設計專案 multi-scheme card image. */
-const PORTAL_SCHEME_IMAGE_PX = 250;
 
 type QuoteSchemeSlot = {
   key: string;
@@ -692,7 +690,6 @@ function QuotePortalProductCard({
   const lineTotal = clientQuoteLineTotal(item);
   const qty = Math.max(1, Number(item.quantity) || 1);
   const multiScheme = schemeCount > 1;
-  const imagePx = PORTAL_SCHEME_IMAGE_PX;
   const dimmed = Boolean(quotaFilled && !selected);
   const qtyCeiling =
     typeof maxQuantity === 'number' && Number.isFinite(maxQuantity)
@@ -744,27 +741,20 @@ function QuotePortalProductCard({
         !dimmed && !selected && 'bg-card',
       )}
     >
-      <div className="flex flex-wrap items-start justify-between gap-2">
+      {/* Full-width image; scheme badge overlays top-left so side space is used. */}
+      <div className="relative w-full shrink-0 overflow-hidden rounded-xl bg-muted aspect-square">
         {multiScheme ? (
           <span
             className={cn(
-              'inline-flex h-8 shrink-0 items-center rounded-md border px-2 text-[12px] font-semibold',
+              'absolute left-2 top-2 z-10 inline-flex h-8 shrink-0 items-center rounded-md border px-2 text-[12px] font-semibold shadow-sm backdrop-blur-sm',
               dimmed
-                ? 'border-border bg-muted text-muted-foreground'
-                : 'border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300',
+                ? 'border-border bg-muted/90 text-muted-foreground'
+                : 'border-violet-500/30 bg-violet-500/15 text-violet-700 dark:text-violet-300',
             )}
           >
             方案 {schemeIndex + 1}/{schemeCount}
           </span>
-        ) : (
-          <span className="h-8" />
-        )}
-      </div>
-
-      <div
-        className="mx-auto shrink-0 overflow-hidden rounded-xl bg-muted"
-        style={{ width: imagePx, height: imagePx, maxWidth: '100%' }}
-      >
+        ) : null}
         {item.image ? (
           <button
             type="button"
@@ -2873,15 +2863,15 @@ export function CustomerQuoteSchemesView() {
                                         data-partition-zone-title={roomTitle}
                                       >
                                         <div className="hidden sm:block" />
-                                        <h5 className="text-center font-display text-[15px] font-bold text-foreground md:text-[16px]">
+                                        <h5 className="text-center font-display text-[17px] font-bold text-foreground md:text-[18px]">
                                           {section.label}
-                                          <span className="ml-1.5 text-[14px] font-semibold text-muted-foreground">
+                                          <span className="ml-1.5 text-[16px] font-semibold text-muted-foreground">
                                             : {sectionCount}
                                           </span>
                                         </h5>
                                         <p
                                           className={cn(
-                                            'justify-self-center text-[14px] font-semibold sm:justify-self-end md:text-[15px]',
+                                            'justify-self-center text-[16px] font-semibold sm:justify-self-end md:text-[17px]',
                                             sectionPickedQty >= sectionCount &&
                                               sectionCount > 0
                                               ? 'text-emerald-700'
