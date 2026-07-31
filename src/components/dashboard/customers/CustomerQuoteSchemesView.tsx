@@ -48,6 +48,7 @@ import {
   applyZoneProductClientReview,
   updateZoneProductNotes,
   updateZoneProductQuantity,
+  mergeProjectMeta,
   saveProject,
 } from '@/lib/solutionsApi';
 import { withInsertAuditFields, withUpdateAuditFields } from '@/lib/pmsAudit';
@@ -2458,8 +2459,7 @@ export function CustomerQuoteSchemesView() {
       }
 
       if (linkedProject) {
-        const nextMeta: DesignProjectMeta = {
-          ...linkedProject.meta,
+        const saved = await mergeProjectMeta(linkedProject.id, {
           clientQuoteScheme: {
             savedAt: new Date().toISOString(),
             quoteUuid,
@@ -2467,12 +2467,12 @@ export function CustomerQuoteSchemesView() {
             selections,
             quantities,
           },
-        };
-        const saved = await saveProject(linkedProject.id, { meta: nextMeta });
-        if (!saved.ok) {
+        });
+        if (!saved.ok || !saved.data) {
           toast.error('儲存方案失敗', { description: saved.error });
           return;
         }
+        const nextMeta = saved.data;
         setPortalProjects((current) =>
           current.map((row) =>
             row.id === linkedProject.id ? { ...row, meta: nextMeta } : row,
@@ -2594,32 +2594,36 @@ export function CustomerQuoteSchemesView() {
       quoteId: active.quote_id,
       version: active.version,
     };
-    const nextMeta = {
-      ...linkedProject.meta,
-      clientQuoteReply,
-    };
-    const patch =
-      decision === 'approved'
-        ? { status: 'confirmed', progress: 100, meta: nextMeta }
-        : { meta: nextMeta };
-
     setSubmittingQuote(true);
     try {
-      const saved = await saveProject(linkedProject.id, patch);
-      if (!saved.ok) {
-        toast.error('提交失敗', { description: saved.error });
+      const savedMeta = await mergeProjectMeta(linkedProject.id, {
+        clientQuoteReply,
+      });
+      if (!savedMeta.ok || !savedMeta.data) {
+        toast.error('提交失敗', { description: savedMeta.error });
         return;
+      }
+      const nextMeta = savedMeta.data;
+      if (decision === 'approved') {
+        const statusSaved = await saveProject(linkedProject.id, {
+          status: 'confirmed',
+          progress: 100,
+        });
+        if (!statusSaved.ok) {
+          toast.error('提交失敗', { description: statusSaved.error });
+          return;
+        }
       }
       setPortalProjects((current) =>
         current.map((row) =>
           row.id === linkedProject.id
             ? {
                 ...row,
+                meta: nextMeta,
                 status:
                   decision === 'approved' ? 'confirmed' : row.status,
                 progress:
                   decision === 'approved' ? 100 : row.progress,
-                meta: nextMeta,
               }
             : row,
         ),

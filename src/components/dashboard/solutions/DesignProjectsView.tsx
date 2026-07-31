@@ -16,7 +16,7 @@ import {
 import {
   fetchProjects, fetchZones, fetchZoneProducts, fetchActiveShopifyProducts,
   fetchProductsDisplayMeta, createZoneProduct, deleteZoneProductWithProgress,
-  persistDesignProjectFurniture, saveProject, updateZoneProductNotes,
+  mergeProjectMeta, persistDesignProjectFurniture, saveProject, updateZoneProductNotes,
   type ProductDisplayMeta,
 } from '@/lib/solutionsApi';
 import {
@@ -1796,8 +1796,11 @@ export function DesignProjectsView() {
     ) => {
       if (!project) return;
       const schemeGroups = nextSchemeGroups ?? furnitureSchemeGroups;
-      // Keep planning fields on the in-memory project so「儲存方案」can write them,
-      // but avoid doing this on every sqft keystroke (causes TopBar sticky republish jump).
+      const zoneAreas = zoneAreasSqftMetaFromState(nextSqft);
+      // Keep planning fields in memory for「儲存方案」, and also merge-write
+      // furnitureDivisions to Supabase immediately. Products are inserted into
+      // zone_products on add; without this, a refresh before「儲存方案」drops
+      // assignments into「未劃分」.
       setProjects((current) =>
         current.map((row) =>
           row.id === project.id
@@ -1805,7 +1808,7 @@ export function DesignProjectsView() {
                 ...row,
                 meta: {
                   ...row.meta,
-                  zoneAreasSqft: zoneAreasSqftMetaFromState(nextSqft),
+                  zoneAreasSqft: zoneAreas,
                   furnitureDivisions: nextDivisions,
                   furnitureSchemeGroups: schemeGroups,
                 },
@@ -1814,6 +1817,17 @@ export function DesignProjectsView() {
         ),
       );
       setFurnitureDirty(true);
+      void mergeProjectMeta(project.id, {
+        zoneAreasSqft: zoneAreas,
+        furnitureDivisions: nextDivisions,
+        furnitureSchemeGroups: schemeGroups,
+      }).then((result) => {
+        if (!result.ok) {
+          toast.error('劃分尚未寫入資料庫', {
+            description: result.error || '請再按一次「儲存方案」',
+          });
+        }
+      });
     },
     [furnitureSchemeGroups, project],
   );
@@ -2210,7 +2224,7 @@ export function DesignProjectsView() {
     persistPlanningMeta(zoneAreasSqft, next);
     setDivisionModalZoneId(null);
     toast.success('已加入傢俬劃分', {
-      description: `${level1}${division.level2 ? ` > ${division.level2}` : ''} · ${qty} 件（記得按儲存方案）`,
+      description: `${level1}${division.level2 ? ` > ${division.level2}` : ''} · ${qty} 件（劃分已寫入資料庫；改數量／備註後請按儲存方案）`,
     });
   };
 
@@ -2443,7 +2457,7 @@ export function DesignProjectsView() {
       }
 
       toast.success(anchorId ? '已加入替代方案' : '已加入間隔', {
-        description: `${product.title} → ${zones.find((z) => z.id === zoneId)?.name || '間隔'}（記得按儲存）`,
+        description: `${product.title} → ${zones.find((z) => z.id === zoneId)?.name || '間隔'}（劃分已同步；改數量／備註後請按儲存方案）`,
       });
       // 「更多方案」picker stays open until the user closes it manually.
     } else {
@@ -2699,9 +2713,13 @@ export function DesignProjectsView() {
       const active = document.activeElement;
       if (active instanceof HTMLElement) active.blur();
     }
+    // Prefer refs so rapid「加入產品」+「儲存方案」does not persist a stale
+    // productIds map from an older render closure.
+    const divisionsForSave = furnitureDivisionsRef.current;
+    const schemeGroupsForSave = furnitureSchemeGroupsRef.current;
     const healedDivisions = healFurnitureDivisionsWithSchemeGroups(
-      furnitureDivisions,
-      furnitureSchemeGroups,
+      divisionsForSave,
+      schemeGroupsForSave,
     );
     if (healedDivisions !== furnitureDivisions) {
       setFurnitureDivisions(healedDivisions);
@@ -2711,7 +2729,7 @@ export function DesignProjectsView() {
       zones,
       zoneProducts,
       healedDivisions,
-      furnitureSchemeGroups,
+      schemeGroupsForSave,
     );
     if (excessWarnings.length > 0) {
       toast.error('部份二級分類傢俬數量過多', {
@@ -2731,7 +2749,7 @@ export function DesignProjectsView() {
       await new Promise((resolve) => window.setTimeout(resolve, 0));
       const productsForPersist = withSchemeAlternativesNonBillable(
         zoneProducts,
-        furnitureSchemeGroups,
+        schemeGroupsForSave,
       );
       const optionalZoneProductIds = productsForPersist
         .filter((product) => product.isOptional)
@@ -2742,7 +2760,7 @@ export function DesignProjectsView() {
           ...project.meta,
           zoneAreasSqft: zoneAreasSqftMetaFromState(zoneAreasSqft),
           furnitureDivisions: healedDivisions,
-          furnitureSchemeGroups,
+          furnitureSchemeGroups: schemeGroupsForSave,
           optionalZoneProductIds,
           furnitureSnapshot: project.meta?.furnitureSnapshot,
         },
@@ -2768,7 +2786,7 @@ export function DesignProjectsView() {
                   ...row.meta,
                   zoneAreasSqft: zoneAreasSqftMetaFromState(zoneAreasSqft),
                   furnitureDivisions: healedDivisions,
-                  furnitureSchemeGroups,
+                  furnitureSchemeGroups: schemeGroupsForSave,
                   optionalZoneProductIds,
                   furnitureSnapshot: result.data!.snapshot,
                 },
@@ -2778,7 +2796,7 @@ export function DesignProjectsView() {
       );
       setFurnitureDirty(false);
       toast.success('已儲存方案', {
-        description: `${result.data.snapshot.zoneCount} 個間隔 · ${result.data.snapshot.productCount} 件產品已寫入 design_projects`,
+        description: `${result.data.snapshot.zoneCount} 個間隔 · ${result.data.snapshot.productCount} 件產品已寫入 Supabase`,
       });
     } finally {
       setSavingFurniture(false);
@@ -2792,9 +2810,11 @@ export function DesignProjectsView() {
       toast.error('請先設定間隔並加入產品');
       return;
     }
+    const divisionsForSave = furnitureDivisionsRef.current;
+    const schemeGroupsForSave = furnitureSchemeGroupsRef.current;
     const healedDivisions = healFurnitureDivisionsWithSchemeGroups(
-      furnitureDivisions,
-      furnitureSchemeGroups,
+      divisionsForSave,
+      schemeGroupsForSave,
     );
     if (healedDivisions !== furnitureDivisions) {
       setFurnitureDivisions(healedDivisions);
@@ -2804,7 +2824,7 @@ export function DesignProjectsView() {
       zones,
       zoneProducts,
       healedDivisions,
-      furnitureSchemeGroups,
+      schemeGroupsForSave,
     );
     if (excessWarnings.length > 0) {
       toast.error('部份二級分類傢俬數量過多', {
@@ -2822,7 +2842,7 @@ export function DesignProjectsView() {
     if (furnitureDirty) {
       const productsForPersist = withSchemeAlternativesNonBillable(
         zoneProducts,
-        furnitureSchemeGroups,
+        schemeGroupsForSave,
       );
       const optionalZoneProductIds = productsForPersist
         .filter((product) => product.isOptional)
@@ -2834,7 +2854,7 @@ export function DesignProjectsView() {
             ...project.meta,
             zoneAreasSqft: zoneAreasSqftMetaFromState(zoneAreasSqft),
             furnitureDivisions: healedDivisions,
-            furnitureSchemeGroups,
+            furnitureSchemeGroups: schemeGroupsForSave,
             optionalZoneProductIds,
           },
         },
@@ -2858,7 +2878,7 @@ export function DesignProjectsView() {
                   ...row.meta,
                   zoneAreasSqft: zoneAreasSqftMetaFromState(zoneAreasSqft),
                   furnitureDivisions: healedDivisions,
-                  furnitureSchemeGroups,
+                  furnitureSchemeGroups: schemeGroupsForSave,
                   optionalZoneProductIds,
                   furnitureSnapshot: flushed.data!.snapshot,
                 },

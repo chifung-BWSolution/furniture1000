@@ -16,7 +16,7 @@ import { cn } from '@/lib/utils';
 import {
   fetchZoneProducts,
   fetchZones,
-  saveProject,
+  mergeProjectMeta,
   updateProjectFloorPlan,
 } from '@/lib/solutionsApi';
 import { generateFloorPlanDataUrl } from '@/lib/floorPlanGenerator';
@@ -376,17 +376,20 @@ export function ProjectPartitionPanel({
         ),
       };
 
-      const meta = {
-        ...project.meta,
+      // Merge room fields onto latest DB meta so this save cannot wipe
+      // furnitureDivisions written by 設計專案「儲存方案」.
+      const saved = await mergeProjectMeta(project.id, {
         projectType,
         roomCounts: visibleCounts,
         customRooms: nextCustom,
         roomOrder: nextOrder,
         roomLabelOverrides: nextOverrides,
         roomsByType: nextRoomsByType,
-      };
-      const saved = await saveProject(project.id, { meta });
-      if (!saved.ok) throw new Error(saved.error || '儲存專案失敗');
+      });
+      if (!saved.ok || !saved.data) {
+        throw new Error(saved.error || '儲存專案失敗');
+      }
+      const meta = saved.data;
 
       if (
         !project.floorPlanUrl ||

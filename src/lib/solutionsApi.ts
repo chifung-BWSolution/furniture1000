@@ -944,6 +944,41 @@ export async function saveProject(
   }
 }
 
+/**
+ * Read-merge-write for design_projects.meta.
+ * Prevents stale full-meta replaces (e.g. 方案列表房間儲存) from wiping
+ * furnitureDivisions / furnitureSchemeGroups written by「儲存方案」.
+ */
+export async function mergeProjectMeta(
+  projectId: string,
+  metaPatch: Partial<DesignProject['meta']>,
+): Promise<WriteResult<DesignProject['meta']>> {
+  try {
+    const { data, error } = await supabase
+      .from('design_projects')
+      .select('meta')
+      .eq('id', projectId)
+      .maybeSingle();
+    if (error) return { ok: false, error: error.message };
+    const current =
+      data?.meta && typeof data.meta === 'object' && !Array.isArray(data.meta)
+        ? (data.meta as DesignProject['meta'])
+        : {};
+    const nextMeta: DesignProject['meta'] = {
+      ...current,
+      ...metaPatch,
+    };
+    const saved = await saveProject(projectId, { meta: nextMeta });
+    if (!saved.ok) return { ok: false, error: saved.error || '寫入 meta 失敗' };
+    return { ok: true, data: nextMeta };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : '寫入 meta 失敗',
+    };
+  }
+}
+
 /** Add a catalog product into a zone (or design basket when zoneId is null). */
 export async function createZoneProduct(input: {
   projectId: string;
@@ -1162,12 +1197,16 @@ export async function persistDesignProjectFurniture(input: {
       products: snapshotProducts,
     };
 
-    const meta = {
-      ...project.meta,
+    // Only patch furniture keys onto latest DB meta — never replace the whole
+    // blob from a potentially stale in-memory project.meta (房間設定 / 客戶報價
+    // 等其他欄位必須保留).
+    const saved = await mergeProjectMeta(project.id, {
       furnitureSnapshot: snapshot,
       optionalZoneProductIds,
-    };
-    const saved = await saveProject(project.id, { meta });
+      furnitureDivisions: project.meta?.furnitureDivisions,
+      furnitureSchemeGroups: project.meta?.furnitureSchemeGroups,
+      zoneAreasSqft: project.meta?.zoneAreasSqft,
+    });
     if (!saved.ok) {
       return { ok: false, error: saved.error || '寫入 design_projects 失敗' };
     }

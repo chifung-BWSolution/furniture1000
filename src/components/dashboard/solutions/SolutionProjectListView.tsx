@@ -17,6 +17,7 @@ import {
   createProject,
   createZone,
   fetchProjects,
+  mergeProjectMeta,
   saveProject,
   updateProjectFloorPlan,
 } from '@/lib/solutionsApi';
@@ -136,16 +137,13 @@ export function SolutionProjectListView() {
             rendered.blob,
           );
           if (cancelled) return;
-          // Merge onto the latest project meta so a concurrent room「儲存」
-          // is not overwritten by a stale closure from when PDF render started.
-          const latest =
-            projectsRef.current.find((row) => row.id === project.id) || project;
-          const nextMeta = {
-            ...latest.meta,
+          // Merge onto latest DB meta so concurrent room / furniture saves
+          // are not wiped by this preview backfill.
+          const saved = await mergeProjectMeta(project.id, {
             floorPlanPreviewUrl: previewUrl,
-          };
-          const saved = await saveProject(project.id, { meta: nextMeta });
-          if (!saved.ok || cancelled) continue;
+          });
+          if (!saved.ok || !saved.data || cancelled) continue;
+          const nextMeta = saved.data;
           setProjects((prev) =>
             prev.map((row) =>
               row.id === project.id ? { ...row, meta: nextMeta } : row,
