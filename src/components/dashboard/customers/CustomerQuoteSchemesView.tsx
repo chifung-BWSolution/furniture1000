@@ -8,12 +8,14 @@ import {
   ExternalLink,
   FileText,
   Loader2,
-  MessageSquare,
+  PenLine,
   Printer,
   RefreshCw,
   Save,
   Shield,
   Trash2,
+  X,
+  ZoomIn,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -575,6 +577,63 @@ function portalNotesDisplay(notes: string | null | undefined): string {
   return remarksPlainText(staffNotes) || staffNotes.trim();
 }
 
+function QuoteProductImageLightbox({
+  src,
+  title,
+  onClose,
+}: {
+  src: string;
+  title?: string;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
+      onClick={onClose}
+      role="dialog"
+      aria-modal="true"
+      aria-label={title ? `${title}圖片預覽` : '產品圖片預覽'}
+    >
+      <img
+        src={src}
+        alt={title || '產品圖片'}
+        className="max-h-[90vh] max-w-[90vw] rounded-xl object-contain shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+      />
+      <button
+        type="button"
+        onClick={onClose}
+        className="absolute right-4 top-4 rounded-full bg-black/60 p-2 text-white hover:bg-black/80"
+        aria-label="關閉預覽"
+      >
+        <X className="h-5 w-5" />
+      </button>
+      <p className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-black/50 px-4 py-1.5 text-[13px] text-white/80">
+        點擊空白處或按 Esc 關閉
+      </p>
+    </div>
+  );
+}
+
+/** Selected piece count within one scheme slot (only「選擇」items). */
+function schemeSlotSelectedQuantity(
+  slot: QuoteSchemeSlot,
+  itemSelected: Record<string, boolean>,
+): number {
+  return slot.items.reduce((sum, item) => {
+    if (!isQuoteItemSelected(item, itemSelected)) return sum;
+    return sum + Math.max(1, Number(item.quantity) || 1);
+  }, 0);
+}
+
 /** Vertical product card for 報價方案 3-column grid (matches 設計專案 scheme cards). */
 function QuotePortalProductCard({
   item,
@@ -586,12 +645,15 @@ function QuotePortalProductCard({
   draftNote,
   saving,
   currentUserName,
+  quotaFilled,
+  maxQuantity,
   onToggleSelected,
   onSetQuantity,
   onSetDraftNote,
   onSendMessage,
   onDeleteMessage,
   onSetReview,
+  onPreviewImage,
 }: {
   item: BwfQuoteItemInput;
   schemeIndex: number;
@@ -602,12 +664,17 @@ function QuotePortalProductCard({
   draftNote: string;
   saving: boolean;
   currentUserName: string;
+  /** Unselected scheme card when division qty is already met. */
+  quotaFilled?: boolean;
+  /** Max qty allowed for this card (respects remaining division need). */
+  maxQuantity?: number | null;
   onToggleSelected: (checked: boolean) => void;
   onSetQuantity: (quantity: number) => void;
   onSetDraftNote: (value: string) => void;
   onSendMessage: () => void;
   onDeleteMessage: (messageId: string) => void;
   onSetReview: (review: ItemReview | null) => void;
+  onPreviewImage: (src: string, title: string) => void;
 }) {
   const dimsLabel = formatProductDimensionsMm(
     item.dimensionLMm,
@@ -619,12 +686,30 @@ function QuotePortalProductCard({
   const qty = Math.max(1, Number(item.quantity) || 1);
   const multiScheme = schemeCount > 1;
   const imagePx = PORTAL_SCHEME_IMAGE_PX;
+  const dimmed = Boolean(quotaFilled && !selected);
+  const qtyCeiling =
+    typeof maxQuantity === 'number' && Number.isFinite(maxQuantity)
+      ? Math.max(1, Math.floor(maxQuantity))
+      : 9999;
+  const title = quoteItemDisplayName(item);
 
   return (
-    <article className="flex h-full min-w-0 flex-col gap-3 bg-card p-4">
+    <article
+      className={cn(
+        'flex h-full min-w-0 flex-col gap-3 bg-card p-4 transition',
+        dimmed && 'bg-muted/40 opacity-55',
+      )}
+    >
       <div className="flex flex-wrap items-start justify-between gap-2">
         {multiScheme ? (
-          <span className="inline-flex h-8 shrink-0 items-center rounded-md border border-violet-500/30 bg-violet-500/10 px-2 text-[12px] font-semibold text-violet-700 dark:text-violet-300">
+          <span
+            className={cn(
+              'inline-flex h-8 shrink-0 items-center rounded-md border px-2 text-[12px] font-semibold',
+              dimmed
+                ? 'border-border bg-muted text-muted-foreground'
+                : 'border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300',
+            )}
+          >
             方案 {schemeIndex + 1}/{schemeCount}
           </span>
         ) : (
@@ -632,22 +717,33 @@ function QuotePortalProductCard({
         )}
         <label
           className={cn(
-            'inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[14px]',
-            selected
+            'inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[14px]',
+            dimmed
+              ? 'cursor-not-allowed border-border bg-muted/50 text-muted-foreground'
+              : 'cursor-pointer',
+            !dimmed && selected
               ? 'border-primary/40 bg-primary/10 text-primary'
-              : 'border-border bg-background text-muted-foreground',
+              : !dimmed
+                ? 'border-border bg-background text-muted-foreground'
+                : null,
           )}
           title={
-            selected
-              ? '取消選擇：價錢不計入小計'
-              : '選擇此產品：價錢計入小計'
+            dimmed
+              ? '已選數量已達此傢俬劃分所需，無法再選其他方案'
+              : selected
+                ? '取消選擇：價錢不計入小計'
+                : '選擇此產品：價錢計入小計'
           }
         >
           <Checkbox
             checked={selected}
-            onCheckedChange={(checked) => onToggleSelected(checked === true)}
+            disabled={dimmed}
+            onCheckedChange={(checked) => {
+              if (dimmed) return;
+              onToggleSelected(checked === true);
+            }}
             className="border-foreground/60 data-[state=checked]:border-primary"
-            aria-label={`選擇 ${quoteItemDisplayName(item)}`}
+            aria-label={`選擇 ${title}`}
           />
           <span>選擇</span>
         </label>
@@ -658,16 +754,27 @@ function QuotePortalProductCard({
         style={{ width: imagePx, height: imagePx, maxWidth: '100%' }}
       >
         {item.image ? (
-          <img
-            src={item.image}
-            alt={quoteItemDisplayName(item)}
-            className="h-full w-full object-cover"
-          />
+          <button
+            type="button"
+            onClick={() => onPreviewImage(item.image!, title)}
+            className="group relative h-full w-full cursor-zoom-in overflow-hidden rounded-xl ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            title="點擊放大圖片"
+            aria-label={`${title}圖片預覽`}
+          >
+            <img
+              src={item.image}
+              alt={title}
+              className="h-full w-full object-cover transition group-hover:scale-105"
+            />
+            <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/0 text-white opacity-0 transition group-hover:bg-black/35 group-hover:opacity-100">
+              <ZoomIn className="h-6 w-6" />
+            </span>
+          </button>
         ) : null}
       </div>
 
       <h5 className="min-w-0 text-[14px] font-bold leading-snug">
-        {quoteItemDisplayName(item)}
+        {title}
         {item.isOptional ? (
           <span className="ml-2 text-[12px] font-normal text-muted-foreground">
             （可選）
@@ -683,13 +790,13 @@ function QuotePortalProductCard({
       <div
         className={cn(
           'flex flex-col items-start gap-1',
-          !selected && 'text-muted-foreground',
+          (!selected || dimmed) && 'text-muted-foreground',
         )}
       >
         <div className="flex flex-nowrap items-center gap-1.5 whitespace-nowrap font-mono-data text-sm">
           <span
             className={cn(
-              selected ? 'text-primary' : 'text-muted-foreground',
+              selected && !dimmed ? 'text-primary' : 'text-muted-foreground',
             )}
           >
             {fmtMoney(Number(item.unitPrice || 0))}
@@ -699,7 +806,7 @@ function QuotePortalProductCard({
             <button
               type="button"
               onClick={() => onSetQuantity(qty - 1)}
-              disabled={qty <= 1}
+              disabled={dimmed || qty <= 1}
               className="flex h-7 w-7 items-center justify-center text-[14px] text-muted-foreground hover:bg-muted disabled:opacity-35"
               aria-label="數量減一"
             >
@@ -708,18 +815,20 @@ function QuotePortalProductCard({
             <input
               type="number"
               min={1}
-              max={9999}
+              max={qtyCeiling}
               value={qty}
+              disabled={dimmed}
               onChange={(event) =>
                 onSetQuantity(Number(event.target.value))
               }
-              className="h-7 w-10 border-x border-border bg-background text-center font-mono-data text-[13px] font-semibold text-foreground outline-none"
-              aria-label={`${quoteItemDisplayName(item)}數量`}
+              className="h-7 w-10 border-x border-border bg-background text-center font-mono-data text-[13px] font-semibold text-foreground outline-none disabled:opacity-50"
+              aria-label={`${title}數量`}
             />
             <button
               type="button"
               onClick={() => onSetQuantity(qty + 1)}
-              className="flex h-7 w-7 items-center justify-center text-[14px] text-muted-foreground hover:bg-muted"
+              disabled={dimmed || qty >= qtyCeiling}
+              className="flex h-7 w-7 items-center justify-center text-[14px] text-muted-foreground hover:bg-muted disabled:opacity-35"
               aria-label="數量加一"
             >
               +
@@ -732,7 +841,7 @@ function QuotePortalProductCard({
         <p
           className={cn(
             'font-mono-data text-lg font-bold',
-            !selected && 'text-muted-foreground',
+            (!selected || dimmed) && 'text-muted-foreground',
           )}
         >
           {selected ? fmtMoney(lineTotal) : '未選'}
@@ -815,15 +924,35 @@ function QuotePortalProductCard({
       <div className="mt-auto flex flex-wrap justify-center gap-2 border-t border-border pt-3">
         {(
           [
-            ['accepted', '接受', Check],
-            ['change', '要求修改', MessageSquare],
-            ['rejected', '不接受', Ban],
+            {
+              value: 'accepted' as const,
+              label: '接受',
+              Icon: Check,
+              iconClass: 'text-emerald-600',
+              activeClass:
+                'border-emerald-500/40 bg-emerald-500/10 text-emerald-700',
+            },
+            {
+              value: 'change' as const,
+              label: '要求修改',
+              Icon: PenLine,
+              iconClass: 'text-amber-600',
+              activeClass:
+                'border-amber-500/40 bg-amber-500/10 text-amber-700',
+            },
+            {
+              value: 'rejected' as const,
+              label: '不接受',
+              Icon: X,
+              iconClass: 'text-rose-600',
+              activeClass: 'border-rose-500/40 bg-rose-500/10 text-rose-700',
+            },
           ] as const
-        ).map(([value, label, Icon]) => (
+        ).map(({ value, label, Icon, iconClass, activeClass }) => (
           <button
             key={value}
             type="button"
-            disabled={saving}
+            disabled={saving || dimmed}
             onClick={() => {
               if (review === value) {
                 onSetReview(null);
@@ -832,17 +961,13 @@ function QuotePortalProductCard({
               onSetReview(value);
             }}
             className={cn(
-              'inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[13px] font-medium disabled:opacity-60',
+              'inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-[15px] font-semibold disabled:opacity-50',
               review === value
-                ? value === 'accepted'
-                  ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700'
-                  : value === 'change'
-                    ? 'border-amber-500/40 bg-amber-500/10 text-amber-700'
-                    : 'border-rose-500/40 bg-rose-500/10 text-rose-700'
-                : 'border-border text-muted-foreground',
+                ? activeClass
+                : 'border-border bg-background text-foreground/80',
             )}
           >
-            <Icon className="h-4 w-4" />
+            <Icon className={cn('h-4.5 w-4.5 h-[1.125rem] w-[1.125rem]', iconClass)} />
             {label}
           </button>
         ))}
@@ -914,6 +1039,9 @@ export function CustomerQuoteSchemesView() {
   const [schemeGroupsByZone, setSchemeGroupsByZone] = useState<
     Record<string, FurnitureSchemeGroup[]>
   >({});
+  const [lightbox, setLightbox] = useState<{ src: string; title: string } | null>(
+    null,
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -1308,6 +1436,19 @@ export function CustomerQuoteSchemesView() {
           if (!row.id || row.isSectionTitle || row.isDivisionTitle) continue;
           hydrateFromNotes(row.id, row.zoneStatus, row.notes);
           hydrateSelection(row.id, row.isOptional);
+        }
+        // Multi-scheme (N選1/混選): default only 方案 1 selected unless saved.
+        for (const groups of Object.values(schemeGroups || {})) {
+          for (const group of groups) {
+            if (group.productIds.length < 2) continue;
+            const anySaved = group.productIds.some((id) =>
+              Object.prototype.hasOwnProperty.call(savedSelections, id),
+            );
+            if (anySaved) continue;
+            group.productIds.forEach((id, index) => {
+              nextSelected[id] = index === 0;
+            });
+          }
         }
         setItemReviews(nextReviews);
         setItemMessages(nextMessages);
@@ -2239,6 +2380,7 @@ export function CustomerQuoteSchemesView() {
   };
 
   return (
+    <>
     <PortalPageShell
       scrollRef={pageScrollRef}
       title={showDetail && active ? quoteDisplayName(active) : '報價方案'}
@@ -2715,7 +2857,22 @@ export function CustomerQuoteSchemesView() {
                                           Each scheme slot (e.g. 7選1 / 2選1) owns its own
                                           3-col grid so the next product always starts a new row.
                                         */}
-                                        {sectionSlots.map((slot) => (
+                                        {sectionSlots.map((slot) => {
+                                          const targetQty =
+                                            section.plannedQuantity != null &&
+                                            section.plannedQuantity > 0
+                                              ? section.plannedQuantity
+                                              : null;
+                                          const selectedQty =
+                                            schemeSlotSelectedQuantity(
+                                              slot,
+                                              itemSelected,
+                                            );
+                                          const quotaMet =
+                                            targetQty != null &&
+                                            slot.items.length > 1 &&
+                                            selectedQty >= targetQty;
+                                          return (
                                           <div
                                             key={slot.key}
                                             className="grid grid-cols-1 items-stretch gap-px bg-border md:grid-cols-2 xl:grid-cols-3"
@@ -2725,6 +2882,31 @@ export function CustomerQuoteSchemesView() {
                                               const review = itemReviews[key];
                                               const messages =
                                                 itemMessages[key] || [];
+                                              const selected =
+                                                isQuoteItemSelected(
+                                                  item,
+                                                  itemSelected,
+                                                );
+                                              const itemQty = Math.max(
+                                                1,
+                                                Number(item.quantity) || 1,
+                                              );
+                                              const othersSelectedQty =
+                                                selected
+                                                  ? selectedQty - itemQty
+                                                  : selectedQty;
+                                              const maxQuantity =
+                                                targetQty != null &&
+                                                slot.items.length > 1
+                                                  ? Math.max(
+                                                      1,
+                                                      targetQty -
+                                                        Math.max(
+                                                          0,
+                                                          othersSelectedQty,
+                                                        ),
+                                                    )
+                                                  : null;
                                               return (
                                                 <div
                                                   key={`${slot.key}:${key}`}
@@ -2738,10 +2920,7 @@ export function CustomerQuoteSchemesView() {
                                                     }
                                                     review={review}
                                                     messages={messages}
-                                                    selected={isQuoteItemSelected(
-                                                      item,
-                                                      itemSelected,
-                                                    )}
+                                                    selected={selected}
                                                     draftNote={
                                                       itemDraftNotes[key] || ''
                                                     }
@@ -2751,10 +2930,40 @@ export function CustomerQuoteSchemesView() {
                                                     currentUserName={
                                                       currentUserName
                                                     }
+                                                    quotaFilled={
+                                                      quotaMet && !selected
+                                                    }
+                                                    maxQuantity={maxQuantity}
                                                     onToggleSelected={(
                                                       checked,
                                                     ) => {
                                                       if (!item.id) return;
+                                                      if (
+                                                        checked &&
+                                                        targetQty != null &&
+                                                        slot.items.length > 1
+                                                      ) {
+                                                        const remaining =
+                                                          targetQty -
+                                                          selectedQty;
+                                                        if (remaining <= 0) {
+                                                          toast.message(
+                                                            '已達此傢俬劃分所需數量',
+                                                            {
+                                                              description: `「${section.label || '此劃分'}」需要 ${targetQty} 件，請先調整已選方案的數量。`,
+                                                            },
+                                                          );
+                                                          return;
+                                                        }
+                                                        if (
+                                                          itemQty > remaining
+                                                        ) {
+                                                          setItemQuantity(
+                                                            item.id,
+                                                            remaining,
+                                                          );
+                                                        }
+                                                      }
                                                       setItemSelected(
                                                         (current) => ({
                                                           ...current,
@@ -2766,9 +2975,22 @@ export function CustomerQuoteSchemesView() {
                                                       quantity,
                                                     ) => {
                                                       if (!item.id) return;
+                                                      const next = Math.max(
+                                                        1,
+                                                        Math.floor(
+                                                          Number(quantity) || 1,
+                                                        ),
+                                                      );
+                                                      const capped =
+                                                        maxQuantity != null
+                                                          ? Math.min(
+                                                              next,
+                                                              maxQuantity,
+                                                            )
+                                                          : next;
                                                       setItemQuantity(
                                                         item.id,
-                                                        quantity,
+                                                        capped,
                                                       );
                                                     }}
                                                     onSetDraftNote={(value) =>
@@ -2811,12 +3033,22 @@ export function CustomerQuoteSchemesView() {
                                                         }
                                                       });
                                                     }}
+                                                    onPreviewImage={(
+                                                      src,
+                                                      previewTitle,
+                                                    ) =>
+                                                      setLightbox({
+                                                        src,
+                                                        title: previewTitle,
+                                                      })
+                                                    }
                                                   />
                                                 </div>
                                               );
                                             })}
                                           </div>
-                                        ))}
+                                          );
+                                        })}
                                       </div>
                                     ) : null}
                                   </div>
@@ -2905,5 +3137,13 @@ export function CustomerQuoteSchemesView() {
         </section>
       ) : null}
     </PortalPageShell>
+      {lightbox ? (
+        <QuoteProductImageLightbox
+          src={lightbox.src}
+          title={lightbox.title}
+          onClose={() => setLightbox(null)}
+        />
+      ) : null}
+    </>
   );
 }
