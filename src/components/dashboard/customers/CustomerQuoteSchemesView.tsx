@@ -717,6 +717,265 @@ function QuotePortalProductCard({
     onSetReview('accepted');
   };
 
+  const reviewActions = (
+    <div
+      className={cn(
+        'mt-auto flex flex-wrap gap-2 border-t border-border/70 pt-3',
+        // Single-scheme: actions bottom-right (legacy 1-col row). Multi: centered under card.
+        multiScheme ? 'justify-center' : 'justify-end',
+      )}
+    >
+      {(
+        [
+          {
+            value: 'accepted' as const,
+            label: '接受',
+            Icon: Check,
+            iconClass: 'text-emerald-600',
+            activeClass:
+              'border-emerald-500/40 bg-emerald-500/10 text-emerald-700',
+            // 「接受」也可取消已選；額滿變灰的未選卡不可再接受
+            disabled: saving || (dimmed && !selected),
+          },
+          {
+            value: 'change' as const,
+            label: '要求修改',
+            Icon: PenLine,
+            iconClass: 'text-amber-600',
+            activeClass: 'border-amber-500/40 bg-amber-500/10 text-amber-700',
+            disabled: saving || dimmed,
+          },
+          {
+            value: 'rejected' as const,
+            label: '不接受',
+            Icon: X,
+            iconClass: 'text-rose-600',
+            activeClass: 'border-rose-500/40 bg-rose-500/10 text-rose-700',
+            disabled: saving || dimmed,
+          },
+        ] as const
+      ).map(({ value, label, Icon, iconClass, activeClass, disabled }) => (
+        <button
+          key={value}
+          type="button"
+          disabled={disabled}
+          onClick={(event) => {
+            stopCardSelect(event);
+            if (review === value || (value === 'accepted' && selected)) {
+              // Toggle off accept/select, or clear the same review again
+              onSetReview(null);
+              return;
+            }
+            onSetReview(value);
+          }}
+          className={cn(
+            'inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-[15px] font-semibold disabled:opacity-50',
+            value === 'accepted' && selected
+              ? activeClass
+              : review === value
+                ? activeClass
+                : 'border-border bg-background/90 text-foreground/80',
+          )}
+        >
+          <Icon
+            className={cn(
+              'h-4.5 w-4.5 h-[1.125rem] w-[1.125rem]',
+              iconClass,
+            )}
+          />
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+
+  const quantityBlock = (
+    <div
+      className={cn(
+        'flex flex-col items-start gap-1',
+        (!selected || dimmed) && 'text-muted-foreground',
+      )}
+    >
+      <div className="flex flex-nowrap items-center gap-1.5 whitespace-nowrap font-mono-data text-sm">
+        <span
+          className={cn(
+            selected && !dimmed ? 'text-primary' : 'text-muted-foreground',
+          )}
+        >
+          {fmtMoney(Number(item.unitPrice || 0))}
+        </span>
+        <span>×</span>
+        <div
+          className="inline-flex shrink-0 items-center overflow-hidden rounded-md border border-border bg-background"
+          onClick={stopCardSelect}
+        >
+          <button
+            type="button"
+            onClick={(event) => {
+              stopCardSelect(event);
+              onSetQuantity(qty - 1);
+            }}
+            disabled={dimmed || qty <= 1}
+            className="flex h-7 w-7 items-center justify-center text-[14px] text-muted-foreground hover:bg-muted disabled:opacity-35"
+            aria-label="數量減一"
+          >
+            −
+          </button>
+          <input
+            type="number"
+            min={1}
+            max={qtyCeiling}
+            value={qty}
+            disabled={dimmed}
+            onClick={stopCardSelect}
+            onChange={(event) => onSetQuantity(Number(event.target.value))}
+            className="h-7 w-10 border-x border-border bg-background text-center font-mono-data text-[13px] font-semibold text-foreground outline-none disabled:opacity-50"
+            aria-label={`${title}數量`}
+          />
+          <button
+            type="button"
+            onClick={(event) => {
+              stopCardSelect(event);
+              onSetQuantity(qty + 1);
+            }}
+            disabled={dimmed || qty >= qtyCeiling}
+            className="flex h-7 w-7 items-center justify-center text-[14px] text-muted-foreground hover:bg-muted disabled:opacity-35"
+            aria-label="數量加一"
+          >
+            +
+          </button>
+        </div>
+        {item.unit ? (
+          <span className="text-muted-foreground">{item.unit}</span>
+        ) : null}
+      </div>
+      <p
+        className={cn(
+          'font-mono-data text-lg font-bold',
+          (!selected || dimmed) && 'text-muted-foreground',
+        )}
+      >
+        {selected ? fmtMoney(lineTotal) : '未選'}
+      </p>
+    </div>
+  );
+
+  const messagesBlock =
+    messages.length > 0 ? (
+      <div className="space-y-2" onClick={stopCardSelect}>
+        {messages.map((message) => (
+          <div
+            key={message.id}
+            className="rounded-xl border border-border bg-muted/20 px-3 py-2.5"
+          >
+            <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+              <span className="font-semibold text-foreground">
+                {message.authorName || currentUserName}
+              </span>
+              {message.authorRole ? (
+                <span
+                  className={cn(
+                    'inline-flex items-center rounded-full border px-2 py-0.5 text-[10.5px] font-medium',
+                    ROLE_META[message.authorRole].className,
+                  )}
+                >
+                  {ROLE_META[message.authorRole].label}
+                </span>
+              ) : null}
+              <span className="font-mono-data">
+                {fmtUtc8DateTime(message.createdAt)}{' '}
+                <span className="text-[10px]">(UTC+8)</span>
+              </span>
+            </div>
+            <div className="mt-1 flex items-start justify-between gap-3">
+              <p className="min-w-0 flex-1 whitespace-pre-wrap text-sm">
+                {message.text}
+              </p>
+              <button
+                type="button"
+                onClick={() => onDeleteMessage(message.id)}
+                className="inline-flex shrink-0 items-center gap-1 rounded-md border border-rose-500/30 px-2 py-1 text-xs font-medium text-rose-700 hover:bg-rose-500/10"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+                刪除
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+    ) : null;
+
+  const draftNoteBlock =
+    review === 'change' || review === 'rejected' ? (
+      <div onClick={stopCardSelect}>
+        <textarea
+          value={draftNote}
+          onClick={stopCardSelect}
+          onChange={(event) => onSetDraftNote(event.target.value)}
+          rows={2}
+          placeholder="請說明需要修改或不接受的原因…"
+          className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm"
+        />
+        <div className="mt-2 flex justify-end">
+          <button
+            type="button"
+            onClick={(event) => {
+              stopCardSelect(event);
+              onSendMessage();
+            }}
+            disabled={saving}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-60"
+          >
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+            確定
+          </button>
+        </div>
+      </div>
+    ) : null;
+
+  const productImageButton = (opts?: {
+    className?: string;
+    fixedPx?: number;
+  }) => (
+    <div
+      className={cn(
+        'relative shrink-0 overflow-hidden rounded-xl bg-muted',
+        opts?.className,
+      )}
+      style={
+        opts?.fixedPx
+          ? {
+              width: opts.fixedPx,
+              height: opts.fixedPx,
+              maxWidth: '100%',
+            }
+          : undefined
+      }
+    >
+      {item.image ? (
+        <button
+          type="button"
+          onClick={(event) => {
+            stopCardSelect(event);
+            onPreviewImage(item.image!, title);
+          }}
+          className="group relative h-full w-full cursor-zoom-in overflow-hidden rounded-xl ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+          title="點擊放大圖片"
+          aria-label={`${title}圖片預覽`}
+        >
+          <img
+            src={item.image}
+            alt={title}
+            className="h-full w-full object-cover transition group-hover:scale-105"
+          />
+          <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/0 text-white opacity-0 transition group-hover:bg-black/35 group-hover:opacity-100">
+            <ZoomIn className="h-6 w-6" />
+          </span>
+        </button>
+      ) : null}
+    </div>
+  );
+
   return (
     <article
       role="button"
@@ -740,276 +999,96 @@ function QuotePortalProductCard({
       className={cn(
         // Solid color-mix (not alpha) so selected tint matches former hover over white,
         // and never picks up the grid's bg-border through transparency.
-        'flex h-full min-w-0 flex-col gap-3 p-4 outline-none focus:outline-none focus-visible:outline-none',
+        'min-w-0 outline-none focus:outline-none focus-visible:outline-none',
         dimmed && 'cursor-not-allowed bg-muted/40 opacity-55',
         !dimmed && 'cursor-pointer',
         !dimmed &&
           selected &&
           'bg-[color-mix(in_srgb,hsl(var(--primary))_5%,hsl(var(--card)))]',
         !dimmed && !selected && 'bg-card',
+        // Multi-scheme: vertical 3-col card. Single: legacy horizontal 1-col row.
+        multiScheme
+          ? 'flex h-full flex-col gap-3 p-4'
+          : 'border-b border-border/70 p-5 last:border-b-0',
       )}
     >
       {multiScheme ? (
-        <div className="flex flex-wrap items-start justify-between gap-2">
-          <span
-            className={cn(
-              'inline-flex h-8 shrink-0 items-center rounded-md border px-2 text-[12px] font-semibold',
-              dimmed
-                ? 'border-border bg-muted text-muted-foreground'
-                : 'border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300',
-            )}
-          >
-            方案 {schemeIndex + 1}/{schemeCount}
-          </span>
-        </div>
-      ) : null}
-
-      {/* Square image, slightly inset (not full card width); badge stays above. */}
-      <div className="relative mx-auto aspect-square w-[88%] max-w-[280px] shrink-0 overflow-hidden rounded-xl bg-muted">
-        {item.image ? (
-          <button
-            type="button"
-            onClick={(event) => {
-              stopCardSelect(event);
-              onPreviewImage(item.image!, title);
-            }}
-            className="group relative h-full w-full cursor-zoom-in overflow-hidden rounded-xl ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-            title="點擊放大圖片"
-            aria-label={`${title}圖片預覽`}
-          >
-            <img
-              src={item.image}
-              alt={title}
-              className="h-full w-full object-cover transition group-hover:scale-105"
-            />
-            <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/0 text-white opacity-0 transition group-hover:bg-black/35 group-hover:opacity-100">
-              <ZoomIn className="h-6 w-6" />
+        <>
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <span
+              className={cn(
+                'inline-flex h-8 shrink-0 items-center rounded-md border px-2 text-[12px] font-semibold',
+                dimmed
+                  ? 'border-border bg-muted text-muted-foreground'
+                  : 'border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300',
+              )}
+            >
+              方案 {schemeIndex + 1}/{schemeCount}
             </span>
-          </button>
-        ) : null}
-      </div>
-
-      <h5 className="min-w-0 text-[14px] font-bold leading-snug">
-        {title}
-        {item.isOptional ? (
-          <span className="ml-2 text-[12px] font-normal text-muted-foreground">
-            （可選）
-          </span>
-        ) : null}
-      </h5>
-
-      <p className="font-mono-data text-sm text-muted-foreground">
-        <span className="mr-1.5 font-medium">尺寸</span>
-        {dimsLabel || '—'}
-      </p>
-
-      <div
-        className={cn(
-          'flex flex-col items-start gap-1',
-          (!selected || dimmed) && 'text-muted-foreground',
-        )}
-      >
-        <div className="flex flex-nowrap items-center gap-1.5 whitespace-nowrap font-mono-data text-sm">
-          <span
-            className={cn(
-              selected && !dimmed ? 'text-primary' : 'text-muted-foreground',
-            )}
-          >
-            {fmtMoney(Number(item.unitPrice || 0))}
-          </span>
-          <span>×</span>
-          <div
-            className="inline-flex shrink-0 items-center overflow-hidden rounded-md border border-border bg-background"
-            onClick={stopCardSelect}
-          >
-            <button
-              type="button"
-              onClick={(event) => {
-                stopCardSelect(event);
-                onSetQuantity(qty - 1);
-              }}
-              disabled={dimmed || qty <= 1}
-              className="flex h-7 w-7 items-center justify-center text-[14px] text-muted-foreground hover:bg-muted disabled:opacity-35"
-              aria-label="數量減一"
-            >
-              −
-            </button>
-            <input
-              type="number"
-              min={1}
-              max={qtyCeiling}
-              value={qty}
-              disabled={dimmed}
-              onClick={stopCardSelect}
-              onChange={(event) =>
-                onSetQuantity(Number(event.target.value))
-              }
-              className="h-7 w-10 border-x border-border bg-background text-center font-mono-data text-[13px] font-semibold text-foreground outline-none disabled:opacity-50"
-              aria-label={`${title}數量`}
-            />
-            <button
-              type="button"
-              onClick={(event) => {
-                stopCardSelect(event);
-                onSetQuantity(qty + 1);
-              }}
-              disabled={dimmed || qty >= qtyCeiling}
-              className="flex h-7 w-7 items-center justify-center text-[14px] text-muted-foreground hover:bg-muted disabled:opacity-35"
-              aria-label="數量加一"
-            >
-              +
-            </button>
           </div>
-          {item.unit ? (
-            <span className="text-muted-foreground">{item.unit}</span>
-          ) : null}
-        </div>
-        <p
-          className={cn(
-            'font-mono-data text-lg font-bold',
-            (!selected || dimmed) && 'text-muted-foreground',
-          )}
-        >
-          {selected ? fmtMoney(lineTotal) : '未選'}
-        </p>
-      </div>
 
-      <p className="whitespace-pre-wrap font-mono-data text-sm text-muted-foreground">
-        <span className="mr-1.5 font-medium">備註</span>
-        {notesLabel || '—'}
-      </p>
+          {/* Square image, slightly inset (not full card width); badge stays above. */}
+          {productImageButton({
+            className: 'mx-auto aspect-square w-[88%] max-w-[280px]',
+          })}
 
-      {messages.length > 0 ? (
-        <div className="space-y-2" onClick={stopCardSelect}>
-          {messages.map((message) => (
-            <div
-              key={message.id}
-              className="rounded-xl border border-border bg-muted/20 px-3 py-2.5"
-            >
-              <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-                <span className="font-semibold text-foreground">
-                  {message.authorName || currentUserName}
+          <h5 className="min-w-0 text-[14px] font-bold leading-snug">
+            {title}
+            {item.isOptional ? (
+              <span className="ml-2 text-[12px] font-normal text-muted-foreground">
+                （可選）
+              </span>
+            ) : null}
+          </h5>
+
+          <p className="font-mono-data text-sm text-muted-foreground">
+            <span className="mr-1.5 font-medium">尺寸</span>
+            {dimsLabel || '—'}
+          </p>
+
+          {quantityBlock}
+
+          <p className="whitespace-pre-wrap font-mono-data text-sm text-muted-foreground">
+            <span className="mr-1.5 font-medium">備註</span>
+            {notesLabel || '—'}
+          </p>
+
+          {messagesBlock}
+          {draftNoteBlock}
+          {reviewActions}
+        </>
+      ) : (
+        // Legacy single-scheme row: image left, details right; 「選擇」已由「接受」取代.
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-stretch">
+          {productImageButton({ fixedPx: PORTAL_PRODUCT_IMAGE_PX })}
+          <div className="flex min-w-0 flex-1 flex-col gap-3">
+            <h5 className="min-w-0 text-base font-bold leading-snug">
+              {title}
+              {item.isOptional ? (
+                <span className="ml-2 text-[12px] font-normal text-muted-foreground">
+                  （可選）
                 </span>
-                {message.authorRole ? (
-                  <span
-                    className={cn(
-                      'inline-flex items-center rounded-full border px-2 py-0.5 text-[10.5px] font-medium',
-                      ROLE_META[message.authorRole].className,
-                    )}
-                  >
-                    {ROLE_META[message.authorRole].label}
-                  </span>
-                ) : null}
-                <span className="font-mono-data">
-                  {fmtUtc8DateTime(message.createdAt)}{' '}
-                  <span className="text-[10px]">(UTC+8)</span>
-                </span>
-              </div>
-              <div className="mt-1 flex items-start justify-between gap-3">
-                <p className="min-w-0 flex-1 whitespace-pre-wrap text-sm">
-                  {message.text}
-                </p>
-                <button
-                  type="button"
-                  onClick={() => onDeleteMessage(message.id)}
-                  className="inline-flex shrink-0 items-center gap-1 rounded-md border border-rose-500/30 px-2 py-1 text-xs font-medium text-rose-700 hover:bg-rose-500/10"
-                >
-                  <Trash2 className="h-3.5 w-3.5" />
-                  刪除
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : null}
+              ) : null}
+            </h5>
 
-      {review === 'change' || review === 'rejected' ? (
-        <div onClick={stopCardSelect}>
-          <textarea
-            value={draftNote}
-            onClick={stopCardSelect}
-            onChange={(event) => onSetDraftNote(event.target.value)}
-            rows={2}
-            placeholder="請說明需要修改或不接受的原因…"
-            className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm"
-          />
-          <div className="mt-2 flex justify-end">
-            <button
-              type="button"
-              onClick={(event) => {
-                stopCardSelect(event);
-                onSendMessage();
-              }}
-              disabled={saving}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-60"
-            >
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-              確定
-            </button>
+            <p className="font-mono-data text-sm text-muted-foreground">
+              <span className="mr-1.5 font-medium">尺寸</span>
+              {dimsLabel || '—'}
+            </p>
+
+            {quantityBlock}
+
+            <p className="whitespace-pre-wrap font-mono-data text-sm text-muted-foreground">
+              <span className="mr-1.5 font-medium">備註</span>
+              {notesLabel || '—'}
+            </p>
+
+            {messagesBlock}
+            {draftNoteBlock}
+            {reviewActions}
           </div>
         </div>
-      ) : null}
-
-      {/* 接受（兼選擇）/ 要求修改 / 不接受 */}
-      <div className="mt-auto flex flex-wrap justify-center gap-2 border-t border-border/70 pt-3">
-        {(
-          [
-            {
-              value: 'accepted' as const,
-              label: '接受',
-              Icon: Check,
-              iconClass: 'text-emerald-600',
-              activeClass:
-                'border-emerald-500/40 bg-emerald-500/10 text-emerald-700',
-              // 「接受」也可取消已選；額滿變灰的未選卡不可再接受
-              disabled: saving || (dimmed && !selected),
-            },
-            {
-              value: 'change' as const,
-              label: '要求修改',
-              Icon: PenLine,
-              iconClass: 'text-amber-600',
-              activeClass:
-                'border-amber-500/40 bg-amber-500/10 text-amber-700',
-              disabled: saving || dimmed,
-            },
-            {
-              value: 'rejected' as const,
-              label: '不接受',
-              Icon: X,
-              iconClass: 'text-rose-600',
-              activeClass: 'border-rose-500/40 bg-rose-500/10 text-rose-700',
-              disabled: saving || dimmed,
-            },
-          ] as const
-        ).map(({ value, label, Icon, iconClass, activeClass, disabled }) => (
-          <button
-            key={value}
-            type="button"
-            disabled={disabled}
-            onClick={(event) => {
-              stopCardSelect(event);
-              if (review === value || (value === 'accepted' && selected)) {
-                // Toggle off accept/select, or clear the same review again
-                onSetReview(null);
-                return;
-              }
-              onSetReview(value);
-            }}
-            className={cn(
-              'inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-[15px] font-semibold disabled:opacity-50',
-              value === 'accepted' && selected
-                ? activeClass
-                : review === value
-                  ? activeClass
-                  : 'border-border bg-background/90 text-foreground/80',
-            )}
-          >
-            <Icon className={cn('h-4.5 w-4.5 h-[1.125rem] w-[1.125rem]', iconClass)} />
-            {label}
-          </button>
-        ))}
-      </div>
+      )}
     </article>
   );
 }
@@ -3090,7 +3169,7 @@ export function CustomerQuoteSchemesView() {
                                       <div className="space-y-px bg-border">
                                         {/*
                                           Each scheme slot (e.g. 7選1 / 2選1) owns its own grid.
-                                          Multi-scheme → up to 3 cols; single product → 1-col layout.
+                                          Multi-scheme → up to 3 vertical cards; single → horizontal 1-col row.
                                         */}
                                         {sectionSlots.map((slot) => {
                                           const targetQty =
@@ -3114,10 +3193,10 @@ export function CustomerQuoteSchemesView() {
                                             key={slot.key}
                                             className={cn(
                                               'min-w-0',
-                                              // Match 設計專案: multi-scheme → up to 3 cols; single → 1-col stack.
+                                              // Multi → 3-col vertical cards; single → stacked horizontal rows.
                                               multiScheme
                                                 ? 'grid grid-cols-1 items-stretch gap-px bg-border md:grid-cols-2 xl:grid-cols-3'
-                                                : 'flex flex-col bg-border',
+                                                : 'flex flex-col bg-card',
                                             )}
                                           >
                                             {slot.items.map((item, index) => {
