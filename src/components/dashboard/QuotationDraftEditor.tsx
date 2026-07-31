@@ -3305,7 +3305,9 @@ export function QuotationDraftEditor({
                       : "border-border bg-background text-foreground/80 hover:bg-muted/50",
                   )}
                 >
-                  {t.unifyExchangeRate}
+                  {showUnifyRatePanel
+                    ? t.unifyExchangeRateApplied
+                    : t.unifyExchangeRate}
                 </button>
                 <button
                   type="button"
