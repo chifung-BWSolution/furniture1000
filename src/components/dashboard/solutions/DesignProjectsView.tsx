@@ -510,7 +510,7 @@ function ZoneProductRow({
   return (
     <li>
       {divisionHeading || divisionToolbar ? (
-        // Same full-row pattern as zone header「入口及前臺大堂 × 總數 N件傢俬」, ~70% scale.
+        {/* Division title = zone title (18/20px) − 4px → 14/16px */}
         <div
           className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/30 px-3.5 py-2.5"
           data-partition-division={divisionSpy?.label || undefined}
@@ -522,9 +522,9 @@ function ZoneProductRow({
         >
           <div className="min-w-0">
             {divisionHeading ? (
-              <h4 className="font-display text-[13px] font-bold leading-snug text-foreground md:text-[14px]">
+              <h4 className="font-display text-[14px] font-bold leading-snug text-foreground md:text-[16px]">
                 {divisionHeading.label}
-                <span className="ml-1.5 text-[12px] font-semibold text-muted-foreground">
+                <span className="ml-1.5 text-[13px] font-semibold text-muted-foreground md:text-[14px]">
                   {divisionHeading.planned} 件傢俬
                   {divisionHeading.added > 0
                     ? ` · 已加入 ${divisionHeading.added}`
@@ -2788,9 +2788,9 @@ export function DesignProjectsView() {
                                       data-partition-zone-title={zoneSpyLabel}
                                     >
                                       <div className="min-w-0">
-                                        <h4 className="font-display text-[13px] font-bold leading-snug text-foreground md:text-[14px]">
+                                        <h4 className="font-display text-[14px] font-bold leading-snug text-foreground md:text-[16px]">
                                           {label}
-                                          <span className="ml-1.5 text-[12px] font-semibold text-muted-foreground">
+                                          <span className="ml-1.5 text-[13px] font-semibold text-muted-foreground md:text-[14px]">
                                             {division.quantity} 件傢俬
                                           </span>
                                         </h4>
