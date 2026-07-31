@@ -68,6 +68,8 @@ import {
 } from '@/lib/zoneProductClientFeedback';
 import {
   fetchProductCategoryPairs,
+  uniqueLevel1InOrder,
+  uniqueLevel2InOrder,
   type ProductCategoryPair,
 } from '@/lib/productCategoryOptions';
 import {
@@ -981,6 +983,7 @@ export function DesignProjectsView() {
   const [divisionLevel2, setDivisionLevel2] = useState('');
   const [divisionQty, setDivisionQty] = useState(1);
   const [categoryPairs, setCategoryPairs] = useState<ProductCategoryPair[]>([]);
+  const [categoriesLoading, setCategoriesLoading] = useState(false);
   const [confirmingProject, setConfirmingProject] = useState(false);
   const [deletingProductId, setDeletingProductId] = useState<string | null>(null);
   const [creatingBlankZoneId, setCreatingBlankZoneId] = useState<string | null>(null);
@@ -1472,18 +1475,13 @@ export function DesignProjectsView() {
     setDivisionLevel1Custom('');
     setDivisionLevel2('');
     setDivisionQty(1);
-    if (categoryPairs.length === 0) {
+    // Always refresh from 設定 > 產品分類 so removed L1/L2 disappear immediately.
+    setCategoriesLoading(true);
+    try {
       const pairs = await fetchProductCategoryPairs();
       setCategoryPairs(pairs);
-    }
-    if (products.length === 0) {
-      setProductsLoading(true);
-      fetchActiveShopifyProducts(1000)
-        .then((rows) => {
-          setProducts(rows);
-          mergeProductMetaFromSearch(rows);
-        })
-        .finally(() => setProductsLoading(false));
+    } finally {
+      setCategoriesLoading(false);
     }
   };
 
@@ -2106,27 +2104,16 @@ export function DesignProjectsView() {
     [productLevel1, products],
   );
 
-  const divisionLevel1Options = useMemo(() => {
-    const fromPairs = categoryPairs.map((pair) => pair.level1);
-    const fromProducts = products
-      .map((product) => product.level1Category)
-      .filter(Boolean) as string[];
-    return [...new Set([...fromPairs, ...fromProducts])];
-  }, [categoryPairs, products]);
+  // 傢俬劃分 chips follow 設定 > 產品分類 only (not Shopify product leftovers).
+  const divisionLevel1Options = useMemo(
+    () => uniqueLevel1InOrder(categoryPairs),
+    [categoryPairs],
+  );
 
-  const divisionLevel2Options = useMemo(() => {
-    if (!divisionLevel1) return [] as string[];
-    const fromPairs = categoryPairs
-      .filter((pair) => pair.level1 === divisionLevel1 && pair.level2)
-      .map((pair) => pair.level2);
-    const fromProducts = products
-      .filter(
-        (product) =>
-          product.level1Category === divisionLevel1 && product.level2Category,
-      )
-      .map((product) => product.level2Category as string);
-    return [...new Set([...fromPairs, ...fromProducts])];
-  }, [categoryPairs, divisionLevel1, products]);
+  const divisionLevel2Options = useMemo(
+    () => uniqueLevel2InOrder(categoryPairs, divisionLevel1),
+    [categoryPairs, divisionLevel1],
+  );
 
   if (!project) {
     if (!projectsLoaded) {
@@ -2749,10 +2736,12 @@ export function DesignProjectsView() {
                   一級分類
                 </p>
                 <div className="flex max-h-36 flex-wrap items-center gap-1.5 overflow-y-auto">
-                  {divisionLevel1Options.length === 0 && !productsLoading ? (
-                    <p className="text-sm text-muted-foreground">暫無分類資料</p>
+                  {divisionLevel1Options.length === 0 && !categoriesLoading ? (
+                    <p className="text-sm text-muted-foreground">
+                      暫無分類資料 — 請至「設定 &gt; 產品分類」新增
+                    </p>
                   ) : null}
-                  {productsLoading && divisionLevel1Options.length === 0 ? (
+                  {categoriesLoading && divisionLevel1Options.length === 0 ? (
                     <p className="text-sm text-muted-foreground">載入分類中…</p>
                   ) : null}
                   {divisionLevel1Options.map((category) => (
