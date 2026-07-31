@@ -51,6 +51,7 @@ import { uploadFileToStorage } from '@/lib/imageStorage';
 import { toast } from 'sonner';
 import {
   MAX_FURNITURE_SCHEME_PRODUCTS,
+  MAX_SCHEME_EXTRAS_PER_PICKER,
   ZONE_PRODUCT_STATUS_META,
   type CustomRoomType,
   type DesignProject,
@@ -1396,6 +1397,10 @@ export function DesignProjectsView() {
   const [schemeForProductId, setSchemeForProductId] = useState<string | null>(
     null,
   );
+  /** Products added in the current「更多方案」picker session (auto-close at 2). */
+  const [schemeSessionPicks, setSchemeSessionPicks] = useState<
+    Array<{ productId: string; sku: string; title: string }>
+  >([]);
   /** Assign newly added products to this furniture division (if any). */
   const [pickerDivisionId, setPickerDivisionId] = useState<string | null>(null);
   const [products, setProducts] = useState<SearchProduct[]>([]);
@@ -2001,6 +2006,7 @@ export function DesignProjectsView() {
     setPickerOpen(false);
     setReplacingZoneProductId(null);
     setSchemeForProductId(null);
+    setSchemeSessionPicks([]);
     setPickerDivisionId(null);
     setFactoryFilter('');
     setFactoryFilterOpen(false);
@@ -2020,6 +2026,7 @@ export function DesignProjectsView() {
     setPickerZoneId(zoneId ?? null);
     setReplacingZoneProductId(replaceZoneProductId ?? null);
     setSchemeForProductId(opts?.schemeForProductId ?? null);
+    setSchemeSessionPicks([]);
     setPickerDivisionId(opts?.divisionId ?? null);
     setProductLevel1(opts?.level1 ?? '');
     setProductLevel2(opts?.level2 ?? '');
@@ -2219,6 +2226,23 @@ export function DesignProjectsView() {
         toast.error(`同一欄位最多 ${MAX_FURNITURE_SCHEME_PRODUCTS} 款方案`);
         return;
       }
+      if (schemeSessionPicks.length >= MAX_SCHEME_EXTRAS_PER_PICKER) {
+        toast.error(
+          `本次最多再加入 ${MAX_SCHEME_EXTRAS_PER_PICKER} 款方案`,
+        );
+        return;
+      }
+      if (
+        schemeSessionPicks.some((pick) => pick.productId === product.id) ||
+        (existingGroup?.productIds || []).some((pid) => {
+          const row = zoneProducts.find((item) => item.id === pid);
+          return row?.productId === product.id;
+        }) ||
+        anchor.productId === product.id
+      ) {
+        toast.error('此產品已在方案中');
+        return;
+      }
     }
 
     const res = await createZoneProduct({
@@ -2256,6 +2280,7 @@ export function DesignProjectsView() {
       }
 
       let nextSchemeGroups = furnitureSchemeGroups;
+      let nextSessionPicks = schemeSessionPicks;
       if (anchorId) {
         const rows = furnitureSchemeGroups[zoneId] || [];
         const existing = findSchemeGroupForProduct(rows, anchorId);
@@ -2287,6 +2312,20 @@ export function DesignProjectsView() {
           };
         }
         setFurnitureSchemeGroups(nextSchemeGroups);
+
+        const skuLabel =
+          String(product.sku || '').trim() ||
+          String(product.id || '').trim() ||
+          product.title;
+        nextSessionPicks = [
+          ...schemeSessionPicks,
+          {
+            productId: product.id,
+            sku: skuLabel,
+            title: product.title,
+          },
+        ];
+        setSchemeSessionPicks(nextSessionPicks);
       }
 
       if (pickerDivisionId || anchorId) {
@@ -2298,7 +2337,20 @@ export function DesignProjectsView() {
       toast.success(anchorId ? '已加入替代方案' : '已加入間隔', {
         description: `${product.title} → ${zones.find((z) => z.id === zoneId)?.name || '間隔'}（記得按儲存）`,
       });
-      if (anchorId) closePicker();
+
+      if (anchorId) {
+        const groupAfter =
+          findSchemeGroupForProduct(
+            nextSchemeGroups[zoneId] || [],
+            anchorId,
+          )?.productIds.length || 1;
+        const sessionDone =
+          nextSessionPicks.length >= MAX_SCHEME_EXTRAS_PER_PICKER;
+        const slotFull = groupAfter >= MAX_FURNITURE_SCHEME_PRODUCTS;
+        if (sessionDone || slotFull) {
+          closePicker();
+        }
+      }
     } else {
       toast.error('加入失敗', { description: res.error });
     }
@@ -3673,7 +3725,7 @@ export function DesignProjectsView() {
                   {replacingZoneProductId
                     ? '點選產品後會替換目前項目的名稱、圖片與價錢（數量／備註／狀態保留）'
                     : schemeForProductId
-                      ? '點選產品後會加入同一傢俬欄位的替代方案（相同一級／二級分類）'
+                      ? `點選「加入方案」可連續加入最多 ${MAX_SCHEME_EXTRAS_PER_PICKER} 款（相同一級／二級分類），滿額後視窗自動關閉`
                       : '只顯示目前可供選購並已有售價的產品'}
                 </p>
               </div>
@@ -3905,6 +3957,21 @@ export function DesignProjectsView() {
                   ))}
                 </div>
               ) : null}
+              {schemeForProductId ? (
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-violet-500/25 bg-violet-500/5 px-3 py-2 text-[13px]">
+                  <span className="font-semibold text-violet-700 dark:text-violet-300">
+                    已選擇
+                  </span>
+                  <span className="min-w-0 flex-1 font-mono-data text-foreground">
+                    {schemeSessionPicks.length > 0
+                      ? schemeSessionPicks.map((pick) => pick.sku).join('、')
+                      : '—'}
+                  </span>
+                  <span className="shrink-0 font-mono-data font-semibold text-violet-700 dark:text-violet-300">
+                    {schemeSessionPicks.length}/{MAX_SCHEME_EXTRAS_PER_PICKER}
+                  </span>
+                </div>
+              ) : null}
             </div>
 
             <div className="flex-1 overflow-y-auto p-4">
@@ -3921,6 +3988,9 @@ export function DesignProjectsView() {
                       p.dimensionHMm,
                     );
                     const factoryLabel = normalizeFactoryDisplayName(p.factoryName);
+                    const alreadyPicked = schemeSessionPicks.some(
+                      (pick) => pick.productId === p.id,
+                    );
                     return (
                       <div
                         key={p.id}
@@ -3951,8 +4021,9 @@ export function DesignProjectsView() {
                             </span>
                             <button
                               type="button"
+                              disabled={alreadyPicked}
                               onClick={() => void addProductToZone(p)}
-                              className="inline-flex items-center gap-1 rounded-md border border-primary/40 bg-primary/10 px-2 py-1 text-[15px] font-medium text-primary hover:bg-primary/15"
+                              className="inline-flex items-center gap-1 rounded-md border border-primary/40 bg-primary/10 px-2 py-1 text-[15px] font-medium text-primary hover:bg-primary/15 disabled:cursor-not-allowed disabled:opacity-45"
                             >
                               {replacingZoneProductId ? (
                                 <>
@@ -3960,7 +4031,8 @@ export function DesignProjectsView() {
                                 </>
                               ) : schemeForProductId ? (
                                 <>
-                                  <LayoutGrid className="h-3 w-3" /> 加入方案
+                                  <LayoutGrid className="h-3 w-3" />
+                                  {alreadyPicked ? '已加入' : '加入方案'}
                                 </>
                               ) : (
                                 <>

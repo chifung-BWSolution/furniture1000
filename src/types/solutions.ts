@@ -199,8 +199,10 @@ export interface FurnitureSchemeGroup {
   productIds: string[];
 }
 
-/** Max alternative products allowed in one furniture scheme slot. */
+/** Max products allowed in one furniture scheme slot (1 primary + extras). */
 export const MAX_FURNITURE_SCHEME_PRODUCTS = 3;
+/** How many extras the「更多方案」picker expects before auto-closing. */
+export const MAX_SCHEME_EXTRAS_PER_PICKER = 2;
 
 export interface DesignProject {
   id: string;
