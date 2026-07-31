@@ -18,8 +18,8 @@ export type DesignProjectStickyChrome = {
   /** Currently visible zone-group chip label (scroll-spy). */
   activeZoneLabel?: string | null;
   /**
-   * Sticky subtitle under the title, e.g.
-   * 「間隔清單與傢俬配置 | Sofa 梳化 > 多人梳化 : 3」
+   * Sticky subtitle under zone chips, e.g.
+   * 「入口及前臺大堂 | Sofa 梳化 > 多人梳化 : 3」
    */
   activeContextLine?: string | null;
   saving: boolean;

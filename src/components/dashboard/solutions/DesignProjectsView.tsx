@@ -442,9 +442,12 @@ function ZoneProductRow({
   } | null;
   /** Division action buttons shown on the same row as divisionHeading. */
   divisionToolbar?: ReactNode;
-  /** Scroll-spy markers for sticky「間隔清單與傢俬配置 | …」line. */
+  /** Scroll-spy markers for sticky「區域 | 劃分 : 數量」line. */
   divisionSpy?: {
+    /** Zone-group chip label (e.g. 獨立辦公室). */
     zoneLabel: string;
+    /** Specific zone title shown in sticky line (e.g. 獨立辦公室 1). */
+    zoneTitle: string;
     label: string;
     count: number;
   } | null;
@@ -515,6 +518,7 @@ function ZoneProductRow({
             divisionSpy != null ? String(divisionSpy.count) : undefined
           }
           data-partition-zone={divisionSpy?.zoneLabel || undefined}
+          data-partition-zone-title={divisionSpy?.zoneTitle || undefined}
         >
           <div className="min-w-0">
             {divisionHeading ? (
@@ -1407,6 +1411,7 @@ export function DesignProjectsView() {
       let nextDivisionLabel: string | null = null;
       let nextDivisionCount = 0;
       let nextDivisionZone: string | null = null;
+      let nextZoneTitle: string | null = null;
       const markers = root.querySelectorAll<HTMLElement>(
         '[data-partition-division]',
       );
@@ -1415,27 +1420,38 @@ export function DesignProjectsView() {
           nextDivisionLabel = el.dataset.partitionDivision || null;
           nextDivisionCount = Number(el.dataset.partitionCount || 0) || 0;
           nextDivisionZone = el.dataset.partitionZone || null;
+          nextZoneTitle =
+            el.dataset.partitionZoneTitle ||
+            el.dataset.partitionZone ||
+            null;
         }
       });
 
       if (nextDivisionZone) nextZone = nextDivisionZone;
 
-      const contextLine =
-        nextDivisionLabel != null && nextDivisionLabel !== ''
-          ? `間隔清單與傢俬配置 | ${nextDivisionLabel} : ${nextDivisionCount}`
-          : nextZone
-            ? (() => {
-                const group = zoneGroups.find((g) => g.label === nextZone);
-                const count = group
-                  ? zoneGroupProductTotal(
-                      group.zones.map((z) => z.id),
-                      furnitureDivisions,
-                      zoneProducts,
-                    )
-                  : 0;
-                return `間隔清單與傢俬配置 | ${nextZone} : ${count}`;
-              })()
-            : null;
+      const contextLine = (() => {
+        const areaTitle = nextZoneTitle || nextZone;
+        if (!areaTitle) return null;
+        // Real furniture division (not a zone-only marker using the same title).
+        if (
+          nextDivisionLabel &&
+          nextDivisionLabel !== areaTitle
+        ) {
+          return `${areaTitle} | ${nextDivisionLabel} : ${nextDivisionCount}`;
+        }
+        if (nextDivisionLabel) {
+          return `${areaTitle} : ${nextDivisionCount}`;
+        }
+        const group = zoneGroups.find((g) => g.label === nextZone);
+        const count = group
+          ? zoneGroupProductTotal(
+              group.zones.map((z) => z.id),
+              furnitureDivisions,
+              zoneProducts,
+            )
+          : 0;
+        return `${areaTitle} : ${count}`;
+      })();
 
       setActiveZoneLabel((current) =>
         current === nextZone ? current : nextZone,
@@ -2558,6 +2574,7 @@ export function DesignProjectsView() {
                       index === 0 && divisionMeta
                         ? {
                             zoneLabel: group.label,
+                            zoneTitle: zoneSpyLabel,
                             label: divisionMeta.label,
                             count: divisionMeta.planned,
                           }
@@ -2597,6 +2614,7 @@ export function DesignProjectsView() {
                 <div
                   className="grid grid-cols-1 items-center gap-3 border-b border-border bg-muted/30 px-5 py-3.5 md:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]"
                   data-partition-zone={group.label}
+                  data-partition-zone-title={zoneSpyLabel}
                   {...(divisions.length === 0
                     ? {
                         'data-partition-division': zoneSpyLabel,
@@ -2764,6 +2782,7 @@ export function DesignProjectsView() {
                                         division.quantity,
                                       )}
                                       data-partition-zone={group.label}
+                                      data-partition-zone-title={zoneSpyLabel}
                                     >
                                       <div className="min-w-0">
                                         <h4 className="font-display text-[13px] font-bold leading-snug text-foreground md:text-[14px]">
