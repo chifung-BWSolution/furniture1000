@@ -55,6 +55,7 @@ import { publishDesignProjectStickyChrome } from '@/lib/designProjectStickyChrom
 import type {
   DesignProject,
   DesignProjectMeta,
+  FurnitureSchemeGroup,
   ProjectZone,
   ZoneProduct,
 } from '@/types/solutions';
@@ -156,8 +157,100 @@ type QuoteZoneTypeGroup = {
   rooms: QuoteRoomGroup[];
 };
 
-/** Match 設計專案 product image size. */
+/** Match 設計專案 product image size (single-product row). */
 const PORTAL_PRODUCT_IMAGE_PX = 300;
+/** Match 設計專案 multi-scheme card image. */
+const PORTAL_SCHEME_IMAGE_PX = 250;
+
+type QuoteSchemeSlot = {
+  key: string;
+  items: BwfQuoteItemInput[];
+};
+
+function normalizePortalSchemeGroups(
+  value: unknown,
+): Record<string, FurnitureSchemeGroup[]> {
+  if (!value || typeof value !== 'object') return {};
+  const next: Record<string, FurnitureSchemeGroup[]> = {};
+  for (const [zoneId, rows] of Object.entries(value as Record<string, unknown>)) {
+    if (!zoneId || !Array.isArray(rows)) continue;
+    next[zoneId] = rows
+      .map((row) => {
+        if (!row || typeof row !== 'object') return null;
+        const item = row as Record<string, unknown>;
+        const id = String(item.id || '').trim();
+        const productIds = Array.isArray(item.productIds)
+          ? [
+              ...new Set(
+                item.productIds
+                  .map((pid) => String(pid || '').trim())
+                  .filter(Boolean),
+              ),
+            ]
+          : [];
+        if (!id || productIds.length === 0) return null;
+        return { id, productIds } satisfies FurnitureSchemeGroup;
+      })
+      .filter((row): row is FurnitureSchemeGroup => Boolean(row));
+  }
+  return next;
+}
+
+/** If any scheme-group member is assigned, treat the whole group as assigned. */
+function expandIdsWithSchemeGroups(
+  assignedIds: Iterable<string>,
+  groups: FurnitureSchemeGroup[],
+): Set<string> {
+  const next = new Set(
+    [...assignedIds].map((id) => String(id || '').trim()).filter(Boolean),
+  );
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const group of groups) {
+      if (!group.productIds.some((id) => next.has(id))) continue;
+      for (const id of group.productIds) {
+        if (next.has(id)) continue;
+        next.add(id);
+        changed = true;
+      }
+    }
+  }
+  return next;
+}
+
+function buildQuoteSchemeSlots(
+  items: BwfQuoteItemInput[],
+  groups: FurnitureSchemeGroup[],
+): QuoteSchemeSlot[] {
+  const itemById = new Map(
+    items
+      .filter((item) => item.id)
+      .map((item) => [String(item.id), item] as const),
+  );
+  const used = new Set<string>();
+  const slots: QuoteSchemeSlot[] = [];
+
+  for (const item of items) {
+    const id = String(item.id || '');
+    if (!id || used.has(id)) continue;
+    const group = groups.find((row) => row.productIds.includes(id));
+    if (group) {
+      const grouped = group.productIds
+        .map((pid) => itemById.get(pid))
+        .filter((row): row is BwfQuoteItemInput => Boolean(row));
+      if (grouped.length === 0) continue;
+      grouped.forEach((row) => {
+        if (row.id) used.add(String(row.id));
+      });
+      slots.push({ key: group.id, items: grouped });
+      continue;
+    }
+    used.add(id);
+    slots.push({ key: id, items: [item] });
+  }
+  return slots;
+}
 
 const LIST_SELECT =
   'id, quote_id, version, status, total_amount, created_at, modified_date, project_data, bwf_pitching_id';
@@ -376,8 +469,21 @@ function groupQuoteItemsByZoneType(
   return groups;
 }
 
-function roomProductCount(room: QuoteRoomGroup): number {
-  return room.sections.reduce((sum, section) => sum + section.items.length, 0);
+function roomProductCount(
+  room: QuoteRoomGroup,
+  schemeGroups: FurnitureSchemeGroup[] = [],
+): number {
+  return room.sections.reduce((sum, section) => {
+    const slots = buildQuoteSchemeSlots(section.items, schemeGroups);
+    return (
+      sum +
+      slots.reduce(
+        (slotSum, slot) =>
+          slotSum + Math.max(1, Number(slot.items[0]?.quantity) || 1),
+        0,
+      )
+    );
+  }, 0);
 }
 
 function roomPlannedFurnitureCount(room: QuoteRoomGroup): number {
@@ -387,12 +493,16 @@ function roomPlannedFurnitureCount(room: QuoteRoomGroup): number {
   );
 }
 
-function sectionDisplayCount(section: QuoteRoomSection): number {
+function sectionDisplayCount(
+  section: QuoteRoomSection,
+  schemeGroups: FurnitureSchemeGroup[] = [],
+): number {
   if (section.plannedQuantity != null && section.plannedQuantity > 0) {
     return section.plannedQuantity;
   }
-  return section.items.reduce(
-    (sum, item) => sum + Math.max(1, Number(item.quantity) || 1),
+  return buildQuoteSchemeSlots(section.items, schemeGroups).reduce(
+    (sum, slot) =>
+      sum + Math.max(1, Number(slot.items[0]?.quantity) || 1),
     0,
   );
 }
@@ -465,6 +575,282 @@ function portalNotesDisplay(notes: string | null | undefined): string {
   return remarksPlainText(staffNotes) || staffNotes.trim();
 }
 
+/** Vertical product card for 報價方案 3-column grid (matches 設計專案 scheme cards). */
+function QuotePortalProductCard({
+  item,
+  schemeIndex,
+  schemeCount,
+  review,
+  messages,
+  selected,
+  draftNote,
+  saving,
+  currentUserName,
+  onToggleSelected,
+  onSetQuantity,
+  onSetDraftNote,
+  onSendMessage,
+  onDeleteMessage,
+  onSetReview,
+}: {
+  item: BwfQuoteItemInput;
+  schemeIndex: number;
+  schemeCount: number;
+  review: ItemReview | undefined;
+  messages: ItemMessage[];
+  selected: boolean;
+  draftNote: string;
+  saving: boolean;
+  currentUserName: string;
+  onToggleSelected: (checked: boolean) => void;
+  onSetQuantity: (quantity: number) => void;
+  onSetDraftNote: (value: string) => void;
+  onSendMessage: () => void;
+  onDeleteMessage: (messageId: string) => void;
+  onSetReview: (review: ItemReview | null) => void;
+}) {
+  const dimsLabel = formatProductDimensionsMm(
+    item.dimensionLMm,
+    item.dimensionWMm,
+    item.dimensionHMm,
+  );
+  const notesLabel = portalNotesDisplay(item.notes);
+  const lineTotal = clientQuoteLineTotal(item);
+  const qty = Math.max(1, Number(item.quantity) || 1);
+  const multiScheme = schemeCount > 1;
+  const imagePx = PORTAL_SCHEME_IMAGE_PX;
+
+  return (
+    <article className="flex h-full min-w-0 flex-col gap-3 bg-card p-4">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        {multiScheme ? (
+          <span className="inline-flex h-8 shrink-0 items-center rounded-md border border-violet-500/30 bg-violet-500/10 px-2 text-[12px] font-semibold text-violet-700 dark:text-violet-300">
+            方案 {schemeIndex + 1}/{schemeCount}
+          </span>
+        ) : (
+          <span />
+        )}
+        <label
+          className={cn(
+            'inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[14px]',
+            selected
+              ? 'border-primary/40 bg-primary/10 text-primary'
+              : 'border-border bg-background text-muted-foreground',
+          )}
+          title={
+            selected
+              ? '取消選擇：價錢不計入小計'
+              : '選擇此產品：價錢計入小計'
+          }
+        >
+          <Checkbox
+            checked={selected}
+            onCheckedChange={(checked) => onToggleSelected(checked === true)}
+            className="border-foreground/60 data-[state=checked]:border-primary"
+            aria-label={`選擇 ${quoteItemDisplayName(item)}`}
+          />
+          <span>選擇</span>
+        </label>
+      </div>
+
+      <div
+        className="mx-auto shrink-0 overflow-hidden rounded-xl bg-muted"
+        style={{ width: imagePx, height: imagePx, maxWidth: '100%' }}
+      >
+        {item.image ? (
+          <img
+            src={item.image}
+            alt={quoteItemDisplayName(item)}
+            className="h-full w-full object-cover"
+          />
+        ) : null}
+      </div>
+
+      <h5 className="min-w-0 text-[14px] font-bold leading-snug">
+        {quoteItemDisplayName(item)}
+        {item.isOptional ? (
+          <span className="ml-2 text-[12px] font-normal text-muted-foreground">
+            （可選）
+          </span>
+        ) : null}
+      </h5>
+
+      <p className="font-mono-data text-sm text-muted-foreground">
+        <span className="mr-1.5 font-medium">尺寸</span>
+        {dimsLabel || '—'}
+      </p>
+
+      <div
+        className={cn(
+          'flex flex-col items-start gap-1',
+          !selected && 'text-muted-foreground',
+        )}
+      >
+        <div className="flex flex-nowrap items-center gap-1.5 whitespace-nowrap font-mono-data text-sm">
+          <span
+            className={cn(
+              selected ? 'text-primary' : 'text-muted-foreground',
+            )}
+          >
+            {fmtMoney(Number(item.unitPrice || 0))}
+          </span>
+          <span>×</span>
+          <div className="inline-flex shrink-0 items-center overflow-hidden rounded-md border border-border bg-background">
+            <button
+              type="button"
+              onClick={() => onSetQuantity(qty - 1)}
+              disabled={qty <= 1}
+              className="flex h-7 w-7 items-center justify-center text-[14px] text-muted-foreground hover:bg-muted disabled:opacity-35"
+              aria-label="數量減一"
+            >
+              −
+            </button>
+            <input
+              type="number"
+              min={1}
+              max={9999}
+              value={qty}
+              onChange={(event) =>
+                onSetQuantity(Number(event.target.value))
+              }
+              className="h-7 w-10 border-x border-border bg-background text-center font-mono-data text-[13px] font-semibold text-foreground outline-none"
+              aria-label={`${quoteItemDisplayName(item)}數量`}
+            />
+            <button
+              type="button"
+              onClick={() => onSetQuantity(qty + 1)}
+              className="flex h-7 w-7 items-center justify-center text-[14px] text-muted-foreground hover:bg-muted"
+              aria-label="數量加一"
+            >
+              +
+            </button>
+          </div>
+          {item.unit ? (
+            <span className="text-muted-foreground">{item.unit}</span>
+          ) : null}
+        </div>
+        <p
+          className={cn(
+            'font-mono-data text-lg font-bold',
+            !selected && 'text-muted-foreground',
+          )}
+        >
+          {selected ? fmtMoney(lineTotal) : '未選'}
+        </p>
+      </div>
+
+      <p className="whitespace-pre-wrap font-mono-data text-sm text-muted-foreground">
+        <span className="mr-1.5 font-medium">備註</span>
+        {notesLabel || '—'}
+      </p>
+
+      {messages.length > 0 ? (
+        <div className="space-y-2">
+          {messages.map((message) => (
+            <div
+              key={message.id}
+              className="rounded-xl border border-border bg-muted/20 px-3 py-2.5"
+            >
+              <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                <span className="font-semibold text-foreground">
+                  {message.authorName || currentUserName}
+                </span>
+                {message.authorRole ? (
+                  <span
+                    className={cn(
+                      'inline-flex items-center rounded-full border px-2 py-0.5 text-[10.5px] font-medium',
+                      ROLE_META[message.authorRole].className,
+                    )}
+                  >
+                    {ROLE_META[message.authorRole].label}
+                  </span>
+                ) : null}
+                <span className="font-mono-data">
+                  {fmtUtc8DateTime(message.createdAt)}{' '}
+                  <span className="text-[10px]">(UTC+8)</span>
+                </span>
+              </div>
+              <div className="mt-1 flex items-start justify-between gap-3">
+                <p className="min-w-0 flex-1 whitespace-pre-wrap text-sm">
+                  {message.text}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => onDeleteMessage(message.id)}
+                  className="inline-flex shrink-0 items-center gap-1 rounded-md border border-rose-500/30 px-2 py-1 text-xs font-medium text-rose-700 hover:bg-rose-500/10"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                  刪除
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {review === 'change' || review === 'rejected' ? (
+        <div>
+          <textarea
+            value={draftNote}
+            onChange={(event) => onSetDraftNote(event.target.value)}
+            rows={2}
+            placeholder="請說明需要修改或不接受的原因…"
+            className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm"
+          />
+          <div className="mt-2 flex justify-end">
+            <button
+              type="button"
+              onClick={onSendMessage}
+              disabled={saving}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-60"
+            >
+              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+              確定
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {/* 接受 / 要求修改 / 不接受 — bottom of each product card */}
+      <div className="mt-auto flex flex-wrap justify-center gap-2 border-t border-border pt-3">
+        {(
+          [
+            ['accepted', '接受', Check],
+            ['change', '要求修改', MessageSquare],
+            ['rejected', '不接受', Ban],
+          ] as const
+        ).map(([value, label, Icon]) => (
+          <button
+            key={value}
+            type="button"
+            disabled={saving}
+            onClick={() => {
+              if (review === value) {
+                onSetReview(null);
+                return;
+              }
+              onSetReview(value);
+            }}
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[13px] font-medium disabled:opacity-60',
+              review === value
+                ? value === 'accepted'
+                  ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700'
+                  : value === 'change'
+                    ? 'border-amber-500/40 bg-amber-500/10 text-amber-700'
+                    : 'border-rose-500/40 bg-rose-500/10 text-rose-700'
+                : 'border-border text-muted-foreground',
+            )}
+          >
+            <Icon className="h-4 w-4" />
+            {label}
+          </button>
+        ))}
+      </div>
+    </article>
+  );
+}
+
 function escapeHtml(value: unknown) {
   return String(value ?? '')
     .replace(/&/g, '&amp;')
@@ -520,6 +906,14 @@ export function CustomerQuoteSchemesView() {
   const pageScrollRef = useRef<HTMLDivElement | null>(null);
   const partitionStickySentinelRef = useRef<HTMLDivElement | null>(null);
   const [partitionHeaderPinned, setPartitionHeaderPinned] = useState(false);
+  const [activeZoneLabel, setActiveZoneLabel] = useState<string | null>(null);
+  const [activeContextLine, setActiveContextLine] = useState<string | null>(
+    null,
+  );
+  /** design_projects.meta.furnitureSchemeGroups keyed by zone id. */
+  const [schemeGroupsByZone, setSchemeGroupsByZone] = useState<
+    Record<string, FurnitureSchemeGroup[]>
+  >({});
 
   useEffect(() => {
     let cancelled = false;
@@ -685,6 +1079,7 @@ export function CustomerQuoteSchemesView() {
           zoneProducts: [] as ZoneProduct[],
           linkedProjectId: '',
           zones: [] as ProjectZone[],
+          schemeGroups: {} as Record<string, FurnitureSchemeGroup[]>,
         };
       }
 
@@ -728,12 +1123,16 @@ export function CustomerQuoteSchemesView() {
         typeof linkedProject.meta.furnitureDivisions === 'object'
           ? linkedProject.meta.furnitureDivisions
           : {};
+      const schemeGroups = normalizePortalSchemeGroups(
+        linkedProject.meta?.furnitureSchemeGroups,
+      );
 
       const grouped: BwfQuoteItemInput[] = [];
       for (const zone of zones) {
         const products = selectedProducts.filter(
           (product) => product.zoneId === zone.id,
         );
+        const zoneSchemeGroups = schemeGroups[zone.id] || [];
         grouped.push({
           id: `zone-${zone.id}`,
           name: zone.name,
@@ -748,8 +1147,9 @@ export function CustomerQuoteSchemesView() {
 
         if (divisions.length > 0) {
           for (const division of divisions) {
-            const divisionProductIds = new Set(
+            const divisionProductIds = expandIdsWithSchemeGroups(
               (division.productIds || []).map((id) => String(id).trim()),
+              zoneSchemeGroups,
             );
             const divisionProducts = products.filter((product) =>
               divisionProductIds.has(product.id),
@@ -765,7 +1165,29 @@ export function CustomerQuoteSchemesView() {
               quantity: Math.max(0, Math.floor(Number(division.quantity) || 0)),
               image: '',
             });
-            for (const product of divisionProducts) {
+            // Keep scheme-group member order (方案 1, 2, 3…) when present.
+            const orderedDivisionProducts = (() => {
+              const byId = new Map(
+                divisionProducts.map((product) => [product.id, product]),
+              );
+              const ordered: ZoneProduct[] = [];
+              const seen = new Set<string>();
+              for (const group of zoneSchemeGroups) {
+                if (!group.productIds.some((id) => byId.has(id))) continue;
+                for (const pid of group.productIds) {
+                  const row = byId.get(pid);
+                  if (!row || seen.has(pid)) continue;
+                  ordered.push(row);
+                  seen.add(pid);
+                }
+              }
+              for (const product of divisionProducts) {
+                if (seen.has(product.id)) continue;
+                ordered.push(product);
+              }
+              return ordered;
+            })();
+            for (const product of orderedDivisionProducts) {
               grouped.push(mapPortalProduct(product));
             }
           }
@@ -773,23 +1195,36 @@ export function CustomerQuoteSchemesView() {
             (product) => !assignedIds.has(product.id),
           );
           if (unassigned.length > 0) {
+            const unassignedSlots = buildQuoteSchemeSlots(
+              unassigned.map(mapPortalProduct),
+              zoneSchemeGroups,
+            );
             grouped.push({
               id: `division-${zone.id}-unassigned`,
               name: '未劃分',
               isDivisionTitle: true,
-              quantity: unassigned.reduce(
-                (sum, product) => sum + Math.max(1, Number(product.quantity) || 1),
+              quantity: unassignedSlots.reduce(
+                (sum, slot) =>
+                  sum + Math.max(1, Number(slot.items[0]?.quantity) || 1),
                 0,
               ),
               image: '',
             });
-            for (const product of unassigned) {
-              grouped.push(mapPortalProduct(product));
+            for (const slot of unassignedSlots) {
+              for (const productItem of slot.items) {
+                grouped.push(productItem);
+              }
             }
           }
         } else {
-          for (const product of products) {
-            grouped.push(mapPortalProduct(product));
+          const slots = buildQuoteSchemeSlots(
+            products.map(mapPortalProduct),
+            zoneSchemeGroups,
+          );
+          for (const slot of slots) {
+            for (const productItem of slot.items) {
+              grouped.push(productItem);
+            }
           }
         }
       }
@@ -798,12 +1233,14 @@ export function CustomerQuoteSchemesView() {
         zoneProducts: selectedProducts,
         linkedProjectId: linkedProject.id,
         zones,
+        schemeGroups,
       };
     };
 
     loadItems()
-      .then(({ rows, zoneProducts, linkedProjectId, zones }) => {
+      .then(({ rows, zoneProducts, linkedProjectId, zones, schemeGroups }) => {
         if (cancelled) return;
+        setSchemeGroupsByZone(schemeGroups || {});
         if (linkedProjectId) {
           setPortalProjectData((current) => ({
             ...current,
@@ -880,6 +1317,7 @@ export function CustomerQuoteSchemesView() {
       .catch(() => {
         if (!cancelled) {
           setItems([]);
+          setSchemeGroupsByZone({});
           setItemsLoading(false);
         }
       });
@@ -1016,6 +1454,94 @@ export function CustomerQuoteSchemesView() {
     observer.observe(node);
     return () => observer.disconnect();
   }, [showDetail, itemsLoading, zoneTypeGroups.length, activeId]);
+
+  // Scroll-spy: highlight current zone chip + sticky division context line.
+  useEffect(() => {
+    const root = pageScrollRef.current;
+    if (!root || !showDetail || itemsLoading || zoneTypeGroups.length === 0) {
+      return;
+    }
+
+    const updateSpy = () => {
+      const rootRect = root.getBoundingClientRect();
+      const anchorY = rootRect.top + (partitionHeaderPinned ? 180 : 24);
+
+      let nextZone = zoneTypeGroups[0]?.label || null;
+      for (const group of zoneTypeGroups) {
+        const el = document.getElementById(zoneGroupDomId(group.label));
+        if (!el) continue;
+        if (el.getBoundingClientRect().top <= anchorY + 8) {
+          nextZone = group.label;
+        }
+      }
+
+      let nextDivisionLabel: string | null = null;
+      let nextDivisionCount = 0;
+      let nextDivisionZone: string | null = null;
+      let nextZoneTitle: string | null = null;
+      const markers = root.querySelectorAll<HTMLElement>(
+        '[data-partition-division]',
+      );
+      markers.forEach((el) => {
+        if (el.getBoundingClientRect().top <= anchorY + 8) {
+          nextDivisionLabel = el.dataset.partitionDivision || null;
+          nextDivisionCount = Number(el.dataset.partitionCount || 0) || 0;
+          nextDivisionZone = el.dataset.partitionZone || null;
+          nextZoneTitle =
+            el.dataset.partitionZoneTitle ||
+            el.dataset.partitionZone ||
+            null;
+        }
+      });
+
+      if (nextDivisionZone) nextZone = nextDivisionZone;
+
+      const contextLine = (() => {
+        const areaTitle = nextZoneTitle || nextZone;
+        if (!areaTitle) return null;
+        if (nextDivisionLabel && nextDivisionLabel !== areaTitle) {
+          return `${areaTitle} | ${nextDivisionLabel} : ${nextDivisionCount}`;
+        }
+        if (nextDivisionLabel) {
+          return `${areaTitle} : ${nextDivisionCount}`;
+        }
+        const group = zoneTypeGroups.find((g) => g.label === nextZone);
+        const count = group
+          ? group.rooms.reduce(
+              (sum, room) =>
+                sum +
+                roomProductCount(
+                  room,
+                  schemeGroupsByZone[room.zoneId || ''] || [],
+                ),
+              0,
+            )
+          : 0;
+        return `${areaTitle} : ${count}`;
+      })();
+
+      setActiveZoneLabel((current) =>
+        current === nextZone ? current : nextZone,
+      );
+      setActiveContextLine((current) =>
+        current === contextLine ? current : contextLine,
+      );
+    };
+
+    updateSpy();
+    root.addEventListener('scroll', updateSpy, { passive: true });
+    window.addEventListener('resize', updateSpy);
+    return () => {
+      root.removeEventListener('scroll', updateSpy);
+      window.removeEventListener('resize', updateSpy);
+    };
+  }, [
+    itemsLoading,
+    partitionHeaderPinned,
+    schemeGroupsByZone,
+    showDetail,
+    zoneTypeGroups,
+  ]);
 
   useEffect(
     () => () => {
@@ -1606,10 +2132,17 @@ export function CustomerQuoteSchemesView() {
         key: group.key,
         label: group.label,
         count: group.rooms.reduce(
-          (sum, room) => sum + roomProductCount(room),
+          (sum, room) =>
+            sum +
+            roomProductCount(
+              room,
+              schemeGroupsByZone[room.zoneId || ''] || [],
+            ),
           0,
         ),
       })),
+      activeZoneLabel: activeZoneLabel || zoneTypeGroups[0]?.label || null,
+      activeContextLine: partitionHeaderPinned ? activeContextLine : null,
       saving: savingScheme,
       hasFloorPlan: false,
       onSave: () => {
@@ -1620,9 +2153,12 @@ export function CustomerQuoteSchemesView() {
     });
   }, [
     active,
+    activeContextLine,
+    activeZoneLabel,
     partitionHeaderPinned,
     saveQuoteScheme,
     savingScheme,
+    schemeGroupsByZone,
     scrollToZoneGroup,
     showDetail,
     zoneTypeGroups,
@@ -1965,21 +2501,46 @@ export function CustomerQuoteSchemesView() {
                   <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
                     {zoneTypeGroups.map((group) => {
                       const productTotal = group.rooms.reduce(
-                        (sum, room) => sum + roomProductCount(room),
+                        (sum, room) =>
+                          sum +
+                          roomProductCount(
+                            room,
+                            schemeGroupsByZone[room.zoneId || ''] || [],
+                          ),
                         0,
                       );
+                      const isActive =
+                        (activeZoneLabel || zoneTypeGroups[0]?.label) ===
+                        group.label;
                       return (
                         <button
                           key={group.key}
                           type="button"
                           onClick={() => scrollToZoneGroup(group.label)}
-                          className="inline-flex items-center gap-1 rounded-lg border border-primary/20 bg-primary/5 px-3 py-1.5 text-[15px] transition-colors hover:border-primary/50 hover:bg-primary/10"
+                          className={cn(
+                            'inline-flex items-center gap-1 rounded-lg border px-3 py-1.5 text-[15px] transition-colors',
+                            isActive
+                              ? 'border-primary/50 bg-primary/15 text-primary shadow-sm'
+                              : 'border-border bg-card text-muted-foreground hover:border-primary/40 hover:bg-primary/5 hover:text-foreground',
+                          )}
                           title={`跳至「${group.label}」· 產品總數 ${productTotal}`}
+                          aria-current={isActive ? 'true' : undefined}
                         >
-                          <span className="font-semibold text-foreground">
+                          <span
+                            className={cn(
+                              'font-semibold',
+                              isActive ? 'text-primary' : 'text-foreground',
+                            )}
+                          >
                             {group.label}
                           </span>
-                          <span className="text-muted-foreground">
+                          <span
+                            className={
+                              isActive
+                                ? 'text-primary/80'
+                                : 'text-muted-foreground'
+                            }
+                          >
                             ：{productTotal}
                           </span>
                         </button>
@@ -2017,7 +2578,12 @@ export function CustomerQuoteSchemesView() {
               {zoneTypeGroups.map((group) => {
                 const isSingleRoomGroup = group.rooms.length === 1;
                 const productCount = group.rooms.reduce(
-                  (sum, room) => sum + roomProductCount(room),
+                  (sum, room) =>
+                    sum +
+                    roomProductCount(
+                      room,
+                      schemeGroupsByZone[room.zoneId || ''] || [],
+                    ),
                   0,
                 );
                 return (
@@ -2040,7 +2606,12 @@ export function CustomerQuoteSchemesView() {
 
                     <div className="space-y-3">
                       {group.rooms.map((room) => {
-                        const roomCount = roomProductCount(room);
+                        const roomSchemeGroups =
+                          schemeGroupsByZone[room.zoneId || ''] || [];
+                        const roomCount = roomProductCount(
+                          room,
+                          roomSchemeGroups,
+                        );
                         const plannedCount = roomPlannedFurnitureCount(room);
                         const roomTitle = isSingleRoomGroup
                           ? group.label
@@ -2049,6 +2620,8 @@ export function CustomerQuoteSchemesView() {
                           activeZoneAreasSqft,
                           room.zoneId,
                         );
+                        const roomContextCount =
+                          plannedCount > 0 ? plannedCount : roomCount;
                         const roomSubtotal = room.sections.reduce(
                           (sum, section) =>
                             sum +
@@ -2060,390 +2633,197 @@ export function CustomerQuoteSchemesView() {
                             }, 0),
                           0,
                         );
+                        const hasDivisionLabels = room.sections.some(
+                          (section) => Boolean(section.label),
+                        );
                         return (
-                        <section
-                          key={room.id}
-                          className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm"
-                        >
-                          <div className="border-b border-border bg-muted/30 px-5 py-3.5">
-                            <div className="flex w-full min-w-0 flex-wrap items-center justify-center gap-x-3 gap-y-1 text-center">
-                              <h4 className="font-display text-lg font-bold md:text-xl">
-                                {roomTitle}
-                                {plannedCount > 0 ? (
-                                  <span className="ml-2 text-[17px] font-semibold text-muted-foreground">
-                                    × 總數 {plannedCount}件傢俬
-                                  </span>
-                                ) : roomCount > 0 ? (
-                                  <span className="ml-2 text-[17px] font-normal text-muted-foreground">
-                                    {roomCount} 件傢俬
+                          <section
+                            key={room.id}
+                            className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm"
+                          >
+                            <div
+                              className="border-b border-border bg-muted/30 px-5 py-3.5"
+                              data-partition-zone={group.label}
+                              data-partition-zone-title={roomTitle}
+                              {...(!hasDivisionLabels
+                                ? {
+                                    'data-partition-division': roomTitle,
+                                    'data-partition-count': String(
+                                      roomContextCount,
+                                    ),
+                                  }
+                                : {})}
+                            >
+                              <div className="flex w-full min-w-0 flex-wrap items-center justify-center gap-x-3 gap-y-1 text-center">
+                                <h4 className="font-display text-lg font-bold md:text-xl">
+                                  {roomTitle}
+                                  {plannedCount > 0 ? (
+                                    <span className="ml-2 text-[17px] font-semibold text-muted-foreground">
+                                      × 總數 {plannedCount}件傢俬
+                                    </span>
+                                  ) : roomCount > 0 ? (
+                                    <span className="ml-2 text-[17px] font-normal text-muted-foreground">
+                                      {roomCount} 件傢俬
+                                    </span>
+                                  ) : null}
+                                </h4>
+                                {roomSqft != null ? (
+                                  <span className="text-[15px] text-muted-foreground md:text-[17px]">
+                                    {formatZoneSqftLabel(roomSqft)}
                                   </span>
                                 ) : null}
-                              </h4>
-                              {roomSqft != null ? (
-                                <span className="text-[15px] text-muted-foreground md:text-[17px]">
-                                  {formatZoneSqftLabel(roomSqft)}
-                                </span>
+                              </div>
+                            </div>
+                            <div className="divide-y divide-border/70">
+                              {roomCount === 0 ? (
+                                <p className="px-5 py-6 text-sm text-muted-foreground">
+                                  此區域暫未選擇產品
+                                </p>
+                              ) : null}
+                              {room.sections.map((section) => {
+                                const sectionSlots = buildQuoteSchemeSlots(
+                                  section.items,
+                                  roomSchemeGroups,
+                                );
+                                const sectionCount = sectionDisplayCount(
+                                  section,
+                                  roomSchemeGroups,
+                                );
+                                return (
+                                  <div key={section.id}>
+                                    {section.label ? (
+                                      <div
+                                        className="border-b border-border bg-muted/20 px-5 py-2.5"
+                                        data-partition-division={section.label}
+                                        data-partition-count={String(
+                                          sectionCount,
+                                        )}
+                                        data-partition-zone={group.label}
+                                        data-partition-zone-title={roomTitle}
+                                      >
+                                        <h5 className="text-center font-display text-[13px] font-bold text-foreground md:text-[14px]">
+                                          {section.label}
+                                          <span className="ml-1.5 text-[12px] font-semibold text-muted-foreground">
+                                            : {sectionCount}
+                                          </span>
+                                        </h5>
+                                      </div>
+                                    ) : null}
+                                    {sectionSlots.length > 0 ? (
+                                      <div className="grid grid-cols-1 items-stretch gap-px bg-border md:grid-cols-2 xl:grid-cols-3">
+                                        {sectionSlots.flatMap((slot) =>
+                                          slot.items.map((item, index) => {
+                                              const key = itemKey(
+                                                item,
+                                                index,
+                                              );
+                                              const review = itemReviews[key];
+                                              const messages =
+                                                itemMessages[key] || [];
+                                              return (
+                                                <div
+                                                  key={`${slot.key}:${key}`}
+                                                  className="min-w-0 bg-card"
+                                                >
+                                                  <QuotePortalProductCard
+                                                    item={item}
+                                                    schemeIndex={index}
+                                                    schemeCount={
+                                                      slot.items.length
+                                                    }
+                                                    review={review}
+                                                    messages={messages}
+                                                    selected={isQuoteItemSelected(
+                                                      item,
+                                                      itemSelected,
+                                                    )}
+                                                    draftNote={
+                                                      itemDraftNotes[key] || ''
+                                                    }
+                                                    saving={
+                                                      savingReviewKey === key
+                                                    }
+                                                    currentUserName={
+                                                      currentUserName
+                                                    }
+                                                    onToggleSelected={(
+                                                      checked,
+                                                    ) => {
+                                                      if (!item.id) return;
+                                                      setItemSelected(
+                                                        (current) => ({
+                                                          ...current,
+                                                          [item.id!]: checked,
+                                                        }),
+                                                      );
+                                                    }}
+                                                    onSetQuantity={(
+                                                      quantity,
+                                                    ) => {
+                                                      if (!item.id) return;
+                                                      setItemQuantity(
+                                                        item.id,
+                                                        quantity,
+                                                      );
+                                                    }}
+                                                    onSetDraftNote={(value) =>
+                                                      setItemDraftNotes(
+                                                        (current) => ({
+                                                          ...current,
+                                                          [key]: value,
+                                                        }),
+                                                      )
+                                                    }
+                                                    onSendMessage={() =>
+                                                      void sendItemMessage(
+                                                        item,
+                                                        index,
+                                                      )
+                                                    }
+                                                    onDeleteMessage={(
+                                                      messageId,
+                                                    ) =>
+                                                      void deleteItemMessage(
+                                                        item,
+                                                        messageId,
+                                                      )
+                                                    }
+                                                    onSetReview={(nextReview) => {
+                                                      void syncItemReview(
+                                                        item,
+                                                        nextReview,
+                                                      ).then((ok) => {
+                                                        if (
+                                                          ok &&
+                                                          nextReview ===
+                                                            'accepted'
+                                                        ) {
+                                                          toast.success(
+                                                            '已同步為「已確定」',
+                                                          );
+                                                        }
+                                                      });
+                                                    }}
+                                                  />
+                                                </div>
+                                              );
+                                          }),
+                                        )}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                );
+                              })}
+                              {roomCount > 0 ? (
+                                <div className="flex justify-end border-t border-border bg-muted/20 px-5 py-3.5">
+                                  <p className="font-mono-data text-[15px] font-semibold text-foreground">
+                                    {room.name} : 小計 $
+                                    {Math.round(roomSubtotal).toLocaleString()}
+                                  </p>
+                                </div>
                               ) : null}
                             </div>
-                          </div>
-                          <div className="divide-y divide-border/70">
-                            {roomCount === 0 ? (
-                              <p className="px-5 py-6 text-sm text-muted-foreground">
-                                此區域暫未選擇產品
-                              </p>
-                            ) : null}
-                            {room.sections.map((section) => (
-                              <div key={section.id}>
-                                {section.label ? (
-                                  <div className="border-b border-border bg-muted/20 px-5 py-2.5">
-                                    <h5 className="text-center font-display text-[13px] font-bold text-foreground md:text-[14px]">
-                                      {section.label}
-                                      <span className="ml-1.5 text-[12px] font-semibold text-muted-foreground">
-                                        : {sectionDisplayCount(section)}
-                                      </span>
-                                    </h5>
-                                  </div>
-                                ) : null}
-                                {section.items.map((item, index) => {
-                              const key = itemKey(item, index);
-                              const review = itemReviews[key];
-                              const messages = itemMessages[key] || [];
-                              const dimsLabel = formatProductDimensionsMm(
-                                item.dimensionLMm,
-                                item.dimensionWMm,
-                                item.dimensionHMm,
-                              );
-                              const notesLabel = portalNotesDisplay(item.notes);
-                              const selected = isQuoteItemSelected(
-                                item,
-                                itemSelected,
-                              );
-                              const lineTotal = clientQuoteLineTotal(item);
-                              const qty = Math.max(1, Number(item.quantity) || 1);
-                              return (
-                                <article
-                                  key={key}
-                                  className="border-b border-border/70 p-5 last:border-b-0"
-                                >
-                                  <div className="flex flex-col gap-4 lg:flex-row lg:items-stretch">
-                                    <div
-                                      className="shrink-0 overflow-hidden rounded-xl bg-muted"
-                                      style={{
-                                        width: PORTAL_PRODUCT_IMAGE_PX,
-                                        height: PORTAL_PRODUCT_IMAGE_PX,
-                                        maxWidth: '100%',
-                                      }}
-                                    >
-                                      {item.image ? (
-                                        <img
-                                          src={item.image}
-                                          alt={quoteItemDisplayName(item)}
-                                          className="h-full w-full object-cover"
-                                        />
-                                      ) : null}
-                                    </div>
-                                    <div className="flex min-w-0 flex-1 flex-col gap-3">
-                                      <div className="flex flex-wrap items-start justify-between gap-3">
-                                        <h5 className="min-w-0 flex-1 text-base font-bold leading-snug">
-                                          {quoteItemDisplayName(item)}
-                                          {item.isOptional ? (
-                                            <span className="ml-2 text-[12px] font-normal text-muted-foreground">
-                                              （可選）
-                                            </span>
-                                          ) : null}
-                                        </h5>
-                                        <label
-                                          className={cn(
-                                            'inline-flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[14px]',
-                                            selected
-                                              ? 'border-primary/40 bg-primary/10 text-primary'
-                                              : 'border-border bg-background text-muted-foreground',
-                                          )}
-                                          title={
-                                            selected
-                                              ? '取消選擇：價錢不計入小計'
-                                              : '選擇此產品：價錢計入小計'
-                                          }
-                                        >
-                                          <Checkbox
-                                            checked={selected}
-                                            onCheckedChange={(checked) => {
-                                              if (!item.id) return;
-                                              setItemSelected((current) => ({
-                                                ...current,
-                                                [item.id!]: checked === true,
-                                              }));
-                                            }}
-                                            className="border-foreground/60 data-[state=checked]:border-primary"
-                                            aria-label={`選擇 ${quoteItemDisplayName(item)}`}
-                                          />
-                                          <span>選擇</span>
-                                        </label>
-                                      </div>
-
-                                      <p className="font-mono-data text-sm text-muted-foreground">
-                                        <span className="mr-1.5 font-medium">
-                                          尺寸
-                                        </span>
-                                        {dimsLabel || '—'}
-                                      </p>
-
-                                      {/* 單價 / 數量 / 小計 — under 尺寸 */}
-                                      <div
-                                        className={cn(
-                                          'flex flex-col items-start gap-1',
-                                          !selected && 'text-muted-foreground',
-                                        )}
-                                      >
-                                        <div className="flex flex-nowrap items-center gap-1.5 whitespace-nowrap font-mono-data text-sm">
-                                          <span
-                                            className={cn(
-                                              selected
-                                                ? 'text-primary'
-                                                : 'text-muted-foreground',
-                                            )}
-                                          >
-                                            {fmtMoney(
-                                              Number(item.unitPrice || 0),
-                                            )}
-                                          </span>
-                                          <span>×</span>
-                                          <div className="inline-flex shrink-0 items-center overflow-hidden rounded-md border border-border bg-background">
-                                            <button
-                                              type="button"
-                                              onClick={() =>
-                                                item.id &&
-                                                setItemQuantity(
-                                                  item.id,
-                                                  qty - 1,
-                                                )
-                                              }
-                                              disabled={qty <= 1}
-                                              className="flex h-7 w-7 items-center justify-center text-[14px] text-muted-foreground hover:bg-muted disabled:opacity-35"
-                                              aria-label="數量減一"
-                                            >
-                                              −
-                                            </button>
-                                            <input
-                                              type="number"
-                                              min={1}
-                                              max={9999}
-                                              value={qty}
-                                              onChange={(event) => {
-                                                if (!item.id) return;
-                                                setItemQuantity(
-                                                  item.id,
-                                                  Number(event.target.value),
-                                                );
-                                              }}
-                                              className="h-7 w-10 border-x border-border bg-background text-center font-mono-data text-[13px] font-semibold text-foreground outline-none"
-                                              aria-label={`${quoteItemDisplayName(item)}數量`}
-                                            />
-                                            <button
-                                              type="button"
-                                              onClick={() =>
-                                                item.id &&
-                                                setItemQuantity(
-                                                  item.id,
-                                                  qty + 1,
-                                                )
-                                              }
-                                              className="flex h-7 w-7 items-center justify-center text-[14px] text-muted-foreground hover:bg-muted"
-                                              aria-label="數量加一"
-                                            >
-                                              +
-                                            </button>
-                                          </div>
-                                          {item.unit ? (
-                                            <span className="text-muted-foreground">
-                                              {item.unit}
-                                            </span>
-                                          ) : null}
-                                        </div>
-                                        <p
-                                          className={cn(
-                                            'font-mono-data text-lg font-bold',
-                                            !selected &&
-                                              'text-muted-foreground',
-                                          )}
-                                        >
-                                          {selected
-                                            ? fmtMoney(lineTotal)
-                                            : '未選'}
-                                        </p>
-                                      </div>
-
-                                      <p className="whitespace-pre-wrap font-mono-data text-sm text-muted-foreground">
-                                        <span className="mr-1.5 font-medium">
-                                          備註
-                                        </span>
-                                        {notesLabel || '—'}
-                                      </p>
-
-                                      {messages.length > 0 ? (
-                                        <div className="space-y-2">
-                                          {messages.map((message) => (
-                                            <div
-                                              key={message.id}
-                                              className="rounded-xl border border-border bg-muted/20 px-3 py-2.5"
-                                            >
-                                              <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-                                                <span className="font-semibold text-foreground">
-                                                  {message.authorName ||
-                                                    currentUserName}
-                                                </span>
-                                                {message.authorRole ? (
-                                                  <span
-                                                    className={cn(
-                                                      'inline-flex items-center rounded-full border px-2 py-0.5 text-[10.5px] font-medium',
-                                                      ROLE_META[
-                                                        message.authorRole
-                                                      ].className,
-                                                    )}
-                                                  >
-                                                    {
-                                                      ROLE_META[
-                                                        message.authorRole
-                                                      ].label
-                                                    }
-                                                  </span>
-                                                ) : null}
-                                                <span className="font-mono-data">
-                                                  {fmtUtc8DateTime(
-                                                    message.createdAt,
-                                                  )}{' '}
-                                                  <span className="text-[10px]">
-                                                    (UTC+8)
-                                                  </span>
-                                                </span>
-                                              </div>
-                                              <div className="mt-1 flex items-start justify-between gap-3">
-                                                <p className="min-w-0 flex-1 whitespace-pre-wrap text-sm">
-                                                  {message.text}
-                                                </p>
-                                                <button
-                                                  type="button"
-                                                  onClick={() =>
-                                                    void deleteItemMessage(
-                                                      item,
-                                                      message.id,
-                                                    )
-                                                  }
-                                                  className="inline-flex shrink-0 items-center gap-1 rounded-md border border-rose-500/30 px-2 py-1 text-xs font-medium text-rose-700 hover:bg-rose-500/10"
-                                                >
-                                                  <Trash2 className="h-3.5 w-3.5" />
-                                                  刪除
-                                                </button>
-                                              </div>
-                                            </div>
-                                          ))}
-                                        </div>
-                                      ) : null}
-                                      {review === 'change' ||
-                                      review === 'rejected' ? (
-                                        <div>
-                                          <textarea
-                                            value={itemDraftNotes[key] || ''}
-                                            onChange={(event) =>
-                                              setItemDraftNotes((current) => ({
-                                                ...current,
-                                                [key]: event.target.value,
-                                              }))
-                                            }
-                                            rows={2}
-                                            placeholder="請說明需要修改或不接受的原因…"
-                                            className="w-full rounded-xl border border-border bg-background px-3 py-2.5 text-sm"
-                                          />
-                                          <div className="mt-2 flex justify-end">
-                                            <button
-                                              type="button"
-                                              onClick={() =>
-                                                void sendItemMessage(item, index)
-                                              }
-                                              disabled={savingReviewKey === key}
-                                              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-60"
-                                            >
-                                              {savingReviewKey === key ? (
-                                                <Loader2 className="h-4 w-4 animate-spin" />
-                                              ) : null}
-                                              確定
-                                            </button>
-                                          </div>
-                                        </div>
-                                      ) : null}
-
-                                      {/* 接受 / 要求修改 / 不接受 — product card bottom-right */}
-                                      <div className="mt-auto flex flex-wrap justify-end gap-2 border-t border-border pt-4">
-                                        {(
-                                          [
-                                            ['accepted', '接受', Check],
-                                            [
-                                              'change',
-                                              '要求修改',
-                                              MessageSquare,
-                                            ],
-                                            ['rejected', '不接受', Ban],
-                                          ] as const
-                                        ).map(([value, label, Icon]) => (
-                                          <button
-                                            key={value}
-                                            type="button"
-                                            disabled={savingReviewKey === key}
-                                            onClick={() => {
-                                              if (review === value) {
-                                                void syncItemReview(
-                                                  item,
-                                                  null,
-                                                );
-                                                return;
-                                              }
-                                              void syncItemReview(
-                                                item,
-                                                value,
-                                              ).then((ok) => {
-                                                if (
-                                                  ok &&
-                                                  value === 'accepted'
-                                                ) {
-                                                  toast.success(
-                                                    '已同步為「已確定」',
-                                                  );
-                                                }
-                                              });
-                                            }}
-                                            className={cn(
-                                              'inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-medium disabled:opacity-60',
-                                              review === value
-                                                ? value === 'accepted'
-                                                  ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700'
-                                                  : value === 'change'
-                                                    ? 'border-amber-500/40 bg-amber-500/10 text-amber-700'
-                                                    : 'border-rose-500/40 bg-rose-500/10 text-rose-700'
-                                                : 'border-border text-muted-foreground',
-                                            )}
-                                          >
-                                            <Icon className="h-4 w-4" />
-                                            {label}
-                                          </button>
-                                        ))}
-                                      </div>
-                                    </div>
-                                  </div>
-                                </article>
-                              );
-                                })}
-                              </div>
-                            ))}
-                            {roomCount > 0 ? (
-                              <div className="flex justify-end border-t border-border bg-muted/20 px-5 py-3.5">
-                                <p className="font-mono-data text-[15px] font-semibold text-foreground">
-                                  {room.name} : 小計 $
-                                  {Math.round(roomSubtotal).toLocaleString()}
-                                </p>
-                              </div>
-                            ) : null}
-                          </div>
-                        </section>
+                          </section>
                         );
                       })}
                     </div>
