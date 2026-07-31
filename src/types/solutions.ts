@@ -168,6 +168,11 @@ export interface DesignProjectMeta {
    * (一級分類 / 二級分類 + quantity), with assigned zone_product ids.
    */
   furnitureDivisions?: Record<string, ZoneFurnitureDivision[]>;
+  /**
+   * Per project_zones.id → alternative scheme groups (max 3 products each).
+   * Products in the same group share one planned furniture slot.
+   */
+  furnitureSchemeGroups?: Record<string, FurnitureSchemeGroup[]>;
   /** zone_products.id marked 可選 — excluded from furniture totals. */
   optionalZoneProductIds?: string[];
   [key: string]: unknown;
@@ -183,6 +188,19 @@ export interface ZoneFurnitureDivision {
   /** zone_products.id assigned under this partition. */
   productIds?: string[];
 }
+
+/**
+ * Alternative schemes for one furniture slot (設計專案「更多方案」).
+ * Up to 3 zone_products share the same planned quantity slot.
+ */
+export interface FurnitureSchemeGroup {
+  id: string;
+  /** 1–3 zone_products.id in display order (方案 1 / 2 / 3). */
+  productIds: string[];
+}
+
+/** Max alternative products allowed in one furniture scheme slot. */
+export const MAX_FURNITURE_SCHEME_PRODUCTS = 3;
 
 export interface DesignProject {
   id: string;

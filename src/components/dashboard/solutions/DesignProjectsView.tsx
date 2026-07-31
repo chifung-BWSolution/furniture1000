@@ -51,9 +51,11 @@ import {
 import { uploadFileToStorage } from '@/lib/imageStorage';
 import { toast } from 'sonner';
 import {
+  MAX_FURNITURE_SCHEME_PRODUCTS,
   ZONE_PRODUCT_STATUS_META,
   type CustomRoomType,
   type DesignProject,
+  type FurnitureSchemeGroup,
   type ProjectZone,
   type ZoneProduct,
   type SearchProduct,
@@ -250,6 +252,118 @@ function normalizeOptionalZoneProductIds(value: unknown): string[] {
   return [...new Set(ids)];
 }
 
+function newSchemeGroupId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `scheme-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+function normalizeFurnitureSchemeGroups(
+  value: unknown,
+): Record<string, FurnitureSchemeGroup[]> {
+  if (!value || typeof value !== 'object') return {};
+  const next: Record<string, FurnitureSchemeGroup[]> = {};
+  for (const [zoneId, rows] of Object.entries(value as Record<string, unknown>)) {
+    if (!zoneId || !Array.isArray(rows)) continue;
+    next[zoneId] = rows
+      .map((row) => {
+        if (!row || typeof row !== 'object') return null;
+        const item = row as Record<string, unknown>;
+        const id = String(item.id || '').trim() || newSchemeGroupId();
+        const productIds = Array.isArray(item.productIds)
+          ? [
+              ...new Set(
+                item.productIds
+                  .map((pid) => String(pid || '').trim())
+                  .filter(Boolean),
+              ),
+            ].slice(0, MAX_FURNITURE_SCHEME_PRODUCTS)
+          : [];
+        if (productIds.length === 0) return null;
+        return { id, productIds } satisfies FurnitureSchemeGroup;
+      })
+      .filter((row): row is FurnitureSchemeGroup => Boolean(row));
+  }
+  return next;
+}
+
+/** One furniture slot — 1–3 alternative products shown side by side. */
+type FurnitureSchemeSlot = {
+  key: string;
+  groupId: string | null;
+  products: ZoneProduct[];
+};
+
+/**
+ * Build display slots for a division / unassigned list.
+ * Products that share a scheme group render in one slot (max 3).
+ */
+function buildFurnitureSchemeSlots(
+  items: ZoneProduct[],
+  groups: FurnitureSchemeGroup[],
+): FurnitureSchemeSlot[] {
+  const itemById = new Map(items.map((item) => [item.id, item]));
+  const used = new Set<string>();
+  const slots: FurnitureSchemeSlot[] = [];
+
+  for (const item of items) {
+    if (used.has(item.id)) continue;
+    const group = groups.find((row) => row.productIds.includes(item.id));
+    if (group) {
+      const products = group.productIds
+        .map((id) => itemById.get(id))
+        .filter((row): row is ZoneProduct => Boolean(row))
+        .slice(0, MAX_FURNITURE_SCHEME_PRODUCTS);
+      if (products.length === 0) continue;
+      products.forEach((row) => used.add(row.id));
+      slots.push({
+        key: group.id,
+        groupId: group.id,
+        products,
+      });
+      continue;
+    }
+    used.add(item.id);
+    slots.push({
+      key: item.id,
+      groupId: null,
+      products: [item],
+    });
+  }
+  return slots;
+}
+
+/** Planned-slot piece count — primary product quantity only. */
+function schemeSlotPieceCount(products: ZoneProduct[]): number {
+  if (products.length === 0) return 0;
+  return zoneProductPieceCount(products[0]);
+}
+
+/** Remove a product id from scheme groups; drop groups with fewer than 2 members. */
+function removeProductFromSchemeGroups(
+  groupsByZone: Record<string, FurnitureSchemeGroup[]>,
+  zoneId: string,
+  productId: string,
+): Record<string, FurnitureSchemeGroup[]> {
+  const rows = groupsByZone[zoneId] || [];
+  if (rows.length === 0) return groupsByZone;
+  const nextRows = rows
+    .map((row) => ({
+      ...row,
+      productIds: row.productIds.filter((id) => id !== productId),
+    }))
+    .filter((row) => row.productIds.length >= 2);
+  return { ...groupsByZone, [zoneId]: nextRows };
+}
+
+function findSchemeGroupForProduct(
+  groups: FurnitureSchemeGroup[],
+  productId: string,
+): FurnitureSchemeGroup | null {
+  return groups.find((row) => row.productIds.includes(productId)) || null;
+}
+
 function withOptionalFlags(
   products: ZoneProduct[],
   optionalIds: Iterable<string>,
@@ -315,13 +429,15 @@ function zoneGroupProductTotal(
 }
 
 /**
- * Divisions where non-optional piece count exceeds the planned quantity.
- * Excess lines must be marked 可選 (or removed) before save.
+ * Divisions where non-optional slot count exceeds the planned quantity.
+ * Alternative schemes in the same slot count as one. Excess slots must be
+ * marked 可選 (or removed) before save.
  */
 function collectDivisionExcessWarnings(
   zones: ProjectZone[],
   products: ZoneProduct[],
   divisionsByZone: Record<string, ZoneFurnitureDivision[]>,
+  schemeGroupsByZone: Record<string, FurnitureSchemeGroup[]> = {},
 ): string[] {
   const warnings: string[] = [];
   for (const zone of zones) {
@@ -331,15 +447,17 @@ function collectDivisionExcessWarnings(
     const assignedIds = new Set(
       divisions.flatMap((row) => row.productIds || []),
     );
+    const zoneGroups = schemeGroupsByZone[zone.id] || [];
 
     for (const division of divisions) {
       const planned = Math.max(1, Math.floor(Number(division.quantity) || 1));
-      const nonOptionalCount = items
-        .filter(
-          (item) =>
-            (division.productIds || []).includes(item.id) && !item.isOptional,
-        )
-        .reduce((sum, item) => sum + zoneProductPieceCount(item), 0);
+      const divisionItems = items.filter((item) =>
+        (division.productIds || []).includes(item.id),
+      );
+      const slots = buildFurnitureSchemeSlots(divisionItems, zoneGroups);
+      const nonOptionalCount = slots
+        .filter((slot) => !slot.products[0]?.isOptional)
+        .reduce((sum, slot) => sum + schemeSlotPieceCount(slot.products), 0);
       if (nonOptionalCount <= planned) continue;
       const excess = nonOptionalCount - planned;
       warnings.push(
@@ -347,9 +465,14 @@ function collectDivisionExcessWarnings(
       );
     }
 
-    const unassignedNonOptional = items
-      .filter((item) => !assignedIds.has(item.id) && !item.isOptional)
-      .reduce((sum, item) => sum + zoneProductPieceCount(item), 0);
+    const unassignedItems = items.filter((item) => !assignedIds.has(item.id));
+    const unassignedSlots = buildFurnitureSchemeSlots(
+      unassignedItems,
+      zoneGroups,
+    );
+    const unassignedNonOptional = unassignedSlots
+      .filter((slot) => !slot.products[0]?.isOptional)
+      .reduce((sum, slot) => sum + schemeSlotPieceCount(slot.products), 0);
     if (unassignedNonOptional > 0) {
       warnings.push(
         `「${zone.name}」未劃分：有 ${unassignedNonOptional} 件非可選產品超出劃分計劃，請劃分或轉為可選`,
@@ -416,9 +539,13 @@ function ZoneProductRow({
   uploading,
   deletingProductId,
   deletingFeedbackKey,
+  schemeIndex = 0,
+  schemeCount = 1,
+  embedded = false,
   onOpenUpload,
   onPreview,
   onOpenPicker,
+  onMoreSchemes,
   onSetQuantity,
   onSetStatus,
   onRemove,
@@ -454,9 +581,17 @@ function ZoneProductRow({
   uploading: boolean;
   deletingProductId: string | null;
   deletingFeedbackKey: string | null;
+  /** 0-based index within a multi-scheme slot. */
+  schemeIndex?: number;
+  /** Total schemes in this slot (1–3). */
+  schemeCount?: number;
+  /** When true, render card body only (parent owns <li> / division header). */
+  embedded?: boolean;
   onOpenUpload: (item: ZoneProduct) => void;
   onPreview: (src: string, title: string) => void;
   onOpenPicker: (zoneId: string, itemId: string) => void;
+  /** Open picker to add another scheme in the same slot (same L1/L2). */
+  onMoreSchemes?: (item: ZoneProduct) => void;
   onSetQuantity: (item: ZoneProduct, quantity: number) => void;
   onSetStatus: (id: string, status: ZoneProductStatus) => void;
   onRemove: (item: ZoneProduct) => void;
@@ -474,7 +609,12 @@ function ZoneProductRow({
   onSetNotes: (item: ZoneProduct, value: string) => void;
   onDeleteFeedback: (item: ZoneProduct, index: number) => void;
 }) {
-  const size = PRODUCT_IMAGE_SIZE_PX;
+  const multiScheme = schemeCount > 1;
+  const canAddMoreSchemes =
+    Boolean(onMoreSchemes) && schemeCount < MAX_FURNITURE_SCHEME_PRODUCTS;
+  const size = multiScheme
+    ? Math.round(PRODUCT_IMAGE_SIZE_PX * 0.72)
+    : PRODUCT_IMAGE_SIZE_PX;
   const feedback = splitStaffNotesAndFeedback(item.notes).feedback;
   // Once any project-local dim is saved, stop falling back to catalog (so clears stick).
   const hasProjectDims =
@@ -507,41 +647,13 @@ function ZoneProductRow({
     });
   };
 
-  return (
-    <li>
-      {divisionHeading || divisionToolbar ? (
-        // Division title = zone title (18/20px) − 4px → 14/16px
-        <div
-          className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/30 px-3.5 py-2.5"
-          data-partition-division={divisionSpy?.label || undefined}
-          data-partition-count={
-            divisionSpy != null ? String(divisionSpy.count) : undefined
-          }
-          data-partition-zone={divisionSpy?.zoneLabel || undefined}
-          data-partition-zone-title={divisionSpy?.zoneTitle || undefined}
-        >
-          <div className="min-w-0">
-            {divisionHeading ? (
-              <h4 className="font-display text-[14px] font-bold leading-snug text-foreground md:text-[16px]">
-                {divisionHeading.label}
-                <span className="ml-1.5 text-[13px] font-semibold text-muted-foreground md:text-[14px]">
-                  {divisionHeading.planned} 件傢俬
-                  {divisionHeading.added > 0
-                    ? ` · 已加入 ${divisionHeading.added}`
-                    : ''}
-                </span>
-              </h4>
-            ) : null}
-          </div>
-          {divisionToolbar ? (
-            <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
-              {divisionToolbar}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
-
-      <div className="flex items-stretch">
+  const card = (
+      <div
+        className={cn(
+          'flex min-w-0 items-stretch',
+          multiScheme && 'flex-1',
+        )}
+      >
         <div
           className="shrink-0"
           style={{
@@ -634,6 +746,22 @@ function ZoneProductRow({
                 )}
               </div>
               <div className="flex shrink-0 flex-wrap items-center gap-2">
+                {schemeCount > 1 ? (
+                  <span className="inline-flex h-9 items-center rounded-lg border border-violet-500/30 bg-violet-500/10 px-2.5 text-[13px] font-semibold text-violet-700 dark:text-violet-300">
+                    方案 {schemeIndex + 1}/{schemeCount}
+                  </span>
+                ) : null}
+                {canAddMoreSchemes ? (
+                  <button
+                    type="button"
+                    onClick={() => onMoreSchemes?.(item)}
+                    className="inline-flex h-9 items-center gap-1.5 rounded-lg border border-violet-500/40 bg-violet-500/10 px-2.5 text-[14px] font-medium text-violet-700 hover:bg-violet-500/15 dark:text-violet-300"
+                    title={`在同一分類加入替代方案（最多 ${MAX_FURNITURE_SCHEME_PRODUCTS} 款）`}
+                  >
+                    <LayoutGrid className="h-3.5 w-3.5" />
+                    更多方案
+                  </button>
+                ) : null}
                 <button
                   type="button"
                   onClick={() => onOpenPicker(item.zoneId || zoneId, item.id)}
@@ -923,6 +1051,184 @@ function ZoneProductRow({
           </div>
         </div>
       </div>
+  );
+
+  if (embedded) return card;
+
+  return (
+    <li>
+      {divisionHeading || divisionToolbar ? (
+        // Division title = zone title (18/20px) − 4px → 14/16px
+        <div
+          className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/30 px-3.5 py-2.5"
+          data-partition-division={divisionSpy?.label || undefined}
+          data-partition-count={
+            divisionSpy != null ? String(divisionSpy.count) : undefined
+          }
+          data-partition-zone={divisionSpy?.zoneLabel || undefined}
+          data-partition-zone-title={divisionSpy?.zoneTitle || undefined}
+        >
+          <div className="min-w-0">
+            {divisionHeading ? (
+              <h4 className="font-display text-[14px] font-bold leading-snug text-foreground md:text-[16px]">
+                {divisionHeading.label}
+                <span className="ml-1.5 text-[13px] font-semibold text-muted-foreground md:text-[14px]">
+                  {divisionHeading.planned} 件傢俬
+                  {divisionHeading.added > 0
+                    ? ` · 已加入 ${divisionHeading.added}`
+                    : ''}
+                </span>
+              </h4>
+            ) : null}
+          </div>
+          {divisionToolbar ? (
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+              {divisionToolbar}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      {card}
+    </li>
+  );
+}
+
+function ZoneSchemeSlotRow({
+  slot,
+  zoneId,
+  divisionHeading,
+  divisionToolbar,
+  divisionSpy,
+  productMetaById,
+  uploadingImageId,
+  deletingProductId,
+  deletingFeedbackKey,
+  onOpenUpload,
+  onPreview,
+  onOpenPicker,
+  onMoreSchemes,
+  onSetQuantity,
+  onSetStatus,
+  onRemove,
+  onToggleOptional,
+  onSetTitle,
+  onSetSalePrice,
+  onSetDimensions,
+  onSetNotes,
+  onDeleteFeedback,
+}: {
+  slot: FurnitureSchemeSlot;
+  zoneId: string;
+  divisionHeading?: {
+    label: string;
+    planned: number;
+    added: number;
+  } | null;
+  divisionToolbar?: ReactNode;
+  divisionSpy?: {
+    zoneLabel: string;
+    zoneTitle: string;
+    label: string;
+    count: number;
+  } | null;
+  productMetaById: Record<string, ProductDisplayMeta>;
+  uploadingImageId: string | null;
+  deletingProductId: string | null;
+  deletingFeedbackKey: string | null;
+  onOpenUpload: (item: ZoneProduct) => void;
+  onPreview: (src: string, title: string) => void;
+  onOpenPicker: (zoneId: string, itemId: string) => void;
+  onMoreSchemes: (item: ZoneProduct) => void;
+  onSetQuantity: (item: ZoneProduct, quantity: number) => void;
+  onSetStatus: (id: string, status: ZoneProductStatus) => void;
+  onRemove: (item: ZoneProduct) => void;
+  onToggleOptional: (item: ZoneProduct) => void;
+  onSetTitle: (item: ZoneProduct, value: string) => void;
+  onSetSalePrice: (item: ZoneProduct, value: number) => void;
+  onSetDimensions: (
+    item: ZoneProduct,
+    patch: {
+      dimensionLMm: number | null;
+      dimensionWMm: number | null;
+      dimensionHMm: number | null;
+    },
+  ) => void;
+  onSetNotes: (item: ZoneProduct, value: string) => void;
+  onDeleteFeedback: (item: ZoneProduct, index: number) => void;
+}) {
+  const multi = slot.products.length > 1;
+  return (
+    <li>
+      {divisionHeading || divisionToolbar ? (
+        <div
+          className="flex flex-wrap items-center justify-between gap-2 border-b border-border bg-muted/30 px-3.5 py-2.5"
+          data-partition-division={divisionSpy?.label || undefined}
+          data-partition-count={
+            divisionSpy != null ? String(divisionSpy.count) : undefined
+          }
+          data-partition-zone={divisionSpy?.zoneLabel || undefined}
+          data-partition-zone-title={divisionSpy?.zoneTitle || undefined}
+        >
+          <div className="min-w-0">
+            {divisionHeading ? (
+              <h4 className="font-display text-[14px] font-bold leading-snug text-foreground md:text-[16px]">
+                {divisionHeading.label}
+                <span className="ml-1.5 text-[13px] font-semibold text-muted-foreground md:text-[14px]">
+                  {divisionHeading.planned} 件傢俬
+                  {divisionHeading.added > 0
+                    ? ` · 已加入 ${divisionHeading.added}`
+                    : ''}
+                </span>
+              </h4>
+            ) : null}
+          </div>
+          {divisionToolbar ? (
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
+              {divisionToolbar}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      <div
+        className={cn(
+          'flex min-w-0',
+          multi
+            ? 'flex-col divide-y divide-border/70 xl:flex-row xl:divide-x xl:divide-y-0'
+            : 'flex-col',
+        )}
+      >
+        {slot.products.map((item, index) => (
+          <ZoneProductRow
+            key={item.id}
+            item={item}
+            zoneId={zoneId}
+            custom={isCustomZoneProduct(item)}
+            titleLabel={item.productTitle || '未命名產品'}
+            catalogMeta={
+              item.productId ? productMetaById[item.productId] || null : null
+            }
+            schemeIndex={index}
+            schemeCount={slot.products.length}
+            embedded
+            uploading={uploadingImageId === item.id}
+            deletingProductId={deletingProductId}
+            deletingFeedbackKey={deletingFeedbackKey}
+            onOpenUpload={onOpenUpload}
+            onPreview={onPreview}
+            onOpenPicker={onOpenPicker}
+            onMoreSchemes={onMoreSchemes}
+            onSetQuantity={onSetQuantity}
+            onSetStatus={onSetStatus}
+            onRemove={onRemove}
+            onToggleOptional={onToggleOptional}
+            onSetTitle={onSetTitle}
+            onSetSalePrice={onSetSalePrice}
+            onSetDimensions={onSetDimensions}
+            onSetNotes={onSetNotes}
+            onDeleteFeedback={onDeleteFeedback}
+          />
+        ))}
+      </div>
     </li>
   );
 }
@@ -971,6 +1277,13 @@ export function DesignProjectsView() {
   const [replacingZoneProductId, setReplacingZoneProductId] = useState<
     string | null
   >(null);
+  /**
+   * When set, picker adds an alternative scheme into the same slot as this
+   * zone_product (「更多方案」; max 3 per slot).
+   */
+  const [schemeForProductId, setSchemeForProductId] = useState<string | null>(
+    null,
+  );
   /** Assign newly added products to this furniture division (if any). */
   const [pickerDivisionId, setPickerDivisionId] = useState<string | null>(null);
   const [products, setProducts] = useState<SearchProduct[]>([]);
@@ -992,6 +1305,9 @@ export function DesignProjectsView() {
   );
   const [furnitureDivisions, setFurnitureDivisions] = useState<
     Record<string, ZoneFurnitureDivision[]>
+  >({});
+  const [furnitureSchemeGroups, setFurnitureSchemeGroups] = useState<
+    Record<string, FurnitureSchemeGroup[]>
   >({});
   const [divisionModalZoneId, setDivisionModalZoneId] = useState<string | null>(
     null,
@@ -1252,11 +1568,15 @@ export function DesignProjectsView() {
     if (!project) {
       setZoneAreasSqft({});
       setFurnitureDivisions({});
+      setFurnitureSchemeGroups({});
       return;
     }
     setZoneAreasSqft(normalizeZoneAreasSqft(project.meta?.zoneAreasSqft));
     setFurnitureDivisions(
       normalizeFurnitureDivisions(project.meta?.furnitureDivisions),
+    );
+    setFurnitureSchemeGroups(
+      normalizeFurnitureSchemeGroups(project.meta?.furnitureSchemeGroups),
     );
     // Hydrate planning fields when switching projects only.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1266,8 +1586,10 @@ export function DesignProjectsView() {
     (
       nextSqft: Record<string, string>,
       nextDivisions: Record<string, ZoneFurnitureDivision[]>,
+      nextSchemeGroups?: Record<string, FurnitureSchemeGroup[]>,
     ) => {
       if (!project) return;
+      const schemeGroups = nextSchemeGroups ?? furnitureSchemeGroups;
       // Keep planning fields on the in-memory project so「儲存方案」can write them,
       // but avoid doing this on every sqft keystroke (causes TopBar sticky republish jump).
       setProjects((current) =>
@@ -1279,6 +1601,7 @@ export function DesignProjectsView() {
                   ...row.meta,
                   zoneAreasSqft: zoneAreasSqftMetaFromState(nextSqft),
                   furnitureDivisions: nextDivisions,
+                  furnitureSchemeGroups: schemeGroups,
                 },
               }
             : row,
@@ -1286,7 +1609,7 @@ export function DesignProjectsView() {
       );
       setFurnitureDirty(true);
     },
-    [project],
+    [furnitureSchemeGroups, project],
   );
   const zoneGroups = useMemo(() => {
     const groups = new Map<
@@ -1548,6 +1871,7 @@ export function DesignProjectsView() {
   const closePicker = () => {
     setPickerOpen(false);
     setReplacingZoneProductId(null);
+    setSchemeForProductId(null);
     setPickerDivisionId(null);
     setFactoryFilter('');
     setFactoryFilterOpen(false);
@@ -1557,10 +1881,16 @@ export function DesignProjectsView() {
   const openPicker = async (
     zoneId?: string | null,
     replaceZoneProductId?: string | null,
-    opts?: { level1?: string; level2?: string; divisionId?: string | null },
+    opts?: {
+      level1?: string;
+      level2?: string;
+      divisionId?: string | null;
+      schemeForProductId?: string | null;
+    },
   ) => {
     setPickerZoneId(zoneId ?? null);
     setReplacingZoneProductId(replaceZoneProductId ?? null);
+    setSchemeForProductId(opts?.schemeForProductId ?? null);
     setPickerDivisionId(opts?.divisionId ?? null);
     setProductLevel1(opts?.level1 ?? '');
     setProductLevel2(opts?.level2 ?? '');
@@ -1697,12 +2027,13 @@ export function DesignProjectsView() {
                 ...row.meta,
                 zoneAreasSqft: zoneAreasSqftMetaFromState(zoneAreasSqft),
                 furnitureDivisions,
+                furnitureSchemeGroups,
               },
             }
           : row,
       ),
     );
-  }, [furnitureDivisions, project, zoneAreasSqft]);
+  }, [furnitureDivisions, furnitureSchemeGroups, project, zoneAreasSqft]);
 
   const replaceZoneProduct = (product: SearchProduct) => {
     if (!replacingZoneProductId) return;
@@ -1742,6 +2073,25 @@ export function DesignProjectsView() {
       toast.error('請先設定間隔數量');
       return;
     }
+
+    const anchorId = schemeForProductId;
+    if (anchorId) {
+      const anchor = zoneProducts.find((item) => item.id === anchorId);
+      if (!anchor) {
+        toast.error('找不到要加入方案的產品');
+        return;
+      }
+      const existingGroup = findSchemeGroupForProduct(
+        furnitureSchemeGroups[zoneId] || [],
+        anchorId,
+      );
+      const currentCount = existingGroup?.productIds.length || 1;
+      if (currentCount >= MAX_FURNITURE_SCHEME_PRODUCTS) {
+        toast.error(`同一欄位最多 ${MAX_FURNITURE_SCHEME_PRODUCTS} 款方案`);
+        return;
+      }
+    }
+
     const res = await createZoneProduct({
       projectId: activeProjectId,
       zoneId,
@@ -1757,27 +2107,73 @@ export function DesignProjectsView() {
       dimensionHMm: product.dimensionHMm ?? null,
     });
     if (res.ok && res.data) {
-      setZoneProducts((prev) => [...prev, res.data!]);
+      const created = {
+        ...res.data,
+        // Alternative schemes default to 可選 so they don't inflate totals / planned qty.
+        isOptional: Boolean(anchorId) ? true : res.data.isOptional,
+      };
+      setZoneProducts((prev) => [...prev, created]);
+
+      let nextDivisions = furnitureDivisions;
       if (pickerDivisionId) {
-        const next = {
+        nextDivisions = {
           ...furnitureDivisions,
           [zoneId]: (furnitureDivisions[zoneId] || []).map((row) =>
             row.id === pickerDivisionId
               ? {
                   ...row,
-                  productIds: [...(row.productIds || []), res.data!.id],
+                  productIds: [...(row.productIds || []), created.id],
                 }
               : row,
           ),
         };
-        setFurnitureDivisions(next);
-        persistPlanningMeta(zoneAreasSqft, next);
+        setFurnitureDivisions(nextDivisions);
+      }
+
+      let nextSchemeGroups = furnitureSchemeGroups;
+      if (anchorId) {
+        const rows = furnitureSchemeGroups[zoneId] || [];
+        const existing = findSchemeGroupForProduct(rows, anchorId);
+        if (existing) {
+          nextSchemeGroups = {
+            ...furnitureSchemeGroups,
+            [zoneId]: rows.map((row) =>
+              row.id === existing.id
+                ? {
+                    ...row,
+                    productIds: [...row.productIds, created.id].slice(
+                      0,
+                      MAX_FURNITURE_SCHEME_PRODUCTS,
+                    ),
+                  }
+                : row,
+            ),
+          };
+        } else {
+          nextSchemeGroups = {
+            ...furnitureSchemeGroups,
+            [zoneId]: [
+              ...rows,
+              {
+                id: newSchemeGroupId(),
+                productIds: [anchorId, created.id],
+              },
+            ],
+          };
+        }
+        setFurnitureSchemeGroups(nextSchemeGroups);
+      }
+
+      if (pickerDivisionId || anchorId) {
+        persistPlanningMeta(zoneAreasSqft, nextDivisions, nextSchemeGroups);
       } else {
         setFurnitureDirty(true);
       }
-      toast.success('已加入間隔', {
+
+      toast.success(anchorId ? '已加入替代方案' : '已加入間隔', {
         description: `${product.title} → ${zones.find((z) => z.id === zoneId)?.name || '間隔'}（記得按儲存）`,
       });
+      if (anchorId) closePicker();
     } else {
       toast.error('加入失敗', { description: res.error });
     }
@@ -1808,21 +2204,66 @@ export function DesignProjectsView() {
     setZoneProducts((current) =>
       current.filter((product) => product.id !== item.id),
     );
-    if (item.zoneId && (furnitureDivisions[item.zoneId] || []).length > 0) {
-      const next = {
+    const zoneId = item.zoneId;
+    let nextDivisions = furnitureDivisions;
+    let nextSchemeGroups = furnitureSchemeGroups;
+    let planningChanged = false;
+    if (zoneId && (furnitureDivisions[zoneId] || []).length > 0) {
+      nextDivisions = {
         ...furnitureDivisions,
-        [item.zoneId]: (furnitureDivisions[item.zoneId] || []).map((row) => ({
+        [zoneId]: (furnitureDivisions[zoneId] || []).map((row) => ({
           ...row,
           productIds: (row.productIds || []).filter((pid) => pid !== item.id),
         })),
       };
-      setFurnitureDivisions(next);
-      persistPlanningMeta(zoneAreasSqft, next);
+      setFurnitureDivisions(nextDivisions);
+      planningChanged = true;
+    }
+    if (zoneId && (furnitureSchemeGroups[zoneId] || []).length > 0) {
+      nextSchemeGroups = removeProductFromSchemeGroups(
+        furnitureSchemeGroups,
+        zoneId,
+        item.id,
+      );
+      setFurnitureSchemeGroups(nextSchemeGroups);
+      planningChanged = true;
+    }
+    if (planningChanged) {
+      persistPlanningMeta(zoneAreasSqft, nextDivisions, nextSchemeGroups);
     } else {
       setFurnitureDirty(true);
     }
     toast.success('已從間隔移除產品', {
       description: item.productTitle || '未命名產品',
+    });
+  };
+
+  const openMoreSchemesPicker = (item: ZoneProduct) => {
+    const zoneId = item.zoneId;
+    if (!zoneId) {
+      toast.error('請先將產品分配至間隔');
+      return;
+    }
+    const group = findSchemeGroupForProduct(
+      furnitureSchemeGroups[zoneId] || [],
+      item.id,
+    );
+    const count = group?.productIds.length || 1;
+    if (count >= MAX_FURNITURE_SCHEME_PRODUCTS) {
+      toast.error(`同一欄位最多 ${MAX_FURNITURE_SCHEME_PRODUCTS} 款方案`);
+      return;
+    }
+    const division = (furnitureDivisions[zoneId] || []).find((row) =>
+      (row.productIds || []).includes(item.id),
+    );
+    const catalog = item.productId
+      ? products.find((row) => row.id === item.productId)
+      : null;
+    void openPicker(zoneId, null, {
+      level1: division?.level1 || catalog?.level1Category || '',
+      level2: division?.level2 || catalog?.level2Category || '',
+      divisionId: division?.id ?? null,
+      schemeForProductId: item.id,
     });
   };
 
@@ -1967,6 +2408,7 @@ export function DesignProjectsView() {
       zones,
       zoneProducts,
       furnitureDivisions,
+      furnitureSchemeGroups,
     );
     if (excessWarnings.length > 0) {
       toast.error('部份二級分類傢俬數量過多', {
@@ -1993,6 +2435,7 @@ export function DesignProjectsView() {
           ...project.meta,
           zoneAreasSqft: zoneAreasSqftMetaFromState(zoneAreasSqft),
           furnitureDivisions,
+          furnitureSchemeGroups,
           optionalZoneProductIds,
           furnitureSnapshot: project.meta?.furnitureSnapshot,
         },
@@ -2018,6 +2461,7 @@ export function DesignProjectsView() {
                   ...row.meta,
                   zoneAreasSqft: zoneAreasSqftMetaFromState(zoneAreasSqft),
                   furnitureDivisions,
+                  furnitureSchemeGroups,
                   optionalZoneProductIds,
                   furnitureSnapshot: result.data!.snapshot,
                 },
@@ -2045,6 +2489,7 @@ export function DesignProjectsView() {
       zones,
       zoneProducts,
       furnitureDivisions,
+      furnitureSchemeGroups,
     );
     if (excessWarnings.length > 0) {
       toast.error('部份二級分類傢俬數量過多', {
@@ -2070,6 +2515,7 @@ export function DesignProjectsView() {
             ...project.meta,
             zoneAreasSqft: zoneAreasSqftMetaFromState(zoneAreasSqft),
             furnitureDivisions,
+            furnitureSchemeGroups,
             optionalZoneProductIds,
           },
         },
@@ -2093,6 +2539,7 @@ export function DesignProjectsView() {
                   ...row.meta,
                   zoneAreasSqft: zoneAreasSqftMetaFromState(zoneAreasSqft),
                   furnitureDivisions,
+                  furnitureSchemeGroups,
                   optionalZoneProductIds,
                   furnitureSnapshot: flushed.data!.snapshot,
                 },
@@ -2544,7 +2991,8 @@ export function DesignProjectsView() {
                 furnitureDivisions,
               );
               const zoneSpyLabel = isSingleZoneGroup ? group.label : zone.name;
-              const renderProductRows = (
+              const zoneSchemeGroups = furnitureSchemeGroups[zone.id] || [];
+              const renderSchemeSlots = (
                 rows: ZoneProduct[],
                 divisionMeta?: {
                   label: string;
@@ -2552,19 +3000,13 @@ export function DesignProjectsView() {
                   added: number;
                 } | null,
                 divisionToolbar?: ReactNode,
-              ) =>
-                rows.map((item, index) => (
-                  <ZoneProductRow
-                    key={item.id}
-                    item={item}
+              ) => {
+                const slots = buildFurnitureSchemeSlots(rows, zoneSchemeGroups);
+                return slots.map((slot, index) => (
+                  <ZoneSchemeSlotRow
+                    key={slot.key}
+                    slot={slot}
                     zoneId={zone.id}
-                    custom={isCustomZoneProduct(item)}
-                    titleLabel={item.productTitle || '未命名產品'}
-                    catalogMeta={
-                      item.productId
-                        ? productMetaById[item.productId] || null
-                        : null
-                    }
                     divisionHeading={
                       index === 0 && divisionMeta ? divisionMeta : null
                     }
@@ -2581,12 +3023,14 @@ export function DesignProjectsView() {
                           }
                         : null
                     }
-                    uploading={uploadingImageId === item.id}
+                    productMetaById={productMetaById}
+                    uploadingImageId={uploadingImageId}
                     deletingProductId={deletingProductId}
                     deletingFeedbackKey={deletingFeedbackKey}
                     onOpenUpload={(row) => setImageUploadItem(row)}
                     onPreview={(src, title) => setLightbox({ src, title })}
                     onOpenPicker={(zId, itemId) => void openPicker(zId, itemId)}
+                    onMoreSchemes={openMoreSchemesPicker}
                     onSetQuantity={setQuantity}
                     onSetStatus={setStatus}
                     onRemove={(row) => {
@@ -2602,6 +3046,7 @@ export function DesignProjectsView() {
                     }}
                   />
                 ));
+              };
               const displayPlannedTotal = isSingleZoneGroup
                 ? groupPlannedTotal
                 : zonePlannedTotal;
@@ -2707,8 +3152,14 @@ export function DesignProjectsView() {
                             const divisionItems = items.filter((item) =>
                               (division.productIds || []).includes(item.id),
                             );
-                            const addedCount = divisionItems.reduce(
-                              (sum, item) => sum + zoneProductPieceCount(item),
+                            const divisionSlots = buildFurnitureSchemeSlots(
+                              divisionItems,
+                              zoneSchemeGroups,
+                            );
+                            // Count furniture slots (scheme group = 1), not every alternative.
+                            const addedCount = divisionSlots.reduce(
+                              (sum, slot) =>
+                                sum + schemeSlotPieceCount(slot.products),
                               0,
                             );
                             const shortage =
@@ -2806,7 +3257,7 @@ export function DesignProjectsView() {
                                   </>
                                 ) : (
                                   <ul className="divide-y divide-border/70">
-                                    {renderProductRows(
+                                    {renderSchemeSlots(
                                       divisionItems,
                                       divisionMeta,
                                       divisionToolbar,
@@ -2827,14 +3278,14 @@ export function DesignProjectsView() {
                                 </p>
                               </div>
                               <ul className="divide-y divide-border/70">
-                                {renderProductRows(unassignedItems)}
+                                {renderSchemeSlots(unassignedItems)}
                               </ul>
                             </div>
                           ) : null}
                         </div>
                       ) : (
                         <ul className="divide-y divide-border/70">
-                          {renderProductRows(items)}
+                          {renderSchemeSlots(items)}
                         </ul>
                       )}
                       <div className="flex justify-end border-t border-border bg-muted/20 px-5 py-3.5">
@@ -3073,6 +3524,13 @@ export function DesignProjectsView() {
                       {zoneProducts.find((item) => item.id === replacingZoneProductId)
                         ?.productTitle || '目前產品'}
                     </>
+                  ) : schemeForProductId ? (
+                    <>
+                      更多方案：
+                      {zoneProducts.find((item) => item.id === schemeForProductId)
+                        ?.productTitle || '目前產品'}
+                      （同一欄位最多 {MAX_FURNITURE_SCHEME_PRODUCTS} 款）
+                    </>
                   ) : (
                     <>
                       加入至：
@@ -3086,7 +3544,9 @@ export function DesignProjectsView() {
                 <p className="mt-1 text-[13px] text-muted-foreground">
                   {replacingZoneProductId
                     ? '點選產品後會替換目前項目的名稱、圖片與價錢（數量／備註／狀態保留）'
-                    : '只顯示目前可供選購並已有售價的產品'}
+                    : schemeForProductId
+                      ? '點選產品後會加入同一傢俬欄位的替代方案（相同一級／二級分類）'
+                      : '只顯示目前可供選購並已有售價的產品'}
                 </p>
               </div>
               <button
@@ -3225,7 +3685,7 @@ export function DesignProjectsView() {
                   ) : null}
                 </div>
               </div>
-              {!replacingZoneProductId ? (
+              {!replacingZoneProductId && !schemeForProductId ? (
               <div className="flex flex-wrap gap-1.5">
                 <select
                   value={pickerZoneId || zones[0]?.id || ''}
@@ -3369,6 +3829,10 @@ export function DesignProjectsView() {
                               {replacingZoneProductId ? (
                                 <>
                                   <RefreshCw className="h-3 w-3" /> 更換
+                                </>
+                              ) : schemeForProductId ? (
+                                <>
+                                  <LayoutGrid className="h-3 w-3" /> 加入方案
                                 </>
                               ) : (
                                 <>
