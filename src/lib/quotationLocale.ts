@@ -41,8 +41,8 @@ export const QUOTE_UI = {
     cnyCost: 'CNY¥成本價',
     exchangeRate: '匯率',
     unifyExchangeRate: '統一匯率',
-    /** Button label after clicking 統一匯率 / Exchange Rate. */
-    unifyExchangeRateApplied: '已套用全部',
+    /** Button label after clicking（EN switches to Apply to all; ZH stays 統一匯率）. */
+    unifyExchangeRateApplied: '統一匯率',
     hkdCost: 'HKD$成本價',
     unit: '單位',
     remarks: '備註',
