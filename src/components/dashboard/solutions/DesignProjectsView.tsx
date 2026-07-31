@@ -996,11 +996,15 @@ function ZoneProductRow({
       </div>
     ) : null;
 
-  // Multi-scheme only (2–3 cols): vertical card — image → 備註 under image → specs → price.
+  // Multi-scheme (2–3 cols): stacked card with constrained image so text never sits under it.
+  // Order: actions → title → image → specs → 備註 → 單價/小計.
   const card = multiScheme ? (
-    <div className="flex min-w-0 flex-col gap-2.5 p-3">
-      {actionButtons}
-      <div className="min-w-0">
+    <div className="flex h-full min-w-0 flex-col gap-2 bg-card p-3">
+      <div className="relative z-10 flex flex-wrap items-center gap-1.5">
+        {actionButtons}
+      </div>
+
+      <div className="relative z-10 min-w-0">
         {custom ? (
           <input
             type="text"
@@ -1011,37 +1015,49 @@ function ZoneProductRow({
             aria-label="產品名稱"
           />
         ) : (
-          <p className="line-clamp-2 text-[13px] font-medium leading-snug">
+          <p
+            className="break-words text-[13px] font-medium leading-snug text-foreground"
+            title={item.productTitle}
+          >
             {item.productTitle}
           </p>
         )}
       </div>
-      {productImage({ className: 'aspect-square w-full' })}
-      {notesEditor(2, 'min-h-[56px]')}
-      <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-        {factoryName ? (
-          <span className="inline-flex max-w-full items-center rounded-full border border-border bg-muted/60 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-            <span className="truncate" title={factoryName}>
-              {factoryName}
+
+      <div className="relative z-0 mx-auto aspect-square w-full max-w-[200px] shrink-0 overflow-hidden rounded-lg">
+        {productImage({ className: 'h-full w-full' })}
+      </div>
+
+      <div className="relative z-10 flex min-w-0 flex-col gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+          {factoryName ? (
+            <span className="inline-flex max-w-full items-center rounded-full border border-border bg-muted/60 px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+              <span className="truncate" title={factoryName}>
+                {factoryName}
+              </span>
             </span>
-          </span>
-        ) : null}
-        {sku ? (
-          <span
-            className="inline-flex max-w-full items-center rounded-full border border-border bg-muted/40 px-2 py-0.5 font-mono text-[11px] font-medium text-muted-foreground"
-            title={`SKU ${sku}`}
-          >
-            <span className="truncate">SKU {sku}</span>
-          </span>
-        ) : null}
-        <div className="ml-auto">{qtyControl}</div>
+          ) : null}
+          {sku ? (
+            <span
+              className="inline-flex max-w-full items-center rounded-full border border-border bg-muted/40 px-2 py-0.5 font-mono text-[11px] font-medium text-muted-foreground"
+              title={`SKU ${sku}`}
+            >
+              <span className="truncate">SKU {sku}</span>
+            </span>
+          ) : null}
+          <div className="ml-auto">{qtyControl}</div>
+        </div>
+        <div className="flex min-w-0 flex-col gap-1.5">
+          {dimInputs(true)}
+          <div>{statusSelect}</div>
+        </div>
+        {feedbackBlock}
       </div>
-      <div className="flex min-w-0 flex-wrap items-center justify-between gap-2">
-        {dimInputs(true)}
-        {statusSelect}
+
+      <div className="relative z-10 mt-auto flex min-w-0 flex-col gap-2 border-t border-border/60 pt-2">
+        {notesEditor(2, 'min-h-[48px]')}
+        <div className="flex justify-end">{priceBlock(true)}</div>
       </div>
-      {feedbackBlock}
-      <div className="mt-auto flex justify-end pt-1">{priceBlock(true)}</div>
     </div>
   ) : (
     // Single product: keep original side-by-side layout (備註 next to price, not under image).
@@ -1280,14 +1296,14 @@ function ZoneSchemeSlotRow({
         className={cn(
           'min-w-0',
           count >= 3
-            ? 'grid grid-cols-1 gap-px bg-border md:grid-cols-2 xl:grid-cols-3'
+            ? 'grid grid-cols-1 items-stretch gap-px bg-border md:grid-cols-2 xl:grid-cols-3'
             : count === 2
-              ? 'grid grid-cols-1 gap-px bg-border xl:grid-cols-2'
+              ? 'grid grid-cols-1 items-stretch gap-px bg-border xl:grid-cols-2'
               : 'flex flex-col',
         )}
       >
         {slot.products.map((item, index) => (
-          <div key={item.id} className="min-w-0 bg-card">
+          <div key={item.id} className="relative z-0 min-w-0 overflow-visible bg-card">
             <ZoneProductRow
               item={item}
               zoneId={zoneId}
