@@ -2021,12 +2021,25 @@ export function DesignProjectsView() {
       level2?: string;
       divisionId?: string | null;
       schemeForProductId?: string | null;
+      /** Pre-fill「已選擇」when reopening 更多方案 with existing extras. */
+      initialSchemeSessionPicks?: Array<{
+        productId: string;
+        sku: string;
+        title: string;
+      }>;
     },
   ) => {
     setPickerZoneId(zoneId ?? null);
     setReplacingZoneProductId(replaceZoneProductId ?? null);
     setSchemeForProductId(opts?.schemeForProductId ?? null);
-    setSchemeSessionPicks([]);
+    setSchemeSessionPicks(
+      opts?.schemeForProductId
+        ? (opts.initialSchemeSessionPicks || []).slice(
+            0,
+            MAX_SCHEME_EXTRAS_PER_PICKER,
+          )
+        : [],
+    );
     setPickerDivisionId(opts?.divisionId ?? null);
     setProductLevel1(opts?.level1 ?? '');
     setProductLevel2(opts?.level2 ?? '');
@@ -2425,22 +2438,54 @@ export function DesignProjectsView() {
       furnitureSchemeGroups[zoneId] || [],
       item.id,
     );
-    const count = group?.productIds.length || 1;
+    const memberIds = group?.productIds?.length
+      ? group.productIds
+      : [item.id];
+    const count = memberIds.length;
     if (count >= MAX_FURNITURE_SCHEME_PRODUCTS) {
       toast.error(`同一欄位最多 ${MAX_FURNITURE_SCHEME_PRODUCTS} 款方案`);
       return;
     }
+    // Already-added extras (方案 2 / 3) seed「已選擇」so reopen shows e.g. 1/2 + SKU.
+    const existingExtras = memberIds.slice(1).flatMap((zoneProductId) => {
+      const row = zoneProducts.find((product) => product.id === zoneProductId);
+      if (!row) return [];
+      const catalogId = String(row.productId || '').trim();
+      const skuFromMeta = catalogId
+        ? String(productMetaById[catalogId]?.sku || '').trim()
+        : '';
+      const skuFromCatalog = catalogId
+        ? String(
+            products.find((product) => product.id === catalogId)?.sku || '',
+          ).trim()
+        : '';
+      const sku =
+        skuFromMeta ||
+        skuFromCatalog ||
+        catalogId ||
+        String(row.productTitle || '').trim() ||
+        '—';
+      return [
+        {
+          productId: catalogId || zoneProductId,
+          sku,
+          title: row.productTitle || '',
+        },
+      ];
+    });
     const division = (furnitureDivisions[zoneId] || []).find((row) =>
       (row.productIds || []).includes(item.id),
     );
     const catalog = item.productId
       ? products.find((row) => row.id === item.productId)
       : null;
+    const anchorId = memberIds[0] || item.id;
     void openPicker(zoneId, null, {
       level1: division?.level1 || catalog?.level1Category || '',
       level2: division?.level2 || catalog?.level2Category || '',
       divisionId: division?.id ?? null,
-      schemeForProductId: item.id,
+      schemeForProductId: anchorId,
+      initialSchemeSessionPicks: existingExtras,
     });
   };
 
