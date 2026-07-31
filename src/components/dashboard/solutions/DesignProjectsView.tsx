@@ -996,7 +996,7 @@ function ZoneProductRow({
       </div>
     ) : null;
 
-  // Multi-scheme (2–3 cols): vertical card — image → 備註 → specs → price bottom-right.
+  // Multi-scheme only (2–3 cols): vertical card — image → 備註 under image → specs → price.
   const card = multiScheme ? (
     <div className="flex min-w-0 flex-col gap-2.5 p-3">
       {actionButtons}
@@ -1044,18 +1044,17 @@ function ZoneProductRow({
       <div className="mt-auto flex justify-end pt-1">{priceBlock(true)}</div>
     </div>
   ) : (
+    // Single product: keep original side-by-side layout (備註 next to price, not under image).
     <div className="flex min-w-0 items-stretch">
       <div
-        className="flex shrink-0 flex-col gap-2"
+        className="shrink-0"
         style={{
           paddingTop: PRODUCT_IMAGE_PAD_PX,
           paddingBottom: PRODUCT_IMAGE_PAD_PX,
           paddingLeft: PRODUCT_IMAGE_PAD_PX,
-          width: size + PRODUCT_IMAGE_PAD_PX,
         }}
       >
         {productImage({ fixedPx: size })}
-        <div style={{ width: size }}>{notesEditor(3, 'min-h-[72px]')}</div>
       </div>
 
       <div
@@ -1127,7 +1126,17 @@ function ZoneProductRow({
 
           {feedbackBlock}
 
-          <div className="mt-auto flex justify-end pb-1">{priceBlock(false)}</div>
+          <div className="mt-auto flex items-end gap-4 pb-1">
+            <div
+              className={cn(
+                'flex min-w-0 w-full items-start gap-2.5 py-1',
+                PRODUCT_NOTES_MAX_CLASS,
+              )}
+            >
+              {notesEditor(3, 'min-h-[72px]')}
+            </div>
+            {priceBlock(false)}
+          </div>
         </div>
       </div>
     </div>
