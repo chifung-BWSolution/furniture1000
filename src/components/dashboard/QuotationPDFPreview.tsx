@@ -1191,121 +1191,134 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
           {renderInstallRow()}
         </View>
 
-        {discountValue > 0 ? (
-          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 4, paddingRight: 4 }}>
+        {/*
+          Keep discount + 總金額 with the product table.
+          react-pdf can incorrectly page-break a short trailing node when the
+          following 交付細節/條款 block is large (shouldBreak + splitNodes pushes
+          that node AND all siblings). wrap={false} makes the totals atomic;
+          `break` on the legal block starts 交付細節 on a fresh page so 總金額
+          is not dragged along.
+        */}
+        <View wrap={false}>
+          {discountValue > 0 ? (
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 4, paddingRight: 4 }}>
+              <Text
+                style={{
+                  fontSize: 8,
+                  marginRight: 8,
+                  lineHeight: 1.4,
+                  width: locale === 'en' ? 92 : 60,
+                  textAlign: 'right',
+                }}
+                wrap={false}
+              >
+                Discount:
+              </Text>
+              <Text style={{ fontSize: 8, lineHeight: 1.4, width: 90, textAlign: 'right' }}>HK${discountValue.toLocaleString()}</Text>
+            </View>
+          ) : null}
+
+          <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 2, paddingRight: 4, alignItems: 'flex-end' }}>
             <Text
               style={{
-                fontSize: 8,
-                marginRight: 8,
-                lineHeight: 1.4,
+                ...styles.totalLabel,
                 width: locale === 'en' ? 92 : 60,
                 textAlign: 'right',
+                marginRight: 8,
               }}
               wrap={false}
             >
-              Discount:
+              {labels.grandTotal}:
             </Text>
-            <Text style={{ fontSize: 8, lineHeight: 1.4, width: 90, textAlign: 'right' }}>HK${discountValue.toLocaleString()}</Text>
-          </View>
-        ) : null}
-
-        <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 2, paddingRight: 4, alignItems: 'flex-end' }}>
-          <Text
-            style={{
-              ...styles.totalLabel,
-              width: locale === 'en' ? 92 : 60,
-              textAlign: 'right',
-              marginRight: 8,
-            }}
-            wrap={false}
-          >
-            {labels.grandTotal}:
-          </Text>
-          <View style={{ borderBottomWidth: 1, borderBottomColor: TABLE_BORDER, minWidth: 90, paddingBottom: 1 }}>
-            <Text style={{ ...styles.totalValue, width: 90, textAlign: 'right' }}>HK${totalAmount.toLocaleString()}</Text>
+            <View style={{ borderBottomWidth: 1, borderBottomColor: TABLE_BORDER, minWidth: 90, paddingBottom: 1 }}>
+              <Text style={{ ...styles.totalValue, width: 90, textAlign: 'right' }}>HK${totalAmount.toLocaleString()}</Text>
+            </View>
           </View>
         </View>
 
-        <Text style={styles.sectionTitle}>{labels.deliveryTitle}</Text>
-        <Text style={styles.sectionText}>{pdfDisplayText(data.deliveryDetails || '')}</Text>
+        {/* 訂單確認及交付細節 / 條款 — separate content block (new page). */}
+        <View break>
+          <Text style={{ ...styles.sectionTitle, marginTop: 0 }}>{labels.deliveryTitle}</Text>
+          <Text style={styles.sectionText}>{pdfDisplayText(data.deliveryDetails || '')}</Text>
 
-        <Text style={styles.termsTitle}>{labels.termsTitle}</Text>
+          <Text style={styles.termsTitle}>{labels.termsTitle}</Text>
 
-        {data.termsContent?.fullHtml && (data.termsContent.fullHtml.replace(/<[^>]*>/g, '').replace(/\s/g, '').length > 0 || /<u[^>]*>/i.test(data.termsContent.fullHtml)) ? (
-          parseHtmlForPdf(data.termsContent.fullHtml).map((item, i) => {
-            if (item.type === 'spacer') {
-              return <View key={i} style={styles.termSpacer} />;
-            }
+          {data.termsContent?.fullHtml && (data.termsContent.fullHtml.replace(/<[^>]*>/g, '').replace(/\s/g, '').length > 0 || /<u[^>]*>/i.test(data.termsContent.fullHtml)) ? (
+            parseHtmlForPdf(data.termsContent.fullHtml).map((item, i) => {
+              if (item.type === 'spacer') {
+                return <View key={i} style={styles.termSpacer} />;
+              }
 
-            const hasUnderlineBlank = item.segments.some(s => s.underlineBlank);
-            const baseStyle = item.type === 'heading' ? styles.termSubTitle : styles.termItem;
+              const hasUnderlineBlank = item.segments.some(s => s.underlineBlank);
+              const baseStyle = item.type === 'heading' ? styles.termSubTitle : styles.termItem;
 
-            if (hasUnderlineBlank) {
-              const viewStyle: any = { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: baseStyle.marginBottom || 0, marginTop: baseStyle.marginTop || 0 };
-              const textBaseStyle: any = { fontSize: baseStyle.fontSize || 8, lineHeight: baseStyle.lineHeight || 1.7, fontWeight: baseStyle.fontWeight };
+              if (hasUnderlineBlank) {
+                const viewStyle: any = { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: baseStyle.marginBottom || 0, marginTop: baseStyle.marginTop || 0 };
+                const textBaseStyle: any = { fontSize: baseStyle.fontSize || 8, lineHeight: baseStyle.lineHeight || 1.7, fontWeight: baseStyle.fontWeight };
+                return (
+                  <View key={i} style={viewStyle}>
+                    {item.segments.map((seg, j) => {
+                      if (seg.underlineBlank) {
+                        return (
+                          <View key={j} style={{ borderBottomWidth: 0.5, borderBottomColor: '#1a1a1a', flexGrow: 1, minWidth: 120, height: (baseStyle.fontSize || 8) + 2, marginBottom: 0 }} />
+                        );
+                      }
+                      const segStyle: any = { ...textBaseStyle };
+                      if (seg.bold) segStyle.fontWeight = 700;
+                      if (seg.underline) segStyle.textDecoration = 'underline';
+                      if (seg.italic) segStyle.fontStyle = 'italic';
+                      return <Text key={j} style={segStyle}>{seg.text}</Text>;
+                    })}
+                  </View>
+                );
+              }
+
               return (
-                <View key={i} style={viewStyle}>
+                <Text key={i} style={baseStyle}>
                   {item.segments.map((seg, j) => {
-                    if (seg.underlineBlank) {
-                      return (
-                        <View key={j} style={{ borderBottomWidth: 0.5, borderBottomColor: '#1a1a1a', flexGrow: 1, minWidth: 120, height: (baseStyle.fontSize || 8) + 2, marginBottom: 0 }} />
-                      );
-                    }
-                    const segStyle: any = { ...textBaseStyle };
+                    const segStyle: any = {};
                     if (seg.bold) segStyle.fontWeight = 700;
                     if (seg.underline) segStyle.textDecoration = 'underline';
                     if (seg.italic) segStyle.fontStyle = 'italic';
-                    return <Text key={j} style={segStyle}>{seg.text}</Text>;
+                    return Object.keys(segStyle).length > 0
+                      ? <Text key={j} style={segStyle}>{seg.text}</Text>
+                      : seg.text;
                   })}
-                </View>
+                </Text>
               );
-            }
-
-            return (
-              <Text key={i} style={baseStyle}>
-                {item.segments.map((seg, j) => {
-                  const segStyle: any = {};
-                  if (seg.bold) segStyle.fontWeight = 700;
-                  if (seg.underline) segStyle.textDecoration = 'underline';
-                  if (seg.italic) segStyle.fontStyle = 'italic';
-                  return Object.keys(segStyle).length > 0
-                    ? <Text key={j} style={segStyle}>{seg.text}</Text>
-                    : seg.text;
-                })}
+            })
+          ) : (
+            <>
+              <Text style={styles.termItem}>
+                <Text style={styles.boldText}>{fallbackTermsHeadings.deliveryAddress}</Text>
+                {pdfDisplayText(data.quoteMeta?.deliveryAddress || fallbackTermsHeadings.deliveryAddressFallback)}
               </Text>
-            );
-          })
-        ) : (
-          <>
-            <Text style={styles.termItem}>
-              <Text style={styles.boldText}>{fallbackTermsHeadings.deliveryAddress}</Text>
-              {pdfDisplayText(data.quoteMeta?.deliveryAddress || fallbackTermsHeadings.deliveryAddressFallback)}
-            </Text>
 
-            <Text style={styles.termSubTitle}>{fallbackTermsHeadings.payment}</Text>
-            {renderPlainTermLines(data.termsContent?.payment, 'payment', Text, View)}
+              <Text style={styles.termSubTitle}>{fallbackTermsHeadings.payment}</Text>
+              {renderPlainTermLines(data.termsContent?.payment, 'payment', Text, View)}
 
-            <Text style={styles.termSubTitle}>{fallbackTermsHeadings.transport}</Text>
-            {renderPlainTermLines(data.termsContent?.transport, 'transport', Text, View)}
+              <Text style={styles.termSubTitle}>{fallbackTermsHeadings.transport}</Text>
+              {renderPlainTermLines(data.termsContent?.transport, 'transport', Text, View)}
 
-            <Text style={styles.termSubTitle}>{fallbackTermsHeadings.extraFees}</Text>
-            {renderPlainTermLines(data.termsContent?.extraFees, 'extraFees', Text, View)}
+              <Text style={styles.termSubTitle}>{fallbackTermsHeadings.extraFees}</Text>
+              {renderPlainTermLines(data.termsContent?.extraFees, 'extraFees', Text, View)}
 
-            <Text style={styles.termSubTitle}>{fallbackTermsHeadings.warranty}</Text>
-            {renderPlainTermLines(data.termsContent?.warranty, 'warranty', Text, View)}
+              <Text style={styles.termSubTitle}>{fallbackTermsHeadings.warranty}</Text>
+              {renderPlainTermLines(data.termsContent?.warranty, 'warranty', Text, View)}
 
-            <Text style={styles.termSubTitle}>{fallbackTermsHeadings.other}</Text>
-            {renderPlainTermLines(data.termsContent?.other, 'other', Text, View)}
-          </>
-        )}
+              <Text style={styles.termSubTitle}>{fallbackTermsHeadings.other}</Text>
+              {renderPlainTermLines(data.termsContent?.other, 'other', Text, View)}
+            </>
+          )}
 
-        <View style={styles.signatureSection} wrap={false} minPresenceAhead={20}>
-          <View style={styles.signatureBlock}>
-            <Text style={styles.signatureTitle}>{labels.customerAcceptance}</Text>
-            <Text style={styles.signatureLabel}>{labels.customerSignLabel}</Text>
-            <View style={styles.signatureMiddle} />
-            <View style={styles.signatureLine} />
-            <Text style={styles.signatureDate}>{labels.dateOfSignature}</Text>
+          <View style={styles.signatureSection} wrap={false} minPresenceAhead={20}>
+            <View style={styles.signatureBlock}>
+              <Text style={styles.signatureTitle}>{labels.customerAcceptance}</Text>
+              <Text style={styles.signatureLabel}>{labels.customerSignLabel}</Text>
+              <View style={styles.signatureMiddle} />
+              <View style={styles.signatureLine} />
+              <Text style={styles.signatureDate}>{labels.dateOfSignature}</Text>
+            </View>
           </View>
         </View>
       </Page>
