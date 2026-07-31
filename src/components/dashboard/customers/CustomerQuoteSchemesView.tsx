@@ -692,12 +692,42 @@ function QuotePortalProductCard({
       ? Math.max(1, Math.floor(maxQuantity))
       : 9999;
   const title = quoteItemDisplayName(item);
+  const stopCardSelect = (event: { stopPropagation: () => void }) => {
+    event.stopPropagation();
+  };
+  const toggleCardSelect = () => {
+    if (dimmed) return;
+    onToggleSelected(!selected);
+  };
 
   return (
     <article
+      role="button"
+      tabIndex={dimmed ? -1 : 0}
+      aria-pressed={selected}
+      onClick={toggleCardSelect}
+      onKeyDown={(event) => {
+        if (dimmed) return;
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          toggleCardSelect();
+        }
+      }}
+      title={
+        dimmed
+          ? '已選數量已達此傢俬劃分所需，無法再選其他方案'
+          : selected
+            ? '點擊空白處取消選擇'
+            : '點擊空白處選擇此產品'
+      }
       className={cn(
-        'flex h-full min-w-0 flex-col gap-3 bg-card p-4 transition',
-        dimmed && 'bg-muted/40 opacity-55',
+        'flex h-full min-w-0 flex-col gap-3 p-4 transition-colors',
+        dimmed && 'cursor-not-allowed bg-muted/40 opacity-55',
+        !dimmed && 'cursor-pointer',
+        !dimmed &&
+          selected &&
+          'bg-primary/20 ring-1 ring-inset ring-primary/30',
+        !dimmed && !selected && 'bg-card hover:bg-primary/5',
       )}
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -716,6 +746,7 @@ function QuotePortalProductCard({
           <span />
         )}
         <label
+          onClick={stopCardSelect}
           className={cn(
             'inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[14px]',
             dimmed
@@ -724,7 +755,7 @@ function QuotePortalProductCard({
             !dimmed && selected
               ? 'border-primary/40 bg-primary/10 text-primary'
               : !dimmed
-                ? 'border-border bg-background text-muted-foreground'
+                ? 'border-border bg-background/80 text-muted-foreground'
                 : null,
           )}
           title={
@@ -756,7 +787,10 @@ function QuotePortalProductCard({
         {item.image ? (
           <button
             type="button"
-            onClick={() => onPreviewImage(item.image!, title)}
+            onClick={(event) => {
+              stopCardSelect(event);
+              onPreviewImage(item.image!, title);
+            }}
             className="group relative h-full w-full cursor-zoom-in overflow-hidden rounded-xl ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             title="點擊放大圖片"
             aria-label={`${title}圖片預覽`}
@@ -802,10 +836,16 @@ function QuotePortalProductCard({
             {fmtMoney(Number(item.unitPrice || 0))}
           </span>
           <span>×</span>
-          <div className="inline-flex shrink-0 items-center overflow-hidden rounded-md border border-border bg-background">
+          <div
+            className="inline-flex shrink-0 items-center overflow-hidden rounded-md border border-border bg-background"
+            onClick={stopCardSelect}
+          >
             <button
               type="button"
-              onClick={() => onSetQuantity(qty - 1)}
+              onClick={(event) => {
+                stopCardSelect(event);
+                onSetQuantity(qty - 1);
+              }}
               disabled={dimmed || qty <= 1}
               className="flex h-7 w-7 items-center justify-center text-[14px] text-muted-foreground hover:bg-muted disabled:opacity-35"
               aria-label="數量減一"
@@ -818,6 +858,7 @@ function QuotePortalProductCard({
               max={qtyCeiling}
               value={qty}
               disabled={dimmed}
+              onClick={stopCardSelect}
               onChange={(event) =>
                 onSetQuantity(Number(event.target.value))
               }
@@ -826,7 +867,10 @@ function QuotePortalProductCard({
             />
             <button
               type="button"
-              onClick={() => onSetQuantity(qty + 1)}
+              onClick={(event) => {
+                stopCardSelect(event);
+                onSetQuantity(qty + 1);
+              }}
               disabled={dimmed || qty >= qtyCeiling}
               className="flex h-7 w-7 items-center justify-center text-[14px] text-muted-foreground hover:bg-muted disabled:opacity-35"
               aria-label="數量加一"
@@ -854,7 +898,7 @@ function QuotePortalProductCard({
       </p>
 
       {messages.length > 0 ? (
-        <div className="space-y-2">
+        <div className="space-y-2" onClick={stopCardSelect}>
           {messages.map((message) => (
             <div
               key={message.id}
@@ -898,9 +942,10 @@ function QuotePortalProductCard({
       ) : null}
 
       {review === 'change' || review === 'rejected' ? (
-        <div>
+        <div onClick={stopCardSelect}>
           <textarea
             value={draftNote}
+            onClick={stopCardSelect}
             onChange={(event) => onSetDraftNote(event.target.value)}
             rows={2}
             placeholder="請說明需要修改或不接受的原因…"
@@ -909,7 +954,10 @@ function QuotePortalProductCard({
           <div className="mt-2 flex justify-end">
             <button
               type="button"
-              onClick={onSendMessage}
+              onClick={(event) => {
+                stopCardSelect(event);
+                onSendMessage();
+              }}
               disabled={saving}
               className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground disabled:opacity-60"
             >
@@ -921,7 +969,7 @@ function QuotePortalProductCard({
       ) : null}
 
       {/* 接受 / 要求修改 / 不接受 — bottom of each product card */}
-      <div className="mt-auto flex flex-wrap justify-center gap-2 border-t border-border pt-3">
+      <div className="mt-auto flex flex-wrap justify-center gap-2 border-t border-border/70 pt-3">
         {(
           [
             {
@@ -953,7 +1001,8 @@ function QuotePortalProductCard({
             key={value}
             type="button"
             disabled={saving || dimmed}
-            onClick={() => {
+            onClick={(event) => {
+              stopCardSelect(event);
               if (review === value) {
                 onSetReview(null);
                 return;
@@ -964,7 +1013,7 @@ function QuotePortalProductCard({
               'inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-[15px] font-semibold disabled:opacity-50',
               review === value
                 ? activeClass
-                : 'border-border bg-background text-foreground/80',
+                : 'border-border bg-background/90 text-foreground/80',
             )}
           >
             <Icon className={cn('h-4.5 w-4.5 h-[1.125rem] w-[1.125rem]', iconClass)} />
@@ -2910,7 +2959,12 @@ export function CustomerQuoteSchemesView() {
                                               return (
                                                 <div
                                                   key={`${slot.key}:${key}`}
-                                                  className="min-w-0 bg-card"
+                                                  className={cn(
+                                                    'min-w-0',
+                                                    selected
+                                                      ? 'bg-primary/20'
+                                                      : 'bg-card',
+                                                  )}
                                                 >
                                                   <QuotePortalProductCard
                                                     item={item}
