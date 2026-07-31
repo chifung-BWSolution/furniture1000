@@ -733,11 +733,14 @@ function QuotePortalProductCard({
             : '點擊空白處或「接受」以選擇此產品'
       }
       className={cn(
-        'flex h-full min-w-0 flex-col gap-3 p-4',
+        // Solid color-mix (not alpha) so selected tint matches former hover over white,
+        // and never picks up the grid's bg-border through transparency.
+        'flex h-full min-w-0 flex-col gap-3 p-4 outline-none focus:outline-none focus-visible:outline-none',
         dimmed && 'cursor-not-allowed bg-muted/40 opacity-55',
         !dimmed && 'cursor-pointer',
-        // Exact former hover tint; no hover bg (and no ring — ring looked denser).
-        !dimmed && selected && 'bg-primary/5',
+        !dimmed &&
+          selected &&
+          'bg-[color-mix(in_srgb,hsl(var(--primary))_5%,hsl(var(--card)))]',
         !dimmed && !selected && 'bg-card',
       )}
     >
@@ -2949,7 +2952,7 @@ export function CustomerQuoteSchemesView() {
                                               return (
                                                 <div
                                                   key={`${slot.key}:${key}`}
-                                                  className="min-w-0 bg-transparent"
+                                                  className="min-w-0 bg-card"
                                                 >
                                                   <QuotePortalProductCard
                                                     item={item}
