@@ -24,6 +24,7 @@ import { TermsRichEditor } from "@/components/dashboard/TermsRichEditor";
 import { RemarksRichEditor } from "@/components/dashboard/RemarksRichEditor";
 import { toast } from "sonner";
 import { SubmitReviewModal, type SubmitReviewResult } from "@/components/dashboard/SubmitReviewModal";
+import { persistBwfQuote } from "@/lib/persistBwfQuote";
 import { ProductSelectorModal } from "@/components/dashboard/ProductSelectorModal";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -2261,7 +2262,7 @@ export function QuotationDraftEditor({
     const quoteUuid = existingQuote?.quoteUuid?.trim() || "";
     const qid = (existingQuote?.quoteId || quoteId || "").trim();
     if (!quoteUuid || !qid || qid === "NEW") {
-      toast.error("請先完成「版本審核」儲存報價單後再生成連結");
+      toast.error("請先按「保存現有版本」或「版本審核」儲存報價單後再生成連結");
       return;
     }
     setShareBusy(true);
@@ -2500,7 +2501,7 @@ export function QuotationDraftEditor({
     if (contentItems.length === 0) {
       toast.error("無法提交審核", {
         description:
-          "目前沒有報價內容（總額可能為 HK$0）。若剛才頁面曾異常，請先按「暫存草稿」或重新整理以恢復草稿。",
+          "目前沒有報價內容（總額可能為 HK$0）。若剛才頁面曾異常，請先按「保存現有版本」或重新整理以恢復草稿。",
       });
       return;
     }
@@ -2829,25 +2830,117 @@ export function QuotationDraftEditor({
     return () => unsavedGuard.setDraftFlushHandler(null);
   }, [hasQuoteData, buildDraftData, persistLocalDraftMarkers]);
 
-  const handleSaveLocalDraft = async () => {
-    if (!hasQuoteData) {
-      toast.error("尚無報價內容可暫存");
+  /** Save current editor state to Supabase (update open version, or create v1). */
+  const handleSaveExistingVersion = async () => {
+    const contentItems = items.filter(hasQuoteItemContent);
+    if (contentItems.length === 0) {
+      toast.error("尚無報價內容可保存");
       return;
     }
+    if (totalAmount <= 0) {
+      toast.error("無法保存", {
+        description: "報價總金額為 HK$0。請確認品項單價／數量後再保存。",
+      });
+      return;
+    }
+    const fromUrl =
+      typeof window !== "undefined"
+        ? (() => {
+            const parsed = parseQuotePathname(window.location.pathname);
+            return parsed.kind === "quote" ? parsed.quoteId : "";
+          })()
+        : "";
+    const chainId = pickQuoteChainId(
+      submitChainIdRef.current,
+      quoteId,
+      existingQuote?.quoteId,
+      formData.quoteId,
+      formData.pitchingCode,
+      formData.projectName,
+      draftQuoteId,
+      fromUrl,
+    );
+    if (!chainId) {
+      toast.error("缺少報價單號", {
+        description:
+          "無法確認 PMS Pitching 報價單號。請返回選擇 Pitching，或重新整理後再保存。",
+      });
+      return;
+    }
+    const submitter = (staffName || userEmail || user?.email || "").trim();
+    if (!submitter) {
+      toast.error("無法保存", {
+        description: "缺少提交者姓名（請確認已登入）。",
+      });
+      return;
+    }
+
     setIsSavingDraft(true);
     try {
-      await saveDraft(buildDraftData());
-      persistLocalDraftMarkers();
+      // Best-effort local backup before network save.
+      await saveDraft(buildDraftData()).catch(() => {});
+      // 複製報價單尚未落庫時不可覆寫舊版本 → 開新版；其餘更新現有版／新單存 v1。
+      const persistMode =
+        forceNewQuote && !existingQuote?.quoteUuid
+          ? "new-version"
+          : "save-current";
+      const result = await persistBwfQuote({
+        mode: persistMode,
+        totalAmount,
+        totalCostPrice,
+        projectData: buildProjectData(),
+        items: contentItems,
+        bwfPitchingId:
+          formData.pmsPitchingId || existingQuote?.bwfPitchingId || null,
+        bwfProjectId:
+          formData.pmsProjectId || existingQuote?.bwfProjectId || null,
+        quoteId: chainId,
+        pitchingCode: chainId,
+        existingQuoteId: pickQuoteChainId(
+          existingQuote?.quoteId,
+          submitChainIdRef.current,
+          quoteId,
+          draftQuoteId,
+          chainId,
+        ),
+        existingQuoteUuid: existingQuote?.quoteUuid ?? null,
+        existingVersion: existingQuote?.version ?? null,
+        existingStatus: existingQuote?.status ?? null,
+        lockedChainId: chainId,
+        submitter,
+      });
+      submitChainIdRef.current = result.quoteId;
+      baselineSnapshotRef.current = JSON.stringify(buildDraftData());
+      setSnapshotReady(true);
+      unsavedGuard.clear();
+      deleteDraft(storageKey).catch(() => {});
+      deleteDraft(makeDraftKey(userEmail, result.quoteId)).catch(() => {});
+      clearUseLocalQuoteDraft(userEmail);
+      writeQuickQuoteEditingId(userEmail, result.quoteId);
+      writeQuickQuoteCopyFrom(userEmail, null);
+      writeResumeQuote(userEmail, {
+        quoteId: result.quoteId,
+        quoteUuid: result.quoteUuid,
+      });
+      itemsUserEditedRef.current = true;
+      itemsHydratedForUuidRef.current = result.quoteUuid;
       setLastLocalSavedAt(Date.now());
       setAutoSaveFailed(false);
-      toast.success("草稿已暫存", {
-        description: "僅保存在此瀏覽器。完成後請再按「版本審核」正式提交。",
-      });
+      toast.success(
+        !existingQuote?.quoteUuid && result.version === "v1"
+          ? "已保存為 v1"
+          : persistMode === "new-version"
+            ? "已保存為新版本"
+            : "已保存現有版本",
+        {
+          description: `${result.quoteId} · 版本 ${result.version}`,
+        },
+      );
+      onQuotePersisted?.(result);
     } catch (err: unknown) {
-      setAutoSaveFailed(true);
       const message =
-        err instanceof Error ? err.message : "無法寫入本機草稿，請檢查瀏覽器儲存空間";
-      toast.error("暫存失敗", { description: message });
+        err instanceof Error ? err.message : "無法保存至伺服器，請稍後再試";
+      toast.error("保存失敗", { description: message });
     } finally {
       setIsSavingDraft(false);
     }
@@ -3168,7 +3261,7 @@ export function QuotationDraftEditor({
         <div className="mx-auto w-full max-w-none">
           {/* Info panels + action buttons — above 報價內容
               Top: 統一匯率 (+ panel) · 預覽 PDF · 生成QR (above ENG)
-              Main: 公司資訊 / 專案分類 / 客戶資訊 / 報價資訊 / 立即暫存 / 版本審核 */}
+              Main: 公司資訊 / 專案分類 / 客戶資訊 / 報價資訊 / 保存現有版本 / 版本審核 */}
           <div className="mb-5 space-y-2">
             <div className="grid grid-cols-2 gap-2 lg:grid-cols-6">
               <div className="hidden lg:col-span-3 lg:block" aria-hidden />
@@ -3547,23 +3640,21 @@ export function QuotationDraftEditor({
                 </div>
               </InfoPanelColumn>
 
-              {/* Col 5: 立即暫存 — vertically under 預覽 PDF */}
+              {/* Col 5: 保存現有版本 — vertically under 預覽 PDF */}
               <div className="col-span-1 flex flex-col items-stretch gap-1">
                 <button
                   type="button"
-                  onClick={() => void handleSaveLocalDraft()}
-                  disabled={isSavingDraft || isAutoSaving || !hasQuoteData}
+                  onClick={() => void handleSaveExistingVersion()}
+                  disabled={isSavingDraft || !hasQuoteData}
                   className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-background px-3 py-2 font-body text-sm font-medium text-foreground transition-colors hover:bg-muted/50 disabled:cursor-not-allowed disabled:opacity-50"
                   title={t.autoSaveHint}
                 >
-                  {isSavingDraft || isAutoSaving ? (
+                  {isSavingDraft ? (
                     <Loader2 className="h-4 w-4 shrink-0 animate-spin" />
                   ) : (
                     <Save className="h-4 w-4 shrink-0" />
                   )}
-                  <span className="truncate">
-                    {isAutoSaving ? t.autoSaving : t.saveDraft}
-                  </span>
+                  <span className="truncate">{t.saveDraft}</span>
                 </button>
                 <p
                   className={cn(
@@ -3575,7 +3666,7 @@ export function QuotationDraftEditor({
                   title={t.autoSaveHint}
                 >
                   {autoSaveFailed
-                    ? "自動暫存失敗，請按立即暫存"
+                    ? "本機備份失敗；請按「保存現有版本」寫入伺服器"
                     : lastLocalSavedAt
                       ? `${t.autoSavedAt} ${new Date(lastLocalSavedAt).toLocaleTimeString("zh-HK", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}`
                       : t.autoSaveHint}
@@ -3588,7 +3679,7 @@ export function QuotationDraftEditor({
                   type="button"
                   onClick={handleOpenSubmitReview}
                   className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-3 py-2 font-body text-sm font-semibold text-primary-foreground shadow-md shadow-primary/20 transition-all hover:bg-primary/90 active:scale-[0.98]"
-                  title="提交後會產生新版本快照並送審"
+                  title="開新版本並提交審核"
                 >
                   <ShieldCheck className="h-4 w-4 shrink-0" />
                   <span className="truncate">{t.versionReview}</span>

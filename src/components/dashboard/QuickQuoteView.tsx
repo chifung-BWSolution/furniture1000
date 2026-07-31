@@ -1544,18 +1544,27 @@ export function QuickQuoteView({
               onQuotePersisted={(result) => {
                 writeQuickQuoteCopyFrom(userEmail, null);
                 setCopyPayload(null);
-                setLoadedQuoteData((prev) => ({
-                  quoteId: result.quoteId,
-                  quoteUuid: result.quoteUuid,
-                  version: result.version,
-                  status: '待審核',
-                  totalAmount: result.totalAmount,
-                  submitter: prev?.submitter ?? formData.projectManager,
-                  projectData: result.projectData,
-                  bwfPitchingId: prev?.bwfPitchingId ?? formData.pmsPitchingId ?? null,
-                  bwfProjectId: prev?.bwfProjectId ?? formData.pmsProjectId ?? null,
-                  maxVersionInChain: result.version,
-                }));
+                setLoadedQuoteData((prev) => {
+                  const prevMax = prev?.maxVersionInChain || prev?.version || '';
+                  const nextMax =
+                    compareQuoteVersion(result.version, prevMax) >= 0
+                      ? result.version
+                      : prevMax || result.version;
+                  return {
+                    quoteId: result.quoteId,
+                    quoteUuid: result.quoteUuid,
+                    version: result.version,
+                    status: result.status || prev?.status || '待審核',
+                    totalAmount: result.totalAmount,
+                    submitter: prev?.submitter ?? formData.projectManager,
+                    projectData: result.projectData,
+                    bwfPitchingId:
+                      prev?.bwfPitchingId ?? formData.pmsPitchingId ?? null,
+                    bwfProjectId:
+                      prev?.bwfProjectId ?? formData.pmsProjectId ?? null,
+                    maxVersionInChain: nextMax,
+                  };
+                });
                 // Mark this version as already loaded so parent id sync does not re-fetch
                 // an older uuid and wipe the just-submitted editor state.
                 loadedQuoteIdRef.current = `${result.quoteId}::${result.quoteUuid}`;

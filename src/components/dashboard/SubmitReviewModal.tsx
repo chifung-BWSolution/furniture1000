@@ -1,40 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
 import { X, AlertTriangle } from 'lucide-react';
-import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
-import { extractPmsPitchingIdFromProjectData, extractPmsProjectIdFromProjectData } from '@/lib/pmsQuotePrefill';
 import { useAuth } from '@/contexts/AuthProvider';
 import { usePmsStaffName } from '@/hooks/use-pms-staff-name';
-import { withInsertAuditFields } from '@/lib/pmsAudit';
-import { quoteItemHasBase64Images } from '@/lib/quoteImageStorage';
 import { fetchQuoteStaffFilterOptions } from '@/lib/quoteStaffOptions';
 import { StaffNameCombobox } from '@/components/dashboard/StaffNameCombobox';
-import {
-  replaceQuoteItems,
-  resolveItemImagesToStorage,
-  stripItemsFromProjectData,
-  resolvePitchingCode,
-  type BwfQuoteItemInput,
-} from '@/lib/bwfQuoteItems';
-import {
-  nextQuoteVersionFromChain,
-} from '@/lib/quoteVersions';
-import {
-  resolveQuoteChainId,
-  isLegacyQFormatQuoteId,
-  pickQuoteChainId,
-} from '@/lib/quoteChainId';
+import type { BwfQuoteItemInput } from '@/lib/bwfQuoteItems';
+import { pickQuoteChainId } from '@/lib/quoteChainId';
 import { parseQuotePathname } from '@/lib/quoteRoutes';
-import { fetchPmsPitchingQuoteDefaults } from '@/lib/pmsPitchingQuoteDefaults';
-import { fetchPmsPitchings } from '@/lib/pmsPitchings';
+import {
+  persistBwfQuote,
+  type PersistBwfQuoteResult,
+} from '@/lib/persistBwfQuote';
 
-export interface SubmitReviewResult {
-  quoteId: string;
-  quoteUuid: string;
-  version: string;
-  projectData: Record<string, unknown>;
-  totalAmount: number;
-}
+export type SubmitReviewResult = PersistBwfQuoteResult;
 
 interface SubmitReviewModalProps {
   open: boolean;
@@ -180,7 +159,7 @@ export function SubmitReviewModal({
     }
     if (emptyStateBlocked) {
       const msg =
-        '目前沒有有效報價內容或總額為 HK$0。頁面狀態可能已過期：請關閉此視窗，按「暫存草稿」或重新整理以恢復草稿後再提交。';
+        '目前沒有有效報價內容或總額為 HK$0。頁面狀態可能已過期：請關閉此視窗，按「保存現有版本」或重新整理以恢復草稿後再提交。';
       setError(msg);
       toast.error('無法提交審核', { description: msg });
       return;
@@ -190,180 +169,29 @@ export function SubmitReviewModal({
     setIsSubmitting(true);
 
     try {
-      let pitchingId =
-        bwfPitchingId ||
-        extractPmsPitchingIdFromProjectData(projectData) ||
-        null;
-      const projectId =
-        bwfProjectId ||
-        extractPmsProjectIdFromProjectData(projectData) ||
-        null;
-
-      const formDataRaw =
-        (projectData.formData as Record<string, unknown> | undefined) || {};
-      const quoteMeta =
-        (projectData.quoteMeta as Record<string, unknown> | undefined) || {};
-      let code = resolvePitchingCode({
-        quoteId: pickQuoteChainId(
-          lockedChainIdRef.current,
-          quoteIdProp,
-          existingQuoteId,
-        ),
+      const result = await persistBwfQuote({
+        mode: 'new-version',
+        totalAmount,
+        totalCostPrice,
+        projectData,
+        items: previewItems,
+        bwfPitchingId,
+        bwfProjectId,
+        quoteId: quoteIdProp,
         pitchingCode,
-        formData: formDataRaw,
-        quoteMeta,
-      });
-
-      // Legacy Q… draft URL ids are not valid chain keys — treat as missing.
-      if (isLegacyQFormatQuoteId(code)) {
-        code = '';
-      }
-
-      // Prefer live PMS pitching code when wizard/draft lost the BWF number.
-      if (!code && pitchingId) {
-        const defaults = await fetchPmsPitchingQuoteDefaults({
-          pitchingId,
-          projectId,
-        });
-        code =
-          defaults?.pitching_code?.trim() ||
-          defaults?.project_code?.trim() ||
-          '';
-      }
-
-      const fromUrl = (() => {
-        if (typeof window === 'undefined') return '';
-        const parsed = parseQuotePathname(window.location.pathname);
-        return parsed.kind === 'quote' ? parsed.quoteId : '';
-      })();
-
-      // Sole persisted code: bwf_quote.quote_id (no pitching_code / pitching_name columns).
-      const quoteId = resolveQuoteChainId({
-        code,
         existingQuoteId,
-        fallbacks: [
-          lockedChainIdRef.current,
-          quoteIdProp,
-          pitchingCode,
-          typeof quoteMeta.quoteNumber === 'string' ? quoteMeta.quoteNumber : null,
-          typeof quoteMeta.projectName === 'string' ? quoteMeta.projectName : null,
-          fromUrl,
-        ],
-      });
-      if (!quoteId) {
-        throw new Error('缺少報價單號（PMS Pitching Code），無法提交');
-      }
-      lockedChainIdRef.current = quoteId;
-
-      // Older drafts may have quote_id (pitching code) but lost pmsPitchingId —
-      // resolve live PMS uuid so bwf_pitching_id is always persisted.
-      if (!pitchingId) {
-        const matches = await fetchPmsPitchings({
-          codes: [quoteId],
-          limit: 5,
-        });
-        const match = matches.find(
-          (row) => row.pitching_code?.trim() === quoteId.trim(),
-        );
-        if (match?.id) pitchingId = match.id;
-      }
-
-      // Always append a new version row on this quote_id chain.
-      const { data: versionRows, error: versionErr } = await supabase
-        .from('bwf_quote')
-        .select('version')
-        .eq('quote_id', quoteId);
-      if (versionErr) throw versionErr;
-      const chain = (versionRows || []).map((r) => String(r.version || ''));
-      const resolvedVersion =
-        chain.length > 0 ? nextQuoteVersionFromChain(chain) : version || 'v1';
-
-      const sourceItems = previewItems;
-      if (
-        !sourceItems.some(
-          (item) =>
-            !item.isSectionTitle &&
-            Boolean(String(item.name || '').trim() || (item.unitPrice ?? 0) > 0),
-        )
-      ) {
-        throw new Error(
-          '沒有可提交的報價品項。請關閉視窗並重新整理以恢復草稿。',
-        );
-      }
-
-      // Persist PMS ids only; never mirror code/name into JSON (title = live PMS).
-      const {
-        quoteId: _dropFormQuoteId,
-        pitchingCode: _dropPitchingCode,
-        projectName: _dropProjectName,
-        pitchingName: _dropPitchingName,
-        ...formDataRest
-      } = formDataRaw;
-      void _dropFormQuoteId;
-      void _dropPitchingCode;
-      void _dropProjectName;
-      void _dropPitchingName;
-      const formData = {
-        ...formDataRest,
-        ...(pitchingId ? { pmsPitchingId: pitchingId } : {}),
-        ...(projectId ? { pmsProjectId: projectId } : {}),
-      };
-      const payloadProjectData = stripItemsFromProjectData({
-        ...projectData,
-        formData,
-      });
-      if ('items' in payloadProjectData) {
-        delete payloadProjectData.items;
-      }
-
-      const resolvedItems = await resolveItemImagesToStorage(sourceItems, quoteId);
-      if (resolvedItems.some((item) => quoteItemHasBase64Images(item))) {
-        throw new Error('部分圖片未能上傳至 Storage，請檢查網絡後重試');
-      }
-
-      if ('items' in payloadProjectData) {
-        throw new Error('internal: project_data must not contain items');
-      }
-
-      const rowPayload = {
-        quote_id: quoteId,
-        version: resolvedVersion,
-        status: '待審核',
-        // Single source of truth for quote total (not duplicated in project_data).
-        total_amount: totalAmount,
-        cost_price: totalCostPrice ?? null,
+        lockedChainId: lockedChainIdRef.current,
         submitter: submitter.trim(),
-        project_data: payloadProjectData,
-        ...(pitchingId ? { bwf_pitching_id: pitchingId } : {}),
-        ...(projectId ? { bwf_project_id: projectId } : {}),
-      };
-
-      const insertPayload = await withInsertAuditFields(rowPayload);
-      const { data: inserted, error: dbError } = await supabase
-        .from('bwf_quote')
-        .insert(insertPayload)
-        .select('id')
-        .single();
-
-      if (dbError) throw dbError;
-      if (!inserted?.id) throw new Error('報價單已建立但缺少 id');
-      const persistedUuid = inserted.id;
-
-      await replaceQuoteItems(persistedUuid, resolvedItems);
+      });
+      lockedChainIdRef.current = result.quoteId;
 
       toast.success(
-        resolvedVersion === 'v1' ? '報價單已提交審核' : '報價單新版本已提交審核',
+        result.version === 'v1' ? '報價單已提交審核' : '報價單新版本已提交審核',
         {
-          description: `${quoteId} · 版本 ${resolvedVersion}`,
+          description: `${result.quoteId} · 版本 ${result.version}`,
         },
       );
-      onSuccess({
-        quoteId,
-        quoteUuid: persistedUuid,
-        version: resolvedVersion,
-        projectData: payloadProjectData,
-        totalAmount,
-      });
+      onSuccess(result);
       setSubmitter('');
       onClose();
     } catch (err: unknown) {
@@ -406,10 +234,10 @@ export function SubmitReviewModal({
         <div className="mb-5 flex items-start gap-3 rounded-xl border border-border bg-muted/30 p-4">
           <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-muted-foreground" />
           <p className="font-body text-xs leading-relaxed text-foreground/80">
-            提交後將產生版本快照{' '}
+            提交後將產生新版本快照{' '}
             <span className="font-semibold text-foreground">{version}</span>
             ，此版本內容將無法修改。如需修改，須建立新版本重新提交審核。
-            編輯中請用「暫存草稿」，完成後再提交審核。
+            編輯中請用「保存現有版本」寫入伺服器；需要開新版本時再按「版本審核」。
           </p>
         </div>
 
