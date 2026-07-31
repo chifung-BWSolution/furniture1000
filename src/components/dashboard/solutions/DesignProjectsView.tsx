@@ -1392,7 +1392,8 @@ export function DesignProjectsView() {
     const updateSpy = () => {
       const rootRect = root.getBoundingClientRect();
       // Anchor just below sticky TopBar when pinned; otherwise near top of scroller.
-      const anchorY = rootRect.top + (partitionHeaderPinned ? 150 : 24);
+      // Sticky header includes title + chips + context line when pinned.
+      const anchorY = rootRect.top + (partitionHeaderPinned ? 180 : 24);
 
       let nextZone = zoneGroups[0]?.label || null;
       for (const group of zoneGroups) {

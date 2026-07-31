@@ -78,7 +78,7 @@ export function TopBar({
       <header className="sticky top-0 z-30 border-b border-border bg-background/95 px-4 py-2.5 backdrop-blur-xl md:px-6">
         <div className="flex flex-wrap items-center gap-2 md:gap-3">
           <div className="min-w-0 flex-1">
-            <div className="mb-1 flex flex-wrap items-center gap-2">
+            <div className="mb-1.5 flex flex-wrap items-center gap-2">
               <h2 className="font-display text-base font-bold tracking-tight md:text-lg">
                 間隔清單與傢俬配置
               </h2>
@@ -86,11 +86,6 @@ export function TopBar({
                 間隔數量
               </span>
             </div>
-            {designSticky.activeContextLine ? (
-              <p className="mb-1.5 truncate font-body text-[13px] font-medium text-foreground md:text-[14px]">
-                {designSticky.activeContextLine}
-              </p>
-            ) : null}
             {designSticky.zoneGroups.length > 0 ? (
               <div className="flex max-h-[4.5rem] flex-wrap items-center gap-1.5 overflow-y-auto">
                 {designSticky.zoneGroups.map((group) => {
@@ -158,6 +153,11 @@ export function TopBar({
             </button>
           </div>
         </div>
+        {designSticky.activeContextLine ? (
+          <p className="mt-2 w-full text-center font-body text-[15px] font-medium text-foreground md:text-[16px]">
+            {designSticky.activeContextLine}
+          </p>
+        ) : null}
       </header>
     );
   }
