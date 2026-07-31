@@ -11,7 +11,7 @@ import type { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { consumeSsoLoginPending, writeLoginLog } from '@/lib/loginLog';
 import { clearPmsStaffCache, fetchPmsStaffInfo } from '@/lib/pmsStaff';
-import { clearPortalToken } from '@/lib/customerPortalRoutes';
+import { clearPortalToken, clearQuoteShareToken } from '@/lib/customerPortalRoutes';
 
 type AuthContextValue = {
   session: Session | null;
@@ -82,6 +82,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const signOut = useCallback(async () => {
     await writeLoginLog('logout');
     clearPortalToken();
+    clearQuoteShareToken();
     await supabase.auth.signOut();
     clearPmsStaffCache();
     setSession(null);

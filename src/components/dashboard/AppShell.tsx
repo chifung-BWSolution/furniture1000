@@ -37,6 +37,7 @@ import {
 import {
   CUSTOMER_PORTAL_BASE,
   clearPortalToken,
+  clearQuoteShareToken,
   customerViewFromPath,
   isCustomerPortalPath,
   isCustomerPortalView,
@@ -45,6 +46,7 @@ import {
   readStoredQuoteShareToken,
   storePortalToken,
   storeQuoteShareToken,
+  withCustomerPortalQuery,
 } from "@/lib/customerPortalRoutes";
 import {
   appViewFromPath,
@@ -287,14 +289,15 @@ export function AppShell() {
   const quoteShareToken = searchParams.get('quote_share');
   const storedPortalToken = readStoredPortalToken();
   const storedQuoteShareToken = readStoredQuoteShareToken();
-  const portalTokenActive = Boolean(
-    portalToken || storedPortalToken || quoteShareToken || storedQuoteShareToken,
-  );
-  // Real clients stay inside 客戶專區. Invite / quote-share tokens also lock
-  // unknown roles while loading; staff/admin keep full top-nav so they can leave.
+  const invitePortalActive = Boolean(portalToken || storedPortalToken);
+  const quoteShareActive = Boolean(quoteShareToken || storedQuoteShareToken);
+  const portalTokenActive = invitePortalActive || quoteShareActive;
+  // Quote-share links always lock to 客戶專區 (no email login required).
+  // Project invite tokens lock unknown/client roles; staff/admin can leave those.
   const clientOnly =
     platformRole === 'client' ||
-    (portalTokenActive &&
+    quoteShareActive ||
+    (invitePortalActive &&
       (roleLoading || (platformRole !== 'staff' && platformRole !== 'admin')));
   const isAdmin = platformRole === 'admin';
 
@@ -320,6 +323,33 @@ export function AppShell() {
     navigate(target, { replace: true });
   }, [portalToken, quoteShareToken, location.pathname, location.search, navigate]);
 
+  // Quote-share sessions may only stay on 報價方案.
+  useEffect(() => {
+    if (!quoteShareActive) return;
+    if (store.currentView !== 'customer-quote-schemes') {
+      store.setCurrentView('customer-quote-schemes');
+    }
+    if (!isCustomerPortalPath(location.pathname)) {
+      const qShare = quoteShareToken || storedQuoteShareToken;
+      const token = portalToken || storedPortalToken;
+      const target = withCustomerPortalQuery(CUSTOMER_PORTAL_BASE, {
+        portalToken: token,
+        quoteShareToken: qShare,
+      });
+      quoteUrlSyncRef.current = target;
+      navigate(target, { replace: true });
+    }
+  }, [
+    quoteShareActive,
+    quoteShareToken,
+    storedQuoteShareToken,
+    portalToken,
+    storedPortalToken,
+    store,
+    location.pathname,
+    navigate,
+  ]);
+
   // /customer and /customer/:slug → switch the active client-portal view.
   useEffect(() => {
     if (!isCustomerPortalPath(location.pathname)) return;
@@ -334,15 +364,10 @@ export function AppShell() {
     if (clientOnly && findSection(store.currentView) !== 'customers') {
       store.setCurrentView('customer-quote-schemes');
       if (!isCustomerPortalPath(location.pathname)) {
-        const token = portalToken || storedPortalToken;
-        const qShare = quoteShareToken || storedQuoteShareToken;
-        const params = new URLSearchParams();
-        if (token) params.set('portal_token', token);
-        if (qShare) params.set('quote_share', qShare);
-        const qs = params.toString();
-        const target = qs
-          ? `${CUSTOMER_PORTAL_BASE}?${qs}`
-          : CUSTOMER_PORTAL_BASE;
+        const target = withCustomerPortalQuery(CUSTOMER_PORTAL_BASE, {
+          portalToken: portalToken || storedPortalToken,
+          quoteShareToken: quoteShareToken || storedQuoteShareToken,
+        });
         quoteUrlSyncRef.current = target;
         navigate(target, { replace: true });
       }
@@ -586,8 +611,14 @@ export function AppShell() {
     const token =
       new URLSearchParams(location.search).get('portal_token') ||
       readStoredPortalToken();
+    const qShare =
+      new URLSearchParams(location.search).get('quote_share') ||
+      readStoredQuoteShareToken();
     const withToken = (path: string) =>
-      token ? `${path}?portal_token=${encodeURIComponent(token)}` : path;
+      withCustomerPortalQuery(path, {
+        portalToken: token,
+        quoteShareToken: qShare,
+      });
 
     if (store.currentView === 'quotation-list') {
       target = QUOTE_LIST_PATH;
@@ -1086,13 +1117,20 @@ export function AppShell() {
       store.reloadProducts();
     }
     if (isCustomerPortalView(view)) {
+      if (quoteShareActive && view !== 'customer-quote-schemes') {
+        return;
+      }
       const token =
         new URLSearchParams(location.search).get('portal_token') ||
         readStoredPortalToken();
+      const qShare =
+        new URLSearchParams(location.search).get('quote_share') ||
+        readStoredQuoteShareToken();
       const path = pathFromCustomerView(view);
-      const target = token
-        ? `${path}?portal_token=${encodeURIComponent(token)}`
-        : path;
+      const target = withCustomerPortalQuery(path, {
+        portalToken: token,
+        quoteShareToken: qShare,
+      });
       quoteUrlSyncRef.current = target;
       navigate(target, { replace: true });
       store.setCurrentView(view);
@@ -1125,14 +1163,24 @@ export function AppShell() {
 
   const handleSectionChange = (section: PrimarySection) => {
     if (section === activeSection) return;
+    if (section !== 'customers' && quoteShareActive) {
+      // Guests cannot leave; staff/admin may exit by clearing the share session.
+      if (platformRole === 'staff' || platformRole === 'admin') {
+        clearQuoteShareToken();
+      } else {
+        return;
+      }
+    }
     if (
       section !== 'customers' &&
       (platformRole === 'staff' || platformRole === 'admin') &&
-      portalTokenActive
+      invitePortalActive
     ) {
       clearPortalToken();
     }
-    const target = getFirstVisibleView(section, isAdmin);
+    const target = getFirstVisibleView(section, isAdmin, {
+      quoteShareOnly: quoteShareActive,
+    });
     if (target) handleViewChange(target);
   };
 
@@ -1163,6 +1211,7 @@ export function AppShell() {
             isCollapsed={sidebarCollapsed}
             onCollapseChange={setSidebarCollapsed}
             isAdmin={isAdmin}
+            quoteShareOnly={quoteShareActive}
           />
         )}
 

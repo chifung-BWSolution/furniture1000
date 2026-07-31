@@ -1114,6 +1114,11 @@ export function CustomerQuoteSchemesView() {
   }, [user?.email]);
 
   const fetchQuotes = useCallback(async () => {
+    // Quote-share sessions load only the shared row (see resolve effect below).
+    if (hasQuoteShareToken) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       const { data, error } = await supabase
@@ -1134,7 +1139,7 @@ export function CustomerQuoteSchemesView() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [hasQuoteShareToken]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1144,28 +1149,43 @@ export function CustomerQuoteSchemesView() {
       setSharedQuoteTarget(null);
       return;
     }
+    setLoading(true);
     void (async () => {
       const resolved = await resolveQuoteShareToken(token);
       if (cancelled) return;
       if (!resolved) {
         toast.error('分享連結無效或已撤銷');
         setSharedQuoteTarget(null);
+        setQuotes([]);
+        setLoading(false);
         return;
       }
       setSharedQuoteTarget(resolved);
-      // Ensure the shared quote is in local list even if outside default limit.
+      // Only this quotation — no bulk list for share guests.
       const { data, error } = await supabase
         .from('bwf_quote')
         .select(LIST_SELECT)
         .eq('id', resolved.quoteUuid)
         .maybeSingle();
-      if (cancelled || error || !data) return;
+      if (cancelled) return;
+      if (error || !data) {
+        toast.error('無法載入分享報價單');
+        setQuotes([]);
+        setLoading(false);
+        return;
+      }
       const [enriched] = await loadPitchingsForQuoteRows([data as QuoteRecord]);
-      if (!enriched || cancelled) return;
-      setQuotes((prev) => {
-        if (prev.some((row) => row.id === enriched.id)) return prev;
-        return [enriched, ...prev];
-      });
+      if (cancelled) return;
+      if (!enriched) {
+        setQuotes([]);
+        setLoading(false);
+        return;
+      }
+      setQuotes([enriched]);
+      setActiveId(enriched.id);
+      setShowDetail(true);
+      sharedQuoteOpenedRef.current = true;
+      setLoading(false);
     })();
     return () => {
       cancelled = true;
@@ -1174,6 +1194,14 @@ export function CustomerQuoteSchemesView() {
 
   useEffect(() => {
     void fetchQuotes();
+    // Quote-share guests only need the shared bwf_quote — skip design-project cards.
+    if (hasQuoteShareToken) {
+      setPortalProjects([]);
+      setPortalProjectData({});
+      setPortalTotals({});
+      setSyntheticQuotes([]);
+      return;
+    }
     void fetchProjects().then(async (rows) => {
       const loaded = await Promise.all(
         rows.map(async (project) => {
@@ -1213,7 +1241,7 @@ export function CustomerQuoteSchemesView() {
       );
       setPortalProjects(withFurniture.map((entry) => entry.project));
     });
-  }, [fetchQuotes]);
+  }, [fetchQuotes, hasQuoteShareToken]);
 
   useEffect(() => {
     const allowedQuoteIds = new Set(
@@ -1596,14 +1624,14 @@ export function CustomerQuoteSchemesView() {
           ),
         );
       });
-    const scoped =
-      sharedQuoteTarget && clientOnly
-        ? visible.filter(
-            (quote) =>
-              quote.id === sharedQuoteTarget.quoteUuid ||
-              quote.quote_id === sharedQuoteTarget.quoteId,
-          )
-        : visible;
+    // Quote-share links: only the shared quotation is visible (no other portal cards).
+    const scoped = sharedQuoteTarget
+      ? visible.filter(
+          (quote) =>
+            quote.id === sharedQuoteTarget.quoteUuid ||
+            quote.quote_id === sharedQuoteTarget.quoteId,
+        )
+      : visible;
     return [...scoped].sort((a, b) => {
       const aDesign = a.id.startsWith('design-project:') ? 1 : 0;
       const bDesign = b.id.startsWith('design-project:') ? 1 : 0;

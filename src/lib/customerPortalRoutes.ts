@@ -98,6 +98,34 @@ export function clearQuoteShareToken() {
   }
 }
 
+/** True when URL or storage has a quote-share token (guest portal access). */
+export function hasActiveQuoteShareAccess(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    const fromUrl = new URLSearchParams(window.location.search)
+      .get('quote_share')
+      ?.trim();
+    if (fromUrl) return true;
+    return Boolean(readStoredQuoteShareToken()?.trim());
+  } catch {
+    return false;
+  }
+}
+
+/** Append portal invite + quote-share query params for customer deep links. */
+export function withCustomerPortalQuery(
+  path: string,
+  opts?: { portalToken?: string | null; quoteShareToken?: string | null },
+): string {
+  const params = new URLSearchParams();
+  const portal = opts?.portalToken?.trim();
+  const quoteShare = opts?.quoteShareToken?.trim();
+  if (portal) params.set('portal_token', portal);
+  if (quoteShare) params.set('quote_share', quoteShare);
+  const qs = params.toString();
+  return qs ? `${path}?${qs}` : path;
+}
+
 export function readStoredPortalToken(): string | null {
   if (typeof window === 'undefined') return null;
   try {

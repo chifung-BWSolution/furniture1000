@@ -19,6 +19,8 @@ interface SidebarNavProps {
   isCollapsed?: boolean;
   onCollapseChange?: (collapsed: boolean) => void;
   isAdmin?: boolean;
+  /** Quote-share guest/link: only show 報價方案 under 客戶專區. */
+  quoteShareOnly?: boolean;
 }
 
 export function SidebarNav({
@@ -30,11 +32,14 @@ export function SidebarNav({
   isCollapsed: isCollapsedProp = false,
   onCollapseChange,
   isAdmin = false,
+  quoteShareOnly = false,
 }: SidebarNavProps) {
   const isCollapsed = isCollapsedProp;
   const setIsCollapsed = (val: boolean) => onCollapseChange?.(val);
   const section = getSection(activeSection);
-  const visibleChildren = filterNavChildren(section.children, isAdmin);
+  const visibleChildren = filterNavChildren(section.children, isAdmin, {
+    quoteShareOnly,
+  });
   const SectionIcon = section.icon;
 
   return (

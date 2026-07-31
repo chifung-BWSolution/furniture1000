@@ -158,12 +158,24 @@ export function isAdminOnlyView(view: ViewType): boolean {
   return ADMIN_ONLY_VIEWS.includes(view);
 }
 
-export function filterNavChildren(children: SecondaryItem[], isAdmin: boolean): SecondaryItem[] {
-  return isAdmin ? children : children.filter((c) => !c.adminOnly);
+export function filterNavChildren(
+  children: SecondaryItem[],
+  isAdmin: boolean,
+  opts?: { quoteShareOnly?: boolean },
+): SecondaryItem[] {
+  let list = isAdmin ? children : children.filter((c) => !c.adminOnly);
+  if (opts?.quoteShareOnly) {
+    list = list.filter((c) => c.view === 'customer-quote-schemes');
+  }
+  return list;
 }
 
-export function getFirstVisibleView(sectionId: PrimarySection, isAdmin: boolean): ViewType | undefined {
-  return filterNavChildren(getSection(sectionId).children, isAdmin)[0]?.view;
+export function getFirstVisibleView(
+  sectionId: PrimarySection,
+  isAdmin: boolean,
+  opts?: { quoteShareOnly?: boolean },
+): ViewType | undefined {
+  return filterNavChildren(getSection(sectionId).children, isAdmin, opts)[0]?.view;
 }
 
 export function getViewMeta(view: ViewType): { sectionLabel: string; viewLabel: string } {
