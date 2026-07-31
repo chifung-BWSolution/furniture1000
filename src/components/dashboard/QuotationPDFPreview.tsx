@@ -997,13 +997,14 @@ const styles: Record<string, any> = {
   totalRow: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 6, paddingRight: 4 },
   totalLabel: { fontSize: 10, fontWeight: 700, marginRight: 8, lineHeight: 1.4 },
   totalValue: { fontSize: 10, fontWeight: 700, lineHeight: 1.4 },
+  // 訂單確認及交付細節 / 條款及付款 — all text in these PDF blocks +1px vs prior.
   sectionTitle: { fontSize: 10, fontWeight: 700, marginTop: 16, marginBottom: 4, lineHeight: 1.4 },
-  sectionText: { fontSize: 7.5, lineHeight: 1.8, marginBottom: 2 },
+  sectionText: { fontSize: 8.5, lineHeight: 1.8, marginBottom: 2 },
   boldText: { fontWeight: 700 },
   termsTitle: { fontSize: 10, fontWeight: 700, marginTop: 8, marginBottom: 6, textDecoration: 'underline', lineHeight: 1.4 },
-  termItem: { fontSize: 7, lineHeight: 1.7, marginBottom: 1.5, textAlign: 'left' },
+  termItem: { fontSize: 8, lineHeight: 1.7, marginBottom: 1.5, textAlign: 'left' },
   termSpacer: { height: 10 },
-  termSubTitle: { fontSize: 8, fontWeight: 700, marginTop: 8, marginBottom: 3, lineHeight: 1.4 },
+  termSubTitle: { fontSize: 9, fontWeight: 700, marginTop: 8, marginBottom: 3, lineHeight: 1.4 },
   // Keep the signature block compact enough to stay on the same page as the
   // terms (with wrap={false}). The previous marginTop 36 + signatureMiddle 70
   // made the block ~130pt tall, which overflowed and got pushed to a new page.
@@ -1241,13 +1242,13 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
 
             if (hasUnderlineBlank) {
               const viewStyle: any = { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: baseStyle.marginBottom || 0, marginTop: baseStyle.marginTop || 0 };
-              const textBaseStyle: any = { fontSize: baseStyle.fontSize || 7, lineHeight: baseStyle.lineHeight || 1.7, fontWeight: baseStyle.fontWeight };
+              const textBaseStyle: any = { fontSize: baseStyle.fontSize || 8, lineHeight: baseStyle.lineHeight || 1.7, fontWeight: baseStyle.fontWeight };
               return (
                 <View key={i} style={viewStyle}>
                   {item.segments.map((seg, j) => {
                     if (seg.underlineBlank) {
                       return (
-                        <View key={j} style={{ borderBottomWidth: 0.5, borderBottomColor: '#1a1a1a', flexGrow: 1, minWidth: 120, height: (baseStyle.fontSize || 7) + 2, marginBottom: 0 }} />
+                        <View key={j} style={{ borderBottomWidth: 0.5, borderBottomColor: '#1a1a1a', flexGrow: 1, minWidth: 120, height: (baseStyle.fontSize || 8) + 2, marginBottom: 0 }} />
                       );
                     }
                     const segStyle: any = { ...textBaseStyle };
