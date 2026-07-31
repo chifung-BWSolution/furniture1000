@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Ban,
   ArrowLeft,
@@ -53,7 +54,10 @@ import { withInsertAuditFields, withUpdateAuditFields } from '@/lib/pmsAudit';
 import { formatProductDimensionsMm } from '@/lib/productDimensions';
 import {
   readStoredPortalToken,
+  readStoredQuoteShareTarget,
   readStoredQuoteShareToken,
+  storeQuoteShareTarget,
+  storeQuoteShareToken,
 } from '@/lib/customerPortalRoutes';
 import { resolveQuoteShareToken } from '@/lib/bwfQuoteShareLinks';
 import { publishDesignProjectStickyChrome } from '@/lib/designProjectStickyChrome';
@@ -1031,13 +1035,11 @@ export function CustomerQuoteSchemesView() {
   const currentUserName = (staffName || user?.email || '用戶').trim() || '用戶';
   const { projects: clientProjects } = useClientZoneContext();
   const { role: platformRole } = usePlatformRole();
-  const quoteShareFromUrl =
-    typeof window !== 'undefined'
-      ? new URLSearchParams(window.location.search).get('quote_share')
-      : null;
+  const [searchParams] = useSearchParams();
+  const quoteShareFromUrl = searchParams.get('quote_share');
   const hasPortalToken = Boolean(readStoredPortalToken());
   const hasQuoteShareToken = Boolean(
-    quoteShareFromUrl || readStoredQuoteShareToken(),
+    quoteShareFromUrl?.trim() || readStoredQuoteShareToken()?.trim(),
   );
   const clientOnly =
     platformRole === 'client' || hasPortalToken || hasQuoteShareToken;
@@ -1118,10 +1120,7 @@ export function CustomerQuoteSchemesView() {
 
   const fetchQuotes = useCallback(async () => {
     // Quote-share sessions load only the shared row (see resolve effect below).
-    if (hasQuoteShareToken) {
-      setLoading(false);
-      return;
-    }
+    if (hasQuoteShareToken) return;
     setLoading(true);
     try {
       const { data, error } = await supabase
@@ -1144,67 +1143,98 @@ export function CustomerQuoteSchemesView() {
     }
   }, [hasQuoteShareToken]);
 
+  // Load exactly one quotation for quote_share links (guest or logged-in preview).
   useEffect(() => {
     let cancelled = false;
     const token =
       quoteShareFromUrl?.trim() || readStoredQuoteShareToken()?.trim() || '';
     if (!token) {
-      setSharedQuoteTarget(null);
+      if (!hasQuoteShareToken) setSharedQuoteTarget(null);
       return;
     }
+    storeQuoteShareToken(token);
     setLoading(true);
+    setPortalProjects([]);
+    setPortalProjectData({});
+    setPortalTotals({});
+    setSyntheticQuotes([]);
+
     void (async () => {
-      const resolved = await resolveQuoteShareToken(token);
-      if (cancelled) return;
-      if (!resolved) {
-        toast.error('分享連結無效或已撤銷');
-        setSharedQuoteTarget(null);
+      try {
+        const resolved = await resolveQuoteShareToken(token);
+        if (cancelled) return;
+        if (!resolved?.quoteUuid) {
+          toast.error('分享連結無效或已撤銷');
+          setSharedQuoteTarget(null);
+          setQuotes([]);
+          setShowDetail(false);
+          setLoading(false);
+          return;
+        }
+        storeQuoteShareTarget(resolved);
+        setSharedQuoteTarget(resolved);
+
+        const { data, error } = await supabase
+          .from('bwf_quote')
+          .select(LIST_SELECT)
+          .eq('id', resolved.quoteUuid)
+          .maybeSingle();
+        if (cancelled) return;
+        if (error || !data) {
+          toast.error('無法載入分享報價單', {
+            description: error?.message || '找不到對應報價',
+          });
+          setQuotes([]);
+          setShowDetail(false);
+          setLoading(false);
+          return;
+        }
+
+        // Don't block share view on PMS pitching enrichment failures.
+        let enriched: QuoteRecord = {
+          ...(data as QuoteRecord),
+          pitching: null,
+        };
+        try {
+          const rows = await loadPitchingsForQuoteRows([data as QuoteRecord]);
+          if (rows[0]) enriched = rows[0];
+        } catch (err) {
+          console.warn('[quote_share] pitching enrich skipped', err);
+        }
+        if (cancelled) return;
+
+        setQuotes([enriched]);
+        setActiveId(enriched.id);
+        setShowDetail(true);
+        sharedQuoteOpenedRef.current = true;
+      } catch (err) {
+        if (cancelled) return;
+        toast.error('無法載入分享報價單', {
+          description: err instanceof Error ? err.message : '請稍後再試',
+        });
         setQuotes([]);
-        setLoading(false);
-        return;
+        setShowDetail(false);
+      } finally {
+        if (!cancelled) setLoading(false);
       }
-      setSharedQuoteTarget(resolved);
-      // Only this quotation — no bulk list for share guests.
-      const { data, error } = await supabase
-        .from('bwf_quote')
-        .select(LIST_SELECT)
-        .eq('id', resolved.quoteUuid)
-        .maybeSingle();
-      if (cancelled) return;
-      if (error || !data) {
-        toast.error('無法載入分享報價單');
-        setQuotes([]);
-        setLoading(false);
-        return;
-      }
-      const [enriched] = await loadPitchingsForQuoteRows([data as QuoteRecord]);
-      if (cancelled) return;
-      if (!enriched) {
-        setQuotes([]);
-        setLoading(false);
-        return;
-      }
-      setQuotes([enriched]);
-      setActiveId(enriched.id);
-      setShowDetail(true);
-      sharedQuoteOpenedRef.current = true;
-      setLoading(false);
     })();
+
     return () => {
       cancelled = true;
     };
-  }, [quoteShareFromUrl]);
+  }, [quoteShareFromUrl, hasQuoteShareToken]);
+
+  // Restore share target from storage after refresh when URL param was dropped.
+  useEffect(() => {
+    if (sharedQuoteTarget || !hasQuoteShareToken) return;
+    const stored = readStoredQuoteShareTarget();
+    if (stored) setSharedQuoteTarget(stored);
+  }, [hasQuoteShareToken, sharedQuoteTarget]);
 
   useEffect(() => {
+    if (hasQuoteShareToken) return;
     void fetchQuotes();
     // Quote-share guests only need the shared bwf_quote — skip design-project cards.
-    if (hasQuoteShareToken) {
-      setPortalProjects([]);
-      setPortalProjectData({});
-      setPortalTotals({});
-      setSyntheticQuotes([]);
-      return;
-    }
     void fetchProjects().then(async (rows) => {
       const loaded = await Promise.all(
         rows.map(async (project) => {
@@ -1578,6 +1608,22 @@ export function CustomerQuoteSchemesView() {
     [allQuoteRows],
   );
   const availableQuotes = useMemo(() => {
+    // Quote-share sessions only ever load the shared row — show it without
+    // allow-list / invite filtering (those hide non-demo quotations).
+    if (hasQuoteShareToken) {
+      const target =
+        sharedQuoteTarget || readStoredQuoteShareTarget();
+      const rows = [...versionsByQuote.values()].map((versions) => versions[0]);
+      const matched = target
+        ? rows.filter(
+            (quote) =>
+              quote.id === target.quoteUuid ||
+              quote.quote_id === target.quoteId,
+          )
+        : rows;
+      return matched.length > 0 ? matched : rows;
+    }
+
     const invitedTerms = new Set(
       clientProjects
         .flatMap((project) => [
@@ -1589,7 +1635,7 @@ export function CustomerQuoteSchemesView() {
         .filter((value): value is string => Boolean(value)),
     );
     const designProjectIds = new Set(portalProjects.map((project) => project.id));
-    const visible = [...versionsByQuote.values()]
+    let visible = [...versionsByQuote.values()]
       .map((versions) => versions[0])
       .filter((quote) => {
         const isDesignCard =
@@ -1598,21 +1644,15 @@ export function CustomerQuoteSchemesView() {
         const designId = isDesignCard
           ? quote.id.replace(/^design-project:|^confirmed-project:/, '')
           : '';
-        const allowedByShare =
-          Boolean(sharedQuoteTarget) &&
-          (quote.id === sharedQuoteTarget?.quoteUuid ||
-            quote.quote_id === sharedQuoteTarget?.quoteId);
         const allowedByPolicy =
           isDesignCard
             ? designProjectIds.has(designId)
-            : allowedByShare ||
-              isAllowedPortalQuote({
+            : isAllowedPortalQuote({
                 quoteId: quote.quote_id,
                 displayName: quoteDisplayName(quote),
                 clientName: clientNameOf(quote),
               });
         if (!allowedByPolicy) return false;
-        if (allowedByShare) return true;
         if (!clientOnly) return true;
         if (invitedTerms.size === 0) {
           // Staff/demo portal token without invites: still show allow-listed set.
@@ -1627,23 +1667,15 @@ export function CustomerQuoteSchemesView() {
           ),
         );
       });
-    // Quote-share links: only the shared quotation is visible (no other portal cards).
-    let scoped = sharedQuoteTarget
-      ? visible.filter(
-          (quote) =>
-            quote.id === sharedQuoteTarget.quoteUuid ||
-            quote.quote_id === sharedQuoteTarget.quoteId,
-        )
-      : visible;
     if (showSourceFilter && sourceFilter !== 'all') {
-      scoped = scoped.filter((quote) => {
+      visible = visible.filter((quote) => {
         const isDesignCard =
           quote.id.startsWith('design-project:') ||
           quote.id.startsWith('confirmed-project:');
         return sourceFilter === 'bwa' ? isDesignCard : !isDesignCard;
       });
     }
-    return [...scoped].sort((a, b) => {
+    return [...visible].sort((a, b) => {
       const aDesign = a.id.startsWith('design-project:') ? 1 : 0;
       const bDesign = b.id.startsWith('design-project:') ? 1 : 0;
       if (aDesign !== bDesign) return bDesign - aDesign;
@@ -1655,6 +1687,7 @@ export function CustomerQuoteSchemesView() {
   }, [
     clientOnly,
     clientProjects,
+    hasQuoteShareToken,
     portalProjects,
     sharedQuoteTarget,
     showSourceFilter,

@@ -70,6 +70,7 @@ export function buildCustomerPortalQuoteShareUrl(
 }
 
 export const CUSTOMER_QUOTE_SHARE_TOKEN_KEY = 'fds-client-quote-share-token';
+export const CUSTOMER_QUOTE_SHARE_TARGET_KEY = 'fds-client-quote-share-target';
 
 export function readStoredQuoteShareToken(): string | null {
   if (typeof window === 'undefined') return null;
@@ -93,8 +94,48 @@ export function clearQuoteShareToken() {
   if (typeof window === 'undefined') return;
   try {
     localStorage.removeItem(CUSTOMER_QUOTE_SHARE_TOKEN_KEY);
+    localStorage.removeItem(CUSTOMER_QUOTE_SHARE_TARGET_KEY);
   } catch {
     /* ignore */
+  }
+}
+
+export function storeQuoteShareTarget(target: {
+  quoteUuid: string;
+  quoteId: string;
+}) {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(
+      CUSTOMER_QUOTE_SHARE_TARGET_KEY,
+      JSON.stringify({
+        quoteUuid: target.quoteUuid,
+        quoteId: target.quoteId,
+      }),
+    );
+  } catch {
+    /* ignore */
+  }
+}
+
+export function readStoredQuoteShareTarget(): {
+  quoteUuid: string;
+  quoteId: string;
+} | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(CUSTOMER_QUOTE_SHARE_TARGET_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as {
+      quoteUuid?: string;
+      quoteId?: string;
+    };
+    const quoteUuid = String(parsed.quoteUuid || '').trim();
+    const quoteId = String(parsed.quoteId || '').trim();
+    if (!quoteUuid) return null;
+    return { quoteUuid, quoteId };
+  } catch {
+    return null;
   }
 }
 

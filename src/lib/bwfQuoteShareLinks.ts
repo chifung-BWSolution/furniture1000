@@ -80,12 +80,20 @@ export async function resolveQuoteShareToken(
     .select('quote_uuid, quote_id, status')
     .eq('share_token', shareToken)
     .maybeSingle();
-  if (error || !data || data.status !== 'active') return null;
+  if (error) {
+    console.warn('[resolveQuoteShareToken]', error.message);
+    return null;
+  }
+  if (!data || data.status !== 'active') return null;
 
-  void supabase
-    .from('bwf_quote_share_links')
-    .update({ last_viewed_at: new Date().toISOString() })
-    .eq('share_token', shareToken);
+  try {
+    void supabase
+      .from('bwf_quote_share_links')
+      .update({ last_viewed_at: new Date().toISOString() })
+      .eq('share_token', shareToken);
+  } catch {
+    /* non-blocking */
+  }
 
   return {
     quoteUuid: String(data.quote_uuid),
