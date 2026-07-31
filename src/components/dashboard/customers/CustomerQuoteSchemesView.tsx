@@ -738,8 +738,8 @@ function QuotePortalProductCard({
         !dimmed && 'cursor-pointer',
         !dimmed &&
           selected &&
-          'bg-primary/10 ring-1 ring-inset ring-primary/20',
-        !dimmed && !selected && 'bg-card hover:bg-primary/5',
+          'bg-primary/5 ring-1 ring-inset ring-primary/15',
+        !dimmed && !selected && 'bg-card hover:bg-primary/[0.03]',
       )}
     >
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -2953,7 +2953,7 @@ export function CustomerQuoteSchemesView() {
                                                   className={cn(
                                                     'min-w-0',
                                                     selected
-                                                      ? 'bg-primary/10'
+                                                      ? 'bg-primary/5'
                                                       : 'bg-card',
                                                   )}
                                                 >
