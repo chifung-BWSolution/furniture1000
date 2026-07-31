@@ -2701,7 +2701,7 @@ export function DesignProjectsView() {
                   ) : (
                     <>
                       {divisions.length > 0 ? (
-                        <div className="divide-y divide-border/70">
+                        <div className="space-y-3 p-3 md:p-4">
                           {divisions.map((division) => {
                             const divisionItems = items.filter((item) =>
                               (division.productIds || []).includes(item.id),
@@ -2772,7 +2772,10 @@ export function DesignProjectsView() {
                               </>
                             );
                             return (
-                              <div key={division.id}>
+                              <div
+                                key={division.id}
+                                className="overflow-hidden rounded-xl border border-border bg-background shadow-sm"
+                              >
                                 {divisionItems.length === 0 ? (
                                   <>
                                     <div
@@ -2813,8 +2816,8 @@ export function DesignProjectsView() {
                             );
                           })}
                           {unassignedItems.length > 0 ? (
-                            <div>
-                              <div className="bg-muted/15 px-5 py-3">
+                            <div className="overflow-hidden rounded-xl border border-dashed border-border bg-muted/10 shadow-sm">
+                              <div className="border-b border-border bg-muted/15 px-5 py-3">
                                 <p className="font-display text-[15px] font-bold text-foreground">
                                   未劃分
                                 </p>
