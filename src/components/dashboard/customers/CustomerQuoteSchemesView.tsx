@@ -18,7 +18,6 @@ import {
   ZoomIn,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Checkbox } from '@/components/ui/checkbox';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import {
@@ -533,20 +532,30 @@ function zoneGroupDomId(label: string): string {
 }
 
 /**
- * Client「選擇」state.
- * Default: non-optional = selected; optional / 可選 = unselected.
- * Guests may toggle any product; unselected lines are excluded from totals.
+ * Client selection state（由「接受」驅動）.
+ * Unselected / 要求修改 / 不接受 lines are excluded from totals & quota.
  */
 function isQuoteItemSelected(
   item: BwfQuoteItemInput,
   itemSelected: Record<string, boolean>,
 ): boolean {
   const id = String(item.id || '').trim();
-  if (!id) return !item.isOptional;
+  if (!id) return false;
   if (Object.prototype.hasOwnProperty.call(itemSelected, id)) {
     return Boolean(itemSelected[id]);
   }
-  return !item.isOptional;
+  return false;
+}
+
+/** Selected piece count across a whole furniture-division section. */
+function sectionSelectedQuantity(
+  section: QuoteRoomSection,
+  itemSelected: Record<string, boolean>,
+): number {
+  return section.items.reduce((sum, item) => {
+    if (!isQuoteItemSelected(item, itemSelected)) return sum;
+    return sum + Math.max(1, Number(item.quantity) || 1);
+  }, 0);
 }
 
 /** Portal line total — ignores catalog `isOptional` (selection handled separately). */
@@ -647,7 +656,6 @@ function QuotePortalProductCard({
   currentUserName,
   quotaFilled,
   maxQuantity,
-  onToggleSelected,
   onSetQuantity,
   onSetDraftNote,
   onSendMessage,
@@ -668,7 +676,6 @@ function QuotePortalProductCard({
   quotaFilled?: boolean;
   /** Max qty allowed for this card (respects remaining division need). */
   maxQuantity?: number | null;
-  onToggleSelected: (checked: boolean) => void;
   onSetQuantity: (quantity: number) => void;
   onSetDraftNote: (value: string) => void;
   onSendMessage: () => void;
@@ -695,9 +702,14 @@ function QuotePortalProductCard({
   const stopCardSelect = (event: { stopPropagation: () => void }) => {
     event.stopPropagation();
   };
-  const toggleCardSelect = () => {
+  /** Blank-area click = toggle「接受」(replaces former「選擇」). */
+  const toggleAcceptSelect = () => {
     if (dimmed) return;
-    onToggleSelected(!selected);
+    if (selected || review === 'accepted') {
+      onSetReview(null);
+      return;
+    }
+    onSetReview('accepted');
   };
 
   return (
@@ -705,20 +717,20 @@ function QuotePortalProductCard({
       role="button"
       tabIndex={dimmed ? -1 : 0}
       aria-pressed={selected}
-      onClick={toggleCardSelect}
+      onClick={toggleAcceptSelect}
       onKeyDown={(event) => {
         if (dimmed) return;
         if (event.key === 'Enter' || event.key === ' ') {
           event.preventDefault();
-          toggleCardSelect();
+          toggleAcceptSelect();
         }
       }}
       title={
         dimmed
           ? '已選數量已達此傢俬劃分所需，無法再選其他方案'
           : selected
-            ? '點擊空白處取消選擇'
-            : '點擊空白處選擇此產品'
+            ? '點擊空白處取消接受／選擇'
+            : '點擊空白處或「接受」以選擇此產品'
       }
       className={cn(
         'flex h-full min-w-0 flex-col gap-3 p-4 transition-colors',
@@ -726,7 +738,7 @@ function QuotePortalProductCard({
         !dimmed && 'cursor-pointer',
         !dimmed &&
           selected &&
-          'bg-primary/20 ring-1 ring-inset ring-primary/30',
+          'bg-primary/10 ring-1 ring-inset ring-primary/20',
         !dimmed && !selected && 'bg-card hover:bg-primary/5',
       )}
     >
@@ -743,41 +755,8 @@ function QuotePortalProductCard({
             方案 {schemeIndex + 1}/{schemeCount}
           </span>
         ) : (
-          <span />
+          <span className="h-8" />
         )}
-        <label
-          onClick={stopCardSelect}
-          className={cn(
-            'inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-[14px]',
-            dimmed
-              ? 'cursor-not-allowed border-border bg-muted/50 text-muted-foreground'
-              : 'cursor-pointer',
-            !dimmed && selected
-              ? 'border-primary/40 bg-primary/10 text-primary'
-              : !dimmed
-                ? 'border-border bg-background/80 text-muted-foreground'
-                : null,
-          )}
-          title={
-            dimmed
-              ? '已選數量已達此傢俬劃分所需，無法再選其他方案'
-              : selected
-                ? '取消選擇：價錢不計入小計'
-                : '選擇此產品：價錢計入小計'
-          }
-        >
-          <Checkbox
-            checked={selected}
-            disabled={dimmed}
-            onCheckedChange={(checked) => {
-              if (dimmed) return;
-              onToggleSelected(checked === true);
-            }}
-            className="border-foreground/60 data-[state=checked]:border-primary"
-            aria-label={`選擇 ${title}`}
-          />
-          <span>選擇</span>
-        </label>
       </div>
 
       <div
@@ -968,7 +947,7 @@ function QuotePortalProductCard({
         </div>
       ) : null}
 
-      {/* 接受 / 要求修改 / 不接受 — bottom of each product card */}
+      {/* 接受（兼選擇）/ 要求修改 / 不接受 */}
       <div className="mt-auto flex flex-wrap justify-center gap-2 border-t border-border/70 pt-3">
         {(
           [
@@ -979,6 +958,8 @@ function QuotePortalProductCard({
               iconClass: 'text-emerald-600',
               activeClass:
                 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700',
+              // 「接受」也可取消已選；額滿變灰的未選卡不可再接受
+              disabled: saving || (dimmed && !selected),
             },
             {
               value: 'change' as const,
@@ -987,6 +968,7 @@ function QuotePortalProductCard({
               iconClass: 'text-amber-600',
               activeClass:
                 'border-amber-500/40 bg-amber-500/10 text-amber-700',
+              disabled: saving || dimmed,
             },
             {
               value: 'rejected' as const,
@@ -994,16 +976,18 @@ function QuotePortalProductCard({
               Icon: X,
               iconClass: 'text-rose-600',
               activeClass: 'border-rose-500/40 bg-rose-500/10 text-rose-700',
+              disabled: saving || dimmed,
             },
           ] as const
-        ).map(({ value, label, Icon, iconClass, activeClass }) => (
+        ).map(({ value, label, Icon, iconClass, activeClass, disabled }) => (
           <button
             key={value}
             type="button"
-            disabled={saving || dimmed}
+            disabled={disabled}
             onClick={(event) => {
               stopCardSelect(event);
-              if (review === value) {
+              if (review === value || (value === 'accepted' && selected)) {
+                // Toggle off accept/select, or clear the same review again
                 onSetReview(null);
                 return;
               }
@@ -1011,9 +995,11 @@ function QuotePortalProductCard({
             }}
             className={cn(
               'inline-flex items-center gap-1.5 rounded-lg border px-3 py-2 text-[15px] font-semibold disabled:opacity-50',
-              review === value
+              value === 'accepted' && selected
                 ? activeClass
-                : 'border-border bg-background/90 text-foreground/80',
+                : review === value
+                  ? activeClass
+                  : 'border-border bg-background/90 text-foreground/80',
             )}
           >
             <Icon className={cn('h-4.5 w-4.5 h-[1.125rem] w-[1.125rem]', iconClass)} />
@@ -1469,35 +1455,22 @@ export function CustomerQuoteSchemesView() {
             }));
           }
         };
-        const hydrateSelection = (productId: string, isOptional?: boolean) => {
+        const hydrateSelection = (productId: string) => {
           if (Object.prototype.hasOwnProperty.call(savedSelections, productId)) {
             nextSelected[productId] = Boolean(savedSelections[productId]);
             return;
           }
-          // 可選 → 預設未選；非可選 → 預設選擇（可再取消）
-          nextSelected[productId] = !isOptional;
+          // 「接受」= 已選擇；其餘預設未選（已選擇 : 0/N件）
+          nextSelected[productId] = nextReviews[productId] === 'accepted';
         };
         for (const product of zoneProducts) {
           hydrateFromNotes(product.id, product.status, product.notes);
-          hydrateSelection(product.id, product.isOptional);
+          hydrateSelection(product.id);
         }
         for (const row of hydratedRows) {
           if (!row.id || row.isSectionTitle || row.isDivisionTitle) continue;
           hydrateFromNotes(row.id, row.zoneStatus, row.notes);
-          hydrateSelection(row.id, row.isOptional);
-        }
-        // Multi-scheme (N選1/混選): default only 方案 1 selected unless saved.
-        for (const groups of Object.values(schemeGroups || {})) {
-          for (const group of groups) {
-            if (group.productIds.length < 2) continue;
-            const anySaved = group.productIds.some((id) =>
-              Object.prototype.hasOwnProperty.call(savedSelections, id),
-            );
-            if (anySaved) continue;
-            group.productIds.forEach((id, index) => {
-              nextSelected[id] = index === 0;
-            });
-          }
+          hydrateSelection(row.id);
         }
         setItemReviews(nextReviews);
         setItemMessages(nextMessages);
@@ -2880,11 +2853,16 @@ export function CustomerQuoteSchemesView() {
                                   section,
                                   roomSchemeGroups,
                                 );
+                                const sectionPickedQty =
+                                  sectionSelectedQuantity(
+                                    section,
+                                    itemSelected,
+                                  );
                                 return (
                                   <div key={section.id}>
                                     {section.label ? (
                                       <div
-                                        className="border-b border-border bg-muted/20 px-5 py-2.5"
+                                        className="grid grid-cols-1 items-center gap-2 border-b border-border bg-muted/20 px-5 py-2.5 sm:grid-cols-[1fr_auto_1fr]"
                                         data-partition-division={section.label}
                                         data-partition-count={String(
                                           sectionCount,
@@ -2892,12 +2870,25 @@ export function CustomerQuoteSchemesView() {
                                         data-partition-zone={group.label}
                                         data-partition-zone-title={roomTitle}
                                       >
+                                        <div className="hidden sm:block" />
                                         <h5 className="text-center font-display text-[15px] font-bold text-foreground md:text-[16px]">
                                           {section.label}
                                           <span className="ml-1.5 text-[14px] font-semibold text-muted-foreground">
                                             : {sectionCount}
                                           </span>
                                         </h5>
+                                        <p
+                                          className={cn(
+                                            'justify-self-center text-[14px] font-semibold sm:justify-self-end md:text-[15px]',
+                                            sectionPickedQty >= sectionCount &&
+                                              sectionCount > 0
+                                              ? 'text-emerald-700'
+                                              : 'text-primary',
+                                          )}
+                                        >
+                                          已選擇 : {sectionPickedQty}/
+                                          {sectionCount}件
+                                        </p>
                                       </div>
                                     ) : null}
                                     {sectionSlots.length > 0 ? (
@@ -2962,7 +2953,7 @@ export function CustomerQuoteSchemesView() {
                                                   className={cn(
                                                     'min-w-0',
                                                     selected
-                                                      ? 'bg-primary/20'
+                                                      ? 'bg-primary/10'
                                                       : 'bg-card',
                                                   )}
                                                 >
@@ -2988,43 +2979,6 @@ export function CustomerQuoteSchemesView() {
                                                       quotaMet && !selected
                                                     }
                                                     maxQuantity={maxQuantity}
-                                                    onToggleSelected={(
-                                                      checked,
-                                                    ) => {
-                                                      if (!item.id) return;
-                                                      if (
-                                                        checked &&
-                                                        targetQty != null &&
-                                                        slot.items.length > 1
-                                                      ) {
-                                                        const remaining =
-                                                          targetQty -
-                                                          selectedQty;
-                                                        if (remaining <= 0) {
-                                                          toast.message(
-                                                            '已達此傢俬劃分所需數量',
-                                                            {
-                                                              description: `「${section.label || '此劃分'}」需要 ${targetQty} 件，請先調整已選方案的數量。`,
-                                                            },
-                                                          );
-                                                          return;
-                                                        }
-                                                        if (
-                                                          itemQty > remaining
-                                                        ) {
-                                                          setItemQuantity(
-                                                            item.id,
-                                                            remaining,
-                                                          );
-                                                        }
-                                                      }
-                                                      setItemSelected(
-                                                        (current) => ({
-                                                          ...current,
-                                                          [item.id!]: checked,
-                                                        }),
-                                                      );
-                                                    }}
                                                     onSetQuantity={(
                                                       quantity,
                                                     ) => {
@@ -3072,6 +3026,53 @@ export function CustomerQuoteSchemesView() {
                                                     onSetReview={(
                                                       nextReview,
                                                     ) => {
+                                                      if (!item.id) return;
+                                                      if (
+                                                        nextReview ===
+                                                        'accepted'
+                                                      ) {
+                                                        if (
+                                                          targetQty != null &&
+                                                          slot.items.length >
+                                                            1 &&
+                                                          !selected
+                                                        ) {
+                                                          const remaining =
+                                                            targetQty -
+                                                            selectedQty;
+                                                          if (remaining <= 0) {
+                                                            toast.message(
+                                                              '已達此傢俬劃分所需數量',
+                                                              {
+                                                                description: `「${section.label || '此劃分'}」需要 ${targetQty} 件，請先調整已選方案的數量。`,
+                                                              },
+                                                            );
+                                                            return;
+                                                          }
+                                                          if (
+                                                            itemQty > remaining
+                                                          ) {
+                                                            setItemQuantity(
+                                                              item.id,
+                                                              remaining,
+                                                            );
+                                                          }
+                                                        }
+                                                        setItemSelected(
+                                                          (current) => ({
+                                                            ...current,
+                                                            [item.id!]: true,
+                                                          }),
+                                                        );
+                                                      } else {
+                                                        // 取消接受／要求修改／不接受 → 不計入已選數量
+                                                        setItemSelected(
+                                                          (current) => ({
+                                                            ...current,
+                                                            [item.id!]: false,
+                                                          }),
+                                                        );
+                                                      }
                                                       void syncItemReview(
                                                         item,
                                                         nextReview,
