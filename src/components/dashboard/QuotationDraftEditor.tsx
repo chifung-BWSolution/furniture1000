@@ -16,6 +16,8 @@ import {
   GripVertical,
   Loader2,
   Save,
+  Link2,
+  QrCode,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TermsRichEditor } from "@/components/dashboard/TermsRichEditor";
@@ -98,6 +100,7 @@ import {
 import type { QuoteCopyPayload } from "@/lib/quoteCopy";
 import { parseQuotePathname } from "@/lib/quoteRoutes";
 import { bumpQuoteVersion, displayQuoteVersion } from "@/lib/quoteVersions";
+import { createQuoteShareLink } from "@/lib/bwfQuoteShareLinks";
 import { isUrgentWorkPeriod } from "@/lib/quoteStockFilter";
 import {
   type QuoteLocale,
@@ -795,8 +798,6 @@ function QuoteProductItemCard({
   updateItem,
   updateExchangeRate,
   updateDimensionMode,
-  unifyExchangeRatesFromFirst,
-  showUnifyExchangeRate,
   cutItem,
   duplicateItem,
   removeItem,
@@ -818,9 +819,6 @@ function QuoteProductItemCard({
   updateItem: (id: string, field: keyof QuotationItem, value: string | number | null | boolean) => void;
   updateExchangeRate: (id: string, raw: string) => void;
   updateDimensionMode: (id: string, mode: QuotationDimensionMode) => void;
-  unifyExchangeRatesFromFirst: () => void;
-  /** True only for the first product row (moves with reorder). */
-  showUnifyExchangeRate: boolean;
   cutItem: (id: string) => void;
   duplicateItem: (id: string) => void;
   removeItem: (id: string) => void;
@@ -1036,26 +1034,14 @@ function QuoteProductItemCard({
           </QuoteFieldBlock>
           <div className="relative z-10 flex min-h-0 flex-1 items-center py-0.5">
             <QuoteFieldBlock label={labels.exchangeRate} className="w-max">
-              <div className="flex items-center gap-1.5">
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={exchangeRateInputDisplay(item.exchangeRateInput, item.exchangeRate)}
-                  placeholder="—"
-                  onChange={(e) => updateExchangeRate(item.id, e.target.value)}
-                  className={cn(QUOTE_COMPACT_NUMBER_INPUT_CLASS, "w-[6em] min-w-[6em] shrink-0")}
-                />
-                {showUnifyExchangeRate ? (
-                  <button
-                    type="button"
-                    onClick={unifyExchangeRatesFromFirst}
-                    title={labels.unifyExchangeRate}
-                    className="shrink-0 rounded-md border border-primary/40 bg-primary/10 px-1.5 py-1 font-body text-[10px] font-medium leading-tight text-primary transition-colors hover:bg-primary/15"
-                  >
-                    {labels.unifyExchangeRate}
-                  </button>
-                ) : null}
-              </div>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={exchangeRateInputDisplay(item.exchangeRateInput, item.exchangeRate)}
+                placeholder="—"
+                onChange={(e) => updateExchangeRate(item.id, e.target.value)}
+                className={cn(QUOTE_COMPACT_NUMBER_INPUT_CLASS, "w-[6em] min-w-[6em] shrink-0")}
+              />
             </QuoteFieldBlock>
           </div>
           <QuoteFieldBlock label={labels.hkdCost} className="shrink-0">
@@ -1803,6 +1789,12 @@ export function QuotationDraftEditor({
   const [collapseProject, setCollapseProject] = useState(true);
   const [collapseClient, setCollapseClient] = useState(true);
   const [collapseQuoteMeta, setCollapseQuoteMeta] = useState(true);
+  const [showUnifyRatePanel, setShowUnifyRatePanel] = useState(false);
+  const [unifyRateDraft, setUnifyRateDraft] = useState("");
+  const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [shareUrl, setShareUrl] = useState("");
+  const [shareBusy, setShareBusy] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
 
   // Company info (editable) — address / addressEn keep separate zh & en defaults;
   // after the user edits and saves, the saved value becomes the latest for that locale.
@@ -2241,39 +2233,59 @@ export function QuotationDraftEditor({
     );
   };
 
-  /** Copy the first product row's 匯率 onto every product row on the page. */
-  const unifyExchangeRatesFromFirst = useCallback(() => {
+  /** Apply a typed 匯率 onto every product row on the page. */
+  const applyUnifiedExchangeRate = useCallback((raw: string) => {
+    const sanitized = sanitizeExchangeRateInput(raw);
+    const rate = parseExchangeRateValue(sanitized);
+    if (!sanitized.trim() || rate == null || !Number.isFinite(rate) || rate <= 0) {
+      toast.error("請輸入有效匯率");
+      return false;
+    }
     itemsUserEditedRef.current = true;
-    setItems((prev) => {
-      const firstProduct = prev.find(
-        (item) => !item.isSectionTitle && !item.isCustomTerm,
-      );
-      if (!firstProduct) return prev;
-      const rate = firstProduct.exchangeRate ?? null;
-      const rateInput =
-        firstProduct.exchangeRateInput !== undefined
-          ? firstProduct.exchangeRateInput
-          : rate == null
-            ? ""
-            : String(rate);
-      return prev.map((item) => {
+    setItems((prev) =>
+      prev.map((item) => {
         if (item.isSectionTitle || item.isCustomTerm) return item;
-        if (
-          item.id === firstProduct.id &&
-          item.exchangeRate === rate &&
-          item.exchangeRateInput === rateInput
-        ) {
-          return item;
-        }
         return {
           ...item,
-          exchangeRateInput: rateInput,
+          exchangeRateInput: sanitized,
           exchangeRate: rate,
           hkdCostPrice: computeHkdCostPrice(item.costPrice, rate),
         };
-      });
-    });
+      }),
+    );
+    toast.success("已統一所有產品匯率", { description: String(rate) });
+    return true;
   }, []);
+
+  const handleGenerateQuoteShare = useCallback(async () => {
+    const quoteUuid = existingQuote?.quoteUuid?.trim() || "";
+    const qid = (existingQuote?.quoteId || quoteId || "").trim();
+    if (!quoteUuid || !qid || qid === "NEW") {
+      toast.error("請先完成「版本審核」儲存報價單後再生成連結");
+      return;
+    }
+    setShareBusy(true);
+    setShareCopied(false);
+    try {
+      const res = await createQuoteShareLink({ quoteUuid, quoteId: qid });
+      if (res.ok === false) {
+        toast.error("生成失敗", { description: res.error });
+        return;
+      }
+      const url = res.data.url;
+      setShareUrl(url);
+      setShareModalOpen(true);
+      try {
+        await navigator.clipboard.writeText(url);
+        setShareCopied(true);
+        toast.success("已生成連結並複製");
+      } catch {
+        toast.success("已生成客戶專區連結");
+      }
+    } finally {
+      setShareBusy(false);
+    }
+  }, [existingQuote?.quoteId, existingQuote?.quoteUuid, quoteId]);
 
   const [draggingItemId, setDraggingItemId] = useState<string | null>(null);
   const [dropInsertIndex, setDropInsertIndex] = useState<number | null>(null);
@@ -3155,23 +3167,76 @@ export function QuotationDraftEditor({
             padding) so 報價內容 stretches left-and-right and needs less scrolling */}
         <div className="mx-auto w-full max-w-none">
           {/* Info panels + action buttons — above 報價內容
-              Top row: 預覽 PDF (above 立即暫存) · ENG (above 版本審核)
-              Main row: 公司資訊 / 專案分類 / 客戶資訊 / 報價資訊 / 立即暫存 / 版本審核 */}
+              Top: 統一匯率 (+ panel) · 預覽 PDF · 生成QR (above ENG)
+              Main: 公司資訊 / 專案分類 / 客戶資訊 / 報價資訊 / 立即暫存 / 版本審核 */}
           <div className="mb-5 space-y-2">
-            {/* Top row — 預覽 PDF above 立即暫存, ENG above 版本審核 */}
             <div className="grid grid-cols-2 gap-2 lg:grid-cols-6">
-              <div className="hidden lg:col-span-4 lg:block" aria-hidden />
-              <div className="flex justify-stretch">
+              <div className="hidden lg:col-span-3 lg:block" aria-hidden />
+              <div className="col-span-2 flex flex-wrap items-center justify-end gap-2 lg:col-span-2">
+                {showUnifyRatePanel ? (
+                  <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:flex-none">
+                    <span className="shrink-0 font-body text-xs text-muted-foreground">
+                      {t.exchangeRate}
+                    </span>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={unifyRateDraft}
+                      onChange={(e) =>
+                        setUnifyRateDraft(sanitizeExchangeRateInput(e.target.value))
+                      }
+                      placeholder="—"
+                      className="h-9 w-[5.5rem] rounded-md border border-border bg-background px-2 font-mono-data text-sm text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (applyUnifiedExchangeRate(unifyRateDraft)) {
+                          setShowUnifyRatePanel(false);
+                          setUnifyRateDraft("");
+                        }
+                      }}
+                      className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg border border-primary/40 bg-primary/10 px-2.5 font-body text-xs font-semibold text-primary hover:bg-primary/15"
+                    >
+                      {t.confirm}
+                    </button>
+                  </div>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => setShowUnifyRatePanel((v) => !v)}
+                  className={cn(
+                    "inline-flex h-9 shrink-0 items-center justify-center rounded-lg border px-3 font-body text-sm font-medium transition-colors",
+                    showUnifyRatePanel
+                      ? "border-primary/40 bg-primary/10 text-primary"
+                      : "border-border bg-background text-foreground/80 hover:bg-muted/50",
+                  )}
+                >
+                  {t.unifyExchangeRate}
+                </button>
                 <button
                   type="button"
                   onClick={() => onOpenPdfPreview?.(buildPDFData())}
-                  className="inline-flex w-full items-center justify-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 font-body text-sm font-medium text-primary transition-colors hover:bg-primary/10"
+                  className="inline-flex h-9 min-w-[7.5rem] flex-1 items-center justify-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 font-body text-sm font-medium text-primary transition-colors hover:bg-primary/10 sm:flex-none"
                 >
                   <Eye className="h-4 w-4" />
                   {t.previewPdf}
                 </button>
               </div>
-              <div className="flex justify-stretch">
+              <div className="col-span-2 flex flex-col gap-2 lg:col-span-1">
+                <button
+                  type="button"
+                  disabled={shareBusy}
+                  onClick={() => void handleGenerateQuoteShare()}
+                  className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-sky-500/40 bg-sky-500/10 px-3 py-2 font-body text-sm font-medium text-sky-700 transition-colors hover:bg-sky-500/15 disabled:opacity-50 dark:text-sky-300"
+                >
+                  {shareBusy ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <QrCode className="h-4 w-4" />
+                  )}
+                  {t.generateQrLink}
+                </button>
                 <button
                   type="button"
                   onClick={() => {
@@ -3568,11 +3633,7 @@ export function QuotationDraftEditor({
                     }
                   }}
                 >
-                  {(() => {
-                    const firstProductIndex = items.findIndex(
-                      (row) => !row.isSectionTitle && !row.isCustomTerm,
-                    );
-                    return items.map((item, index) => (
+                  {items.map((item, index) => (
                     <div key={item.id} className="space-y-3">
                       {item.isSectionTitle ? (
                         <QuoteSectionTitleCard
@@ -3625,8 +3686,6 @@ export function QuotationDraftEditor({
                           updateItem={updateItem}
                           updateExchangeRate={updateExchangeRate}
                           updateDimensionMode={updateDimensionMode}
-                          unifyExchangeRatesFromFirst={unifyExchangeRatesFromFirst}
-                          showUnifyExchangeRate={index === firstProductIndex}
                           cutItem={cutItem}
                           duplicateItem={duplicateItem}
                           removeItem={removeItem}
@@ -3647,8 +3706,7 @@ export function QuotationDraftEditor({
                         onAddProduct={() => openProductSelector(index + 1)}
                       />
                     </div>
-                    ));
-                  })()}
+                  ))}
                 </div>
 
                 {/* Price Multiplier, GP Summary & Subtotal */}
@@ -4100,6 +4158,82 @@ export function QuotationDraftEditor({
         priorityLevel1Categories={formData.serviceScope}
         stockOnly={isUrgentWorkPeriod(formData.workPeriod)}
       />
+
+      {shareModalOpen ? (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-black/45 p-4"
+          onClick={() => setShareModalOpen(false)}
+        >
+          <div
+            className="relative w-full max-w-md rounded-2xl border border-border bg-card p-5 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => setShareModalOpen(false)}
+              className="absolute right-3 top-3 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+              aria-label="關閉"
+            >
+              <X className="h-4 w-4" />
+            </button>
+            <div className="mb-3 flex items-center gap-2">
+              <QrCode className="h-5 w-5 text-sky-600" />
+              <h3 className="font-display text-base font-bold">
+                {t.generateQrLink}
+              </h3>
+            </div>
+            <p className="mb-4 font-body text-xs text-muted-foreground">
+              掃描 QR Code 或複製連結後，可於客戶專區「報價方案」以目前頁面格式查看此報價單內容。
+            </p>
+            <div className="mb-4 flex justify-center rounded-xl border border-border bg-background p-4">
+              {shareUrl ? (
+                <img
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=${encodeURIComponent(shareUrl)}`}
+                  alt="Quote share QR code"
+                  width={220}
+                  height={220}
+                  className="h-[220px] w-[220px]"
+                />
+              ) : null}
+            </div>
+            <label className="mb-1 block font-body text-xs text-muted-foreground">
+              網址連結
+            </label>
+            <div className="flex items-stretch gap-2">
+              <input
+                type="text"
+                readOnly
+                value={shareUrl}
+                className="min-w-0 flex-1 rounded-lg border border-border bg-muted/30 px-3 py-2 font-mono-data text-[11px] text-foreground"
+              />
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(shareUrl);
+                    setShareCopied(true);
+                    toast.success("已複製連結");
+                  } catch {
+                    toast.error("複製失敗");
+                  }
+                }}
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-border bg-background px-3 py-2 font-body text-xs font-semibold hover:bg-muted/50"
+              >
+                {shareCopied ? (
+                  <Check className="h-3.5 w-3.5 text-emerald-600" />
+                ) : (
+                  <Copy className="h-3.5 w-3.5" />
+                )}
+                {shareCopied ? "已複製" : "複製"}
+              </button>
+            </div>
+            <div className="mt-3 flex items-center gap-1.5 font-body text-[11px] text-muted-foreground">
+              <Link2 className="h-3.5 w-3.5" />
+              每次按「生成」都會建立全新連結與 QR Code
+            </div>
+          </div>
+        </div>
+      ) : null}
 
     </>
   );

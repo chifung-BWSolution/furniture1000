@@ -60,6 +60,44 @@ export function buildCustomerPortalInviteUrl(
   return `${base}${CUSTOMER_PORTAL_BASE}?portal_token=${encodeURIComponent(token)}`;
 }
 
+/** Quote-only share link → 客戶專區「報價方案」detail for that quote. */
+export function buildCustomerPortalQuoteShareUrl(
+  origin: string,
+  token: string,
+): string {
+  const base = origin.replace(/\/+$/, '');
+  return `${base}${CUSTOMER_PORTAL_BASE}?quote_share=${encodeURIComponent(token)}`;
+}
+
+export const CUSTOMER_QUOTE_SHARE_TOKEN_KEY = 'fds-client-quote-share-token';
+
+export function readStoredQuoteShareToken(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    return localStorage.getItem(CUSTOMER_QUOTE_SHARE_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function storeQuoteShareToken(token: string) {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(CUSTOMER_QUOTE_SHARE_TOKEN_KEY, token);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function clearQuoteShareToken() {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.removeItem(CUSTOMER_QUOTE_SHARE_TOKEN_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
 export function readStoredPortalToken(): string | null {
   if (typeof window === 'undefined') return null;
   try {

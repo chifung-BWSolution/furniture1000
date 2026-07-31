@@ -14,6 +14,8 @@ export const DEFAULT_COMPANY_WEBSITE = 'https://www.bwoffice.asia/';
 export const QUOTE_UI = {
   zh: {
     previewPdf: '預覽 PDF',
+    generateQrLink: '生成QR Code 及連結',
+    confirm: '確認',
     saveDraft: '立即暫存',
     autoSaving: '自動暫存中…',
     autoSavedAt: '已自動暫存',
@@ -71,6 +73,8 @@ export const QUOTE_UI = {
   },
   en: {
     previewPdf: 'Preview PDF',
+    generateQrLink: 'Generate QR & Link',
+    confirm: 'Confirm',
     saveDraft: 'Save Now',
     autoSaving: 'Auto-saving…',
     autoSavedAt: 'Auto-saved',

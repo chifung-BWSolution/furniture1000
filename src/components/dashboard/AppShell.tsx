@@ -42,7 +42,9 @@ import {
   isCustomerPortalView,
   pathFromCustomerView,
   readStoredPortalToken,
+  readStoredQuoteShareToken,
   storePortalToken,
+  storeQuoteShareToken,
 } from "@/lib/customerPortalRoutes";
 import {
   appViewFromPath,
@@ -280,11 +282,16 @@ export function AppShell() {
       return path.startsWith('/quote') ? path : null;
     })(),
   );
-  const portalToken = new URLSearchParams(location.search).get('portal_token');
+  const searchParams = new URLSearchParams(location.search);
+  const portalToken = searchParams.get('portal_token');
+  const quoteShareToken = searchParams.get('quote_share');
   const storedPortalToken = readStoredPortalToken();
-  const portalTokenActive = Boolean(portalToken || storedPortalToken);
-  // Real clients stay inside 客戶專區. Invite tokens also lock unknown roles while
-  // loading; staff/admin keep full top-nav so they can leave a preview session.
+  const storedQuoteShareToken = readStoredQuoteShareToken();
+  const portalTokenActive = Boolean(
+    portalToken || storedPortalToken || quoteShareToken || storedQuoteShareToken,
+  );
+  // Real clients stay inside 客戶專區. Invite / quote-share tokens also lock
+  // unknown roles while loading; staff/admin keep full top-nav so they can leave.
   const clientOnly =
     platformRole === 'client' ||
     (portalTokenActive &&
@@ -297,15 +304,21 @@ export function AppShell() {
     }
   }, [portalToken]);
 
-  // Legacy invite links landed on `/?portal_token=…` — send them to /customer.
   useEffect(() => {
-    if (!portalToken) return;
+    if (quoteShareToken) {
+      storeQuoteShareToken(quoteShareToken);
+    }
+  }, [quoteShareToken]);
+
+  // Legacy invite / quote-share links landed on `/?…` — send them to /customer.
+  useEffect(() => {
+    if (!portalToken && !quoteShareToken) return;
     if (isCustomerPortalPath(location.pathname)) return;
     const params = new URLSearchParams(location.search);
     const target = `${CUSTOMER_PORTAL_BASE}?${params.toString()}`;
     quoteUrlSyncRef.current = target;
     navigate(target, { replace: true });
-  }, [portalToken, location.pathname, location.search, navigate]);
+  }, [portalToken, quoteShareToken, location.pathname, location.search, navigate]);
 
   // /customer and /customer/:slug → switch the active client-portal view.
   useEffect(() => {
@@ -322,8 +335,13 @@ export function AppShell() {
       store.setCurrentView('customer-quote-schemes');
       if (!isCustomerPortalPath(location.pathname)) {
         const token = portalToken || storedPortalToken;
-        const target = token
-          ? `${CUSTOMER_PORTAL_BASE}?portal_token=${encodeURIComponent(token)}`
+        const qShare = quoteShareToken || storedQuoteShareToken;
+        const params = new URLSearchParams();
+        if (token) params.set('portal_token', token);
+        if (qShare) params.set('quote_share', qShare);
+        const qs = params.toString();
+        const target = qs
+          ? `${CUSTOMER_PORTAL_BASE}?${qs}`
           : CUSTOMER_PORTAL_BASE;
         quoteUrlSyncRef.current = target;
         navigate(target, { replace: true });
@@ -345,6 +363,8 @@ export function AppShell() {
     clientOnly,
     portalToken,
     storedPortalToken,
+    quoteShareToken,
+    storedQuoteShareToken,
     roleLoading,
     isAdmin,
     store.currentView,

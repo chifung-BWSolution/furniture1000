@@ -51,7 +51,11 @@ import {
 } from '@/lib/solutionsApi';
 import { withInsertAuditFields, withUpdateAuditFields } from '@/lib/pmsAudit';
 import { formatProductDimensionsMm } from '@/lib/productDimensions';
-import { readStoredPortalToken } from '@/lib/customerPortalRoutes';
+import {
+  readStoredPortalToken,
+  readStoredQuoteShareToken,
+} from '@/lib/customerPortalRoutes';
+import { resolveQuoteShareToken } from '@/lib/bwfQuoteShareLinks';
 import { publishDesignProjectStickyChrome } from '@/lib/designProjectStickyChrome';
 import type {
   DesignProject,
@@ -1027,8 +1031,16 @@ export function CustomerQuoteSchemesView() {
   const currentUserName = (staffName || user?.email || '用戶').trim() || '用戶';
   const { projects: clientProjects } = useClientZoneContext();
   const { role: platformRole } = usePlatformRole();
+  const quoteShareFromUrl =
+    typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search).get('quote_share')
+      : null;
   const hasPortalToken = Boolean(readStoredPortalToken());
-  const clientOnly = platformRole === 'client' || hasPortalToken;
+  const hasQuoteShareToken = Boolean(
+    quoteShareFromUrl || readStoredQuoteShareToken(),
+  );
+  const clientOnly =
+    platformRole === 'client' || hasPortalToken || hasQuoteShareToken;
 
   const [quotes, setQuotes] = useState<QuoteRecord[]>([]);
   const [portalProjects, setPortalProjects] = useState<DesignProject[]>([]);
@@ -1043,6 +1055,12 @@ export function CustomerQuoteSchemesView() {
   const [loading, setLoading] = useState(true);
   const [itemsLoading, setItemsLoading] = useState(false);
   const [showDetail, setShowDetail] = useState(false);
+  /** Quote opened via 生成QR Code 及連結 share token. */
+  const [sharedQuoteTarget, setSharedQuoteTarget] = useState<{
+    quoteUuid: string;
+    quoteId: string;
+  } | null>(null);
+  const sharedQuoteOpenedRef = useRef(false);
   const [itemReviews, setItemReviews] = useState<Record<string, ItemReview>>({});
   const [itemDraftNotes, setItemDraftNotes] = useState<Record<string, string>>(
     {},
@@ -1117,6 +1135,42 @@ export function CustomerQuoteSchemesView() {
       setLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const token =
+      quoteShareFromUrl?.trim() || readStoredQuoteShareToken()?.trim() || '';
+    if (!token) {
+      setSharedQuoteTarget(null);
+      return;
+    }
+    void (async () => {
+      const resolved = await resolveQuoteShareToken(token);
+      if (cancelled) return;
+      if (!resolved) {
+        toast.error('分享連結無效或已撤銷');
+        setSharedQuoteTarget(null);
+        return;
+      }
+      setSharedQuoteTarget(resolved);
+      // Ensure the shared quote is in local list even if outside default limit.
+      const { data, error } = await supabase
+        .from('bwf_quote')
+        .select(LIST_SELECT)
+        .eq('id', resolved.quoteUuid)
+        .maybeSingle();
+      if (cancelled || error || !data) return;
+      const [enriched] = await loadPitchingsForQuoteRows([data as QuoteRecord]);
+      if (!enriched || cancelled) return;
+      setQuotes((prev) => {
+        if (prev.some((row) => row.id === enriched.id)) return prev;
+        return [enriched, ...prev];
+      });
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [quoteShareFromUrl]);
 
   useEffect(() => {
     void fetchQuotes();
@@ -1513,15 +1567,21 @@ export function CustomerQuoteSchemesView() {
         const designId = isDesignCard
           ? quote.id.replace(/^design-project:|^confirmed-project:/, '')
           : '';
+        const allowedByShare =
+          Boolean(sharedQuoteTarget) &&
+          (quote.id === sharedQuoteTarget?.quoteUuid ||
+            quote.quote_id === sharedQuoteTarget?.quoteId);
         const allowedByPolicy =
           isDesignCard
             ? designProjectIds.has(designId)
-            : isAllowedPortalQuote({
+            : allowedByShare ||
+              isAllowedPortalQuote({
                 quoteId: quote.quote_id,
                 displayName: quoteDisplayName(quote),
                 clientName: clientNameOf(quote),
               });
         if (!allowedByPolicy) return false;
+        if (allowedByShare) return true;
         if (!clientOnly) return true;
         if (invitedTerms.size === 0) {
           // Staff/demo portal token without invites: still show allow-listed set.
@@ -1536,7 +1596,15 @@ export function CustomerQuoteSchemesView() {
           ),
         );
       });
-    return [...visible].sort((a, b) => {
+    const scoped =
+      sharedQuoteTarget && clientOnly
+        ? visible.filter(
+            (quote) =>
+              quote.id === sharedQuoteTarget.quoteUuid ||
+              quote.quote_id === sharedQuoteTarget.quoteId,
+          )
+        : visible;
+    return [...scoped].sort((a, b) => {
       const aDesign = a.id.startsWith('design-project:') ? 1 : 0;
       const bDesign = b.id.startsWith('design-project:') ? 1 : 0;
       if (aDesign !== bDesign) return bDesign - aDesign;
@@ -1545,7 +1613,7 @@ export function CustomerQuoteSchemesView() {
         new Date(a.modified_date || a.created_at).getTime()
       );
     });
-  }, [clientOnly, clientProjects, portalProjects, versionsByQuote]);
+  }, [clientOnly, clientProjects, portalProjects, sharedQuoteTarget, versionsByQuote]);
 
   useEffect(() => {
     if (availableQuotes.length === 0) return;
@@ -1556,6 +1624,25 @@ export function CustomerQuoteSchemesView() {
     );
     if (!activeVisible) setActiveId(availableQuotes[0].id);
   }, [activeId, allQuoteRows, availableQuotes]);
+
+  // Deep-open shared quote detail in 報價方案 current format.
+  useEffect(() => {
+    if (!sharedQuoteTarget || sharedQuoteOpenedRef.current || loading) return;
+    const match =
+      allQuoteRows.find((quote) => quote.id === sharedQuoteTarget.quoteUuid) ||
+      allQuoteRows.find(
+        (quote) => quote.quote_id === sharedQuoteTarget.quoteId,
+      ) ||
+      availableQuotes.find(
+        (quote) =>
+          quote.id === sharedQuoteTarget.quoteUuid ||
+          quote.quote_id === sharedQuoteTarget.quoteId,
+      );
+    if (!match) return;
+    sharedQuoteOpenedRef.current = true;
+    setActiveId(match.id);
+    setShowDetail(true);
+  }, [allQuoteRows, availableQuotes, loading, sharedQuoteTarget]);
 
   const active =
     allQuoteRows.find((quote) => quote.id === activeId) || null;
