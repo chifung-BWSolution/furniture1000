@@ -3265,7 +3265,7 @@ export function QuotationDraftEditor({
           <div className="mb-5 space-y-2">
             <div className="grid grid-cols-2 gap-2 lg:grid-cols-6">
               <div className="hidden lg:col-span-3 lg:block" aria-hidden />
-              <div className="col-span-2 flex flex-wrap items-center justify-end gap-2 lg:col-span-2">
+              <div className="col-span-2 flex flex-wrap items-stretch justify-end gap-2 lg:col-span-2">
                 {showUnifyRatePanel ? (
                   <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:flex-none">
                     <span className="shrink-0 font-body text-xs text-muted-foreground">
@@ -3289,33 +3289,36 @@ export function QuotationDraftEditor({
                           setUnifyRateDraft("");
                         }
                       }}
-                      className="inline-flex h-9 shrink-0 items-center justify-center rounded-lg border border-primary/40 bg-primary/10 px-2.5 font-body text-xs font-semibold text-primary hover:bg-primary/15"
+                      className="inline-flex items-center justify-center rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 font-body text-sm font-semibold text-primary hover:bg-primary/15"
                     >
                       {t.confirm}
                     </button>
                   </div>
                 ) : null}
+                {/* Match 保存現有版本 size/style (px-3 py-2 text-sm). */}
                 <button
                   type="button"
                   onClick={() => setShowUnifyRatePanel((v) => !v)}
                   className={cn(
-                    "inline-flex h-9 shrink-0 items-center justify-center rounded-lg border px-3 font-body text-sm font-medium transition-colors",
+                    "inline-flex min-w-0 flex-1 items-center justify-center gap-2 rounded-lg border px-3 py-2 font-body text-sm font-medium transition-colors",
                     showUnifyRatePanel
                       ? "border-primary/40 bg-primary/10 text-primary"
-                      : "border-border bg-background text-foreground/80 hover:bg-muted/50",
+                      : "border-border bg-background text-foreground hover:bg-muted/50",
                   )}
                 >
-                  {showUnifyRatePanel
-                    ? t.unifyExchangeRateApplied
-                    : t.unifyExchangeRate}
+                  <span className="truncate">
+                    {showUnifyRatePanel
+                      ? t.unifyExchangeRateApplied
+                      : t.unifyExchangeRate}
+                  </span>
                 </button>
                 <button
                   type="button"
                   onClick={() => onOpenPdfPreview?.(buildPDFData())}
-                  className="inline-flex h-9 min-w-[7.5rem] flex-1 items-center justify-center gap-2 rounded-lg border border-primary/30 bg-primary/5 px-3 font-body text-sm font-medium text-primary transition-colors hover:bg-primary/10 sm:flex-none"
+                  className="inline-flex min-w-0 flex-1 items-center justify-center gap-2 rounded-lg border border-border bg-background px-3 py-2 font-body text-sm font-medium text-foreground transition-colors hover:bg-muted/50"
                 >
-                  <Eye className="h-4 w-4" />
-                  {t.previewPdf}
+                  <Eye className="h-4 w-4 shrink-0" />
+                  <span className="truncate">{t.previewPdf}</span>
                 </button>
               </div>
               <div className="col-span-2 flex flex-col gap-2 lg:col-span-1">
