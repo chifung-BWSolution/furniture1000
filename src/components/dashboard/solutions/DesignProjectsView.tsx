@@ -1458,6 +1458,29 @@ export function DesignProjectsView() {
     setFactoryFilterOpen(false);
     setFactoryQuery('');
     setPickerOpen(true);
+    // Keep L1/L2 chips in sync with 設定 > 產品分類 (not Shopify leftovers).
+    setCategoriesLoading(true);
+    void fetchProductCategoryPairs()
+      .then((pairs) => {
+        setCategoryPairs(pairs);
+        const l1Options = uniqueLevel1InOrder(pairs);
+        const requestedL1 = (opts?.level1 ?? '').trim();
+        if (requestedL1 && !l1Options.includes(requestedL1)) {
+          // Drop stale filters removed from 產品分類 (e.g. 會議桌).
+          setProductLevel1('');
+          setProductLevel2('');
+          return;
+        }
+        const requestedL2 = (opts?.level2 ?? '').trim();
+        if (
+          requestedL1 &&
+          requestedL2 &&
+          !uniqueLevel2InOrder(pairs, requestedL1).includes(requestedL2)
+        ) {
+          setProductLevel2('');
+        }
+      })
+      .finally(() => setCategoriesLoading(false));
     if (products.length === 0) {
       setProductsLoading(true);
       fetchActiveShopifyProducts(1000)
@@ -2083,32 +2106,17 @@ export function DesignProjectsView() {
     });
   }, [products, keyword, productLevel1, productLevel2, factoryFilter]);
 
+  // 加入／更換產品 + 傢俬劃分 chips all follow 設定 > 產品分類 only.
   const productLevel1Options = useMemo(
-    () =>
-      [...new Set(products.map((product) => product.level1Category).filter(Boolean))] as string[],
-    [products],
-  );
-  const productLevel2Options = useMemo(
-    () =>
-      [
-        ...new Set(
-          products
-            .filter(
-              (product) =>
-                product.level1Category === productLevel1 &&
-                product.level2Category,
-            )
-            .map((product) => product.level2Category as string),
-        ),
-      ],
-    [productLevel1, products],
-  );
-
-  // 傢俬劃分 chips follow 設定 > 產品分類 only (not Shopify product leftovers).
-  const divisionLevel1Options = useMemo(
     () => uniqueLevel1InOrder(categoryPairs),
     [categoryPairs],
   );
+  const productLevel2Options = useMemo(
+    () => uniqueLevel2InOrder(categoryPairs, productLevel1),
+    [categoryPairs, productLevel1],
+  );
+
+  const divisionLevel1Options = productLevel1Options;
 
   const divisionLevel2Options = useMemo(
     () => uniqueLevel2InOrder(categoryPairs, divisionLevel1),
@@ -3082,6 +3090,11 @@ export function DesignProjectsView() {
                 >
                   全部
                 </button>
+                {categoriesLoading && productLevel1Options.length === 0 ? (
+                  <span className="text-[13px] text-muted-foreground">
+                    載入分類中…
+                  </span>
+                ) : null}
                 {productLevel1Options.map((category) => (
                   <button
                     key={category}
