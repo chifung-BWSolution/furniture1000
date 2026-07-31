@@ -2701,22 +2701,27 @@ export function CustomerQuoteSchemesView() {
                                         data-partition-zone={group.label}
                                         data-partition-zone-title={roomTitle}
                                       >
-                                        <h5 className="text-center font-display text-[13px] font-bold text-foreground md:text-[14px]">
+                                        <h5 className="text-center font-display text-[15px] font-bold text-foreground md:text-[16px]">
                                           {section.label}
-                                          <span className="ml-1.5 text-[12px] font-semibold text-muted-foreground">
+                                          <span className="ml-1.5 text-[14px] font-semibold text-muted-foreground">
                                             : {sectionCount}
                                           </span>
                                         </h5>
                                       </div>
                                     ) : null}
                                     {sectionSlots.length > 0 ? (
-                                      <div className="grid grid-cols-1 items-stretch gap-px bg-border md:grid-cols-2 xl:grid-cols-3">
-                                        {sectionSlots.flatMap((slot) =>
-                                          slot.items.map((item, index) => {
-                                              const key = itemKey(
-                                                item,
-                                                index,
-                                              );
+                                      <div className="space-y-px bg-border">
+                                        {/*
+                                          Each scheme slot (e.g. 7選1 / 2選1) owns its own
+                                          3-col grid so the next product always starts a new row.
+                                        */}
+                                        {sectionSlots.map((slot) => (
+                                          <div
+                                            key={slot.key}
+                                            className="grid grid-cols-1 items-stretch gap-px bg-border md:grid-cols-2 xl:grid-cols-3"
+                                          >
+                                            {slot.items.map((item, index) => {
+                                              const key = itemKey(item, index);
                                               const review = itemReviews[key];
                                               const messages =
                                                 itemMessages[key] || [];
@@ -2788,7 +2793,9 @@ export function CustomerQuoteSchemesView() {
                                                         messageId,
                                                       )
                                                     }
-                                                    onSetReview={(nextReview) => {
+                                                    onSetReview={(
+                                                      nextReview,
+                                                    ) => {
                                                       void syncItemReview(
                                                         item,
                                                         nextReview,
@@ -2807,8 +2814,9 @@ export function CustomerQuoteSchemesView() {
                                                   />
                                                 </div>
                                               );
-                                          }),
-                                        )}
+                                            })}
+                                          </div>
+                                        ))}
                                       </div>
                                     ) : null}
                                   </div>
