@@ -2978,7 +2978,7 @@ export function QuotationDraftEditor({
     return () => window.clearTimeout(timer);
   }, [draftLoaded, existingQuote?.quoteUuid, itemsLoadedFromDb, buildDraftData]);
 
-  // Auto-save draft locally while dirty (no need to mash「暫存草稿」).
+  // Auto-save draft locally while dirty (browser backup; server save =「保存現有版本」).
   // Also refreshes resume / editingId markers so F5 can reopen this editor.
   useEffect(() => {
     if (!draftLoaded || !hasQuoteData || !isDirty) return;
