@@ -8,6 +8,7 @@ import {
   Clock,
   ExternalLink,
   FileText,
+  Layers,
   Loader2,
   PenLine,
   Printer,
@@ -3140,7 +3141,7 @@ export function CustomerQuoteSchemesView() {
                                   <div key={section.id}>
                                     {section.label ? (
                                       <div
-                                        className="grid grid-cols-1 items-center gap-2 border-b border-border bg-muted/20 px-5 py-2.5 sm:grid-cols-[1fr_auto_1fr]"
+                                        className="mt-1 grid grid-cols-1 items-center gap-2 border-y-2 border-primary/25 bg-primary/10 px-4 py-3.5 shadow-[inset_4px_0_0_0_hsl(var(--primary))] sm:grid-cols-[1fr_auto_1fr] sm:px-5"
                                         data-partition-division={section.label}
                                         data-partition-count={String(
                                           sectionCount,
@@ -3149,19 +3150,25 @@ export function CustomerQuoteSchemesView() {
                                         data-partition-zone-title={roomTitle}
                                       >
                                         <div className="hidden sm:block" />
-                                        <h5 className="text-center font-display text-[17px] font-bold text-foreground md:text-[18px]">
-                                          {section.label}
-                                          <span className="ml-1.5 text-[16px] font-semibold text-muted-foreground">
-                                            : {sectionCount}
+                                        <div className="flex min-w-0 flex-col items-center gap-1">
+                                          <span className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-background/80 px-2 py-0.5 text-[11px] font-bold tracking-wide text-primary uppercase">
+                                            <Layers className="h-3 w-3" />
+                                            傢俬劃分
                                           </span>
-                                        </h5>
+                                          <h5 className="text-center font-display text-[19px] font-bold leading-snug text-foreground md:text-[21px]">
+                                            {section.label}
+                                            <span className="ml-2 inline-flex items-center rounded-md bg-primary/15 px-2 py-0.5 align-middle text-[15px] font-bold text-primary md:text-[16px]">
+                                              {sectionCount} 件
+                                            </span>
+                                          </h5>
+                                        </div>
                                         <p
                                           className={cn(
-                                            'justify-self-center text-[16px] font-semibold sm:justify-self-end md:text-[17px]',
+                                            'justify-self-center rounded-full border px-3 py-1 text-[15px] font-bold sm:justify-self-end md:text-[16px]',
                                             sectionPickedQty >= sectionCount &&
                                               sectionCount > 0
-                                              ? 'text-emerald-700'
-                                              : 'text-primary',
+                                              ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700'
+                                              : 'border-primary/30 bg-background/80 text-primary',
                                           )}
                                         >
                                           已選擇 : {sectionPickedQty}/

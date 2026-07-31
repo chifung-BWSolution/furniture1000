@@ -171,9 +171,30 @@ export function TopBar({
           </div>
         </div>
         {designSticky.activeContextLine ? (
-          <p className="mt-2 w-full text-center font-body text-[19px] font-semibold text-foreground md:text-[20px]">
-            {designSticky.activeContextLine}
-          </p>
+          <div
+            className={cn(
+              'mt-2 flex w-full items-center justify-center gap-2 rounded-lg border px-3 py-2',
+              isQuoteSticky
+                ? 'border-primary/30 bg-primary/10 shadow-[inset_3px_0_0_0_hsl(var(--primary))]'
+                : 'border-border/70 bg-muted/40',
+            )}
+          >
+            <p
+              className={cn(
+                'text-center font-display font-bold leading-snug',
+                isQuoteSticky
+                  ? 'text-[18px] text-foreground md:text-[20px]'
+                  : 'font-body text-[19px] font-semibold text-foreground md:text-[20px]',
+              )}
+            >
+              {isQuoteSticky ? (
+                <span className="mr-2 inline-flex align-middle text-[11px] font-bold tracking-wide text-primary uppercase">
+                  目前劃分
+                </span>
+              ) : null}
+              {designSticky.activeContextLine}
+            </p>
+          </div>
         ) : null}
       </header>
     );
