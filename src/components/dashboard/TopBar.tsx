@@ -154,7 +154,7 @@ export function TopBar({
           </div>
         </div>
         {designSticky.activeContextLine ? (
-          <p className="mt-2 w-full text-center font-body text-[15px] font-medium text-foreground md:text-[16px]">
+          <p className="mt-2 w-full text-center font-body text-[17px] font-semibold text-foreground md:text-[18px]">
             {designSticky.activeContextLine}
           </p>
         ) : null}
