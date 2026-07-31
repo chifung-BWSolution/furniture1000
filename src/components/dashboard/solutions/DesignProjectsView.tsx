@@ -50,8 +50,6 @@ import {
 import { uploadFileToStorage } from '@/lib/imageStorage';
 import { toast } from 'sonner';
 import {
-  MAX_FURNITURE_SCHEME_PRODUCTS,
-  MAX_SCHEME_EXTRAS_PER_PICKER,
   ZONE_PRODUCT_STATUS_META,
   type CustomRoomType,
   type DesignProject,
@@ -278,7 +276,7 @@ function normalizeFurnitureSchemeGroups(
                   .map((pid) => String(pid || '').trim())
                   .filter(Boolean),
               ),
-            ].slice(0, MAX_FURNITURE_SCHEME_PRODUCTS)
+            ]
           : [];
         if (productIds.length === 0) return null;
         return { id, productIds } satisfies FurnitureSchemeGroup;
@@ -313,8 +311,7 @@ function buildFurnitureSchemeSlots(
     if (group) {
       const products = group.productIds
         .map((id) => itemById.get(id))
-        .filter((row): row is ZoneProduct => Boolean(row))
-        .slice(0, MAX_FURNITURE_SCHEME_PRODUCTS);
+        .filter((row): row is ZoneProduct => Boolean(row));
       if (products.length === 0) continue;
       products.forEach((row) => used.add(row.id));
       slots.push({
@@ -703,8 +700,7 @@ function ZoneProductRow({
   onDeleteFeedback: (item: ZoneProduct, index: number) => void;
 }) {
   const multiScheme = schemeCount > 1;
-  const canAddMoreSchemes =
-    Boolean(onMoreSchemes) && schemeCount < MAX_FURNITURE_SCHEME_PRODUCTS;
+  const canAddMoreSchemes = Boolean(onMoreSchemes);
   const size = PRODUCT_IMAGE_SIZE_PX;
   const lineSubtotal = (
     Number(item.salePrice || 0) * Math.max(1, Math.floor(Number(item.quantity) || 1))
@@ -753,7 +749,7 @@ function ZoneProductRow({
           type="button"
           onClick={() => onMoreSchemes?.(item)}
           className="inline-flex h-8 items-center gap-1 rounded-md border border-violet-500/40 bg-violet-500/10 px-2 text-[12px] font-medium text-violet-700 hover:bg-violet-500/15 dark:text-violet-300"
-          title={`加入替代方案（最多 ${MAX_FURNITURE_SCHEME_PRODUCTS} 款）`}
+          title="加入替代方案（可連續加入，完成後關閉視窗）"
         >
           <LayoutGrid className="h-3.5 w-3.5 shrink-0" />
           {multiScheme ? '方案' : '更多方案'}
@@ -1382,11 +1378,10 @@ function ZoneSchemeSlotRow({
       <div
         className={cn(
           'min-w-0',
-          count >= 3
+          // Unlimited schemes; display wraps at 3 cards per row.
+          count > 1
             ? 'grid grid-cols-1 items-stretch gap-px bg-border md:grid-cols-2 xl:grid-cols-3'
-            : count === 2
-              ? 'grid grid-cols-1 items-stretch gap-px bg-border xl:grid-cols-2'
-              : 'flex flex-col',
+            : 'flex flex-col',
         )}
       >
         {slot.products.map((item, index) => (
@@ -2127,12 +2122,7 @@ export function DesignProjectsView() {
     setReplacingZoneProductId(replaceZoneProductId ?? null);
     setSchemeForProductId(opts?.schemeForProductId ?? null);
     setSchemeSessionPicks(
-      opts?.schemeForProductId
-        ? (opts.initialSchemeSessionPicks || []).slice(
-            0,
-            MAX_SCHEME_EXTRAS_PER_PICKER,
-          )
-        : [],
+      opts?.schemeForProductId ? opts.initialSchemeSessionPicks || [] : [],
     );
     setPickerDivisionId(opts?.divisionId ?? null);
     setProductLevel1(opts?.level1 ?? '');
@@ -2325,22 +2315,13 @@ export function DesignProjectsView() {
         return;
       }
       const existingGroup = findSchemeGroupForProduct(
-        furnitureSchemeGroups[zoneId] || [],
+        furnitureSchemeGroupsRef.current[zoneId] || [],
         anchorId,
       );
-      const currentCount = existingGroup?.productIds.length || 1;
-      if (currentCount >= MAX_FURNITURE_SCHEME_PRODUCTS) {
-        toast.error(`同一欄位最多 ${MAX_FURNITURE_SCHEME_PRODUCTS} 款方案`);
-        return;
-      }
-      if (schemeSessionPicks.length >= MAX_SCHEME_EXTRAS_PER_PICKER) {
-        toast.error(
-          `本次最多再加入 ${MAX_SCHEME_EXTRAS_PER_PICKER} 款方案`,
-        );
-        return;
-      }
       if (
-        schemeSessionPicks.some((pick) => pick.productId === product.id) ||
+        schemeSessionPicksRef.current.some(
+          (pick) => pick.productId === product.id,
+        ) ||
         (existingGroup?.productIds || []).some((pid) => {
           const row = zoneProducts.find((item) => item.id === pid);
           return row?.productId === product.id;
@@ -2413,9 +2394,7 @@ export function DesignProjectsView() {
               row.id === existing.id
                 ? {
                     ...row,
-                    productIds: [
-                      ...new Set([...row.productIds, created.id]),
-                    ].slice(0, MAX_FURNITURE_SCHEME_PRODUCTS),
+                    productIds: [...new Set([...row.productIds, created.id])],
                   }
                 : row,
             ),
@@ -2466,20 +2445,7 @@ export function DesignProjectsView() {
       toast.success(anchorId ? '已加入替代方案' : '已加入間隔', {
         description: `${product.title} → ${zones.find((z) => z.id === zoneId)?.name || '間隔'}（記得按儲存）`,
       });
-
-      if (anchorId) {
-        const groupAfter =
-          findSchemeGroupForProduct(
-            nextSchemeGroups[zoneId] || [],
-            anchorId,
-          )?.productIds.length || 1;
-        const sessionDone =
-          nextSessionPicks.length >= MAX_SCHEME_EXTRAS_PER_PICKER;
-        const slotFull = groupAfter >= MAX_FURNITURE_SCHEME_PRODUCTS;
-        if (sessionDone || slotFull) {
-          closePicker();
-        }
-      }
+      // 「更多方案」picker stays open until the user closes it manually.
     } else {
       toast.error('加入失敗', { description: res.error });
     }
@@ -2557,12 +2523,7 @@ export function DesignProjectsView() {
     const memberIds = group?.productIds?.length
       ? group.productIds
       : [item.id];
-    const count = memberIds.length;
-    if (count >= MAX_FURNITURE_SCHEME_PRODUCTS) {
-      toast.error(`同一欄位最多 ${MAX_FURNITURE_SCHEME_PRODUCTS} 款方案`);
-      return;
-    }
-    // Already-added extras (方案 2 / 3) seed「已選擇」so reopen shows e.g. 1/2 + SKU.
+    // Already-added extras seed「已選擇」SKU list when reopening.
     const existingExtras = memberIds.slice(1).flatMap((zoneProductId) => {
       const row = zoneProducts.find((product) => product.id === zoneProductId);
       if (!row) return [];
@@ -3892,7 +3853,6 @@ export function DesignProjectsView() {
                       更多方案：
                       {zoneProducts.find((item) => item.id === schemeForProductId)
                         ?.productTitle || '目前產品'}
-                      （同一欄位最多 {MAX_FURNITURE_SCHEME_PRODUCTS} 款）
                     </>
                   ) : (
                     <>
@@ -3908,7 +3868,7 @@ export function DesignProjectsView() {
                   {replacingZoneProductId
                     ? '點選產品後會替換目前項目的名稱、圖片與價錢（數量／備註／狀態保留）'
                     : schemeForProductId
-                      ? `點選「加入方案」可連續加入最多 ${MAX_SCHEME_EXTRAS_PER_PICKER} 款（相同一級／二級分類），滿額後視窗自動關閉`
+                      ? '點選「加入方案」可連續加入多款替代方案（相同一級／二級分類）；完成後按右上角關閉'
                       : '只顯示目前可供選購並已有售價的產品'}
                 </p>
               </div>
@@ -4150,9 +4110,11 @@ export function DesignProjectsView() {
                       ? schemeSessionPicks.map((pick) => pick.sku).join('、')
                       : '—'}
                   </span>
-                  <span className="shrink-0 font-mono-data font-semibold text-violet-700 dark:text-violet-300">
-                    {schemeSessionPicks.length}/{MAX_SCHEME_EXTRAS_PER_PICKER}
-                  </span>
+                  {schemeSessionPicks.length > 0 ? (
+                    <span className="shrink-0 text-muted-foreground">
+                      共 {schemeSessionPicks.length} 款
+                    </span>
+                  ) : null}
                 </div>
               ) : null}
             </div>
@@ -4163,7 +4125,7 @@ export function DesignProjectsView() {
                   <Loader2 className="h-6 w-6 animate-spin text-primary" />
                 </div>
               ) : (
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
                   {filteredProducts.map((p) => {
                     const dims = formatProductDimensionsMm(
                       p.dimensionLMm,

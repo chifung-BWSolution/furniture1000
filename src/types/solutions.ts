@@ -191,18 +191,17 @@ export interface ZoneFurnitureDivision {
 
 /**
  * Alternative schemes for one furniture slot (設計專案「更多方案」).
- * Up to 3 zone_products share the same planned quantity slot.
+ * Any number of zone_products may share the same planned quantity slot;
+ * the UI shows them in rows of {@link SCHEME_PRODUCTS_PER_ROW}.
  */
 export interface FurnitureSchemeGroup {
   id: string;
-  /** 1–3 zone_products.id in display order (方案 1 / 2 / 3). */
+  /** zone_products.id in display order (方案 1 / 2 / …). */
   productIds: string[];
 }
 
-/** Max products allowed in one furniture scheme slot (1 primary + extras). */
-export const MAX_FURNITURE_SCHEME_PRODUCTS = 3;
-/** How many extras the「更多方案」picker expects before auto-closing. */
-export const MAX_SCHEME_EXTRAS_PER_PICKER = 2;
+/** How many scheme products to show per row in 設計專案. */
+export const SCHEME_PRODUCTS_PER_ROW = 3;
 
 export interface DesignProject {
   id: string;
