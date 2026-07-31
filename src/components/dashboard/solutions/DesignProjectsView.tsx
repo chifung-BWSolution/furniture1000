@@ -457,6 +457,68 @@ function zoneGroupProductTotal(
 }
 
 /**
+ * If any member of a scheme group is assigned to a division, treat the whole
+ * group as assigned (extras share the primary's planned slot).
+ */
+function expandAssignedIdsWithSchemeGroups(
+  assignedIds: Iterable<string>,
+  groups: FurnitureSchemeGroup[],
+): Set<string> {
+  const next = new Set(
+    [...assignedIds].map((id) => String(id || '').trim()).filter(Boolean),
+  );
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const group of groups) {
+      if (!group.productIds.some((id) => next.has(id))) continue;
+      for (const id of group.productIds) {
+        if (next.has(id)) continue;
+        next.add(id);
+        changed = true;
+      }
+    }
+  }
+  return next;
+}
+
+/**
+ * Ensure every scheme-group member is listed on the same division as its
+ * primary (fixes stale「更多方案」adds that missed division.productIds).
+ */
+function healFurnitureDivisionsWithSchemeGroups(
+  divisionsByZone: Record<string, ZoneFurnitureDivision[]>,
+  schemeGroupsByZone: Record<string, FurnitureSchemeGroup[]>,
+): Record<string, ZoneFurnitureDivision[]> {
+  let changed = false;
+  const next: Record<string, ZoneFurnitureDivision[]> = { ...divisionsByZone };
+  for (const [zoneId, groups] of Object.entries(schemeGroupsByZone)) {
+    const divisions = next[zoneId] || [];
+    if (divisions.length === 0 || groups.length === 0) continue;
+    let zoneDivisions = divisions.map((row) => ({
+      ...row,
+      productIds: [...(row.productIds || [])],
+    }));
+    for (const group of groups) {
+      const memberIds = group.productIds.filter(Boolean);
+      if (memberIds.length < 2) continue;
+      const host = zoneDivisions.find((row) =>
+        memberIds.some((id) => (row.productIds || []).includes(id)),
+      );
+      if (!host) continue;
+      const before = host.productIds.length;
+      const merged = [...new Set([...(host.productIds || []), ...memberIds])];
+      if (merged.length !== before) {
+        host.productIds = merged;
+        changed = true;
+      }
+    }
+    next[zoneId] = zoneDivisions;
+  }
+  return changed ? next : divisionsByZone;
+}
+
+/**
  * Divisions where slot count exceeds the planned quantity.
  * Alternative schemes in the same slot count as one. Excess slots must be
  * removed (or quantity reduced) before save.
@@ -472,16 +534,19 @@ function collectDivisionExcessWarnings(
     const divisions = divisionsByZone[zone.id] || [];
     if (divisions.length === 0) continue;
     const items = products.filter((product) => product.zoneId === zone.id);
-    const assignedIds = new Set(
-      divisions.flatMap((row) => row.productIds || []),
-    );
     const zoneGroups = schemeGroupsByZone[zone.id] || [];
+    const assignedIds = expandAssignedIdsWithSchemeGroups(
+      divisions.flatMap((row) => row.productIds || []),
+      zoneGroups,
+    );
 
     for (const division of divisions) {
       const planned = Math.max(1, Math.floor(Number(division.quantity) || 1));
-      const divisionItems = items.filter((item) =>
-        (division.productIds || []).includes(item.id),
+      const divisionIdSet = expandAssignedIdsWithSchemeGroups(
+        division.productIds || [],
+        zoneGroups,
       );
+      const divisionItems = items.filter((item) => divisionIdSet.has(item.id));
       const slots = buildFurnitureSchemeSlots(divisionItems, zoneGroups);
       const slotCount = slots.reduce(
         (sum, slot) => sum + schemeSlotPieceCount(slot.products),
@@ -801,55 +866,69 @@ function ZoneProductRow({
     </div>
   );
 
-  const priceBlock = (compact: boolean) => (
-    <div
-      className={cn(
-        'ml-auto flex shrink-0 flex-col items-end justify-end gap-1 text-foreground',
-        !compact && PRODUCT_PRICE_COL_CLASS,
-      )}
-    >
+  const priceBlock = (compact: boolean) => {
+    const countsTowardTotal = !multiScheme || schemeIndex === 0;
+    return (
       <div
         className={cn(
-          'flex flex-nowrap items-center justify-end gap-1 whitespace-nowrap text-muted-foreground',
-          compact ? 'text-[12px]' : 'text-[15px]',
+          'ml-auto flex shrink-0 flex-col items-end justify-end gap-1 text-foreground',
+          !compact && PRODUCT_PRICE_COL_CLASS,
         )}
       >
-        <span>單價 $</span>
-        <input
-          type="number"
-          min={0}
-          step={1}
-          value={Number(item.salePrice || 0)}
-          onChange={(event) => onSetSalePrice(item, Number(event.target.value))}
+        <div
           className={cn(
-            'shrink-0 rounded-md border border-border bg-background px-1.5 font-mono-data text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20',
-            compact ? 'h-6 w-[4.25rem] text-[12px]' : 'h-7 w-[4.75rem] text-[15px]',
+            'flex flex-nowrap items-center justify-end gap-1 whitespace-nowrap text-muted-foreground',
+            compact ? 'text-[12px]' : 'text-[15px]',
           )}
-          aria-label={`${titleLabel}單價`}
-          title="修改此產品在設計專案中的單價"
-        />
-        <span>×</span>
-        <span
-          className={cn(
-            'inline-flex min-w-[2rem] items-center justify-center rounded-md border border-border bg-muted/40 px-1.5 font-mono-data font-semibold text-foreground',
-            compact ? 'h-6 text-[12px]' : 'h-7 min-w-[2.25rem] px-2 text-[15px]',
-          )}
-          title="請於上方數量修改"
-          aria-label={`${titleLabel}數量（唯讀）`}
         >
-          {item.quantity}
-        </span>
+          <span>單價 $</span>
+          <input
+            type="number"
+            min={0}
+            step={1}
+            value={Number(item.salePrice || 0)}
+            onChange={(event) =>
+              onSetSalePrice(item, Number(event.target.value))
+            }
+            className={cn(
+              'shrink-0 rounded-md border border-border bg-background px-1.5 font-mono-data text-foreground outline-none focus:border-primary/50 focus:ring-2 focus:ring-primary/20',
+              compact
+                ? 'h-6 w-[4.25rem] text-[12px]'
+                : 'h-7 w-[4.75rem] text-[15px]',
+            )}
+            aria-label={`${titleLabel}單價`}
+            title="修改此產品在設計專案中的單價"
+          />
+          <span>×</span>
+          <span
+            className={cn(
+              'inline-flex min-w-[2rem] items-center justify-center rounded-md border border-border bg-muted/40 px-1.5 font-mono-data font-semibold text-foreground',
+              compact
+                ? 'h-6 text-[12px]'
+                : 'h-7 min-w-[2.25rem] px-2 text-[15px]',
+            )}
+            title="請於上方數量修改"
+            aria-label={`${titleLabel}數量（唯讀）`}
+          >
+            {item.quantity}
+          </span>
+        </div>
+        <div
+          className={cn(
+            'w-full text-right font-mono-data font-semibold',
+            compact ? 'text-[15px]' : 'text-[18px]',
+            countsTowardTotal ? 'text-foreground' : 'text-muted-foreground',
+          )}
+        >
+          {countsTowardTotal ? (
+            <>小計 ${lineSubtotal}</>
+          ) : (
+            <span title="更多方案不計入小計／總計">小計 —（以方案 1 計）</span>
+          )}
+        </div>
       </div>
-      <div
-        className={cn(
-          'w-full text-right font-mono-data font-semibold text-foreground',
-          compact ? 'text-[15px]' : 'text-[18px]',
-        )}
-      >
-        小計 ${lineSubtotal}
-      </div>
-    </div>
-  );
+    );
+  };
 
   const qtyControl = (
     <div className="inline-flex shrink-0 items-center gap-1.5">
@@ -1453,10 +1532,25 @@ export function DesignProjectsView() {
     null,
   );
   const furnitureDirtyRef = useRef(false);
+  const furnitureDivisionsRef = useRef(furnitureDivisions);
+  const furnitureSchemeGroupsRef = useRef(furnitureSchemeGroups);
+  const schemeSessionPicksRef = useRef(schemeSessionPicks);
 
   useEffect(() => {
     furnitureDirtyRef.current = furnitureDirty;
   }, [furnitureDirty]);
+
+  useEffect(() => {
+    furnitureDivisionsRef.current = furnitureDivisions;
+  }, [furnitureDivisions]);
+
+  useEffect(() => {
+    furnitureSchemeGroupsRef.current = furnitureSchemeGroups;
+  }, [furnitureSchemeGroups]);
+
+  useEffect(() => {
+    schemeSessionPicksRef.current = schemeSessionPicks;
+  }, [schemeSessionPicks]);
 
   const selectProject = useCallback(
     (projectId: string, opts?: { force?: boolean }) => {
@@ -2276,45 +2370,59 @@ export function DesignProjectsView() {
       const created = res.data;
       setZoneProducts((prev) => [...prev, created]);
 
-      let nextDivisions = furnitureDivisions;
-      if (pickerDivisionId) {
+      // Use refs so consecutive「加入方案」clicks don't overwrite each other.
+      const currentDivisions = furnitureDivisionsRef.current;
+      const currentSchemeGroups = furnitureSchemeGroupsRef.current;
+      const currentSessionPicks = schemeSessionPicksRef.current;
+
+      // Prefer explicit picker division; else inherit the anchor's division.
+      const targetDivisionId =
+        pickerDivisionId ||
+        (anchorId
+          ? (currentDivisions[zoneId] || []).find((row) =>
+              (row.productIds || []).includes(anchorId),
+            )?.id || null
+          : null);
+
+      let nextDivisions = currentDivisions;
+      if (targetDivisionId) {
         nextDivisions = {
-          ...furnitureDivisions,
-          [zoneId]: (furnitureDivisions[zoneId] || []).map((row) =>
-            row.id === pickerDivisionId
+          ...currentDivisions,
+          [zoneId]: (currentDivisions[zoneId] || []).map((row) =>
+            row.id === targetDivisionId
               ? {
                   ...row,
-                  productIds: [...(row.productIds || []), created.id],
+                  productIds: [
+                    ...new Set([...(row.productIds || []), created.id]),
+                  ],
                 }
               : row,
           ),
         };
-        setFurnitureDivisions(nextDivisions);
       }
 
-      let nextSchemeGroups = furnitureSchemeGroups;
-      let nextSessionPicks = schemeSessionPicks;
+      let nextSchemeGroups = currentSchemeGroups;
+      let nextSessionPicks = currentSessionPicks;
       if (anchorId) {
-        const rows = furnitureSchemeGroups[zoneId] || [];
+        const rows = currentSchemeGroups[zoneId] || [];
         const existing = findSchemeGroupForProduct(rows, anchorId);
         if (existing) {
           nextSchemeGroups = {
-            ...furnitureSchemeGroups,
+            ...currentSchemeGroups,
             [zoneId]: rows.map((row) =>
               row.id === existing.id
                 ? {
                     ...row,
-                    productIds: [...row.productIds, created.id].slice(
-                      0,
-                      MAX_FURNITURE_SCHEME_PRODUCTS,
-                    ),
+                    productIds: [
+                      ...new Set([...row.productIds, created.id]),
+                    ].slice(0, MAX_FURNITURE_SCHEME_PRODUCTS),
                   }
                 : row,
             ),
           };
         } else {
           nextSchemeGroups = {
-            ...furnitureSchemeGroups,
+            ...currentSchemeGroups,
             [zoneId]: [
               ...rows,
               {
@@ -2324,24 +2432,32 @@ export function DesignProjectsView() {
             ],
           };
         }
-        setFurnitureSchemeGroups(nextSchemeGroups);
 
         const skuLabel =
           String(product.sku || '').trim() ||
           String(product.id || '').trim() ||
           product.title;
         nextSessionPicks = [
-          ...schemeSessionPicks,
+          ...currentSessionPicks,
           {
             productId: product.id,
             sku: skuLabel,
             title: product.title,
           },
         ];
+        schemeSessionPicksRef.current = nextSessionPicks;
         setSchemeSessionPicks(nextSessionPicks);
       }
 
-      if (pickerDivisionId || anchorId) {
+      if (targetDivisionId || anchorId) {
+        nextDivisions = healFurnitureDivisionsWithSchemeGroups(
+          nextDivisions,
+          nextSchemeGroups,
+        );
+        furnitureDivisionsRef.current = nextDivisions;
+        furnitureSchemeGroupsRef.current = nextSchemeGroups;
+        setFurnitureDivisions(nextDivisions);
+        setFurnitureSchemeGroups(nextSchemeGroups);
         persistPlanningMeta(zoneAreasSqft, nextDivisions, nextSchemeGroups);
       } else {
         setFurnitureDirty(true);
@@ -2622,10 +2738,18 @@ export function DesignProjectsView() {
       const active = document.activeElement;
       if (active instanceof HTMLElement) active.blur();
     }
+    const healedDivisions = healFurnitureDivisionsWithSchemeGroups(
+      furnitureDivisions,
+      furnitureSchemeGroups,
+    );
+    if (healedDivisions !== furnitureDivisions) {
+      setFurnitureDivisions(healedDivisions);
+      furnitureDivisionsRef.current = healedDivisions;
+    }
     const excessWarnings = collectDivisionExcessWarnings(
       zones,
       zoneProducts,
-      furnitureDivisions,
+      healedDivisions,
       furnitureSchemeGroups,
     );
     if (excessWarnings.length > 0) {
@@ -2656,7 +2780,7 @@ export function DesignProjectsView() {
         meta: {
           ...project.meta,
           zoneAreasSqft: zoneAreasSqftMetaFromState(zoneAreasSqft),
-          furnitureDivisions,
+          furnitureDivisions: healedDivisions,
           furnitureSchemeGroups,
           optionalZoneProductIds,
           furnitureSnapshot: project.meta?.furnitureSnapshot,
@@ -2682,7 +2806,7 @@ export function DesignProjectsView() {
                 meta: {
                   ...row.meta,
                   zoneAreasSqft: zoneAreasSqftMetaFromState(zoneAreasSqft),
-                  furnitureDivisions,
+                  furnitureDivisions: healedDivisions,
                   furnitureSchemeGroups,
                   optionalZoneProductIds,
                   furnitureSnapshot: result.data!.snapshot,
@@ -2707,10 +2831,18 @@ export function DesignProjectsView() {
       toast.error('請先設定間隔並加入產品');
       return;
     }
+    const healedDivisions = healFurnitureDivisionsWithSchemeGroups(
+      furnitureDivisions,
+      furnitureSchemeGroups,
+    );
+    if (healedDivisions !== furnitureDivisions) {
+      setFurnitureDivisions(healedDivisions);
+      furnitureDivisionsRef.current = healedDivisions;
+    }
     const excessWarnings = collectDivisionExcessWarnings(
       zones,
       zoneProducts,
-      furnitureDivisions,
+      healedDivisions,
       furnitureSchemeGroups,
     );
     if (excessWarnings.length > 0) {
@@ -2740,7 +2872,7 @@ export function DesignProjectsView() {
           meta: {
             ...project.meta,
             zoneAreasSqft: zoneAreasSqftMetaFromState(zoneAreasSqft),
-            furnitureDivisions,
+            furnitureDivisions: healedDivisions,
             furnitureSchemeGroups,
             optionalZoneProductIds,
           },
@@ -2764,7 +2896,7 @@ export function DesignProjectsView() {
                 meta: {
                   ...row.meta,
                   zoneAreasSqft: zoneAreasSqftMetaFromState(zoneAreasSqft),
-                  furnitureDivisions,
+                  furnitureDivisions: healedDivisions,
                   furnitureSchemeGroups,
                   optionalZoneProductIds,
                   furnitureSnapshot: flushed.data!.snapshot,
@@ -3206,8 +3338,10 @@ export function DesignProjectsView() {
                 {group.zones.map((zone) => {
               const items = zoneProducts.filter((zp) => zp.zoneId === zone.id);
               const divisions = furnitureDivisions[zone.id] || [];
-              const assignedIds = new Set(
+              const zoneSchemeGroups = furnitureSchemeGroups[zone.id] || [];
+              const assignedIds = expandAssignedIdsWithSchemeGroups(
                 divisions.flatMap((row) => row.productIds || []),
+                zoneSchemeGroups,
               );
               const unassignedItems = items.filter(
                 (item) => !assignedIds.has(item.id),
@@ -3217,7 +3351,6 @@ export function DesignProjectsView() {
                 furnitureDivisions,
               );
               const zoneSpyLabel = isSingleZoneGroup ? group.label : zone.name;
-              const zoneSchemeGroups = furnitureSchemeGroups[zone.id] || [];
               const renderSchemeSlots = (
                 rows: ZoneProduct[],
                 divisionMeta?: {
@@ -3374,8 +3507,13 @@ export function DesignProjectsView() {
                       {divisions.length > 0 ? (
                         <div className="space-y-3 p-3 md:p-4">
                           {divisions.map((division) => {
+                            const divisionIdSet =
+                              expandAssignedIdsWithSchemeGroups(
+                                division.productIds || [],
+                                zoneSchemeGroups,
+                              );
                             const divisionItems = items.filter((item) =>
-                              (division.productIds || []).includes(item.id),
+                              divisionIdSet.has(item.id),
                             );
                             const divisionSlots = buildFurnitureSchemeSlots(
                               divisionItems,
