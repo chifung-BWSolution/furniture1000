@@ -736,10 +736,10 @@ function QuotePortalProductCard({
         'flex h-full min-w-0 flex-col gap-3 p-4 transition-colors',
         dimmed && 'cursor-not-allowed bg-muted/40 opacity-55',
         !dimmed && 'cursor-pointer',
-        // Selected ≈ one step darker than hover (hover 5% → selected 10%).
+        // Selected ≈ slightly darker than hover (hover 5% → selected 7%).
         !dimmed &&
           selected &&
-          'bg-primary/10 ring-1 ring-inset ring-primary/25',
+          'bg-primary/[0.07] ring-1 ring-inset ring-primary/20',
         !dimmed && !selected && 'bg-card hover:bg-primary/5',
       )}
     >
@@ -2954,7 +2954,7 @@ export function CustomerQuoteSchemesView() {
                                                   className={cn(
                                                     'min-w-0',
                                                     selected
-                                                      ? 'bg-primary/10'
+                                                      ? 'bg-primary/[0.07]'
                                                       : 'bg-card',
                                                   )}
                                                 >
