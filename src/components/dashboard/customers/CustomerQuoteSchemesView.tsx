@@ -741,20 +741,23 @@ function QuotePortalProductCard({
         !dimmed && !selected && 'bg-card',
       )}
     >
-      {/* Full-width image; scheme badge overlays top-left so side space is used. */}
-      <div className="relative w-full shrink-0 overflow-hidden rounded-xl bg-muted aspect-square">
-        {multiScheme ? (
+      {multiScheme ? (
+        <div className="flex flex-wrap items-start justify-between gap-2">
           <span
             className={cn(
-              'absolute left-2 top-2 z-10 inline-flex h-8 shrink-0 items-center rounded-md border px-2 text-[12px] font-semibold shadow-sm backdrop-blur-sm',
+              'inline-flex h-8 shrink-0 items-center rounded-md border px-2 text-[12px] font-semibold',
               dimmed
-                ? 'border-border bg-muted/90 text-muted-foreground'
-                : 'border-violet-500/30 bg-violet-500/15 text-violet-700 dark:text-violet-300',
+                ? 'border-border bg-muted text-muted-foreground'
+                : 'border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300',
             )}
           >
             方案 {schemeIndex + 1}/{schemeCount}
           </span>
-        ) : null}
+        </div>
+      ) : null}
+
+      {/* Square image, slightly inset (not full card width); badge stays above. */}
+      <div className="relative mx-auto aspect-square w-[88%] max-w-[280px] shrink-0 overflow-hidden rounded-xl bg-muted">
         {item.image ? (
           <button
             type="button"
