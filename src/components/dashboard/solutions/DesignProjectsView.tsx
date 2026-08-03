@@ -1149,12 +1149,13 @@ function ZoneProductRow({
           {dimInputs(true)}
           <div className="ml-auto shrink-0">{statusSelect}</div>
         </div>
-        {feedbackBlock}
       </div>
 
       <div className="relative z-10 mt-auto flex min-w-0 flex-col gap-2 border-t border-border/60 pt-2">
         {notesEditor(2, 'min-h-[48px]')}
         <div className="flex justify-end">{priceBlock(true)}</div>
+        {/* 客戶意見 always below 小計 */}
+        {feedbackBlock}
       </div>
     </div>
   ) : (
@@ -1238,18 +1239,20 @@ function ZoneProductRow({
             {statusSelect}
           </div>
 
-          {feedbackBlock}
-
-          <div className="mt-auto flex items-end gap-4 pb-1">
-            <div
-              className={cn(
-                'flex min-w-0 w-full items-start gap-2.5 py-1',
-                PRODUCT_NOTES_MAX_CLASS,
-              )}
-            >
-              {notesEditor(3, 'min-h-[72px]')}
+          <div className="mt-auto flex flex-col gap-2 pb-1">
+            <div className="flex items-end gap-4">
+              <div
+                className={cn(
+                  'flex min-w-0 w-full items-start gap-2.5 py-1',
+                  PRODUCT_NOTES_MAX_CLASS,
+                )}
+              >
+                {notesEditor(3, 'min-h-[72px]')}
+              </div>
+              {priceBlock(false)}
             </div>
-            {priceBlock(false)}
+            {/* 客戶意見 always below 小計 */}
+            {feedbackBlock}
           </div>
         </div>
       </div>

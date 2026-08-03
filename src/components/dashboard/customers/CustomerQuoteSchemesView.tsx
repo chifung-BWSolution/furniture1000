@@ -656,6 +656,8 @@ function QuotePortalProductCard({
   item,
   schemeIndex,
   schemeCount,
+  productOrdinal,
+  partitionSpy,
   review,
   messages,
   selected,
@@ -674,6 +676,15 @@ function QuotePortalProductCard({
   item: BwfQuoteItemInput;
   schemeIndex: number;
   schemeCount: number;
+  /** 1-based product slot index in this division (產品 1 / 產品 2…). */
+  productOrdinal?: number;
+  /** Scroll-spy markers for sticky「區域 | 劃分 : N (產品X)」line. */
+  partitionSpy?: {
+    zoneLabel: string;
+    zoneTitle: string;
+    divisionLabel: string;
+    count: number;
+  } | null;
   review: ItemReview | undefined;
   messages: ItemMessage[];
   selected: boolean;
@@ -998,6 +1009,17 @@ function QuotePortalProductCard({
             ? '點擊空白處取消接受／選擇'
             : '點擊空白處或「接受」以選擇此產品'
       }
+      data-partition-division={partitionSpy?.divisionLabel || undefined}
+      data-partition-count={
+        partitionSpy != null ? String(partitionSpy.count) : undefined
+      }
+      data-partition-zone={partitionSpy?.zoneLabel || undefined}
+      data-partition-zone-title={partitionSpy?.zoneTitle || undefined}
+      data-partition-product={
+        productOrdinal != null && productOrdinal > 0
+          ? String(productOrdinal)
+          : undefined
+      }
       className={cn(
         // Solid color-mix (not alpha) so selected tint matches former hover over white,
         // and never picks up the grid's bg-border through transparency.
@@ -1016,10 +1038,25 @@ function QuotePortalProductCard({
     >
       {multiScheme ? (
         <>
-          <div className="flex flex-wrap items-start justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2.5">
+            {schemeIndex === 0 &&
+            productOrdinal != null &&
+            productOrdinal > 0 ? (
+              <span
+                className={cn(
+                  'inline-flex h-8 shrink-0 items-center rounded-md border px-2.5 text-[12px] font-bold tracking-wide',
+                  dimmed
+                    ? 'border-border bg-muted text-muted-foreground'
+                    : 'border-sky-500/40 bg-sky-500/15 text-sky-800 dark:text-sky-200',
+                )}
+                title={`第 ${productOrdinal} 款產品`}
+              >
+                產品 {productOrdinal}
+              </span>
+            ) : null}
             <span
               className={cn(
-                'inline-flex h-8 shrink-0 items-center rounded-md border px-2 text-[12px] font-semibold',
+                'inline-flex h-8 shrink-0 items-center rounded-md border px-2.5 text-[12px] font-semibold',
                 dimmed
                   ? 'border-border bg-muted text-muted-foreground'
                   : 'border-violet-500/30 bg-violet-500/10 text-violet-700 dark:text-violet-300',
@@ -1064,6 +1101,19 @@ function QuotePortalProductCard({
         <div className="flex flex-col gap-4 lg:flex-row lg:items-stretch">
           {productImageButton({ fixedPx: PORTAL_PRODUCT_IMAGE_PX })}
           <div className="flex min-w-0 flex-1 flex-col gap-3">
+            {productOrdinal != null && productOrdinal > 0 ? (
+              <span
+                className={cn(
+                  'inline-flex h-8 w-fit shrink-0 items-center rounded-md border px-2.5 text-[12px] font-bold tracking-wide',
+                  dimmed
+                    ? 'border-border bg-muted text-muted-foreground'
+                    : 'border-sky-500/40 bg-sky-500/15 text-sky-800 dark:text-sky-200',
+                )}
+                title={`第 ${productOrdinal} 款產品`}
+              >
+                產品 {productOrdinal}
+              </span>
+            ) : null}
             <h5 className="min-w-0 text-base font-bold leading-snug">
               {title}
               {item.isOptional ? (
@@ -1885,6 +1935,7 @@ export function CustomerQuoteSchemesView() {
       let nextDivisionCount = 0;
       let nextDivisionZone: string | null = null;
       let nextZoneTitle: string | null = null;
+      let nextProductOrdinal: number | null = null;
       const markers = root.querySelectorAll<HTMLElement>(
         '[data-partition-division]',
       );
@@ -1897,6 +1948,11 @@ export function CustomerQuoteSchemesView() {
             el.dataset.partitionZoneTitle ||
             el.dataset.partitionZone ||
             null;
+          // Division headers set data-partition-product="" to clear; cards set "1"/"2"/…
+          if (Object.prototype.hasOwnProperty.call(el.dataset, 'partitionProduct')) {
+            const n = Number(el.dataset.partitionProduct || 0);
+            nextProductOrdinal = Number.isFinite(n) && n > 0 ? n : null;
+          }
         }
       });
 
@@ -1905,11 +1961,13 @@ export function CustomerQuoteSchemesView() {
       const contextLine = (() => {
         const areaTitle = nextZoneTitle || nextZone;
         if (!areaTitle) return null;
+        const productSuffix =
+          nextProductOrdinal != null ? ` (產品${nextProductOrdinal})` : '';
         if (nextDivisionLabel && nextDivisionLabel !== areaTitle) {
-          return `${areaTitle} | ${nextDivisionLabel} : ${nextDivisionCount}`;
+          return `${areaTitle} | ${nextDivisionLabel} : ${nextDivisionCount}${productSuffix}`;
         }
         if (nextDivisionLabel) {
-          return `${areaTitle} : ${nextDivisionCount}`;
+          return `${areaTitle} : ${nextDivisionCount}${productSuffix}`;
         }
         const group = zoneTypeGroups.find((g) => g.label === nextZone);
         const count = group
@@ -1923,7 +1981,7 @@ export function CustomerQuoteSchemesView() {
               0,
             )
           : 0;
-        return `${areaTitle} : ${count}`;
+        return `${areaTitle} : ${count}${productSuffix}`;
       })();
 
       setActiveZoneLabel((current) =>
@@ -3148,6 +3206,7 @@ export function CustomerQuoteSchemesView() {
                                         )}
                                         data-partition-zone={group.label}
                                         data-partition-zone-title={roomTitle}
+                                        data-partition-product=""
                                       >
                                         <div className="hidden sm:block" />
                                         <div className="flex min-w-0 flex-col items-center gap-1">
@@ -3182,7 +3241,7 @@ export function CustomerQuoteSchemesView() {
                                           Each scheme slot (e.g. 7選1 / 2選1) owns its own grid.
                                           Multi-scheme → up to 3 vertical cards; single → horizontal 1-col row.
                                         */}
-                                        {sectionSlots.map((slot) => {
+                                        {sectionSlots.map((slot, slotIndex) => {
                                           const targetQty =
                                             section.plannedQuantity != null &&
                                             section.plannedQuantity > 0
@@ -3199,6 +3258,7 @@ export function CustomerQuoteSchemesView() {
                                             selectedQty >= targetQty;
                                           const multiScheme =
                                             slot.items.length > 1;
+                                          const productOrdinal = slotIndex + 1;
                                           return (
                                           <div
                                             key={slot.key}
@@ -3250,6 +3310,22 @@ export function CustomerQuoteSchemesView() {
                                                     schemeIndex={index}
                                                     schemeCount={
                                                       slot.items.length
+                                                    }
+                                                    productOrdinal={
+                                                      productOrdinal
+                                                    }
+                                                    partitionSpy={
+                                                      section.label
+                                                        ? {
+                                                            zoneLabel:
+                                                              group.label,
+                                                            zoneTitle:
+                                                              roomTitle,
+                                                            divisionLabel:
+                                                              section.label,
+                                                            count: sectionCount,
+                                                          }
+                                                        : null
                                                     }
                                                     review={review}
                                                     messages={messages}
