@@ -525,7 +525,8 @@ function renderDescFixedLineStack(
           <Text
             wrap={false}
             style={textStyle}
-            hyphenationCallback={pdfSoftBreakNoHyphen}
+            // Pre-wrapped lines — disable soft char breaks so Latin words stay intact.
+            hyphenationCallback={(word) => [word]}
           >
             {pdfDisplayText(line)}
           </Text>
