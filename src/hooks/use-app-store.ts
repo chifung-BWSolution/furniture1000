@@ -10,6 +10,7 @@ import { writeUploadLog } from '@/lib/uploadLog';
 import { resolveRowsImagesToStorage, productImageFieldsPendingStorage, stripBase64ForDb } from '@/lib/imageStorage';
 import { toast } from 'sonner';
 import { withInsertAuditFields, withUpdateAuditFields, withUpsertAuditFields } from '@/lib/pmsAudit';
+import { customerViewFromPath } from '@/lib/customerPortalRoutes';
 
 const generateId = () => Math.random().toString(36).substring(2, 15);
 
@@ -313,12 +314,25 @@ export function useAppStore() {
   });
   const [currentView, setCurrentViewRaw] = useState<ViewType>(() => {
     try {
-      // Deep-link refresh: honour /quote/* immediately so we don't sit behind
-      // product-catalog loading (blank/black main pane) before the router effect runs.
+      // Deep-link refresh: honour /quote/* and /customer* immediately so we don't
+      // sit behind product-catalog loading (or bounce share links to dashboard)
+      // before the router effect runs.
       if (typeof window !== 'undefined') {
         const path = window.location.pathname.replace(/\/+$/, '') || '/';
         if (path === '/quote' || path.startsWith('/quote/')) {
           return path === '/quote' ? 'quotation-list' : 'quick-quote';
+        }
+        if (
+          path === '/customer' ||
+          path.startsWith('/customer/') ||
+          new URLSearchParams(window.location.search).get('quote_share')?.trim()
+        ) {
+          // Keep share / invite links on 客戶專區 even when sessionStorage still
+          // says dashboard / quick-quote from the previous staff session.
+          if (path === '/customer' || path.startsWith('/customer/')) {
+            return customerViewFromPath(path) || 'customer-quote-schemes';
+          }
+          return 'customer-quote-schemes';
         }
       }
       const saved = sessionStorage.getItem('current-view');

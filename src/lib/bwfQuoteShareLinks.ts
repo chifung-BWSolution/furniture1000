@@ -73,15 +73,41 @@ export async function createQuoteShareLink(input: {
 export async function resolveQuoteShareToken(
   token: string,
 ): Promise<{ quoteUuid: string; quoteId: string } | null> {
-  const shareToken = token.trim();
+  // Tokens are `qtok_…`; strip accidental wrapping from copy/paste or QR readers.
+  const shareToken = token
+    .trim()
+    .replace(/^['"]+|['"]+$/g, '')
+    .replace(/^quote_share=/i, '');
   if (!shareToken) return null;
+
+  // If a full URL was pasted/scanned, pull the query param out.
+  let normalized = shareToken;
+  if (normalized.includes('quote_share=')) {
+    try {
+      const url = normalized.includes('://')
+        ? new URL(normalized)
+        : new URL(normalized, 'https://local.invalid');
+      const fromQuery = url.searchParams.get('quote_share')?.trim();
+      if (fromQuery) normalized = fromQuery;
+    } catch {
+      const m = normalized.match(/[?&#]quote_share=([^&]+)/i);
+      if (m?.[1]) {
+        try {
+          normalized = decodeURIComponent(m[1]);
+        } catch {
+          normalized = m[1];
+        }
+      }
+    }
+  }
+
   const { data, error } = await supabase
     .from('bwf_quote_share_links')
     .select('quote_uuid, quote_id, status')
-    .eq('share_token', shareToken)
+    .eq('share_token', normalized)
     .maybeSingle();
   if (error) {
-    console.warn('[resolveQuoteShareToken]', error.message);
+    console.warn('[resolveQuoteShareToken]', error.message, { token: normalized });
     return null;
   }
   if (!data || data.status !== 'active') return null;
@@ -90,7 +116,7 @@ export async function resolveQuoteShareToken(
     void supabase
       .from('bwf_quote_share_links')
       .update({ last_viewed_at: new Date().toISOString() })
-      .eq('share_token', shareToken);
+      .eq('share_token', normalized);
   } catch {
     /* non-blocking */
   }

@@ -72,9 +72,29 @@ export function buildCustomerPortalQuoteShareUrl(
 export const CUSTOMER_QUOTE_SHARE_TOKEN_KEY = 'fds-client-quote-share-token';
 export const CUSTOMER_QUOTE_SHARE_TARGET_KEY = 'fds-client-quote-share-target';
 
+/**
+ * Persist `?quote_share=` as early as possible (module load), before React
+ * URL-sync effects can strip the query string (e.g. bounce to `/` or `/quote/…`).
+ */
+function captureQuoteShareTokenFromUrl(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const token = new URLSearchParams(window.location.search)
+      .get('quote_share')
+      ?.trim();
+    if (token) {
+      localStorage.setItem(CUSTOMER_QUOTE_SHARE_TOKEN_KEY, token);
+    }
+  } catch {
+    /* ignore */
+  }
+}
+captureQuoteShareTokenFromUrl();
+
 export function readStoredQuoteShareToken(): string | null {
   if (typeof window === 'undefined') return null;
   try {
+    captureQuoteShareTokenFromUrl();
     return localStorage.getItem(CUSTOMER_QUOTE_SHARE_TOKEN_KEY);
   } catch {
     return null;

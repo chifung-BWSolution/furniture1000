@@ -570,8 +570,11 @@ export function AppShell() {
   }, [location.pathname, location.search, navigate, store, user?.email, setEditingQuoteId]);
 
   // After deploy reload: restore editing quote id/uuid from resume marker or session.
+  // Never steal quote_share / portal invite deep links back into the quote editor.
   useEffect(() => {
     if (location.pathname.startsWith("/quote/")) return;
+    if (quoteShareActive || invitePortalActive) return;
+    if (isCustomerPortalPath(location.pathname)) return;
 
     if (!resumeQuoteAppliedThisPageLoad) {
       const resume = readResumeQuote(user?.email);
@@ -591,7 +594,15 @@ export function AppShell() {
     if (store.currentView !== "quick-quote") return;
     const saved = readQuickQuoteEditingId(user?.email);
     if (saved) setEditingQuoteIdRaw(saved);
-  }, [user?.email, store.currentView, location.pathname, navigate, store]);
+  }, [
+    user?.email,
+    store.currentView,
+    location.pathname,
+    navigate,
+    store,
+    quoteShareActive,
+    invitePortalActive,
+  ]);
 
   // Deep links: /project/design-projects[/:id] (+ legacy /design-projects…)
   useEffect(() => {
@@ -639,7 +650,16 @@ export function AppShell() {
         quoteShareToken: qShare,
       });
 
-    if (store.currentView === 'quotation-list') {
+    // Quote-share / invite sessions must stay on 客戶專區 URLs with tokens intact.
+    // Do not let a stale sessionStorage view (dashboard / quick-quote) wipe
+    // `/customer?quote_share=…` down to `/` or `/quote/…`.
+    if (quoteShareActive || (invitePortalActive && isCustomerPortalPath(location.pathname))) {
+      target = withToken(
+        isCustomerPortalView(store.currentView)
+          ? pathFromCustomerView(store.currentView)
+          : CUSTOMER_PORTAL_BASE,
+      );
+    } else if (store.currentView === 'quotation-list') {
       target = QUOTE_LIST_PATH;
     } else if (store.currentView === 'quotation-large-amount') {
       target = QUOTE_LARGE_AMOUNT_PATH;
@@ -676,7 +696,8 @@ export function AppShell() {
         isCustomerPortalPath(location.pathname) ||
         isAppSectionPath(location.pathname)
       ) {
-        target = '/';
+        // Preserve share/invite query if present (path bounce must not drop tokens).
+        target = qShare || token ? withToken(CUSTOMER_PORTAL_BASE) : '/';
       }
     }
 
@@ -692,6 +713,8 @@ export function AppShell() {
     location.pathname,
     location.search,
     navigate,
+    quoteShareActive,
+    invitePortalActive,
   ]);
   // 方案 D: Supabase health monitoring
   const [dbUnhealthy, setDbUnhealthy] = useState(false);

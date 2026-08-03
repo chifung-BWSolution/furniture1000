@@ -1295,7 +1295,10 @@ export function CustomerQuoteSchemesView() {
         const resolved = await resolveQuoteShareToken(token);
         if (cancelled) return;
         if (!resolved?.quoteUuid) {
-          toast.error('分享連結無效或已撤銷');
+          toast.error('分享連結無效或已撤銷', {
+            description:
+              '請重新在報價單按「生成QR Code 及連結」。若剛從編輯頁開啟，請用無痕視窗或另一瀏覽器開啟連結。',
+          });
           setSharedQuoteTarget(null);
           setQuotes([]);
           setShowDetail(false);
