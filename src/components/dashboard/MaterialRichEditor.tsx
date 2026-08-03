@@ -8,17 +8,7 @@ import { Bold, Italic, UnderlineIcon, Palette } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { materialToEditorHtml } from '@/lib/quotationMaterialHtml';
-
-const MATERIAL_COLORS: Array<{ label: string; value: string }> = [
-  { label: '預設', value: '' },
-  { label: '黑', value: '#1a1a1a' },
-  { label: '紅', value: '#dc2626' },
-  { label: '橙', value: '#ea580c' },
-  { label: '藍', value: '#2563eb' },
-  { label: '綠', value: '#16a34a' },
-  { label: '紫', value: '#7c3aed' },
-  { label: '灰', value: '#6b7280' },
-];
+import { ExcelStyleColorPicker } from '@/components/dashboard/ExcelStyleColorPicker';
 
 interface MaterialRichEditorProps {
   value: string;
@@ -69,7 +59,6 @@ export function MaterialRichEditor({
     },
     onUpdate: ({ editor: ed }) => {
       const html = ed.getHTML();
-      // TipTap empty doc is usually <p></p>
       const plain = ed.getText().trim();
       onChange(plain ? html : '');
     },
@@ -152,43 +141,17 @@ export function MaterialRichEditor({
             </span>
           </button>
           {colorOpen ? (
-            <div className="absolute left-0 top-full z-20 mt-1 w-[148px] rounded-md border border-border bg-popover p-1.5 shadow-md">
-              <div className="grid grid-cols-4 gap-1">
-                {MATERIAL_COLORS.map((c) => (
-                  <button
-                    key={c.label}
-                    type="button"
-                    title={c.label}
-                    onClick={() => {
-                      if (!c.value) {
-                        editor.chain().focus().unsetColor().run();
-                      } else {
-                        editor.chain().focus().setColor(c.value).run();
-                      }
-                      setColorOpen(false);
-                    }}
-                    className={cn(
-                      'flex h-7 w-7 items-center justify-center rounded border border-border/70',
-                      !c.value && 'bg-background text-[10px] font-semibold text-muted-foreground',
-                      activeColor === c.value && 'ring-2 ring-primary/50',
-                    )}
-                    style={c.value ? { backgroundColor: c.value } : undefined}
-                  >
-                    {!c.value ? 'A' : null}
-                  </button>
-                ))}
-              </div>
-              <label className="mt-1.5 flex cursor-pointer items-center gap-1.5 rounded px-1 py-1 text-[10px] text-muted-foreground hover:bg-muted">
-                <input
-                  type="color"
-                  className="h-5 w-5 cursor-pointer rounded border-0 bg-transparent p-0"
-                  value={activeColor && /^#/.test(activeColor) ? activeColor : '#1a1a1a'}
-                  onChange={(e) => {
-                    editor.chain().focus().setColor(e.target.value).run();
-                  }}
-                />
-                自訂顏色
-              </label>
+            <div className="absolute left-0 top-full z-30 mt-1">
+              <ExcelStyleColorPicker
+                activeColor={activeColor}
+                onClear={() => {
+                  editor.chain().focus().unsetColor().run();
+                }}
+                onPick={(color) => {
+                  editor.chain().focus().setColor(color).run();
+                }}
+                onClose={() => setColorOpen(false)}
+              />
             </div>
           ) : null}
         </div>
