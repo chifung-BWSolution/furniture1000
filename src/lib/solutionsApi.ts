@@ -415,14 +415,23 @@ export async function ensureDesignProjectPortalQuote(
   try {
     const products = await fetchZoneProducts(project.id);
     const inZone = products.filter((product) => Boolean(product.zoneId));
-    if (inZone.length === 0) {
+    const snapshotProducts = Array.isArray(
+      project.meta?.furnitureSnapshot?.products,
+    )
+      ? project.meta!.furnitureSnapshot!.products.filter((item) =>
+          Boolean(item.zoneId),
+        )
+      : [];
+    // Design project is "ready" when zone products or a saved furniture snapshot exists.
+    if (inZone.length === 0 && snapshotProducts.length === 0) {
       return {
         ok: false,
         error:
-          '此設計專案尚未配置傢俬，請先在「設計專案」完成傢俬配置並儲存後再建立連結。',
+          '此設計專案尚未配置傢俬，請先在「設計專案」完成傢俬配置並按「儲存方案」後再建立連結。',
       };
     }
 
+    const displayName = project.name?.trim() || '設計專案';
     const scheme = project.meta?.clientQuoteScheme;
     const schemeUuid = String(scheme?.quoteUuid || '').trim();
     const schemeQuoteId = String(scheme?.quoteId || '').trim();
@@ -442,7 +451,7 @@ export async function ensureDesignProjectPortalQuote(
           data: {
             quoteUuid: String(existing.id),
             quoteId,
-            displayName: quoteId,
+            displayName,
           },
         };
       }
@@ -480,7 +489,7 @@ export async function ensureDesignProjectPortalQuote(
         data: {
           quoteUuid: String(matched.id),
           quoteId,
-          displayName: quoteId,
+          displayName,
         },
       };
     }
@@ -488,13 +497,24 @@ export async function ensureDesignProjectPortalQuote(
     const quoteId =
       String(project.meta?.quoteId || project.meta?.pitchingCode || '').trim() ||
       `DP-${project.id.slice(0, 8)}`;
-    const totalAmount = inZone.reduce(
-      (sum, product) =>
-        sum +
-        (Number(product.salePrice) || 0) *
-          Math.max(1, Math.floor(Number(product.quantity) || 1)),
-      0,
-    );
+    const totalAmount =
+      inZone.length > 0
+        ? inZone.reduce(
+            (sum, product) =>
+              sum +
+              (Number(product.salePrice) || 0) *
+                Math.max(1, Math.floor(Number(product.quantity) || 1)),
+            0,
+          )
+        : snapshotProducts.reduce(
+            (sum, product) =>
+              sum +
+              (product.isOptional
+                ? 0
+                : (Number(product.salePrice) || 0) *
+                  Math.max(1, Math.floor(Number(product.quantity) || 1))),
+            0,
+          );
     const insertPayload = await withInsertAuditFields({
       quote_id: quoteId,
       version: 'v1',
@@ -549,7 +569,7 @@ export async function ensureDesignProjectPortalQuote(
       data: {
         quoteUuid,
         quoteId,
-        displayName: quoteId,
+        displayName,
       },
     };
   } catch (e) {

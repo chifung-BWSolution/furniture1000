@@ -152,11 +152,11 @@ export function InviteClientsView() {
       try {
         await copyText(url);
         markCopied(res.data.id);
-        toast.success('免登入連結已建立並複製', {
-          description: `${displayName} — 客戶可直接開啟報價方案查看此設計專案`,
+        toast.success('已為此設計專案建立免登入連結並複製', {
+          description: `${displayName} — 客戶開啟後可直接查看報價方案`,
         });
       } catch {
-        toast.success('免登入連結已建立', {
+        toast.success('已為此設計專案建立免登入連結', {
           description: displayName,
         });
       }
@@ -253,7 +253,7 @@ export function InviteClientsView() {
           <div>
             <h1 className="font-display text-2xl font-bold tracking-tight">邀請客戶</h1>
             <p className="mt-1 max-w-3xl font-body text-sm text-muted-foreground">
-              為 BW 客戶建立免登入 Portal 連結或個人 Email 邀請；可複製、重發及撤銷。連結可直接開啟報價方案，並瀏覽客戶專區各頁；成本資料一律隱藏。
+              「設計專案」完成傢俬配置並儲存後，可在此為該專案建立免登入連結。客戶開啟後直接查看報價方案，亦可瀏覽客戶專區其他頁面；成本資料一律隱藏。
             </p>
           </div>
           <div className="relative min-w-[280px]">
@@ -301,7 +301,9 @@ export function InviteClientsView() {
               </div>
               <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-muted-foreground">
                 <p className="font-semibold text-primary">邀請流程</p>
-                <p className="mt-1">1 選專案 → 2 建立連結 → 3 客戶免登入開啟 Portal</p>
+                <p className="mt-1">
+                  1 完成設計專案 → 2 選該專案並建立連結 → 3 客戶免登入查看報價
+                </p>
               </div>
             </section>
 
@@ -314,7 +316,7 @@ export function InviteClientsView() {
                   <div>
                     <h2 className="font-display text-base font-bold">建立可轉寄 Portal 連結</h2>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      類似報價單「生成 QR Code 及連結」：免登入開啟報價方案，亦可瀏覽客戶專區其他頁面。
+                      為上方所選「設計專案」生成免登入連結；客戶開啟後直接進入報價方案查看該專案內容。
                     </p>
                   </div>
                 </div>
