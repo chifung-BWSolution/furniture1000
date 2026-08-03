@@ -3503,7 +3503,7 @@ export function CustomerQuoteSchemesView() {
                           區域類型
                         </p>
                         <h3 className="mt-0.5 font-display text-lg font-bold leading-snug md:text-xl">
-                          {group.label} x {group.rooms.length} 個{group.label}
+                          {group.label} x {group.rooms.length} 個
                           {productCount > 0
                             ? ` · 總共${productCount} 件產品`
                             : ''}
