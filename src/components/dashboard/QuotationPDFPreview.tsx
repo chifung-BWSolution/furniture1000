@@ -6,11 +6,7 @@ import { multiColorToChineseDisplay } from '@/constants/color-map';
 import { normalizeQuotationPdfGlyphs, pdfDisplayText } from '@/lib/quotationPdfGlyphs';
 import { quoteItemLineSubtotal } from '@/lib/quoteItemTotals';
 import { buildQuotationPdfFilename } from '@/lib/quotationPdfFilename';
-import {
-  quotePdf,
-  formatQuoteDisplayDate,
-  type QuotePdfLabels,
-} from '@/lib/quotationLocale';
+import { quotePdf, type QuotePdfLabels } from '@/lib/quotationLocale';
 import {
   formatSectionTitleLabel,
   productSerialAt,
@@ -167,26 +163,15 @@ async function registerPdfFonts(mod: ReactPdfModule): Promise<void> {
     mod.Font.register({ family, fonts });
   }
 
-  // Soft-break CJK per code point (no visible "-"). Latin words stay whole so
-  // EN text wraps on word boundaries (e.g. "medium", not "mediu"/"m").
+  // Soft-break after every code point. Empty segments are wrap opportunities
+  // without inserting a visible "-" (react-pdf's default syllable join).
   mod.Font.registerHyphenationCallback(pdfSoftBreakNoHyphen);
 }
 
-/** CJK / Hangul / Kana — need per-glyph soft wrap in narrow PDF cells. */
-const PDF_CJK_OR_KANA =
-  /[\u3400-\u9FFF\uF900-\uFAFF\u3040-\u30FF\uAC00-\uD7AF]/;
-
-/**
- * Soft-wrap without inserting "-" between break segments.
- * - Latin / digit runs: keep the whole word (wrap only at spaces).
- * - CJK (and mixed tokens containing CJK): soft-break after each code point.
- */
+/** Soft-wrap without inserting "-" between break segments. */
 function pdfSoftBreakNoHyphen(word: string): string[] {
-  if (!word) return [''];
-  if (!PDF_CJK_OR_KANA.test(word)) {
-    return [word];
-  }
   const chars = Array.from(word);
+  if (chars.length === 0) return [''];
   return chars.flatMap((ch) => [ch, '']);
 }
 
@@ -427,18 +412,13 @@ function formatItemDimensions(item: QuotationPDFData['items'][0] | undefined): s
   if (!item) return '';
   const mode = item.dimensionMode ?? 'lwh';
   const parts: string[] = [];
-  const push = (v: string | number | null | undefined) => {
-    if (v == null) return;
-    const s = String(v).trim();
-    if (s) parts.push(s);
-  };
   if (mode === 'dh') {
-    push(item.dimensionLMm);
-    push(item.dimensionHMm);
+    if (item.dimensionLMm != null) parts.push(String(item.dimensionLMm));
+    if (item.dimensionHMm != null) parts.push(String(item.dimensionHMm));
   } else {
-    push(item.dimensionLMm);
-    push(item.dimensionWMm);
-    push(item.dimensionHMm);
+    if (item.dimensionLMm != null) parts.push(String(item.dimensionLMm));
+    if (item.dimensionWMm != null) parts.push(String(item.dimensionWMm));
+    if (item.dimensionHMm != null) parts.push(String(item.dimensionHMm));
   }
   return parts.length > 0 ? parts.join('*') : '';
 }
@@ -504,6 +484,37 @@ function wrapDimensionsForPdf(dimText: string, maxChars = DESC_DIM_MAX_CHARS): s
   return lines.length > 0 ? lines : [trimmed];
 }
 
+function renderDescFixedLineStack(
+  lines: string[],
+  View: ReactPdfModule['View'],
+  Text: ReactPdfModule['Text'],
+  textStyle: Record<string, unknown>,
+) {
+  const safeLines = lines.length > 0 ? lines : [''];
+  return (
+    <View style={{ width: '100%' }}>
+      {safeLines.map((line, li) => (
+        <View
+          key={`desc-line-${li}`}
+          style={{
+            height: DESC_UNIFORM_LINE_PT,
+            justifyContent: 'center',
+            width: '100%',
+          }}
+        >
+          <Text
+            wrap={false}
+            style={textStyle}
+            hyphenationCallback={pdfSoftBreakNoHyphen}
+          >
+            {pdfDisplayText(line)}
+          </Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
 function renderDescDimensionsValue(
   dimText: string,
   dimSubLabel: string,
@@ -512,29 +523,41 @@ function renderDescDimensionsValue(
   locale: 'zh' | 'en' = 'zh',
 ) {
   const valuePct = `${PDF_DESC_VALUE_PCT[locale] * 100}%`;
-  const lines = wrapDimensionsForPdf(dimText, descDimMaxChars(locale));
+  const dimLines = wrapDimensionsForPdf(dimText, descDimMaxChars(locale));
   return (
     <View
       style={{
         width: valuePct,
-        height: '100%',
         minWidth: 0,
-        justifyContent: 'center',
+        flexGrow: 1,
         paddingHorizontal: 2,
-        paddingVertical: 2,
+        paddingVertical: DESC_ROW_PAD_V,
+        justifyContent: 'center',
       }}
     >
-      <Text style={styles.descDimLabelText}>{dimSubLabel}</Text>
-      {lines.map((line, li) => (
-        <Text
-          key={`dim-line-${li}`}
-          wrap={false}
-          style={styles.descDimValueText}
-          hyphenationCallback={pdfSoftBreakNoHyphen}
-        >
-          {pdfDisplayText(line)}
-        </Text>
-      ))}
+      <View style={{ width: '100%' }}>
+        {dimSubLabel ? (
+          <View
+            style={{
+              height: DESC_UNIFORM_LINE_PT,
+              justifyContent: 'center',
+              width: '100%',
+            }}
+          >
+            <Text wrap={false} style={styles.descDimLabelText}>
+              {dimSubLabel}
+            </Text>
+          </View>
+        ) : null}
+        {dimLines.length > 0
+          ? renderDescFixedLineStack(
+              dimLines,
+              View,
+              Text,
+              styles.descDimValueText,
+            )
+          : null}
+      </View>
     </View>
   );
 }
@@ -549,19 +572,15 @@ const REMARKS_COL_WIDTH_PT = PDF_TABLE_WIDTH_PT * 0.09;
 const ILLUSTRATION_COL_WIDTH_PT = PDF_TABLE_WIDTH_PT * 0.114;
 
 /**
- * EN needs a slightly wider Description column so category/dimension values fit.
+ * EN needs a slightly wider Description column so "Dimensions (mm)" fits on one line.
  * Transfer just enough width from Materials & Details (sum stays 41.6%).
  * ZH: slightly wider 說明 (+0.8pp from 單價) so ~6 CJK chars fit in 類別 value.
  */
 const PDF_COL_DESC_PCT = { zh: 0.132, en: 0.195 } as const;
 const PDF_COL_MATERIAL_PCT = { zh: 0.292, en: 0.221 } as const;
-/**
- * Label / value split inside Description (column width unchanged).
- * Labels stay compact with small padding; values get the rest.
- * EN label ≥ ~40% so "Dimensions" fits on one line (no overflow).
- */
-const PDF_DESC_LABEL_PCT = { zh: 0.4, en: 0.4 } as const;
-const PDF_DESC_VALUE_PCT = { zh: 0.6, en: 0.6 } as const;
+/** Label / value split inside Description — ZH ≈ 4:6 so 類別 data gets more room. */
+const PDF_DESC_LABEL_PCT = { zh: 0.4, en: 0.6 } as const;
+const PDF_DESC_VALUE_PCT = { zh: 0.6, en: 0.4 } as const;
 /** 單價 column — ZH trimmed to fund wider 說明 (EN unchanged). */
 const PDF_COL_UNIT_PRICE_PCT = { zh: 0.097, en: 0.105 } as const;
 
@@ -583,6 +602,56 @@ function descDimMaxChars(locale: 'zh' | 'en' = 'zh'): number {
 }
 
 const DESC_DIM_MAX_CHARS = descDimMaxChars('zh');
+
+/**
+ * Uniform line box for 說明 sub-rows (類別 / 規格 / 顏色).
+ * Every wrapped line uses the same height so multi-line 規格 does not look denser.
+ */
+const DESC_UNIFORM_LINE_PT = 9;
+const DESC_ROW_PAD_V = 3;
+
+/** Approx. chars per line for 類別 / 顏色 values (CJK-oriented). */
+function descValueMaxChars(locale: 'zh' | 'en' = 'zh'): number {
+  const valueWidthPt =
+    PDF_TABLE_WIDTH_PT * PDF_COL_DESC_PCT[locale] * PDF_DESC_VALUE_PCT[locale] - 4;
+  // Conservative (slightly fewer chars/line) so estimated row height ≥ real wrap.
+  return Math.max(4, Math.floor(valueWidthPt / 7));
+}
+
+function estimateWrappedLines(text: string, maxChars: number): number {
+  const trimmed = (text || '').trim();
+  if (!trimmed) return 1;
+  // Honour explicit newlines, then wrap each segment by maxChars.
+  let total = 0;
+  for (const segment of trimmed.split('\n')) {
+    if (!segment) {
+      total += 1;
+      continue;
+    }
+    total += Math.max(1, Math.ceil(segment.length / maxChars));
+  }
+  return Math.max(1, total);
+}
+
+function chunkTextForPdfLines(text: string, maxChars: number): string[] {
+  const trimmed = (text || '').trim();
+  if (!trimmed) return [''];
+  const out: string[] = [];
+  for (const segment of trimmed.split('\n')) {
+    if (!segment) {
+      out.push('');
+      continue;
+    }
+    if (segment.length <= maxChars) {
+      out.push(segment);
+      continue;
+    }
+    for (let i = 0; i < segment.length; i += maxChars) {
+      out.push(segment.slice(i, i + maxChars));
+    }
+  }
+  return out.length > 0 ? out : [''];
+}
 
 /** Preserve user line breaks from the draft editor (single Enter = one line). */
 function normalizeMaterialForPdf(text: string): string {
@@ -730,9 +799,7 @@ function renderQuotationTableRow(
     <View style={styles.tableRow} key={idx} wrap={false}>
       <View style={styles.colIndex}><Text style={styles.tableCellText}>{serial}</Text></View>
       <View style={{ ...styles.colDesc, width: pdfColWidthPct(locale, 'desc') }}>
-        <View style={{ width: '100%', flex: 1, minHeight: 0 }}>
-          {renderDescriptionPdfContent(item, View, Text, labels, locale)}
-        </View>
+        {renderDescriptionPdfContent(item, View, Text, labels, locale)}
       </View>
       <View style={{ ...styles.colMaterial, width: pdfColWidthPct(locale, 'material') }}>
         {renderMaterialPdfContent(item?.material, View, Text)}
@@ -848,39 +915,49 @@ function renderDescriptionPdfContent(
     locale === 'en'
       ? (item?.color || '')
       : multiColorToChineseDisplay(item?.color || '');
+  const categoryValue = item?.category || '';
   const labelPct = `${PDF_DESC_LABEL_PCT[locale] * 100}%`;
   const valuePct = `${PDF_DESC_VALUE_PCT[locale] * 100}%`;
+  const valueMaxChars = descValueMaxChars(locale);
+
+  const dimBodyLines = wrapDimensionsForPdf(dimText, descDimMaxChars(locale));
+  const dimLineCount = Math.max(
+    1,
+    (dimSubLabel ? 1 : 0) + dimBodyLines.length,
+  );
+  const categoryLines = chunkTextForPdfLines(categoryValue, valueMaxChars);
+  const colorLines = chunkTextForPdfLines(colorValue, valueMaxChars);
+  // Equalize 類別 / 規格 / 顏色 row heights to the tallest content.
+  const maxLines = Math.max(
+    estimateWrappedLines(categoryValue, valueMaxChars),
+    dimLineCount,
+    estimateWrappedLines(colorValue, valueMaxChars),
+    1,
+  );
+  const rowMinHeight = maxLines * DESC_UNIFORM_LINE_PT + DESC_ROW_PAD_V * 2;
+
   const rows: Array<
-    | { kind: 'category'; label: string; value: string }
-    | { kind: 'simple'; label: string; value: string }
+    | { kind: 'category'; label: string; lines: string[] }
+    | { kind: 'simple'; label: string; lines: string[] }
     | { kind: 'dimensions'; label: string; dimText: string; dimSubLabel: string }
   > = [
-    { kind: 'category', label: labels.descCategory, value: item?.category || '' },
+    { kind: 'category', label: labels.descCategory, lines: categoryLines },
     { kind: 'dimensions', label: labels.descDimensions, dimText, dimSubLabel },
-    { kind: 'simple', label: labels.descColor, value: colorValue },
+    { kind: 'simple', label: labels.descColor, lines: colorLines },
   ];
 
   return (
-    // Fill the product-row height so 類別 / 規格 / 顏色 can share it equally
-    // (otherwise extra height from「材質及明細」only stretches the last row).
-    <View
-      style={{
-        width: '100%',
-        height: '100%',
-        flexGrow: 1,
-        flexDirection: 'column',
-      }}
-    >
+    <View style={{ width: '100%', flexDirection: 'column' }}>
       {rows.map((row, i) => (
         <View
           key={row.label}
           style={{
             flexDirection: 'row',
-            alignItems: 'center',
-            // Equal flex slots — same height for Category / Dimensions / Color.
-            flexGrow: 1,
-            flexShrink: 1,
-            flexBasis: 0,
+            alignItems: 'stretch',
+            flexGrow: 0,
+            flexShrink: 0,
+            minHeight: rowMinHeight,
+            height: rowMinHeight,
             borderBottomWidth: i < rows.length - 1 ? 0.5 : 0,
             borderColor: '#ddd',
           }}
@@ -888,13 +965,11 @@ function renderDescriptionPdfContent(
           <View
             style={{
               width: labelPct,
-              height: '100%',
+              minHeight: rowMinHeight,
               justifyContent: 'center',
-              // Left-align Category / Dimensions / Color as one vertical column.
               alignItems: 'flex-start',
               paddingLeft: 2,
               paddingRight: 2,
-              paddingVertical: 2,
               borderRightWidth: 0.5,
               borderColor: '#ddd',
             }}
@@ -902,9 +977,17 @@ function renderDescriptionPdfContent(
             {row.kind === 'dimensions' ? (
               <View style={{ width: '100%', alignItems: 'flex-start' }}>
                 {row.label.split('\n').map((line, li) => (
-                  <Text key={`dim-label-${li}`} style={styles.descLabelText} wrap={false}>
-                    {line}
-                  </Text>
+                  <View
+                    key={`dim-label-${li}`}
+                    style={{
+                      height: DESC_UNIFORM_LINE_PT,
+                      justifyContent: 'center',
+                    }}
+                  >
+                    <Text style={styles.descLabelText} wrap={false}>
+                      {line}
+                    </Text>
+                  </View>
                 ))}
               </View>
             ) : (
@@ -914,36 +997,31 @@ function renderDescriptionPdfContent(
             )}
           </View>
           {row.kind === 'dimensions' ? (
-            renderDescDimensionsValue(row.dimText, row.dimSubLabel, View, Text, locale)
-          ) : row.kind === 'category' ? (
-            <View
-              style={{
-                width: valuePct,
-                height: '100%',
-                justifyContent: 'center',
-                paddingHorizontal: 2,
-                paddingVertical: 2,
-              }}
-            >
-              <Text
-                style={styles.descCategoryValueText}
-                hyphenationCallback={pdfSoftBreakNoHyphen}
-              >
-                {pdfDisplayText(row.value)}
-              </Text>
-            </View>
+            renderDescDimensionsValue(
+              row.dimText,
+              row.dimSubLabel,
+              View,
+              Text,
+              locale,
+            )
           ) : (
             <View
               style={{
                 width: valuePct,
-                height: '100%',
+                minHeight: rowMinHeight,
                 justifyContent: 'center',
                 paddingHorizontal: 2,
+                paddingVertical: DESC_ROW_PAD_V,
               }}
             >
-              <Text style={styles.descValueText} hyphenationCallback={pdfSoftBreakNoHyphen}>
-                {pdfDisplayText(row.value)}
-              </Text>
+              {renderDescFixedLineStack(
+                row.lines,
+                View,
+                Text,
+                row.kind === 'category'
+                  ? styles.descCategoryValueText
+                  : styles.descValueText,
+              )}
             </View>
           )}
         </View>
@@ -969,7 +1047,7 @@ const styles: Record<string, any> = {
   tableHeader: { display: 'flex', flexDirection: 'row', backgroundColor: '#f5f5f5', minHeight: 24, alignItems: 'center', ...tableBandBorder },
   tableRow: { display: 'flex', flexDirection: 'row', minHeight: 60, alignItems: 'stretch', ...tableBandBorder },
   colIndex: { width: '5%', display: 'flex', justifyContent: 'center', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd', paddingVertical: 4 },
-  colDesc: { width: '13.2%', paddingLeft: 0, paddingRight: 0, paddingTop: 0, paddingBottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', alignSelf: 'stretch', borderRightWidth: 0.5, borderColor: '#ddd' },
+  colDesc: { width: '13.2%', paddingLeft: 0, paddingRight: 0, paddingTop: 0, paddingBottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'stretch', borderRightWidth: 0.5, borderColor: '#ddd' },
   colMaterial: { width: '29.2%', paddingLeft: 4, paddingRight: 4, paddingTop: 4, paddingBottom: 4, display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', alignSelf: 'stretch', borderRightWidth: 0.5, borderColor: '#ddd' },
   colRemarks: { width: '9%', paddingLeft: 2, paddingRight: 2, paddingTop: 0, paddingBottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'stretch', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
   colImage: { width: '11.4%', paddingLeft: 0, paddingRight: 0, paddingTop: 0, paddingBottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'stretch', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
@@ -982,13 +1060,13 @@ const styles: Record<string, any> = {
   tableCellTextLeft: { fontSize: 7, textAlign: 'left', lineHeight: 1.45, paddingLeft: 4 },
   materialCellText: { fontSize: 7, textAlign: 'left', lineHeight: 1.45, width: '100%' },
   /** Description row labels (Category / Dimensions / Color) — left-aligned column. */
-  descLabelText: { fontSize: 6.5, textAlign: 'left', lineHeight: 1.25 },
-  descValueText: { fontSize: 6.5, textAlign: 'left', lineHeight: 1.3, paddingLeft: 2 },
-  descMultilineValueText: { fontSize: 6.5, textAlign: 'left', lineHeight: 1.35, paddingLeft: 2, width: '100%' },
-  /** 類別 — fixed column width, height grows with wrapped CJK text. */
-  descCategoryValueText: { fontSize: 6.5, textAlign: 'left', lineHeight: 1.35, paddingLeft: 2, width: '100%' },
-  descDimLabelText: { fontSize: 6, textAlign: 'left', lineHeight: 1.2, paddingLeft: 2, color: '#555' },
-  descDimValueText: { fontSize: 6, lineHeight: 1.25, textAlign: 'left', paddingLeft: 2 },
+  descLabelText: { fontSize: 6.5, textAlign: 'left', lineHeight: 1 },
+  descValueText: { fontSize: 6.5, textAlign: 'left', lineHeight: 1, paddingLeft: 2 },
+  descMultilineValueText: { fontSize: 6.5, textAlign: 'left', lineHeight: 1, paddingLeft: 2, width: '100%' },
+  /** 類別 — fixed line boxes; parent row height equalizes with 規格 / 顏色. */
+  descCategoryValueText: { fontSize: 6.5, textAlign: 'left', lineHeight: 1, paddingLeft: 2, width: '100%' },
+  descDimLabelText: { fontSize: 6, textAlign: 'left', lineHeight: 1, paddingLeft: 2, color: '#555' },
+  descDimValueText: { fontSize: 6, lineHeight: 1, textAlign: 'left', paddingLeft: 2 },
   cellStackSlot: { flex: 1, width: '100%', justifyContent: 'center', alignItems: 'center', paddingVertical: 2, paddingHorizontal: 2 },
   cellImageSlot: { width: '100%', justifyContent: 'center', alignItems: 'center', paddingVertical: 2, paddingHorizontal: 2 },
   cellStackImage: { width: '100%', maxHeight: '100%', objectFit: 'contain' },
@@ -997,8 +1075,9 @@ const styles: Record<string, any> = {
   totalRow: { flexDirection: 'row', justifyContent: 'flex-end', marginTop: 6, paddingRight: 4 },
   totalLabel: { fontSize: 10, fontWeight: 700, marginRight: 8, lineHeight: 1.4 },
   totalValue: { fontSize: 10, fontWeight: 700, lineHeight: 1.4 },
-  // 訂單確認及交付細節 / 條款及付款 — all text in these PDF blocks +1px vs prior.
-  sectionTitle: { fontSize: 10, fontWeight: 700, marginTop: 16, marginBottom: 4, lineHeight: 1.4 },
+  // Delivery title sits ~2 lines under 總金額 (margin set on the wrapper).
+  // 訂單確認及交付細節 / 條款及付款 — keep +1px body sizes from main.
+  sectionTitle: { fontSize: 10, fontWeight: 700, marginTop: 0, marginBottom: 4, lineHeight: 1.4 },
   sectionText: { fontSize: 8.5, lineHeight: 1.8, marginBottom: 2 },
   boldText: { fontWeight: 700 },
   termsTitle: { fontSize: 10, fontWeight: 700, marginTop: 8, marginBottom: 6, textDecoration: 'underline', lineHeight: 1.4 },
@@ -1037,7 +1116,13 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
   const locale = data.locale === 'en' ? 'en' : 'zh';
   const labels = quotePdf(locale);
 
-  const today = formatQuoteDisplayDate(data.quoteMeta?.date, locale);
+  const today =
+    data.quoteMeta?.date ||
+    new Date().toLocaleDateString(locale === 'en' ? 'en-GB' : 'zh-HK', {
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+    });
   const quoteNumber = data.quoteMeta?.quoteNumber || '';
   const discountValue = (() => {
     const raw = data.discountNote;
@@ -1048,7 +1133,6 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
   const isFreeInstallation = (data.subtotal || 0) >= 12000;
   const installationAmount = isFreeInstallation ? 0 : (data.installationFee?.amount ?? 0);
   const installFeeRaw = data.installationFee?.amount;
-  /** PDF total from live line math (same formula as editor → bwf_quote.total_amount). */
   const totalAmount = Math.max(0, (data.subtotal || 0) - discountValue + installationAmount);
   const items = data.items || [];
 
@@ -1192,12 +1276,8 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
         </View>
 
         {/*
-          Keep discount + 總金額 with the product table.
-          react-pdf can incorrectly page-break a short trailing node when the
-          following 交付細節/條款 block is large (shouldBreak + splitNodes pushes
-          that node AND all siblings). wrap={false} makes the totals atomic;
-          `break` on the legal block starts 交付細節 on a fresh page so 總金額
-          is not dragged along.
+          Keep discount + 總金額 with the product table (wrap={false}) so react-pdf
+          does not orphan 總金額 onto the next page when 交付細節/條款 is large.
         */}
         <View wrap={false}>
           {discountValue > 0 ? (
@@ -1236,89 +1316,94 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
           </View>
         </View>
 
-        {/* 訂單確認及交付細節 / 條款 — separate content block (new page). */}
-        <View break>
-          <Text style={{ ...styles.sectionTitle, marginTop: 0 }}>{labels.deliveryTitle}</Text>
+        {/*
+          「訂單確認及交付細節」: sit ~2 lines under 總金額 when space allows.
+          wrap={false} + minPresenceAhead keeps title+body together — if only the
+          title would fit, the whole block moves to the next page (no orphan title).
+          Do NOT force `break` (that left a blank half-page after short product lists).
+        */}
+        <View wrap={false} minPresenceAhead={56} style={{ marginTop: 18 }}>
+          <Text style={styles.sectionTitle}>{labels.deliveryTitle}</Text>
           <Text style={styles.sectionText}>{pdfDisplayText(data.deliveryDetails || '')}</Text>
+        </View>
 
-          <Text style={styles.termsTitle}>{labels.termsTitle}</Text>
+        <Text style={styles.termsTitle}>{labels.termsTitle}</Text>
 
-          {data.termsContent?.fullHtml && (data.termsContent.fullHtml.replace(/<[^>]*>/g, '').replace(/\s/g, '').length > 0 || /<u[^>]*>/i.test(data.termsContent.fullHtml)) ? (
-            parseHtmlForPdf(data.termsContent.fullHtml).map((item, i) => {
-              if (item.type === 'spacer') {
-                return <View key={i} style={styles.termSpacer} />;
-              }
+        {data.termsContent?.fullHtml && (data.termsContent.fullHtml.replace(/<[^>]*>/g, '').replace(/\s/g, '').length > 0 || /<u[^>]*>/i.test(data.termsContent.fullHtml)) ? (
+          parseHtmlForPdf(data.termsContent.fullHtml).map((item, i) => {
+            if (item.type === 'spacer') {
+              return <View key={i} style={styles.termSpacer} />;
+            }
 
-              const hasUnderlineBlank = item.segments.some(s => s.underlineBlank);
-              const baseStyle = item.type === 'heading' ? styles.termSubTitle : styles.termItem;
+            const hasUnderlineBlank = item.segments.some(s => s.underlineBlank);
+            const baseStyle = item.type === 'heading' ? styles.termSubTitle : styles.termItem;
 
-              if (hasUnderlineBlank) {
-                const viewStyle: any = { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: baseStyle.marginBottom || 0, marginTop: baseStyle.marginTop || 0 };
-                const textBaseStyle: any = { fontSize: baseStyle.fontSize || 8, lineHeight: baseStyle.lineHeight || 1.7, fontWeight: baseStyle.fontWeight };
-                return (
-                  <View key={i} style={viewStyle}>
-                    {item.segments.map((seg, j) => {
-                      if (seg.underlineBlank) {
-                        return (
-                          <View key={j} style={{ borderBottomWidth: 0.5, borderBottomColor: '#1a1a1a', flexGrow: 1, minWidth: 120, height: (baseStyle.fontSize || 8) + 2, marginBottom: 0 }} />
-                        );
-                      }
-                      const segStyle: any = { ...textBaseStyle };
-                      if (seg.bold) segStyle.fontWeight = 700;
-                      if (seg.underline) segStyle.textDecoration = 'underline';
-                      if (seg.italic) segStyle.fontStyle = 'italic';
-                      return <Text key={j} style={segStyle}>{seg.text}</Text>;
-                    })}
-                  </View>
-                );
-              }
-
+            if (hasUnderlineBlank) {
+              const viewStyle: any = { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: baseStyle.marginBottom || 0, marginTop: baseStyle.marginTop || 0 };
+              const textBaseStyle: any = { fontSize: baseStyle.fontSize || 7, lineHeight: baseStyle.lineHeight || 1.7, fontWeight: baseStyle.fontWeight };
               return (
-                <Text key={i} style={baseStyle}>
+                <View key={i} style={viewStyle}>
                   {item.segments.map((seg, j) => {
-                    const segStyle: any = {};
+                    if (seg.underlineBlank) {
+                      return (
+                        <View key={j} style={{ borderBottomWidth: 0.5, borderBottomColor: '#1a1a1a', flexGrow: 1, minWidth: 120, height: (baseStyle.fontSize || 7) + 2, marginBottom: 0 }} />
+                      );
+                    }
+                    const segStyle: any = { ...textBaseStyle };
                     if (seg.bold) segStyle.fontWeight = 700;
                     if (seg.underline) segStyle.textDecoration = 'underline';
                     if (seg.italic) segStyle.fontStyle = 'italic';
-                    return Object.keys(segStyle).length > 0
-                      ? <Text key={j} style={segStyle}>{seg.text}</Text>
-                      : seg.text;
+                    return <Text key={j} style={segStyle}>{seg.text}</Text>;
                   })}
-                </Text>
+                </View>
               );
-            })
-          ) : (
-            <>
-              <Text style={styles.termItem}>
-                <Text style={styles.boldText}>{fallbackTermsHeadings.deliveryAddress}</Text>
-                {pdfDisplayText(data.quoteMeta?.deliveryAddress || fallbackTermsHeadings.deliveryAddressFallback)}
+            }
+
+            return (
+              <Text key={i} style={baseStyle}>
+                {item.segments.map((seg, j) => {
+                  const segStyle: any = {};
+                  if (seg.bold) segStyle.fontWeight = 700;
+                  if (seg.underline) segStyle.textDecoration = 'underline';
+                  if (seg.italic) segStyle.fontStyle = 'italic';
+                  return Object.keys(segStyle).length > 0
+                    ? <Text key={j} style={segStyle}>{seg.text}</Text>
+                    : seg.text;
+                })}
               </Text>
+            );
+          })
+        ) : (
+          <>
+            <Text style={styles.termItem}>
+              <Text style={styles.boldText}>{fallbackTermsHeadings.deliveryAddress}</Text>
+              {pdfDisplayText(data.quoteMeta?.deliveryAddress || fallbackTermsHeadings.deliveryAddressFallback)}
+            </Text>
 
-              <Text style={styles.termSubTitle}>{fallbackTermsHeadings.payment}</Text>
-              {renderPlainTermLines(data.termsContent?.payment, 'payment', Text, View)}
+            <Text style={styles.termSubTitle}>{fallbackTermsHeadings.payment}</Text>
+            {renderPlainTermLines(data.termsContent?.payment, 'payment', Text, View)}
 
-              <Text style={styles.termSubTitle}>{fallbackTermsHeadings.transport}</Text>
-              {renderPlainTermLines(data.termsContent?.transport, 'transport', Text, View)}
+            <Text style={styles.termSubTitle}>{fallbackTermsHeadings.transport}</Text>
+            {renderPlainTermLines(data.termsContent?.transport, 'transport', Text, View)}
 
-              <Text style={styles.termSubTitle}>{fallbackTermsHeadings.extraFees}</Text>
-              {renderPlainTermLines(data.termsContent?.extraFees, 'extraFees', Text, View)}
+            <Text style={styles.termSubTitle}>{fallbackTermsHeadings.extraFees}</Text>
+            {renderPlainTermLines(data.termsContent?.extraFees, 'extraFees', Text, View)}
 
-              <Text style={styles.termSubTitle}>{fallbackTermsHeadings.warranty}</Text>
-              {renderPlainTermLines(data.termsContent?.warranty, 'warranty', Text, View)}
+            <Text style={styles.termSubTitle}>{fallbackTermsHeadings.warranty}</Text>
+            {renderPlainTermLines(data.termsContent?.warranty, 'warranty', Text, View)}
 
-              <Text style={styles.termSubTitle}>{fallbackTermsHeadings.other}</Text>
-              {renderPlainTermLines(data.termsContent?.other, 'other', Text, View)}
-            </>
-          )}
+            <Text style={styles.termSubTitle}>{fallbackTermsHeadings.other}</Text>
+            {renderPlainTermLines(data.termsContent?.other, 'other', Text, View)}
+          </>
+        )}
 
-          <View style={styles.signatureSection} wrap={false} minPresenceAhead={20}>
-            <View style={styles.signatureBlock}>
-              <Text style={styles.signatureTitle}>{labels.customerAcceptance}</Text>
-              <Text style={styles.signatureLabel}>{labels.customerSignLabel}</Text>
-              <View style={styles.signatureMiddle} />
-              <View style={styles.signatureLine} />
-              <Text style={styles.signatureDate}>{labels.dateOfSignature}</Text>
-            </View>
+        <View style={styles.signatureSection} wrap={false} minPresenceAhead={20}>
+          <View style={styles.signatureBlock}>
+            <Text style={styles.signatureTitle}>{labels.customerAcceptance}</Text>
+            <Text style={styles.signatureLabel}>{labels.customerSignLabel}</Text>
+            <View style={styles.signatureMiddle} />
+            <View style={styles.signatureLine} />
+            <Text style={styles.signatureDate}>{labels.dateOfSignature}</Text>
           </View>
         </View>
       </Page>
