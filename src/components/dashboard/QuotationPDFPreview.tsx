@@ -631,24 +631,36 @@ const DESC_DIM_MAX_CHARS = descDimMaxChars('zh');
 const DESC_UNIFORM_LINE_PT = 9;
 const DESC_ROW_PAD_V = 3;
 
-/** Approx. display units per line for 類別 / 顏色 (1 ≈ one CJK cell). */
+/**
+ * Approx. display units per line for 類別 / 顏色 (1 ≈ one CJK cell at 6.5pt).
+ * ZH value cell fits ~5 CJK chars; Latin packing is handled by descDisplayUnits.
+ */
 function descValueMaxChars(locale: 'zh' | 'en' = 'zh'): number {
   const valueWidthPt =
     PDF_TABLE_WIDTH_PT * PDF_COL_DESC_PCT[locale] * PDF_DESC_VALUE_PCT[locale] - 4;
-  // Conservative (slightly fewer chars/line) so estimated row height ≥ real wrap.
-  return Math.max(4, Math.floor(valueWidthPt / 7));
+  // Keep CJK capacity conservative (~5) so pre-wrapped lines do not clip.
+  return Math.max(5, Math.floor(valueWidthPt / 7));
 }
 
-/** Latin letters are narrower than CJK in Noto Sans (~0.55 of a full cell). */
+/**
+ * Latin letters in Noto Sans are narrower than CJK.
+ * Tuned so short phrases like "Office Chair" stay on one line when width allows;
+ * longer phrases still wrap at word boundaries (never mid-word).
+ */
 function descDisplayUnits(text: string): number {
   let units = 0;
   for (const ch of Array.from(text)) {
     if (/[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]/.test(ch)) {
       units += 1;
     } else if (/\s/.test(ch)) {
-      units += 0.35;
+      units += 0.22;
+    } else if (/[A-Z]/.test(ch)) {
+      units += 0.48;
+    } else if (/[a-z0-9]/.test(ch)) {
+      units += 0.42;
     } else {
-      units += 0.55;
+      // hyphen / punctuation
+      units += 0.32;
     }
   }
   return units;
@@ -657,7 +669,8 @@ function descDisplayUnits(text: string): number {
 /**
  * Wrap 類別 / 顏色 for PDF:
  * - CJK may break between characters
- * - Latin words (e.g. "Budget") stay intact; if no room, the whole word goes to the next line
+ * - Latin words (e.g. "Budget", "Office Chair") stay intact as units
+ * - Hyphenated compounds may break after "-" (Budget- | Friendly)
  * - Never split a Latin word mid-letters (no "Bud" / "get")
  */
 function wrapDescValueLines(text: string, maxUnits: number): string[] {
@@ -670,10 +683,11 @@ function wrapDescValueLines(text: string, maxUnits: number): string[] {
       out.push('');
       continue;
     }
-    // Tokenize: CJK char | Latin word (letters/digits + internal -/') | whitespace | other
+    // Tokenize: CJK char | Latin run + optional trailing hyphen | whitespace | other.
+    // Trailing "-" lets "Budget-Friendly" break as "Budget-" / "Friendly".
     const tokens =
       paragraph.match(
-        /[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]|[A-Za-z0-9]+(?:[-'][A-Za-z0-9]+)*|\s+|./g,
+        /[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]|[A-Za-z0-9]+-?|\s+|./g,
       ) || [paragraph];
 
     let line = '';
