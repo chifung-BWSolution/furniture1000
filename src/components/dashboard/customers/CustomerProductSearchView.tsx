@@ -148,6 +148,7 @@ function fmtDimMm(mm: number | null | undefined): string | null {
   return `${Math.round(mm)}mm`;
 }
 
+/** 顯示 長 × 闊 × 高（mm）；對應 shopify normal_size 的 W × D × H。 */
 function fmtDims(p: SearchProduct): string {
   const parts = [p.dimensionLMm, p.dimensionWMm, p.dimensionHMm]
     .map(fmtDimMm)
