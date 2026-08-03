@@ -630,7 +630,7 @@ const DESC_DIM_MAX_CHARS = descDimMaxChars('zh');
 const DESC_UNIFORM_LINE_PT = 9;
 const DESC_ROW_PAD_V = 3;
 
-/** Approx. chars per line for 類別 / 顏色 values (CJK-oriented). */
+/** Approx. display units per line for 類別 / 顏色 (1 ≈ one CJK cell). */
 function descValueMaxChars(locale: 'zh' | 'en' = 'zh'): number {
   const valueWidthPt =
     PDF_TABLE_WIDTH_PT * PDF_COL_DESC_PCT[locale] * PDF_DESC_VALUE_PCT[locale] - 4;
@@ -638,39 +638,80 @@ function descValueMaxChars(locale: 'zh' | 'en' = 'zh'): number {
   return Math.max(4, Math.floor(valueWidthPt / 7));
 }
 
-function estimateWrappedLines(text: string, maxChars: number): number {
-  const trimmed = (text || '').trim();
-  if (!trimmed) return 1;
-  // Honour explicit newlines, then wrap each segment by maxChars.
-  let total = 0;
-  for (const segment of trimmed.split('\n')) {
-    if (!segment) {
-      total += 1;
-      continue;
+/** Latin letters are narrower than CJK in Noto Sans (~0.55 of a full cell). */
+function descDisplayUnits(text: string): number {
+  let units = 0;
+  for (const ch of Array.from(text)) {
+    if (/[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]/.test(ch)) {
+      units += 1;
+    } else if (/\s/.test(ch)) {
+      units += 0.35;
+    } else {
+      units += 0.55;
     }
-    total += Math.max(1, Math.ceil(segment.length / maxChars));
   }
-  return Math.max(1, total);
+  return units;
 }
 
-function chunkTextForPdfLines(text: string, maxChars: number): string[] {
+/**
+ * Wrap 類別 / 顏色 for PDF:
+ * - CJK may break between characters
+ * - Latin words (e.g. "Budget") stay intact; if no room, the whole word goes to the next line
+ * - Never split a Latin word mid-letters (no "Bud" / "get")
+ */
+function wrapDescValueLines(text: string, maxUnits: number): string[] {
   const trimmed = (text || '').trim();
   if (!trimmed) return [''];
+
   const out: string[] = [];
-  for (const segment of trimmed.split('\n')) {
-    if (!segment) {
+  for (const paragraph of trimmed.split('\n')) {
+    if (!paragraph) {
       out.push('');
       continue;
     }
-    if (segment.length <= maxChars) {
-      out.push(segment);
-      continue;
+    // Tokenize: CJK char | Latin word (letters/digits + internal -/') | whitespace | other
+    const tokens =
+      paragraph.match(
+        /[\u4e00-\u9fff\u3400-\u4dbf\uf900-\ufaff]|[A-Za-z0-9]+(?:[-'][A-Za-z0-9]+)*|\s+|./g,
+      ) || [paragraph];
+
+    let line = '';
+    const flush = () => {
+      const cleaned = line.replace(/\s+$/g, '');
+      if (cleaned || line.length > 0) out.push(cleaned);
+      line = '';
+    };
+
+    for (const token of tokens) {
+      if (/^\s+$/.test(token)) {
+        // Prefer wrapping at spaces; keep a single space if line already has content.
+        if (!line) continue;
+        const withSpace = `${line} `;
+        if (descDisplayUnits(withSpace) <= maxUnits) {
+          line = withSpace;
+        } else {
+          flush();
+        }
+        continue;
+      }
+
+      const candidate = line + token;
+      if (!line || descDisplayUnits(candidate) <= maxUnits) {
+        line = candidate;
+        continue;
+      }
+
+      // Does not fit — start a new line with this token (never split Latin words).
+      flush();
+      line = token;
     }
-    for (let i = 0; i < segment.length; i += maxChars) {
-      out.push(segment.slice(i, i + maxChars));
-    }
+    flush();
   }
   return out.length > 0 ? out : [''];
+}
+
+function estimateWrappedLines(text: string, maxUnits: number): number {
+  return Math.max(1, wrapDescValueLines(text, maxUnits).length);
 }
 
 /** Preserve user line breaks from the draft editor (single Enter = one line). */
@@ -995,8 +1036,8 @@ function renderDescriptionPdfContent(
     1,
     (dimSubLabel ? 1 : 0) + dimBodyLines.length,
   );
-  const categoryLines = chunkTextForPdfLines(categoryValue, valueMaxChars);
-  const colorLines = chunkTextForPdfLines(colorValue, valueMaxChars);
+  const categoryLines = wrapDescValueLines(categoryValue, valueMaxChars);
+  const colorLines = wrapDescValueLines(colorValue, valueMaxChars);
   // Equalize 類別 / 規格 / 顏色 row heights to the tallest content.
   const maxLines = Math.max(
     estimateWrappedLines(categoryValue, valueMaxChars),
