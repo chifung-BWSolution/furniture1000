@@ -88,6 +88,22 @@ function isZoneProductId(id: string | null | undefined): boolean {
   );
 }
 
+type QuoteClientInfo = {
+  name?: string;
+  contactName?: string;
+  phone?: string;
+  email?: string;
+};
+
+type QuoteTermsContent = {
+  transport?: string;
+  extraFees?: string;
+  warranty?: string;
+  other?: string;
+  payment?: string;
+  fullHtml?: string;
+};
+
 type QuoteRecord = {
   id: string;
   quote_id: string;
@@ -101,12 +117,66 @@ type QuoteRecord = {
     formData?: {
       clientName?: string;
       clientContactName?: string;
+      clientPhone?: string;
+      clientEmail?: string;
     };
-    clientInfo?: { name?: string; contactName?: string };
+    clientInfo?: QuoteClientInfo;
+    deliveryDetails?: string;
+    deliveryDetailsEn?: string;
+    termsContent?: QuoteTermsContent;
+    termsContentEn?: QuoteTermsContent;
     [key: string]: unknown;
   };
   pitching?: PmsPitchingListItem | null;
 };
+
+/** Real bwf_quote rows (快速報價 / QR share) — not BWA 設計專案 cards. */
+function isBwfQuoteRecord(quote: QuoteRecord | null | undefined): boolean {
+  if (!quote?.id) return false;
+  return (
+    !quote.id.startsWith('design-project:') &&
+    !quote.id.startsWith('confirmed-project:')
+  );
+}
+
+function portalClientInfoOf(quote: QuoteRecord): {
+  companyName: string;
+  contactName: string;
+  phone: string;
+  email: string;
+} {
+  const info = quote.project_data?.clientInfo;
+  const form = quote.project_data?.formData;
+  return {
+    companyName: (info?.name || form?.clientName || '').trim(),
+    contactName: (info?.contactName || form?.clientContactName || '').trim(),
+    phone: (info?.phone || form?.clientPhone || '').trim(),
+    email: (info?.email || form?.clientEmail || '').trim(),
+  };
+}
+
+function portalDeliveryDetailsOf(quote: QuoteRecord): string {
+  const raw = quote.project_data?.deliveryDetails;
+  return typeof raw === 'string' ? raw.trim() : '';
+}
+
+function portalTermsHtmlOf(quote: QuoteRecord): string {
+  const terms = quote.project_data?.termsContent;
+  const html = typeof terms?.fullHtml === 'string' ? terms.fullHtml.trim() : '';
+  if (html) return html;
+  if (!terms) return '';
+  const parts = [
+    terms.payment,
+    terms.transport,
+    terms.extraFees,
+    terms.warranty,
+    terms.other,
+  ]
+    .map((part) => (typeof part === 'string' ? part.trim() : ''))
+    .filter(Boolean);
+  if (parts.length === 0) return '';
+  return parts.map((part) => `<p>${escapeHtml(part).replace(/\n/g, '<br/>')}</p>`).join('');
+}
 
 type ItemReview = ClientItemReview;
 type QuoteDecision = 'pending' | 'approved' | 'rejected';
@@ -1863,6 +1933,19 @@ export function CustomerQuoteSchemesView() {
   const activeVersions = active
     ? versionsByQuote.get(active.quote_id) || [active]
     : [];
+  const isBwfDetail = isBwfQuoteRecord(active);
+  const bwfClientInfo = useMemo(
+    () => (active && isBwfDetail ? portalClientInfoOf(active) : null),
+    [active, isBwfDetail],
+  );
+  const bwfDeliveryDetails = useMemo(
+    () => (active && isBwfDetail ? portalDeliveryDetailsOf(active) : ''),
+    [active, isBwfDetail],
+  );
+  const bwfTermsHtml = useMemo(
+    () => (active && isBwfDetail ? portalTermsHtmlOf(active) : ''),
+    [active, isBwfDetail],
+  );
   const zoneTypeGroups = useMemo(
     () => groupQuoteItemsByZoneType(items),
     [items],
@@ -2980,6 +3063,46 @@ export function CustomerQuoteSchemesView() {
             </div>
           </div>
 
+          {isBwfDetail && bwfClientInfo ? (
+            <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+              <h2 className="font-display text-base font-bold">客戶資訊</h2>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground">
+                    公司名稱
+                  </p>
+                  <p className="mt-1 text-sm font-semibold">
+                    {bwfClientInfo.companyName || '—'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground">
+                    客戶名稱
+                  </p>
+                  <p className="mt-1 text-sm font-semibold">
+                    {bwfClientInfo.contactName || '—'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground">
+                    電話
+                  </p>
+                  <p className="mt-1 font-mono-data text-sm font-semibold">
+                    {bwfClientInfo.phone || '—'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground">
+                    電郵
+                  </p>
+                  <p className="mt-1 font-mono-data text-sm font-semibold break-all">
+                    {bwfClientInfo.email || '—'}
+                  </p>
+                </div>
+              </div>
+            </section>
+          ) : null}
+
           <section className="space-y-3">
             <div ref={partitionStickySentinelRef}>
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -3502,6 +3625,31 @@ export function CustomerQuoteSchemesView() {
               {fmtMoney(itemSubtotal || active.total_amount || 0)}
             </strong>
           </div>
+
+          {isBwfDetail ? (
+            <>
+              <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+                <h2 className="font-display text-base font-bold">
+                  訂單確認及交付細節
+                </h2>
+                <p className="mt-3 whitespace-pre-wrap font-body text-sm leading-relaxed text-foreground/90">
+                  {bwfDeliveryDetails || '—'}
+                </p>
+              </section>
+
+              <section className="rounded-2xl border border-border bg-card p-5 shadow-sm">
+                <h2 className="font-display text-base font-bold">條款及付款</h2>
+                {bwfTermsHtml ? (
+                  <div
+                    className="quotation-terms-html mt-3 max-w-none font-body text-sm leading-relaxed text-foreground/90 [&_h2]:mt-4 [&_h2]:mb-2 [&_h2]:text-sm [&_h2]:font-bold [&_ol]:my-2 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-2 [&_ul]:my-2 [&_ul]:list-disc [&_ul]:pl-5"
+                    dangerouslySetInnerHTML={{ __html: bwfTermsHtml }}
+                  />
+                ) : (
+                  <p className="mt-3 text-sm text-muted-foreground">—</p>
+                )}
+              </section>
+            </>
+          ) : null}
 
           <section className="rounded-2xl border border-primary/20 bg-primary/5 p-5">
             <h2 className="font-display text-lg font-bold">整張報價決定</h2>
