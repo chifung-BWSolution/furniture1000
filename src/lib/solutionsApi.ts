@@ -19,6 +19,7 @@ import {
   isSvgPlaceholder,
   uploadImageSourceToStorage,
 } from '@/lib/imageStorage';
+import { parseNormalSizeMm } from '@/lib/productDimensions';
 
 /** Persist Storage HTTP URLs or compact SVG schematics — never huge base64 blobs. */
 function floorPlanUrlForDb(url: string | null | undefined): string | null {
@@ -511,7 +512,7 @@ export async function fetchPortalBrowseProducts(limit = 600): Promise<SearchProd
   }
 }
 
-/** 客戶付款頁：直接唯讀 Shopify active mirror，使用現時圖片與售價。 */
+/** 客戶專區產品搜尋／付款頁：唯讀 Shopify active mirror（圖片、售價、尺寸）。 */
 export async function fetchActiveShopifyProducts(
   limit = 60,
 ): Promise<SearchProduct[]> {
@@ -519,7 +520,7 @@ export async function fetchActiveShopifyProducts(
     const { data, error } = await supabase
       .from('shopify_products')
       .select(
-        'source_product_id,shopify_product_id,title,body_html,image_url,price,product_type,sku,status,published_at',
+        'source_product_id,shopify_product_id,title,body_html,image_url,price,product_type,sku,status,published_at,"my_fields.normal_size"',
       )
       .eq('status', 'active')
       .is('configurable', null)
@@ -553,14 +554,23 @@ export async function fetchActiveShopifyProducts(
           category: row.product_type,
         });
         const categories = parseShopifyProductType(row.product_type);
+        // Prefer shopify_products."my_fields.normal_size" (mm W×D×H) over stale products dims.
+        const fromNormalSize = parseNormalSizeMm(
+          (row as { 'my_fields.normal_size'?: string | null })[
+            'my_fields.normal_size'
+          ],
+        );
         return {
           ...source,
           ...shopify,
           material: source?.material || '—',
           color: source?.color || '—',
-          dimensionLMm: source?.dimensionLMm ?? null,
-          dimensionWMm: source?.dimensionWMm ?? null,
-          dimensionHMm: source?.dimensionHMm ?? null,
+          dimensionLMm:
+            fromNormalSize?.lengthMm ?? source?.dimensionLMm ?? null,
+          dimensionWMm:
+            fromNormalSize?.widthMm ?? source?.dimensionWMm ?? null,
+          dimensionHMm:
+            fromNormalSize?.heightMm ?? source?.dimensionHMm ?? null,
           factoryName: source?.factoryName || undefined,
           category: categories.level2 || categories.level1,
           level1Category: categories.level1,
