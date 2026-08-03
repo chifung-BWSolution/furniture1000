@@ -191,7 +191,7 @@ export function TopBar({
             >
               {isQuoteSticky ? (
                 <>
-                  <span className="text-primary">目前劃分</span>
+                  <span className="mr-3 text-primary">目前劃分</span>
                   {designSticky.activeContextLine}
                 </>
               ) : (
