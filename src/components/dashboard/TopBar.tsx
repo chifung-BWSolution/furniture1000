@@ -185,16 +185,18 @@ export function TopBar({
               className={cn(
                 'text-center font-display font-bold leading-snug',
                 isQuoteSticky
-                  ? 'text-[18px] text-foreground md:text-[20px]'
+                  ? 'text-[16px] text-foreground md:text-[18px]'
                   : 'font-body text-[19px] font-semibold text-foreground md:text-[20px]',
               )}
             >
               {isQuoteSticky ? (
-                <span className="mr-2 inline-flex align-middle text-[11px] font-bold tracking-wide text-primary uppercase">
-                  目前劃分
-                </span>
-              ) : null}
-              {designSticky.activeContextLine}
+                <>
+                  <span className="text-primary">目前劃分</span>
+                  {designSticky.activeContextLine}
+                </>
+              ) : (
+                designSticky.activeContextLine
+              )}
             </p>
           </div>
         ) : null}

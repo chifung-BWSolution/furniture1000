@@ -253,6 +253,15 @@ type QuoteZoneTypeGroup = {
 /** Match 設計專案 product image size (single-product row / print). */
 const PORTAL_PRODUCT_IMAGE_PX = 300;
 
+/** Sticky / headers: keep level-2 only from「一級 > 二級」division labels. */
+function divisionLevel2Label(label: string): string {
+  const raw = String(label || '').trim();
+  if (!raw) return '';
+  const parts = raw.split(/\s*>\s*/).map((part) => part.trim()).filter(Boolean);
+  if (parts.length >= 2) return parts[parts.length - 1] || raw;
+  return raw;
+}
+
 type QuoteSchemeSlot = {
   key: string;
   items: BwfQuoteItemInput[];
@@ -736,7 +745,7 @@ function QuotePortalProductCard({
   onSendMessage: () => void;
   onDeleteMessage: (messageId: string) => void;
   onSetReview: (review: ItemReview | null) => void;
-  onPreviewImage: (urls: string[], title: string) => void;
+  onPreviewImage: (urls: string[], title: string, startIndex?: number) => void;
 }) {
   const dimsLabel = formatProductDimensionsMm(
     item.dimensionLMm,
@@ -753,11 +762,22 @@ function QuotePortalProductCard({
       ? Math.max(1, Math.floor(maxQuantity))
       : 9999;
   const title = quoteItemDisplayName(item);
-  const galleryExtras = productGalleryExtras(item.image, item.galleryUrls);
+  // Keep full extras list so +N overflow can be counted (UI shows 3).
+  const galleryExtras = productGalleryExtras(item.image, item.galleryUrls, 99);
   const galleryLightboxUrls = productGalleryLightboxUrls(
     item.image,
     item.galleryUrls,
   );
+  const openGalleryAt = (startIndex = 0) => {
+    if (galleryLightboxUrls.length === 0) return;
+    onPreviewImage(galleryLightboxUrls, title, startIndex);
+  };
+  const openGalleryAtExtra = (extraIndex: number) => {
+    const url = galleryExtras[extraIndex];
+    if (!url) return;
+    const startIndex = galleryLightboxUrls.findIndex((src) => src === url);
+    openGalleryAt(startIndex >= 0 ? startIndex : Math.min(extraIndex + 1, galleryLightboxUrls.length - 1));
+  };
   const stopCardSelect = (event: { stopPropagation: () => void }) => {
     event.stopPropagation();
   };
@@ -1020,7 +1040,7 @@ function QuotePortalProductCard({
             type="button"
             onClick={(event) => {
               stopCardSelect(event);
-              onPreviewImage(galleryLightboxUrls, title);
+              openGalleryAt(0);
             }}
             className={cn(
               'group relative h-full w-full cursor-zoom-in overflow-hidden rounded-xl ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
@@ -1044,7 +1064,12 @@ function QuotePortalProductCard({
           </button>
         ) : null}
       </div>
-      <ProductExtraImageThumbs urls={galleryExtras} />
+      <ProductExtraImageThumbs
+        urls={galleryExtras}
+        maxVisible={3}
+        interactive
+        onSelect={openGalleryAtExtra}
+      />
     </div>
   );
 
@@ -1288,6 +1313,7 @@ export function CustomerQuoteSchemesView() {
   const [lightbox, setLightbox] = useState<{
     urls: string[];
     title: string;
+    startIndex: number;
   } | null>(null);
   const [floorPlanViewerOpen, setFloorPlanViewerOpen] = useState(false);
 
@@ -2042,14 +2068,18 @@ export function CustomerQuoteSchemesView() {
       const contextLine = (() => {
         const areaTitle = nextZoneTitle || nextZone;
         if (!areaTitle) return null;
-        // Only show「產品N」when the division has multiple product slots.
-        const productSuffix =
-          nextProductOrdinal != null ? ` (產品${nextProductOrdinal})` : '';
-        if (nextDivisionLabel && nextDivisionLabel !== areaTitle) {
-          return `${areaTitle} | ${nextDivisionLabel} : 總共${nextDivisionCount} 件產品${productSuffix}`;
+        // Sticky line shows level-2 only (strip「一級 > 二級」prefix).
+        const divisionL2 = nextDivisionLabel
+          ? divisionLevel2Label(nextDivisionLabel)
+          : '';
+        // Multi-product divisions:「| 產品2」before the count.
+        const productPart =
+          nextProductOrdinal != null ? ` | 產品${nextProductOrdinal}` : '';
+        if (divisionL2 && divisionL2 !== areaTitle) {
+          return `${areaTitle} | ${divisionL2}${productPart} : 總共${nextDivisionCount} 件產品`;
         }
-        if (nextDivisionLabel) {
-          return `${areaTitle} : 總共${nextDivisionCount} 件產品${productSuffix}`;
+        if (divisionL2) {
+          return `${areaTitle}${productPart} : 總共${nextDivisionCount} 件產品`;
         }
         const group = zoneTypeGroups.find((g) => g.label === nextZone);
         const count = group
@@ -2063,7 +2093,7 @@ export function CustomerQuoteSchemesView() {
               0,
             )
           : 0;
-        return `${areaTitle} : 總共${count} 件產品${productSuffix}`;
+        return `${areaTitle}${productPart} : 總共${count} 件產品`;
       })();
 
       setActiveZoneLabel((current) =>
@@ -3620,10 +3650,12 @@ export function CustomerQuoteSchemesView() {
                                                     onPreviewImage={(
                                                       urls,
                                                       previewTitle,
+                                                      startIndex = 0,
                                                     ) =>
                                                       setLightbox({
                                                         urls,
                                                         title: previewTitle,
+                                                        startIndex,
                                                       })
                                                     }
                                                   />
@@ -3750,6 +3782,7 @@ export function CustomerQuoteSchemesView() {
         <ProductImageGalleryLightbox
           urls={lightbox.urls}
           title={lightbox.title}
+          startIndex={lightbox.startIndex}
           onClose={() => setLightbox(null)}
         />
       ) : null}

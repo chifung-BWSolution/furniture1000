@@ -19,7 +19,9 @@ export type DesignProjectStickyChrome = {
   activeZoneLabel?: string | null;
   /**
    * Sticky subtitle under zone chips, e.g.
-   * 「入口及前臺大堂 | Sofa 梳化 > 多人梳化 : 總共3 件產品」
+   * 「入口及前臺大堂 | 會議枱 : 總共1 件產品」
+   * 「開放辦公區 | 屏風枱 | 產品2 : 總共6 件產品」
+   * (level-2 division only;「目前劃分」prefix is rendered by TopBar in quote mode)
    */
   activeContextLine?: string | null;
   saving: boolean;

@@ -2,40 +2,92 @@ import { useEffect, useState } from 'react';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-const THUMB_SLOTS = 4;
-
 /**
- * Reserved row under a product main image. Shows up to 4 non-interactive
- * thumbnails when extras exist; empty slots keep card heights aligned.
+ * Reserved row under a product main image.
+ * - Design project default: up to 4 non-interactive thumbs
+ * - Quote schemes: up to 3 clickable thumbs; overflow shows +N on the last slot
  */
 export function ProductExtraImageThumbs({
   urls,
   className,
+  maxVisible = 4,
+  interactive = false,
+  onSelect,
 }: {
   urls: string[];
   className?: string;
+  /** How many thumbnail slots to show (default 4). */
+  maxVisible?: number;
+  /** When true, thumbs open the gallery at that image. */
+  interactive?: boolean;
+  /** Called with the index within `urls` (extras list). */
+  onSelect?: (extraIndex: number) => void;
 }) {
-  const extras = urls.slice(0, THUMB_SLOTS);
+  const slots = Math.max(1, Math.floor(maxVisible));
+  const overflow = Math.max(0, urls.length - slots);
+  const visible = urls.slice(0, slots);
+
   return (
     <div
-      className={cn('grid h-11 w-full grid-cols-4 gap-1', className)}
-      aria-hidden={extras.length === 0}
+      className={cn(
+        'grid h-11 w-full gap-1',
+        className,
+      )}
+      style={{ gridTemplateColumns: `repeat(${slots}, minmax(0, 1fr))` }}
+      aria-hidden={visible.length === 0 && !interactive}
     >
-      {Array.from({ length: THUMB_SLOTS }, (_, index) => {
-        const src = extras[index];
+      {Array.from({ length: slots }, (_, index) => {
+        const src = visible[index];
+        const showOverflow = overflow > 0 && index === slots - 1 && Boolean(src);
+        if (!src) {
+          return (
+            <div
+              key={index}
+              className="overflow-hidden rounded-md bg-muted/40"
+            />
+          );
+        }
+
+        const content = (
+          <>
+            <img
+              src={src}
+              alt=""
+              draggable={false}
+              className="h-full w-full select-none object-cover"
+            />
+            {showOverflow ? (
+              <span className="pointer-events-none absolute inset-y-0 right-0 flex w-[42%] items-center justify-center bg-black/65 text-[11px] font-bold text-white">
+                +{overflow}
+              </span>
+            ) : null}
+          </>
+        );
+
+        if (interactive && onSelect) {
+          return (
+            <button
+              key={index}
+              type="button"
+              onClick={(event) => {
+                event.stopPropagation();
+                onSelect(index);
+              }}
+              className="relative overflow-hidden rounded-md bg-muted/40 ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              title="點擊放大此圖片"
+              aria-label={`放大第 ${index + 1} 張附加圖片`}
+            >
+              {content}
+            </button>
+          );
+        }
+
         return (
           <div
             key={index}
-            className="pointer-events-none overflow-hidden rounded-md bg-muted/40"
+            className="pointer-events-none relative overflow-hidden rounded-md bg-muted/40"
           >
-            {src ? (
-              <img
-                src={src}
-                alt=""
-                draggable={false}
-                className="h-full w-full select-none object-cover"
-              />
-            ) : null}
+            {content}
           </div>
         );
       })}
