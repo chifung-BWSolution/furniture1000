@@ -19,7 +19,7 @@ import {
   isSvgPlaceholder,
   uploadImageSourceToStorage,
 } from '@/lib/imageStorage';
-import { collectProductGalleryUrls } from '@/lib/productGallery';
+import { collectShopifyProductGalleryUrls } from '@/lib/productGallery';
 
 /** Persist Storage HTTP URLs or compact SVG schematics — never huge base64 blobs. */
 function floorPlanUrlForDb(url: string | null | undefined): string | null {
@@ -210,9 +210,77 @@ export type ProductDisplayMeta = {
   dimensionHMm: number | null;
   factoryName: string;
   sku: string;
-  /** HTTP gallery URLs from catalog image columns (+ images[] when present). */
+  /** HTTP gallery URLs from active `shopify_products` mirror (images more complete after upload). */
   galleryUrls: string[];
 };
+
+type ShopifyGalleryRow = {
+  source_product_id?: string | null;
+  shopify_product_id?: string | null;
+  image_url?: string | null;
+  images?: unknown;
+  'custom.more_image_link_1'?: string | null;
+  'custom.more_image_link_2'?: string | null;
+  'custom.more_image_link_3'?: string | null;
+  'custom.more_image_link_4'?: string | null;
+  'my_fields.image_link'?: string | null;
+};
+
+/** Gallery URLs keyed by products.id / shopify_product_id — only from shopify_products. */
+async function fetchShopifyGalleryByProductIds(
+  ids: string[],
+): Promise<Record<string, string[]>> {
+  const unique = [...new Set(ids.map((id) => id.trim()).filter(Boolean))];
+  const result: Record<string, string[]> = {};
+  if (unique.length === 0) return result;
+
+  const assign = (key: string, urls: string[]) => {
+    const id = key.trim();
+    if (!id || urls.length === 0) return;
+    const prev = result[id] || [];
+    // Prefer the richer gallery when multiple mirror rows match.
+    if (urls.length > prev.length) result[id] = urls;
+  };
+
+  const SHOPIFY_GALLERY_SELECT =
+    'source_product_id,shopify_product_id,image_url,images,"custom.more_image_link_1","custom.more_image_link_2","custom.more_image_link_3","custom.more_image_link_4","my_fields.image_link"';
+
+  for (let i = 0; i < unique.length; i += 150) {
+    const chunk = unique.slice(i, i + 150);
+    const { data, error } = await supabase
+      .from('shopify_products')
+      .select(SHOPIFY_GALLERY_SELECT)
+      .in('source_product_id', chunk)
+      .eq('status', 'active')
+      .is('configurable', null);
+    if (!error && data) {
+      for (const row of data as ShopifyGalleryRow[]) {
+        const urls = collectShopifyProductGalleryUrls(row);
+        assign(String(row.source_product_id || ''), urls);
+        assign(String(row.shopify_product_id || ''), urls);
+      }
+    }
+  }
+
+  const unresolved = unique.filter((id) => !(result[id]?.length > 0));
+  for (let i = 0; i < unresolved.length; i += 150) {
+    const chunk = unresolved.slice(i, i + 150);
+    const { data, error } = await supabase
+      .from('shopify_products')
+      .select(SHOPIFY_GALLERY_SELECT)
+      .in('shopify_product_id', chunk)
+      .eq('status', 'active')
+      .is('configurable', null);
+    if (error || !data) continue;
+    for (const row of data as ShopifyGalleryRow[]) {
+      const urls = collectShopifyProductGalleryUrls(row);
+      assign(String(row.source_product_id || ''), urls);
+      assign(String(row.shopify_product_id || ''), urls);
+    }
+  }
+
+  return result;
+}
 
 export async function fetchProductsDisplayMeta(
   ids: string[],
@@ -223,11 +291,10 @@ export async function fetchProductsDisplayMeta(
   try {
     for (let i = 0; i < unique.length; i += 150) {
       const chunk = unique.slice(i, i + 150);
-      // Scoped by product ids on a project (usually dozens). images[] is HTTP-only now.
       const { data, error } = await supabase
         .from('products')
         .select(
-          'id,dimension_l_mm,dimension_w_mm,dimension_h_mm,factories_display_name,sku,image_url,image_url_2,image_url_3,lifestyle_image_url,images',
+          'id,dimension_l_mm,dimension_w_mm,dimension_h_mm,factories_display_name,sku',
         )
         .in('id', chunk);
       if (error || !data) continue;
@@ -240,10 +307,30 @@ export async function fetchProductsDisplayMeta(
           dimensionHMm: numOrNullDim(row.dimension_h_mm),
           factoryName: String(row.factories_display_name || '').trim(),
           sku: String(row.sku || '').trim(),
-          galleryUrls: collectProductGalleryUrls(row),
+          galleryUrls: [],
         };
       }
     }
+
+    // Gallery: only shopify_products (post-upload images are more complete).
+    const shopifyGalleries = await fetchShopifyGalleryByProductIds(unique);
+    for (const id of unique) {
+      const galleryUrls = shopifyGalleries[id] || [];
+      if (galleryUrls.length === 0) continue;
+      if (result[id]) {
+        result[id] = { ...result[id], galleryUrls };
+      } else {
+        result[id] = {
+          dimensionLMm: null,
+          dimensionWMm: null,
+          dimensionHMm: null,
+          factoryName: '',
+          sku: '',
+          galleryUrls,
+        };
+      }
+    }
+
     // Prefer active Shopify main-product SKU when available.
     const shopifyInfo = await fetchActiveMainProductInfo(
       unique.map((id) => ({ key: id, productId: id })),
@@ -260,7 +347,7 @@ export async function fetchProductsDisplayMeta(
           dimensionHMm: null,
           factoryName: '',
           sku: shopifySku,
-          galleryUrls: [],
+          galleryUrls: shopifyGalleries[id] || [],
         };
       }
     }

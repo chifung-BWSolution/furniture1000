@@ -65,6 +65,53 @@ export function collectProductGalleryUrlsLight(row: {
   return collectProductGalleryUrls({ ...row, images: undefined });
 }
 
+/**
+ * Gallery from `shopify_products` only (post-upload mirror is more complete).
+ * Order: image_url → images[] → custom.more_image_link_1..4 → my_fields.image_link.
+ */
+export function collectShopifyProductGalleryUrls(row: {
+  image_url?: string | null;
+  images?: unknown;
+  'custom.more_image_link_1'?: string | null;
+  'custom.more_image_link_2'?: string | null;
+  'custom.more_image_link_3'?: string | null;
+  'custom.more_image_link_4'?: string | null;
+  'my_fields.image_link'?: string | null;
+}): string[] {
+  const raw: string[] = [];
+  const push = (src?: string | null) => {
+    const s = (src || '').trim();
+    if (isHttpUrl(s)) raw.push(s);
+  };
+
+  push(row.image_url);
+
+  const imageRows = normalizeImagesField(row.images)
+    .map((img) => {
+      if (typeof img === 'string') return { src: img, position: 99 };
+      if (!img || typeof img !== 'object') return null;
+      const src =
+        typeof img.src === 'string'
+          ? img.src
+          : typeof img.url === 'string'
+            ? img.url
+            : null;
+      const position = Number((img as { position?: unknown }).position);
+      return { src, position: Number.isFinite(position) ? position : 99 };
+    })
+    .filter((img): img is { src: string | null; position: number } => Boolean(img))
+    .sort((a, b) => a.position - b.position);
+  for (const img of imageRows) push(img.src);
+
+  push(row['custom.more_image_link_1']);
+  push(row['custom.more_image_link_2']);
+  push(row['custom.more_image_link_3']);
+  push(row['custom.more_image_link_4']);
+  push(row['my_fields.image_link']);
+
+  return dedupeImageUrlsPreserveOrder(raw);
+}
+
 /** Extra images under the main product image (non-clickable thumbs), max 4. */
 export function productGalleryExtras(
   mainUrl: string | null | undefined,
