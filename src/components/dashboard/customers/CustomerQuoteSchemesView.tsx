@@ -3220,11 +3220,14 @@ export function CustomerQuoteSchemesView() {
                     className="scroll-mt-28 space-y-3"
                   >
                     {!isSingleRoomGroup ? (
-                      <div className="border-b border-border pb-2.5 text-center">
-                        <h3 className="font-display text-lg font-bold">
+                      <div className="rounded-xl border border-border bg-foreground/[0.06] px-4 py-3 text-center">
+                        <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+                          區域類型
+                        </p>
+                        <h3 className="mt-0.5 font-display text-xl font-bold md:text-2xl">
                           {group.label}
                         </h3>
-                        <p className="mt-0.5 text-sm text-muted-foreground">
+                        <p className="mt-0.5 font-mono-data text-sm font-semibold text-foreground/75">
                           {group.rooms.length} 個{group.label}
                           {productCount > 0 ? ` · ${productCount} 件產品` : ''}
                         </p>
