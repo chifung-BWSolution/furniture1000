@@ -62,7 +62,8 @@ export function buildCustomerPortalInviteUrl(
 
 /**
  * No-login customer portal share link.
- * Lands on「報價方案」for the shared quote; guests may browse other portal pages.
+ * Lands on「報價方案」for the shared quote; guests may browse other portal
+ * pages except「機構採購帳號」.
  */
 export function buildCustomerPortalQuoteShareUrl(
   origin: string,

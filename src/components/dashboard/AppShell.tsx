@@ -342,24 +342,30 @@ export function AppShell() {
     navigate(target, { replace: true });
   }, [portalToken, quoteShareToken, location.pathname, location.search, navigate]);
 
-  // Quote-share guests stay in 客戶專區 (all portal pages), defaulting to 報價方案.
+  // Quote-share guests stay in 客戶專區 (except 機構採購帳號), defaulting to 報價方案.
   useEffect(() => {
     if (!quoteShareActive) return;
-    if (!isCustomerPortalView(store.currentView)) {
+    if (
+      !isCustomerPortalView(store.currentView) ||
+      store.currentView === 'customer-org-account'
+    ) {
       store.setCurrentView('customer-quote-schemes');
     }
-    if (!isCustomerPortalPath(location.pathname)) {
+    if (
+      !isCustomerPortalPath(location.pathname) ||
+      location.pathname.includes('/org-account')
+    ) {
       const qShare = quoteShareToken || storedQuoteShareToken;
       const token = portalToken || storedPortalToken;
-      const target = withCustomerPortalQuery(
-        isCustomerPortalView(store.currentView)
-          ? pathFromCustomerView(store.currentView)
-          : CUSTOMER_PORTAL_BASE,
-        {
-          portalToken: token,
-          quoteShareToken: qShare,
-        },
-      );
+      const view =
+        isCustomerPortalView(store.currentView) &&
+        store.currentView !== 'customer-org-account'
+          ? store.currentView
+          : 'customer-quote-schemes';
+      const target = withCustomerPortalQuery(pathFromCustomerView(view), {
+        portalToken: token,
+        quoteShareToken: qShare,
+      });
       quoteUrlSyncRef.current = target;
       navigate(target, { replace: true });
     }
@@ -379,10 +385,12 @@ export function AppShell() {
     if (!isCustomerPortalPath(location.pathname)) return;
     const view = customerViewFromPath(location.pathname);
     if (!view) return;
+    // Quote-share guests cannot open 機構採購帳號 (redirect handled above).
+    if (quoteShareActive && view === 'customer-org-account') return;
     if (store.currentView !== view) {
       store.setCurrentView(view);
     }
-  }, [location.pathname, store]);
+  }, [location.pathname, quoteShareActive, store]);
 
   useEffect(() => {
     if (clientOnly && findSection(store.currentView) !== 'customers') {
@@ -1164,6 +1172,10 @@ export function AppShell() {
       store.reloadProducts();
     }
     if (isCustomerPortalView(view)) {
+      // Quote-share guests may browse portal pages except 機構採購帳號.
+      if (quoteShareActive && view === 'customer-org-account') {
+        return;
+      }
       const token =
         new URLSearchParams(location.search).get('portal_token') ||
         readStoredPortalToken();
@@ -1222,8 +1234,9 @@ export function AppShell() {
     ) {
       clearPortalToken();
     }
-    // Quote-share guests may browse every 客戶專區 page (not only 報價方案).
-    const target = getFirstVisibleView(section, isAdmin);
+    const target = getFirstVisibleView(section, isAdmin, {
+      quoteShareGuest: quoteShareActive,
+    });
     if (target) handleViewChange(target);
   };
 
@@ -1255,6 +1268,7 @@ export function AppShell() {
             isCollapsed={sidebarCollapsed}
             onCollapseChange={setSidebarCollapsed}
             isAdmin={isAdmin}
+            quoteShareGuest={quoteShareActive}
           />
         ) : null}
 
@@ -1280,6 +1294,7 @@ export function AppShell() {
                 isCollapsed={false}
                 onCollapseChange={() => setMobileNavOpen(false)}
                 isAdmin={isAdmin}
+                quoteShareGuest={quoteShareActive}
               />
             </div>
           </div>

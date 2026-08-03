@@ -4279,7 +4279,7 @@ export function QuotationDraftEditor({
               </h3>
             </div>
             <p className="mb-4 font-body text-xs text-muted-foreground">
-              掃描 QR Code 或複製連結後，可於客戶專區「報價方案」以目前頁面格式查看此報價單內容。
+              掃描 QR Code 或複製連結後，可免登入進入客戶專區查看此報價單，並瀏覽產品搜尋、傢俬訂製、付款+送貨、訂單狀況、成功案例、服務一覽、公司資料及聯絡我們等頁面（不含機構採購帳號）。
             </p>
             <div className="mb-4 flex justify-center rounded-xl border border-border bg-background p-4">
               {shareUrl ? (

@@ -161,11 +161,21 @@ export function isAdminOnlyView(view: ViewType): boolean {
 export function filterNavChildren(
   children: SecondaryItem[],
   isAdmin: boolean,
-  opts?: { quoteShareOnly?: boolean },
+  opts?: {
+    /**
+     * Quote-share / invite no-login guest:
+     * show full 客戶專區 menu except「機構採購帳號」.
+     */
+    quoteShareGuest?: boolean;
+    /** @deprecated use quoteShareGuest — previously locked to 報價方案 only */
+    quoteShareOnly?: boolean;
+  },
 ): SecondaryItem[] {
   let list = isAdmin ? children : children.filter((c) => !c.adminOnly);
   if (opts?.quoteShareOnly) {
     list = list.filter((c) => c.view === 'customer-quote-schemes');
+  } else if (opts?.quoteShareGuest) {
+    list = list.filter((c) => c.view !== 'customer-org-account');
   }
   return list;
 }
@@ -173,7 +183,10 @@ export function filterNavChildren(
 export function getFirstVisibleView(
   sectionId: PrimarySection,
   isAdmin: boolean,
-  opts?: { quoteShareOnly?: boolean },
+  opts?: {
+    quoteShareGuest?: boolean;
+    quoteShareOnly?: boolean;
+  },
 ): ViewType | undefined {
   return filterNavChildren(getSection(sectionId).children, isAdmin, opts)[0]?.view;
 }
