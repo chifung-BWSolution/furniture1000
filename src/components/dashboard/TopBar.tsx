@@ -175,18 +175,18 @@ export function TopBar({
         {designSticky.activeContextLine ? (
           <div
             className={cn(
-              'mt-2 flex w-full items-center gap-3 rounded-lg border px-3 py-2',
+              'relative mt-2 flex w-full items-center justify-center rounded-lg border px-3 py-2',
               isQuoteSticky
-                ? 'justify-between border-primary/30 bg-primary/10 shadow-[inset_3px_0_0_0_hsl(var(--primary))]'
-                : 'justify-center border-border/70 bg-muted/40',
+                ? 'border-primary/30 bg-primary/10 shadow-[inset_3px_0_0_0_hsl(var(--primary))]'
+                : 'border-border/70 bg-muted/40',
             )}
           >
             <p
               className={cn(
-                'min-w-0 font-display font-bold leading-snug',
+                'min-w-0 px-16 text-center font-display font-bold leading-snug',
                 isQuoteSticky
-                  ? 'text-left text-[15px] text-foreground md:text-[17px]'
-                  : 'text-center font-body text-[19px] font-semibold text-foreground md:text-[20px]',
+                  ? 'text-[15px] text-foreground md:text-[17px]'
+                  : 'font-body text-[19px] font-semibold text-foreground md:text-[20px]',
               )}
             >
               {isQuoteSticky ? (
@@ -201,7 +201,7 @@ export function TopBar({
             {isQuoteSticky && designSticky.activeSelectionLine ? (
               <p
                 className={cn(
-                  'shrink-0 text-[13px] font-semibold md:text-sm',
+                  'absolute right-3 top-1/2 -translate-y-1/2 shrink-0 text-[13px] font-semibold md:text-sm',
                   designSticky.activeSelectionComplete
                     ? 'text-emerald-700 dark:text-emerald-400'
                     : 'text-muted-foreground',
