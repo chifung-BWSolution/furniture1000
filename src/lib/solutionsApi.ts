@@ -19,6 +19,7 @@ import {
   isSvgPlaceholder,
   uploadImageSourceToStorage,
 } from '@/lib/imageStorage';
+import { collectProductGalleryUrls } from '@/lib/productGallery';
 
 /** Persist Storage HTTP URLs or compact SVG schematics — never huge base64 blobs. */
 function floorPlanUrlForDb(url: string | null | undefined): string | null {
@@ -202,13 +203,15 @@ function mapSearchProduct(r: any, descLimit = 80): SearchProduct {
 const PORTAL_PRODUCT_SELECT =
   'id,title,description,price,sale_price,image_url,collection,category,color,material,level1_category,level2_category,dimension_l_mm,dimension_w_mm,dimension_h_mm,factories_display_name,total_lead_time,shipping_days,delivery_term_name,shopify_product_id,sku';
 
-/** Lightweight dims + factory + SKU for 設計專案 product rows. */
+/** Lightweight dims + factory + SKU + gallery for 設計專案 / 報價方案 product rows. */
 export type ProductDisplayMeta = {
   dimensionLMm: number | null;
   dimensionWMm: number | null;
   dimensionHMm: number | null;
   factoryName: string;
   sku: string;
+  /** HTTP gallery URLs from catalog image columns (+ images[] when present). */
+  galleryUrls: string[];
 };
 
 export async function fetchProductsDisplayMeta(
@@ -220,10 +223,11 @@ export async function fetchProductsDisplayMeta(
   try {
     for (let i = 0; i < unique.length; i += 150) {
       const chunk = unique.slice(i, i + 150);
+      // Scoped by product ids on a project (usually dozens). images[] is HTTP-only now.
       const { data, error } = await supabase
         .from('products')
         .select(
-          'id,dimension_l_mm,dimension_w_mm,dimension_h_mm,factories_display_name,sku',
+          'id,dimension_l_mm,dimension_w_mm,dimension_h_mm,factories_display_name,sku,image_url,image_url_2,image_url_3,lifestyle_image_url,images',
         )
         .in('id', chunk);
       if (error || !data) continue;
@@ -236,6 +240,7 @@ export async function fetchProductsDisplayMeta(
           dimensionHMm: numOrNullDim(row.dimension_h_mm),
           factoryName: String(row.factories_display_name || '').trim(),
           sku: String(row.sku || '').trim(),
+          galleryUrls: collectProductGalleryUrls(row),
         };
       }
     }
@@ -255,6 +260,7 @@ export async function fetchProductsDisplayMeta(
           dimensionHMm: null,
           factoryName: '',
           sku: shopifySku,
+          galleryUrls: [],
         };
       }
     }

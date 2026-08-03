@@ -54,6 +54,14 @@ import {
 import { withInsertAuditFields, withUpdateAuditFields } from '@/lib/pmsAudit';
 import { formatProductDimensionsMm } from '@/lib/productDimensions';
 import {
+  productGalleryExtras,
+  productGalleryLightboxUrls,
+} from '@/lib/productGallery';
+import {
+  ProductExtraImageThumbs,
+  ProductImageGalleryLightbox,
+} from '@/components/dashboard/ProductImageGallery';
+import {
   readStoredPortalToken,
   readStoredQuoteShareTarget,
   readStoredQuoteShareToken,
@@ -668,52 +676,6 @@ function portalNotesDisplay(notes: string | null | undefined): string {
   return remarksPlainText(staffNotes) || staffNotes.trim();
 }
 
-function QuoteProductImageLightbox({
-  src,
-  title,
-  onClose,
-}: {
-  src: string;
-  title?: string;
-  onClose: () => void;
-}) {
-  useEffect(() => {
-    const handler = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [onClose]);
-
-  return (
-    <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-      aria-label={title ? `${title}圖片預覽` : '產品圖片預覽'}
-    >
-      <img
-        src={src}
-        alt={title || '產品圖片'}
-        className="max-h-[90vh] max-w-[90vw] rounded-xl object-contain shadow-2xl"
-        onClick={(event) => event.stopPropagation()}
-      />
-      <button
-        type="button"
-        onClick={onClose}
-        className="absolute right-4 top-4 rounded-full bg-black/60 p-2 text-white hover:bg-black/80"
-        aria-label="關閉預覽"
-      >
-        <X className="h-5 w-5" />
-      </button>
-      <p className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-black/50 px-4 py-1.5 text-[13px] text-white/80">
-        點擊空白處或按 Esc 關閉
-      </p>
-    </div>
-  );
-}
-
 /** Selected piece count within one scheme slot (only「選擇」items). */
 function schemeSlotSelectedQuantity(
   slot: QuoteSchemeSlot,
@@ -774,7 +736,7 @@ function QuotePortalProductCard({
   onSendMessage: () => void;
   onDeleteMessage: (messageId: string) => void;
   onSetReview: (review: ItemReview | null) => void;
-  onPreviewImage: (src: string, title: string) => void;
+  onPreviewImage: (urls: string[], title: string) => void;
 }) {
   const dimsLabel = formatProductDimensionsMm(
     item.dimensionLMm,
@@ -791,6 +753,11 @@ function QuotePortalProductCard({
       ? Math.max(1, Math.floor(maxQuantity))
       : 9999;
   const title = quoteItemDisplayName(item);
+  const galleryExtras = productGalleryExtras(item.image, item.galleryUrls);
+  const galleryLightboxUrls = productGalleryLightboxUrls(
+    item.image,
+    item.galleryUrls,
+  );
   const stopCardSelect = (event: { stopPropagation: () => void }) => {
     event.stopPropagation();
   };
@@ -1025,41 +992,59 @@ function QuotePortalProductCard({
     fixedPx?: number;
   }) => (
     <div
-      className={cn(
-        'relative shrink-0 overflow-hidden rounded-xl bg-muted',
-        opts?.className,
-      )}
+      className={cn('flex shrink-0 flex-col gap-1.5', opts?.className)}
       style={
         opts?.fixedPx
           ? {
               width: opts.fixedPx,
-              height: opts.fixedPx,
               maxWidth: '100%',
             }
           : undefined
       }
+      onClick={stopCardSelect}
     >
-      {item.image ? (
-        <button
-          type="button"
-          onClick={(event) => {
-            stopCardSelect(event);
-            onPreviewImage(item.image!, title);
-          }}
-          className="group relative h-full w-full cursor-zoom-in overflow-hidden rounded-xl ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          title="點擊放大圖片"
-          aria-label={`${title}圖片預覽`}
-        >
-          <img
-            src={item.image}
-            alt={title}
-            className="h-full w-full object-cover transition group-hover:scale-105"
-          />
-          <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/0 text-white opacity-0 transition group-hover:bg-black/35 group-hover:opacity-100">
-            <ZoomIn className="h-6 w-6" />
-          </span>
-        </button>
-      ) : null}
+      <div
+        className="relative overflow-hidden rounded-xl bg-muted"
+        style={
+          opts?.fixedPx
+            ? {
+                width: opts.fixedPx,
+                height: opts.fixedPx,
+                maxWidth: '100%',
+              }
+            : undefined
+        }
+      >
+        {item.image ? (
+          <button
+            type="button"
+            onClick={(event) => {
+              stopCardSelect(event);
+              onPreviewImage(galleryLightboxUrls, title);
+            }}
+            className={cn(
+              'group relative h-full w-full cursor-zoom-in overflow-hidden rounded-xl ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary',
+              !opts?.fixedPx && 'aspect-square',
+            )}
+            title={
+              galleryLightboxUrls.length > 1
+                ? '點擊放大圖片（可左右瀏覽其他圖片）'
+                : '點擊放大圖片'
+            }
+            aria-label={`${title}圖片預覽`}
+          >
+            <img
+              src={item.image}
+              alt={title}
+              className="h-full w-full object-cover transition group-hover:scale-105"
+            />
+            <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/0 text-white opacity-0 transition group-hover:bg-black/35 group-hover:opacity-100">
+              <ZoomIn className="h-6 w-6" />
+            </span>
+          </button>
+        ) : null}
+      </div>
+      <ProductExtraImageThumbs urls={galleryExtras} />
     </div>
   );
 
@@ -1143,9 +1128,9 @@ function QuotePortalProductCard({
             </span>
           </div>
 
-          {/* Square image, slightly inset (not full card width); badge stays above. */}
+          {/* Square image + reserved thumb row; badge stays above. */}
           {productImageButton({
-            className: 'mx-auto aspect-square w-[88%] max-w-[280px]',
+            className: 'mx-auto w-[88%] max-w-[280px]',
           })}
 
           <h5 className="min-w-0 text-[14px] font-bold leading-snug">
@@ -1300,9 +1285,10 @@ export function CustomerQuoteSchemesView() {
   const [schemeGroupsByZone, setSchemeGroupsByZone] = useState<
     Record<string, FurnitureSchemeGroup[]>
   >({});
-  const [lightbox, setLightbox] = useState<{ src: string; title: string } | null>(
-    null,
-  );
+  const [lightbox, setLightbox] = useState<{
+    urls: string[];
+    title: string;
+  } | null>(null);
   const [floorPlanViewerOpen, setFloorPlanViewerOpen] = useState(false);
 
   useEffect(() => {
@@ -1587,6 +1573,7 @@ export function CustomerQuoteSchemesView() {
           id: product.id,
           name: product.productTitle,
           image: product.productImageUrl,
+          galleryUrls: meta?.galleryUrls || [],
           unitPrice: product.salePrice,
           quantity: product.quantity,
           unit: '件',
@@ -3631,11 +3618,11 @@ export function CustomerQuoteSchemesView() {
                                                       });
                                                     }}
                                                     onPreviewImage={(
-                                                      src,
+                                                      urls,
                                                       previewTitle,
                                                     ) =>
                                                       setLightbox({
-                                                        src,
+                                                        urls,
                                                         title: previewTitle,
                                                       })
                                                     }
@@ -3760,8 +3747,8 @@ export function CustomerQuoteSchemesView() {
       ) : null}
     </PortalPageShell>
       {lightbox ? (
-        <QuoteProductImageLightbox
-          src={lightbox.src}
+        <ProductImageGalleryLightbox
+          urls={lightbox.urls}
           title={lightbox.title}
           onClose={() => setLightbox(null)}
         />

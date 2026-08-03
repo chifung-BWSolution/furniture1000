@@ -20,6 +20,14 @@ import {
   type ProductDisplayMeta,
 } from '@/lib/solutionsApi';
 import {
+  productGalleryExtras,
+  productGalleryLightboxUrls,
+} from '@/lib/productGallery';
+import {
+  ProductExtraImageThumbs,
+  ProductImageGalleryLightbox,
+} from '@/components/dashboard/ProductImageGallery';
+import {
   dedupeFactoryNames,
   normalizeFactoryDisplayName,
 } from '@/lib/factoryNames';
@@ -111,52 +119,6 @@ function fmtFeedbackTime(iso: string): string {
 }
 function isCustomZoneProduct(item: ZoneProduct): boolean {
   return !item.productId;
-}
-
-function ProductImageLightbox({
-  src,
-  title,
-  onClose,
-}: {
-  src: string;
-  title?: string;
-  onClose: () => void;
-}) {
-  useEffect(() => {
-    const handler = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', handler);
-    return () => document.removeEventListener('keydown', handler);
-  }, [onClose]);
-
-  return (
-    <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm"
-      onClick={onClose}
-      role="dialog"
-      aria-modal="true"
-      aria-label={title ? `${title}圖片預覽` : '產品圖片預覽'}
-    >
-      <img
-        src={src}
-        alt={title || '產品圖片'}
-        className="max-h-[90vh] max-w-[90vw] rounded-xl object-contain shadow-2xl"
-        onClick={(event) => event.stopPropagation()}
-      />
-      <button
-        type="button"
-        onClick={onClose}
-        className="absolute right-4 top-4 rounded-full bg-black/60 p-2 text-white hover:bg-black/80"
-        aria-label="關閉預覽"
-      >
-        <X className="h-5 w-5" />
-      </button>
-      <p className="pointer-events-none absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full bg-black/50 px-4 py-1.5 text-[13px] text-white/80">
-        點擊空白處或按 Esc 關閉
-      </p>
-    </div>
-  );
 }
 
 function normalizeCustomRooms(value: unknown): CustomRoomType[] {
@@ -685,7 +647,7 @@ function ZoneProductRow({
   /** When true, render card body only (parent owns <li> / division header). */
   embedded?: boolean;
   onOpenUpload: (item: ZoneProduct) => void;
-  onPreview: (src: string, title: string) => void;
+  onPreview: (urls: string[], title: string) => void;
   onOpenPicker: (zoneId: string, itemId: string) => void;
   /** Open picker to add another scheme in the same slot (same L1/L2). */
   onMoreSchemes?: (item: ZoneProduct) => void;
@@ -729,6 +691,14 @@ function ZoneProductRow({
   const factoryName = (catalogMeta?.factoryName || '').trim();
   const sku = (catalogMeta?.sku || '').trim();
   const canUploadImage = custom || !item.productImageUrl;
+  const galleryExtras = productGalleryExtras(
+    item.productImageUrl,
+    catalogMeta?.galleryUrls,
+  );
+  const galleryLightboxUrls = productGalleryLightboxUrls(
+    item.productImageUrl,
+    catalogMeta?.galleryUrls,
+  );
 
   const commitDimAxis = (
     axis: 'dimensionLMm' | 'dimensionWMm' | 'dimensionHMm',
@@ -798,59 +768,66 @@ function ZoneProductRow({
 
   const productImage = (opts?: { className?: string; fixedPx?: number }) => (
     <div
-      className={cn(
-        'relative overflow-hidden rounded-lg bg-muted',
-        opts?.className,
-      )}
-      style={
-        opts?.fixedPx
-          ? { width: opts.fixedPx, height: opts.fixedPx }
-          : undefined
-      }
+      className={cn('flex flex-col gap-1.5', opts?.className)}
+      style={opts?.fixedPx ? { width: opts.fixedPx } : undefined}
     >
-      {item.productImageUrl ? (
-        <button
-          type="button"
-          onClick={() => onPreview(item.productImageUrl, titleLabel)}
-          className="group relative h-full w-full overflow-hidden rounded-lg ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-          title="點擊放大圖片"
-          aria-label={`${titleLabel}圖片預覽`}
-        >
-          <img
-            src={item.productImageUrl}
-            alt=""
-            className="h-full w-full object-cover transition group-hover:scale-105"
-          />
-          <span className="absolute inset-0 flex items-center justify-center bg-black/0 text-white opacity-0 transition group-hover:bg-black/35 group-hover:opacity-100">
-            <ZoomIn className="h-5 w-5" />
-          </span>
-        </button>
-      ) : (
-        <button
-          type="button"
-          disabled={uploading || !canUploadImage}
-          onClick={() => onOpenUpload(item)}
-          className="flex h-full w-full items-center justify-center rounded-lg border border-dashed border-border bg-muted/40 text-muted-foreground hover:border-primary/40 hover:text-primary disabled:opacity-60"
-          title="上傳產品圖片"
-          aria-label="上傳產品圖片"
-        >
-          {uploading ? (
-            <Loader2 className="h-5 w-5 animate-spin" />
-          ) : (
-            <ImagePlus className="h-6 w-6" />
-          )}
-        </button>
-      )}
-      {custom && item.productImageUrl ? (
-        <button
-          type="button"
-          disabled={uploading}
-          onClick={() => onOpenUpload(item)}
-          className="absolute bottom-1.5 left-1/2 z-10 -translate-x-1/2 rounded-md border border-border/80 bg-background/90 px-2 py-0.5 text-[11px] font-medium text-muted-foreground shadow-sm backdrop-blur hover:bg-background disabled:opacity-60"
-        >
-          {uploading ? '上傳中…' : '更換圖片'}
-        </button>
-      ) : null}
+      <div
+        className="relative overflow-hidden rounded-lg bg-muted"
+        style={
+          opts?.fixedPx
+            ? { width: opts.fixedPx, height: opts.fixedPx }
+            : undefined
+        }
+      >
+        {item.productImageUrl ? (
+          <button
+            type="button"
+            onClick={() => onPreview(galleryLightboxUrls, titleLabel)}
+            className="group relative h-full w-full overflow-hidden rounded-lg ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+            title={
+              galleryLightboxUrls.length > 1
+                ? '點擊放大圖片（可左右瀏覽其他圖片）'
+                : '點擊放大圖片'
+            }
+            aria-label={`${titleLabel}圖片預覽`}
+          >
+            <img
+              src={item.productImageUrl}
+              alt=""
+              className="h-full w-full object-cover transition group-hover:scale-105"
+            />
+            <span className="absolute inset-0 flex items-center justify-center bg-black/0 text-white opacity-0 transition group-hover:bg-black/35 group-hover:opacity-100">
+              <ZoomIn className="h-5 w-5" />
+            </span>
+          </button>
+        ) : (
+          <button
+            type="button"
+            disabled={uploading || !canUploadImage}
+            onClick={() => onOpenUpload(item)}
+            className="flex h-full w-full items-center justify-center rounded-lg border border-dashed border-border bg-muted/40 text-muted-foreground hover:border-primary/40 hover:text-primary disabled:opacity-60"
+            title="上傳產品圖片"
+            aria-label="上傳產品圖片"
+          >
+            {uploading ? (
+              <Loader2 className="h-5 w-5 animate-spin" />
+            ) : (
+              <ImagePlus className="h-6 w-6" />
+            )}
+          </button>
+        )}
+        {custom && item.productImageUrl ? (
+          <button
+            type="button"
+            disabled={uploading}
+            onClick={() => onOpenUpload(item)}
+            className="absolute bottom-1.5 left-1/2 z-10 -translate-x-1/2 rounded-md border border-border/80 bg-background/90 px-2 py-0.5 text-[11px] font-medium text-muted-foreground shadow-sm backdrop-blur hover:bg-background disabled:opacity-60"
+          >
+            {uploading ? '上傳中…' : '更換圖片'}
+          </button>
+        ) : null}
+      </div>
+      <ProductExtraImageThumbs urls={galleryExtras} />
     </div>
   );
 
@@ -1096,10 +1073,7 @@ function ZoneProductRow({
         {actionButtons}
       </div>
 
-      <div
-        className="relative z-0 mx-auto shrink-0 overflow-hidden rounded-lg"
-        style={{ width: multiImagePx, height: multiImagePx }}
-      >
+      <div className="relative z-0 mx-auto shrink-0">
         {productImage({ fixedPx: multiImagePx })}
       </div>
 
@@ -1175,7 +1149,8 @@ function ZoneProductRow({
       <div
         className="flex min-w-0 flex-1 flex-col"
         style={{
-          minHeight: size + PRODUCT_IMAGE_PAD_PX * 2,
+          // Main image + reserved 4-thumb row (h-11 + gap-1.5).
+          minHeight: size + PRODUCT_IMAGE_PAD_PX * 2 + 50,
           paddingTop: PRODUCT_IMAGE_PAD_PX,
           paddingBottom: PRODUCT_IMAGE_PAD_PX,
           paddingRight: PRODUCT_IMAGE_PAD_PX,
@@ -1344,7 +1319,7 @@ function ZoneSchemeSlotRow({
   deletingProductId: string | null;
   deletingFeedbackKey: string | null;
   onOpenUpload: (item: ZoneProduct) => void;
-  onPreview: (src: string, title: string) => void;
+  onPreview: (urls: string[], title: string) => void;
   onOpenPicker: (zoneId: string, itemId: string) => void;
   onMoreSchemes: (item: ZoneProduct) => void;
   onSetQuantity: (item: ZoneProduct, quantity: number) => void;
@@ -1541,9 +1516,10 @@ export function DesignProjectsView() {
   const [deletingFeedbackKey, setDeletingFeedbackKey] = useState<string | null>(
     null,
   );
-  const [lightbox, setLightbox] = useState<{ src: string; title: string } | null>(
-    null,
-  );
+  const [lightbox, setLightbox] = useState<{
+    urls: string[];
+    title: string;
+  } | null>(null);
   const [floorPlanViewerOpen, setFloorPlanViewerOpen] = useState(false);
   const [imageUploadItem, setImageUploadItem] = useState<ZoneProduct | null>(
     null,
@@ -2091,6 +2067,8 @@ export function DesignProjectsView() {
           factoryName: (row.factoryName || '').trim(),
           // Prefer search/Shopify SKU; keep previously loaded catalog SKU as fallback.
           sku: (row.sku || prev?.sku || '').trim(),
+          // Search rows only carry the main image — keep fetched gallery when present.
+          galleryUrls: prev?.galleryUrls || [],
         };
         if (
           !prev ||
@@ -2098,7 +2076,8 @@ export function DesignProjectsView() {
           prev.dimensionWMm !== meta.dimensionWMm ||
           prev.dimensionHMm !== meta.dimensionHMm ||
           prev.factoryName !== meta.factoryName ||
-          prev.sku !== meta.sku
+          prev.sku !== meta.sku ||
+          prev.galleryUrls !== meta.galleryUrls
         ) {
           next[id] = meta;
           changed = true;
@@ -3391,7 +3370,7 @@ export function DesignProjectsView() {
                     deletingProductId={deletingProductId}
                     deletingFeedbackKey={deletingFeedbackKey}
                     onOpenUpload={(row) => setImageUploadItem(row)}
-                    onPreview={(src, title) => setLightbox({ src, title })}
+                    onPreview={(urls, title) => setLightbox({ urls, title })}
                     onOpenPicker={(zId, itemId) => void openPicker(zId, itemId)}
                     onMoreSchemes={openMoreSchemesPicker}
                     onSetQuantity={setQuantity}
@@ -4244,8 +4223,8 @@ export function DesignProjectsView() {
       ) : null}
 
       {lightbox ? (
-        <ProductImageLightbox
-          src={lightbox.src}
+        <ProductImageGalleryLightbox
+          urls={lightbox.urls}
           title={lightbox.title}
           onClose={() => setLightbox(null)}
         />

@@ -43,6 +43,11 @@ export type BwfQuoteItemInput = QuoteItemImageFields & {
   isDivisionTitle?: boolean;
   /** Transient UI field — never persisted. */
   exchangeRateInput?: string;
+  /**
+   * Transient catalog gallery URLs for portal product cards (main + extras).
+   * Never persisted — hydrated from products table when linked to 設計專案.
+   */
+  galleryUrls?: string[];
 };
 
 export type BwfQuoteItemRow = {
