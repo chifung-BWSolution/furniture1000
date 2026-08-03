@@ -22,6 +22,10 @@ import {
   fetchProjects,
   updateInvitationStatus,
 } from '@/lib/solutionsApi';
+import {
+  createQuoteShareLink,
+  revokeQuoteShareLink,
+} from '@/lib/bwfQuoteShareLinks';
 import { consumeSolutionFocusProjectId } from '@/lib/solutionProjectFocus';
 import { toast } from 'sonner';
 import {
@@ -29,7 +33,11 @@ import {
   type DesignProject,
   type ProjectInvitation,
 } from '@/types/solutions';
-import { buildCustomerPortalInviteUrl } from '@/lib/customerPortalRoutes';
+import {
+  buildCustomerPortalInviteUrl,
+  buildCustomerPortalQuoteShareUrl,
+} from '@/lib/customerPortalRoutes';
+import { supabase } from '@/lib/supabase';
 
 function formatDateTime(dateStr: string | null) {
   if (!dateStr) return '尚未查看';
@@ -37,10 +45,88 @@ function formatDateTime(dateStr: string | null) {
   return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
+function isQuoteShareToken(token: string): boolean {
+  return token.trim().startsWith('qtok_');
+}
+
 function invitationUrl(token: string) {
   const origin =
     typeof window !== 'undefined' ? window.location.origin : 'https://fds.app';
+  if (isQuoteShareToken(token)) {
+    return buildCustomerPortalQuoteShareUrl(origin, token);
+  }
   return buildCustomerPortalInviteUrl(origin, token);
+}
+
+/** Resolve the design project's linked bwf_quote for no-login portal share. */
+async function resolveProjectQuote(project: DesignProject): Promise<{
+  quoteUuid: string;
+  quoteId: string;
+  displayName: string;
+} | null> {
+  const scheme = project.meta?.clientQuoteScheme;
+  const schemeUuid = String(scheme?.quoteUuid || '').trim();
+  const schemeQuoteId = String(scheme?.quoteId || '').trim();
+  if (schemeUuid && schemeQuoteId) {
+    return {
+      quoteUuid: schemeUuid,
+      quoteId: schemeQuoteId,
+      displayName: schemeQuoteId,
+    };
+  }
+
+  const metaQuoteId = String(
+    project.meta?.quoteId || project.meta?.pitchingCode || '',
+  ).trim();
+  if (metaQuoteId) {
+    const { data, error } = await supabase
+      .from('bwf_quote')
+      .select('id, quote_id, project_data')
+      .eq('quote_id', metaQuoteId)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (!error && data?.id) {
+      return {
+        quoteUuid: String(data.id),
+        quoteId: String(data.quote_id || metaQuoteId),
+        displayName: String(data.quote_id || metaQuoteId),
+      };
+    }
+  }
+
+  // Fallback: latest quote whose project_data references this design project.
+  const { data: rows, error: listError } = await supabase
+    .from('bwf_quote')
+    .select('id, quote_id, project_data, created_at')
+    .order('created_at', { ascending: false })
+    .limit(80);
+  if (listError || !rows?.length) return null;
+  const match = rows.find((row) => {
+    const pd =
+      row.project_data &&
+      typeof row.project_data === 'object' &&
+      !Array.isArray(row.project_data)
+        ? (row.project_data as Record<string, unknown>)
+        : null;
+    if (!pd) return false;
+    if (String(pd.designProjectId || '').trim() === project.id) return true;
+    const nested = pd.clientQuoteScheme;
+    if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+      const nestedUuid = String(
+        (nested as { quoteUuid?: string }).quoteUuid || '',
+      ).trim();
+      if (nestedUuid && nestedUuid === String(row.id)) return true;
+    }
+    return false;
+  });
+  if (!match?.id) return null;
+  const quoteId = String(match.quote_id || '').trim() || project.name;
+  return {
+    quoteUuid: String(match.id),
+    quoteId,
+    displayName: quoteId,
+  };
 }
 
 async function copyText(value: string) {
@@ -92,27 +178,56 @@ export function InviteClientsView() {
   };
 
   const handleCreateLink = async () => {
-    if (!projectId) return;
+    if (!projectId || !project) return;
     setSubmitting('link');
-    const res = await createInvitation({
-      projectId,
-      channel: 'link',
-      email: null,
-    });
-    setSubmitting(null);
-    if (!res.ok || !res.data) {
-      toast.error('產生失敗', { description: res.error });
-      return;
-    }
-    const url = invitationUrl(res.data.shareToken);
     try {
-      await copyText(url);
-      markCopied(res.data.id);
-      toast.success('Portal 連結已建立並複製');
-    } catch {
-      toast.success('Portal 連結已建立');
+      const quote = await resolveProjectQuote(project);
+      if (!quote) {
+        toast.error('找不到可分享的報價單', {
+          description:
+            '請先在客戶專區「報價方案」儲存，或完成報價單草稿後再建立連結。',
+        });
+        return;
+      }
+
+      const shareRes = await createQuoteShareLink({
+        quoteUuid: quote.quoteUuid,
+        quoteId: quote.quoteId,
+      });
+      if (shareRes.ok === false) {
+        toast.error('產生失敗', { description: shareRes.error });
+        return;
+      }
+
+      const displayName =
+        quote.displayName || quote.quoteId || project.name || '報價方案';
+      const res = await createInvitation({
+        projectId,
+        channel: 'link',
+        shareToken: shareRes.data.shareToken,
+        displayLabel: displayName,
+      });
+      if (!res.ok || !res.data) {
+        toast.error('產生失敗', { description: res.error });
+        return;
+      }
+
+      const url = shareRes.data.url || invitationUrl(res.data.shareToken);
+      try {
+        await copyText(url);
+        markCopied(res.data.id);
+        toast.success('免登入連結已建立並複製', {
+          description: `${displayName} — 客戶可直接開啟報價方案及客戶專區各頁`,
+        });
+      } catch {
+        toast.success('免登入連結已建立', {
+          description: displayName,
+        });
+      }
+      await reload();
+    } finally {
+      setSubmitting(null);
     }
-    await reload();
   };
 
   const handleSendEmail = async () => {
@@ -179,12 +294,16 @@ export function InviteClientsView() {
   };
 
   const handleRevoke = async (id: string) => {
+    const target = invitations.find((row) => row.id === id);
     setInvitations((prev) =>
       prev.map((i) => (i.id === id ? { ...i, status: 'revoked' } : i)),
     );
     const res = await updateInvitationStatus(id, 'revoked');
     if (res.ok) {
-      toast.success('已撤銷邀請，該連結不再列入客戶可見專案');
+      if (target && isQuoteShareToken(target.shareToken)) {
+        await revokeQuoteShareLink(target.shareToken);
+      }
+      toast.success('已撤銷邀請，該連結不再可用');
     } else {
       toast.error('撤銷失敗', { description: res.error });
       await reload();
@@ -198,7 +317,7 @@ export function InviteClientsView() {
           <div>
             <h1 className="font-display text-2xl font-bold tracking-tight">邀請客戶</h1>
             <p className="mt-1 max-w-3xl font-body text-sm text-muted-foreground">
-              為 BW 客戶建立專屬 Portal 連結或個人 Email 邀請；可複製、重發及撤銷。客戶登入後只會進入客戶專區，成本資料一律隱藏。
+              為 BW 客戶建立免登入 Portal 連結或個人 Email 邀請；可複製、重發及撤銷。連結可直接開啟報價方案，並瀏覽客戶專區各頁；成本資料一律隱藏。
             </p>
           </div>
           <div className="relative min-w-[280px]">
@@ -246,7 +365,7 @@ export function InviteClientsView() {
               </div>
               <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-muted-foreground">
                 <p className="font-semibold text-primary">邀請流程</p>
-                <p className="mt-1">1 選專案 → 2 建立邀請 → 3 客戶登入 Portal</p>
+                <p className="mt-1">1 選專案 → 2 建立連結 → 3 客戶免登入開啟 Portal</p>
               </div>
             </section>
 
@@ -259,7 +378,7 @@ export function InviteClientsView() {
                   <div>
                     <h2 className="font-display text-base font-bold">建立可轉寄 Portal 連結</h2>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      適合即時訊息或由 BW 員工自行轉寄；客戶仍需登入系統。
+                      類似報價單「生成 QR Code 及連結」：免登入開啟報價方案，亦可瀏覽客戶專區其他頁面。
                     </p>
                   </div>
                 </div>
@@ -367,9 +486,14 @@ export function InviteClientsView() {
                                 )}
                                 <div>
                                   <p className="font-medium">
-                                    {inv.email ?? '可轉寄 Portal 連結'}
+                                    {inv.channel === 'link'
+                                      ? inv.email || '可轉寄 Portal 連結'
+                                      : inv.email || 'Email 邀請'}
                                   </p>
                                   <p className="mt-0.5 font-mono-data text-xs text-muted-foreground">
+                                    {isQuoteShareToken(inv.shareToken)
+                                      ? '免登入報價連結 · '
+                                      : ''}
                                     {inv.shareToken.slice(0, 18)}…
                                   </p>
                                 </div>

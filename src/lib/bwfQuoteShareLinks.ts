@@ -69,6 +69,24 @@ export async function createQuoteShareLink(input: {
   }
 }
 
+/** Revoke a quote-share token (used when 邀請管理 withdraws the link). */
+export async function revokeQuoteShareLink(
+  shareToken: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const token = shareToken.trim();
+  if (!token) return { ok: false, error: '缺少分享 Token' };
+  try {
+    const { error } = await supabase
+      .from('bwf_quote_share_links')
+      .update({ status: 'revoked' })
+      .eq('share_token', token);
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e instanceof Error ? e.message : '撤銷失敗' };
+  }
+}
+
 /** Resolve an active quote_share token to the target quote. */
 export async function resolveQuoteShareToken(
   token: string,

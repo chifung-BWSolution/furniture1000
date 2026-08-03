@@ -1515,13 +1515,25 @@ export async function createInvitation(input: {
   projectId: string;
   channel: 'link' | 'email';
   email?: string | null;
+  /** Optional pre-built token (e.g. `qtok_…` quote-share). */
+  shareToken?: string | null;
+  /**
+   * Optional display label for 邀請管理「收件人／方式」.
+   * For link invites this is typically the quotation name / quote_id.
+   */
+  displayLabel?: string | null;
 }): Promise<WriteResult<ProjectInvitation>> {
   try {
+    const label =
+      input.displayLabel?.trim() ||
+      input.email?.trim() ||
+      null;
     const insertPayload = await withInsertAuditFields({
       project_id: input.projectId,
       channel: input.channel,
-      email: input.email ?? null,
-      share_token: makeShareToken(),
+      // Reuse email column as display label for link invites (no schema change).
+      email: label,
+      share_token: input.shareToken?.trim() || makeShareToken(),
       status: 'sent',
     });
     const { data, error } = await supabase

@@ -342,19 +342,24 @@ export function AppShell() {
     navigate(target, { replace: true });
   }, [portalToken, quoteShareToken, location.pathname, location.search, navigate]);
 
-  // Quote-share sessions may only stay on 報價方案.
+  // Quote-share guests stay in 客戶專區 (all portal pages), defaulting to 報價方案.
   useEffect(() => {
     if (!quoteShareActive) return;
-    if (store.currentView !== 'customer-quote-schemes') {
+    if (!isCustomerPortalView(store.currentView)) {
       store.setCurrentView('customer-quote-schemes');
     }
     if (!isCustomerPortalPath(location.pathname)) {
       const qShare = quoteShareToken || storedQuoteShareToken;
       const token = portalToken || storedPortalToken;
-      const target = withCustomerPortalQuery(CUSTOMER_PORTAL_BASE, {
-        portalToken: token,
-        quoteShareToken: qShare,
-      });
+      const target = withCustomerPortalQuery(
+        isCustomerPortalView(store.currentView)
+          ? pathFromCustomerView(store.currentView)
+          : CUSTOMER_PORTAL_BASE,
+        {
+          portalToken: token,
+          quoteShareToken: qShare,
+        },
+      );
       quoteUrlSyncRef.current = target;
       navigate(target, { replace: true });
     }
@@ -1159,9 +1164,6 @@ export function AppShell() {
       store.reloadProducts();
     }
     if (isCustomerPortalView(view)) {
-      if (quoteShareActive && view !== 'customer-quote-schemes') {
-        return;
-      }
       const token =
         new URLSearchParams(location.search).get('portal_token') ||
         readStoredPortalToken();
@@ -1220,9 +1222,8 @@ export function AppShell() {
     ) {
       clearPortalToken();
     }
-    const target = getFirstVisibleView(section, isAdmin, {
-      quoteShareOnly: quoteShareActive,
-    });
+    // Quote-share guests may browse every 客戶專區 page (not only 報價方案).
+    const target = getFirstVisibleView(section, isAdmin);
     if (target) handleViewChange(target);
   };
 
@@ -1254,7 +1255,6 @@ export function AppShell() {
             isCollapsed={sidebarCollapsed}
             onCollapseChange={setSidebarCollapsed}
             isAdmin={isAdmin}
-            quoteShareOnly={quoteShareActive}
           />
         ) : null}
 
@@ -1280,7 +1280,6 @@ export function AppShell() {
                 isCollapsed={false}
                 onCollapseChange={() => setMobileNavOpen(false)}
                 isAdmin={isAdmin}
-                quoteShareOnly={quoteShareActive}
               />
             </div>
           </div>
@@ -1318,7 +1317,7 @@ export function AppShell() {
           isDarkMode={store.isDarkMode}
           onToggleDarkMode={store.toggleDarkMode}
           showMobileNavButton={
-            activeSection !== 'home' && isMobileLayout && !quoteShareActive
+            activeSection !== 'home' && isMobileLayout
           }
           onOpenMobileNav={() => setMobileNavOpen(true)}
         />

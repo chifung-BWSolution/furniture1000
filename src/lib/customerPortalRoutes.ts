@@ -60,7 +60,10 @@ export function buildCustomerPortalInviteUrl(
   return `${base}${CUSTOMER_PORTAL_BASE}?portal_token=${encodeURIComponent(token)}`;
 }
 
-/** Quote-only share link → 客戶專區「報價方案」detail for that quote. */
+/**
+ * No-login customer portal share link.
+ * Lands on「報價方案」for the shared quote; guests may browse other portal pages.
+ */
 export function buildCustomerPortalQuoteShareUrl(
   origin: string,
   token: string,

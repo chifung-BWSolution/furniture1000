@@ -8,7 +8,7 @@ import {
 
 /**
  * Staff app requires login. Quote-share links (`?quote_share=…`) may enter
- * 客戶專區 > 報價方案 without email login.
+ * 客戶專區 (報價方案及各 Portal 頁) without email login.
  */
 export function RequireAuth({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
