@@ -633,6 +633,7 @@ function ZoneProductRow({
   deletingFeedbackKey,
   schemeIndex = 0,
   schemeCount = 1,
+  productOrdinal,
   embedded = false,
   onOpenUpload,
   onPreview,
@@ -676,6 +677,11 @@ function ZoneProductRow({
   schemeIndex?: number;
   /** Total schemes in this slot (1–3). */
   schemeCount?: number;
+  /**
+   * 1-based product index among slots in this division (產品 1 / 產品 2…).
+   * Shown on 方案 1 so users can tell products apart from schemes.
+   */
+  productOrdinal?: number;
   /** When true, render card body only (parent owns <li> / division header). */
   embedded?: boolean;
   onOpenUpload: (item: ZoneProduct) => void;
@@ -738,9 +744,18 @@ function ZoneProductRow({
   };
 
   const actionButtons = (
-    <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+    <div className="flex min-w-0 flex-wrap items-center gap-2.5">
+      {/* 產品 N on 方案 1 only — distinguishes「加入產品」slots from「方案」alternatives. */}
+      {schemeIndex === 0 && productOrdinal != null && productOrdinal > 0 ? (
+        <span
+          className="inline-flex h-8 shrink-0 items-center rounded-md border border-sky-500/40 bg-sky-500/15 px-2.5 text-[12px] font-bold tracking-wide text-sky-800 dark:text-sky-200"
+          title={`此為第 ${productOrdinal} 款產品（按「加入產品」新增）；右側「方案」為同一產品的替代選項`}
+        >
+          產品 {productOrdinal}
+        </span>
+      ) : null}
       {schemeCount > 1 ? (
-        <span className="inline-flex h-8 shrink-0 items-center rounded-md border border-violet-500/30 bg-violet-500/10 px-2 text-[12px] font-semibold text-violet-700 dark:text-violet-300">
+        <span className="inline-flex h-8 shrink-0 items-center rounded-md border border-violet-500/30 bg-violet-500/10 px-2.5 text-[12px] font-semibold text-violet-700 dark:text-violet-300">
           方案 {schemeIndex + 1}/{schemeCount}
         </span>
       ) : null}
@@ -748,7 +763,7 @@ function ZoneProductRow({
         <button
           type="button"
           onClick={() => onMoreSchemes?.(item)}
-          className="inline-flex h-8 items-center gap-1 rounded-md border border-violet-500/40 bg-violet-500/10 px-2 text-[12px] font-medium text-violet-700 hover:bg-violet-500/15 dark:text-violet-300"
+          className="inline-flex h-8 items-center gap-1 rounded-md border border-violet-500/40 bg-violet-500/10 px-2.5 text-[12px] font-medium text-violet-700 hover:bg-violet-500/15 dark:text-violet-300"
           title="加入替代方案（可連續加入，完成後關閉視窗）"
         >
           <LayoutGrid className="h-3.5 w-3.5 shrink-0" />
@@ -758,7 +773,7 @@ function ZoneProductRow({
       <button
         type="button"
         onClick={() => onOpenPicker(item.zoneId || zoneId, item.id)}
-        className="inline-flex h-8 items-center gap-1 rounded-md border border-primary/40 bg-primary/10 px-2 text-[12px] font-medium text-primary hover:bg-primary/15"
+        className="inline-flex h-8 items-center gap-1 rounded-md border border-primary/40 bg-primary/10 px-2.5 text-[12px] font-medium text-primary hover:bg-primary/15"
         title="更換此產品的名稱、圖片與價錢"
       >
         <RefreshCw className="h-3.5 w-3.5 shrink-0" />
@@ -1077,7 +1092,7 @@ function ZoneProductRow({
   const multiImagePx = 250;
   const card = multiScheme ? (
     <div className="flex h-full min-w-0 flex-col gap-2 bg-card p-3">
-      <div className="relative z-10 flex flex-wrap items-center gap-1.5">
+      <div className="relative z-10 flex flex-wrap items-center gap-2.5">
         {actionButtons}
       </div>
 
@@ -1284,6 +1299,7 @@ function ZoneProductRow({
 function ZoneSchemeSlotRow({
   slot,
   zoneId,
+  productOrdinal,
   divisionHeading,
   divisionToolbar,
   divisionSpy,
@@ -1306,6 +1322,8 @@ function ZoneSchemeSlotRow({
 }: {
   slot: FurnitureSchemeSlot;
   zoneId: string;
+  /** 1-based product index in this division (產品 1 / 產品 2…). */
+  productOrdinal: number;
   divisionHeading?: {
     label: string;
     planned: number;
@@ -1396,6 +1414,7 @@ function ZoneSchemeSlotRow({
               }
               schemeIndex={index}
               schemeCount={slot.products.length}
+              productOrdinal={productOrdinal}
               embedded
               uploading={uploadingImageId === item.id}
               deletingProductId={deletingProductId}
@@ -3347,6 +3366,7 @@ export function DesignProjectsView() {
                     key={slot.key}
                     slot={slot}
                     zoneId={zone.id}
+                    productOrdinal={index + 1}
                     divisionHeading={
                       index === 0 && divisionMeta ? divisionMeta : null
                     }
