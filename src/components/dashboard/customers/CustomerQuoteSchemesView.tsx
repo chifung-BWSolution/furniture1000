@@ -70,6 +70,7 @@ import {
 } from '@/lib/customerPortalRoutes';
 import { resolveQuoteShareToken } from '@/lib/bwfQuoteShareLinks';
 import { publishDesignProjectStickyChrome } from '@/lib/designProjectStickyChrome';
+import { unsavedGuard } from '@/lib/unsavedGuard';
 import {
   FloorPlanThumb,
   FloorPlanViewerModal,
@@ -573,17 +574,10 @@ function roomProductCount(
   room: QuoteRoomGroup,
   schemeGroups: FurnitureSchemeGroup[] = [],
 ): number {
-  return room.sections.reduce((sum, section) => {
-    const slots = buildQuoteSchemeSlots(section.items, schemeGroups);
-    return (
-      sum +
-      slots.reduce(
-        (slotSum, slot) =>
-          slotSum + Math.max(1, Number(slot.items[0]?.quantity) || 1),
-        0,
-      )
-    );
-  }, 0);
+  return room.sections.reduce(
+    (sum, section) => sum + sectionDisplayCount(section, schemeGroups),
+    0,
+  );
 }
 
 function roomPlannedFurnitureCount(room: QuoteRoomGroup): number {
@@ -600,9 +594,12 @@ function sectionDisplayCount(
   if (section.plannedQuantity != null && section.plannedQuantity > 0) {
     return section.plannedQuantity;
   }
+  // Unselected portal qty may be 0 — still count each product slot as ≥1 for「總共N件」.
   return buildQuoteSchemeSlots(section.items, schemeGroups).reduce(
-    (sum, slot) =>
-      sum + Math.max(1, Number(slot.items[0]?.quantity) || 1),
+    (sum, slot) => {
+      const qty = Number(slot.items[0]?.quantity);
+      return sum + (Number.isFinite(qty) && qty > 0 ? Math.floor(qty) : 1);
+    },
     0,
   );
 }
@@ -653,14 +650,14 @@ function sectionSelectedQuantity(
 ): number {
   return section.items.reduce((sum, item) => {
     if (!isQuoteItemSelected(item, itemSelected)) return sum;
-    return sum + Math.max(1, Number(item.quantity) || 1);
+    return sum + Math.max(0, Math.floor(Number(item.quantity) || 0));
   }, 0);
 }
 
 /** Portal line total — ignores catalog `isOptional` (selection handled separately). */
 function clientQuoteLineTotal(item: BwfQuoteItemInput): number {
   if (item.isSectionTitle || item.isDivisionTitle || item.isCustomTerm) return 0;
-  return (Number(item.unitPrice) || 0) * Math.max(1, Number(item.quantity) || 1);
+  return (Number(item.unitPrice) || 0) * Math.max(0, Math.floor(Number(item.quantity) || 0));
 }
 
 function readClientQuoteScheme(
@@ -692,9 +689,12 @@ function schemeSlotSelectedQuantity(
 ): number {
   return slot.items.reduce((sum, item) => {
     if (!isQuoteItemSelected(item, itemSelected)) return sum;
-    return sum + Math.max(1, Number(item.quantity) || 1);
+    return sum + Math.max(0, Math.floor(Number(item.quantity) || 0));
   }, 0);
 }
+
+const PORTAL_UNSAVED_LEAVE_MESSAGE =
+  '您有尚未儲存／提交的報價方案修改。離開、重新整理或關閉頁面前請先按「儲存」或頁底「提交」，否則資料可能遺失。';
 
 /** Vertical product card for 報價方案 3-column grid (matches 設計專案 scheme cards). */
 function QuotePortalProductCard({
@@ -729,6 +729,7 @@ function QuotePortalProductCard({
     zoneTitle: string;
     divisionLabel: string;
     count: number;
+    picked: number;
   } | null;
   review: ItemReview | undefined;
   messages: ItemMessage[];
@@ -754,12 +755,13 @@ function QuotePortalProductCard({
   );
   const notesLabel = portalNotesDisplay(item.notes);
   const lineTotal = clientQuoteLineTotal(item);
-  const qty = Math.max(1, Number(item.quantity) || 1);
+  // Portal default: 0 until accepted; selected cards use at least the stored qty.
+  const qty = Math.max(0, Math.floor(Number(item.quantity) || 0));
   const multiScheme = schemeCount > 1;
   const dimmed = Boolean(quotaFilled && !selected);
   const qtyCeiling =
     typeof maxQuantity === 'number' && Number.isFinite(maxQuantity)
-      ? Math.max(1, Math.floor(maxQuantity))
+      ? Math.max(0, Math.floor(maxQuantity))
       : 9999;
   const title = quoteItemDisplayName(item);
   // Keep full extras list so +N overflow can be counted (UI shows 3).
@@ -889,7 +891,7 @@ function QuotePortalProductCard({
               stopCardSelect(event);
               onSetQuantity(qty - 1);
             }}
-            disabled={dimmed || qty <= 1}
+            disabled={dimmed || qty <= 0}
             className="flex h-7 w-7 items-center justify-center text-[14px] text-muted-foreground hover:bg-muted disabled:opacity-35"
             aria-label="數量減一"
           >
@@ -897,7 +899,7 @@ function QuotePortalProductCard({
           </button>
           <input
             type="number"
-            min={1}
+            min={0}
             max={qtyCeiling}
             value={qty}
             disabled={dimmed}
@@ -1096,6 +1098,9 @@ function QuotePortalProductCard({
       data-partition-division={partitionSpy?.divisionLabel || undefined}
       data-partition-count={
         partitionSpy != null ? String(partitionSpy.count) : undefined
+      }
+      data-partition-picked={
+        partitionSpy != null ? String(partitionSpy.picked) : undefined
       }
       data-partition-zone={partitionSpy?.zoneLabel || undefined}
       data-partition-zone-title={partitionSpy?.zoneTitle || undefined}
@@ -1306,6 +1311,14 @@ export function CustomerQuoteSchemesView() {
   const [activeContextLine, setActiveContextLine] = useState<string | null>(
     null,
   );
+  const [activeSelectionLine, setActiveSelectionLine] = useState<string | null>(
+    null,
+  );
+  const [activeSelectionComplete, setActiveSelectionComplete] = useState(false);
+  /** After chip click, keep highlight locked briefly so scroll-spy doesn't fight it. */
+  const zoneJumpLockRef = useRef<{ label: string; until: number } | null>(null);
+  /** Baseline after load / successful 儲存／提交 — used for unsaved leave warning. */
+  const savedSchemeSnapshotRef = useRef<string>('');
   /** design_projects.meta.furnitureSchemeGroups keyed by zone id. */
   const [schemeGroupsByZone, setSchemeGroupsByZone] = useState<
     Record<string, FurnitureSchemeGroup[]>
@@ -1753,18 +1766,6 @@ export function CustomerQuoteSchemesView() {
           : null;
         const savedSelections = savedScheme?.selections || {};
         const savedQuantities = savedScheme?.quantities || {};
-        const hydratedRows = rows.map((row) => {
-          if (!row.id || row.isSectionTitle || row.isDivisionTitle) return row;
-          const savedQty = savedQuantities[row.id];
-          if (typeof savedQty !== 'number' || !Number.isFinite(savedQty)) {
-            return row;
-          }
-          return {
-            ...row,
-            quantity: Math.max(1, Math.floor(savedQty)),
-          };
-        });
-        setItems(hydratedRows);
         // Hydrate Accept / 要求修改 / 不接受 + persisted client opinions.
         const nextReviews: Record<string, ItemReview> = {};
         const nextMessages: Record<string, ItemMessage[]> = {};
@@ -1802,11 +1803,30 @@ export function CustomerQuoteSchemesView() {
           hydrateFromNotes(product.id, product.status, product.notes);
           hydrateSelection(product.id);
         }
-        for (const row of hydratedRows) {
+        for (const row of rows) {
           if (!row.id || row.isSectionTitle || row.isDivisionTitle) continue;
           hydrateFromNotes(row.id, row.zoneStatus, row.notes);
           hydrateSelection(row.id);
         }
+        const hydratedRows = rows.map((row) => {
+          if (!row.id || row.isSectionTitle || row.isDivisionTitle) return row;
+          const savedQty = savedQuantities[row.id];
+          if (typeof savedQty === 'number' && Number.isFinite(savedQty)) {
+            return {
+              ...row,
+              quantity: Math.max(0, Math.floor(savedQty)),
+            };
+          }
+          // Default: selected → ≥1, unselected → 0
+          if (nextSelected[row.id]) {
+            return {
+              ...row,
+              quantity: Math.max(1, Math.floor(Number(row.quantity) || 1)),
+            };
+          }
+          return { ...row, quantity: 0 };
+        });
+        setItems(hydratedRows);
         setItemReviews(nextReviews);
         setItemMessages(nextMessages);
         setItemSelected(nextSelected);
@@ -1987,9 +2007,17 @@ export function CustomerQuoteSchemesView() {
     item.id || `${quoteItemDisplayName(item)}-${index}`;
 
   const scrollToZoneGroup = useCallback((label: string) => {
+    const root = pageScrollRef.current;
     const target = document.getElementById(zoneGroupDomId(label));
-    if (!target) return;
-    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (!root || !target) return;
+    // Optimistic chip highlight + brief spy lock for snappy UX.
+    setActiveZoneLabel(label);
+    zoneJumpLockRef.current = { label, until: Date.now() + 900 };
+    const rootRect = root.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    // Instant jump inside the page scroller (TopBar sticky sits outside this root).
+    const nextTop = root.scrollTop + (targetRect.top - rootRect.top) - 8;
+    root.scrollTo({ top: Math.max(0, nextTop), behavior: 'auto' });
   }, []);
 
   useEffect(() => {
@@ -2027,7 +2055,8 @@ export function CustomerQuoteSchemesView() {
 
     const updateSpy = () => {
       const rootRect = root.getBoundingClientRect();
-      const anchorY = rootRect.top + (partitionHeaderPinned ? 180 : 24);
+      // Keep a modest anchor so the zone near the top of the scroller wins.
+      const anchorY = rootRect.top + (partitionHeaderPinned ? 96 : 24);
 
       let nextZone = zoneTypeGroups[0]?.label || null;
       for (const group of zoneTypeGroups) {
@@ -2040,6 +2069,7 @@ export function CustomerQuoteSchemesView() {
 
       let nextDivisionLabel: string | null = null;
       let nextDivisionCount = 0;
+      let nextDivisionPicked = 0;
       let nextDivisionZone: string | null = null;
       let nextZoneTitle: string | null = null;
       let nextProductOrdinal: number | null = null;
@@ -2050,6 +2080,7 @@ export function CustomerQuoteSchemesView() {
         if (el.getBoundingClientRect().top <= anchorY + 8) {
           nextDivisionLabel = el.dataset.partitionDivision || null;
           nextDivisionCount = Number(el.dataset.partitionCount || 0) || 0;
+          nextDivisionPicked = Number(el.dataset.partitionPicked || 0) || 0;
           nextDivisionZone = el.dataset.partitionZone || null;
           nextZoneTitle =
             el.dataset.partitionZoneTitle ||
@@ -2063,7 +2094,13 @@ export function CustomerQuoteSchemesView() {
         }
       });
 
-      if (nextDivisionZone) nextZone = nextDivisionZone;
+      const jumpLock = zoneJumpLockRef.current;
+      if (jumpLock && Date.now() < jumpLock.until) {
+        nextZone = jumpLock.label;
+      } else {
+        zoneJumpLockRef.current = null;
+        if (nextDivisionZone) nextZone = nextDivisionZone;
+      }
 
       const contextLine = (() => {
         const areaTitle = nextZoneTitle || nextZone;
@@ -2096,11 +2133,24 @@ export function CustomerQuoteSchemesView() {
         return `${areaTitle}${productPart} : 總共${count} 件產品`;
       })();
 
+      const selectionLine =
+        nextDivisionLabel != null
+          ? `已選擇 : ${nextDivisionPicked}/${nextDivisionCount}件`
+          : null;
+      const selectionComplete =
+        nextDivisionCount > 0 && nextDivisionPicked >= nextDivisionCount;
+
       setActiveZoneLabel((current) =>
         current === nextZone ? current : nextZone,
       );
       setActiveContextLine((current) =>
         current === contextLine ? current : contextLine,
+      );
+      setActiveSelectionLine((current) =>
+        current === selectionLine ? current : selectionLine,
+      );
+      setActiveSelectionComplete((current) =>
+        current === selectionComplete ? current : selectionComplete,
       );
     };
 
@@ -2112,6 +2162,8 @@ export function CustomerQuoteSchemesView() {
       window.removeEventListener('resize', updateSpy);
     };
   }, [
+    itemSelected,
+    items,
     itemsLoading,
     partitionHeaderPinned,
     schemeGroupsByZone,
@@ -2122,6 +2174,8 @@ export function CustomerQuoteSchemesView() {
   useEffect(
     () => () => {
       publishDesignProjectStickyChrome(null);
+      unsavedGuard.clear();
+      unsavedGuard.setLeaveHandler(null);
     },
     [],
   );
@@ -2502,8 +2556,8 @@ export function CustomerQuoteSchemesView() {
 
   const setItemQuantity = useCallback((itemId: string, rawQuantity: number) => {
     const nextQuantity = Math.max(
-      1,
-      Math.min(9999, Math.floor(Number(rawQuantity) || 1)),
+      0,
+      Math.min(9999, Math.floor(Number(rawQuantity) || 0)),
     );
     setItems((current) =>
       current.map((row) =>
@@ -2511,6 +2565,98 @@ export function CustomerQuoteSchemesView() {
       ),
     );
   }, []);
+
+  const buildSchemeSnapshot = useCallback(
+    (
+      nextSelected: Record<string, boolean> = itemSelected,
+      nextItems: BwfQuoteItemInput[] = items,
+      decision: QuoteDecision = quoteDecision,
+      note: string = quoteNote,
+    ) => {
+      const quantities: Record<string, number> = {};
+      const selections: Record<string, boolean> = {};
+      for (const item of nextItems) {
+        if (
+          !item.id ||
+          item.isSectionTitle ||
+          item.isDivisionTitle ||
+          item.isCustomTerm
+        ) {
+          continue;
+        }
+        selections[item.id] = Boolean(nextSelected[item.id]);
+        quantities[item.id] = Math.max(
+          0,
+          Math.floor(Number(item.quantity) || 0),
+        );
+      }
+      return JSON.stringify({
+        selections,
+        quantities,
+        quoteDecision: decision,
+        quoteNote: note.trim(),
+      });
+    },
+    [itemSelected, items, quoteDecision, quoteNote],
+  );
+
+  const markSchemeSaved = useCallback(() => {
+    savedSchemeSnapshotRef.current = buildSchemeSnapshot();
+    unsavedGuard.clear();
+  }, [buildSchemeSnapshot]);
+
+  // Baseline snapshot after items hydrate (includes current quote decision/note).
+  useEffect(() => {
+    if (!showDetail || itemsLoading) return;
+    savedSchemeSnapshotRef.current = buildSchemeSnapshot();
+    unsavedGuard.clear();
+    // Only re-baseline when the loaded quote changes, not on every edit.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional
+  }, [showDetail, itemsLoading, activeId]);
+
+  // Warn when leaving / refreshing / closing with unsaved scheme edits.
+  useEffect(() => {
+    if (!showDetail || itemsLoading) {
+      if (!showDetail) unsavedGuard.clear();
+      return;
+    }
+    if (!savedSchemeSnapshotRef.current) return;
+    const hasDraftNotes = Object.values(itemDraftNotes).some(
+      (note) => note.trim().length > 0,
+    );
+    const current = buildSchemeSnapshot();
+    const dirty =
+      current !== savedSchemeSnapshotRef.current || hasDraftNotes;
+    unsavedGuard.set(dirty, PORTAL_UNSAVED_LEAVE_MESSAGE);
+  }, [
+    buildSchemeSnapshot,
+    itemDraftNotes,
+    itemSelected,
+    items,
+    itemsLoading,
+    quoteDecision,
+    quoteNote,
+    showDetail,
+  ]);
+
+  useEffect(() => {
+    if (!showDetail) return;
+    unsavedGuard.setLeaveHandler(() => {
+      unsavedGuard.clear();
+    });
+    return () => unsavedGuard.setLeaveHandler(null);
+  }, [showDetail]);
+
+  useEffect(() => {
+    if (!showDetail) return;
+    const handler = (event: BeforeUnloadEvent) => {
+      if (!unsavedGuard.isDirty) return;
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handler);
+    return () => window.removeEventListener('beforeunload', handler);
+  }, [showDetail]);
 
   const saveQuoteScheme = useCallback(async () => {
     if (!active) return;
@@ -2528,7 +2674,7 @@ export function CustomerQuoteSchemesView() {
       for (const item of productItems) {
         const id = item.id!;
         selections[id] = isQuoteItemSelected(item, itemSelected);
-        quantities[id] = Math.max(1, Math.floor(Number(item.quantity) || 1));
+        quantities[id] = Math.max(0, Math.floor(Number(item.quantity) || 0));
       }
       const totalAmount = productItems.reduce((sum, item) => {
         const id = item.id!;
@@ -2544,10 +2690,10 @@ export function CustomerQuoteSchemesView() {
 
       for (const item of productItems) {
         if (!isZoneProductId(item.id)) continue;
-        const result = await updateZoneProductQuantity(
-          item.id!,
-          quantities[item.id!],
-        );
+        // zone_products keeps min 1 for staff tools; portal 0 stays in clientQuoteScheme only.
+        const persistQty = Math.max(1, quantities[item.id!] || 0);
+        if (!selections[item.id!] && quantities[item.id!] <= 0) continue;
+        const result = await updateZoneProductQuantity(item.id!, persistQty);
         if (!result.ok) {
           toast.error('儲存數量失敗', { description: result.error });
           return;
@@ -2688,6 +2834,13 @@ export function CustomerQuoteSchemesView() {
       }
 
       setItemSelected(selections);
+      savedSchemeSnapshotRef.current = JSON.stringify({
+        selections,
+        quantities,
+        quoteDecision,
+        quoteNote: quoteNote.trim(),
+      });
+      unsavedGuard.clear();
       await fetchQuotes();
       toast.success('已儲存報價方案', {
         description: linkedProject
@@ -2709,6 +2862,8 @@ export function CustomerQuoteSchemesView() {
     fetchQuotes,
     itemSelected,
     items,
+    quoteDecision,
+    quoteNote,
     resolveLinkedProject,
   ]);
 
@@ -2735,6 +2890,10 @@ export function CustomerQuoteSchemesView() {
       })),
       activeZoneLabel: activeZoneLabel || zoneTypeGroups[0]?.label || null,
       activeContextLine: partitionHeaderPinned ? activeContextLine : null,
+      activeSelectionLine: partitionHeaderPinned ? activeSelectionLine : null,
+      activeSelectionComplete: partitionHeaderPinned
+        ? activeSelectionComplete
+        : false,
       saving: savingScheme,
       hasFloorPlan,
       onSave: () => {
@@ -2746,6 +2905,8 @@ export function CustomerQuoteSchemesView() {
   }, [
     active,
     activeContextLine,
+    activeSelectionComplete,
+    activeSelectionLine,
     activeZoneLabel,
     hasFloorPlan,
     openFloorPlanViewer,
@@ -2790,6 +2951,8 @@ export function CustomerQuoteSchemesView() {
     };
     setSubmittingQuote(true);
     try {
+      // Persist selections/qty together with the whole-quote reply.
+      await saveQuoteScheme();
       const savedMeta = await mergeProjectMeta(linkedProject.id, {
         clientQuoteReply,
       });
@@ -2822,6 +2985,8 @@ export function CustomerQuoteSchemesView() {
             : row,
         ),
       );
+      savedSchemeSnapshotRef.current = buildSchemeSnapshot();
+      unsavedGuard.clear();
       if (decision === 'approved') {
         toast.success('已確認整張報價並提交', {
           description: '方案已標示為已確認，可在「已確定方案」查看',
@@ -2897,19 +3062,6 @@ export function CustomerQuoteSchemesView() {
                     : undefined
                 }
               />
-            </button>
-            <button
-              type="button"
-              onClick={() => void saveQuoteScheme()}
-              disabled={savingScheme}
-              className="inline-flex min-h-10 flex-1 items-center justify-center gap-2 rounded-lg bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-60 sm:flex-none"
-            >
-              {savingScheme ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Save className="h-4 w-4" />
-              )}
-              儲存
             </button>
           </div>
         ) : null
@@ -3282,7 +3434,7 @@ export function CustomerQuoteSchemesView() {
                   <section
                     key={group.key}
                     id={zoneGroupDomId(group.label)}
-                    className="scroll-mt-28 space-y-3"
+                    className="scroll-mt-2 space-y-3"
                   >
                     {!isSingleRoomGroup ? (
                       <div className="rounded-xl border border-border bg-foreground/[0.06] px-4 py-3 text-center">
@@ -3345,6 +3497,17 @@ export function CustomerQuoteSchemesView() {
                                     'data-partition-count': String(
                                       roomContextCount,
                                     ),
+                                    'data-partition-picked': String(
+                                      room.sections.reduce(
+                                        (sum, section) =>
+                                          sum +
+                                          sectionSelectedQuantity(
+                                            section,
+                                            itemSelected,
+                                          ),
+                                        0,
+                                      ),
+                                    ),
                                     'data-partition-product': '',
                                   }
                                 : {})}
@@ -3394,6 +3557,9 @@ export function CustomerQuoteSchemesView() {
                                         data-partition-division={section.label}
                                         data-partition-count={String(
                                           sectionCount,
+                                        )}
+                                        data-partition-picked={String(
+                                          sectionPickedQty,
                                         )}
                                         data-partition-zone={group.label}
                                         data-partition-zone-title={roomTitle}
@@ -3476,8 +3642,10 @@ export function CustomerQuoteSchemesView() {
                                                   itemSelected,
                                                 );
                                               const itemQty = Math.max(
-                                                1,
-                                                Number(item.quantity) || 1,
+                                                0,
+                                                Math.floor(
+                                                  Number(item.quantity) || 0,
+                                                ),
                                               );
                                               const othersSelectedQty =
                                                 selected
@@ -3487,7 +3655,7 @@ export function CustomerQuoteSchemesView() {
                                                 targetQty != null &&
                                                 slot.items.length > 1
                                                   ? Math.max(
-                                                      1,
+                                                      0,
                                                       targetQty -
                                                         Math.max(
                                                           0,
@@ -3519,6 +3687,8 @@ export function CustomerQuoteSchemesView() {
                                                             divisionLabel:
                                                               section.label,
                                                             count: sectionCount,
+                                                            picked:
+                                                              sectionPickedQty,
                                                           }
                                                         : null
                                                     }
@@ -3543,9 +3713,9 @@ export function CustomerQuoteSchemesView() {
                                                     ) => {
                                                       if (!item.id) return;
                                                       const next = Math.max(
-                                                        1,
+                                                        0,
                                                         Math.floor(
-                                                          Number(quantity) || 1,
+                                                          Number(quantity) || 0,
                                                         ),
                                                       );
                                                       const capped =
@@ -3559,6 +3729,25 @@ export function CustomerQuoteSchemesView() {
                                                         item.id,
                                                         capped,
                                                       );
+                                                      // Typing a positive qty implies selecting; 0 clears selection.
+                                                      if (capped > 0 && !selected) {
+                                                        setItemSelected(
+                                                          (current) => ({
+                                                            ...current,
+                                                            [item.id!]: true,
+                                                          }),
+                                                        );
+                                                      } else if (
+                                                        capped <= 0 &&
+                                                        selected
+                                                      ) {
+                                                        setItemSelected(
+                                                          (current) => ({
+                                                            ...current,
+                                                            [item.id!]: false,
+                                                          }),
+                                                        );
+                                                      }
                                                     }}
                                                     onSetDraftNote={(value) =>
                                                       setItemDraftNotes(
@@ -3608,14 +3797,24 @@ export function CustomerQuoteSchemesView() {
                                                             );
                                                             return;
                                                           }
-                                                          if (
-                                                            itemQty > remaining
-                                                          ) {
-                                                            setItemQuantity(
-                                                              item.id,
-                                                              remaining,
-                                                            );
-                                                          }
+                                                          setItemQuantity(
+                                                            item.id,
+                                                            Math.max(
+                                                              1,
+                                                              Math.min(
+                                                                itemQty > 0
+                                                                  ? itemQty
+                                                                  : 1,
+                                                                remaining,
+                                                              ),
+                                                            ),
+                                                          );
+                                                        } else if (itemQty <= 0) {
+                                                          // Select → default quantity 1
+                                                          setItemQuantity(
+                                                            item.id,
+                                                            1,
+                                                          );
                                                         }
                                                         setItemSelected(
                                                           (current) => ({
@@ -3624,7 +3823,11 @@ export function CustomerQuoteSchemesView() {
                                                           }),
                                                         );
                                                       } else {
-                                                        // 取消接受／要求修改／不接受 → 不計入已選數量
+                                                        // 取消接受／要求修改／不接受 → 數量歸 0
+                                                        setItemQuantity(
+                                                          item.id,
+                                                          0,
+                                                        );
                                                         setItemSelected(
                                                           (current) => ({
                                                             ...current,

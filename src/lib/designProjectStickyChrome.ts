@@ -24,6 +24,13 @@ export type DesignProjectStickyChrome = {
    * (level-2 division only;「目前劃分」prefix is rendered by TopBar in quote mode)
    */
   activeContextLine?: string | null;
+  /**
+   * Quote sticky right-side selection status for the active furniture division,
+   * e.g. 「已選擇 : 3/3件」.
+   */
+  activeSelectionLine?: string | null;
+  /** When true, colour the selection line emerald (quota met). */
+  activeSelectionComplete?: boolean;
   saving: boolean;
   hasFloorPlan: boolean;
   onSave: () => void;
