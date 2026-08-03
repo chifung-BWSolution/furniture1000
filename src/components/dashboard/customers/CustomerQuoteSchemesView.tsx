@@ -3152,6 +3152,7 @@ export function CustomerQuoteSchemesView() {
                                     'data-partition-count': String(
                                       roomContextCount,
                                     ),
+                                    'data-partition-product': '',
                                   }
                                 : {})}
                             >
