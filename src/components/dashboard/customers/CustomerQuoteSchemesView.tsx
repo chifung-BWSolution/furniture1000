@@ -144,13 +144,39 @@ type QuoteRecord = {
   pitching?: PmsPitchingListItem | null;
 };
 
-/** Real bwf_quote rows (快速報價 / QR share) — not BWA 設計專案 cards. */
+/** Real bwf_quote rows (快速報價 / QR share) — not synthetic design-project cards. */
 function isBwfQuoteRecord(quote: QuoteRecord | null | undefined): boolean {
   if (!quote?.id) return false;
   return (
     !quote.id.startsWith('design-project:') &&
     !quote.id.startsWith('confirmed-project:')
   );
+}
+
+/** Linked design project id for synthetic cards or invite/shell quotes. */
+function designProjectIdOf(quote: QuoteRecord | null | undefined): string {
+  if (!quote?.id) return '';
+  if (quote.id.startsWith('design-project:')) {
+    return quote.id.replace('design-project:', '');
+  }
+  if (quote.id.startsWith('confirmed-project:')) {
+    return quote.id.replace('confirmed-project:', '');
+  }
+  const fromData = (
+    quote.project_data as { designProjectId?: string } | null | undefined
+  )?.designProjectId;
+  return String(fromData || '').trim();
+}
+
+/**
+ * BWA = 傢俬方案「設計專案」(incl. 邀請客戶 shell quotes with designProjectId / DP-).
+ * BWF = 傢俬報價「報價單一覽」正式報價單.
+ */
+function isBwaPortalQuote(quote: QuoteRecord | null | undefined): boolean {
+  if (!quote?.id) return false;
+  if (designProjectIdOf(quote)) return true;
+  if (/^DP-/i.test(String(quote.quote_id || '').trim())) return true;
+  return String(quote.status || '').trim() === '客戶方案';
 }
 
 function portalClientInfoOf(quote: QuoteRecord): {
@@ -1560,12 +1586,28 @@ export function CustomerQuoteSchemesView() {
         )
         .map((quote) => quote.quote_id),
     );
+    const linkedShellProjectIds = new Set(
+      quotes
+        .map((quote) => designProjectIdOf(quote))
+        .filter((id): id is string => Boolean(id)),
+    );
     setSyntheticQuotes(
       portalProjects
         .filter((project) => {
+          // Prefer real bwf_quote shell from「邀請客戶」/ client save.
+          if (linkedShellProjectIds.has(project.id)) return false;
           const quoteId = projectQuoteId(project);
-          // Prefer real bwf_quote card when allow-listed and already present.
           if (quoteId && allowedQuoteIds.has(quoteId)) return false;
+          const dpFallback = `DP-${project.id.slice(0, 8)}`;
+          if (
+            quotes.some(
+              (quote) =>
+                String(quote.quote_id || '').trim().toUpperCase() ===
+                dpFallback.toUpperCase(),
+            )
+          ) {
+            return false;
+          }
           return true;
         })
         .map((project) => ({
@@ -1585,6 +1627,7 @@ export function CustomerQuoteSchemesView() {
               clientContactName:
                 project.clientCompany || project.clientName || undefined,
             },
+            designProjectId: project.id,
           },
           pitching: null,
         })),
@@ -1930,20 +1973,21 @@ export function CustomerQuoteSchemesView() {
     let visible = [...versionsByQuote.values()]
       .map((versions) => versions[0])
       .filter((quote) => {
-        const isDesignCard =
-          quote.id.startsWith('design-project:') ||
-          quote.id.startsWith('confirmed-project:');
-        const designId = isDesignCard
-          ? quote.id.replace(/^design-project:|^confirmed-project:/, '')
-          : '';
-        const allowedByPolicy =
-          isDesignCard
-            ? designProjectIds.has(designId)
-            : isAllowedPortalQuote({
-                quoteId: quote.quote_id,
-                displayName: quoteDisplayName(quote),
-                clientName: clientNameOf(quote),
-              });
+        const designId = designProjectIdOf(quote);
+        const isBwa = isBwaPortalQuote(quote);
+        const allowedByPolicy = isBwa
+          ? // Design / invite shells: show when project is in portal set, or name allow-list.
+            (designId ? designProjectIds.has(designId) : false) ||
+            isAllowedPortalQuote({
+              quoteId: quote.quote_id,
+              displayName: quoteDisplayName(quote),
+              clientName: clientNameOf(quote),
+            })
+          : isAllowedPortalQuote({
+              quoteId: quote.quote_id,
+              displayName: quoteDisplayName(quote),
+              clientName: clientNameOf(quote),
+            });
         if (!allowedByPolicy) return false;
         if (!clientOnly) return true;
         if (invitedTerms.size === 0) {
@@ -1961,15 +2005,13 @@ export function CustomerQuoteSchemesView() {
       });
     if (showSourceFilter && sourceFilter !== 'all') {
       visible = visible.filter((quote) => {
-        const isDesignCard =
-          quote.id.startsWith('design-project:') ||
-          quote.id.startsWith('confirmed-project:');
-        return sourceFilter === 'bwa' ? isDesignCard : !isDesignCard;
+        const isBwa = isBwaPortalQuote(quote);
+        return sourceFilter === 'bwa' ? isBwa : !isBwa;
       });
     }
     return [...visible].sort((a, b) => {
-      const aDesign = a.id.startsWith('design-project:') ? 1 : 0;
-      const bDesign = b.id.startsWith('design-project:') ? 1 : 0;
+      const aDesign = isBwaPortalQuote(a) ? 1 : 0;
+      const bDesign = isBwaPortalQuote(b) ? 1 : 0;
       if (aDesign !== bDesign) return bDesign - aDesign;
       return (
         new Date(b.modified_date || b.created_at).getTime() -
@@ -3168,10 +3210,11 @@ export function CustomerQuoteSchemesView() {
               const selected = active?.quote_id === quote.quote_id;
               const versions = versionsByQuote.get(quote.quote_id) || [quote];
               const linkedDesignProject =
-                quote.id.startsWith('design-project:') ||
-                quote.id.startsWith('confirmed-project:') ||
+                isBwaPortalQuote(quote) ||
                 portalProjects.some(
-                  (project) => projectQuoteId(project) === quote.quote_id,
+                  (project) =>
+                    project.id === designProjectIdOf(quote) ||
+                    projectQuoteId(project) === quote.quote_id,
                 );
               return (
                 <button
