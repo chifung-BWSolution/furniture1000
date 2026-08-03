@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import {
   createInvitation,
+  ensureDesignProjectPortalQuote,
   fetchInvitations,
   fetchProjects,
   updateInvitationStatus,
@@ -37,7 +38,6 @@ import {
   buildCustomerPortalInviteUrl,
   buildCustomerPortalQuoteShareUrl,
 } from '@/lib/customerPortalRoutes';
-import { supabase } from '@/lib/supabase';
 
 function formatDateTime(dateStr: string | null) {
   if (!dateStr) return '尚未查看';
@@ -56,77 +56,6 @@ function invitationUrl(token: string) {
     return buildCustomerPortalQuoteShareUrl(origin, token);
   }
   return buildCustomerPortalInviteUrl(origin, token);
-}
-
-/** Resolve the design project's linked bwf_quote for no-login portal share. */
-async function resolveProjectQuote(project: DesignProject): Promise<{
-  quoteUuid: string;
-  quoteId: string;
-  displayName: string;
-} | null> {
-  const scheme = project.meta?.clientQuoteScheme;
-  const schemeUuid = String(scheme?.quoteUuid || '').trim();
-  const schemeQuoteId = String(scheme?.quoteId || '').trim();
-  if (schemeUuid && schemeQuoteId) {
-    return {
-      quoteUuid: schemeUuid,
-      quoteId: schemeQuoteId,
-      displayName: schemeQuoteId,
-    };
-  }
-
-  const metaQuoteId = String(
-    project.meta?.quoteId || project.meta?.pitchingCode || '',
-  ).trim();
-  if (metaQuoteId) {
-    const { data, error } = await supabase
-      .from('bwf_quote')
-      .select('id, quote_id, project_data')
-      .eq('quote_id', metaQuoteId)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (!error && data?.id) {
-      return {
-        quoteUuid: String(data.id),
-        quoteId: String(data.quote_id || metaQuoteId),
-        displayName: String(data.quote_id || metaQuoteId),
-      };
-    }
-  }
-
-  // Fallback: latest quote whose project_data references this design project.
-  const { data: rows, error: listError } = await supabase
-    .from('bwf_quote')
-    .select('id, quote_id, project_data, created_at')
-    .order('created_at', { ascending: false })
-    .limit(80);
-  if (listError || !rows?.length) return null;
-  const match = rows.find((row) => {
-    const pd =
-      row.project_data &&
-      typeof row.project_data === 'object' &&
-      !Array.isArray(row.project_data)
-        ? (row.project_data as Record<string, unknown>)
-        : null;
-    if (!pd) return false;
-    if (String(pd.designProjectId || '').trim() === project.id) return true;
-    const nested = pd.clientQuoteScheme;
-    if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
-      const nestedUuid = String(
-        (nested as { quoteUuid?: string }).quoteUuid || '',
-      ).trim();
-      if (nestedUuid && nestedUuid === String(row.id)) return true;
-    }
-    return false;
-  });
-  if (!match?.id) return null;
-  const quoteId = String(match.quote_id || '').trim() || project.name;
-  return {
-    quoteUuid: String(match.id),
-    quoteId,
-    displayName: quoteId,
-  };
 }
 
 async function copyText(value: string) {
@@ -181,14 +110,17 @@ export function InviteClientsView() {
     if (!projectId || !project) return;
     setSubmitting('link');
     try {
-      const quote = await resolveProjectQuote(project);
-      if (!quote) {
-        toast.error('找不到可分享的報價單', {
+      // Design project furniture → ensure linked portal quote → no-login share.
+      const ensured = await ensureDesignProjectPortalQuote(project);
+      if (!ensured.ok || !ensured.data) {
+        toast.error('無法建立分享連結', {
           description:
-            '請先在客戶專區「報價方案」儲存，或完成報價單草稿後再建立連結。',
+            ensured.error ||
+            '請先在「設計專案」完成傢俬配置並儲存後再試。',
         });
         return;
       }
+      const quote = ensured.data;
 
       const shareRes = await createQuoteShareLink({
         quoteUuid: quote.quoteUuid,
@@ -212,12 +144,16 @@ export function InviteClientsView() {
         return;
       }
 
+      // Refresh project meta so subsequent clicks reuse the linked quote.
+      const refreshed = await fetchProjects();
+      setProjects(refreshed);
+
       const url = shareRes.data.url || invitationUrl(res.data.shareToken);
       try {
         await copyText(url);
         markCopied(res.data.id);
         toast.success('免登入連結已建立並複製', {
-          description: `${displayName} — 客戶可直接開啟報價方案及客戶專區各頁`,
+          description: `${displayName} — 客戶可直接開啟報價方案查看此設計專案`,
         });
       } catch {
         toast.success('免登入連結已建立', {

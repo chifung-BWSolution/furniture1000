@@ -42,6 +42,7 @@ import { usePmsStaffName } from '@/hooks/use-pms-staff-name';
 import { ROLE_META, type UserRole } from '@/constants/analytics-mock';
 import {
   fetchProjects,
+  fetchProjectById,
   fetchZones,
   fetchZoneProducts,
   fetchProductsDisplayMeta,
@@ -1440,6 +1441,40 @@ export function CustomerQuoteSchemesView() {
         }
         if (cancelled) return;
 
+        // If this share is backed by a 設計專案, hydrate portal project data so
+        // 報價方案 detail can render live zone/furniture divisions.
+        const projectData =
+          enriched.project_data &&
+          typeof enriched.project_data === 'object' &&
+          !Array.isArray(enriched.project_data)
+            ? (enriched.project_data as Record<string, unknown>)
+            : null;
+        const designProjectId = String(
+          projectData?.designProjectId || '',
+        ).trim();
+        if (designProjectId) {
+          const linked = await fetchProjectById(designProjectId);
+          if (!cancelled && linked) {
+            const [zones, products] = await Promise.all([
+              fetchZones(linked.id),
+              fetchZoneProducts(linked.id),
+            ]);
+            const inZone = products.filter((product) => Boolean(product.zoneId));
+            const total = inZone.reduce(
+              (sum, product) =>
+                sum +
+                (Number(product.salePrice) || 0) *
+                  Math.max(1, Math.floor(Number(product.quantity) || 1)),
+              0,
+            );
+            setPortalProjects([linked]);
+            setPortalProjectData({
+              [linked.id]: { zones, products },
+            });
+            setPortalTotals({ [linked.id]: total });
+          }
+        }
+
         setQuotes([enriched]);
         setActiveId(enriched.id);
         setShowDetail(true);
@@ -1576,13 +1611,25 @@ export function CustomerQuoteSchemesView() {
       const quoteItems = syntheticProjectId
         ? []
         : await loadClientQuoteItems(activeId);
+      const designProjectIdFromQuote = String(
+        (
+          activeQuote?.project_data as
+            | { designProjectId?: string }
+            | null
+            | undefined
+        )?.designProjectId || '',
+      ).trim();
       const linkedProject = syntheticProjectId
         ? portalProjects.find((project) => project.id === syntheticProjectId)
-        : activeQuote
+        : designProjectIdFromQuote
           ? portalProjects.find(
-              (project) => projectQuoteId(project) === activeQuote.quote_id,
-            )
-          : null;
+              (project) => project.id === designProjectIdFromQuote,
+            ) || null
+          : activeQuote
+            ? portalProjects.find(
+                (project) => projectQuoteId(project) === activeQuote.quote_id,
+              )
+            : null;
       if (!linkedProject) {
         return {
           rows: quoteItems,
@@ -2517,6 +2564,20 @@ export function CustomerQuoteSchemesView() {
       );
     }
     if (!active) return null;
+    const designProjectId = String(
+      (
+        active.project_data as
+          | { designProjectId?: string }
+          | null
+          | undefined
+      )?.designProjectId || '',
+    ).trim();
+    if (designProjectId) {
+      const byId = portalProjects.find(
+        (project) => project.id === designProjectId,
+      );
+      if (byId) return byId;
+    }
     return (
       portalProjects.find(
         (project) => projectQuoteId(project) === active.quote_id,

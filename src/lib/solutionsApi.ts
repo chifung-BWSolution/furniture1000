@@ -383,6 +383,183 @@ export async function fetchProjects(): Promise<DesignProject[]> {
   }
 }
 
+export async function fetchProjectById(
+  projectId: string,
+): Promise<DesignProject | null> {
+  const id = projectId.trim();
+  if (!id) return null;
+  try {
+    const { data, error } = await supabase
+      .from('design_projects')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+    if (error || !data) return null;
+    return mapProject(data);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Ensure a design project has a shareable `bwf_quote` shell linked via
+ * `project_data.designProjectId` + `meta.clientQuoteScheme`.
+ * Used by「邀請客戶」so staff can copy a no-login portal link after 設計專案
+ * furniture is ready — without requiring a prior client「儲存」.
+ */
+export async function ensureDesignProjectPortalQuote(
+  project: DesignProject,
+): Promise<
+  WriteResult<{ quoteUuid: string; quoteId: string; displayName: string }>
+> {
+  try {
+    const products = await fetchZoneProducts(project.id);
+    const inZone = products.filter((product) => Boolean(product.zoneId));
+    if (inZone.length === 0) {
+      return {
+        ok: false,
+        error:
+          '此設計專案尚未配置傢俬，請先在「設計專案」完成傢俬配置並儲存後再建立連結。',
+      };
+    }
+
+    const scheme = project.meta?.clientQuoteScheme;
+    const schemeUuid = String(scheme?.quoteUuid || '').trim();
+    const schemeQuoteId = String(scheme?.quoteId || '').trim();
+    if (schemeUuid) {
+      const { data: existing } = await supabase
+        .from('bwf_quote')
+        .select('id, quote_id')
+        .eq('id', schemeUuid)
+        .maybeSingle();
+      if (existing?.id) {
+        const quoteId =
+          String(existing.quote_id || '').trim() ||
+          schemeQuoteId ||
+          `DP-${project.id.slice(0, 8)}`;
+        return {
+          ok: true,
+          data: {
+            quoteUuid: String(existing.id),
+            quoteId,
+            displayName: quoteId,
+          },
+        };
+      }
+    }
+
+    // Search recent quotes for this design project id.
+    const { data: recent } = await supabase
+      .from('bwf_quote')
+      .select('id, quote_id, project_data')
+      .order('created_at', { ascending: false })
+      .limit(120);
+    const matched = (recent || []).find((row) => {
+      const pd =
+        row.project_data &&
+        typeof row.project_data === 'object' &&
+        !Array.isArray(row.project_data)
+          ? (row.project_data as Record<string, unknown>)
+          : null;
+      return Boolean(pd && String(pd.designProjectId || '').trim() === project.id);
+    });
+    if (matched?.id) {
+      const quoteId =
+        String(matched.quote_id || '').trim() || `DP-${project.id.slice(0, 8)}`;
+      await mergeProjectMeta(project.id, {
+        clientQuoteScheme: {
+          savedAt: new Date().toISOString(),
+          quoteUuid: String(matched.id),
+          quoteId,
+          selections: scheme?.selections || {},
+          quantities: scheme?.quantities || {},
+        },
+      });
+      return {
+        ok: true,
+        data: {
+          quoteUuid: String(matched.id),
+          quoteId,
+          displayName: quoteId,
+        },
+      };
+    }
+
+    const quoteId =
+      String(project.meta?.quoteId || project.meta?.pitchingCode || '').trim() ||
+      `DP-${project.id.slice(0, 8)}`;
+    const totalAmount = inZone.reduce(
+      (sum, product) =>
+        sum +
+        (Number(product.salePrice) || 0) *
+          Math.max(1, Math.floor(Number(product.quantity) || 1)),
+      0,
+    );
+    const insertPayload = await withInsertAuditFields({
+      quote_id: quoteId,
+      version: 'v1',
+      status: '客戶方案',
+      total_amount: totalAmount,
+      submitter: '系統',
+      project_data: {
+        formData: {
+          clientName: project.name,
+          clientContactName:
+            project.clientCompany || project.clientName || undefined,
+        },
+        designProjectId: project.id,
+        clientQuoteScheme: {
+          savedAt: new Date().toISOString(),
+          selections: {},
+          quantities: {},
+        },
+      },
+    });
+    const { data: inserted, error: insertError } = await supabase
+      .from('bwf_quote')
+      .insert(insertPayload)
+      .select('id, quote_id')
+      .single();
+    if (insertError || !inserted?.id) {
+      return {
+        ok: false,
+        error: insertError?.message || '建立可分享報價單失敗',
+      };
+    }
+
+    const quoteUuid = String(inserted.id);
+    const savedMeta = await mergeProjectMeta(project.id, {
+      clientQuoteScheme: {
+        savedAt: new Date().toISOString(),
+        quoteUuid,
+        quoteId,
+        selections: {},
+        quantities: {},
+      },
+    });
+    if (!savedMeta.ok) {
+      return {
+        ok: false,
+        error: savedMeta.error || '寫入設計專案分享資訊失敗',
+      };
+    }
+
+    return {
+      ok: true,
+      data: {
+        quoteUuid,
+        quoteId,
+        displayName: quoteId,
+      },
+    };
+  } catch (e) {
+    return {
+      ok: false,
+      error: e instanceof Error ? e.message : '建立可分享報價單失敗',
+    };
+  }
+}
+
 export async function fetchZones(projectId: string): Promise<ProjectZone[]> {
   try {
     const { data, error } = await supabase
