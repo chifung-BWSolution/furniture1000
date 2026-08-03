@@ -3269,7 +3269,7 @@ export function CustomerQuoteSchemesView() {
                             className="overflow-hidden rounded-2xl border border-border bg-card shadow-sm"
                           >
                             <div
-                              className="border-b border-border bg-muted/30 px-5 py-3.5"
+                              className="border-b border-border bg-foreground/[0.06] px-5 py-4"
                               data-partition-zone={group.label}
                               data-partition-zone-title={roomTitle}
                               {...(!hasDivisionLabels
@@ -3282,24 +3282,23 @@ export function CustomerQuoteSchemesView() {
                                   }
                                 : {})}
                             >
-                              <div className="flex w-full min-w-0 flex-wrap items-center justify-center gap-x-3 gap-y-1 text-center">
-                                <h4 className="font-display text-lg font-bold md:text-xl">
+                              <div className="flex w-full min-w-0 flex-col items-center gap-1 text-center">
+                                <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
+                                  區域
+                                </p>
+                                <h4 className="font-display text-xl font-bold tracking-tight text-foreground md:text-2xl">
                                   {roomTitle}
-                                  {plannedCount > 0 ? (
-                                    <span className="ml-2 text-[17px] font-semibold text-muted-foreground">
-                                      × 總數 {plannedCount}件傢俬
-                                    </span>
-                                  ) : roomCount > 0 ? (
-                                    <span className="ml-2 text-[17px] font-normal text-muted-foreground">
-                                      {roomCount} 件傢俬
-                                    </span>
-                                  ) : null}
                                 </h4>
-                                {roomSqft != null ? (
-                                  <span className="text-[15px] text-muted-foreground md:text-[17px]">
-                                    {formatZoneSqftLabel(roomSqft)}
-                                  </span>
-                                ) : null}
+                                <p className="font-mono-data text-[15px] font-semibold text-foreground/75 md:text-base">
+                                  {plannedCount > 0
+                                    ? `× 總數 ${plannedCount}件傢俬`
+                                    : roomCount > 0
+                                      ? `${roomCount} 件傢俬`
+                                      : '暫無產品'}
+                                  {roomSqft != null
+                                    ? ` · ${formatZoneSqftLabel(roomSqft)}`
+                                    : ''}
+                                </p>
                               </div>
                             </div>
                             <div className="divide-y divide-border/70">
@@ -3326,7 +3325,7 @@ export function CustomerQuoteSchemesView() {
                                   <div key={section.id}>
                                     {section.label ? (
                                       <div
-                                        className="mt-1 grid grid-cols-1 items-center gap-2 border-y-2 border-primary/25 bg-primary/10 px-4 py-3.5 shadow-[inset_4px_0_0_0_hsl(var(--primary))] sm:grid-cols-[1fr_auto_1fr] sm:px-5"
+                                        className="grid grid-cols-1 items-center gap-2 border-b border-border/80 bg-muted/20 px-4 py-2.5 sm:grid-cols-[1fr_auto_1fr] sm:px-5"
                                         data-partition-division={section.label}
                                         data-partition-count={String(
                                           sectionCount,
@@ -3336,25 +3335,25 @@ export function CustomerQuoteSchemesView() {
                                         data-partition-product=""
                                       >
                                         <div className="hidden sm:block" />
-                                        <div className="flex min-w-0 flex-col items-center gap-1">
-                                          <span className="inline-flex items-center gap-1 rounded-full border border-primary/30 bg-background/80 px-2 py-0.5 text-[11px] font-bold tracking-wide text-primary uppercase">
+                                        <div className="flex min-w-0 flex-wrap items-center justify-center gap-x-2 gap-y-1">
+                                          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground">
                                             <Layers className="h-3 w-3" />
                                             傢俬劃分
                                           </span>
-                                          <h5 className="text-center font-display text-[19px] font-bold leading-snug text-foreground md:text-[21px]">
+                                          <h5 className="text-center font-display text-[15px] font-semibold leading-snug text-foreground/90 md:text-base">
                                             {section.label}
-                                            <span className="ml-2 inline-flex items-center rounded-md bg-primary/15 px-2 py-0.5 align-middle text-[15px] font-bold text-primary md:text-[16px]">
+                                            <span className="ml-1.5 font-mono-data text-[13px] font-medium text-muted-foreground">
                                               {sectionCount} 件
                                             </span>
                                           </h5>
                                         </div>
                                         <p
                                           className={cn(
-                                            'justify-self-center rounded-full border px-3 py-1 text-[15px] font-bold sm:justify-self-end md:text-[16px]',
+                                            'justify-self-center text-[13px] font-semibold sm:justify-self-end md:text-sm',
                                             sectionPickedQty >= sectionCount &&
                                               sectionCount > 0
-                                              ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-700'
-                                              : 'border-primary/30 bg-background/80 text-primary',
+                                              ? 'text-emerald-700'
+                                              : 'text-muted-foreground',
                                           )}
                                         >
                                           已選擇 : {sectionPickedQty}/
