@@ -14,7 +14,6 @@ import {
   Printer,
   RefreshCw,
   Save,
-  Shield,
   Trash2,
   X,
   ZoomIn,
@@ -63,6 +62,11 @@ import {
 } from '@/lib/customerPortalRoutes';
 import { resolveQuoteShareToken } from '@/lib/bwfQuoteShareLinks';
 import { publishDesignProjectStickyChrome } from '@/lib/designProjectStickyChrome';
+import {
+  FloorPlanThumb,
+  FloorPlanViewerModal,
+  floorPlanPreviewOf,
+} from '@/components/dashboard/solutions/FloorPlanViewerModal';
 import type {
   DesignProject,
   DesignProjectMeta,
@@ -1299,6 +1303,7 @@ export function CustomerQuoteSchemesView() {
   const [lightbox, setLightbox] = useState<{ src: string; title: string } | null>(
     null,
   );
+  const [floorPlanViewerOpen, setFloorPlanViewerOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -2448,6 +2453,23 @@ export function CustomerQuoteSchemesView() {
     );
   }, [active, activeId, portalProjects]);
 
+  const linkedFloorPlanProject = useMemo(
+    () => resolveLinkedProject(),
+    [resolveLinkedProject],
+  );
+  const floorPlanPreviewUrl = linkedFloorPlanProject
+    ? floorPlanPreviewOf(linkedFloorPlanProject)
+    : null;
+  const hasFloorPlan = Boolean(linkedFloorPlanProject?.floorPlanUrl);
+
+  const openFloorPlanViewer = useCallback(() => {
+    if (!linkedFloorPlanProject?.floorPlanUrl) {
+      toast.error('尚未上傳平面圖');
+      return;
+    }
+    setFloorPlanViewerOpen(true);
+  }, [linkedFloorPlanProject?.floorPlanUrl]);
+
   const activeZoneAreasSqft = useMemo(() => {
     const linked = resolveLinkedProject();
     const raw = linked?.meta?.zoneAreasSqft;
@@ -2697,17 +2719,19 @@ export function CustomerQuoteSchemesView() {
       activeZoneLabel: activeZoneLabel || zoneTypeGroups[0]?.label || null,
       activeContextLine: partitionHeaderPinned ? activeContextLine : null,
       saving: savingScheme,
-      hasFloorPlan: false,
+      hasFloorPlan,
       onSave: () => {
         void saveQuoteScheme();
       },
-      onViewFloorPlan: () => {},
+      onViewFloorPlan: () => openFloorPlanViewer(),
       onJump: (label) => scrollToZoneGroup(label),
     });
   }, [
     active,
     activeContextLine,
     activeZoneLabel,
+    hasFloorPlan,
+    openFloorPlanViewer,
     partitionHeaderPinned,
     saveQuoteScheme,
     savingScheme,
@@ -2716,6 +2740,10 @@ export function CustomerQuoteSchemesView() {
     showDetail,
     zoneTypeGroups,
   ]);
+
+  useEffect(() => {
+    if (!showDetail) setFloorPlanViewerOpen(false);
+  }, [showDetail, activeId]);
 
   const submitResponse = async () => {
     if (!active) return;
@@ -2831,12 +2859,28 @@ export function CustomerQuoteSchemesView() {
       subtitle="查看自己的 HTML 報價、切換版本、按工程分區批核產品，並回覆整張報價。"
       maxWidthClass="max-w-none"
       actions={
-        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
-          <span className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-primary/25 bg-primary/5 px-3 py-1.5 text-xs text-primary">
-            <Shield className="h-4 w-4 shrink-0" />
-            <span className="leading-snug">只顯示售價，成本已隱藏</span>
-          </span>
-          {showDetail && active ? (
+        showDetail && active ? (
+          <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+            <button
+              type="button"
+              disabled={!hasFloorPlan}
+              onClick={openFloorPlanViewer}
+              className="relative flex h-16 w-24 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-border bg-muted/40 shadow-sm transition hover:border-primary/40 hover:shadow-md disabled:cursor-default disabled:opacity-70 sm:h-20 sm:w-28"
+              title={hasFloorPlan ? '點擊查看平面圖' : '尚未上傳平面圖'}
+              aria-label={hasFloorPlan ? '查看平面圖縮圖' : '尚未上傳平面圖'}
+            >
+              <FloorPlanThumb
+                url={linkedFloorPlanProject?.floorPlanUrl ?? null}
+                type={linkedFloorPlanProject?.floorPlanType ?? null}
+                previewUrl={floorPlanPreviewUrl}
+                fileName={
+                  typeof linkedFloorPlanProject?.meta?.floorPlanFileName ===
+                  'string'
+                    ? linkedFloorPlanProject.meta.floorPlanFileName
+                    : undefined
+                }
+              />
+            </button>
             <button
               type="button"
               onClick={() => void saveQuoteScheme()}
@@ -2850,8 +2894,8 @@ export function CustomerQuoteSchemesView() {
               )}
               儲存
             </button>
-          ) : null}
-        </div>
+          </div>
+        ) : null
       }
     >
       {!showDetail ? (
@@ -3722,6 +3766,17 @@ export function CustomerQuoteSchemesView() {
           onClose={() => setLightbox(null)}
         />
       ) : null}
+      <FloorPlanViewerModal
+        open={floorPlanViewerOpen}
+        title={
+          linkedFloorPlanProject?.name ||
+          (active ? quoteDisplayName(active) : '平面圖')
+        }
+        url={linkedFloorPlanProject?.floorPlanUrl ?? null}
+        type={linkedFloorPlanProject?.floorPlanType ?? null}
+        previewUrl={floorPlanPreviewUrl}
+        onClose={() => setFloorPlanViewerOpen(false)}
+      />
     </>
   );
 }

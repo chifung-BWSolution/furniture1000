@@ -141,20 +141,22 @@ export function TopBar({
             )}
           </div>
           <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2">
-            {!isQuoteSticky ? (
-              <button
-                type="button"
-                onClick={() => designSticky.onViewFloorPlan()}
-                disabled={!designSticky.hasFloorPlan}
-                className="inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-[15px] font-semibold text-foreground hover:bg-muted disabled:opacity-50"
-                title={
-                  designSticky.hasFloorPlan ? '檢視平面圖' : '尚未上傳平面圖'
-                }
-              >
-                <ZoomIn className="h-4 w-4" />
-                檢視平面圖
-              </button>
-            ) : null}
+            <button
+              type="button"
+              onClick={() => designSticky.onViewFloorPlan()}
+              disabled={!designSticky.hasFloorPlan}
+              className="inline-flex items-center justify-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-[15px] font-semibold text-foreground hover:bg-muted disabled:opacity-50"
+              title={
+                designSticky.hasFloorPlan
+                  ? isQuoteSticky
+                    ? '查看平面圖'
+                    : '檢視平面圖'
+                  : '尚未上傳平面圖'
+              }
+            >
+              <ZoomIn className="h-4 w-4" />
+              {isQuoteSticky ? '查看平面圖' : '檢視平面圖'}
+            </button>
             <button
               type="button"
               onClick={() => designSticky.onSave()}
