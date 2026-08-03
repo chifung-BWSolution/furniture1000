@@ -12,6 +12,11 @@ import {
   productSerialAt,
   sectionTitleOrdinalAt,
 } from '@/lib/quoteSectionTitle';
+import {
+  looksLikeMaterialHtml,
+  materialPlainText,
+  normalizeCssColor,
+} from '@/lib/quotationMaterialHtml';
 
 export type { QuotationPDFData } from '@/types/quotation-pdf';
 
@@ -268,6 +273,8 @@ interface PdfInlineSegment {
   bold?: boolean;
   underline?: boolean;
   italic?: boolean;
+  /** CSS / hex color from TipTap Color mark (e.g. #dc2626). */
+  color?: string;
   /** True when this segment is an underlined blank (fill-in-the-blank line) */
   underlineBlank?: boolean;
 }
@@ -296,8 +303,16 @@ function parseHtmlForPdf(html: string): PdfBlock[] {
   const doc = parser.parseFromString(preprocessed, 'text/html');
   const results: PdfBlock[] = [];
 
-  /** Extract inline segments from an element, preserving bold/underline/italic */
-  const extractInlineSegments = (node: Node, inherited: { bold?: boolean; underline?: boolean; italic?: boolean } = {}): PdfInlineSegment[] => {
+  /** Extract inline segments from an element, preserving bold/underline/italic/color */
+  const extractInlineSegments = (
+    node: Node,
+    inherited: {
+      bold?: boolean;
+      underline?: boolean;
+      italic?: boolean;
+      color?: string;
+    } = {},
+  ): PdfInlineSegment[] => {
     const segments: PdfInlineSegment[] = [];
 
     if (node.nodeType === Node.TEXT_NODE) {
@@ -328,11 +343,16 @@ function parseHtmlForPdf(html: string): PdfBlock[] {
       if (tag === 'strong' || tag === 'b') fmt.bold = true;
       if (tag === 'u') fmt.underline = true;
       if (tag === 'em' || tag === 'i') fmt.italic = true;
-      // Check for style attribute (TipTap sometimes uses inline styles)
+      // Check for style attribute (TipTap Color / TextStyle uses inline styles)
       const style = el.getAttribute('style') || '';
       if (style.includes('text-decoration') && style.includes('underline')) fmt.underline = true;
       if (style.includes('font-weight') && (style.includes('bold') || style.includes('700'))) fmt.bold = true;
       if (style.includes('font-style') && style.includes('italic')) fmt.italic = true;
+      const colorMatch = style.match(/(?:^|;)\s*color\s*:\s*([^;]+)/i);
+      if (colorMatch) {
+        const normalized = normalizeCssColor(colorMatch[1]);
+        if (normalized) fmt.color = normalized;
+      }
 
       if (tag === 'br') {
         segments.push({ text: '\n', ...inherited });
@@ -658,12 +678,62 @@ function normalizeMaterialForPdf(text: string): string {
   return text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
 }
 
+function materialSegmentStyle(seg: PdfInlineSegment): Record<string, unknown> {
+  const style: Record<string, unknown> = {};
+  if (seg.bold) style.fontWeight = 700;
+  if (seg.italic) style.fontStyle = 'italic';
+  if (seg.underline) style.textDecoration = 'underline';
+  if (seg.color) style.color = seg.color;
+  return style;
+}
+
 function renderMaterialPdfContent(
   material: string | undefined,
   View: ReactPdfModule['View'],
   Text: ReactPdfModule['Text'],
 ) {
-  const body = normalizeMaterialForPdf(material || '');
+  const raw = material || '';
+  if (!materialPlainText(raw) && !looksLikeMaterialHtml(raw)) return null;
+
+  // Rich HTML from MaterialRichEditor (bold / italic / underline / color).
+  if (looksLikeMaterialHtml(raw)) {
+    const blocks = parseHtmlForPdf(raw);
+    if (blocks.length === 0) return null;
+    return (
+      <View style={{ width: '100%' }}>
+        {blocks.map((block, i) => {
+          if (block.type === 'spacer') {
+            return (
+              <View
+                key={`material-html-blank-${i}`}
+                style={{ width: '100%', height: MATERIAL_BLANK_LINE_HEIGHT }}
+              />
+            );
+          }
+          return (
+            <Text
+              key={`material-html-${i}`}
+              style={styles.materialCellText}
+              hyphenationCallback={pdfSoftBreakNoHyphen}
+            >
+              {block.segments.map((seg, j) => {
+                const segStyle = materialSegmentStyle(seg);
+                return Object.keys(segStyle).length > 0 ? (
+                  <Text key={j} style={segStyle}>
+                    {pdfDisplayText(seg.text)}
+                  </Text>
+                ) : (
+                  pdfDisplayText(seg.text)
+                );
+              })}
+            </Text>
+          );
+        })}
+      </View>
+    );
+  }
+
+  const body = normalizeMaterialForPdf(raw);
   if (!body.trim()) return null;
 
   const lines = body.split('\n');
@@ -1353,6 +1423,7 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
                     if (seg.bold) segStyle.fontWeight = 700;
                     if (seg.underline) segStyle.textDecoration = 'underline';
                     if (seg.italic) segStyle.fontStyle = 'italic';
+                    if (seg.color) segStyle.color = seg.color;
                     return <Text key={j} style={segStyle}>{seg.text}</Text>;
                   })}
                 </View>
@@ -1366,6 +1437,7 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
                   if (seg.bold) segStyle.fontWeight = 700;
                   if (seg.underline) segStyle.textDecoration = 'underline';
                   if (seg.italic) segStyle.fontStyle = 'italic';
+                  if (seg.color) segStyle.color = seg.color;
                   return Object.keys(segStyle).length > 0
                     ? <Text key={j} style={segStyle}>{seg.text}</Text>
                     : seg.text;

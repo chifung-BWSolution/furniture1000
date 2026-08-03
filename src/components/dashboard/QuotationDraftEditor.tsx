@@ -22,6 +22,8 @@ import {
 import { cn } from "@/lib/utils";
 import { TermsRichEditor } from "@/components/dashboard/TermsRichEditor";
 import { RemarksRichEditor } from "@/components/dashboard/RemarksRichEditor";
+import { MaterialRichEditor } from "@/components/dashboard/MaterialRichEditor";
+import { materialPlainText } from "@/lib/quotationMaterialHtml";
 import { toast } from "sonner";
 import { SubmitReviewModal, type SubmitReviewResult } from "@/components/dashboard/SubmitReviewModal";
 import { persistBwfQuote } from "@/lib/persistBwfQuote";
@@ -964,17 +966,15 @@ function QuoteProductItemCard({
           </QuoteFieldBlock>
         </div>
 
-        {/* Row 1 — cols 3–4: 材質及明細 */}
+        {/* Row 1 — cols 3–4: 材質及明細 (RichText: 粗體 / 斜體 / 底線 / 顏色) */}
         <QuoteFieldBlock
           label={labels.material}
           className={cn("col-span-2 col-start-3 row-start-1 min-w-0", QUOTE_CARD_MEDIA_XL_SHIFT)}
         >
-          <textarea
+          <MaterialRichEditor
             value={item.material || ""}
             placeholder="材質及明細..."
-            rows={7}
-            onChange={(e) => updateItem(item.id, "material", e.target.value)}
-            className={`${QUOTE_INPUT_CLASS} resize-y leading-relaxed`}
+            onChange={(html) => updateItem(item.id, "material", html)}
           />
         </QuoteFieldBlock>
 
@@ -1621,7 +1621,7 @@ function hasQuoteItemContent(item: QuotationItem): boolean {
   return Boolean(
     (item.name || "").trim() ||
       (item.category || "").trim() ||
-      (item.material || "").trim() ||
+      materialPlainText(item.material) ||
       (item.color || "").trim() ||
       (item.remarks || "").trim() ||
       item.image ||

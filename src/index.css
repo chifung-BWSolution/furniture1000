@@ -445,3 +445,37 @@ u {
   height: 0;
   pointer-events: none;
 }
+
+/* ─── 材質及明細 Rich Editor ─────────────────────────────────────── */
+.material-rich-editor .ProseMirror,
+.material-rich-editor .tiptap {
+  outline: none;
+  min-height: 112px;
+}
+.material-rich-editor .ProseMirror p,
+.material-rich-editor .tiptap p {
+  margin: 0 0 0.25em;
+}
+.material-rich-editor .ProseMirror strong,
+.material-rich-editor .tiptap strong {
+  font-weight: 700;
+}
+.material-rich-editor .ProseMirror em,
+.material-rich-editor .tiptap em {
+  font-style: italic;
+}
+.material-rich-editor .ProseMirror u,
+.material-rich-editor .tiptap u {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.material-rich-editor .ProseMirror p.is-editor-empty:first-child::before,
+.material-rich-editor .tiptap p.is-editor-empty:first-child::before,
+.material-rich-editor .ProseMirror p.is-empty:first-child::before,
+.material-rich-editor .tiptap p.is-empty:first-child::before {
+  color: hsl(var(--muted-foreground) / 0.45);
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+}
