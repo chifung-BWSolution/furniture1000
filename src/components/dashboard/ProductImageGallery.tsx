@@ -43,7 +43,7 @@ export function ProductExtraImageThumbs({
           return (
             <div
               key={index}
-              className="overflow-hidden rounded-md bg-muted/40"
+              className="overflow-hidden rounded-md border border-border/70 bg-muted/30"
             />
           );
         }
@@ -73,7 +73,7 @@ export function ProductExtraImageThumbs({
                 event.stopPropagation();
                 onSelect(index);
               }}
-              className="relative overflow-hidden rounded-md bg-muted/40 ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+              className="relative overflow-hidden rounded-md border border-border bg-muted/40 shadow-sm ring-offset-background transition-colors hover:border-primary/50 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               title="點擊放大此圖片"
               aria-label={`放大第 ${index + 1} 張附加圖片`}
             >
@@ -85,7 +85,7 @@ export function ProductExtraImageThumbs({
         return (
           <div
             key={index}
-            className="pointer-events-none relative overflow-hidden rounded-md bg-muted/40"
+            className="pointer-events-none relative overflow-hidden rounded-md border border-border bg-muted/40 shadow-sm"
           >
             {content}
           </div>
