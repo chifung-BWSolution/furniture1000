@@ -746,9 +746,9 @@ function QuotePortalProductCard({
   item: BwfQuoteItemInput;
   schemeIndex: number;
   schemeCount: number;
-  /** 1-based product slot index in this division (產品 1 / 產品 2…). */
+  /** 1-based product slot index when division has 2+ products; omit for single-product. */
   productOrdinal?: number;
-  /** Scroll-spy markers for sticky「區域 | 劃分 : N (產品X)」line. */
+  /** Scroll-spy markers for sticky「區域 | 劃分 : 總共N 件產品 (產品X)」line. */
   partitionSpy?: {
     zoneLabel: string;
     zoneTitle: string;
@@ -1086,8 +1086,11 @@ function QuotePortalProductCard({
       data-partition-zone={partitionSpy?.zoneLabel || undefined}
       data-partition-zone-title={partitionSpy?.zoneTitle || undefined}
       data-partition-product={
-        productOrdinal != null && productOrdinal > 0
-          ? String(productOrdinal)
+        // Always emit when in a division so scroll-spy can clear「產品N」for single-product slots.
+        partitionSpy
+          ? productOrdinal != null && productOrdinal > 0
+            ? String(productOrdinal)
+            : ''
           : undefined
       }
       className={cn(
@@ -2047,13 +2050,14 @@ export function CustomerQuoteSchemesView() {
       const contextLine = (() => {
         const areaTitle = nextZoneTitle || nextZone;
         if (!areaTitle) return null;
+        // Only show「產品N」when the division has multiple product slots.
         const productSuffix =
           nextProductOrdinal != null ? ` (產品${nextProductOrdinal})` : '';
         if (nextDivisionLabel && nextDivisionLabel !== areaTitle) {
-          return `${areaTitle} | ${nextDivisionLabel} : ${nextDivisionCount}${productSuffix}`;
+          return `${areaTitle} | ${nextDivisionLabel} : 總共${nextDivisionCount} 件產品${productSuffix}`;
         }
         if (nextDivisionLabel) {
-          return `${areaTitle} : ${nextDivisionCount}${productSuffix}`;
+          return `${areaTitle} : 總共${nextDivisionCount} 件產品${productSuffix}`;
         }
         const group = zoneTypeGroups.find((g) => g.label === nextZone);
         const count = group
@@ -2067,7 +2071,7 @@ export function CustomerQuoteSchemesView() {
               0,
             )
           : 0;
-        return `${areaTitle} : ${count}${productSuffix}`;
+        return `${areaTitle} : 總共${count} 件產品${productSuffix}`;
       })();
 
       setActiveZoneLabel((current) =>
@@ -3224,13 +3228,12 @@ export function CustomerQuoteSchemesView() {
                         <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
                           區域類型
                         </p>
-                        <h3 className="mt-0.5 font-display text-xl font-bold md:text-2xl">
-                          {group.label}
+                        <h3 className="mt-0.5 font-display text-lg font-bold leading-snug md:text-xl">
+                          {group.label} x {group.rooms.length} 個{group.label}
+                          {productCount > 0
+                            ? ` · 總共${productCount} 件產品`
+                            : ''}
                         </h3>
-                        <p className="mt-0.5 font-mono-data text-sm font-semibold text-foreground/75">
-                          {group.rooms.length} 個{group.label}
-                          {productCount > 0 ? ` · ${productCount} 件產品` : ''}
-                        </p>
                       </div>
                     ) : null}
 
@@ -3289,19 +3292,17 @@ export function CustomerQuoteSchemesView() {
                                 <p className="text-[11px] font-bold uppercase tracking-[0.14em] text-muted-foreground">
                                   區域
                                 </p>
-                                <h4 className="font-display text-xl font-bold tracking-tight text-foreground md:text-2xl">
-                                  {roomTitle}
-                                </h4>
-                                <p className="font-mono-data text-[15px] font-semibold text-foreground/75 md:text-base">
+                                <h4 className="font-display text-lg font-bold leading-snug tracking-tight text-foreground md:text-xl">
+                                  {roomTitle}{' '}
                                   {plannedCount > 0
                                     ? `× 總數 ${plannedCount}件傢俬`
                                     : roomCount > 0
-                                      ? `${roomCount} 件傢俬`
-                                      : '暫無產品'}
+                                      ? `× 總數 ${roomCount}件傢俬`
+                                      : '× 暫無產品'}
                                   {roomSqft != null
                                     ? ` · ${formatZoneSqftLabel(roomSqft)}`
                                     : ''}
-                                </p>
+                                </h4>
                               </div>
                             </div>
                             <div className="divide-y divide-border/70">
@@ -3346,7 +3347,7 @@ export function CustomerQuoteSchemesView() {
                                           <h5 className="text-center font-display text-[15px] font-semibold leading-snug text-foreground/90 md:text-base">
                                             {section.label}
                                             <span className="ml-1.5 font-mono-data text-[13px] font-medium text-muted-foreground">
-                                              {sectionCount} 件
+                                              : 總共{sectionCount} 件產品
                                             </span>
                                           </h5>
                                         </div>
@@ -3387,7 +3388,11 @@ export function CustomerQuoteSchemesView() {
                                             selectedQty >= targetQty;
                                           const multiScheme =
                                             slot.items.length > 1;
-                                          const productOrdinal = slotIndex + 1;
+                                          // Hide「產品 N」when the division only has one product slot.
+                                          const productOrdinal =
+                                            sectionSlots.length > 1
+                                              ? slotIndex + 1
+                                              : undefined;
                                           return (
                                           <div
                                             key={slot.key}

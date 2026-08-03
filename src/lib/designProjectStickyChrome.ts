@@ -19,7 +19,7 @@ export type DesignProjectStickyChrome = {
   activeZoneLabel?: string | null;
   /**
    * Sticky subtitle under zone chips, e.g.
-   * 「入口及前臺大堂 | Sofa 梳化 > 多人梳化 : 3」
+   * 「入口及前臺大堂 | Sofa 梳化 > 多人梳化 : 總共3 件產品」
    */
   activeContextLine?: string | null;
   saving: boolean;
