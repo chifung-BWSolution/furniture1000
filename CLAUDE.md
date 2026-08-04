@@ -172,3 +172,74 @@ PMS v1 可只做列表；需要時用此 URL 連回編輯。
 - 客戶產業預設 ← `customer_tags` for that customer（同 collection）
 - 預算上下限 ← `bwf_pitchings.estimated_income`
 - `pitching_name` ← `bwf_pitchings.pitching_name`
+
+## 7. 環境變數 / Secrets：三個獨立儲存位置 + 跨 repo 命名規範
+
+### 7.1 三個位置，互不影響（最常搞混的地方）
+
+| 儲存位置 | 影響範圍 | 設定入口 |
+|---|---|---|
+| **Cursor Cloud Agent Secrets** | 只有 cloud agent VM 的環境變數 | Cursor Dashboard → Cloud Agents → Secrets |
+| **Supabase Edge Function Secrets** | 只有已部署的 edge function（每個 project 獨立） | Supabase Dashboard → Edge Functions → Secrets |
+| **Vercel Environment Variables** | 只有正式站 build / runtime | Vercel → Project → Settings → Environment Variables |
+
+在 Cursor 刪掉一個 secret **不會**影響 edge function；在 Supabase 改 secret 也**不會**讓 cloud agent 或
+正式站拿到新值。三邊要各自更新。本機開發則讀 `.env.local`（見 `.env.example`）。
+
+### 7.2 project ref ↔ 專案名稱（不要再猜）
+
+| ref | 專案名稱 | 對應 repo |
+|---|---|---|
+| `riaubhtruisbwdlwjzur` | Furniture 1000 | `furniture1000`（本 repo） |
+| `kqwktnplkqucsbasyfjl` | PMS v3 [Tempo Next.JS] | `PMS3.0` |
+| `kwcevjcmdjadhrygjyfp` | MPS - Marketing Project System | `MPS` |
+| `gkqctvtteafjprkudgsb` | breauty100 new | `beauty100-Next.js` |
+| `zwhbfphavcxncfmcrwrr` | OTC2 | （MPS 的 `sync-otc2-staff` 讀） |
+
+**兩個致命的命名陷阱**：
+- `MASTER_*` / `FACTORY_*` / `PMS_*` 指的都是 **PMS v3**（`kqwktnplkqucsbasyfjl`），**不是** Furniture。
+- `BWF_*` 指的是 **Furniture 1000**（`riaubhtruisbwdlwjzur`），**不是** PMS。
+ （`bwf_quote` 表在 Furniture DB、`bwf_pitchings` 表在 PMS DB，所以「BWF」兩邊都出現過，看變數前綴不看字面。）
+
+### 7.3 同一把 key 的多個別名（alias，不要再增加）
+
+**Furniture service_role**（`riaubhtruisbwdlwjzur`）——三個名字同一個值：
+`SUPABASE_SERVICE_ROLE_KEY`（canonical）、`FURNITURE_SUPABASE_SERVICE_ROLE_KEY`、`BWF_SUPABASE_SERVICE_KEY`。
+repo 內所有讀 alias 的地方都有 `|| SUPABASE_SERVICE_ROLE_KEY` fallback。
+
+**PMS v3 service_role**（`kqwktnplkqucsbasyfjl`）——三個名字同一個值：
+`FACTORY_SERVICE_ROLE_KEY`（**edge function 的 canonical**，大部分 `fetch-*` 讀這個）、
+`MASTER_SERVICE_ROLE_KEY`（`upload-to-master-db` / `manage-master-media` 只讀這個，沒有 fallback）、
+`PMS_SUPABASE_SERVICE_ROLE_KEY`（`resolve-pms-staff-by-ids` / `uploadLogReportServer` 的首選，有 fallback）。
+→ Furniture 的 **edge secrets 必須同時保留 `FACTORY_SERVICE_ROLE_KEY` 與 `MASTER_SERVICE_ROLE_KEY`**。
+→ Cursor cloud agent 只需要 `MASTER_SERVICE_ROLE_KEY` 一個（腳本都有 fallback）。
+
+已確認**沒有任何程式讀取**、可從 Furniture edge secrets 刪除的死變數：
+`PMS_V3_URL`、`PMS_V3_SERVICE_ROLE_KEY`。
+
+### 7.4 各 repo 實際讀取的變數名（改 secret 前先對照）
+
+| repo | 框架 | 自己的 project | 讀取的變數名 |
+|---|---|---|---|
+| `furniture1000` | Vite | Furniture 1000 | `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`, `VITE_PMS_SSO_START_URL`, `VITE_MASTER_SUPABASE_ANON_KEY`(PMS anon), `SUPABASE_SERVICE_ROLE_KEY`, `MASTER_SERVICE_ROLE_KEY`(PMS) |
+| `MPS` | **Vite** | MPS | `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` |
+| `BW-Quote-Master` | Vite | ？ | `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` |
+| `beauty100-Next.js` | Next.js | breauty100 | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_KEY`, 以及跨專案 `MPS_SUPABASE_URL` + `MPS_SUPABASE_SERVICE_KEY`（`/api/kol-apply`） |
+| `PMS3.0` | Next.js | PMS v3 | `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, 以及跨專案 `BWF_SUPABASE_URL` + `BWF_SUPABASE_SERVICE_KEY`（打 Furniture 的 `pms-sso`） |
+
+**MPS 是 Vite 不是 Next.js**：它讀 `VITE_SUPABASE_*`。用 `MPS_URL` / `MPS_ANON` 這種名字設 secret，
+MPS 的程式完全讀不到，agent 會回報 `.env` 有問題。
+
+### 7.5 命名規範（新增 secret 前先看這裡）
+
+1. **「自己 project」的變數**用框架原生名（Vite 用 `VITE_*`、Next.js 用 `NEXT_PUBLIC_*`），
+ 且**必須 repo-scoped，永遠不要設成 All Repositories**——三個 Vite repo 都叫 `VITE_SUPABASE_URL`
+ 但指向三個不同 project，設成全域一定有 repo 拿到錯的資料庫。
+2. **「別的 project」的變數**一律加專案前綴：`<PROJECT>_SUPABASE_URL` / `_SUPABASE_ANON_KEY` /
+ `_SUPABASE_SERVICE_KEY`，並只 scope 給真正需要的 repo。
+3. **type 選擇**：service_role / PAT / shared secret 用 **Runtime Secret**（會被遮罩成 `[REDACTED]`）；
+ anon key 與 URL 用 **Environment Variable**（本來就是公開值，agent 需要看得到）。
+4. 一個 project + 一種角色**只留一個名字**，需要 alias 時在程式碼裡做 fallback，不要在 dashboard 複製多份。
+5. 只有 `SUPABASE_ACCESS_TOKEN` 適合設成 All Repositories（同一個 Supabase 帳號的 Management API PAT）。
+6. Cursor 的 **user secrets 在 Build / `install` 階段拿不到**，只有 agent 啟動（`start`）後才有；
+ 需要在 install 階段用到的憑證要設成 team 或 environment secret。
