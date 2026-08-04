@@ -9,10 +9,12 @@
 import { createClient } from '@supabase/supabase-js';
 
 const DRY_RUN = process.argv.includes('--dry-run');
+// NEXT_PUBLIC_SUPABASE_URL is deliberately NOT in this chain: in every other repo
+// that name points at a different Supabase project, so falling back to it here
+// would aim a Furniture service_role write at the wrong database.
 const FURNITURE_URL =
   process.env.BWF_SUPABASE_URL ||
   process.env.VITE_SUPABASE_URL ||
-  process.env.NEXT_PUBLIC_SUPABASE_URL ||
   '';
 const FURNITURE_KEY =
   process.env.FURNITURE_SUPABASE_SERVICE_ROLE_KEY ||

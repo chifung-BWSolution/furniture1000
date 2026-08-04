@@ -243,3 +243,17 @@ MPS 的程式完全讀不到，agent 會回報 `.env` 有問題。
 5. 只有 `SUPABASE_ACCESS_TOKEN` 適合設成 All Repositories（同一個 Supabase 帳號的 Management API PAT）。
 6. Cursor 的 **user secrets 在 Build / `install` 階段拿不到**，只有 agent 啟動（`start`）後才有；
  需要在 install 階段用到的憑證要設成 team 或 environment secret。
+
+### 7.6 改完 secret 一定要驗證
+
+```bash
+node scripts/check-supabase-env.mjs          # 只解析 JWT 的 ref/role
+node scripts/check-supabase-env.mjs --live   # 額外對各 project 發一次請求
+```
+
+會逐項印出每個變數實際指向哪個 project，貼錯 key（例如把 PMS 的 anon key 貼進
+`VITE_SUPABASE_ANON_KEY`）會直接 FAIL。exit code 非 0 代表有問題。
+
+**為什麼一定要跑**：Vite 在 `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` 完全沒設定時
+**build 仍然會成功**，只是產出一個連不上 DB 的 bundle——沒有任何 build error 提醒你。
+這就是 secret 名字設錯時，問題會拖到 runtime 才爆的原因。
