@@ -42,6 +42,7 @@ import { fetchFactories } from "@/lib/factorySupabase";
 import type { QuotationDimensionMode, QuotationPDFData } from "@/types/quotation-pdf";
 import { uploadQuoteImageFile } from "@/lib/quoteImageStorage";
 import { isHttpImageUrl } from "@/lib/imageStorage";
+import { TrimmedEdgeImage } from "@/components/dashboard/TrimmedEdgeImage";
 import {
   beginQuoteDnDDrag,
   endQuoteDnDDrag,
@@ -498,9 +499,8 @@ function ImageUploadModal({
 
         {previewUrl ? (
           <div className="mb-4 flex max-h-[50vh] items-center justify-center overflow-hidden rounded-lg border border-border bg-muted/20 p-3">
-            <img
+            <TrimmedEdgeImage
               src={previewUrl}
-              alt=""
               className="max-h-[46vh] max-w-full object-contain"
             />
           </div>
@@ -584,9 +584,8 @@ function ReferenceImageCell({
       >
         {value ? (
           <>
-            <img
+            <TrimmedEdgeImage
               src={value}
-              alt=""
               className={cn(
                 "h-full w-full bg-muted/20",
                 imageFit === "contain" ? "object-contain" : "object-cover",
@@ -598,7 +597,7 @@ function ReferenceImageCell({
                 e.stopPropagation();
                 onChange("");
               }}
-              className="absolute -top-1 -right-1 hidden group-hover:flex h-5 w-5 items-center justify-center rounded-full bg-rose-500 text-white shadow"
+              className="absolute -top-1 -right-1 z-10 hidden group-hover:flex h-5 w-5 items-center justify-center rounded-full bg-rose-500 text-white shadow"
             >
               <X className="h-3 w-3" />
             </button>
