@@ -9,6 +9,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { materialToEditorHtml } from '@/lib/quotationMaterialHtml';
 import { ExcelStyleColorPicker } from '@/components/dashboard/ExcelStyleColorPicker';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 
 interface MaterialRichEditorProps {
   value: string;
@@ -117,44 +122,49 @@ export function MaterialRichEditor({
           <UnderlineIcon className="h-3.5 w-3.5" />
         </button>
 
-        <div
-          className="relative ml-0.5"
-          onBlur={(e) => {
-            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
-              setColorOpen(false);
-            }
-          }}
-        >
-          <button
-            type="button"
-            onClick={() => setColorOpen((v) => !v)}
-            className={cn(btnBase, (colorOpen || activeColor) && btnActive)}
-            title="文字顏色"
-            aria-label="文字顏色"
+        <Popover open={colorOpen} onOpenChange={setColorOpen}>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              className={cn(
+                btnBase,
+                'ml-0.5',
+                (colorOpen || activeColor) && btnActive,
+              )}
+              title="文字顏色"
+              aria-label="文字顏色"
+            >
+              <span className="relative inline-flex flex-col items-center">
+                <Palette className="h-3.5 w-3.5" />
+                <span
+                  className="mt-0.5 h-0.5 w-3.5 rounded-full"
+                  style={{ backgroundColor: activeColor || '#1a1a1a' }}
+                />
+              </span>
+            </button>
+          </PopoverTrigger>
+          <PopoverContent
+            align="start"
+            side="bottom"
+            sideOffset={6}
+            collisionPadding={12}
+            // Escape editor overflow-hidden; picker supplies its own chrome.
+            className="z-[80] w-auto border-0 bg-transparent p-0 shadow-none"
+            onOpenAutoFocus={(e) => e.preventDefault()}
+            onCloseAutoFocus={(e) => e.preventDefault()}
           >
-            <span className="relative inline-flex flex-col items-center">
-              <Palette className="h-3.5 w-3.5" />
-              <span
-                className="mt-0.5 h-0.5 w-3.5 rounded-full"
-                style={{ backgroundColor: activeColor || '#1a1a1a' }}
-              />
-            </span>
-          </button>
-          {colorOpen ? (
-            <div className="absolute left-0 top-full z-30 mt-1">
-              <ExcelStyleColorPicker
-                activeColor={activeColor}
-                onClear={() => {
-                  editor.chain().focus().unsetColor().run();
-                }}
-                onPick={(color) => {
-                  editor.chain().focus().setColor(color).run();
-                }}
-                onClose={() => setColorOpen(false)}
-              />
-            </div>
-          ) : null}
-        </div>
+            <ExcelStyleColorPicker
+              activeColor={activeColor}
+              onClear={() => {
+                editor.chain().focus().unsetColor().run();
+              }}
+              onPick={(color) => {
+                editor.chain().focus().setColor(color).run();
+              }}
+              onClose={() => setColorOpen(false)}
+            />
+          </PopoverContent>
+        </Popover>
       </div>
 
       <div className="material-rich-editor px-2 py-1.5">
