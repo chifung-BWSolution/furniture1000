@@ -599,6 +599,9 @@ const ILLUSTRATION_COL_WIDTH_PT = PDF_TABLE_WIDTH_PT * 0.114;
  */
 const PDF_COL_DESC_PCT = { zh: 0.132, en: 0.195 } as const;
 const PDF_COL_MATERIAL_PCT = { zh: 0.292, en: 0.221 } as const;
+/** Match styles.colRemarks / colImage so custom-term spans align with product columns. */
+const PDF_COL_REMARKS_PCT = 0.09;
+const PDF_COL_IMAGE_PCT = 0.114;
 /** Label / value split inside Description — ZH ≈ 4:6 so 類別 data gets more room. */
 const PDF_DESC_LABEL_PCT = { zh: 0.4, en: 0.6 } as const;
 const PDF_DESC_VALUE_PCT = { zh: 0.6, en: 0.4 } as const;
@@ -612,6 +615,16 @@ function pdfColWidthPct(locale: 'zh' | 'en', key: 'desc' | 'material' | 'unitPri
       : key === 'material'
         ? PDF_COL_MATERIAL_PCT[locale]
         : PDF_COL_UNIT_PRICE_PCT[locale];
+  return `${(pct * 100).toFixed(1)}%`;
+}
+
+/** 增值服務：說明跨 說明+材質+備註+圖例，其餘欄與產品列同寬。 */
+function pdfCustomTermDescSpanPct(locale: 'zh' | 'en'): string {
+  const pct =
+    PDF_COL_DESC_PCT[locale] +
+    PDF_COL_MATERIAL_PCT[locale] +
+    PDF_COL_REMARKS_PCT +
+    PDF_COL_IMAGE_PCT;
   return `${(pct * 100).toFixed(1)}%`;
 }
 
@@ -908,7 +921,20 @@ function renderQuotationTableRow(
     return (
       <View style={{ ...styles.tableRow, minHeight: 28 }} key={idx} wrap={false}>
         <View style={styles.colIndex}><Text style={styles.tableCellText}>{serial}</Text></View>
-        <View style={{ width: '62%', paddingLeft: 6, paddingRight: 6, paddingTop: 6, paddingBottom: 6, display: 'flex', flexDirection: 'column', justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' }}>
+        <View
+          style={{
+            width: pdfCustomTermDescSpanPct(locale),
+            paddingLeft: 6,
+            paddingRight: 6,
+            paddingTop: 6,
+            paddingBottom: 6,
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center',
+            borderRightWidth: 0.5,
+            borderColor: '#ddd',
+          }}
+        >
           <Text style={styles.tableCellTextLeft}>{pdfDisplayText(item?.name || '')}</Text>
         </View>
         <View style={styles.colQty}><Text style={styles.tableCellText}>{item?.quantity || 0}</Text></View>
