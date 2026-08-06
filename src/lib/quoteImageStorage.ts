@@ -10,7 +10,6 @@ import {
   serializeRemarksContent,
   type RemarksBlock,
 } from './remarksContent';
-import { trimImageSolidEdgeBorders } from './trimImageEdges';
 
 export type QuoteImageField = 'product' | 'reference' | 'remarks';
 
@@ -35,9 +34,8 @@ export async function uploadQuoteImageFile(
   field: QuoteImageField,
 ): Promise<string> {
   const id = quoteItemStorageId(quoteScope, itemKey);
-  // Strip 1px solid black/white edge hairlines that scale into thick borders in UI.
-  const trimmed = await trimImageSolidEdgeBorders(file);
-  return uploadFileToStorage(trimmed, id, field);
+  // Hairline trim runs inside uploadFileToStorage (after resize).
+  return uploadFileToStorage(file, id, field);
 }
 
 async function resolveRemarksField(

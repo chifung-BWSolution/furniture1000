@@ -1,4 +1,5 @@
 import { supabase } from './supabase';
+import { trimImageSolidEdgeBorders } from './trimImageEdges';
 
 // Product images are stored ONLY as Supabase Storage public HTTP URLs in Postgres.
 // Never persist base64 / data-URL strings — they blow up list queries and cause 500s.
@@ -131,6 +132,9 @@ export async function resizeImageToBlob(
         reject(new Error('canvas unavailable'));
         return;
       }
+      // JPEG has no alpha — fill white first so transparent edges don't become black hairlines.
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, width, height);
       ctx.drawImage(img, 0, 0, width, height);
       canvas.toBlob(
         (blob) => (blob ? resolve(blob) : reject(new Error('image encode failed'))),
@@ -146,6 +150,17 @@ export async function resizeImageToBlob(
   });
 }
 
+/** Resize (optional) then strip solid black/white hairline edges before upload. */
+async function prepareImageBlobForUpload(
+  file: File | Blob,
+  options?: { resize?: boolean },
+): Promise<Blob> {
+  const shouldResize = options?.resize !== false;
+  const resized = shouldResize ? await resizeImageToBlob(file) : file;
+  // Trim after resize — JPEG encode can introduce 1px dark edges.
+  return trimImageSolidEdgeBorders(resized);
+}
+
 /** Upload a File/Blob directly to Storage; returns public HTTP URL. */
 export async function uploadFileToStorage(
   file: File | Blob,
@@ -153,8 +168,7 @@ export async function uploadFileToStorage(
   suffix: string,
   options?: { resize?: boolean },
 ): Promise<string> {
-  const shouldResize = options?.resize !== false;
-  const blob = shouldResize ? await resizeImageToBlob(file) : file;
+  const blob = await prepareImageBlobForUpload(file, options);
   const mimeType = blob.type || 'image/jpeg';
   const ext = extFromMime(mimeType);
   const filePath = storagePath(productId, suffix, ext);
@@ -194,7 +208,9 @@ export async function uploadProjectFloorPlanFile(
     throw new Error('只支援 PDF / JPG / PNG / WebP');
   }
 
-  const blob = isImage ? await resizeImageToBlob(file) : file;
+  const blob = isImage
+    ? await prepareImageBlobForUpload(file)
+    : file;
   const mimeType = isPdf
     ? 'application/pdf'
     : blob.type || 'image/jpeg';
@@ -234,10 +250,12 @@ export async function uploadBlobToStorage(
   productId: string,
   suffix: string,
 ): Promise<string> {
-  const mimeType = blob.type || 'image/jpeg';
+  // Base64 → blob path often skips resize; still strip hairline edges.
+  const prepared = await prepareImageBlobForUpload(blob, { resize: false });
+  const mimeType = prepared.type || 'image/jpeg';
   const ext = extFromMime(mimeType);
   const filePath = storagePath(productId, suffix, ext);
-  const bytes = new Uint8Array(await blob.arrayBuffer());
+  const bytes = new Uint8Array(await prepared.arrayBuffer());
   const { error } = await uploadWithRetry(filePath, bytes, mimeType);
   if (error) throw new Error(error.message);
   return buildStoragePublicUrl(filePath);
