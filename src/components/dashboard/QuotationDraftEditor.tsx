@@ -1076,7 +1076,7 @@ function QuoteProductItemCard({
                 className={QUOTE_INPUT_CLASS}
               />
             </QuoteFieldBlock>
-          <div className="flex min-w-0 flex-1 flex-wrap items-end justify-end gap-2">
+          <div className="flex min-w-0 flex-1 flex-wrap items-end justify-end gap-3">
             <label className="flex cursor-pointer items-center gap-1.5">
               <Checkbox
                 checked={item.isOptional ?? false}
@@ -1089,26 +1089,25 @@ function QuoteProductItemCard({
                 {labels.optionalProduct}
               </span>
             </label>
-            <button
-              type="button"
-              onClick={() =>
-                updateItem(item.id, "hideInPdf", !(item.hideInPdf ?? false))
-              }
-              className={cn(
-                "inline-flex h-[34px] shrink-0 items-center rounded-md border px-2.5 font-body text-xs font-medium transition-colors",
-                item.hideInPdf
-                  ? "border-amber-500/45 bg-amber-500/15 text-amber-900 dark:text-amber-100"
-                  : "border-border bg-background text-muted-foreground hover:border-primary/40 hover:text-foreground",
-              )}
+            <label
+              className="flex cursor-pointer items-center gap-1.5"
               title={
                 item.hideInPdf
                   ? "已於 PDF／預覽隱藏（草稿仍顯示）"
-                  : "點擊後此產品不出現在報價單預覽／PDF"
+                  : "勾選後此產品不出現在報價單預覽／PDF"
               }
-              aria-pressed={Boolean(item.hideInPdf)}
             >
-              {labels.hideInPdf}
-            </button>
+              <Checkbox
+                checked={item.hideInPdf ?? false}
+                onCheckedChange={(checked) =>
+                  updateItem(item.id, "hideInPdf", checked === true)
+                }
+                className="border-foreground/60 data-[state=checked]:border-primary"
+              />
+              <span className="whitespace-nowrap font-body text-xs text-muted-foreground">
+                {labels.hideInPdf}
+              </span>
+            </label>
           </div>
         </div>
           <div className="flex min-h-0 flex-1 items-center">
