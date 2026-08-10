@@ -549,7 +549,6 @@ function renderDescDimensionsValue(
     <View
       style={{
         width: valuePct,
-        height: '100%',
         minWidth: 0,
         flexGrow: 1,
         paddingHorizontal: 2,
@@ -851,6 +850,102 @@ function pdfIllustrationImageHeight(dual: boolean): number {
   return Math.round(ILLUSTRATION_COL_WIDTH_PT * (dual ? 0.72 : 0.85));
 }
 
+/** Matches styles.materialCellText (fontSize 7 × lineHeight 1.45). */
+const MATERIAL_LINE_HEIGHT_PT = MATERIAL_BLANK_LINE_HEIGHT;
+
+/**
+ * Estimate wrapped line count for material / remarks text.
+ * Uses the same display-unit model as 說明 wrapping (CJK ≈ 1 unit).
+ */
+function estimateTextBlockLines(text: string, maxUnits: number): number {
+  if (!text) return 1;
+  let total = 0;
+  for (const para of text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n')) {
+    if (!para) {
+      total += 1;
+      continue;
+    }
+    total += Math.max(1, Math.ceil(descDisplayUnits(para) / maxUnits));
+  }
+  return Math.max(1, total);
+}
+
+function materialCharsPerLine(locale: 'zh' | 'en'): number {
+  // colMaterial paddingLeft/Right = 4 each
+  const widthPt = PDF_TABLE_WIDTH_PT * PDF_COL_MATERIAL_PCT[locale] - 8;
+  // Slightly conservative (fewer chars → more lines) so 說明 never underfills.
+  return Math.max(6, Math.floor(widthPt / 7.2));
+}
+
+/**
+ * Estimate 材質及明細 column height so 說明 can pre-size 類別/規格/顏色 equally.
+ * react-pdf flexGrow / height:100% is unreliable for this split — use explicit pt.
+ */
+function estimateMaterialColumnHeight(
+  material: string | undefined,
+  locale: 'zh' | 'en',
+): number {
+  const raw = material || '';
+  if (!materialPlainText(raw) && !looksLikeMaterialHtml(raw)) return 0;
+
+  const maxUnits = materialCharsPerLine(locale);
+  let lines = 0;
+
+  if (looksLikeMaterialHtml(raw)) {
+    const blocks = parseHtmlForPdf(raw);
+    if (blocks.length === 0) return 0;
+    for (const block of blocks) {
+      if (block.type === 'spacer') {
+        lines += 1;
+        continue;
+      }
+      const text = block.segments.map((s) => s.text).join('');
+      lines += estimateTextBlockLines(text, maxUnits);
+    }
+  } else {
+    lines = estimateTextBlockLines(normalizeMaterialForPdf(raw), maxUnits);
+  }
+
+  // paddingTop/Bottom 4 + small safety so leftover space is not left under 顏色.
+  return 8 + lines * MATERIAL_LINE_HEIGHT_PT + 4;
+}
+
+function estimateRemarksColumnHeight(
+  remarks: string | undefined,
+  legacyImage: string | undefined,
+): number {
+  const blocks = parseRemarksContent(remarks, legacyImage).filter(
+    (block) =>
+      (block.type === 'text' && block.content.trim()) || block.type === 'image',
+  );
+  if (blocks.length === 0) return 0;
+
+  const imageCount = blocks.filter((b) => b.type === 'image').length;
+  const remarkImgHeight = pdfRemarksImageHeight(imageCount);
+  let height = 0;
+  for (const block of blocks) {
+    if (block.type === 'image') {
+      height += remarkImgHeight + 4;
+    } else {
+      const lineCount = Math.max(1, block.content.split('\n').length);
+      height += lineCount * 7 * 1.3 + 4;
+    }
+  }
+  return height;
+}
+
+function estimateIllustrationColumnHeight(
+  productImage: string | undefined,
+  referenceImage: string | undefined,
+): number {
+  const hasProduct = Boolean(productImage?.trim());
+  const hasReference = Boolean(referenceImage?.trim());
+  if (!hasProduct && !hasReference) return 0;
+  const dual = hasProduct && hasReference;
+  const imgHeight = pdfIllustrationImageHeight(dual);
+  return dual ? imgHeight * 2 + 8 : imgHeight + 4;
+}
+
 function renderSubtotalPdfCell(
   item: QuotationItem,
   View: ReactPdfModule['View'],
@@ -951,13 +1046,7 @@ function renderQuotationTableRow(
   return (
     <View style={styles.tableRow} key={idx} wrap={false}>
       <View style={styles.colIndex}><Text style={styles.tableCellText}>{serial}</Text></View>
-      <View
-        style={{
-          ...styles.colDesc,
-          width: pdfColWidthPct(locale, 'desc'),
-          alignSelf: 'stretch',
-        }}
-      >
+      <View style={{ ...styles.colDesc, width: pdfColWidthPct(locale, 'desc') }}>
         {renderDescriptionPdfContent(item, View, Text, labels, locale)}
       </View>
       <View style={{ ...styles.colMaterial, width: pdfColWidthPct(locale, 'material') }}>
@@ -1086,14 +1175,24 @@ function renderDescriptionPdfContent(
   );
   const categoryLines = wrapDescValueLines(categoryValue, valueMaxChars);
   const colorLines = wrapDescValueLines(colorValue, valueMaxChars);
-  // Equalize 類別 / 規格 / 顏色 row heights to the tallest content.
+  // Floor from tallest of 類別 / 規格 / 顏色 content…
   const maxLines = Math.max(
     estimateWrappedLines(categoryValue, valueMaxChars),
     dimLineCount,
     estimateWrappedLines(colorValue, valueMaxChars),
     1,
   );
-  const rowMinHeight = maxLines * DESC_UNIFORM_LINE_PT + DESC_ROW_PAD_V * 2;
+  const contentRowMinHeight = maxLines * DESC_UNIFORM_LINE_PT + DESC_ROW_PAD_V * 2;
+  // …then grow all three equally to match the row driver (usually tall 材質及明細).
+  // Explicit pt heights only — do NOT use flexGrow / height:100% (breaks react-pdf).
+  const driverHeight = Math.max(
+    60, // styles.tableRow.minHeight
+    contentRowMinHeight * 3,
+    estimateMaterialColumnHeight(item?.material, locale),
+    estimateRemarksColumnHeight(item?.remarks, item?.remarksImage),
+    estimateIllustrationColumnHeight(item?.image, item?.referenceImage),
+  );
+  const rowMinHeight = Math.ceil(driverHeight / 3);
 
   const rows: Array<
     | { kind: 'category'; label: string; lines: string[] }
@@ -1106,28 +1205,17 @@ function renderDescriptionPdfContent(
   ];
 
   return (
-    // Fill the 說明 column height (driven by tall 材質及明細), then split
-    // equally across 類別 / 規格 / 顏色 so leftover space is never dumped on 顏色.
-    <View
-      style={{
-        width: '100%',
-        height: '100%',
-        flex: 1,
-        flexDirection: 'column',
-        alignSelf: 'stretch',
-      }}
-    >
+    <View style={{ width: '100%', flexDirection: 'column' }}>
       {rows.map((row, i) => (
         <View
           key={row.label}
           style={{
             flexDirection: 'row',
             alignItems: 'stretch',
-            // Equal share of the full column height (content sets a floor via minHeight).
-            flexGrow: 1,
-            flexShrink: 1,
-            flexBasis: 0,
+            flexGrow: 0,
+            flexShrink: 0,
             minHeight: rowMinHeight,
+            height: rowMinHeight,
             borderBottomWidth: i < rows.length - 1 ? 0.5 : 0,
             borderColor: '#ddd',
           }}
@@ -1135,7 +1223,7 @@ function renderDescriptionPdfContent(
           <View
             style={{
               width: labelPct,
-              height: '100%',
+              height: rowMinHeight,
               justifyContent: 'center',
               alignItems: 'flex-start',
               paddingLeft: 2,
@@ -1178,7 +1266,7 @@ function renderDescriptionPdfContent(
             <View
               style={{
                 width: valuePct,
-                height: '100%',
+                height: rowMinHeight,
                 justifyContent: 'center',
                 paddingHorizontal: 2,
                 paddingVertical: DESC_ROW_PAD_V,
@@ -1217,19 +1305,7 @@ const styles: Record<string, any> = {
   tableHeader: { display: 'flex', flexDirection: 'row', backgroundColor: '#f5f5f5', minHeight: 24, alignItems: 'center', ...tableBandBorder },
   tableRow: { display: 'flex', flexDirection: 'row', minHeight: 60, alignItems: 'stretch', ...tableBandBorder },
   colIndex: { width: '5%', display: 'flex', justifyContent: 'center', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd', paddingVertical: 4 },
-  colDesc: {
-    width: '13.2%',
-    paddingLeft: 0,
-    paddingRight: 0,
-    paddingTop: 0,
-    paddingBottom: 0,
-    display: 'flex',
-    flexDirection: 'column',
-    alignSelf: 'stretch',
-    justifyContent: 'flex-start',
-    borderRightWidth: 0.5,
-    borderColor: '#ddd',
-  },
+  colDesc: { width: '13.2%', paddingLeft: 0, paddingRight: 0, paddingTop: 0, paddingBottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', borderRightWidth: 0.5, borderColor: '#ddd' },
   colMaterial: { width: '29.2%', paddingLeft: 4, paddingRight: 4, paddingTop: 4, paddingBottom: 4, display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', alignSelf: 'stretch', borderRightWidth: 0.5, borderColor: '#ddd' },
   colRemarks: { width: '9%', paddingLeft: 2, paddingRight: 2, paddingTop: 0, paddingBottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'stretch', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
   colImage: { width: '11.4%', paddingLeft: 0, paddingRight: 0, paddingTop: 0, paddingBottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'stretch', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
