@@ -188,6 +188,8 @@ interface QuotationItem {
   factoryFromCatalog?: boolean;
   /** Reference-only line — excluded from quote 合計 and GP Cost; PDF shows 可選產品 + checkbox. */
   isOptional?: boolean;
+  /** Keep in draft editor; omit from 報價單預覽 / Quotation Preview PDF. */
+  hideInPdf?: boolean;
   isCustomTerm?: boolean;
   /** Section heading row (一、開放區) — not priced; draggable. */
   isSectionTitle?: boolean;
@@ -1074,21 +1076,41 @@ function QuoteProductItemCard({
                 className={QUOTE_INPUT_CLASS}
               />
             </QuoteFieldBlock>
-            <div className="flex w-[7em] min-w-[7em] shrink-0 items-end justify-end">
-              <label className="flex cursor-pointer items-center gap-1.5">
-                <Checkbox
-                  checked={item.isOptional ?? false}
-                  onCheckedChange={(checked) =>
-                    updateItem(item.id, "isOptional", checked === true)
-                  }
-                  className="border-foreground/60 data-[state=checked]:border-primary"
-                />
-                <span className="whitespace-nowrap font-body text-xs text-muted-foreground">
-                  {labels.optionalProduct}
-                </span>
-              </label>
-            </div>
+          <div className="flex min-w-0 flex-1 flex-wrap items-end justify-end gap-2">
+            <label className="flex cursor-pointer items-center gap-1.5">
+              <Checkbox
+                checked={item.isOptional ?? false}
+                onCheckedChange={(checked) =>
+                  updateItem(item.id, "isOptional", checked === true)
+                }
+                className="border-foreground/60 data-[state=checked]:border-primary"
+              />
+              <span className="whitespace-nowrap font-body text-xs text-muted-foreground">
+                {labels.optionalProduct}
+              </span>
+            </label>
+            <button
+              type="button"
+              onClick={() =>
+                updateItem(item.id, "hideInPdf", !(item.hideInPdf ?? false))
+              }
+              className={cn(
+                "inline-flex h-[34px] shrink-0 items-center rounded-md border px-2.5 font-body text-xs font-medium transition-colors",
+                item.hideInPdf
+                  ? "border-amber-500/45 bg-amber-500/15 text-amber-900 dark:text-amber-100"
+                  : "border-border bg-background text-muted-foreground hover:border-primary/40 hover:text-foreground",
+              )}
+              title={
+                item.hideInPdf
+                  ? "已於 PDF／預覽隱藏（草稿仍顯示）"
+                  : "點擊後此產品不出現在報價單預覽／PDF"
+              }
+              aria-pressed={Boolean(item.hideInPdf)}
+            >
+              {labels.hideInPdf}
+            </button>
           </div>
+        </div>
           <div className="flex min-h-0 flex-1 items-center">
             <QuoteFieldBlock
               label={labels.sku}
@@ -1485,6 +1507,7 @@ function createBlankProductItem(): QuotationItem {
     factoryName: "",
     factoryFromCatalog: false,
     isOptional: false,
+    hideInPdf: false,
   };
 }
 
@@ -1718,6 +1741,7 @@ function mapInputToQuotationItem(item: BwfQuoteItemInput): QuotationItem {
     factoryFromCatalog: item.factoryFromCatalog ?? false,
     isCustomTerm: item.isCustomTerm,
     isOptional: item.isOptional ?? false,
+    hideInPdf: item.hideInPdf ?? false,
     isSectionTitle: item.isSectionTitle ?? false,
   };
 }
@@ -3127,6 +3151,32 @@ export function QuotationDraftEditor({
       quoteMeta.deliveryAddress,
     );
     const displayDate = formatQuoteDisplayDate(quoteMeta.date, quoteLocale);
+    // 「於PDF 隱藏」lines stay in the editor but are omitted from preview / PDF totals.
+    const pdfSourceItems = items.filter(
+      (item) => hasQuoteItemContent(item) && !item.hideInPdf,
+    );
+    const pdfItems = pdfSourceItems.map((item) => ({
+      image: item.image,
+      referenceImage: item.referenceImage,
+      name: item.name,
+      unitPrice: item.unitPrice,
+      quantity: item.quantity,
+      category: item.category,
+      material: item.material,
+      color: item.color,
+      remarks: item.remarks,
+      remarksImage: item.remarksImage,
+      dimensionLMm: item.dimensionLMm,
+      dimensionWMm: item.dimensionWMm,
+      dimensionHMm: item.dimensionHMm,
+      dimensionMode: item.dimensionMode ?? 'lwh',
+      deliveryTermName: item.deliveryTermName,
+      isCustomTerm: item.isCustomTerm,
+      isOptional: item.isOptional,
+      isSectionTitle: item.isSectionTitle,
+      unit: item.unit,
+    }));
+    const pdfSubtotal = quoteBillableSubtotal(pdfSourceItems);
 
     if (quoteLocale === 'en') {
       const pdfLabels = quotePdf('en');
@@ -3159,30 +3209,8 @@ export function QuotationDraftEditor({
           ...termsContentEn,
           fullHtml: enFullHtml,
         },
-        items: items
-          .filter(hasQuoteItemContent)
-          .map((item) => ({
-            image: item.image,
-            referenceImage: item.referenceImage,
-            name: item.name,
-            unitPrice: item.unitPrice,
-            quantity: item.quantity,
-            category: item.category,
-            material: item.material,
-            color: item.color,
-            remarks: item.remarks,
-            remarksImage: item.remarksImage,
-            dimensionLMm: item.dimensionLMm,
-            dimensionWMm: item.dimensionWMm,
-            dimensionHMm: item.dimensionHMm,
-            dimensionMode: item.dimensionMode ?? 'lwh',
-            deliveryTermName: item.deliveryTermName,
-            isCustomTerm: item.isCustomTerm,
-            isOptional: item.isOptional,
-            isSectionTitle: item.isSectionTitle,
-            unit: item.unit,
-          })),
-        subtotal,
+        items: pdfItems,
+        subtotal: pdfSubtotal,
         discountNote,
         installationFee: {
           ...installationFee,
@@ -3223,30 +3251,8 @@ export function QuotationDraftEditor({
       ...termsContent,
       fullHtml: fullHtmlForPdf,
     },
-    items: items
-      .filter(hasQuoteItemContent)
-      .map((item) => ({
-        image: item.image,
-        referenceImage: item.referenceImage,
-        name: item.name,
-        unitPrice: item.unitPrice,
-        quantity: item.quantity,
-        category: item.category,
-        material: item.material,
-        color: item.color,
-        remarks: item.remarks,
-        remarksImage: item.remarksImage,
-        dimensionLMm: item.dimensionLMm,
-        dimensionWMm: item.dimensionWMm,
-        dimensionHMm: item.dimensionHMm,
-        dimensionMode: item.dimensionMode ?? 'lwh',
-        deliveryTermName: item.deliveryTermName,
-        isCustomTerm: item.isCustomTerm,
-        isOptional: item.isOptional,
-        isSectionTitle: item.isSectionTitle,
-        unit: item.unit,
-      })),
-    subtotal,
+    items: pdfItems,
+    subtotal: pdfSubtotal,
     discountNote,
     installationFee,
   };

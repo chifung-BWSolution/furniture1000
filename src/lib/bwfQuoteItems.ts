@@ -37,6 +37,11 @@ export type BwfQuoteItemInput = QuoteItemImageFields & {
   isCustomTerm?: boolean;
   /** Reference-only line — excluded from quote totals. */
   isOptional?: boolean;
+  /**
+   * When true, keep the line in the draft editor but omit it from
+   * 報價單預覽 / Quotation Preview PDF (and PDF totals).
+   */
+  hideInPdf?: boolean;
   /** Section heading row (一、開放區) — not priced. */
   isSectionTitle?: boolean;
   /** Furniture-division heading within a zone (設計專案 傢俬劃分). */
@@ -77,6 +82,7 @@ export type BwfQuoteItemRow = {
   factory_from_catalog: boolean | null;
   is_custom_term: boolean | null;
   is_optional: boolean | null;
+  hide_in_pdf?: boolean | null;
   is_section_title: boolean | null;
   /** Editor-only catalog SKU — not shown on customer PDF. */
   sku?: string | null;
@@ -128,6 +134,7 @@ export function mapRowToItem(row: BwfQuoteItemRow): BwfQuoteItemInput {
     factoryFromCatalog: Boolean(row.factory_from_catalog),
     isCustomTerm: Boolean(row.is_custom_term),
     isOptional: Boolean(row.is_optional),
+    hideInPdf: Boolean(row.hide_in_pdf),
     isSectionTitle: Boolean(row.is_section_title),
     sku: row.sku || undefined,
   };
@@ -163,6 +170,7 @@ export function mapItemToRow(
     factoryFromCatalog,
     isCustomTerm,
     isOptional,
+    hideInPdf,
     isSectionTitle,
     sku,
   } = item;
@@ -192,6 +200,7 @@ export function mapItemToRow(
     factory_from_catalog: Boolean(factoryFromCatalog),
     is_custom_term: Boolean(isCustomTerm),
     is_optional: Boolean(isOptional),
+    hide_in_pdf: Boolean(hideInPdf),
     is_section_title: Boolean(isSectionTitle),
     sku: sku?.trim() || null,
   };
@@ -218,7 +227,7 @@ export async function loadClientQuoteItems(
   const { data, error } = await supabase
     .from('bwf_quote_item')
     .select(
-      'id,client_item_id,name,image,reference_image,remarks_image,remarks,unit_price,quantity,unit,category,material,color,dimension_l_mm,dimension_w_mm,dimension_h_mm,delivery_term_name,is_custom_term,is_optional,is_section_title,sort_order,quote_uuid',
+      'id,client_item_id,name,image,reference_image,remarks_image,remarks,unit_price,quantity,unit,category,material,color,dimension_l_mm,dimension_w_mm,dimension_h_mm,delivery_term_name,is_custom_term,is_optional,hide_in_pdf,is_section_title,sort_order,quote_uuid',
     )
     .eq('quote_uuid', quoteUuid)
     .order('sort_order', { ascending: true });
