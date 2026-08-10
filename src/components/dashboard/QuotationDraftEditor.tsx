@@ -1076,38 +1076,41 @@ function QuoteProductItemCard({
                 className={QUOTE_INPUT_CLASS}
               />
             </QuoteFieldBlock>
-          <div className="flex min-w-0 flex-1 flex-wrap items-end justify-end gap-3">
-            <label className="flex cursor-pointer items-center gap-1.5">
-              <Checkbox
-                checked={item.isOptional ?? false}
-                onCheckedChange={(checked) =>
-                  updateItem(item.id, "isOptional", checked === true)
+          {/* Prefer one row: 可選 | 於PDF 隱藏; wrap to 2 left-aligned rows when narrow. */}
+          <div className="flex min-w-0 flex-1 items-end pb-0.5">
+            <div className="flex w-full min-w-0 flex-wrap items-start justify-start gap-x-3 gap-y-1">
+              <label className="inline-flex cursor-pointer items-center gap-1.5">
+                <Checkbox
+                  checked={item.isOptional ?? false}
+                  onCheckedChange={(checked) =>
+                    updateItem(item.id, "isOptional", checked === true)
+                  }
+                  className="border-foreground/60 data-[state=checked]:border-primary"
+                />
+                <span className="whitespace-nowrap text-left font-body text-xs text-muted-foreground">
+                  {labels.optionalProduct}
+                </span>
+              </label>
+              <label
+                className="inline-flex cursor-pointer items-center gap-1.5"
+                title={
+                  item.hideInPdf
+                    ? "已於 PDF／預覽隱藏（草稿仍顯示）"
+                    : "勾選後此產品不出現在報價單預覽／PDF"
                 }
-                className="border-foreground/60 data-[state=checked]:border-primary"
-              />
-              <span className="whitespace-nowrap font-body text-xs text-muted-foreground">
-                {labels.optionalProduct}
-              </span>
-            </label>
-            <label
-              className="flex cursor-pointer items-center gap-1.5"
-              title={
-                item.hideInPdf
-                  ? "已於 PDF／預覽隱藏（草稿仍顯示）"
-                  : "勾選後此產品不出現在報價單預覽／PDF"
-              }
-            >
-              <Checkbox
-                checked={item.hideInPdf ?? false}
-                onCheckedChange={(checked) =>
-                  updateItem(item.id, "hideInPdf", checked === true)
-                }
-                className="border-foreground/60 data-[state=checked]:border-primary"
-              />
-              <span className="whitespace-nowrap font-body text-xs text-muted-foreground">
-                {labels.hideInPdf}
-              </span>
-            </label>
+              >
+                <Checkbox
+                  checked={item.hideInPdf ?? false}
+                  onCheckedChange={(checked) =>
+                    updateItem(item.id, "hideInPdf", checked === true)
+                  }
+                  className="border-foreground/60 data-[state=checked]:border-primary"
+                />
+                <span className="whitespace-nowrap text-left font-body text-xs text-muted-foreground">
+                  {labels.hideInPdf}
+                </span>
+              </label>
+            </div>
           </div>
         </div>
           <div className="flex min-h-0 flex-1 items-center">
