@@ -549,6 +549,7 @@ function renderDescDimensionsValue(
     <View
       style={{
         width: valuePct,
+        height: '100%',
         minWidth: 0,
         flexGrow: 1,
         paddingHorizontal: 2,
@@ -950,7 +951,13 @@ function renderQuotationTableRow(
   return (
     <View style={styles.tableRow} key={idx} wrap={false}>
       <View style={styles.colIndex}><Text style={styles.tableCellText}>{serial}</Text></View>
-      <View style={{ ...styles.colDesc, width: pdfColWidthPct(locale, 'desc') }}>
+      <View
+        style={{
+          ...styles.colDesc,
+          width: pdfColWidthPct(locale, 'desc'),
+          alignSelf: 'stretch',
+        }}
+      >
         {renderDescriptionPdfContent(item, View, Text, labels, locale)}
       </View>
       <View style={{ ...styles.colMaterial, width: pdfColWidthPct(locale, 'material') }}>
@@ -1099,17 +1106,28 @@ function renderDescriptionPdfContent(
   ];
 
   return (
-    <View style={{ width: '100%', flexDirection: 'column' }}>
+    // Fill the 說明 column height (driven by tall 材質及明細), then split
+    // equally across 類別 / 規格 / 顏色 so leftover space is never dumped on 顏色.
+    <View
+      style={{
+        width: '100%',
+        height: '100%',
+        flex: 1,
+        flexDirection: 'column',
+        alignSelf: 'stretch',
+      }}
+    >
       {rows.map((row, i) => (
         <View
           key={row.label}
           style={{
             flexDirection: 'row',
             alignItems: 'stretch',
-            flexGrow: 0,
-            flexShrink: 0,
+            // Equal share of the full column height (content sets a floor via minHeight).
+            flexGrow: 1,
+            flexShrink: 1,
+            flexBasis: 0,
             minHeight: rowMinHeight,
-            height: rowMinHeight,
             borderBottomWidth: i < rows.length - 1 ? 0.5 : 0,
             borderColor: '#ddd',
           }}
@@ -1117,7 +1135,7 @@ function renderDescriptionPdfContent(
           <View
             style={{
               width: labelPct,
-              minHeight: rowMinHeight,
+              height: '100%',
               justifyContent: 'center',
               alignItems: 'flex-start',
               paddingLeft: 2,
@@ -1160,7 +1178,7 @@ function renderDescriptionPdfContent(
             <View
               style={{
                 width: valuePct,
-                minHeight: rowMinHeight,
+                height: '100%',
                 justifyContent: 'center',
                 paddingHorizontal: 2,
                 paddingVertical: DESC_ROW_PAD_V,
@@ -1199,7 +1217,19 @@ const styles: Record<string, any> = {
   tableHeader: { display: 'flex', flexDirection: 'row', backgroundColor: '#f5f5f5', minHeight: 24, alignItems: 'center', ...tableBandBorder },
   tableRow: { display: 'flex', flexDirection: 'row', minHeight: 60, alignItems: 'stretch', ...tableBandBorder },
   colIndex: { width: '5%', display: 'flex', justifyContent: 'center', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd', paddingVertical: 4 },
-  colDesc: { width: '13.2%', paddingLeft: 0, paddingRight: 0, paddingTop: 0, paddingBottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'stretch', borderRightWidth: 0.5, borderColor: '#ddd' },
+  colDesc: {
+    width: '13.2%',
+    paddingLeft: 0,
+    paddingRight: 0,
+    paddingTop: 0,
+    paddingBottom: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    alignSelf: 'stretch',
+    justifyContent: 'flex-start',
+    borderRightWidth: 0.5,
+    borderColor: '#ddd',
+  },
   colMaterial: { width: '29.2%', paddingLeft: 4, paddingRight: 4, paddingTop: 4, paddingBottom: 4, display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', alignSelf: 'stretch', borderRightWidth: 0.5, borderColor: '#ddd' },
   colRemarks: { width: '9%', paddingLeft: 2, paddingRight: 2, paddingTop: 0, paddingBottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'stretch', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
   colImage: { width: '11.4%', paddingLeft: 0, paddingRight: 0, paddingTop: 0, paddingBottom: 0, display: 'flex', flexDirection: 'column', justifyContent: 'stretch', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd' },
