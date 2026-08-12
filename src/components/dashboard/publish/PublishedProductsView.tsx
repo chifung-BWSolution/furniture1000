@@ -281,6 +281,9 @@ const PRICE_CHECK_OPTIONS = [
 
 type PriceCheckMultiplier = (typeof PRICE_CHECK_OPTIONS)[number]['value'];
 
+/** 列表／詳情：價格 ≤ 成本 × 此倍數時標紅 */
+const PRICE_ALERT_MULTIPLIER = 1.5;
+
 function matchesPriceCheckFilter(
   price: number | string | null | undefined,
   cost: number | null | undefined,
@@ -290,6 +293,19 @@ function matchesPriceCheckFilter(
   const c = cost != null ? Number(cost) : NaN;
   if (!Number.isFinite(p) || !Number.isFinite(c) || c <= 0) return false;
   return p <= c * multiplier;
+}
+
+/** True if product price or any variant is ≤ cost × 1.5 (list column turns red). */
+function productHasPriceAlert(
+  price: number | string | null | undefined,
+  variants: ShopifyVariant[] | null | undefined,
+  cost: number | null | undefined,
+): boolean {
+  const list = Array.isArray(variants) ? variants : [];
+  if (list.length === 0) {
+    return matchesPriceCheckFilter(price, cost, PRICE_ALERT_MULTIPLIER);
+  }
+  return list.some((v) => matchesPriceCheckFilter(v.price, cost, PRICE_ALERT_MULTIPLIER));
 }
 
 function parsePriceMultiplierInput(raw: string): number | null {
@@ -2461,8 +2477,20 @@ export function PublishedProductsView() {
                         </div>
                       ) : <span className="text-muted-foreground/50 text-[11px]">—</span>}
                     </td>
-                    {/* 價格 */}
-                    <td className="px-3 py-2.5 text-right font-mono-data text-[12px] font-bold text-foreground whitespace-nowrap align-top overflow-hidden">
+                    {/* 價格 — 任規格 ≤ 成本×1.5 則整格標紅 */}
+                    <td
+                      className={cn(
+                        'px-3 py-2.5 text-right font-mono-data text-[12px] font-bold whitespace-nowrap align-top overflow-hidden',
+                        productHasPriceAlert(r.price, variants, p.costPrice)
+                          ? 'text-red-600'
+                          : 'text-foreground',
+                      )}
+                      title={
+                        productHasPriceAlert(r.price, variants, p.costPrice)
+                          ? '價格 ≤ 成本 × 1.5（含任一規格）'
+                          : undefined
+                      }
+                    >
                       {fmtMoney(r.price)}
                     </td>
                     {/* 變體 */}

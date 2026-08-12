@@ -60,6 +60,7 @@ export interface PublishedProductRow {
   sku?: string | null;
   price: number | null;
   compare_at_price?: number | null;
+  cost?: number | null;
   shopify_created_at?: string | null;
   shopify_updated_at: string | null;
   imported_at: string;
@@ -77,6 +78,22 @@ export interface PublishedDisplayProduct {
   title: string;
   state: PublishState;
   raw: PublishedProductRow;
+  /** Product-level cost used for ≤1.5× price alert styling. */
+  costPrice?: number | null;
+}
+
+/** Variant / product price ≤ cost × 1.5 → show in red. */
+const PRICE_ALERT_MULTIPLIER = 1.5;
+
+function isPriceAtOrBelowCostMultiple(
+  price: number | string | null | undefined,
+  cost: number | null | undefined,
+  multiplier: number = PRICE_ALERT_MULTIPLIER,
+): boolean {
+  const p = typeof price === 'string' ? parseFloat(price) : Number(price);
+  const c = cost != null ? Number(cost) : NaN;
+  if (!Number.isFinite(p) || !Number.isFinite(c) || c <= 0) return false;
+  return p <= c * multiplier;
 }
 
 function fmtDate(d: string | null | undefined) {
@@ -191,6 +208,12 @@ export function PublishedProductDetailModal({
   onGoNext?: () => void;
 }) {
   const r = product.raw;
+  const costForAlert =
+    product.costPrice != null
+      ? Number(product.costPrice)
+      : r.cost != null
+        ? Number(r.cost)
+        : null;
   const [isSaving, setIsSaving] = useState(false);
   const [selectedImg, setSelectedImg] = useState<string | null>(null);
   const [mediaLightboxSrc, setMediaLightboxSrc] = useState<string | null>(null);
@@ -903,7 +926,21 @@ export function PublishedProductDetailModal({
                               placeholder="輸入 SKU"
                             />
                           </td>
-                          <td className="px-3 py-2 text-right font-mono-data">{fmtMoney(v.price ?? null)}</td>
+                          <td
+                            className={cn(
+                              'px-3 py-2 text-right font-mono-data font-semibold',
+                              isPriceAtOrBelowCostMultiple(v.price, costForAlert)
+                                ? 'text-red-600'
+                                : 'text-foreground',
+                            )}
+                            title={
+                              isPriceAtOrBelowCostMultiple(v.price, costForAlert)
+                                ? '價錢 ≤ 成本 × 1.5'
+                                : undefined
+                            }
+                          >
+                            {fmtMoney(v.price ?? null)}
+                          </td>
                           <td className="px-3 py-2 text-right font-mono-data text-muted-foreground">{v.inventory_quantity ?? '—'}</td>
                         </tr>
                         );
