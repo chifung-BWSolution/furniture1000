@@ -292,6 +292,24 @@ function matchesPriceCheckFilter(
   return p <= c * multiplier;
 }
 
+function parsePriceMultiplierInput(raw: string): number | null {
+  const n = parseFloat(String(raw).trim());
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n;
+}
+
+/** cost × multiplier, round up to integer (avoid float dust under-ceiling). */
+function ceilCostTimesMultiplier(cost: number, multiplier: number): number {
+  const product = cost * multiplier;
+  const cleaned = Math.round(product * 1e6) / 1e6;
+  return Math.ceil(cleaned);
+}
+
+function variantPriceNumber(v: ShopifyVariant): number {
+  const p = typeof v.price === 'string' ? parseFloat(v.price) : Number(v.price);
+  return Number.isFinite(p) ? p : NaN;
+}
+
 function shopifyStatusToState(status: string | null): PublishState {
   if (status === 'active') return 'published';
   if (status === 'archived') return 'delisted';
@@ -404,6 +422,9 @@ export function PublishedProductsView() {
   const [bulkAddTagsOpen, setBulkAddTagsOpen] = useState(false);
   const [bulkAddTags, setBulkAddTags] = useState<string[]>([]);
   const [isBulkAddingTags, setIsBulkAddingTags] = useState(false);
+  const [bulkPriceEditOpen, setBulkPriceEditOpen] = useState(false);
+  const [bulkPriceMultiplierInput, setBulkPriceMultiplierInput] = useState('');
+  const [isBulkUpdatingPrice, setIsBulkUpdatingPrice] = useState(false);
 
   useEffect(() => {
     supabase
@@ -1271,6 +1292,11 @@ export function PublishedProductsView() {
     setBulkAddTags([]);
   };
 
+  const resetBulkPriceEdit = () => {
+    setBulkPriceEditOpen(false);
+    setBulkPriceMultiplierInput('');
+  };
+
   const mergeTagsUnique = (existing: string[], toAdd: string[]): string[] => {
     const out = [...existing];
     for (const t of toAdd) {
@@ -1355,6 +1381,185 @@ export function PublishedProductsView() {
       });
     } finally {
       setIsBulkAddingTags(false);
+    }
+  };
+
+  /**
+   * 修改售價：新價 = ceil(成本 × 倍數)。
+   * - 有「價錢核對」篩選：只改 價錢 < 成本×倍數 的規格
+   * - 無篩選：已選產品的所有規格都改
+   */
+  const confirmBulkModifyPrice = async () => {
+    const ids = [...selectedIds];
+    if (!ids.length) {
+      toast.message('請先勾選產品');
+      return;
+    }
+    const multiplier = parsePriceMultiplierInput(bulkPriceMultiplierInput);
+    if (multiplier == null) {
+      toast.message('請輸入有效倍數（須大於 0）');
+      return;
+    }
+
+    const selective = priceCheckMultiplier != null;
+    setIsBulkUpdatingPrice(true);
+    const toastId = toast.loading(
+      selective
+        ? `正在依 ${multiplier} 倍更新售價（僅改低於門檻的規格）...`
+        : `正在依 ${multiplier} 倍更新售價...`,
+    );
+
+    try {
+      let productsUpdated = 0;
+      let variantsUpdated = 0;
+      let skippedNoCost = 0;
+      let skippedNoChange = 0;
+      const nextById = new Map<string, { price: number; variants: ShopifyVariant[] | null }>();
+
+      for (const p of items.filter((row) => ids.includes(row.id))) {
+        const cost = p.costPrice != null ? Number(p.costPrice) : NaN;
+        if (!Number.isFinite(cost) || cost <= 0) {
+          skippedNoCost += 1;
+          continue;
+        }
+
+        const targetPrice = ceilCostTimesMultiplier(cost, multiplier);
+        const threshold = cost * multiplier;
+        const existingVariants = Array.isArray(p.raw.variants) ? p.raw.variants : [];
+
+        if (existingVariants.length === 0) {
+          const current = typeof p.raw.price === 'string'
+            ? parseFloat(p.raw.price)
+            : Number(p.raw.price);
+          const shouldUpdate = selective
+            ? Number.isFinite(current) && current < threshold
+            : true;
+          if (!shouldUpdate) {
+            skippedNoChange += 1;
+            continue;
+          }
+          if (Number.isFinite(current) && current === targetPrice) {
+            skippedNoChange += 1;
+            continue;
+          }
+
+          const { error } = await supabase
+            .from('shopify_products')
+            .update({ price: targetPrice })
+            .eq('id', p.id);
+          if (error) {
+            toast.error('修改售價失敗', { id: toastId, description: error.message });
+            return;
+          }
+
+          if (p.raw.source_product_id) {
+            const { error: productsErr } = await supabase
+              .from('products')
+              .update(await withUpdateAuditFields({ sale_price: targetPrice }))
+              .eq('id', p.raw.source_product_id);
+            if (productsErr) {
+              console.warn('[PublishedProductsView] products sale_price sync failed:', productsErr.message);
+            }
+          }
+
+          nextById.set(p.id, { price: targetPrice, variants: p.raw.variants ?? null });
+          productsUpdated += 1;
+          variantsUpdated += 1;
+          continue;
+        }
+
+        let changedInProduct = 0;
+        const nextVariants = existingVariants.map((v) => {
+          const current = variantPriceNumber(v);
+          const shouldUpdate = selective
+            ? Number.isFinite(current) && current < threshold
+            : true;
+          if (!shouldUpdate) return v;
+          if (Number.isFinite(current) && current === targetPrice) return v;
+          changedInProduct += 1;
+          return { ...v, price: String(targetPrice) };
+        });
+
+        if (changedInProduct === 0) {
+          skippedNoChange += 1;
+          continue;
+        }
+
+        const firstPrice = variantPriceNumber(nextVariants[0]!);
+        const productPrice = Number.isFinite(firstPrice) ? firstPrice : targetPrice;
+
+        const { error } = await supabase
+          .from('shopify_products')
+          .update({
+            price: productPrice,
+            variants: nextVariants,
+          })
+          .eq('id', p.id);
+        if (error) {
+          toast.error('修改售價失敗', { id: toastId, description: error.message });
+          return;
+        }
+
+        if (p.raw.source_product_id) {
+          const { error: productsErr } = await supabase
+            .from('products')
+            .update(await withUpdateAuditFields({ sale_price: productPrice }))
+            .eq('id', p.raw.source_product_id);
+          if (productsErr) {
+            console.warn('[PublishedProductsView] products sale_price sync failed:', productsErr.message);
+          }
+        }
+
+        nextById.set(p.id, { price: productPrice, variants: nextVariants });
+        productsUpdated += 1;
+        variantsUpdated += changedInProduct;
+      }
+
+      if (nextById.size > 0) {
+        setItems((prev) => prev.map((p) => {
+          const next = nextById.get(p.id);
+          if (!next) return p;
+          return {
+            ...p,
+            raw: {
+              ...p.raw,
+              price: next.price,
+              variants: next.variants,
+            },
+          };
+        }));
+      }
+
+      resetBulkPriceEdit();
+
+      if (productsUpdated === 0) {
+        const reasons: string[] = [];
+        if (skippedNoCost > 0) reasons.push(`${skippedNoCost} 件無有效成本`);
+        if (skippedNoChange > 0) reasons.push(`${skippedNoChange} 件無需變更`);
+        toast.message('沒有產品被更新', {
+          id: toastId,
+          description: reasons.join('；') || '請確認已選產品與倍數',
+        });
+      } else {
+        toast.success(
+          `已更新 ${productsUpdated} 件產品、共 ${variantsUpdated} 個規格售價`,
+          {
+            id: toastId,
+            description:
+              (skippedNoCost > 0 ? `${skippedNoCost} 件無成本略過。` : '') +
+              (selective ? '（價錢核對開啟：僅改低於門檻的規格）' : '') +
+              ' 按「與 Shopify 同步」推送至 Shopify。',
+            duration: 6000,
+          },
+        );
+      }
+    } catch (err) {
+      toast.error('修改售價失敗', {
+        id: toastId,
+        description: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setIsBulkUpdatingPrice(false);
     }
   };
 
@@ -1833,6 +2038,7 @@ export function PublishedProductsView() {
                     className="text-xs"
                     onSelect={() => {
                       resetBulkAddTags();
+                      resetBulkPriceEdit();
                       setBulkCategoryPickerOpen(true);
                       setBulkEditL1('');
                       setBulkEditL2('');
@@ -1845,12 +2051,25 @@ export function PublishedProductsView() {
                     className="text-xs"
                     onSelect={() => {
                       resetBulkCategoryPicker();
+                      resetBulkPriceEdit();
                       setBulkAddTags([]);
                       setBulkAddTagsOpen(true);
                     }}
                   >
                     <Tag className="h-3.5 w-3.5" />
                     加入標籤
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    className="text-xs"
+                    onSelect={() => {
+                      resetBulkCategoryPicker();
+                      resetBulkAddTags();
+                      setBulkPriceMultiplierInput('');
+                      setBulkPriceEditOpen(true);
+                    }}
+                  >
+                    <BadgeDollarSign className="h-3.5 w-3.5" />
+                    修改售價
                   </DropdownMenuItem>
                 </DropdownMenuContent>
               </DropdownMenu>
@@ -1869,6 +2088,7 @@ export function PublishedProductsView() {
                 onClick={() => {
                   resetBulkCategoryPicker();
                   resetBulkAddTags();
+                  resetBulkPriceEdit();
                   clearAllSelection();
                 }}
                 className="rounded-md border border-border px-2.5 py-1 text-xs text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
@@ -1877,6 +2097,53 @@ export function PublishedProductsView() {
               </button>
             </div>
           </div>
+          {bulkPriceEditOpen && (
+            <div className="mb-1.5 flex flex-wrap items-center gap-2">
+              <label className="inline-flex h-9 items-center gap-2 rounded-md border border-border bg-card px-2.5 text-xs font-body text-foreground">
+                <span className="shrink-0 text-muted-foreground">倍數 :</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="any"
+                  inputMode="decimal"
+                  autoFocus
+                  value={bulkPriceMultiplierInput}
+                  onChange={(e) => setBulkPriceMultiplierInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      void confirmBulkModifyPrice();
+                    }
+                  }}
+                  placeholder="例如 2.5"
+                  className="h-7 w-24 rounded border border-border bg-background px-2 font-mono-data text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+                />
+              </label>
+              <button
+                type="button"
+                onClick={() => { void confirmBulkModifyPrice(); }}
+                disabled={isBulkUpdatingPrice || !bulkPriceMultiplierInput.trim()}
+                className="inline-flex h-9 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isBulkUpdatingPrice ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <BadgeDollarSign className="h-3.5 w-3.5" />}
+                套用
+              </button>
+              <button
+                type="button"
+                onClick={resetBulkPriceEdit}
+                disabled={isBulkUpdatingPrice}
+                className="h-9 rounded-md border border-border px-2.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-50"
+              >
+                取消
+              </button>
+              <span className="font-body text-[11px] text-muted-foreground">
+                新售價 = 成本 × 倍數（向上取整）
+                {priceCheckMultiplier != null
+                  ? '；價錢核對開啟時只改售價低於門檻的規格'
+                  : '；將更新已選產品的所有規格'}
+              </span>
+            </div>
+          )}
           {bulkAddTagsOpen && (
             <div className="mb-1.5 flex flex-wrap items-start gap-2">
               <div className="min-w-[260px] max-w-md flex-1">
