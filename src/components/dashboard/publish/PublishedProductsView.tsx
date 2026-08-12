@@ -495,11 +495,18 @@ export function PublishedProductsView() {
   }, []);
 
   // Diff-first sync: one product per request, concurrent workers, skip unchanged items.
-  const pushToShopify = useCallback(async () => {
-    const selectedRows = items.filter((p) => selectedIds.includes(p.id));
+  // Optional localIds / toastId let callers (e.g. 修改售價) auto-push after a local write.
+  const pushToShopify = useCallback(async (opts?: {
+    localIds?: string[];
+    toastId?: string | number;
+    successTitle?: string;
+    progressLabel?: string;
+  }) => {
+    const targetLocalIds = opts?.localIds ?? selectedIds;
+    const selectedRows = items.filter((p) => targetLocalIds.includes(p.id));
     if (selectedRows.length === 0) {
-      toast.message('請先勾選要同步至 Shopify 的產品');
-      return;
+      if (!opts?.localIds) toast.message('請先勾選要同步至 Shopify 的產品');
+      return { pushed: 0, skipped: 0, failed: 0 };
     }
     const shopifyIds = [...new Set(
       selectedRows
@@ -507,8 +514,10 @@ export function PublishedProductsView() {
         .filter((id) => /^\d+$/.test(id)),
     )];
     if (shopifyIds.length === 0) {
-      toast.error('選中產品沒有有效的 Shopify Product ID，無法同步');
-      return;
+      toast.error('選中產品沒有有效的 Shopify Product ID，無法同步', {
+        id: opts?.toastId,
+      });
+      return { pushed: 0, skipped: 0, failed: shopifyIds.length };
     }
 
     const titleByShopifyId = new Map(
@@ -516,7 +525,9 @@ export function PublishedProductsView() {
     );
 
     setIsSyncing(true);
-    const toastId = toast.loading(`正在檢查並同步 (0/${shopifyIds.length})…`);
+    const progressLabel = opts?.progressLabel || '正在檢查並同步';
+    const toastId = opts?.toastId
+      ?? toast.loading(`${progressLabel} (0/${shopifyIds.length})…`);
     let pushed = 0;
     let skipped = 0;
     let failed = 0;
@@ -526,7 +537,7 @@ export function PublishedProductsView() {
     const updatedSummaries: string[] = [];
 
     const updateProgressToast = () => {
-      const parts = [`正在檢查並同步 (${processed}/${shopifyIds.length})`];
+      const parts = [`${progressLabel} (${processed}/${shopifyIds.length})`];
       if (pushed > 0) parts.push(`已更新 ${pushed}`);
       if (skipped > 0) parts.push(`略過 ${skipped}`);
       if (failed > 0) parts.push(`失敗 ${failed}`);
@@ -562,6 +573,8 @@ export function PublishedProductsView() {
     };
 
     try {
+      toast.loading(`${progressLabel} (0/${shopifyIds.length})…`, { id: toastId });
+
       await runWithConcurrency(shopifyIds, concurrency, async (sid) => {
         const result = await invokeOne(sid);
         processed += 1;
@@ -614,6 +627,7 @@ export function PublishedProductsView() {
         detailLines.push(`略過：${skippedTitles.join('、')}${more}`);
       }
       const description = [descParts.join(' · '), ...detailLines].filter(Boolean).join('\n');
+      const successTitle = opts?.successTitle || '同步完成';
 
       if (failed > 0 && (pushed > 0 || skipped > 0)) {
         toast.warning('部分產品同步失敗', {
@@ -630,23 +644,25 @@ export function PublishedProductsView() {
           duration: 10000,
         });
       } else if (skipped > 0 && pushed === 0) {
-        toast.message('無需同步', {
+        toast.message(opts?.successTitle ? successTitle : '無需同步', {
           id: toastId,
           description: description || `已檢查 ${shopifyIds.length} 件，均與 Shopify 一致`,
           duration: 8000,
         });
       } else {
-        toast.success('同步完成', {
+        toast.success(successTitle, {
           id: toastId,
           description: description || `已處理 ${shopifyIds.length} 件`,
           duration: 8000,
         });
       }
+      return { pushed, skipped, failed };
     } catch (e) {
       toast.error('同步至 Shopify 失敗', {
         id: toastId,
         description: e instanceof Error ? e.message : '未知錯誤',
       });
+      return { pushed, skipped, failed: failed + 1 };
     } finally {
       setIsSyncing(false);
     }
@@ -1540,18 +1556,31 @@ export function PublishedProductsView() {
           id: toastId,
           description: reasons.join('；') || '請確認已選產品與倍數',
         });
-      } else {
-        toast.success(
-          `已更新 ${productsUpdated} 件產品、共 ${variantsUpdated} 個規格售價`,
-          {
-            id: toastId,
-            description:
-              (skippedNoCost > 0 ? `${skippedNoCost} 件無成本略過。` : '') +
-              (selective ? '（價錢核對開啟：僅改低於門檻的規格）' : '') +
-              ' 按「與 Shopify 同步」推送至 Shopify。',
-            duration: 6000,
-          },
-        );
+        return;
+      }
+
+      toast.loading(
+        `已改 ${productsUpdated} 件（${variantsUpdated} 規格），正在同步至 Shopify…`,
+        { id: toastId },
+      );
+
+      // Auto-push immediately — price-only edits should not rely on a second click.
+      setIsBulkUpdatingPrice(false);
+      const syncResult = await pushToShopify({
+        localIds: [...nextById.keys()],
+        toastId,
+        progressLabel: '正在同步售價至 Shopify',
+        successTitle: `售價已更新並同步（${productsUpdated} 件 / ${variantsUpdated} 規格）`,
+      });
+      if (
+        syncResult
+        && syncResult.failed > 0
+        && syncResult.pushed === 0
+      ) {
+        toast.message('本地售價已更新，但尚未推送到 Shopify', {
+          description: '可稍後再按「與 Shopify 同步」重試',
+          duration: 8000,
+        });
       }
     } catch (err) {
       toast.error('修改售價失敗', {
@@ -2122,22 +2151,22 @@ export function PublishedProductsView() {
               <button
                 type="button"
                 onClick={() => { void confirmBulkModifyPrice(); }}
-                disabled={isBulkUpdatingPrice || !bulkPriceMultiplierInput.trim()}
+                disabled={isBulkUpdatingPrice || isSyncing || !bulkPriceMultiplierInput.trim()}
                 className="inline-flex h-9 items-center gap-1.5 rounded-md bg-primary px-3 text-xs font-semibold text-primary-foreground hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isBulkUpdatingPrice ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <BadgeDollarSign className="h-3.5 w-3.5" />}
+                {isBulkUpdatingPrice || isSyncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <BadgeDollarSign className="h-3.5 w-3.5" />}
                 套用
               </button>
               <button
                 type="button"
                 onClick={resetBulkPriceEdit}
-                disabled={isBulkUpdatingPrice}
+                disabled={isBulkUpdatingPrice || isSyncing}
                 className="h-9 rounded-md border border-border px-2.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors disabled:opacity-50"
               >
                 取消
               </button>
               <span className="font-body text-[11px] text-muted-foreground">
-                新售價 = 成本 × 倍數（向上取整）
+                新售價 = 成本 × 倍數（向上取整），套用後會自動同步至 Shopify
                 {priceCheckMultiplier != null
                   ? '；價錢核對開啟時只改售價低於門檻的規格'
                   : '；將更新已選產品的所有規格'}
