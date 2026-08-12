@@ -3,7 +3,7 @@ import { cn } from '@/lib/utils';
 import {
   CheckCheck, Search, ArrowDownToLine, ArrowUpToLine, RotateCcw, ChevronDown,
   CloudDownload, Loader2, X, Store, RefreshCw, ArrowUp, ArrowDown, GitMerge, FolderTree,
-  ScanSearch, Tag,
+  ScanSearch, Tag, BadgeDollarSign,
 } from 'lucide-react';
 import {
   Select,
@@ -271,6 +271,27 @@ const STATE_FILTERS: { key: PublishState | 'all'; label: string }[] = [
   { key: 'delisted', label: '已下架' },
 ];
 
+/** 價錢核對：顯示 價格 ≤ 成本 × 倍數 的產品 */
+const PRICE_CHECK_OPTIONS = [
+  { value: 1.5, label: '≤1.5倍' },
+  { value: 2, label: '≤2 倍' },
+  { value: 3, label: '≤3 倍' },
+  { value: 4, label: '≤4 倍' },
+] as const;
+
+type PriceCheckMultiplier = (typeof PRICE_CHECK_OPTIONS)[number]['value'];
+
+function matchesPriceCheckFilter(
+  price: number | string | null | undefined,
+  cost: number | null | undefined,
+  multiplier: number,
+): boolean {
+  const p = typeof price === 'string' ? parseFloat(price) : Number(price);
+  const c = cost != null ? Number(cost) : NaN;
+  if (!Number.isFinite(p) || !Number.isFinite(c) || c <= 0) return false;
+  return p <= c * multiplier;
+}
+
 function shopifyStatusToState(status: string | null): PublishState {
   if (status === 'active') return 'published';
   if (status === 'archived') return 'delisted';
@@ -372,6 +393,7 @@ export function PublishedProductsView() {
   const [similarCriteriaActive, setSimilarCriteriaActive] = useState<SimilarProductCriterion[] | null>(
     null,
   );
+  const [priceCheckMultiplier, setPriceCheckMultiplier] = useState<PriceCheckMultiplier | null>(null);
   const [categoryPairs, setCategoryPairs] = useState<{ level1: string; level2: string }[]>([]);
   const [bwfCats, setBwfCats] = useState<BwfCat[]>([]);
   const [bulkCategoryPickerOpen, setBulkCategoryPickerOpen] = useState(false);
@@ -896,8 +918,14 @@ export function PublishedProductsView() {
       if (parts[0]?.trim() !== level1Filter) return false;
       if (level2Filter && parts[1]?.trim() !== level2Filter) return false;
     }
+    if (
+      priceCheckMultiplier != null
+      && !matchesPriceCheckFilter(p.raw.price, p.costPrice, priceCheckMultiplier)
+    ) {
+      return false;
+    }
     return true;
-  }), [items, stateFilter, factoryFilter, level1Filter, level2Filter]);
+  }), [items, stateFilter, factoryFilter, level1Filter, level2Filter, priceCheckMultiplier]);
 
   const similarGroups = useMemo((): SimilarProductGroup<DisplayProduct & { sku: string }>[] => {
     if (!similarCriteriaActive?.length) return [];
@@ -1055,6 +1083,7 @@ export function PublishedProductsView() {
     pageSize,
     skuSortDir,
     similarCriteriaActive,
+    priceCheckMultiplier,
   ]);
 
   useEffect(() => {
@@ -1646,6 +1675,62 @@ export function PublishedProductsView() {
             >
               <X className="h-3.5 w-3.5" />
               清除相似篩選
+            </button>
+          ) : null}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className={cn(
+                  'inline-flex h-8 items-center gap-1.5 rounded-lg border px-3 text-xs font-semibold transition-colors',
+                  priceCheckMultiplier != null
+                    ? 'border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-300'
+                    : 'border-border bg-card text-foreground hover:bg-muted/50',
+                )}
+                title="篩選價格相對於成本的倍率（價格 ≤ 成本 × 倍數）"
+              >
+                <BadgeDollarSign className="h-3.5 w-3.5" />
+                價錢核對
+                {priceCheckMultiplier != null ? (
+                  <span className="rounded-full bg-amber-500/15 px-1.5 py-0.5 font-mono-data text-[10px]">
+                    {PRICE_CHECK_OPTIONS.find((o) => o.value === priceCheckMultiplier)?.label}
+                  </span>
+                ) : (
+                  <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
+                )}
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start" className="min-w-[140px]">
+              {PRICE_CHECK_OPTIONS.map((opt) => (
+                <DropdownMenuItem
+                  key={opt.value}
+                  className={cn(
+                    'text-xs font-body',
+                    priceCheckMultiplier === opt.value && 'bg-accent font-semibold',
+                  )}
+                  onSelect={() => setPriceCheckMultiplier(opt.value)}
+                >
+                  {opt.label}
+                </DropdownMenuItem>
+              ))}
+              {priceCheckMultiplier != null ? (
+                <DropdownMenuItem
+                  className="text-xs font-body text-muted-foreground"
+                  onSelect={() => setPriceCheckMultiplier(null)}
+                >
+                  清除篩選
+                </DropdownMenuItem>
+              ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
+          {priceCheckMultiplier != null ? (
+            <button
+              type="button"
+              onClick={() => setPriceCheckMultiplier(null)}
+              className="inline-flex h-8 items-center gap-1 rounded-lg border border-border px-2.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+            >
+              <X className="h-3.5 w-3.5" />
+              清除價錢核對
             </button>
           ) : null}
         </div>
