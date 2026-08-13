@@ -382,6 +382,29 @@ function primarySortSkuFromVariants(variants: ShopifyVariant[] | null | undefine
   return skus.slice().sort(compareSkuNatural)[0];
 }
 
+function numericOrNaN(value: number | string | null | undefined): number {
+  const n = typeof value === 'string' ? parseFloat(value) : Number(value);
+  return Number.isFinite(n) ? n : NaN;
+}
+
+function compareNullableNumber(a: number, b: number): number {
+  const aOk = Number.isFinite(a);
+  const bOk = Number.isFinite(b);
+  if (!aOk && !bOk) return 0;
+  if (!aOk) return 1;
+  if (!bOk) return -1;
+  return a - b;
+}
+
+/** 「全部」：已發佈在前，已下架在後。 */
+function publishGroupRank(state: PublishState): number {
+  if (state === 'published') return 0;
+  if (state === 'delisted') return 1;
+  return 2;
+}
+
+type UploadedListSortKey = 'sku' | 'price' | 'cost';
+
 /** Letters a→z, then numeric chunks 1→9 (natural / alphanumeric order). */
 function compareSkuNatural(a: string, b: string): number {
   const ta = a.trim();
@@ -402,8 +425,9 @@ export function PublishedProductsView() {
   const [level2Filter, setLevel2Filter] = useState('');
   const [pageSize, setPageSize] = useState(25);
   const [currentPage, setCurrentPage] = useState(1);
-  /** Default ↑ = SKU ascending (a→z, 1→9). Click toggles to ↓ descending. */
-  const [skuSortDir, setSkuSortDir] = useState<'asc' | 'desc'>('asc');
+  /** Default SKU ↑. 價格／成本 start inactive (↓); click = green ↓ asc, click again = green ↑ desc. */
+  const [sortKey, setSortKey] = useState<UploadedListSortKey>('sku');
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [isFetchingPreview, setIsFetchingPreview] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
@@ -1005,17 +1029,24 @@ export function PublishedProductsView() {
   }, [baseFiltered, search, similarCriteriaActive, similarGroups]);
 
   const sorted = useMemo(() => {
+    const compareByActiveKey = (a: DisplayProduct, b: DisplayProduct): number => {
+      let cmp = 0;
+      if (sortKey === 'price') {
+        cmp = compareNullableNumber(numericOrNaN(a.raw.price), numericOrNaN(b.raw.price));
+      } else if (sortKey === 'cost') {
+        cmp = compareNullableNumber(numericOrNaN(a.costPrice), numericOrNaN(b.costPrice));
+      } else {
+        cmp = compareSkuNatural(primarySortSku(a.raw), primarySortSku(b.raw));
+      }
+      if (cmp !== 0) return sortDir === 'asc' ? cmp : -cmp;
+      return compareSkuNatural(primarySortSku(a.raw), primarySortSku(b.raw));
+    };
+
     if (similarCriteriaActive?.length) {
-      // Keep cluster order; sort within each group by SKU.
+      // Keep cluster order; sort within each group by the active key.
       const list: DisplayProduct[] = [];
       for (const group of similarGroups) {
-        const members = [...group.products].sort((a, b) => {
-          const cmp = compareSkuNatural(
-            primarySortSku(a.raw),
-            primarySortSku(b.raw),
-          );
-          return skuSortDir === 'asc' ? cmp : -cmp;
-        });
+        const members = [...group.products].sort(compareByActiveKey);
         if (search) {
           const q = search.toLowerCase();
           const kept = members.filter((p) => {
@@ -1033,14 +1064,14 @@ export function PublishedProductsView() {
 
     const list = [...filtered];
     list.sort((a, b) => {
-      const cmp = compareSkuNatural(
-        primarySortSku(a.raw),
-        primarySortSku(b.raw),
-      );
-      return skuSortDir === 'asc' ? cmp : -cmp;
+      if (stateFilter === 'all') {
+        const rank = publishGroupRank(a.state) - publishGroupRank(b.state);
+        if (rank !== 0) return rank;
+      }
+      return compareByActiveKey(a, b);
     });
     return list;
-  }, [filtered, skuSortDir, similarCriteriaActive, similarGroups, search]);
+  }, [filtered, sortKey, sortDir, similarCriteriaActive, similarGroups, search, stateFilter]);
 
   const visibleSimilarGroups = useMemo(() => {
     if (!similarCriteriaActive?.length) return [];
@@ -1134,10 +1165,20 @@ export function PublishedProductsView() {
     level1Filter,
     level2Filter,
     pageSize,
-    skuSortDir,
+    sortKey,
+    sortDir,
     similarCriteriaActive,
     priceCheckMultiplier,
   ]);
+
+  const toggleListSort = (key: UploadedListSortKey) => {
+    if (sortKey !== key) {
+      setSortKey(key);
+      setSortDir('asc');
+      return;
+    }
+    setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+  };
 
   useEffect(() => {
     if (currentPage > totalPages) setCurrentPage(totalPages);
@@ -2297,22 +2338,76 @@ export function PublishedProductsView() {
                 <th className="px-3 py-2.5 text-left font-medium">廠家</th>
                 <th className="px-3 py-2.5 text-left font-medium">描述</th>
                 <th className="px-3 py-2.5 text-left font-medium">標籤</th>
-                <th className="px-3 py-2.5 text-right font-medium">價格</th>
-                <th className="px-3 py-2.5 text-right font-medium">成本</th>
+                <th className="px-3 py-2.5 text-right font-medium">
+                  <button
+                    type="button"
+                    onClick={() => toggleListSort('price')}
+                    title={
+                      sortKey === 'price'
+                        ? (sortDir === 'asc' ? '價格由小到大' : '價格由大到小')
+                        : '按價格排序'
+                    }
+                    className="inline-flex w-full items-center justify-end gap-1 hover:text-foreground transition-colors"
+                  >
+                    價格
+                    <ArrowDown
+                      className={cn(
+                        'h-3 w-3',
+                        sortKey === 'price' && sortDir === 'asc' && 'text-emerald-600',
+                        sortKey === 'price' && sortDir === 'desc' && 'hidden',
+                        sortKey !== 'price' && 'text-muted-foreground',
+                      )}
+                    />
+                    {sortKey === 'price' && sortDir === 'desc' ? (
+                      <ArrowUp className="h-3 w-3 text-emerald-600" />
+                    ) : null}
+                  </button>
+                </th>
+                <th className="px-3 py-2.5 text-right font-medium">
+                  <button
+                    type="button"
+                    onClick={() => toggleListSort('cost')}
+                    title={
+                      sortKey === 'cost'
+                        ? (sortDir === 'asc' ? '成本由小到大' : '成本由大到小')
+                        : '按成本排序'
+                    }
+                    className="inline-flex w-full items-center justify-end gap-1 hover:text-foreground transition-colors"
+                  >
+                    成本
+                    <ArrowDown
+                      className={cn(
+                        'h-3 w-3',
+                        sortKey === 'cost' && sortDir === 'asc' && 'text-emerald-600',
+                        sortKey === 'cost' && sortDir === 'desc' && 'hidden',
+                        sortKey !== 'cost' && 'text-muted-foreground',
+                      )}
+                    />
+                    {sortKey === 'cost' && sortDir === 'desc' ? (
+                      <ArrowUp className="h-3 w-3 text-emerald-600" />
+                    ) : null}
+                  </button>
+                </th>
                 <th className="px-3 py-2.5 text-left font-medium">變體</th>
                 <th className="px-3 py-2.5 text-left font-medium">尺寸（LWH）</th>
                 <th className="px-3 py-2.5 text-left font-medium">
                   <button
                     type="button"
-                    onClick={() => setSkuSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
-                    title={skuSortDir === 'asc' ? 'SKU 升序（A→Z，1→9）' : 'SKU 降序（Z→A，9→1）'}
+                    onClick={() => toggleListSort('sku')}
+                    title={
+                      sortKey === 'sku'
+                        ? (sortDir === 'asc' ? 'SKU 升序（A→Z，1→9）' : 'SKU 降序（Z→A，9→1）')
+                        : '按 SKU 排序'
+                    }
                     className="inline-flex items-center gap-1 hover:text-foreground transition-colors"
                   >
                     SKU
-                    {skuSortDir === 'asc' ? (
+                    {sortKey === 'sku' && sortDir === 'asc' ? (
                       <ArrowUp className="h-3 w-3 text-primary" />
-                    ) : (
+                    ) : sortKey === 'sku' ? (
                       <ArrowDown className="h-3 w-3 text-primary" />
+                    ) : (
+                      <ArrowDown className="h-3 w-3 text-muted-foreground" />
                     )}
                   </button>
                 </th>
@@ -2429,8 +2524,8 @@ export function PublishedProductsView() {
                         className="font-body text-muted-foreground"
                         style={{
                           fontSize: '11px',
-                          lineHeight: '1.4',
-                          maxHeight: 'calc(11px * 1.4 * 8)',
+                          lineHeight: 1.8,
+                          maxHeight: 'calc(11px * 1.8 * 8)',
                           overflow: 'hidden',
                           wordBreak: 'break-word',
                           display: '-webkit-box',
@@ -2445,7 +2540,7 @@ export function PublishedProductsView() {
                     {/* 標籤 — show up to 6, then +N */}
                     <td className="px-3 py-2.5 align-top overflow-hidden">
                       {tags.length > 0 ? (
-                        <div className="flex flex-wrap gap-1">
+                        <div className="flex flex-wrap gap-x-1.5 gap-y-2">
                           {tags.slice(0, 6).map((t, i) => (
                             <span key={i} className="rounded-full bg-muted px-1.5 py-0.5 font-body text-[10px] text-foreground whitespace-nowrap">{t}</span>
                           ))}
