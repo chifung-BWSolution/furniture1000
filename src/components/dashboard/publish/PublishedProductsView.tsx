@@ -195,6 +195,7 @@ interface ShopifyVariant {
   price?: string | number;
   compare_at_price?: string | number | null;
   inventory_quantity?: number;
+  cost?: number | string | null;
 }
 
 interface ShopifyImage {
@@ -327,6 +328,17 @@ function matchesPriceCheckFilter(
   return p <= c * multiplier;
 }
 
+function resolveVariantCost(
+  variant: ShopifyVariant | undefined,
+  productCost: number | null | undefined,
+): number | null | undefined {
+  if (variant?.cost != null && variant.cost !== '') {
+    const n = typeof variant.cost === 'string' ? parseFloat(variant.cost) : Number(variant.cost);
+    if (Number.isFinite(n)) return n;
+  }
+  return productCost;
+}
+
 /** True if the visible list 價格 (or any extra variant) is ≤ cost × multiplier. */
 function productMatchesPriceMultiplier(
   price: number | string | null | undefined,
@@ -337,10 +349,10 @@ function productMatchesPriceMultiplier(
   const list = Array.isArray(variants) ? variants : [];
   // Single / no variant: colour matches the number shown in 價格 (product.price).
   if (list.length <= 1) {
-    return matchesPriceCheckFilter(price, cost, multiplier);
+    return matchesPriceCheckFilter(price, resolveVariantCost(list[0], cost), multiplier);
   }
   if (matchesPriceCheckFilter(price, cost, multiplier)) return true;
-  return list.some((v) => matchesPriceCheckFilter(v.price, cost, multiplier));
+  return list.some((v) => matchesPriceCheckFilter(v.price, resolveVariantCost(v, cost), multiplier));
 }
 
 /** True if the visible list 價格 (or any extra variant) is ≤ cost × 1.5. */

@@ -75,7 +75,7 @@ export function mirrorRowToRtsContentPatch(row: MirrorRowForProductSync) {
     vendor: row.vendor ?? undefined,
     'my_fields.materials': row['my_fields.materials'] ?? undefined,
     customize: row['my_fields.production_time'] ?? undefined,
-    cost_price: row.cost ?? undefined,
+    cost_price: row.cost === undefined ? undefined : row.cost,
   };
 }
 

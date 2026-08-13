@@ -30,6 +30,8 @@ interface ShopifyVariant {
   price?: string | number;
   inventory_quantity?: number;
   image_id?: string | number | null;
+  /** Local-only; not pushed to Shopify. */
+  cost?: number | string | null;
 }
 
 interface ShopifyImage {
@@ -108,6 +110,33 @@ function fmtMoney(n: number | string | null | undefined): string {
   const num = typeof n === 'string' ? parseFloat(n) : n;
   if (!Number.isFinite(num)) return '—';
   return `$${num.toLocaleString()}`;
+}
+
+function normalizeCostInput(value: unknown): string {
+  if (value == null || value === '') return '';
+  const n = typeof value === 'number' ? value : parseFloat(String(value).replace(/,/g, ''));
+  if (!Number.isFinite(n) || n < 0) return '';
+  const nearest = Math.round(n);
+  if (Math.abs(n - nearest) < 0.05) return String(nearest);
+  const twoDp = Math.round(n * 100) / 100;
+  return Number.isInteger(twoDp) ? String(twoDp) : twoDp.toFixed(2).replace(/\.?0+$/, '');
+}
+
+function sanitizeCostInput(raw: string): string {
+  const cleaned = raw.replace(/[^\d.]/g, '');
+  const dot = cleaned.indexOf('.');
+  if (dot < 0) return cleaned;
+  return `${cleaned.slice(0, dot)}.${cleaned.slice(dot + 1).replace(/\./g, '').slice(0, 2)}`;
+}
+
+function parseCostInput(raw: string): number | null {
+  const trimmed = raw.trim().replace(/,/g, '');
+  if (!trimmed) return null;
+  const n = parseFloat(trimmed);
+  if (!Number.isFinite(n) || n < 0) return null;
+  const nearest = Math.round(n);
+  if (Math.abs(n - nearest) < 0.05) return nearest;
+  return Math.round(n * 100) / 100;
 }
 
 function variantLabel(v: ShopifyVariant): string {
@@ -235,9 +264,11 @@ export function PublishedProductDetailModal({
   const [editSeoDesc, setEditSeoDesc] = useState('');
   const [editHandle, setEditHandle] = useState('');
   const [editVariantSkus, setEditVariantSkus] = useState<Record<string, string>>({});
+  const [editVariantCosts, setEditVariantCosts] = useState<Record<string, string>>({});
   const [editVariantImageSrc, setEditVariantImageSrc] = useState<Record<string, string>>({});
   const [variantImagePickerKey, setVariantImagePickerKey] = useState<string | null>(null);
   const [editFallbackSku, setEditFallbackSku] = useState('');
+  const [editFallbackCost, setEditFallbackCost] = useState('');
   const [manufacturerOpen, setManufacturerOpen] = useState(false);
   const [manufacturerSearch, setManufacturerSearch] = useState('');
   const [manufacturerList, setManufacturerList] = useState<string[]>(MANUFACTURERS);
@@ -298,6 +329,17 @@ export function PublishedProductDetailModal({
         return acc;
       }, {})
     );
+    const productCostFallback = product.costPrice ?? r.cost ?? null;
+    setEditVariantCosts(
+      (Array.isArray(r.variants) ? r.variants : []).reduce<Record<string, string>>((acc, v, i) => {
+        acc[variantEditKey(v, i)] = normalizeCostInput(
+          v.cost != null && v.cost !== '' ? v.cost : productCostFallback,
+        );
+        return acc;
+      }, {}),
+    );
+    setEditFallbackSku(r.sku || '');
+    setEditFallbackCost(normalizeCostInput(productCostFallback));
     const imgs = Array.isArray(r.images) ? r.images : [];
     setEditVariantImageSrc(
       (Array.isArray(r.variants) ? r.variants : []).reduce<Record<string, string>>((acc, v, i) => {
@@ -307,12 +349,11 @@ export function PublishedProductDetailModal({
         return acc;
       }, {})
     );
-    setEditFallbackSku(r.sku || '');
     const gallery = resolveMirrorGalleryUrlsInSavedOrder(r);
     setEditImages(gallery);
     setSelectedImg(gallery[0] || resolveMirrorPrimaryImageUrl(r) || null);
     setDragImgIndex(null);
-  }, [r]);
+  }, [r, product.costPrice]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -409,9 +450,11 @@ export function PublishedProductDetailModal({
         const imageId = selectedSrc
           ? resolveImageIdForSrc(selectedSrc, sortedImgs, editImages[0] ?? r.image_url)
           : v.image_id;
+        const costNum = parseCostInput(editVariantCosts[key] ?? '');
         const next = {
           ...v,
           sku: editVariantSkus[key] ?? v.sku ?? '',
+          cost: costNum,
           ...(imageId != null ? { image_id: imageId } : {}),
         };
         // One-variant products: keep 規格價錢 in sync with the 售價 field.
@@ -425,6 +468,10 @@ export function PublishedProductDetailModal({
         ? (editFallbackSku.trim() || null)
         : (updatedVariants.map(v => (v.sku || '').trim()).find(Boolean) || null);
 
+      const productCost = updatedVariants.length > 0
+        ? updatedVariants.map((v) => (typeof v.cost === 'number' ? v.cost : parseCostInput(String(v.cost ?? '')))).find((c) => c != null) ?? null
+        : parseCostInput(editFallbackCost);
+
       const updatePayload: Record<string, unknown> = {
         title: editTitle || null,
         body_html: normalizeBodyHtmlForShopify(editBodyHtml) || null,
@@ -433,6 +480,7 @@ export function PublishedProductDetailModal({
         tags: editTags,
         price: priceNum,
         compare_at_price: compareNum,
+        cost: productCost,
         image_url: editImages[0] || resolveMirrorPrimaryImageUrl(r) || null,
         images: preservedImages,
         variants: updatedVariants.length > 0 ? updatedVariants : r.variants,
@@ -470,6 +518,7 @@ export function PublishedProductDetailModal({
           sku: updatePayload.sku as string,
           price: priceNum,
           compare_at_price: compareNum,
+          cost: productCost,
           image_url: updatePayload.image_url as string,
           images: updatePayload.images,
           'my_fields.materials': updatePayload['my_fields.materials'] as string,
@@ -888,6 +937,7 @@ export function PublishedProductDetailModal({
                         <th className="px-3 py-2 text-left font-medium">SKU</th>
                         <th className="px-3 py-2 text-right font-medium">價錢</th>
                         <th className="px-3 py-2 text-right font-medium">庫存</th>
+                        <th className="px-3 py-2 text-right font-medium">成本</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-border/60">
@@ -934,12 +984,18 @@ export function PublishedProductDetailModal({
                           <td
                             className={cn(
                               'px-3 py-2 text-right font-mono-data font-semibold',
-                              isPriceAtOrBelowCostMultiple(v.price, costForAlert)
+                              isPriceAtOrBelowCostMultiple(
+                                v.price,
+                                parseCostInput(editVariantCosts[key] ?? '') ?? costForAlert,
+                              )
                                 ? 'text-red-600'
                                 : 'text-foreground',
                             )}
                             title={
-                              isPriceAtOrBelowCostMultiple(v.price, costForAlert)
+                              isPriceAtOrBelowCostMultiple(
+                                v.price,
+                                parseCostInput(editVariantCosts[key] ?? '') ?? costForAlert,
+                              )
                                 ? '價錢 ≤ 成本 × 1.5'
                                 : undefined
                             }
@@ -947,6 +1003,19 @@ export function PublishedProductDetailModal({
                             {fmtMoney(v.price ?? null)}
                           </td>
                           <td className="px-3 py-2 text-right font-mono-data text-muted-foreground">{v.inventory_quantity ?? '—'}</td>
+                          <td className="px-3 py-2 text-right">
+                            <input
+                              className="w-[88px] ml-auto block rounded-md border border-border bg-background px-2 py-1.5 text-right font-mono-data text-xs text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
+                              value={editVariantCosts[key] ?? ''}
+                              onChange={(e) => setEditVariantCosts((prev) => ({
+                                ...prev,
+                                [key]: sanitizeCostInput(e.target.value),
+                              }))}
+                              placeholder="0"
+                              inputMode="decimal"
+                              title="成本只存於本系統，不會上載到 Shopify"
+                            />
+                          </td>
                         </tr>
                         );
                       })}
@@ -957,13 +1026,29 @@ export function PublishedProductDetailModal({
             )}
             {variants.length === 0 && (
               <section className="rounded-xl border border-border bg-card p-5 space-y-3">
-                <div className="text-sm font-bold text-foreground">SKU</div>
-                <input
-                  className={`${inputCls} font-mono-data`}
-                  value={editFallbackSku}
-                  onChange={(e) => setEditFallbackSku(e.target.value)}
-                  placeholder="輸入 SKU"
-                />
+                <div className="text-sm font-bold text-foreground">SKU / 成本</div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-muted-foreground">SKU</label>
+                    <input
+                      className={`${inputCls} font-mono-data`}
+                      value={editFallbackSku}
+                      onChange={(e) => setEditFallbackSku(e.target.value)}
+                      placeholder="輸入 SKU"
+                    />
+                  </div>
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-muted-foreground">成本</label>
+                    <input
+                      className={`${inputCls} font-mono-data text-right`}
+                      value={editFallbackCost}
+                      onChange={(e) => setEditFallbackCost(sanitizeCostInput(e.target.value))}
+                      placeholder="0"
+                      inputMode="decimal"
+                      title="成本只存於本系統，不會上載到 Shopify"
+                    />
+                  </div>
+                </div>
               </section>
             )}
 
