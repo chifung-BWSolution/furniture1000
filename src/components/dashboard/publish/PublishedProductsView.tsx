@@ -2125,7 +2125,7 @@ export function PublishedProductsView({
                       : 'border-border bg-card hover:border-amber-500/40 hover:bg-amber-500/10',
                   )}
                 >
-                  <div className="font-body text-[11px] text-muted-foreground">
+                  <div className="font-body text-[13px] text-muted-foreground">
                     少於或等於 {b.value} 倍
                   </div>
                   <div className={cn(
