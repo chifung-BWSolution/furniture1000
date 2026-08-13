@@ -2248,13 +2248,13 @@ export function PublishedProductsView() {
         </div>
       )}
 
-      {/* table — default cols fill viewport (操作 at right); Factory ID / 成本 need horizontal scroll */}
+      {/* table — default cols fill viewport (操作 at right); Factory ID needs horizontal scroll */}
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="min-h-0 flex-1 overflow-auto p-6">
-        {/* +168px forces Factory ID + 成本 past the default viewport edge */}
+        {/* +88px forces Factory ID past the default viewport edge */}
         <div
           className="overflow-hidden rounded-xl border border-border bg-card"
-          style={{ width: 'calc(100% + 168px)', minWidth: 'calc(100% + 168px)' }}
+          style={{ width: 'calc(100% + 88px)', minWidth: 'calc(100% + 88px)' }}
         >
           <table className="w-full table-fixed text-sm">
             <colgroup>
@@ -2265,14 +2265,14 @@ export function PublishedProductsView() {
               <col />
               <col style={{ width: 120 }} />
               <col style={{ width: 150 }} />
-              <col style={{ width: 72 }} />
+              <col style={{ width: 72 }} />{/* 價格 */}
+              <col style={{ width: 80 }} />{/* 成本 */}
               <col style={{ width: 72 }} />
               <col style={{ width: 180 }} />{/* 尺寸（LWH） */}
               <col style={{ width: 160 }} />{/* SKU */}
               <col style={{ width: 100 }} />{/* 狀態 */}
               <col style={{ width: 168 }} />{/* 操作 */}
               <col style={{ width: 88 }} />
-              <col style={{ width: 80 }} />
             </colgroup>
             <thead className="bg-muted/50 text-[11px] uppercase tracking-wider text-muted-foreground">
               <tr>
@@ -2299,6 +2299,7 @@ export function PublishedProductsView() {
                 <th className="px-3 py-2.5 text-left font-medium">材質描述</th>
                 <th className="px-3 py-2.5 text-left font-medium">標籤</th>
                 <th className="px-3 py-2.5 text-right font-medium">價格</th>
+                <th className="px-3 py-2.5 text-right font-medium">成本</th>
                 <th className="px-3 py-2.5 text-left font-medium">變體</th>
                 <th className="px-3 py-2.5 text-left font-medium">尺寸（LWH）</th>
                 <th className="px-3 py-2.5 text-left font-medium">
@@ -2319,7 +2320,6 @@ export function PublishedProductsView() {
                 <th className="px-3 py-2.5 text-left font-medium">狀態</th>
                 <th className="px-3 py-2.5 text-right font-medium">操作</th>
                 <th className="px-3 py-2.5 text-left font-medium">Factory ID</th>
-                <th className="px-3 py-2.5 text-right font-medium">成本</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-border/60">
@@ -2493,6 +2493,10 @@ export function PublishedProductsView() {
                     >
                       {fmtMoney(r.price)}
                     </td>
+                    {/* 成本 */}
+                    <td className="px-3 py-2.5 text-right font-mono-data text-[11px] text-muted-foreground whitespace-nowrap align-top">
+                      {fmtMoney(p.costPrice)}
+                    </td>
                     {/* 變體 */}
                     <td className="px-3 py-2.5 align-top overflow-hidden">
                       <span className="font-mono-data text-[11px] text-muted-foreground">{variants.length} 個變體</span>
@@ -2541,10 +2545,6 @@ export function PublishedProductsView() {
                     {/* Factory ID — scroll right to see */}
                     <td className="px-3 py-2.5 align-top">
                       <span className="font-mono-data text-[11px] text-muted-foreground/50">—</span>
-                    </td>
-                    {/* 成本 — scroll right to see */}
-                    <td className="px-3 py-2.5 text-right font-mono-data text-[11px] text-muted-foreground whitespace-nowrap align-top">
-                      {fmtMoney(p.costPrice)}
                     </td>
                   </tr>
                   </Fragment>
