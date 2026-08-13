@@ -105,6 +105,77 @@ export async function syncShopifyProductToProduct(
   await syncRtsContentToProduct(supabase, productId, mirrorRowToRtsContentPatch(mirror));
 }
 
+/**
+ * Write 成本 to every related `products` row:
+ * source_product_id, products.shopify_product_id, or matching SKU.
+ * Variant SKUs get that variant's cost; otherwise the product-level cost.
+ */
+export async function syncShopifyCostsToProducts(
+  supabase: SupabaseClient,
+  opts: {
+    sourceProductId?: string | null;
+    shopifyProductId?: string | null;
+    productCost: number | null;
+    variantCosts: { sku: string; cost: number | null }[];
+  },
+): Promise<{ updated: number; error?: string }> {
+  const ids = new Set<string>();
+  const sourceId = (opts.sourceProductId || '').trim();
+  if (sourceId) ids.add(sourceId);
+
+  const shopifyId = String(opts.shopifyProductId || '').trim();
+  if (shopifyId) {
+    const { data, error } = await supabase
+      .from('products')
+      .select('id')
+      .eq('shopify_product_id', shopifyId);
+    if (error) return { updated: 0, error: error.message };
+    for (const row of data ?? []) {
+      if (row.id) ids.add(String(row.id));
+    }
+  }
+
+  const skuCost = new Map<string, number | null>();
+  for (const row of opts.variantCosts) {
+    const sku = (row.sku || '').trim();
+    if (!sku) continue;
+    skuCost.set(sku, row.cost);
+  }
+  const skus = [...skuCost.keys()];
+  if (skus.length > 0) {
+    const { data, error } = await supabase
+      .from('products')
+      .select('id, sku')
+      .in('sku', skus);
+    if (error) return { updated: 0, error: error.message };
+    for (const row of data ?? []) {
+      if (row.id) ids.add(String(row.id));
+    }
+  }
+
+  if (ids.size === 0) return { updated: 0 };
+
+  const { data: linked, error: loadErr } = await supabase
+    .from('products')
+    .select('id, sku')
+    .in('id', [...ids]);
+  if (loadErr) return { updated: 0, error: loadErr.message };
+
+  let updated = 0;
+  let lastError: string | undefined;
+  for (const row of linked ?? []) {
+    const sku = typeof row.sku === 'string' ? row.sku.trim() : '';
+    const cost = sku && skuCost.has(sku) ? skuCost.get(sku)! : opts.productCost;
+    const { error } = await supabase
+      .from('products')
+      .update(await withUpdateAuditFields({ cost_price: cost }))
+      .eq('id', row.id);
+    if (error) lastError = error.message;
+    else updated += 1;
+  }
+  return { updated, error: lastError };
+}
+
 /** Mirror publish-workflow flags to products (待處理 / 目錄 filters still use products). */
 export async function syncRtsWorkflowToProduct(
   supabase: SupabaseClient,

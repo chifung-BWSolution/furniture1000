@@ -18,7 +18,7 @@ import { CategoryTagPicker, type BwfCat } from './CategoryTagPicker';
 import { MANUFACTURERS } from '@/constants/manufacturers';
 import { fetchFactoriesWithIds, type FactoryItem } from '@/lib/factorySupabase';
 import { buildMoreImageMetafieldColumns } from '@/lib/shopifyMetafieldImages';
-import { syncShopifyProductToProduct } from '@/lib/rtsProductSync';
+import { syncShopifyProductToProduct, syncShopifyCostsToProducts } from '@/lib/rtsProductSync';
 
 interface ShopifyVariant {
   id?: string | number;
@@ -525,11 +525,40 @@ export function PublishedProductDetailModal({
         });
       }
 
-      toast.success('已儲存至本地', {
-        id: toastId,
-        description: '按「與 Shopify 同步」將本地資料推送至 Shopify（圖片 metafield 會使用 Shopify CDN）。',
-        duration: 5000,
+      const variantCosts = updatedVariants.length > 0
+        ? updatedVariants.map((v) => ({
+            sku: (v.sku || '').trim(),
+            cost: typeof v.cost === 'number' ? v.cost : null,
+          }))
+        : (primarySku ? [{ sku: primarySku, cost: productCost }] : []);
+
+      const productsCostSync = await syncShopifyCostsToProducts(supabase, {
+        sourceProductId: r.source_product_id,
+        shopifyProductId: r.shopify_product_id,
+        productCost,
+        variantCosts,
       });
+      if (productsCostSync.error) {
+        toast.warning('已儲存 Shopify 產品成本，但同步 products 成本失敗', {
+          id: toastId,
+          description: productsCostSync.error,
+          duration: 8000,
+        });
+        onSaved();
+        onClose();
+        return;
+      }
+
+      toast.success(
+        productsCostSync.updated > 0
+          ? `已儲存至本地，並同步 ${productsCostSync.updated} 筆產品成本`
+          : '已儲存至本地',
+        {
+          id: toastId,
+          description: '按「與 Shopify 同步」將本地資料推送至 Shopify（圖片 metafield 會使用 Shopify CDN）。成本只留在本系統，不會上載到 Shopify。',
+          duration: 5000,
+        },
+      );
       onSaved();
       onClose();
     } catch (e) {
