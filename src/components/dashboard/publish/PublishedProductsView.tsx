@@ -403,6 +403,12 @@ function publishGroupRank(state: PublishState): number {
   return 2;
 }
 
+/** 售價 ≤ 成本 × 1.5（紅字）排在該狀態組最前。 */
+function priceAlertRank(p: DisplayProduct): number {
+  const variants = Array.isArray(p.raw.variants) ? p.raw.variants : [];
+  return productHasPriceAlert(p.raw.price, variants, p.costPrice) ? 0 : 1;
+}
+
 type UploadedListSortKey = 'sku' | 'price' | 'cost';
 
 /** Letters a→z, then numeric chunks 1→9 (natural / alphanumeric order). */
@@ -1068,6 +1074,8 @@ export function PublishedProductsView() {
         const rank = publishGroupRank(a.state) - publishGroupRank(b.state);
         if (rank !== 0) return rank;
       }
+      const alert = priceAlertRank(a) - priceAlertRank(b);
+      if (alert !== 0) return alert;
       return compareByActiveKey(a, b);
     });
     return list;
