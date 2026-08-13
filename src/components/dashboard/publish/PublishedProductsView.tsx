@@ -317,6 +317,12 @@ function matchesPriceCheckFilter(
 ): boolean {
   const p = typeof price === 'string' ? parseFloat(price) : Number(price);
   const c = cost != null ? Number(cost) : NaN;
+  const priceIsZero = Number.isFinite(p) && p === 0;
+  const costIsZeroOrMissing = !Number.isFinite(c) || c <= 0;
+  // 成本 0／缺失或售價 0：無法算正常倍數，一律歸入 ≤1.5 倍。
+  if (multiplier === PRICE_ALERT_MULTIPLIER && (priceIsZero || costIsZeroOrMissing)) {
+    return true;
+  }
   if (!Number.isFinite(p) || !Number.isFinite(c) || c <= 0) return false;
   return p <= c * multiplier;
 }
@@ -2205,7 +2211,7 @@ export function PublishedProductsView({
       {priceAudit ? (
         <div className="shrink-0 border-b border-border bg-amber-500/[0.06] px-6 py-3">
           <p className="mb-2 font-body text-xs text-muted-foreground">
-            售價相對成本的倍數（例：售價 $100、成本 $50 = 2 倍）。「少於或等於 N 倍」＝售價 ≤ 成本 × N；多規格只要任一規格符合即計入。點選倍數或套用自訂倍數可篩選列表。
+            售價相對成本的倍數（例：售價 $100、成本 $50 = 2 倍）。「少於或等於 N 倍」＝售價 ≤ 成本 × N；多規格只要任一規格符合即計入。成本為 0／沒有成本，或售價為 0 的產品，會計入「少於或等於 1.5 倍」。點選倍數或套用自訂倍數可篩選列表。
           </p>
           <div className="flex flex-wrap items-stretch gap-3">
             <div className="rounded-lg border border-border bg-card px-4 py-2.5 min-w-[140px]">
