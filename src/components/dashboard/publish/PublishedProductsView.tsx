@@ -481,7 +481,9 @@ export function PublishedProductsView({
   const [similarCriteriaActive, setSimilarCriteriaActive] = useState<SimilarProductCriterion[] | null>(
     null,
   );
-  const [priceCheckMultiplier, setPriceCheckMultiplier] = useState<PriceCheckMultiplier | null>(null);
+  const [priceCheckMultiplier, setPriceCheckMultiplier] = useState<PriceCheckMultiplier | null>(
+    priceAudit ? 1.5 : null,
+  );
   const [categoryPairs, setCategoryPairs] = useState<{ level1: string; level2: string }[]>([]);
   const [bwfCats, setBwfCats] = useState<BwfCat[]>([]);
   const [bulkCategoryPickerOpen, setBulkCategoryPickerOpen] = useState(false);
