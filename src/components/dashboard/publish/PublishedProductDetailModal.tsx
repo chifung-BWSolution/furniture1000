@@ -409,11 +409,16 @@ export function PublishedProductDetailModal({
         const imageId = selectedSrc
           ? resolveImageIdForSrc(selectedSrc, sortedImgs, editImages[0] ?? r.image_url)
           : v.image_id;
-        return {
+        const next = {
           ...v,
           sku: editVariantSkus[key] ?? v.sku ?? '',
           ...(imageId != null ? { image_id: imageId } : {}),
         };
+        // One-variant products: keep 規格價錢 in sync with the 售價 field.
+        if (priceNum != null && (r.variants?.length ?? 0) === 1) {
+          return { ...next, price: String(priceNum) };
+        }
+        return next;
       });
 
       const primarySku = updatedVariants.length === 0

@@ -295,16 +295,18 @@ function matchesPriceCheckFilter(
   return p <= c * multiplier;
 }
 
-/** True if product price or any variant is ≤ cost × 1.5 (list column turns red). */
+/** True if the visible list 價格 (or any extra variant) is ≤ cost × 1.5. */
 function productHasPriceAlert(
   price: number | string | null | undefined,
   variants: ShopifyVariant[] | null | undefined,
   cost: number | null | undefined,
 ): boolean {
   const list = Array.isArray(variants) ? variants : [];
-  if (list.length === 0) {
+  // Single / no variant: colour matches the number shown in 價格 (product.price).
+  if (list.length <= 1) {
     return matchesPriceCheckFilter(price, cost, PRICE_ALERT_MULTIPLIER);
   }
+  if (matchesPriceCheckFilter(price, cost, PRICE_ALERT_MULTIPLIER)) return true;
   return list.some((v) => matchesPriceCheckFilter(v.price, cost, PRICE_ALERT_MULTIPLIER));
 }
 
