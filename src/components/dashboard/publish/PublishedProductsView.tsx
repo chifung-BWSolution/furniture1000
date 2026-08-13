@@ -326,6 +326,10 @@ function variantPriceNumber(v: ShopifyVariant): number {
   return Number.isFinite(p) ? p : NaN;
 }
 
+function pricesAlreadyMatch(current: number, target: number): boolean {
+  return Number.isFinite(current) && Math.abs(current - target) < 0.005;
+}
+
 function shopifyStatusToState(status: string | null): PublishState {
   if (status === 'active') return 'published';
   if (status === 'archived') return 'delisted';
@@ -1466,9 +1470,9 @@ export function PublishedProductsView() {
   };
 
   /**
-   * 修改售價：新價 = ceil(成本 × 倍數)。
-   * - 有「價錢核對」篩選：只改 價錢 < 成本×倍數 的規格
-   * - 無篩選：已選產品的所有規格都改
+   * 修改售價：新價 = ceil(成本 × 倍數)，寫入每個規格的 price。
+   * - 有「價錢核對」：只改 售價 < 成本×輸入倍數 的規格
+   * - 無「價錢核對」：已選產品的每一個規格都改成該新價（例如 1 倍 = 售價等於成本取整）
    */
   const confirmBulkModifyPrice = async () => {
     const ids = [...selectedIds];
@@ -1487,7 +1491,7 @@ export function PublishedProductsView() {
     const toastId = toast.loading(
       selective
         ? `正在依 ${multiplier} 倍更新售價（僅改低於門檻的規格）...`
-        : `正在依 ${multiplier} 倍更新售價...`,
+        : `正在依 ${multiplier} 倍更新已選產品的全部規格售價...`,
     );
 
     try {
@@ -1508,18 +1512,17 @@ export function PublishedProductsView() {
         const threshold = cost * multiplier;
         const existingVariants = Array.isArray(p.raw.variants) ? p.raw.variants : [];
 
-        if (existingVariants.length === 0) {
-          const current = typeof p.raw.price === 'string'
-            ? parseFloat(p.raw.price)
-            : Number(p.raw.price);
-          const shouldUpdate = selective
-            ? Number.isFinite(current) && current < threshold
-            : true;
-          if (!shouldUpdate) {
-            skippedNoChange += 1;
-            continue;
+        const shouldRewriteVariant = (current: number): boolean => {
+          if (selective) {
+            return Number.isFinite(current) && current < threshold;
           }
-          if (Number.isFinite(current) && current === targetPrice) {
+          // 無價錢核對：所有規格都改成 成本×倍數（已是該價則略過）
+          return !pricesAlreadyMatch(current, targetPrice);
+        };
+
+        if (existingVariants.length === 0) {
+          const current = numericOrNaN(p.raw.price);
+          if (!shouldRewriteVariant(current)) {
             skippedNoChange += 1;
             continue;
           }
@@ -1552,11 +1555,12 @@ export function PublishedProductsView() {
         let changedInProduct = 0;
         const nextVariants = existingVariants.map((v) => {
           const current = variantPriceNumber(v);
-          const shouldUpdate = selective
-            ? Number.isFinite(current) && current < threshold
-            : true;
-          if (!shouldUpdate) return v;
-          if (Number.isFinite(current) && current === targetPrice) return v;
+          if (selective) {
+            if (!(Number.isFinite(current) && current < threshold)) return v;
+            if (pricesAlreadyMatch(current, targetPrice)) return v;
+          } else if (pricesAlreadyMatch(current, targetPrice)) {
+            return v;
+          }
           changedInProduct += 1;
           return { ...v, price: String(targetPrice) };
         });
@@ -1566,8 +1570,11 @@ export function PublishedProductsView() {
           continue;
         }
 
-        const firstPrice = variantPriceNumber(nextVariants[0]!);
-        const productPrice = Number.isFinite(firstPrice) ? firstPrice : targetPrice;
+        const productPrice = selective
+          ? (Number.isFinite(variantPriceNumber(nextVariants[0]!))
+              ? variantPriceNumber(nextVariants[0]!)
+              : targetPrice)
+          : targetPrice;
 
         const { error } = await supabase
           .from('shopify_products')
@@ -2233,8 +2240,8 @@ export function PublishedProductsView() {
               <span className="font-body text-[11px] text-muted-foreground">
                 新售價 = 成本 × 倍數（向上取整），套用後會自動同步至 Shopify
                 {priceCheckMultiplier != null
-                  ? '；價錢核對開啟時只改售價低於門檻的規格'
-                  : '；將更新已選產品的所有規格'}
+                  ? '；價錢核對開啟：只改售價低於「成本×此倍數」的規格'
+                  : '；未開價錢核對：已選產品的所有規格都會改成此倍數（例如 1 倍＝售價等於成本）'}
               </span>
             </div>
           )}
