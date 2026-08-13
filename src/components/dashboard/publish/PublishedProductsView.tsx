@@ -295,19 +295,29 @@ function matchesPriceCheckFilter(
   return p <= c * multiplier;
 }
 
+/** True if the visible list 價格 (or any extra variant) is ≤ cost × multiplier. */
+function productMatchesPriceMultiplier(
+  price: number | string | null | undefined,
+  variants: ShopifyVariant[] | null | undefined,
+  cost: number | null | undefined,
+  multiplier: number,
+): boolean {
+  const list = Array.isArray(variants) ? variants : [];
+  // Single / no variant: colour matches the number shown in 價格 (product.price).
+  if (list.length <= 1) {
+    return matchesPriceCheckFilter(price, cost, multiplier);
+  }
+  if (matchesPriceCheckFilter(price, cost, multiplier)) return true;
+  return list.some((v) => matchesPriceCheckFilter(v.price, cost, multiplier));
+}
+
 /** True if the visible list 價格 (or any extra variant) is ≤ cost × 1.5. */
 function productHasPriceAlert(
   price: number | string | null | undefined,
   variants: ShopifyVariant[] | null | undefined,
   cost: number | null | undefined,
 ): boolean {
-  const list = Array.isArray(variants) ? variants : [];
-  // Single / no variant: colour matches the number shown in 價格 (product.price).
-  if (list.length <= 1) {
-    return matchesPriceCheckFilter(price, cost, PRICE_ALERT_MULTIPLIER);
-  }
-  if (matchesPriceCheckFilter(price, cost, PRICE_ALERT_MULTIPLIER)) return true;
-  return list.some((v) => matchesPriceCheckFilter(v.price, cost, PRICE_ALERT_MULTIPLIER));
+  return productMatchesPriceMultiplier(price, variants, cost, PRICE_ALERT_MULTIPLIER);
 }
 
 function parsePriceMultiplierInput(raw: string): number | null {
@@ -427,11 +437,19 @@ function compareSkuNatural(a: string, b: string): number {
   return ta.localeCompare(tb, undefined, { numeric: true, sensitivity: 'base' });
 }
 
-export function PublishedProductsView() {
+export function PublishedProductsView({
+  mode = 'catalog',
+}: {
+  mode?: 'catalog' | 'price-audit';
+} = {}) {
+  const priceAudit = mode === 'price-audit';
+  const tableColCount = priceAudit ? 11 : 14;
   const [items, setItems] = useState<DisplayProduct[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [stateFilter, setStateFilter] = useState<PublishState | 'all'>('all');
+  const [stateFilter, setStateFilter] = useState<PublishState | 'all'>(
+    priceAudit ? 'published' : 'all',
+  );
   const [factoryFilter, setFactoryFilter] = useState('全部');
   const [level1Filter, setLevel1Filter] = useState('');
   const [level2Filter, setLevel2Filter] = useState('');
@@ -1009,7 +1027,12 @@ export function PublishedProductsView() {
     }
     if (
       priceCheckMultiplier != null
-      && !matchesPriceCheckFilter(p.raw.price, p.costPrice, priceCheckMultiplier)
+      && !productMatchesPriceMultiplier(
+        p.raw.price,
+        p.raw.variants,
+        p.costPrice,
+        priceCheckMultiplier,
+      )
     ) {
       return false;
     }
@@ -1728,6 +1751,21 @@ export function PublishedProductsView() {
     delisted: items.filter((p) => p.state === 'delisted').length,
   };
 
+  const priceAuditReport = useMemo(() => {
+    const published = items.filter((p) => p.state === 'published');
+    const countAt = (multiplier: number) =>
+      published.filter((p) =>
+        productMatchesPriceMultiplier(p.raw.price, p.raw.variants, p.costPrice, multiplier),
+      ).length;
+    return {
+      published: published.length,
+      buckets: PRICE_CHECK_OPTIONS.map((opt) => ({
+        ...opt,
+        count: countAt(opt.value),
+      })),
+    };
+  }, [items]);
+
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">
       {/* Toolbar */}
@@ -1735,12 +1773,17 @@ export function PublishedProductsView() {
         {/* Row 1: title + action buttons */}
         <div className="flex items-center justify-between gap-3">
           <div className="flex items-center gap-2 min-w-0">
-            <CheckCheck className="h-4 w-4 shrink-0 text-primary" />
-            <h2 className="font-display text-sm font-bold shrink-0">已上載產品</h2>
+            {priceAudit
+              ? <BadgeDollarSign className="h-4 w-4 shrink-0 text-primary" />
+              : <CheckCheck className="h-4 w-4 shrink-0 text-primary" />}
+            <h2 className="font-display text-sm font-bold shrink-0">
+              {priceAudit ? '異常價錢產品' : '已上載產品'}
+            </h2>
             <span className="font-mono-data text-[11px] text-muted-foreground truncate">
               已發佈 {counts.published} · 已下架 {counts.delisted}
             </span>
           </div>
+          {!priceAudit ? (
           <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
             <button
               type="button"
@@ -1802,6 +1845,7 @@ export function PublishedProductsView() {
               合併產品
             </button>
           </div>
+          ) : null}
         </div>
 
         {/* Row 2: search + filters */}
@@ -1891,6 +1935,8 @@ export function PublishedProductsView() {
             </select>
             <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           </div>
+          {!priceAudit ? (
+          <>
           <Popover open={similarPopoverOpen} onOpenChange={setSimilarPopoverOpen}>
             <PopoverTrigger asChild>
               <button
@@ -1985,6 +2031,8 @@ export function PublishedProductsView() {
               清除相似篩選
             </button>
           ) : null}
+          </>
+          ) : null}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <button
@@ -2043,6 +2091,54 @@ export function PublishedProductsView() {
           ) : null}
         </div>
       </div>
+
+      {priceAudit ? (
+        <div className="shrink-0 border-b border-border bg-amber-500/[0.06] px-6 py-3">
+          <p className="mb-2 font-body text-xs text-muted-foreground">
+            售價相對成本的倍數（例：售價 $100、成本 $50 = 2 倍）。「少於或等於 N 倍」＝售價 ≤ 成本 × N；多規格只要任一規格符合即計入。點選倍數可篩選列表（等同「價錢核對」）。
+          </p>
+          <div className="flex flex-wrap items-stretch gap-3">
+            <div className="rounded-lg border border-border bg-card px-4 py-2.5 min-w-[140px]">
+              <div className="font-body text-[11px] text-muted-foreground">已發佈產品</div>
+              <div className="mt-0.5 font-mono-data text-lg font-bold text-foreground">
+                {priceAuditReport.published}
+                <span className="ml-0.5 text-sm font-medium text-muted-foreground">件</span>
+              </div>
+            </div>
+            {priceAuditReport.buckets.map((b) => {
+              const active = priceCheckMultiplier === b.value;
+              return (
+                <button
+                  key={b.value}
+                  type="button"
+                  onClick={() => {
+                    setStateFilter('published');
+                    setPriceCheckMultiplier(active ? null : b.value);
+                  }}
+                  title="篩選列表：售價 ≤ 成本 × 此倍數"
+                  className={cn(
+                    'rounded-lg border px-4 py-2.5 min-w-[160px] text-left transition-colors',
+                    active
+                      ? 'border-amber-500/50 bg-amber-500/15'
+                      : 'border-border bg-card hover:border-amber-500/40 hover:bg-amber-500/10',
+                  )}
+                >
+                  <div className="font-body text-[11px] text-muted-foreground">
+                    少於或等於 {b.value} 倍
+                  </div>
+                  <div className={cn(
+                    'mt-0.5 font-mono-data text-lg font-bold',
+                    b.value === 1.5 ? 'text-red-600' : 'text-foreground',
+                  )}>
+                    {b.count}
+                    <span className="ml-0.5 text-sm font-medium text-muted-foreground">件</span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
 
       {/* state filter pills + selection summary */}
       <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border bg-card px-6 py-2">
@@ -2306,31 +2402,33 @@ export function PublishedProductsView() {
         </div>
       )}
 
-      {/* table — 操作 sits at viewport right; 材質描述 + Factory ID scroll */}
+      {/* table — catalog: 操作 sits at viewport right; 材質描述 + Factory ID scroll */}
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="min-h-0 flex-1 overflow-auto p-6">
-        {/* +288px = 材質描述 200 + Factory ID 88 */}
         <div
           className="overflow-hidden rounded-xl border border-border bg-card"
-          style={{ width: 'calc(100% + 288px)', minWidth: 'calc(100% + 288px)' }}
+          style={
+            priceAudit
+              ? { width: '100%', minWidth: '100%' }
+              : { width: 'calc(100% + 288px)', minWidth: 'calc(100% + 288px)' }
+          }
         >
           <table className="w-full table-fixed text-sm">
             <colgroup>
               <col style={{ width: 44 }} />
               <col style={{ width: 290 }} />
               <col style={{ width: 96 }} />
-              {/* 描述：彈性剩餘寬度 */}
-              <col />
-              <col style={{ width: 150 }} />{/* 標籤 */}
-              <col style={{ width: 72 }} />{/* 價格 */}
-              <col style={{ width: 80 }} />{/* 成本 */}
+              {!priceAudit ? <col /> : null}
+              {priceAudit ? <col /> : <col style={{ width: 150 }} />}
               <col style={{ width: 72 }} />
-              <col style={{ width: 180 }} />{/* 尺寸（LWH） */}
-              <col style={{ width: 220 }} />{/* SKU — 單行 */}
-              <col style={{ width: 76 }} />{/* 狀態 */}
-              <col style={{ width: 168 }} />{/* 操作 */}
-              <col style={{ width: 200 }} />{/* 材質描述 */}
-              <col style={{ width: 88 }} />
+              <col style={{ width: 80 }} />
+              <col style={{ width: 72 }} />
+              <col style={{ width: 180 }} />
+              <col style={{ width: 220 }} />
+              <col style={{ width: 76 }} />
+              <col style={{ width: 168 }} />
+              {!priceAudit ? <col style={{ width: 200 }} /> : null}
+              {!priceAudit ? <col style={{ width: 88 }} /> : null}
             </colgroup>
             <thead className="bg-muted/50 text-[11px] uppercase tracking-wider text-muted-foreground">
               <tr>
@@ -2353,7 +2451,7 @@ export function PublishedProductsView() {
                 </th>
                 <th className="px-3 py-2.5 text-left font-medium sticky left-[44px] bg-muted/50 z-10">產品圖片</th>
                 <th className="px-3 py-2.5 text-left font-medium">廠家</th>
-                <th className="px-3 py-2.5 text-left font-medium">描述</th>
+                {!priceAudit ? <th className="px-3 py-2.5 text-left font-medium">描述</th> : null}
                 <th className="px-3 py-2.5 text-left font-medium">標籤</th>
                 <th className="px-3 py-2.5 text-right font-medium">
                   <button
@@ -2430,14 +2528,14 @@ export function PublishedProductsView() {
                 </th>
                 <th className="px-3 py-2.5 text-left font-medium">狀態</th>
                 <th className="px-3 py-2.5 text-right font-medium">操作</th>
-                <th className="px-3 py-2.5 text-left font-medium">材質描述</th>
-                <th className="px-3 py-2.5 text-left font-medium">Factory ID</th>
+                {!priceAudit ? <th className="px-3 py-2.5 text-left font-medium">材質描述</th> : null}
+                {!priceAudit ? <th className="px-3 py-2.5 text-left font-medium">Factory ID</th> : null}
               </tr>
             </thead>
             <tbody className="divide-y divide-border/60">
               {similarCriteriaActive?.length && visibleSimilarGroups.length === 0 && !isLoading ? (
                 <tr>
-                  <td colSpan={14} className="px-4 py-10 text-center font-body text-sm text-muted-foreground">
+                  <td colSpan={tableColCount} className="px-4 py-10 text-center font-body text-sm text-muted-foreground">
                     找不到符合所選準則的相似產品
                   </td>
                 </tr>
@@ -2446,7 +2544,7 @@ export function PublishedProductsView() {
                 const r = p.raw;
                 const variants: ShopifyVariant[] = Array.isArray(r.variants) ? r.variants : [];
                 const tags: string[] = Array.isArray(r.tags) ? r.tags : [];
-                const bodyText = r.body_html ? r.body_html.replace(/<[^>]*>/g, '') : '';
+                const bodyText = priceAudit ? '' : (r.body_html ? r.body_html.replace(/<[^>]*>/g, '') : '');
                 const skuText = resolveProductSku(r);
                 const groupMeta = groupMetaByProductId.get(p.id);
                 const prevGroupId =
@@ -2461,7 +2559,7 @@ export function PublishedProductsView() {
                   <Fragment key={p.id}>
                   {showGroupHeader && groupMeta ? (
                     <tr className="bg-violet-500/[0.07]">
-                      <td colSpan={14} className="px-4 py-2.5">
+                      <td colSpan={tableColCount} className="px-4 py-2.5">
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
                           <span className="font-body text-xs font-semibold text-violet-800 dark:text-violet-200">
                             {groupMeta.label} 已找到 {groupMeta.count} 款
@@ -2536,6 +2634,7 @@ export function PublishedProductsView() {
                       ) : <span className="text-muted-foreground/50 text-[11px]">—</span>}
                     </td>
                     {/* 描述 */}
+                    {!priceAudit ? (
                     <td className="px-3 py-2.5 align-top overflow-hidden">
                       <div
                         className="font-body text-muted-foreground"
@@ -2554,6 +2653,7 @@ export function PublishedProductsView() {
                         {bodyText || '—'}
                       </div>
                     </td>
+                    ) : null}
                     {/* 標籤 — show up to 6, then +N */}
                     <td className="px-3 py-2.5 align-top overflow-hidden">
                       {tags.length > 0 ? (
@@ -2634,6 +2734,7 @@ export function PublishedProductsView() {
                       </div>
                     </td>
                     {/* 材質描述 */}
+                    {!priceAudit ? (
                     <td className="px-3 py-2.5 align-top overflow-hidden">
                       {r['my_fields.materials'] ? (
                         <div
@@ -2653,16 +2754,19 @@ export function PublishedProductsView() {
                         <span className="font-body text-[11px] text-muted-foreground">—</span>
                       )}
                     </td>
+                    ) : null}
                     {/* Factory ID — scroll right to see */}
+                    {!priceAudit ? (
                     <td className="px-3 py-2.5 align-top">
                       <span className="font-mono-data text-[11px] text-muted-foreground/50">—</span>
                     </td>
+                    ) : null}
                   </tr>
                   </Fragment>
                 );
               })}
               {sorted.length === 0 && !(similarCriteriaActive?.length && visibleSimilarGroups.length === 0) && (
-                <tr><td colSpan={14} className="px-6 py-10 text-center text-[12px] text-muted-foreground/60">
+                <tr><td colSpan={tableColCount} className="px-6 py-10 text-center text-[12px] text-muted-foreground/60">
                   {isLoading ? '載入中...' : similarCriteriaActive?.length ? '找不到符合所選準則的相似產品' : '尚未從 Shopify 導入產品'}
                 </td></tr>
               )}

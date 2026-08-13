@@ -3,7 +3,7 @@ import {
   LayoutDashboard, Search, UserPlus, CheckCircle2,
   Building2, Zap, ClipboardList, CircleDollarSign,
   FileUp, FolderTree, BookOpen, Boxes,
-  FileText, UploadCloud, CheckCheck, Sofa,
+  FileText, UploadCloud, CheckCheck, Sofa, BadgeDollarSign,
   Building, BarChart2,
   UserCog, History,
   Map, PenTool, Truck, PackageCheck,
@@ -95,6 +95,7 @@ export const NAV_CONFIG: PrimaryItem[] = [
       { view: 'furniture-group-check', label: '傢俬組檢查', icon: Sofa },
       { view: 'ready-to-publish', label: '準備上載', icon: UploadCloud },
       { view: 'published-products', label: '已上載產品', icon: CheckCheck },
+      { view: 'abnormal-price-products', label: '異常價錢產品', icon: BadgeDollarSign },
     ],
   },
   {

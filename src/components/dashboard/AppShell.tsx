@@ -224,6 +224,7 @@ const SELF_LOADING_VIEWS = new Set<ViewType>([
   "publish-precheck",
   "furniture-group-check",
   "published-products",
+  "abnormal-price-products",
   "report-factory",
   "report-product",
   "user-management",
@@ -1046,6 +1047,8 @@ export function AppShell() {
         );
       case "published-products":
         return <PublishedProductsView />;
+      case "abnormal-price-products":
+        return <PublishedProductsView mode="price-audit" />;
       case "report-factory":
         return <FactoryReportView />;
       case "report-product":

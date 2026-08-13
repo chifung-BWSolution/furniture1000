@@ -139,6 +139,7 @@ export type ViewType =
   | 'ready-to-publish'
   | 'furniture-group-check'
   | 'published-products'
+  | 'abnormal-price-products'
   // 分析報表
   | 'report-factory'
   | 'report-product'

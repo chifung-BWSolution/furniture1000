@@ -33,6 +33,7 @@ const VIEW_PATHS: { view: ViewType; path: string }[] = [
   { view: 'furniture-group-check', path: `${PUBLISH_BASE}/furniture-group-check` },
   { view: 'ready-to-publish', path: `${PUBLISH_BASE}/ready-to-publish` },
   { view: 'published-products', path: `${PUBLISH_BASE}/published-products` },
+  { view: 'abnormal-price-products', path: `${PUBLISH_BASE}/abnormal-price-products` },
 
   { view: 'report-factory', path: `${REPORTS_BASE}/factory` },
   { view: 'report-product', path: `${REPORTS_BASE}/product` },
