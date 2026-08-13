@@ -487,7 +487,8 @@ export function PublishedProductsView({
   mode?: 'catalog' | 'price-audit';
 } = {}) {
   const priceAudit = mode === 'price-audit';
-  const tableColCount = priceAudit ? 11 : 14;
+  const tableColCount = priceAudit ? 10 : 14;
+  const thumbPx = priceAudit ? 180 : 150;
   const [items, setItems] = useState<DisplayProduct[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -2589,10 +2590,10 @@ export function PublishedProductsView({
           <table className="w-full table-fixed text-sm">
             <colgroup>
               <col style={{ width: 44 }} />
-              <col style={{ width: 290 }} />
+              {priceAudit ? <col /> : <col style={{ width: 290 }} />}
               <col style={{ width: 96 }} />
               {!priceAudit ? <col /> : null}
-              {priceAudit ? <col /> : <col style={{ width: 150 }} />}
+              {!priceAudit ? <col style={{ width: 150 }} /> : null}
               <col style={{ width: 72 }} />
               <col style={{ width: 80 }} />
               <col style={{ width: 72 }} />
@@ -2625,7 +2626,7 @@ export function PublishedProductsView({
                 <th className="px-3 py-2.5 text-left font-medium sticky left-[44px] bg-muted/50 z-10">產品圖片</th>
                 <th className="px-3 py-2.5 text-left font-medium">廠家</th>
                 {!priceAudit ? <th className="px-3 py-2.5 text-left font-medium">描述</th> : null}
-                <th className="px-3 py-2.5 text-left font-medium">標籤</th>
+                {!priceAudit ? <th className="px-3 py-2.5 text-left font-medium">標籤</th> : null}
                 <th className="px-3 py-2.5 text-right font-medium">
                   <button
                     type="button"
@@ -2716,7 +2717,7 @@ export function PublishedProductsView({
               {paged.map((p, pageIndex) => {
                 const r = p.raw;
                 const variants: ShopifyVariant[] = Array.isArray(r.variants) ? r.variants : [];
-                const tags: string[] = Array.isArray(r.tags) ? r.tags : [];
+                const tags: string[] = priceAudit ? [] : (Array.isArray(r.tags) ? r.tags : []);
                 const bodyText = priceAudit ? '' : (r.body_html ? r.body_html.replace(/<[^>]*>/g, '') : '');
                 const skuText = resolveProductSku(r);
                 const groupMeta = groupMetaByProductId.get(p.id);
@@ -2770,7 +2771,7 @@ export function PublishedProductsView({
                         toggle(p.id);
                       }}
                     >
-                      <div className="flex min-h-[150px] w-full items-start justify-center pt-3">
+                      <div className="flex w-full items-start justify-center pt-3" style={{ minHeight: thumbPx }}>
                         <input
                           type="checkbox"
                           className="pointer-events-none rounded border-border"
@@ -2783,21 +2784,33 @@ export function PublishedProductsView({
                     </td>
                     {/* 產品圖片（含名稱） */}
                     <td className="px-3 py-2.5 sticky left-[44px] bg-card z-10 align-top overflow-hidden">
-                      <div className="flex items-start gap-2.5">
+                      <div className="flex items-start gap-3">
                         {p.imageUrl ? (
                           <img
                             key={p.imageUrl}
                             src={p.imageUrl}
                             alt={p.title}
                             loading="lazy"
-                            className="h-[150px] w-[150px] rounded-md object-contain bg-muted flex-shrink-0"
+                            className="rounded-md object-contain bg-muted flex-shrink-0"
+                            style={{ height: thumbPx, width: thumbPx }}
                           />
                         ) : (
-                          <div className="flex h-[150px] w-[150px] items-center justify-center rounded-md bg-muted flex-shrink-0">
+                          <div
+                            className="flex items-center justify-center rounded-md bg-muted flex-shrink-0"
+                            style={{ height: thumbPx, width: thumbPx }}
+                          >
                             <Store className="h-8 w-8 text-muted-foreground/40" />
                           </div>
                         )}
-                        <span className="font-body text-[12px] font-medium text-foreground line-clamp-5 min-w-0 flex-1 pt-1">{p.title}</span>
+                        <span
+                          className={cn(
+                            'font-body font-medium text-foreground min-w-0 flex-1 pt-1',
+                            priceAudit ? 'text-[13px] line-clamp-2' : 'text-[12px] line-clamp-5',
+                          )}
+                          title={p.title}
+                        >
+                          {p.title}
+                        </span>
                       </div>
                     </td>
                     {/* 廠家 */}
@@ -2828,6 +2841,7 @@ export function PublishedProductsView({
                     </td>
                     ) : null}
                     {/* 標籤 — show up to 6, then +N */}
+                    {!priceAudit ? (
                     <td className="px-3 py-2.5 align-top overflow-hidden">
                       {tags.length > 0 ? (
                         <div className="flex flex-wrap gap-x-1.5 gap-y-2">
@@ -2842,6 +2856,7 @@ export function PublishedProductsView({
                         </div>
                       ) : <span className="text-muted-foreground/50 text-[11px]">—</span>}
                     </td>
+                    ) : null}
                     {/* 價格 — 任規格 ≤ 成本×1.5 則整格標紅 */}
                     <td
                       className={cn(
