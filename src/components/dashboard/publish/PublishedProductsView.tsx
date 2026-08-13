@@ -1796,6 +1796,30 @@ export function PublishedProductsView({
     };
   }, [items]);
 
+  const isCustomPriceCheck = (
+    priceCheckMultiplier != null
+    && !PRICE_CHECK_OPTIONS.some((o) => o.value === priceCheckMultiplier)
+  );
+
+  const customPriceCheckCount = useMemo(() => {
+    if (!isCustomPriceCheck || priceCheckMultiplier == null) return null;
+    return items.filter((p) =>
+      p.state === 'published'
+      && productMatchesPriceMultiplier(p.raw.price, p.raw.variants, p.costPrice, priceCheckMultiplier),
+    ).length;
+  }, [items, isCustomPriceCheck, priceCheckMultiplier]);
+
+  const applyCustomPriceCheck = () => {
+    const n = parseOneDecimalMultiplier(priceCheckCustomDraft);
+    if (n == null) {
+      toast.message('請輸入有效倍數（大於 0，最多一位小數，如 5、5.1）');
+      return;
+    }
+    setStateFilter('published');
+    setPriceCheckMultiplier(n);
+    setPriceCheckMenuOpen(false);
+  };
+
   return (
     <div className="flex h-full flex-col overflow-hidden bg-background">
       {/* Toolbar */}
@@ -2063,6 +2087,8 @@ export function PublishedProductsView({
           ) : null}
           </>
           ) : null}
+          {!priceAudit ? (
+          <>
           <DropdownMenu open={priceCheckMenuOpen} onOpenChange={setPriceCheckMenuOpen}>
             <DropdownMenuTrigger asChild>
               <button
@@ -2171,13 +2197,15 @@ export function PublishedProductsView({
               清除價錢核對
             </button>
           ) : null}
+          </>
+          ) : null}
         </div>
       </div>
 
       {priceAudit ? (
         <div className="shrink-0 border-b border-border bg-amber-500/[0.06] px-6 py-3">
           <p className="mb-2 font-body text-xs text-muted-foreground">
-            售價相對成本的倍數（例：售價 $100、成本 $50 = 2 倍）。「少於或等於 N 倍」＝售價 ≤ 成本 × N；多規格只要任一規格符合即計入。點選倍數可篩選列表（等同「價錢核對」）。
+            售價相對成本的倍數（例：售價 $100、成本 $50 = 2 倍）。「少於或等於 N 倍」＝售價 ≤ 成本 × N；多規格只要任一規格符合即計入。點選倍數或套用自訂倍數可篩選列表。
           </p>
           <div className="flex flex-wrap items-stretch gap-3">
             <div className="rounded-lg border border-border bg-card px-4 py-2.5 min-w-[140px]">
@@ -2218,6 +2246,51 @@ export function PublishedProductsView({
                 </button>
               );
             })}
+            <div
+              className={cn(
+                'rounded-lg border px-4 py-2.5 min-w-[220px] text-left',
+                isCustomPriceCheck
+                  ? 'border-amber-500/50 bg-amber-500/15'
+                  : 'border-border bg-card',
+              )}
+            >
+              <div className="font-body text-[13px] text-muted-foreground">自訂倍數</div>
+              <div className="mt-1.5 flex items-center gap-1.5">
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={priceCheckCustomDraft}
+                  onChange={(e) => setPriceCheckCustomDraft(sanitizeOneDecimalMultiplierInput(e.target.value))}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      applyCustomPriceCheck();
+                    }
+                  }}
+                  placeholder="如 5、5.1"
+                  className="h-8 w-[72px] rounded-md border border-border bg-background px-2 font-mono-data text-xs focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  title="最多一位小數"
+                />
+                <span className="shrink-0 font-body text-[13px] text-muted-foreground">倍</span>
+                <button
+                  type="button"
+                  onClick={applyCustomPriceCheck}
+                  className="inline-flex h-8 shrink-0 items-center rounded-md bg-primary px-2.5 font-body text-xs font-semibold text-primary-foreground hover:bg-primary/90"
+                >
+                  套用
+                </button>
+              </div>
+              <div className="mt-1 font-mono-data text-lg font-bold text-foreground">
+                {customPriceCheckCount != null ? (
+                  <>
+                    {customPriceCheckCount}
+                    <span className="ml-0.5 text-sm font-medium text-muted-foreground">件</span>
+                  </>
+                ) : (
+                  <span className="text-sm font-medium text-muted-foreground">輸入後套用</span>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       ) : null}
