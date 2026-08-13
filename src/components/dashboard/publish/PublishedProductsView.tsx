@@ -2248,30 +2248,30 @@ export function PublishedProductsView() {
         </div>
       )}
 
-      {/* table — default cols fill viewport (操作 at right); Factory ID needs horizontal scroll */}
+      {/* table — 操作 sits at viewport right; 材質描述 + Factory ID scroll */}
       <div className="flex min-h-0 flex-1 flex-col">
         <div className="min-h-0 flex-1 overflow-auto p-6">
-        {/* +88px forces Factory ID past the default viewport edge */}
+        {/* +288px = 材質描述 200 + Factory ID 88 */}
         <div
           className="overflow-hidden rounded-xl border border-border bg-card"
-          style={{ width: 'calc(100% + 88px)', minWidth: 'calc(100% + 88px)' }}
+          style={{ width: 'calc(100% + 288px)', minWidth: 'calc(100% + 288px)' }}
         >
           <table className="w-full table-fixed text-sm">
             <colgroup>
               <col style={{ width: 44 }} />
               <col style={{ width: 290 }} />
               <col style={{ width: 96 }} />
-              {/* 描述：保留彈性剩餘寬度，但已把約 25% 分給 SKU / 尺寸 */}
+              {/* 描述：彈性剩餘寬度 */}
               <col />
-              <col style={{ width: 120 }} />
-              <col style={{ width: 150 }} />
+              <col style={{ width: 150 }} />{/* 標籤 */}
               <col style={{ width: 72 }} />{/* 價格 */}
               <col style={{ width: 80 }} />{/* 成本 */}
               <col style={{ width: 72 }} />
               <col style={{ width: 180 }} />{/* 尺寸（LWH） */}
-              <col style={{ width: 160 }} />{/* SKU */}
-              <col style={{ width: 100 }} />{/* 狀態 */}
+              <col style={{ width: 220 }} />{/* SKU — 單行 */}
+              <col style={{ width: 76 }} />{/* 狀態 */}
               <col style={{ width: 168 }} />{/* 操作 */}
+              <col style={{ width: 200 }} />{/* 材質描述 */}
               <col style={{ width: 88 }} />
             </colgroup>
             <thead className="bg-muted/50 text-[11px] uppercase tracking-wider text-muted-foreground">
@@ -2296,7 +2296,6 @@ export function PublishedProductsView() {
                 <th className="px-3 py-2.5 text-left font-medium sticky left-[44px] bg-muted/50 z-10">產品圖片</th>
                 <th className="px-3 py-2.5 text-left font-medium">廠家</th>
                 <th className="px-3 py-2.5 text-left font-medium">描述</th>
-                <th className="px-3 py-2.5 text-left font-medium">材質描述</th>
                 <th className="px-3 py-2.5 text-left font-medium">標籤</th>
                 <th className="px-3 py-2.5 text-right font-medium">價格</th>
                 <th className="px-3 py-2.5 text-right font-medium">成本</th>
@@ -2319,6 +2318,7 @@ export function PublishedProductsView() {
                 </th>
                 <th className="px-3 py-2.5 text-left font-medium">狀態</th>
                 <th className="px-3 py-2.5 text-right font-medium">操作</th>
+                <th className="px-3 py-2.5 text-left font-medium">材質描述</th>
                 <th className="px-3 py-2.5 text-left font-medium">Factory ID</th>
               </tr>
             </thead>
@@ -2423,7 +2423,7 @@ export function PublishedProductsView() {
                         <span className="inline-block rounded-md bg-violet-500/10 px-2 py-0.5 font-body text-[11px] text-violet-600 truncate max-w-full">{r.vendor}</span>
                       ) : <span className="text-muted-foreground/50 text-[11px]">—</span>}
                     </td>
-                    {/* 描述 — 寬度已縮約 25%，空間分給 SKU / 尺寸 */}
+                    {/* 描述 */}
                     <td className="px-3 py-2.5 align-top overflow-hidden">
                       <div
                         className="font-body text-muted-foreground"
@@ -2441,26 +2441,6 @@ export function PublishedProductsView() {
                       >
                         {bodyText || '—'}
                       </div>
-                    </td>
-                    {/* 材質描述 */}
-                    <td className="px-3 py-2.5 align-top overflow-hidden">
-                      {r['my_fields.materials'] ? (
-                        <div
-                          className="font-body text-[11px] text-muted-foreground break-words overflow-hidden"
-                          style={{
-                            lineHeight: 1.35,
-                            maxHeight: 'calc(11px * 1.35 * 6)',
-                            display: '-webkit-box',
-                            WebkitLineClamp: 6,
-                            WebkitBoxOrient: 'vertical',
-                          }}
-                          title={r['my_fields.materials']}
-                        >
-                          {r['my_fields.materials']}
-                        </div>
-                      ) : (
-                        <span className="font-body text-[11px] text-muted-foreground">—</span>
-                      )}
                     </td>
                     {/* 標籤 — show up to 6, then +N */}
                     <td className="px-3 py-2.5 align-top overflow-hidden">
@@ -2515,11 +2495,10 @@ export function PublishedProductsView() {
                         <span className="font-mono-data text-[11px] text-muted-foreground/50">—</span>
                       )}
                     </td>
-                    {/* SKU */}
+                    {/* SKU — 單行完整顯示 */}
                     <td className="px-3 py-2.5 align-top overflow-hidden">
                       <span
-                        className="font-mono-data text-[11px] text-foreground block whitespace-normal break-words"
-                        style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}
+                        className="font-mono-data text-[11px] text-foreground block whitespace-nowrap"
                         title={skuText}
                       >
                         {skuText}
@@ -2531,7 +2510,7 @@ export function PublishedProductsView() {
                         {PUBLISH_STATE_META[p.state].label}
                       </span>
                     </td>
-                    {/* 操作 — rightmost default column; stack to avoid overlap */}
+                    {/* 操作 */}
                     <td className="px-2 py-2.5 align-top overflow-hidden" onClick={e => e.stopPropagation()}>
                       <div className="flex flex-col items-stretch gap-1">
                         {p.state === 'published' ? (
@@ -2541,6 +2520,26 @@ export function PublishedProductsView() {
                         )}
                         <button onClick={() => toast.success('已還原至上一版本')} className="inline-flex items-center justify-center gap-1 rounded-md border border-border px-2 py-1 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground whitespace-nowrap"><RotateCcw className="h-3 w-3 shrink-0" /> 還原</button>
                       </div>
+                    </td>
+                    {/* 材質描述 */}
+                    <td className="px-3 py-2.5 align-top overflow-hidden">
+                      {r['my_fields.materials'] ? (
+                        <div
+                          className="font-body text-[11px] text-muted-foreground break-words overflow-hidden"
+                          style={{
+                            lineHeight: 1.35,
+                            maxHeight: 'calc(11px * 1.35 * 6)',
+                            display: '-webkit-box',
+                            WebkitLineClamp: 6,
+                            WebkitBoxOrient: 'vertical',
+                          }}
+                          title={r['my_fields.materials']}
+                        >
+                          {r['my_fields.materials']}
+                        </div>
+                      ) : (
+                        <span className="font-body text-[11px] text-muted-foreground">—</span>
+                      )}
                     </td>
                     {/* Factory ID — scroll right to see */}
                     <td className="px-3 py-2.5 align-top">
