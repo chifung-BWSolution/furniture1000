@@ -21,6 +21,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
@@ -279,7 +280,32 @@ const PRICE_CHECK_OPTIONS = [
   { value: 4, label: '≤4 倍' },
 ] as const;
 
-type PriceCheckMultiplier = (typeof PRICE_CHECK_OPTIONS)[number]['value'];
+type PriceCheckMultiplier = number;
+
+function formatPriceCheckLabel(multiplier: number): string {
+  const preset = PRICE_CHECK_OPTIONS.find((o) => o.value === multiplier);
+  if (preset) return preset.label;
+  const shown = Number.isInteger(multiplier) ? String(multiplier) : multiplier.toFixed(1);
+  return `≤${shown}倍`;
+}
+
+/** 自訂倍數：正數，最多一位小數（5、5.1、2.9）。 */
+function parseOneDecimalMultiplier(raw: string): number | null {
+  const s = String(raw).trim();
+  if (!/^\d+(\.\d)?$/.test(s)) return null;
+  const n = Number(s);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return n;
+}
+
+function sanitizeOneDecimalMultiplierInput(raw: string): string {
+  let s = raw.replace(/[^\d.]/g, '');
+  const dot = s.indexOf('.');
+  if (dot >= 0) {
+    s = `${s.slice(0, dot)}.${s.slice(dot + 1).replace(/\./g, '').slice(0, 1)}`;
+  }
+  return s;
+}
 
 /** 列表／詳情：價格 ≤ 成本 × 此倍數時標紅 */
 const PRICE_ALERT_MULTIPLIER = 1.5;
@@ -484,6 +510,8 @@ export function PublishedProductsView({
   const [priceCheckMultiplier, setPriceCheckMultiplier] = useState<PriceCheckMultiplier | null>(
     priceAudit ? 1.5 : null,
   );
+  const [priceCheckMenuOpen, setPriceCheckMenuOpen] = useState(false);
+  const [priceCheckCustomDraft, setPriceCheckCustomDraft] = useState('');
   const [categoryPairs, setCategoryPairs] = useState<{ level1: string; level2: string }[]>([]);
   const [bwfCats, setBwfCats] = useState<BwfCat[]>([]);
   const [bulkCategoryPickerOpen, setBulkCategoryPickerOpen] = useState(false);
@@ -2035,7 +2063,7 @@ export function PublishedProductsView({
           ) : null}
           </>
           ) : null}
-          <DropdownMenu>
+          <DropdownMenu open={priceCheckMenuOpen} onOpenChange={setPriceCheckMenuOpen}>
             <DropdownMenuTrigger asChild>
               <button
                 type="button"
@@ -2051,14 +2079,14 @@ export function PublishedProductsView({
                 價錢核對
                 {priceCheckMultiplier != null ? (
                   <span className="rounded-full bg-amber-500/15 px-1.5 py-0.5 font-mono-data text-[10px]">
-                    {PRICE_CHECK_OPTIONS.find((o) => o.value === priceCheckMultiplier)?.label}
+                    {formatPriceCheckLabel(priceCheckMultiplier)}
                   </span>
                 ) : (
                   <ChevronDown className="h-3.5 w-3.5 text-muted-foreground" />
                 )}
               </button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" className="min-w-[140px]">
+            <DropdownMenuContent align="start" className="w-[220px]">
               {PRICE_CHECK_OPTIONS.map((opt) => (
                 <DropdownMenuItem
                   key={opt.value}
@@ -2071,10 +2099,59 @@ export function PublishedProductsView({
                   {opt.label}
                 </DropdownMenuItem>
               ))}
+              <DropdownMenuSeparator />
+              <div
+                className="px-2 py-1.5"
+                onKeyDown={(e) => e.stopPropagation()}
+              >
+                <p className="mb-1.5 font-body text-xs font-semibold text-foreground">自訂</p>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={priceCheckCustomDraft}
+                    onChange={(e) => setPriceCheckCustomDraft(sanitizeOneDecimalMultiplierInput(e.target.value))}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        const n = parseOneDecimalMultiplier(priceCheckCustomDraft);
+                        if (n == null) {
+                          toast.message('請輸入有效倍數（大於 0，最多一位小數，如 5、5.1）');
+                          return;
+                        }
+                        setPriceCheckMultiplier(n);
+                        setPriceCheckMenuOpen(false);
+                      }
+                    }}
+                    placeholder="如 5、5.1"
+                    className="h-8 min-w-0 flex-1 rounded-md border border-border bg-background px-2 font-mono-data text-xs focus:border-primary/50 focus:outline-none focus:ring-2 focus:ring-primary/20"
+                  />
+                  <button
+                    type="button"
+                    onPointerDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      const n = parseOneDecimalMultiplier(priceCheckCustomDraft);
+                      if (n == null) {
+                        toast.message('請輸入有效倍數（大於 0，最多一位小數，如 5、5.1）');
+                        return;
+                      }
+                      setPriceCheckMultiplier(n);
+                      setPriceCheckMenuOpen(false);
+                    }}
+                    className="inline-flex h-8 shrink-0 items-center rounded-md bg-primary px-2.5 font-body text-xs font-semibold text-primary-foreground hover:bg-primary/90"
+                  >
+                    套用
+                  </button>
+                </div>
+              </div>
               {priceCheckMultiplier != null ? (
                 <DropdownMenuItem
                   className="text-xs font-body text-muted-foreground"
-                  onSelect={() => setPriceCheckMultiplier(null)}
+                  onSelect={() => {
+                    setPriceCheckMultiplier(null);
+                    setPriceCheckCustomDraft('');
+                  }}
                 >
                   清除篩選
                 </DropdownMenuItem>
@@ -2084,7 +2161,10 @@ export function PublishedProductsView({
           {priceCheckMultiplier != null ? (
             <button
               type="button"
-              onClick={() => setPriceCheckMultiplier(null)}
+              onClick={() => {
+                setPriceCheckMultiplier(null);
+                setPriceCheckCustomDraft('');
+              }}
               className="inline-flex h-8 items-center gap-1 rounded-lg border border-border px-2.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
             >
               <X className="h-3.5 w-3.5" />
