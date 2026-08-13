@@ -113,7 +113,6 @@ import {
   quotePdf,
   DEFAULT_COMPANY_ADDRESS,
   DEFAULT_COMPANY_WEBSITE,
-  normalizeQuoteDateInput,
   formatQuoteDisplayDate,
   todayQuoteDateIso,
 } from "@/lib/quotationLocale";
@@ -1865,7 +1864,8 @@ export function QuotationDraftEditor({
   // Quote meta (editable) — pitching code is read-only from PMS
   const [quoteMeta, setQuoteMeta] = useState({
     pmName: savedQuoteMeta?.pmName || formData.projectManager,
-    date: normalizeQuoteDateInput(savedQuoteMeta?.date) || todayQuoteDateIso(),
+    // Always show today in the editor; persist only on 保存現有版本 / 版本審核.
+    date: todayQuoteDateIso(),
     validity: savedQuoteMeta?.validity || formData.validityDays || "30",
     deliveryAddress: savedQuoteMeta?.deliveryAddress || "",
   });
@@ -2666,7 +2666,7 @@ export function QuotationDraftEditor({
           };
           setQuoteMeta({
             pmName: meta.pmName || quoteMeta.pmName,
-            date: normalizeQuoteDateInput(meta.date || quoteMeta.date),
+            date: todayQuoteDateIso(),
             validity: meta.validity || quoteMeta.validity,
             deliveryAddress: meta.deliveryAddress || "",
           });

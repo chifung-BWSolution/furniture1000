@@ -51,6 +51,7 @@ import {
 import { collectStaffNamesFromQuoteRows } from '@/lib/quoteStaffOptions';
 import { compareQuoteVersion, displayQuoteVersion } from '@/lib/quoteVersions';
 import { formatClientIndustryLabel } from '@/lib/clientIndustryDisplay';
+import { normalizeQuoteDateInput } from '@/lib/quotationLocale';
 
 interface QuoteRecord {
   id: string;
@@ -110,8 +111,14 @@ type SortKey =
   | 'staff'
   | 'pitching_stages';
 
-/** 建立日期 = 該報價版本列自己的 created_at（不用 pitching enquiry_date）。 */
+/** 建立日期 = 上次按「保存現有版本／版本審核」寫入的 quoteMeta.date，否則用列的 created_at。 */
 function quoteCreatedAt(q: QuoteListRow): string {
+  const meta = q.project_data?.quoteMeta as { date?: string } | undefined;
+  const stored = typeof meta?.date === 'string' ? meta.date.trim() : '';
+  if (stored) {
+    const iso = normalizeQuoteDateInput(stored);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(iso)) return `${iso}T00:00:00`;
+  }
   return q.created_at || q.modified_date || '';
 }
 

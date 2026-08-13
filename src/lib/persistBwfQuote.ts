@@ -242,6 +242,7 @@ export async function persistBwfQuote(
         cost_price: input.totalCostPrice ?? null,
         submitter: input.submitter.trim(),
         project_data: payloadProjectData,
+        created_at: new Date().toISOString(),
         ...(pitchingId ? { bwf_pitching_id: pitchingId } : {}),
         ...(projectId ? { bwf_project_id: projectId } : {}),
       });
@@ -312,6 +313,7 @@ export async function persistBwfQuote(
       cost_price: input.totalCostPrice ?? null,
       submitter: input.submitter.trim(),
       project_data: payloadProjectData,
+      created_at: new Date().toISOString(),
       ...(pitchingId ? { bwf_pitching_id: pitchingId } : {}),
       ...(projectId ? { bwf_project_id: projectId } : {}),
     });
