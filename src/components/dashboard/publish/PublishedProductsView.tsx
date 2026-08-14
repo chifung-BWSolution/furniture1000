@@ -478,6 +478,70 @@ function resolveCatalogListImage(
   return '';
 }
 
+const B_CLASS_FIRST_PAGE = 25;
+const UPLOADED_SHOPIFY_SELECT =
+  'source_product_id,shopify_product_id,title,image_url,images,configurable';
+
+async function fetchShopifyLinksForCatalog(
+  catalogRows: CatalogProductListRow[],
+): Promise<{
+  linkByProductId: Map<string, ShopifyCatalogLink>;
+  liveByShopifyId: Map<string, ShopifyCatalogLink>;
+}> {
+  const linkByProductId = new Map<string, ShopifyCatalogLink>();
+  const liveByShopifyId = new Map<string, ShopifyCatalogLink>();
+  const ids = catalogRows.map((r) => r.id);
+  for (let i = 0; i < ids.length; i += 100) {
+    const chunk = ids.slice(i, i + 100);
+    const { data: shopifyRows } = await supabase
+      .from('shopify_products')
+      .select(UPLOADED_SHOPIFY_SELECT)
+      .in('source_product_id', chunk)
+      .is('configurable', null);
+    for (const row of shopifyRows ?? []) {
+      if (!isStandaloneUploadedRow(row)) continue;
+      const pid = String(row.source_product_id || '').trim();
+      const link = shopifyRowToCatalogLink(row);
+      if (pid && link) {
+        linkByProductId.set(pid, link);
+        liveByShopifyId.set(link.shopify_product_id, link);
+      }
+    }
+  }
+  const catalogShopifyIds = [...new Set(
+    catalogRows
+      .map((r) => String(r.shopify_product_id || '').trim())
+      .filter((sid) => sid && !liveByShopifyId.has(sid)),
+  )];
+  for (let i = 0; i < catalogShopifyIds.length; i += 100) {
+    const chunk = catalogShopifyIds.slice(i, i + 100);
+    const { data: shopifyRows } = await supabase
+      .from('shopify_products')
+      .select(UPLOADED_SHOPIFY_SELECT)
+      .in('shopify_product_id', chunk)
+      .is('configurable', null);
+    for (const row of shopifyRows ?? []) {
+      if (!isStandaloneUploadedRow(row)) continue;
+      const link = shopifyRowToCatalogLink(row);
+      if (link) liveByShopifyId.set(link.shopify_product_id, link);
+    }
+  }
+  return { linkByProductId, liveByShopifyId };
+}
+
+function mapCatalogRowsToDisplay(
+  catalogRows: CatalogProductListRow[],
+  linkByProductId: Map<string, ShopifyCatalogLink>,
+  liveByShopifyId: Map<string, ShopifyCatalogLink>,
+): DisplayProduct[] {
+  return catalogRows.map((row) => {
+    const bySource = linkByProductId.get(row.id);
+    const sid = String(row.shopify_product_id || '').trim();
+    const byShopifyId = sid ? liveByShopifyId.get(sid) : undefined;
+    return catalogRowToDisplay(row, bySource ?? byShopifyId ?? null);
+  });
+}
+
 function catalogRowToDisplay(
   row: CatalogProductListRow,
   shopifyLink?: ShopifyCatalogLink | null,
@@ -609,6 +673,9 @@ export function PublishedProductsView({
   const thumbPx = priceAudit ? 180 : 150;
   const [items, setItems] = useState<DisplayProduct[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  /** B 類其餘頁與倍數／排除A類統計尚未算完 */
+  const [statsReady, setStatsReady] = useState(false);
+  const loadGenRef = useRef(0);
   const [search, setSearch] = useState('');
   const [stateFilter, setStateFilter] = useState<AuditListFilter>(
     priceAudit ? 'published' : 'all',
@@ -695,84 +762,72 @@ export function PublishedProductsView({
   }, [selectedIds.length]);
 
   const loadProducts = useCallback(async (opts?: { silent?: boolean }) => {
+    const gen = ++loadGenRef.current;
+    const stillCurrent = () => loadGenRef.current === gen;
     if (!opts?.silent) setIsLoading(true);
+    setStatsReady(false);
     try {
       if (priceAudit && catalogClass === 'B') {
-        const pageSize = 1000;
-        const catalogRows: CatalogProductListRow[] = [];
-        let from = 0;
-        while (true) {
+        const fetchCatalogPage = async (from: number, to: number) => {
           const { data, error } = await supabase
             .from('products')
             .select(CATALOG_LIST_COLUMNS)
             .eq('in_catalog', true)
             .not('dismissed', 'is', true)
             .order('created_at', { ascending: false })
-            .range(from, from + pageSize - 1);
-          if (error) {
-            toast.error('讀取目錄產品失敗', { description: error.message });
-            setItems([]);
-            return;
-          }
-          const pageRows = (data ?? []) as unknown as CatalogProductListRow[];
-          catalogRows.push(...pageRows);
-          if (!data || data.length < pageSize) break;
-          from += pageSize;
-        }
+            .range(from, to);
+          if (error) throw error;
+          return (data ?? []) as unknown as CatalogProductListRow[];
+        };
 
-        const linkByProductId = new Map<string, ShopifyCatalogLink>();
-        const liveByShopifyId = new Map<string, ShopifyCatalogLink>();
-        const ids = catalogRows.map((r) => r.id);
-        const uploadedSelect =
-          'source_product_id,shopify_product_id,title,image_url,images,configurable';
-        for (let i = 0; i < ids.length; i += 100) {
-          const chunk = ids.slice(i, i + 100);
-          const { data: shopifyRows } = await supabase
-            .from('shopify_products')
-            .select(uploadedSelect)
-            .in('source_product_id', chunk)
-            .is('configurable', null);
-          for (const row of shopifyRows ?? []) {
-            if (!isStandaloneUploadedRow(row)) continue;
-            const pid = String(row.source_product_id || '').trim();
-            const link = shopifyRowToCatalogLink(row);
-            if (pid && link) {
-              linkByProductId.set(pid, link);
-              liveByShopifyId.set(link.shopify_product_id, link);
-            }
-          }
+        let firstRows: CatalogProductListRow[];
+        try {
+          firstRows = await fetchCatalogPage(0, B_CLASS_FIRST_PAGE - 1);
+        } catch (e) {
+          toast.error('讀取目錄產品失敗', {
+            description: e instanceof Error ? e.message : String(e),
+          });
+          if (stillCurrent()) setItems([]);
+          return;
         }
-        const catalogShopifyIds = [...new Set(
-          catalogRows
-            .map((r) => String(r.shopify_product_id || '').trim())
-            .filter((sid) => sid && !liveByShopifyId.has(sid)),
-        )];
-        for (let i = 0; i < catalogShopifyIds.length; i += 100) {
-          const chunk = catalogShopifyIds.slice(i, i + 100);
-          const { data: shopifyRows } = await supabase
-            .from('shopify_products')
-            .select(uploadedSelect)
-            .in('shopify_product_id', chunk)
-            .is('configurable', null);
-          for (const row of shopifyRows ?? []) {
-            if (!isStandaloneUploadedRow(row)) continue;
-            const link = shopifyRowToCatalogLink(row);
-            if (link) liveByShopifyId.set(link.shopify_product_id, link);
-          }
-        }
+        if (!stillCurrent()) return;
 
-        const { count: uploadedCount } = await supabase
+        const firstLinks = await fetchShopifyLinksForCatalog(firstRows);
+        if (!stillCurrent()) return;
+        setItems(mapCatalogRowsToDisplay(firstRows, firstLinks.linkByProductId, firstLinks.liveByShopifyId));
+        if (!opts?.silent) setIsLoading(false);
+
+        void supabase
           .from('shopify_products')
           .select('id', { count: 'exact', head: true })
-          .is('configurable', null);
-        setUploadedShopifyTotal(uploadedCount ?? 0);
+          .is('configurable', null)
+          .then(({ count }) => {
+            if (stillCurrent()) setUploadedShopifyTotal(count ?? 0);
+          });
 
-        setItems(catalogRows.map((row) => {
-          const bySource = linkByProductId.get(row.id);
-          const sid = String(row.shopify_product_id || '').trim();
-          const byShopifyId = sid ? liveByShopifyId.get(sid) : undefined;
-          return catalogRowToDisplay(row, bySource ?? byShopifyId ?? null);
-        }));
+        const catalogRows = [...firstRows];
+        let from = B_CLASS_FIRST_PAGE;
+        const chunkSize = 1000;
+        while (true) {
+          let pageRows: CatalogProductListRow[];
+          try {
+            pageRows = await fetchCatalogPage(from, from + chunkSize - 1);
+          } catch (e) {
+            toast.error('讀取目錄產品失敗', {
+              description: e instanceof Error ? e.message : String(e),
+            });
+            return;
+          }
+          if (!stillCurrent()) return;
+          catalogRows.push(...pageRows);
+          if (pageRows.length < chunkSize) break;
+          from += chunkSize;
+        }
+
+        const allLinks = await fetchShopifyLinksForCatalog(catalogRows);
+        if (!stillCurrent()) return;
+        setItems(mapCatalogRowsToDisplay(catalogRows, allLinks.linkByProductId, allLinks.liveByShopifyId));
+        setStatsReady(true);
         return;
       }
 
@@ -787,6 +842,7 @@ export function PublishedProductsView({
       if (error) {
         toast.error('讀取產品失敗', { description: error.message });
         setItems([]);
+        setStatsReady(true);
       } else {
         const rows = (data ?? []).filter(
           (r) => !(typeof r.configurable === 'string' && r.configurable.trim()),
@@ -811,6 +867,7 @@ export function PublishedProductsView({
             r.source_product_id ? (costByProductId[r.source_product_id] ?? null) : null,
           ),
         })));
+        setStatsReady(true);
       }
     } finally {
       if (!opts?.silent) setIsLoading(false);
@@ -2086,8 +2143,12 @@ export function PublishedProductsView({
             <span className="font-mono-data text-[11px] text-muted-foreground truncate">
               {priceAudit && catalogClass === 'B'
                 ? stateFilter === 'exclude-a'
-                  ? `目錄 ${items.length} · 排除A類 ${items.length - counts.onShopify}`
-                  : `目錄 ${items.length} · 已上架Shopify ${uploadedShopifyTotal}`
+                  ? statsReady
+                    ? `目錄 ${items.length} · 已排除A類產品 ${items.length - counts.onShopify}`
+                    : '目錄載入中…'
+                  : statsReady
+                    ? `目錄 ${items.length} · 已上架Shopify ${uploadedShopifyTotal}`
+                    : `已顯示 ${items.length} · 其餘載入中…`
                 : `已發佈 ${counts.published} · 已下架 ${counts.delisted}`}
             </span>
           </div>
@@ -2244,13 +2305,14 @@ export function PublishedProductsView({
             <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           </div>
           {priceAudit ? (
-            <div className="inline-flex h-8 overflow-hidden rounded-lg border border-border bg-card">
+            <div className="inline-flex h-8 overflow-hidden rounded-lg border border-border">
               <button
                 type="button"
                 onClick={() => {
                   if (catalogClass !== 'A') {
                     setItems([]);
                     setIsLoading(true);
+                    setStatsReady(false);
                     setCatalogClass('A');
                   }
                   setStateFilter('published');
@@ -2258,10 +2320,10 @@ export function PublishedProductsView({
                   setCurrentPage(1);
                 }}
                 className={cn(
-                  'inline-flex items-center gap-1.5 px-3 text-xs font-medium transition-colors',
+                  'inline-flex items-center gap-1.5 px-3 text-xs font-semibold transition-colors',
                   catalogClass === 'A'
-                    ? 'bg-indigo-500/15 text-indigo-600'
-                    : 'bg-indigo-500/5 text-indigo-600/80 hover:bg-indigo-500/10',
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'bg-background text-indigo-400/80 hover:bg-indigo-50 hover:text-indigo-500',
                 )}
                 title="已上載 Shopify 的產品（shopify_products）"
               >
@@ -2274,6 +2336,7 @@ export function PublishedProductsView({
                   if (catalogClass !== 'B') {
                     setItems([]);
                     setIsLoading(true);
+                    setStatsReady(false);
                     setCatalogClass('B');
                   }
                   setStateFilter('all');
@@ -2281,10 +2344,10 @@ export function PublishedProductsView({
                   setCurrentPage(1);
                 }}
                 className={cn(
-                  'inline-flex items-center gap-1.5 border-l border-border px-3 text-xs font-medium transition-colors',
+                  'inline-flex items-center gap-1.5 border-l border-border px-3 text-xs font-semibold transition-colors',
                   catalogClass === 'B'
-                    ? 'bg-emerald-500/15 text-emerald-600'
-                    : 'bg-emerald-500/5 text-emerald-600/80 hover:bg-emerald-500/10',
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'bg-background text-emerald-500/70 hover:bg-emerald-50 hover:text-emerald-600',
                 )}
                 title="產品目錄全部產品（products）"
               >
@@ -2514,10 +2577,10 @@ export function PublishedProductsView({
           <div className="flex flex-wrap items-stretch gap-3">
             <div className="rounded-lg border border-border bg-card px-4 py-2.5 min-w-[140px]">
               <div className="font-body text-[11px] text-muted-foreground">
-                {stateFilter === 'exclude-a' ? '排除A類產品' : catalogClass === 'B' ? '目錄產品' : '已發佈產品'}
+                {stateFilter === 'exclude-a' ? '已排除A類產品' : catalogClass === 'B' ? '目錄產品' : '已發佈產品'}
               </div>
               <div className="mt-0.5 font-mono-data text-lg font-bold text-foreground">
-                {isLoading ? '—' : priceAuditReport.published}
+                {!statsReady ? '—' : priceAuditReport.published}
                 <span className="ml-0.5 text-sm font-medium text-muted-foreground">件</span>
               </div>
             </div>
@@ -2548,7 +2611,7 @@ export function PublishedProductsView({
                     'mt-0.5 font-mono-data text-lg font-bold',
                     b.value === 1.5 ? 'text-red-600' : 'text-foreground',
                   )}>
-                    {isLoading ? '—' : b.count}
+                    {!statsReady ? '—' : b.count}
                     <span className="ml-0.5 text-sm font-medium text-muted-foreground">件</span>
                   </div>
                 </button>
@@ -2589,7 +2652,9 @@ export function PublishedProductsView({
                 </button>
               </div>
               <div className="mt-1 font-mono-data text-lg font-bold text-foreground">
-                {customPriceCheckCount != null ? (
+                {!statsReady ? (
+                  <span className="text-muted-foreground">—</span>
+                ) : customPriceCheckCount != null ? (
                   <>
                     {customPriceCheckCount}
                     <span className="ml-0.5 text-sm font-medium text-muted-foreground">件</span>
@@ -2618,21 +2683,24 @@ export function PublishedProductsView({
                 if (catalogClass !== 'B') {
                   setItems([]);
                   setIsLoading(true);
+                  setStatsReady(false);
                   setCatalogClass('B');
                 }
                 setStateFilter('exclude-a');
                 setSelectedIds([]);
                 setCurrentPage(1);
               }}
+              disabled={catalogClass === 'B' && !statsReady}
               className={cn(
                 'rounded-full border px-3 py-1 text-[11.5px] font-medium transition-colors',
                 stateFilter === 'exclude-a'
                   ? 'border-emerald-600 bg-emerald-600 text-white'
                   : 'border-border text-muted-foreground hover:text-foreground',
+                catalogClass === 'B' && !statsReady && 'cursor-not-allowed opacity-50',
               )}
               title="產品目錄全部產品，隱藏已出現在「已上載產品」的 A 類"
             >
-              排除A類
+              已排除A類產品
             </button>
           ) : null}
         </div>
