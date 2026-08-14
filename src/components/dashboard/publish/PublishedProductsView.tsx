@@ -3,7 +3,7 @@ import { cn } from '@/lib/utils';
 import {
   CheckCheck, Search, ArrowDownToLine, ArrowUpToLine, RotateCcw, ChevronDown,
   CloudDownload, Loader2, X, Store, RefreshCw, ArrowUp, ArrowDown, GitMerge, FolderTree,
-  ScanSearch, Tag, BadgeDollarSign,
+  ScanSearch, Tag, BadgeDollarSign, Send, Database,
 } from 'lucide-react';
 import {
   Select,
@@ -267,6 +267,8 @@ interface DisplayProduct extends PublishedDisplayProduct {
   costPrice: number | null;
 }
 
+type AuditListFilter = PublishState | 'all' | 'exclude-a';
+
 const STATE_FILTERS: { key: PublishState | 'all'; label: string }[] = [
   { key: 'all', label: '全部' },
   { key: 'published', label: '已發佈' },
@@ -453,7 +455,7 @@ function catalogRowToDisplay(
 ): DisplayProduct {
   const sale = row.sale_price != null ? Number(row.sale_price) : (row.price != null ? Number(row.price) : null);
   const cost = row.cost_price != null ? Number(row.cost_price) : null;
-  const shopifyId = String(shopifyLink?.shopify_product_id || row.shopify_product_id || '').trim();
+  const shopifyId = String(shopifyLink?.shopify_product_id || '').trim();
   const onShopify = Boolean(shopifyId);
   const l1 = (row.level1_category || '').trim();
   const l2 = (row.level2_category || '').trim();
@@ -581,7 +583,7 @@ export function PublishedProductsView({
   const [items, setItems] = useState<DisplayProduct[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [stateFilter, setStateFilter] = useState<PublishState | 'all'>(
+  const [stateFilter, setStateFilter] = useState<AuditListFilter>(
     priceAudit ? 'published' : 'all',
   );
   const [catalogClass, setCatalogClass] = useState<'A' | 'B'>('A');
@@ -690,6 +692,7 @@ export function PublishedProductsView({
         }
 
         const linkByProductId = new Map<string, { shopify_product_id: string; title: string | null }>();
+        const liveByShopifyId = new Map<string, { shopify_product_id: string; title: string | null }>();
         const ids = catalogRows.map((r) => r.id);
         for (let i = 0; i < ids.length; i += 100) {
           const chunk = ids.slice(i, i + 100);
@@ -700,16 +703,35 @@ export function PublishedProductsView({
           for (const row of shopifyRows ?? []) {
             const pid = String(row.source_product_id || '').trim();
             const sid = String(row.shopify_product_id || '').trim();
-            if (pid && sid) linkByProductId.set(pid, { shopify_product_id: sid, title: row.title ?? null });
+            if (pid && sid) {
+              const link = { shopify_product_id: sid, title: row.title ?? null };
+              linkByProductId.set(pid, link);
+              liveByShopifyId.set(sid, link);
+            }
+          }
+        }
+        const catalogShopifyIds = [...new Set(
+          catalogRows
+            .map((r) => String(r.shopify_product_id || '').trim())
+            .filter((sid) => sid && !liveByShopifyId.has(sid)),
+        )];
+        for (let i = 0; i < catalogShopifyIds.length; i += 100) {
+          const chunk = catalogShopifyIds.slice(i, i + 100);
+          const { data: shopifyRows } = await supabase
+            .from('shopify_products')
+            .select('shopify_product_id,title')
+            .in('shopify_product_id', chunk);
+          for (const row of shopifyRows ?? []) {
+            const sid = String(row.shopify_product_id || '').trim();
+            if (sid) liveByShopifyId.set(sid, { shopify_product_id: sid, title: row.title ?? null });
           }
         }
 
         setItems(catalogRows.map((row) => {
           const bySource = linkByProductId.get(row.id);
-          const byShopifyCol = (row.shopify_product_id || '').trim()
-            ? { shopify_product_id: String(row.shopify_product_id), title: bySource?.title ?? null }
-            : null;
-          return catalogRowToDisplay(row, bySource ?? byShopifyCol);
+          const sid = String(row.shopify_product_id || '').trim();
+          const byShopifyId = sid ? liveByShopifyId.get(sid) : undefined;
+          return catalogRowToDisplay(row, bySource ?? byShopifyId ?? null);
         }));
         return;
       }
@@ -1224,7 +1246,11 @@ export function PublishedProductsView({
   }, [items, level1Filter, categoryPairs]);
 
   const baseFiltered = useMemo(() => items.filter((p) => {
-    if (stateFilter !== 'all' && p.state !== stateFilter) return false;
+    if (stateFilter === 'exclude-a') {
+      if (p.isOnShopify) return false;
+    } else if (stateFilter !== 'all' && p.state !== stateFilter) {
+      return false;
+    }
     if (factoryFilter !== '全部' && p.factory !== factoryFilter) return false;
     if (level1Filter) {
       const parts = (p.raw.product_type || '').split(' / ');
@@ -1958,9 +1984,11 @@ export function PublishedProductsView({
     onShopify: items.filter((p) => p.isOnShopify).length,
   };
 
-  const priceAuditUniverse = catalogClass === 'B'
-    ? items
-    : items.filter((p) => p.state === 'published');
+  const priceAuditUniverse = stateFilter === 'exclude-a'
+    ? items.filter((p) => !p.isOnShopify)
+    : catalogClass === 'B'
+      ? items
+      : items.filter((p) => p.state === 'published');
 
   const priceAuditReport = useMemo(() => {
     const countAt = (multiplier: number) =>
@@ -1994,7 +2022,9 @@ export function PublishedProductsView({
       toast.message('請輸入有效倍數（大於 0，最多一位小數，如 5、5.1）');
       return;
     }
-    setStateFilter(catalogClass === 'B' ? 'all' : 'published');
+    if (stateFilter !== 'exclude-a') {
+      setStateFilter(catalogClass === 'B' ? 'all' : 'published');
+    }
     setPriceCheckMultiplier(n);
     setPriceCheckMenuOpen(false);
   };
@@ -2014,7 +2044,9 @@ export function PublishedProductsView({
             </h2>
             <span className="font-mono-data text-[11px] text-muted-foreground truncate">
               {priceAudit && catalogClass === 'B'
-                ? `目錄 ${items.length} · 已上架Shopify ${counts.onShopify}`
+                ? stateFilter === 'exclude-a'
+                  ? `目錄 ${items.length} · 排除A類 ${items.length - counts.onShopify}`
+                  : `目錄 ${items.length} · 已上架Shopify ${counts.onShopify}`
                 : `已發佈 ${counts.published} · 已下架 ${counts.delisted}`}
             </span>
           </div>
@@ -2175,39 +2207,47 @@ export function PublishedProductsView({
               <button
                 type="button"
                 onClick={() => {
-                  if (catalogClass === 'A') return;
-                  setCatalogClass('A');
+                  if (catalogClass !== 'A') {
+                    setItems([]);
+                    setIsLoading(true);
+                    setCatalogClass('A');
+                  }
                   setStateFilter('published');
                   setSelectedIds([]);
                   setCurrentPage(1);
                 }}
                 className={cn(
-                  'px-3 text-xs font-semibold transition-colors',
+                  'inline-flex items-center gap-1.5 px-3 text-xs font-medium transition-colors',
                   catalogClass === 'A'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
+                    ? 'bg-indigo-500/15 text-indigo-600'
+                    : 'bg-indigo-500/5 text-indigo-600/80 hover:bg-indigo-500/10',
                 )}
                 title="已上載 Shopify 的產品（shopify_products）"
               >
+                <Send className="h-3 w-3 shrink-0" />
                 A類 : 已上載Shopify
               </button>
               <button
                 type="button"
                 onClick={() => {
-                  if (catalogClass === 'B') return;
-                  setCatalogClass('B');
+                  if (catalogClass !== 'B') {
+                    setItems([]);
+                    setIsLoading(true);
+                    setCatalogClass('B');
+                  }
                   setStateFilter('all');
                   setSelectedIds([]);
                   setCurrentPage(1);
                 }}
                 className={cn(
-                  'border-l border-border px-3 text-xs font-semibold transition-colors',
+                  'inline-flex items-center gap-1.5 border-l border-border px-3 text-xs font-medium transition-colors',
                   catalogClass === 'B'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:bg-muted/60 hover:text-foreground',
+                    ? 'bg-emerald-500/15 text-emerald-600'
+                    : 'bg-emerald-500/5 text-emerald-600/80 hover:bg-emerald-500/10',
                 )}
                 title="產品目錄全部產品（products）"
               >
+                <Database className="h-3 w-3 shrink-0" />
                 B類 : 系統所有產品
               </button>
             </div>
@@ -2433,10 +2473,10 @@ export function PublishedProductsView({
           <div className="flex flex-wrap items-stretch gap-3">
             <div className="rounded-lg border border-border bg-card px-4 py-2.5 min-w-[140px]">
               <div className="font-body text-[11px] text-muted-foreground">
-                {catalogClass === 'B' ? '目錄產品' : '已發佈產品'}
+                {stateFilter === 'exclude-a' ? '排除A類產品' : catalogClass === 'B' ? '目錄產品' : '已發佈產品'}
               </div>
               <div className="mt-0.5 font-mono-data text-lg font-bold text-foreground">
-                {priceAuditReport.published}
+                {isLoading ? '—' : priceAuditReport.published}
                 <span className="ml-0.5 text-sm font-medium text-muted-foreground">件</span>
               </div>
             </div>
@@ -2447,7 +2487,9 @@ export function PublishedProductsView({
                   key={b.value}
                   type="button"
                   onClick={() => {
-                    setStateFilter(catalogClass === 'B' ? 'all' : 'published');
+                    if (stateFilter !== 'exclude-a') {
+                      setStateFilter(catalogClass === 'B' ? 'all' : 'published');
+                    }
                     setPriceCheckMultiplier(active ? null : b.value);
                   }}
                   title="篩選列表：售價 ≤ 成本 × 此倍數"
@@ -2465,7 +2507,7 @@ export function PublishedProductsView({
                     'mt-0.5 font-mono-data text-lg font-bold',
                     b.value === 1.5 ? 'text-red-600' : 'text-foreground',
                   )}>
-                    {b.count}
+                    {isLoading ? '—' : b.count}
                     <span className="ml-0.5 text-sm font-medium text-muted-foreground">件</span>
                   </div>
                 </button>
@@ -2528,6 +2570,30 @@ export function PublishedProductsView({
               {f.label}
             </button>
           ))}
+          {priceAudit ? (
+            <button
+              type="button"
+              onClick={() => {
+                if (catalogClass !== 'B') {
+                  setItems([]);
+                  setIsLoading(true);
+                  setCatalogClass('B');
+                }
+                setStateFilter('exclude-a');
+                setSelectedIds([]);
+                setCurrentPage(1);
+              }}
+              className={cn(
+                'rounded-full border px-3 py-1 text-[11.5px] font-medium transition-colors',
+                stateFilter === 'exclude-a'
+                  ? 'border-emerald-600 bg-emerald-600 text-white'
+                  : 'border-border text-muted-foreground hover:text-foreground',
+              )}
+              title="產品目錄全部產品，隱藏已出現在「已上載產品」的 A 類"
+            >
+              排除A類
+            </button>
+          ) : null}
         </div>
         {selectedIds.length > 0 && (
           <span className="shrink-0 font-mono-data text-xs text-muted-foreground">
