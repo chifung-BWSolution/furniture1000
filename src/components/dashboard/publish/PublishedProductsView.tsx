@@ -54,6 +54,7 @@ import {
 import { toast } from 'sonner';
 import { PublishedProductDetailModal, type PublishedDisplayProduct } from './PublishedProductDetailModal';
 import { PublishedProductMergeModal } from './PublishedProductMergeModal';
+import { ProductDetailModal } from '../ProductDetailModal';
 import { CategoryTagPicker, type BwfCat } from './CategoryTagPicker';
 
 /** Bulk sync: low concurrency + spacing to avoid Shopify 429 (2 req/s). */
@@ -414,6 +415,101 @@ function rowToDisplay(r: ShopifyProductRow, costFallback: number | null = null):
 const CATALOG_LIST_COLUMNS =
   'id, title, image_url, tags, price, sale_price, cost_price, factories_display_name, level1_category, level2_category, sku, product_sku, shopify_product_id, dimension_l_mm, dimension_w_mm, dimension_h_mm, created_at';
 
+/** Same lightweight columns as 產品目錄 list — ProductDetailModal lazy-loads heavy images. */
+const CATALOG_DETAIL_COLUMNS = [
+  'id', 'title', 'description', 'tags', 'price', 'compare_at_price',
+  'collection', 'status', 'image_url',
+  'shopify_product_id', 'source', 'synced_at', 'created_at',
+  'color', 'factory_id', 'factories_display_name',
+  'cost_price', 'sale_price', 'production_date', 'shipping_days', 'total_lead_time',
+  'bwf_master_id', 'remarks', 'shipping_fee', 'category',
+  'level1_category', 'level2_category',
+  'delivery_term_id', 'delivery_term_name',
+  'dimension_l_mm', 'dimension_w_mm', 'dimension_h_mm',
+  'in_stock', 'customize', 'product_sku', 'sku',
+].join(',');
+
+type CatalogDetailProduct = {
+  id: string;
+  title: string;
+  description: string;
+  tags: string[];
+  price: number;
+  compareAtPrice?: number;
+  collection: string;
+  status: string;
+  imageUrl: string;
+  shopifyProductId: string | null;
+  source: string;
+  syncedAt?: string | null;
+  createdAt: string;
+  color?: string | null;
+  factoryId?: string | null;
+  factoriesDisplayName?: string | null;
+  costPrice?: number | null;
+  remarks?: string | null;
+  category?: string | null;
+  level1Category?: string | null;
+  level2Category?: string | null;
+  deliveryTermId?: string | null;
+  deliveryTermName?: string | null;
+  dimensionLMm?: number | null;
+  dimensionWMm?: number | null;
+  dimensionHMm?: number | null;
+  inStock?: boolean | null;
+  customize?: string | null;
+  sku?: string | null;
+  productionLeadTime?: number | null;
+  shippingDays?: number | null;
+  shippingFee?: number | null;
+  totalLeadTime?: number | null;
+  bwfMasterId?: string | null;
+};
+
+function mapProductRowToCatalogDetail(row: Record<string, unknown>): CatalogDetailProduct {
+  const sale = row.sale_price != null ? Number(row.sale_price) : Number(row.price);
+  const cost = row.cost_price != null ? Number(row.cost_price) : null;
+  const compare = row.compare_at_price != null ? Number(row.compare_at_price) : NaN;
+  return {
+    id: String(row.id),
+    title: String(row.title || ''),
+    description: String(row.description || ''),
+    tags: Array.isArray(row.tags) ? (row.tags as string[]) : [],
+    price: Number.isFinite(sale) ? sale : 0,
+    compareAtPrice: Number.isFinite(compare) ? compare : undefined,
+    collection: String(row.collection || ''),
+    status: String(row.status || ''),
+    imageUrl: typeof row.image_url === 'string' && !row.image_url.startsWith('data:')
+      ? row.image_url
+      : '',
+    shopifyProductId: row.shopify_product_id ? String(row.shopify_product_id) : null,
+    source: String(row.source || 'local'),
+    syncedAt: row.synced_at ? String(row.synced_at) : null,
+    createdAt: String(row.created_at || ''),
+    color: row.color != null ? String(row.color) : null,
+    factoryId: row.factory_id != null ? String(row.factory_id) : null,
+    factoriesDisplayName: row.factories_display_name != null ? String(row.factories_display_name) : null,
+    costPrice: Number.isFinite(cost as number) ? cost : null,
+    remarks: row.remarks != null ? String(row.remarks) : null,
+    category: row.category != null ? String(row.category) : null,
+    level1Category: row.level1_category != null ? String(row.level1_category) : null,
+    level2Category: row.level2_category != null ? String(row.level2_category) : null,
+    deliveryTermId: row.delivery_term_id != null ? String(row.delivery_term_id) : null,
+    deliveryTermName: row.delivery_term_name != null ? String(row.delivery_term_name) : null,
+    dimensionLMm: row.dimension_l_mm != null ? Number(row.dimension_l_mm) : null,
+    dimensionWMm: row.dimension_w_mm != null ? Number(row.dimension_w_mm) : null,
+    dimensionHMm: row.dimension_h_mm != null ? Number(row.dimension_h_mm) : null,
+    inStock: row.in_stock != null ? Boolean(row.in_stock) : null,
+    customize: row.customize != null ? String(row.customize) : null,
+    sku: String(row.product_sku || row.sku || '') || null,
+    productionLeadTime: row.production_date != null ? Number(row.production_date) : null,
+    shippingDays: row.shipping_days != null ? Number(row.shipping_days) : null,
+    shippingFee: row.shipping_fee != null ? Number(row.shipping_fee) : null,
+    totalLeadTime: row.total_lead_time != null ? Number(row.total_lead_time) : null,
+    bwfMasterId: row.bwf_master_id != null ? String(row.bwf_master_id) : null,
+  };
+}
+
 type CatalogProductListRow = {
   id: string;
   title: string | null;
@@ -696,6 +792,7 @@ export function PublishedProductsView({
   const [isImporting, setIsImporting] = useState(false);
   const [showImportDialog, setShowImportDialog] = useState(false);
   const [detailProduct, setDetailProduct] = useState<DisplayProduct | null>(null);
+  const [catalogDetailProduct, setCatalogDetailProduct] = useState<CatalogDetailProduct | null>(null);
   const [previewProducts, setPreviewProducts] = useState<ShopifyPreviewProduct[]>([]);
   const [selectedImportIds, setSelectedImportIds] = useState<Set<string>>(new Set());
   const [importSearch, setImportSearch] = useState('');
@@ -1189,7 +1286,17 @@ export function PublishedProductsView({
   const openDetail = useCallback(async (p: DisplayProduct) => {
     if (p.sourceKind === 'catalog') {
       if (!p.isOnShopify || !p.shopify_product_id) {
-        toast.message('此產品尚未上載 Shopify，無法在此開啟詳情');
+        const { data, error } = await supabase
+          .from('products')
+          .select(CATALOG_DETAIL_COLUMNS)
+          .eq('id', p.id)
+          .maybeSingle();
+        if (error || !data) {
+          toast.error('讀取產品詳情失敗', { description: error?.message });
+          return;
+        }
+        setDetailProduct(null);
+        setCatalogDetailProduct(mapProductRowToCatalogDetail(data as Record<string, unknown>));
         return;
       }
       const { data, error } = await supabase
@@ -1201,9 +1308,11 @@ export function PublishedProductsView({
         toast.error('讀取 Shopify 產品詳情失敗', { description: error?.message });
         return;
       }
+      setCatalogDetailProduct(null);
       setDetailProduct(rowToDisplay(data as ShopifyProductRow, p.costPrice ?? null));
       return;
     }
+    setCatalogDetailProduct(null);
     setDetailProduct(p);
   }, []);
 
@@ -1518,9 +1627,9 @@ export function PublishedProductsView({
     (dir: -1 | 1) => {
       if (detailPageIndex < 0) return;
       const next = paged[detailPageIndex + dir];
-      if (next) setDetailProduct(next);
+      if (next) void openDetail(next);
     },
-    [detailPageIndex, paged],
+    [detailPageIndex, paged, openDetail],
   );
 
   useEffect(() => {
@@ -3507,6 +3616,20 @@ export function PublishedProductsView({
           }
           onGoPrev={() => goDetailSibling(-1)}
           onGoNext={() => goDetailSibling(1)}
+        />
+      )}
+
+      {catalogDetailProduct && (
+        <ProductDetailModal
+          product={catalogDetailProduct}
+          open
+          onClose={() => setCatalogDetailProduct(null)}
+          onProductUpdated={(updated) => {
+            setCatalogDetailProduct(updated as CatalogDetailProduct);
+            void loadProducts({ silent: true });
+          }}
+          showAIImageTools
+          activityStage="product_catalog"
         />
       )}
 
