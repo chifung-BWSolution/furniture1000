@@ -416,16 +416,8 @@ function rowToDisplay(r: ShopifyProductRow, costFallback: number | null = null):
   };
 }
 
-const CATALOG_LIST_COLUMNS = [
-  'id', 'title', 'image_url', 'tags',
-  'price', 'sale_price', 'cost_price',
-  'factories_display_name',
-  'level1_category', 'level2_category',
-  'sku', 'product_sku',
-  'shopify_product_id',
-  'dimension_l_mm', 'dimension_w_mm', 'dimension_h_mm',
-  'created_at',
-].join(',');
+const CATALOG_LIST_COLUMNS =
+  'id, title, image_url, tags, price, sale_price, cost_price, factories_display_name, level1_category, level2_category, sku, product_sku, shopify_product_id, dimension_l_mm, dimension_w_mm, dimension_h_mm, created_at';
 
 type CatalogProductListRow = {
   id: string;
@@ -691,7 +683,8 @@ export function PublishedProductsView({
             setItems([]);
             return;
           }
-          catalogRows.push(...((data ?? []) as CatalogProductListRow[]));
+          const pageRows = (data ?? []) as unknown as CatalogProductListRow[];
+          catalogRows.push(...pageRows);
           if (!data || data.length < pageSize) break;
           from += pageSize;
         }
