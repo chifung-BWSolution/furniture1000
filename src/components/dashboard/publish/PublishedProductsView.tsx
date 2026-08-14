@@ -1296,7 +1296,7 @@ export function PublishedProductsView({
           return;
         }
         setDetailProduct(null);
-        setCatalogDetailProduct(mapProductRowToCatalogDetail(data as Record<string, unknown>));
+        setCatalogDetailProduct(mapProductRowToCatalogDetail(data as unknown as Record<string, unknown>));
         return;
       }
       const { data, error } = await supabase
