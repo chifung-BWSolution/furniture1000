@@ -82,6 +82,9 @@ export interface PublishedDisplayProduct {
   raw: PublishedProductRow;
   /** Product-level cost used for ≤1.5× price alert styling. */
   costPrice?: number | null;
+  sourceKind?: 'shopify' | 'catalog';
+  isOnShopify?: boolean;
+  shopifyTitle?: string | null;
 }
 
 /** Variant / product price ≤ cost × 1.5 → show in red. */
