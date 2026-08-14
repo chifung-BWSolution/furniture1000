@@ -320,19 +320,12 @@ function matchesPriceCheckFilter(
 ): boolean {
   const p = typeof price === 'string' ? parseFloat(price) : Number(price);
   const c = cost != null ? Number(cost) : NaN;
-  const priceIsZero = Number.isFinite(p) && p === 0;
-  const costIsZeroOrMissing = !Number.isFinite(c) || c <= 0;
-  // 成本 0／缺失或售價 0：視為 ≤0.1 倍。
-  // 固定歸入 ≤1.5 倍；自訂倍數只要 ≥0.1 也顯示（2／3／4 倍卡片不重複計入）。
-  if (priceIsZero || costIsZeroOrMissing) {
-    if (multiplier === PRICE_ALERT_MULTIPLIER) return true;
-    const isFixedHigherBucket = PRICE_CHECK_OPTIONS.some(
-      (o) => o.value === multiplier && o.value !== PRICE_ALERT_MULTIPLIER,
-    );
-    if (!isFixedHigherBucket && multiplier >= 0.1) return true;
-    return false;
+  const priceMissingOrZero = !Number.isFinite(p) || p <= 0;
+  const costMissingOrZero = !Number.isFinite(c) || c <= 0;
+  // 沒有售價／成本（含 0）視為 ≤0.1 倍，因此會出現在所有 ≥0.1 的倍數篩選（1.5／2／3／4 與自訂）。
+  if (priceMissingOrZero || costMissingOrZero) {
+    return multiplier >= 0.1;
   }
-  if (!Number.isFinite(p) || !Number.isFinite(c) || c <= 0) return false;
   return p <= c * multiplier;
 }
 
@@ -449,9 +442,45 @@ function formatCatalogSize(row: CatalogProductListRow): string {
   return `${w ?? '—'}(W) x ${d ?? '—'}(D) x ${h ?? '—'}(H)(mm)`;
 }
 
+type ShopifyCatalogLink = {
+  shopify_product_id: string;
+  title: string | null;
+  imageUrl?: string;
+};
+
+function isStandaloneUploadedRow(row: { configurable?: unknown }): boolean {
+  return !(typeof row.configurable === 'string' && row.configurable.trim());
+}
+
+function shopifyRowToCatalogLink(row: {
+  shopify_product_id?: string | null;
+  title?: string | null;
+  image_url?: string | null;
+  images?: unknown;
+}): ShopifyCatalogLink | null {
+  const sid = String(row.shopify_product_id || '').trim();
+  if (!sid) return null;
+  return {
+    shopify_product_id: sid,
+    title: row.title ?? null,
+    imageUrl: resolveMirrorPrimaryImageUrl(row),
+  };
+}
+
+function resolveCatalogListImage(
+  row: CatalogProductListRow,
+  shopifyLink?: ShopifyCatalogLink | null,
+): string {
+  const fromShopify = (shopifyLink?.imageUrl || '').trim();
+  if (fromShopify.startsWith('http')) return fromShopify;
+  const raw = (row.image_url || '').trim();
+  if (raw && !raw.startsWith('data:')) return raw;
+  return '';
+}
+
 function catalogRowToDisplay(
   row: CatalogProductListRow,
-  shopifyLink?: { shopify_product_id: string; title: string | null } | null,
+  shopifyLink?: ShopifyCatalogLink | null,
 ): DisplayProduct {
   const sale = row.sale_price != null ? Number(row.sale_price) : (row.price != null ? Number(row.price) : null);
   const cost = row.cost_price != null ? Number(row.cost_price) : null;
@@ -459,9 +488,7 @@ function catalogRowToDisplay(
   const onShopify = Boolean(shopifyId);
   const l1 = (row.level1_category || '').trim();
   const l2 = (row.level2_category || '').trim();
-  const imageUrl = typeof row.image_url === 'string' && row.image_url.startsWith('http')
-    ? row.image_url
-    : '';
+  const imageUrl = resolveCatalogListImage(row, shopifyLink);
   const created = row.created_at || '';
   return {
     id: row.id,
@@ -587,6 +614,8 @@ export function PublishedProductsView({
     priceAudit ? 'published' : 'all',
   );
   const [catalogClass, setCatalogClass] = useState<'A' | 'B'>('A');
+  /** 與「已上載產品」相同：獨立 shopify_products（不含合併子產品）件數 */
+  const [uploadedShopifyTotal, setUploadedShopifyTotal] = useState(0);
   const [factoryFilter, setFactoryFilter] = useState('全部');
   const [level1Filter, setLevel1Filter] = useState('');
   const [level2Filter, setLevel2Filter] = useState('');
@@ -691,22 +720,25 @@ export function PublishedProductsView({
           from += pageSize;
         }
 
-        const linkByProductId = new Map<string, { shopify_product_id: string; title: string | null }>();
-        const liveByShopifyId = new Map<string, { shopify_product_id: string; title: string | null }>();
+        const linkByProductId = new Map<string, ShopifyCatalogLink>();
+        const liveByShopifyId = new Map<string, ShopifyCatalogLink>();
         const ids = catalogRows.map((r) => r.id);
+        const uploadedSelect =
+          'source_product_id,shopify_product_id,title,image_url,images,configurable';
         for (let i = 0; i < ids.length; i += 100) {
           const chunk = ids.slice(i, i + 100);
           const { data: shopifyRows } = await supabase
             .from('shopify_products')
-            .select('source_product_id,shopify_product_id,title')
-            .in('source_product_id', chunk);
+            .select(uploadedSelect)
+            .in('source_product_id', chunk)
+            .is('configurable', null);
           for (const row of shopifyRows ?? []) {
+            if (!isStandaloneUploadedRow(row)) continue;
             const pid = String(row.source_product_id || '').trim();
-            const sid = String(row.shopify_product_id || '').trim();
-            if (pid && sid) {
-              const link = { shopify_product_id: sid, title: row.title ?? null };
+            const link = shopifyRowToCatalogLink(row);
+            if (pid && link) {
               linkByProductId.set(pid, link);
-              liveByShopifyId.set(sid, link);
+              liveByShopifyId.set(link.shopify_product_id, link);
             }
           }
         }
@@ -719,13 +751,21 @@ export function PublishedProductsView({
           const chunk = catalogShopifyIds.slice(i, i + 100);
           const { data: shopifyRows } = await supabase
             .from('shopify_products')
-            .select('shopify_product_id,title')
-            .in('shopify_product_id', chunk);
+            .select(uploadedSelect)
+            .in('shopify_product_id', chunk)
+            .is('configurable', null);
           for (const row of shopifyRows ?? []) {
-            const sid = String(row.shopify_product_id || '').trim();
-            if (sid) liveByShopifyId.set(sid, { shopify_product_id: sid, title: row.title ?? null });
+            if (!isStandaloneUploadedRow(row)) continue;
+            const link = shopifyRowToCatalogLink(row);
+            if (link) liveByShopifyId.set(link.shopify_product_id, link);
           }
         }
+
+        const { count: uploadedCount } = await supabase
+          .from('shopify_products')
+          .select('id', { count: 'exact', head: true })
+          .is('configurable', null);
+        setUploadedShopifyTotal(uploadedCount ?? 0);
 
         setItems(catalogRows.map((row) => {
           const bySource = linkByProductId.get(row.id);
@@ -764,6 +804,7 @@ export function PublishedProductsView({
             if (p.cost_price != null) costByProductId[p.id] = Number(p.cost_price);
           });
         }
+        setUploadedShopifyTotal(rows.length);
         setItems(rows.map((r) => ({
           ...rowToDisplay(
             r,
@@ -2046,7 +2087,7 @@ export function PublishedProductsView({
               {priceAudit && catalogClass === 'B'
                 ? stateFilter === 'exclude-a'
                   ? `目錄 ${items.length} · 排除A類 ${items.length - counts.onShopify}`
-                  : `目錄 ${items.length} · 已上架Shopify ${counts.onShopify}`
+                  : `目錄 ${items.length} · 已上架Shopify ${uploadedShopifyTotal}`
                 : `已發佈 ${counts.published} · 已下架 ${counts.delisted}`}
             </span>
           </div>
@@ -2468,7 +2509,7 @@ export function PublishedProductsView({
       {priceAudit ? (
         <div className="shrink-0 border-b border-border bg-amber-500/[0.06] px-6 py-3">
           <p className="mb-2 font-body text-xs text-muted-foreground">
-            售價相對成本的倍數（例：售價 $100、成本 $50 = 2 倍）。「少於或等於 N 倍」＝售價 ≤ 成本 × N；多規格只要任一規格符合即計入。沒有售價或沒有成本（含 0）的產品視為 ≤0.1 倍，會顯示在「少於或等於 1.5 倍」，以及自訂倍數 ≥0.1 的結果。點選倍數或套用自訂倍數可篩選列表。
+            售價相對成本的倍數（例：售價 $100、成本 $50 = 2 倍）。「少於或等於 N 倍」＝售價 ≤ 成本 × N；多規格只要任一規格符合即計入。沒有售價或沒有成本（含 0）的產品視為 ≤0.1 倍，會顯示在 1.5／2／3／4 倍與自訂倍數 ≥0.1。點選倍數或套用自訂倍數可篩選列表。
           </p>
           <div className="flex flex-wrap items-stretch gap-3">
             <div className="rounded-lg border border-border bg-card px-4 py-2.5 min-w-[140px]">
