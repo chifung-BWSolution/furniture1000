@@ -577,7 +577,7 @@ function ReferenceImageCell({
       <div
         className={cn(
           "relative flex aspect-square items-center justify-center overflow-hidden rounded-md border border-dashed border-border bg-muted/30 cursor-pointer group",
-          fluid && "w-full min-h-[6.5rem] xl:min-h-[8rem]",
+          fluid && "w-full min-h-[6.5rem] min-[1400px]:min-h-[8rem]",
         )}
         style={fluid ? undefined : { width: sizePx, height: sizePx }}
         onClick={() => setModalOpen(true)}
@@ -653,25 +653,28 @@ const QUOTE_COMPACT_NUMBER_INPUT_CLASS = `${QUOTE_NUMBER_INPUT_CLASS} min-w-0`;
 const QUOTE_LEFT_COL_CLASS = "w-[15em] max-w-full shrink-0";
 
 /**
- * Grid track widths — below xl: fixed caps. At xl: cols 3–4 use wider calc tracks (size only);
- * position alignment uses ml nudge on the field blocks, not column shrink on pricing cols.
+ * ≥1400px (typical 100% desktop): original 9-col card.
+ * Below that (150% zoom / tablet / phone): 2-col handle + stacked fields.
  */
 const QUOTE_CARD_GRID = cn(
-  "grid w-full auto-rows-min items-start gap-x-3 gap-y-3",
-  // Col 7 spacer keeps min gap so HKD$單價 (col 6) and HKD$小計 (col 8) never sit flush.
-  "grid-cols-[1.75rem_minmax(0,15em)_minmax(6.5rem,min(16rem,1fr))_minmax(6.5rem,min(16rem,1fr))_6em_7em_minmax(0.75rem,1fr)_7em_auto]",
-  "xl:gap-x-3 xl:grid-cols-[1.75rem_minmax(0,15em)_minmax(8rem,calc((56%-1.75rem-15em-2rem)/2))_minmax(8rem,calc((56%-1.75rem-15em-2rem)/2))_6em_7em_minmax(1rem,1fr)_7em_auto]",
+  "grid w-full min-w-0 auto-rows-min items-start gap-x-3 gap-y-3",
+  "grid-cols-[1.75rem_minmax(0,1fr)]",
+  "min-[1400px]:grid-cols-[1.75rem_minmax(0,15em)_minmax(8rem,calc((56%-1.75rem-15em-2rem)/2))_minmax(8rem,calc((56%-1.75rem-15em-2rem)/2))_6em_7em_minmax(1rem,1fr)_7em_auto]",
 );
 
-/** xl: shift media block right — align with 「案」 in 專案分類 (position only) */
-const QUOTE_CARD_MEDIA_XL_SHIFT = "xl:ml-[4rem]";
-/** xl: shift 單位/單價 · 可選/小計 pair — 數量/成本 use separate offset below */
-const QUOTE_CARD_PRICING_XL_SHIFT = "xl:ml-[15rem]";
+/** Desktop: shift media block right — align with 「案」 in 專案分類 (position only) */
+const QUOTE_CARD_MEDIA_XL_SHIFT = "min-[1400px]:ml-[4rem]";
+/** Desktop: shift 單位/單價 · 可選/小計 pair — 數量/成本 use separate offset below */
+const QUOTE_CARD_PRICING_XL_SHIFT = "min-[1400px]:ml-[15rem]";
 /** 數量 · 成本價 — same col, left-aligned labels, 6rem left of 單價 offset */
 const QUOTE_QTY_COST_FIELD_CLASS = cn(
-  "w-[6em] min-w-[6em] max-w-[6em] shrink-0 [&_label]:whitespace-nowrap",
-  "xl:ml-[9rem]",
+  "w-full min-w-0 max-w-none [&_label]:whitespace-nowrap",
+  "min-[1400px]:w-[6em] min-[1400px]:min-w-[6em] min-[1400px]:max-w-[6em] min-[1400px]:shrink-0",
+  "min-[1400px]:ml-[9rem]",
 );
+
+const QUOTE_PRICE_FIELD_CLASS =
+  "w-full min-w-0 min-[1400px]:w-[7em] min-[1400px]:min-w-[7em] min-[1400px]:max-w-[7em] min-[1400px]:shrink-0 [&_label]:whitespace-nowrap";
 
 /** Full-width dimension inputs — same column width as 備註 */
 const QUOTE_DIMENSION_INPUT_CLASS = cn(
@@ -860,8 +863,8 @@ function QuoteProductItemCard({
       onDrop={onDrop}
     >
       <div className={QUOTE_CARD_GRID}>
-        {/* Col 1 — serial + drag handle (both rows) */}
-        <div className="col-start-1 row-span-2 row-start-1 flex justify-center pt-4">
+        {/* Col 1 — serial + drag handle (both rows on xl) */}
+        <div className="col-start-1 row-start-1 flex justify-center pt-4 min-[1400px]:row-span-2">
           <QuoteRowDragHandle
             itemId={item.id}
             serialNumber={serialNumber}
@@ -870,8 +873,8 @@ function QuoteProductItemCard({
           />
         </div>
 
-        {/* Row 1 — col 2: 類別 · 尺寸 · 顏色 */}
-        <div className="col-start-2 row-start-1 min-w-0 w-full space-y-2">
+        {/* 類別 · 尺寸 · 顏色 */}
+        <div className="col-start-2 min-w-0 w-full space-y-2 min-[1400px]:row-start-1">
           <QuoteFieldBlock label={labels.category}>
             <textarea
               value={item.category || ""}
@@ -969,7 +972,7 @@ function QuoteProductItemCard({
         {/* Row 1 — cols 3–4: 材質及明細 (RichText: 粗體 / 斜體 / 底線 / 顏色) */}
         <QuoteFieldBlock
           label={labels.material}
-          className={cn("col-span-2 col-start-3 row-start-1 min-w-0", QUOTE_CARD_MEDIA_XL_SHIFT)}
+          className={cn("col-start-2 min-w-0 min-[1400px]:col-span-2 min-[1400px]:col-start-3 min-[1400px]:row-start-1", QUOTE_CARD_MEDIA_XL_SHIFT)}
         >
           <MaterialRichEditor
             value={item.material || ""}
@@ -978,10 +981,51 @@ function QuoteProductItemCard({
           />
         </QuoteFieldBlock>
 
-        {/* Col 5 row 1 — 數量 + 廠家（垂直置中於數量與 CNY 之間） */}
+        <div className="col-start-2 grid grid-cols-2 gap-3 min-[1400px]:contents">
+        <QuoteFieldBlock
+          label={labels.image}
+          className={cn("min-w-0 min-[1400px]:col-start-3 min-[1400px]:row-start-2", QUOTE_CARD_MEDIA_XL_SHIFT)}
+        >
+          <ReferenceImageCell
+            value={item.image || ""}
+            onChange={(url) => updateItem(item.id, "image", url)}
+            modalTitle="上傳產品圖片"
+            imageFit="contain"
+            fluid
+            uploadImage={uploadProductImage}
+          />
+        </QuoteFieldBlock>
+        <QuoteFieldBlock
+          label={labels.referenceImage}
+          className={cn("min-w-0 min-[1400px]:col-start-4 min-[1400px]:row-start-2", QUOTE_CARD_MEDIA_XL_SHIFT)}
+        >
+          <ReferenceImageCell
+            value={item.referenceImage || ""}
+            onChange={(url) => updateItem(item.id, "referenceImage", url)}
+            modalTitle="上傳參考圖"
+            imageFit="contain"
+            fluid
+            uploadImage={uploadReferenceImage}
+          />
+        </QuoteFieldBlock>
+        </div>
+
+        <QuoteFieldBlock label={labels.remarks} className="col-start-2 min-w-0 min-[1400px]:row-start-2">
+          <RemarksRichEditor
+            key={item.id}
+            compact
+            value={item.remarks || ""}
+            legacyImage={item.remarksImage}
+            onChange={(val) => updateItem(item.id, "remarks", val)}
+            uploadImage={uploadRemarksImage}
+          />
+        </QuoteFieldBlock>
+
+        <div className="col-start-2 grid grid-cols-1 gap-3 sm:grid-cols-2 min-[1400px]:contents">
+        {/* 數量 + 廠家 */}
         <div
           className={cn(
-            "col-start-5 row-start-1 flex min-h-0 flex-col self-stretch",
+            "flex min-h-0 flex-col self-stretch min-[1400px]:col-start-5 min-[1400px]:row-start-1",
             QUOTE_QTY_COST_FIELD_CLASS,
           )}
         >
@@ -1010,10 +1054,10 @@ function QuoteProductItemCard({
           </div>
         </div>
 
-        {/* Col 5 row 2 — CNY成本 · 匯率 · HKD成本（與 HKD$單價同高） */}
+        {/* CNY成本 · 匯率 · HKD成本 */}
         <div
           className={cn(
-            "col-start-5 row-start-2 flex min-h-0 flex-col self-stretch",
+            "flex min-h-0 flex-col self-stretch min-[1400px]:col-start-5 min-[1400px]:row-start-2",
             QUOTE_QTY_COST_FIELD_CLASS,
           )}
         >
@@ -1054,17 +1098,17 @@ function QuoteProductItemCard({
           </QuoteFieldBlock>
         </div>
 
-        {/* Row 1 — 單位 · 可選；SKU 與左側「廠家」同高置中 */}
+        {/* 單位 · 可選；SKU */}
         <div
           className={cn(
-            "col-start-6 col-span-3 row-start-1 flex min-h-0 min-w-0 flex-col self-stretch",
+            "flex min-h-0 min-w-0 flex-col self-stretch min-[1400px]:col-span-3 min-[1400px]:col-start-6 min-[1400px]:row-start-1",
             QUOTE_CARD_PRICING_XL_SHIFT,
           )}
         >
           <div className="flex min-w-0 shrink-0 items-end gap-3">
             <QuoteFieldBlock
               label={labels.unit}
-              className="w-[7em] min-w-[7em] max-w-[7em] shrink-0 [&_label]:whitespace-nowrap"
+              className={QUOTE_PRICE_FIELD_CLASS}
             >
               <input
                 type="text"
@@ -1115,7 +1159,7 @@ function QuoteProductItemCard({
           <div className="flex min-h-0 flex-1 items-center">
             <QuoteFieldBlock
               label={labels.sku}
-              className="w-[14.75em] max-w-full shrink-0 [&_label]:whitespace-nowrap"
+              className="w-full max-w-full shrink-0 min-[1400px]:w-[14.75em] [&_label]:whitespace-nowrap"
             >
               <input
                 type="text"
@@ -1130,56 +1174,16 @@ function QuoteProductItemCard({
           </div>
         </div>
 
-        {/* Row 2 — col 2: 備註 */}
-        <QuoteFieldBlock label={labels.remarks} className="col-start-2 row-start-2 min-w-0">
-          <RemarksRichEditor
-            key={item.id}
-            compact
-            value={item.remarks || ""}
-            legacyImage={item.remarksImage}
-            onChange={(val) => updateItem(item.id, "remarks", val)}
-            uploadImage={uploadRemarksImage}
-          />
-        </QuoteFieldBlock>
-
-        {/* Row 2 — cols 3–4: 圖片 · 參考圖 */}
-        <QuoteFieldBlock
-          label={labels.image}
-          className={cn("col-start-3 row-start-2 min-w-0", QUOTE_CARD_MEDIA_XL_SHIFT)}
-        >
-          <ReferenceImageCell
-            value={item.image || ""}
-            onChange={(url) => updateItem(item.id, "image", url)}
-            modalTitle="上傳產品圖片"
-            imageFit="contain"
-            fluid
-            uploadImage={uploadProductImage}
-          />
-        </QuoteFieldBlock>
-        <QuoteFieldBlock
-          label={labels.referenceImage}
-          className={cn("col-start-4 row-start-2 min-w-0", QUOTE_CARD_MEDIA_XL_SHIFT)}
-        >
-          <ReferenceImageCell
-            value={item.referenceImage || ""}
-            onChange={(url) => updateItem(item.id, "referenceImage", url)}
-            modalTitle="上傳參考圖"
-            imageFit="contain"
-            fluid
-            uploadImage={uploadReferenceImage}
-          />
-        </QuoteFieldBlock>
-
-        {/* Row 2 — HKD$單價 · HKD$小計 (fixed gap-3; avoid xl margin overlap) */}
+        {/* HKD$單價 · HKD$小計 */}
         <div
           className={cn(
-            "col-start-6 col-span-3 row-start-2 flex min-w-0 items-start gap-3",
+            "flex min-w-0 items-start gap-3 min-[1400px]:col-span-3 min-[1400px]:col-start-6 min-[1400px]:row-start-2",
             QUOTE_CARD_PRICING_XL_SHIFT,
           )}
         >
           <QuoteFieldBlock
             label={labels.hkdUnitPrice}
-            className="w-[7em] min-w-[7em] max-w-[7em] shrink-0 [&_label]:whitespace-nowrap"
+            className={QUOTE_PRICE_FIELD_CLASS}
           >
             <input
               type="number"
@@ -1194,7 +1198,7 @@ function QuoteProductItemCard({
           </QuoteFieldBlock>
           <QuoteFieldBlock
             label={labels.hkdSubtotal}
-            className="w-[7em] min-w-[7em] max-w-[7em] shrink-0 [&_label]:whitespace-nowrap"
+            className={QUOTE_PRICE_FIELD_CLASS}
           >
             <div className="flex h-[34px] items-center rounded-md border border-border/60 bg-muted/20 px-2">
               <span
@@ -1209,9 +1213,8 @@ function QuoteProductItemCard({
           </QuoteFieldBlock>
         </div>
 
-        {/* Row 2 — col 9: 剪下 / 複製 / 刪除 */}
-        <div className="col-start-9 row-start-2 shrink-0">
-          <div className="mb-1 h-4" aria-hidden="true" />
+        <div className="shrink-0 sm:col-span-2 min-[1400px]:col-span-1 min-[1400px]:col-start-9 min-[1400px]:row-start-2">
+          <div className="mb-1 hidden h-4 min-[1400px]:block" aria-hidden="true" />
           <QuoteRowActionButtons
             itemId={item.id}
             cutItemId={cutItemId}
@@ -1220,6 +1223,7 @@ function QuoteProductItemCard({
             onRemove={removeItem}
             labels={labels}
           />
+        </div>
         </div>
       </div>
     </div>
@@ -3262,7 +3266,7 @@ export function QuotationDraftEditor({
 
   return (
     <>
-      <div ref={editorScrollRootRef} className="h-full overflow-y-auto bg-background">
+      <div ref={editorScrollRootRef} className="h-full overflow-x-hidden overflow-y-auto bg-background">
         {/* Header — span full available width (parent already adds small side
             padding) so 報價內容 stretches left-and-right and needs less scrolling */}
         <div className="mx-auto w-full max-w-none">
@@ -3355,7 +3359,7 @@ export function QuotationDraftEditor({
               </div>
             </div>
 
-            <div className="grid min-w-0 grid-cols-2 items-start gap-2 lg:grid-cols-6">
+            <div className="grid min-w-0 grid-cols-1 items-start gap-2 sm:grid-cols-2 lg:grid-cols-6">
               <InfoPanelColumn
                 title="公司資訊"
                 collapsed={collapseCompany}
@@ -3702,8 +3706,8 @@ export function QuotationDraftEditor({
 
           <div className="space-y-5">
               {/* 報價內容表格 */}
-              <section className="rounded-xl border border-border bg-card p-5 shadow-sm">
-                <div className="mb-4 flex items-center justify-between gap-3">
+              <section className="rounded-xl border border-border bg-card p-3 shadow-sm sm:p-4 min-[1400px]:p-5">
+                <div className="mb-4 flex flex-col items-stretch gap-3 min-[1400px]:flex-row min-[1400px]:items-center min-[1400px]:justify-between">
                   <h2 className="font-display text-base font-bold text-foreground/80">
                     {t.quoteContent}
                   </h2>
