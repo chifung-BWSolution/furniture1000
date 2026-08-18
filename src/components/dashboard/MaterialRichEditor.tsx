@@ -89,7 +89,7 @@ export function MaterialRichEditor({
   return (
     <div
       className={cn(
-        'overflow-hidden rounded-md border border-border bg-background focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/30',
+        'min-w-0 overflow-hidden rounded-md border border-border bg-background focus-within:border-primary/50 focus-within:ring-1 focus-within:ring-primary/30',
         className,
       )}
     >
