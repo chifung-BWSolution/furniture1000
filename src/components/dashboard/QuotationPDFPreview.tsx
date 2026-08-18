@@ -168,16 +168,38 @@ async function registerPdfFonts(mod: ReactPdfModule): Promise<void> {
     mod.Font.register({ family, fonts });
   }
 
-  // Soft-break after every code point. Empty segments are wrap opportunities
-  // without inserting a visible "-" (react-pdf's default syllable join).
+  // Soft-break CJK per code point (no visible "-"). Latin words stay whole.
   mod.Font.registerHyphenationCallback(pdfSoftBreakNoHyphen);
 }
 
-/** Soft-wrap without inserting "-" between break segments. */
+/** CJK / Hangul / Kana — need per-glyph soft wrap in narrow PDF cells. */
+const PDF_CJK_OR_KANA =
+  /[\u3400-\u9FFF\uF900-\uFAFF\u3040-\u30FF\uAC00-\uD7AF]/;
+
+/**
+ * Soft-wrap without inserting "-" between break segments.
+ * Latin / digit runs stay whole (e.g. Limited); CJK soft-breaks per glyph.
+ */
 function pdfSoftBreakNoHyphen(word: string): string[] {
-  const chars = Array.from(word);
-  if (chars.length === 0) return [''];
-  return chars.flatMap((ch) => [ch, '']);
+  if (!word) return [''];
+  if (!PDF_CJK_OR_KANA.test(word)) {
+    return [word];
+  }
+  const parts: string[] = [];
+  let latin = '';
+  for (const ch of Array.from(word)) {
+    if (PDF_CJK_OR_KANA.test(ch)) {
+      if (latin) {
+        parts.push(latin);
+        latin = '';
+      }
+      parts.push(ch, '');
+    } else {
+      latin += ch;
+    }
+  }
+  if (latin) parts.push(latin);
+  return parts.length ? parts : [word];
 }
 
 /** Clear failed/partial state so Retry can re-download and re-register fonts. */
@@ -1299,7 +1321,9 @@ const styles: Record<string, any> = {
   infoRow: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
   infoLeft: { width: '45%' },
   infoRight: { width: '50%' },
-  infoLine: { fontSize: 8, marginBottom: 1, lineHeight: 1.5 },
+  infoLine: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 1 },
+  infoLabel: { fontSize: 8, lineHeight: 1.5, flexShrink: 0, paddingRight: 4 },
+  infoValue: { fontSize: 8, lineHeight: 1.5, flexGrow: 1, flexShrink: 1, flexBasis: 0 },
   infoBold: { fontWeight: 700 },
   table: { width: '100%', marginTop: 8 },
   tableHeader: { display: 'flex', flexDirection: 'row', backgroundColor: '#f5f5f5', minHeight: 24, alignItems: 'center', ...tableBandBorder },
@@ -1382,6 +1406,19 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
       day: 'numeric',
     });
   const quoteNumber = data.quoteMeta?.quoteNumber || '';
+  const infoLabelWidth = locale === 'en' ? 92 : 56;
+  const renderInfoField = (label: string, value: string | undefined | null) => {
+    const text = String(value ?? '').trim();
+    if (!text) return null;
+    return (
+      <View key={label} style={styles.infoLine}>
+        <Text style={{ ...styles.infoLabel, width: infoLabelWidth }}>{label}:</Text>
+        <Text style={styles.infoValue} hyphenationCallback={pdfSoftBreakNoHyphen}>
+          {pdfDisplayText(text)}
+        </Text>
+      </View>
+    );
+  };
   const discountValue = (() => {
     const raw = data.discountNote;
     if (raw == null) return 0;
@@ -1489,13 +1526,7 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
                 [labels.date, today],
                 [labels.projectInCharge, data.quoteMeta?.pmName],
               ] as Array<[string, string | undefined | null]>
-            )
-              .filter(([, value]) => Boolean(String(value ?? '').trim()))
-              .map(([label, value]) => (
-                <Text key={label} style={styles.infoLine}>
-                  {label}: {pdfDisplayText(String(value).trim())}
-                </Text>
-              ))}
+            ).map(([label, value]) => renderInfoField(label, value))}
           </View>
           <View style={styles.infoRight}>
             {(
@@ -1506,13 +1537,7 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
                 [labels.email, data.companyInfo?.email],
                 [labels.website, data.companyInfo?.website],
               ] as Array<[string, string | undefined | null]>
-            )
-              .filter(([, value]) => Boolean(String(value ?? '').trim()))
-              .map(([label, value]) => (
-                <Text key={label} style={styles.infoLine}>
-                  {label}: {pdfDisplayText(String(value).trim())}
-                </Text>
-              ))}
+            ).map(([label, value]) => renderInfoField(label, value))}
           </View>
         </View>
 
