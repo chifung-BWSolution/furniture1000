@@ -577,7 +577,7 @@ function ReferenceImageCell({
       <div
         className={cn(
           "relative flex aspect-square items-center justify-center overflow-hidden rounded-md border border-dashed border-border bg-muted/30 cursor-pointer group",
-          fluid && "w-full min-h-[6.5rem] min-[1400px]:min-h-[8rem]",
+          fluid && "w-full min-h-[6.5rem] min-[900px]:min-h-[8rem]",
         )}
         style={fluid ? undefined : { width: sizePx, height: sizePx }}
         onClick={() => setModalOpen(true)}
@@ -623,17 +623,75 @@ function QuoteFieldBlock({
   label,
   children,
   className,
+  trailing,
 }: {
   label: string;
   children: ReactNode;
   className?: string;
+  trailing?: ReactNode;
 }) {
   return (
     <div className={cn("min-w-0", className)}>
-      <label className="mb-1 block h-4 font-body text-xs font-medium leading-4 text-muted-foreground">
-        {label}
-      </label>
+      <div
+        className={cn(
+          "mb-1 flex items-center justify-between gap-2",
+          trailing ? "min-h-5" : "h-4",
+        )}
+      >
+        <label className="font-body text-xs font-medium leading-4 text-muted-foreground">
+          {label}
+        </label>
+        {trailing}
+      </div>
       {children}
+    </div>
+  );
+}
+
+function QuoteItemFlagToggles({
+  item,
+  updateItem,
+  labels,
+  className,
+}: {
+  item: QuotationItem;
+  updateItem: (id: string, field: keyof QuotationItem, value: string | number | null | boolean) => void;
+  labels: QuoteUiLabels;
+  className?: string;
+}) {
+  return (
+    <div className={cn("flex shrink-0 items-center gap-2.5", className)}>
+      <label className="inline-flex cursor-pointer items-center gap-1">
+        <Checkbox
+          checked={item.isOptional ?? false}
+          onCheckedChange={(checked) =>
+            updateItem(item.id, "isOptional", checked === true)
+          }
+          className="border-foreground/60 data-[state=checked]:border-primary"
+        />
+        <span className="whitespace-nowrap font-body text-xs text-muted-foreground">
+          {labels.optionalProduct}
+        </span>
+      </label>
+      <label
+        className="inline-flex cursor-pointer items-center gap-1"
+        title={
+          item.hideInPdf
+            ? "已於 PDF／預覽隱藏（草稿仍顯示）"
+            : "勾選後此產品不出現在報價單預覽／PDF"
+        }
+      >
+        <Checkbox
+          checked={item.hideInPdf ?? false}
+          onCheckedChange={(checked) =>
+            updateItem(item.id, "hideInPdf", checked === true)
+          }
+          className="border-foreground/60 data-[state=checked]:border-primary"
+        />
+        <span className="whitespace-nowrap font-body text-xs text-muted-foreground">
+          {labels.hideInPdf}
+        </span>
+      </label>
     </div>
   );
 }
@@ -653,28 +711,27 @@ const QUOTE_COMPACT_NUMBER_INPUT_CLASS = `${QUOTE_NUMBER_INPUT_CLASS} min-w-0`;
 const QUOTE_LEFT_COL_CLASS = "w-[15em] max-w-full shrink-0";
 
 /**
- * ≥1400px (typical 100% desktop): original 9-col card.
- * Below that (150% zoom / tablet / phone): 2-col handle + stacked fields.
+ * ≥900px: desktop 9-col card (100% layout).
+ * 650–899px: tablet stack (2-col media / pricing).
+ * 300–649px: mobile stack (single-col pricing).
  */
 const QUOTE_CARD_GRID = cn(
   "grid w-full min-w-0 auto-rows-min items-start gap-x-3 gap-y-3",
   "grid-cols-[1.75rem_minmax(0,1fr)]",
-  "min-[1400px]:grid-cols-[1.75rem_minmax(0,15em)_minmax(8rem,calc((56%-1.75rem-15em-2rem)/2))_minmax(8rem,calc((56%-1.75rem-15em-2rem)/2))_6em_7em_minmax(1rem,1fr)_7em_auto]",
+  "min-[900px]:grid-cols-[1.75rem_minmax(0,15em)_minmax(8rem,calc((56%-1.75rem-15em-2rem)/2))_minmax(8rem,calc((56%-1.75rem-15em-2rem)/2))_6em_7em_minmax(1rem,1fr)_7em_auto]",
 );
 
-/** Desktop: shift media block right — align with 「案」 in 專案分類 (position only) */
+/** Wide desktop only — extra offset needs ≥1400px card width */
 const QUOTE_CARD_MEDIA_XL_SHIFT = "min-[1400px]:ml-[4rem]";
-/** Desktop: shift 單位/單價 · 可選/小計 pair — 數量/成本 use separate offset below */
 const QUOTE_CARD_PRICING_XL_SHIFT = "min-[1400px]:ml-[15rem]";
-/** 數量 · 成本價 — same col, left-aligned labels, 6rem left of 單價 offset */
 const QUOTE_QTY_COST_FIELD_CLASS = cn(
   "w-full min-w-0 max-w-none [&_label]:whitespace-nowrap",
-  "min-[1400px]:w-[6em] min-[1400px]:min-w-[6em] min-[1400px]:max-w-[6em] min-[1400px]:shrink-0",
+  "min-[900px]:w-[6em] min-[900px]:min-w-[6em] min-[900px]:max-w-[6em] min-[900px]:shrink-0",
   "min-[1400px]:ml-[9rem]",
 );
 
 const QUOTE_PRICE_FIELD_CLASS =
-  "w-full min-w-0 min-[1400px]:w-[7em] min-[1400px]:min-w-[7em] min-[1400px]:max-w-[7em] min-[1400px]:shrink-0 [&_label]:whitespace-nowrap";
+  "w-full min-w-0 min-[900px]:w-[7em] min-[900px]:min-w-[7em] min-[900px]:max-w-[7em] min-[900px]:shrink-0 [&_label]:whitespace-nowrap";
 
 /** Full-width dimension inputs — same column width as 備註 */
 const QUOTE_DIMENSION_INPUT_CLASS = cn(
@@ -864,7 +921,7 @@ function QuoteProductItemCard({
     >
       <div className={QUOTE_CARD_GRID}>
         {/* Col 1 — serial + drag handle (both rows on xl) */}
-        <div className="col-start-1 row-start-1 flex justify-center pt-4 min-[1400px]:row-span-2">
+        <div className="col-start-1 row-start-1 flex justify-center pt-4 min-[900px]:row-span-2">
           <QuoteRowDragHandle
             itemId={item.id}
             serialNumber={serialNumber}
@@ -874,8 +931,18 @@ function QuoteProductItemCard({
         </div>
 
         {/* 類別 · 尺寸 · 顏色 */}
-        <div className="col-start-2 min-w-0 w-full space-y-2 min-[1400px]:row-start-1">
-          <QuoteFieldBlock label={labels.category}>
+        <div className="col-start-2 min-w-0 w-full space-y-2 min-[900px]:row-start-1">
+          <QuoteFieldBlock
+            label={labels.category}
+            trailing={
+              <QuoteItemFlagToggles
+                item={item}
+                updateItem={updateItem}
+                labels={labels}
+                className="min-[900px]:hidden"
+              />
+            }
+          >
             <textarea
               value={item.category || ""}
               placeholder="—"
@@ -972,7 +1039,7 @@ function QuoteProductItemCard({
         {/* Row 1 — cols 3–4: 材質及明細 (RichText: 粗體 / 斜體 / 底線 / 顏色) */}
         <QuoteFieldBlock
           label={labels.material}
-          className={cn("col-start-2 min-w-0 min-[1400px]:col-span-2 min-[1400px]:col-start-3 min-[1400px]:row-start-1", QUOTE_CARD_MEDIA_XL_SHIFT)}
+          className={cn("col-start-2 min-w-0 min-[900px]:col-span-2 min-[900px]:col-start-3 min-[900px]:row-start-1", QUOTE_CARD_MEDIA_XL_SHIFT)}
         >
           <MaterialRichEditor
             value={item.material || ""}
@@ -981,10 +1048,10 @@ function QuoteProductItemCard({
           />
         </QuoteFieldBlock>
 
-        <div className="col-start-2 grid grid-cols-2 gap-3 min-[1400px]:contents">
+        <div className="col-start-2 grid grid-cols-2 gap-3 min-[900px]:contents">
         <QuoteFieldBlock
           label={labels.image}
-          className={cn("min-w-0 min-[1400px]:col-start-3 min-[1400px]:row-start-2", QUOTE_CARD_MEDIA_XL_SHIFT)}
+          className={cn("min-w-0 min-[900px]:col-start-3 min-[900px]:row-start-2", QUOTE_CARD_MEDIA_XL_SHIFT)}
         >
           <ReferenceImageCell
             value={item.image || ""}
@@ -997,7 +1064,7 @@ function QuoteProductItemCard({
         </QuoteFieldBlock>
         <QuoteFieldBlock
           label={labels.referenceImage}
-          className={cn("min-w-0 min-[1400px]:col-start-4 min-[1400px]:row-start-2", QUOTE_CARD_MEDIA_XL_SHIFT)}
+          className={cn("min-w-0 min-[900px]:col-start-4 min-[900px]:row-start-2", QUOTE_CARD_MEDIA_XL_SHIFT)}
         >
           <ReferenceImageCell
             value={item.referenceImage || ""}
@@ -1010,7 +1077,7 @@ function QuoteProductItemCard({
         </QuoteFieldBlock>
         </div>
 
-        <QuoteFieldBlock label={labels.remarks} className="col-start-2 min-w-0 min-[1400px]:row-start-2">
+        <QuoteFieldBlock label={labels.remarks} className="col-start-2 min-w-0 min-[900px]:row-start-2">
           <RemarksRichEditor
             key={item.id}
             compact
@@ -1021,11 +1088,11 @@ function QuoteProductItemCard({
           />
         </QuoteFieldBlock>
 
-        <div className="col-start-2 grid grid-cols-1 gap-3 sm:grid-cols-2 min-[1400px]:contents">
+        <div className="col-start-2 grid grid-cols-1 gap-3 min-[650px]:grid-cols-2 min-[900px]:contents">
         {/* 數量 + 廠家 */}
         <div
           className={cn(
-            "flex min-h-0 flex-col self-stretch min-[1400px]:col-start-5 min-[1400px]:row-start-1",
+            "flex min-h-0 flex-col self-stretch min-[900px]:col-start-5 min-[900px]:row-start-1",
             QUOTE_QTY_COST_FIELD_CLASS,
           )}
         >
@@ -1057,7 +1124,7 @@ function QuoteProductItemCard({
         {/* CNY成本 · 匯率 · HKD成本 */}
         <div
           className={cn(
-            "flex min-h-0 flex-col self-stretch min-[1400px]:col-start-5 min-[1400px]:row-start-2",
+            "flex min-h-0 flex-col self-stretch min-[900px]:col-start-5 min-[900px]:row-start-2",
             QUOTE_QTY_COST_FIELD_CLASS,
           )}
         >
@@ -1101,7 +1168,7 @@ function QuoteProductItemCard({
         {/* 單位 · 可選；SKU */}
         <div
           className={cn(
-            "flex min-h-0 min-w-0 flex-col self-stretch min-[1400px]:col-span-3 min-[1400px]:col-start-6 min-[1400px]:row-start-1",
+            "flex min-h-0 min-w-0 flex-col self-stretch min-[900px]:col-span-3 min-[900px]:col-start-6 min-[900px]:row-start-1",
             QUOTE_CARD_PRICING_XL_SHIFT,
           )}
         >
@@ -1119,47 +1186,18 @@ function QuoteProductItemCard({
                 className={QUOTE_INPUT_CLASS}
               />
             </QuoteFieldBlock>
-          {/* Prefer one row: 可選 | 於PDF 隱藏; wrap to 2 left-aligned rows when narrow. */}
-          <div className="flex min-w-0 flex-1 items-end pb-0.5">
-            <div className="flex w-full min-w-0 flex-wrap items-start justify-start gap-x-3 gap-y-1">
-              <label className="inline-flex cursor-pointer items-center gap-1.5">
-                <Checkbox
-                  checked={item.isOptional ?? false}
-                  onCheckedChange={(checked) =>
-                    updateItem(item.id, "isOptional", checked === true)
-                  }
-                  className="border-foreground/60 data-[state=checked]:border-primary"
-                />
-                <span className="whitespace-nowrap text-left font-body text-xs text-muted-foreground">
-                  {labels.optionalProduct}
-                </span>
-              </label>
-              <label
-                className="inline-flex cursor-pointer items-center gap-1.5"
-                title={
-                  item.hideInPdf
-                    ? "已於 PDF／預覽隱藏（草稿仍顯示）"
-                    : "勾選後此產品不出現在報價單預覽／PDF"
-                }
-              >
-                <Checkbox
-                  checked={item.hideInPdf ?? false}
-                  onCheckedChange={(checked) =>
-                    updateItem(item.id, "hideInPdf", checked === true)
-                  }
-                  className="border-foreground/60 data-[state=checked]:border-primary"
-                />
-                <span className="whitespace-nowrap text-left font-body text-xs text-muted-foreground">
-                  {labels.hideInPdf}
-                </span>
-              </label>
-            </div>
+          <div className="hidden min-w-0 flex-1 items-end pb-0.5 min-[900px]:flex">
+            <QuoteItemFlagToggles
+              item={item}
+              updateItem={updateItem}
+              labels={labels}
+            />
           </div>
         </div>
           <div className="flex min-h-0 flex-1 items-center">
             <QuoteFieldBlock
               label={labels.sku}
-              className="w-full max-w-full shrink-0 min-[1400px]:w-[14.75em] [&_label]:whitespace-nowrap"
+              className="w-full max-w-full shrink-0 min-[900px]:w-[14.75em] [&_label]:whitespace-nowrap"
             >
               <input
                 type="text"
@@ -1177,7 +1215,7 @@ function QuoteProductItemCard({
         {/* HKD$單價 · HKD$小計 */}
         <div
           className={cn(
-            "flex min-w-0 items-start gap-3 min-[1400px]:col-span-3 min-[1400px]:col-start-6 min-[1400px]:row-start-2",
+            "flex min-w-0 items-start gap-3 min-[900px]:col-span-3 min-[900px]:col-start-6 min-[900px]:row-start-2",
             QUOTE_CARD_PRICING_XL_SHIFT,
           )}
         >
@@ -1213,8 +1251,8 @@ function QuoteProductItemCard({
           </QuoteFieldBlock>
         </div>
 
-        <div className="shrink-0 sm:col-span-2 min-[1400px]:col-span-1 min-[1400px]:col-start-9 min-[1400px]:row-start-2">
-          <div className="mb-1 hidden h-4 min-[1400px]:block" aria-hidden="true" />
+        <div className="shrink-0 min-[650px]:col-span-2 min-[900px]:col-span-1 min-[900px]:col-start-9 min-[900px]:row-start-2">
+          <div className="mb-1 hidden h-4 min-[900px]:block" aria-hidden="true" />
           <QuoteRowActionButtons
             itemId={item.id}
             cutItemId={cutItemId}
@@ -3706,8 +3744,8 @@ export function QuotationDraftEditor({
 
           <div className="space-y-5">
               {/* 報價內容表格 */}
-              <section className="rounded-xl border border-border bg-card p-3 shadow-sm sm:p-4 min-[1400px]:p-5">
-                <div className="mb-4 flex flex-col items-stretch gap-3 min-[1400px]:flex-row min-[1400px]:items-center min-[1400px]:justify-between">
+              <section className="rounded-xl border border-border bg-card p-3 shadow-sm sm:p-4 min-[900px]:p-5">
+                <div className="mb-4 flex flex-col items-stretch gap-3 min-[900px]:flex-row min-[900px]:items-center min-[900px]:justify-between">
                   <h2 className="font-display text-base font-bold text-foreground/80">
                     {t.quoteContent}
                   </h2>
