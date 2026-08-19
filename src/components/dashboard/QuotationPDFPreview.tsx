@@ -1685,16 +1685,17 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
         )}
 
         {/*
-          Flow spacer (can sit after 6.9 when space remains). The visible
-          客戶確認 block is painted only on the last page, pinned to 頁底,
-          so leftover white space is used instead of forcing a new sheet.
+          In-flow (no wrap={false}): leftover space after 條款 can hold 客戶確認.
+          react-pdf View.render is typed without totalPages, so we read it via
+          a narrow cast — last page only, pinned to 頁底.
         */}
         <View style={styles.signatureReserve} />
         <View
           fixed
           style={styles.signatureFixed}
-          render={({ pageNumber, totalPages }) => {
-            if (pageNumber !== totalPages) return null;
+          render={(info) => {
+            const { pageNumber, totalPages } = info as typeof info & { totalPages?: number };
+            if (totalPages != null && pageNumber !== totalPages) return null;
             return (
               <View style={styles.signatureSection}>
                 <View style={styles.signatureBlock}>
