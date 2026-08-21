@@ -1313,7 +1313,7 @@ function renderDescriptionPdfContent(
 // ─── Styles (plain object — StyleSheet.create is a pass-through) ─────────────
 
 const styles: Record<string, any> = {
-  page: { fontFamily: PDF_FONT_FAMILY, fontSize: 8, lineHeight: 1.4, paddingTop: 22, paddingBottom: 28, paddingHorizontal: 20, color: '#1a1a1a' },
+  page: { fontFamily: PDF_FONT_FAMILY, fontSize: 8, lineHeight: 1.4, paddingTop: 22, paddingBottom: 50, paddingHorizontal: 20, color: '#1a1a1a' },
   headerBlock: { marginBottom: 8 },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start' },
   logo: { width: 130, height: 32, objectFit: 'contain', marginBottom: 4 },
@@ -1366,19 +1366,14 @@ const styles: Record<string, any> = {
   termItem: { fontSize: 8, lineHeight: 1.7, marginBottom: 1.5, textAlign: 'left' },
   termSpacer: { height: 10 },
   termSubTitle: { fontSize: 9, fontWeight: 700, marginTop: 8, marginBottom: 3, lineHeight: 1.4 },
-  // In-flow spacer after 條款 claims this height on the last terms page when
-  // it fits — then the last-page fixed footer draws 客戶確認 at 頁底.
-  // Do not wrap={false} the visible block in the document flow (react-pdf
-  // would start a new page even when leftover space is enough).
-  signatureReserve: { height: 82 },
-  signatureSection: { flexDirection: 'row', justifyContent: 'space-between' },
+  // Follows the last 條款 line in document flow (not page-bottom / not wrap={false}).
+  signatureSection: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 10, paddingTop: 4 },
   signatureBlock: { width: '45%' },
   signatureTitle: { fontSize: 9, fontWeight: 700, marginBottom: 6, lineHeight: 1.4 },
   signatureLabel: { fontSize: 8, lineHeight: 1.4 },
   signatureMiddle: { height: 32, position: 'relative' },
   signatureLine: { borderBottomWidth: 0.5, borderColor: '#333', marginBottom: 4 },
   signatureDate: { fontSize: 7, color: '#666', lineHeight: 1.4 },
-  signatureFixed: { position: 'absolute', left: 20, right: 20, bottom: 22 },
   stamp: { width: 64, height: 64, objectFit: 'contain', position: 'absolute', bottom: 0, right: 0, opacity: 0.85 },
 };
 
@@ -1684,31 +1679,15 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
           </>
         )}
 
-        {/*
-          In-flow (no wrap={false}): leftover space after 條款 can hold 客戶確認.
-          react-pdf View.render is typed without totalPages, so we read it via
-          a narrow cast — last page only, pinned to 頁底.
-        */}
-        <View style={styles.signatureReserve} />
-        <View
-          fixed
-          style={styles.signatureFixed}
-          render={(info) => {
-            const { pageNumber, totalPages } = info as typeof info & { totalPages?: number };
-            if (totalPages != null && pageNumber !== totalPages) return null;
-            return (
-              <View style={styles.signatureSection}>
-                <View style={styles.signatureBlock}>
-                  <Text style={styles.signatureTitle}>{labels.customerAcceptance}</Text>
-                  <Text style={styles.signatureLabel}>{labels.customerSignLabel}</Text>
-                  <View style={styles.signatureMiddle} />
-                  <View style={styles.signatureLine} />
-                  <Text style={styles.signatureDate}>{labels.dateOfSignature}</Text>
-                </View>
-              </View>
-            );
-          }}
-        />
+        <View style={styles.signatureSection}>
+          <View style={styles.signatureBlock}>
+            <Text style={styles.signatureTitle}>{labels.customerAcceptance}</Text>
+            <Text style={styles.signatureLabel}>{labels.customerSignLabel}</Text>
+            <View style={styles.signatureMiddle} />
+            <View style={styles.signatureLine} />
+            <Text style={styles.signatureDate}>{labels.dateOfSignature}</Text>
+          </View>
+        </View>
       </Page>
     </Document>
   );
