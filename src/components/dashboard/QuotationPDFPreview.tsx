@@ -6,6 +6,7 @@ import { multiColorToChineseDisplay } from '@/constants/color-map';
 import { normalizeQuotationPdfGlyphs, pdfDisplayText } from '@/lib/quotationPdfGlyphs';
 import { quoteItemLineSubtotal } from '@/lib/quoteItemTotals';
 import { buildQuotationPdfFilename } from '@/lib/quotationPdfFilename';
+import { formatQuoteNumberWithVersion } from '@/lib/quoteVersions';
 import { quotePdf, type QuotePdfLabels } from '@/lib/quotationLocale';
 import {
   formatSectionTitleLabel,
@@ -1402,7 +1403,10 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
       month: 'numeric',
       day: 'numeric',
     });
-  const quoteNumber = data.quoteMeta?.quoteNumber || '';
+  const quoteNumber = formatQuoteNumberWithVersion(
+    data.quoteMeta?.quoteNumber || '',
+    data.quoteMeta?.version,
+  );
   const infoLabelWidth = locale === 'en' ? 92 : 56;
   const renderInfoField = (label: string, value: string | undefined | null) => {
     const text = String(value ?? '').trim();

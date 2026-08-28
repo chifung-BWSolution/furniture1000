@@ -3242,7 +3242,7 @@ export function QuotationDraftEditor({
           quoteNumber: quoteId,
           version: existingQuote?.version
             ? displayQuoteVersion(existingQuote.version)
-            : undefined,
+            : 'v1',
           date: displayDate,
         },
         locale: 'en',
@@ -3284,7 +3284,7 @@ export function QuotationDraftEditor({
       quoteNumber: quoteId,
       version: existingQuote?.version
         ? displayQuoteVersion(existingQuote.version)
-        : undefined,
+        : 'v1',
       date: displayDate,
     },
     locale: 'zh',

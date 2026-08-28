@@ -52,3 +52,18 @@ export function displayQuoteVersion(version: string | null | undefined): string 
   if (seq <= 0) return (version || '').trim() || '—';
   return formatQuoteVersion(seq);
 }
+
+/** PDF / preview 報價單號 with current version, e.g. BWF-OB26-137 v3. */
+export function formatQuoteNumberWithVersion(
+  quoteNumber: string | null | undefined,
+  version?: string | null,
+): string {
+  const number = (quoteNumber || '').trim();
+  const ver = displayQuoteVersion(version);
+  const hasVersion = Boolean(ver) && ver !== '—';
+  if (!number) return hasVersion ? ver : '';
+  if (!hasVersion) return number;
+  const escaped = ver.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (new RegExp(`(?:^|[\\s_\\-])${escaped}$`, 'i').test(number)) return number;
+  return `${number} ${ver}`;
+}
