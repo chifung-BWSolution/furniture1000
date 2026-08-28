@@ -1,7 +1,7 @@
 export type QuotationDimensionMode = 'lwh' | 'dh';
 
 export interface QuotationPDFData {
-  // Customer-facing PDF only. Editor-internal fields (gpSummary, priceMultiplier, etc.)
+  // Customer-facing PDF only. Editor-internal fields (gpSummary, etc.)
   // must never be passed into QuotationPDFPreview / QuotationDocument.
   companyInfo: {
     name: string;

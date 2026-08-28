@@ -2516,49 +2516,6 @@ export function QuotationDraftEditor({
     };
   }, [draggingItemId, trackQuoteDragPointer]);
 
-  // Unit price multiplier (cost-based) — persisted in project_data after 版本審核.
-  const savedPriceMultiplier = (() => {
-    if (copyPayload?.priceMultiplier != null && copyPayload.priceMultiplier !== "") {
-      return String(copyPayload.priceMultiplier);
-    }
-    const raw = (savedProjectData as Record<string, unknown>).priceMultiplier;
-    if (raw == null || raw === "") return "1";
-    return String(raw);
-  })();
-  const [priceMultiplier, setPriceMultiplier] = useState<string>(savedPriceMultiplier);
-
-  // Re-hydrate multiplier when parent reloads project_data after 版本審核.
-  useEffect(() => {
-    if (!existingQuote?.quoteId) return;
-    const raw = (existingQuote.projectData as Record<string, unknown> | undefined)
-      ?.priceMultiplier;
-    if (raw == null || raw === "") return;
-    setPriceMultiplier(String(raw));
-  }, [existingQuote?.quoteId, existingQuote?.projectData]);
-
-  const applyPriceMultiplier = () => {
-    const mult = parseFloat(priceMultiplier);
-    if (isNaN(mult) || mult < 0) {
-      toast.error("請輸入有效的倍率數字");
-      return;
-    }
-    itemsUserEditedRef.current = true;
-    setItems((prev) =>
-      prev.map((item) => {
-        if (item.isSectionTitle || item.isCustomTerm) return item;
-        const base =
-          item.hkdCostPrice != null && item.hkdCostPrice > 0
-            ? Math.ceil(item.hkdCostPrice)
-            : item.costPrice;
-        if (base != null && base > 0) {
-          return { ...item, unitPrice: Math.round(base * mult) };
-        }
-        return item;
-      }),
-    );
-    toast.success(`已按成本倍率 ×${mult} 更新單價`);
-  };
-
   const subtotal = quoteBillableSubtotal(items);
   const discountValue = (() => {
     const n = parseFloat(discountNote);
@@ -2755,9 +2712,6 @@ export function QuotationDraftEditor({
             installation: gp.installation ?? 0,
           });
         }
-        if (cachedRecord.priceMultiplier != null && cachedRecord.priceMultiplier !== "") {
-          setPriceMultiplier(String(cachedRecord.priceMultiplier));
-        }
         if (cached.termsContent) {
           const cachedMeta = cached.quoteMeta as { deliveryAddress?: string } | undefined;
           setTermsContent(
@@ -2829,7 +2783,6 @@ export function QuotationDraftEditor({
       discountNote,
       installationFee,
       gpSummary,
-      priceMultiplier: parseFloat(priceMultiplier) || 1,
     }),
     [
       storageKey,
@@ -2846,7 +2799,6 @@ export function QuotationDraftEditor({
       discountNote,
       installationFee,
       gpSummary,
-      priceMultiplier,
     ],
   );
 
@@ -3199,7 +3151,6 @@ export function QuotationDraftEditor({
       discountValue,
       installationFee,
       gpSummary,
-      priceMultiplier: parseFloat(priceMultiplier) || 1,
     };
   };
 
@@ -3872,31 +3823,10 @@ export function QuotationDraftEditor({
                   ))}
                 </div>
 
-                {/* Price Multiplier, GP Summary & Subtotal */}
-                <div className="mt-4 grid grid-cols-1 items-end gap-4 border-t border-border pt-3 lg:grid-cols-3">
-                  {/* 單價規則 - Unit price batch multiplier */}
-                  <div className="flex items-center gap-2">
-                    <span className="font-body text-xs text-primary font-medium">
-                      {t.priceMultiplier}
-                    </span>
-                    <input
-                      type="number"
-                      step="0.1"
-                      min="0"
-                      value={priceMultiplier}
-                      onChange={(e) => setPriceMultiplier(e.target.value)}
-                      className="w-16 rounded-md border border-primary/30 bg-background px-2 py-1 font-mono-data text-xs text-foreground text-center focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
-                    />
-                    <button
-                      type="button"
-                      onClick={applyPriceMultiplier}
-                      className="rounded-md border border-primary/30 bg-primary/5 px-2.5 py-1 font-body text-xs font-medium text-primary transition-colors hover:bg-primary/10"
-                    >
-                      {t.apply}
-                    </button>
-                  </div>
+                {/* GP Summary & Subtotal */}
+                <div className="mt-4 grid grid-cols-1 items-end gap-4 border-t border-border pt-3 lg:grid-cols-2">
                   {/* GP summary — internal margin calc; not exported to PDF preview */}
-                  <div className="flex justify-center">
+                  <div className="flex justify-center lg:justify-start">
                     <div className="w-full max-w-[300px] overflow-hidden rounded-md border border-border text-xs">
                       <div className="flex items-center justify-between gap-4 border-b border-border px-3 py-2">
                         <span className="font-body font-medium text-foreground">Contract Sum</span>
@@ -3953,7 +3883,7 @@ export function QuotationDraftEditor({
                       </div>
                     </div>
                   </div>
-                  <div className="flex flex-col items-end gap-2 lg:col-start-3">
+                  <div className="flex flex-col items-end gap-2">
                     {/* 傢俱安裝費用 row (editable) */}
                     <div className="flex w-full items-stretch rounded-md border border-border overflow-hidden text-xs">
                       <div className="flex flex-col justify-center gap-1 px-3 py-2 bg-muted/30 border-r border-border" style={{ width: '45%' }}>
