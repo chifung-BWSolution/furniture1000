@@ -45,6 +45,21 @@ function remapCopyItems(items: BwfQuoteItemInput[]): BwfQuoteItemInput[] {
   }));
 }
 
+/** Line items for a quote UUID (table first, then legacy project_data). Keeps source ids. */
+export async function loadQuoteLineItemsForPicker(
+  quoteUuid: string,
+): Promise<BwfQuoteItemInput[]> {
+  let items = await loadQuoteItems(quoteUuid);
+  if (items.length > 0) return items;
+  const { data, error } = await supabase
+    .from('bwf_quote')
+    .select('project_data')
+    .eq('id', quoteUuid)
+    .maybeSingle();
+  if (error) throw error;
+  return itemsFromLegacyProjectData((data?.project_data || {}) as Record<string, unknown>);
+}
+
 /** Fetch copy payload from bwf_quote.id (UUID). */
 export async function loadQuoteCopyPayload(
   quoteUuid: string,

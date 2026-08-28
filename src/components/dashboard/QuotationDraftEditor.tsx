@@ -28,6 +28,7 @@ import { toast } from "sonner";
 import { SubmitReviewModal, type SubmitReviewResult } from "@/components/dashboard/SubmitReviewModal";
 import { persistBwfQuote } from "@/lib/persistBwfQuote";
 import { ProductSelectorModal } from "@/components/dashboard/ProductSelectorModal";
+import { CopyQuoteItemsModal } from "@/components/dashboard/CopyQuoteItemsModal";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -1614,6 +1615,7 @@ function insertItemsAt(
 
 function QuoteAddRowButtonGroup({
   labels,
+  onCopyFromOther,
   onAddSectionTitle,
   onAddField,
   onAddCustomTerm,
@@ -1623,6 +1625,7 @@ function QuoteAddRowButtonGroup({
   compact = false,
 }: {
   labels: QuoteUiLabels;
+  onCopyFromOther: () => void;
   onAddSectionTitle: () => void;
   onAddField: () => void;
   onAddCustomTerm: () => void;
@@ -1638,6 +1641,17 @@ function QuoteAddRowButtonGroup({
 
   return (
     <div className="flex flex-wrap items-center justify-end gap-2">
+      <button
+        type="button"
+        onClick={onCopyFromOther}
+        className={cn(
+          btnBase,
+          "border-violet-500/50 text-violet-700 hover:bg-violet-500/5 dark:text-violet-400",
+        )}
+      >
+        <Copy className={iconClass} />
+        {labels.copyFromOtherQuote}
+      </button>
       <button
         type="button"
         onClick={onAddSectionTitle}
@@ -2214,6 +2228,20 @@ export function QuotationDraftEditor({
     setShowProductSelector(true);
   };
 
+  /** Copy full lines from another quote version — always insert at the front. */
+  const insertCopiedItemsAtFront = (sourceItems: BwfQuoteItemInput[]) => {
+    if (sourceItems.length === 0) return;
+    itemsUserEditedRef.current = true;
+    const rows = sourceItems.map((item, index) =>
+      mapInputToQuotationItem({
+        ...item,
+        id: `${generateId()}-${index}`,
+      }),
+    );
+    setItems((prev) => insertItemsAt(prev, rows, 0));
+    toast.success(`${t.copyFromOtherQuoteSuccess}（${rows.length}）`);
+  };
+
   const [cutItemId, setCutItemId] = useState<string | null>(null);
 
   // Drop cut state if the target row was removed by other means.
@@ -2589,6 +2617,7 @@ export function QuotationDraftEditor({
 
   // Product selector modal state
   const [showProductSelector, setShowProductSelector] = useState(false);
+  const [showCopyFromOther, setShowCopyFromOther] = useState(false);
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
   /** Index where products from the selector should be inserted (0 = start). */
   const productInsertAtRef = useRef(0);
@@ -3722,6 +3751,7 @@ export function QuotationDraftEditor({
                     labels={t}
                     showPaste={cutItemId != null}
                     onPaste={() => pasteCutItemAt(0)}
+                    onCopyFromOther={() => setShowCopyFromOther(true)}
                     onAddSectionTitle={() => addSectionTitle(0)}
                     onAddField={() => addItem(0)}
                     onAddCustomTerm={() => addCustomTerm(0)}
@@ -3814,6 +3844,7 @@ export function QuotationDraftEditor({
                         compact
                         showPaste={cutItemId != null}
                         onPaste={() => pasteCutItemAt(index + 1)}
+                        onCopyFromOther={() => setShowCopyFromOther(true)}
                         onAddSectionTitle={() => addSectionTitle(index + 1)}
                         onAddField={() => addItem(index + 1)}
                         onAddCustomTerm={() => addCustomTerm(index + 1)}
@@ -4237,6 +4268,13 @@ export function QuotationDraftEditor({
         )}
         existingQuoteUuid={existingQuote?.quoteUuid ?? null}
         forceNewQuote={forceNewQuote}
+      />
+
+      <CopyQuoteItemsModal
+        open={showCopyFromOther}
+        onClose={() => setShowCopyFromOther(false)}
+        onAddItems={insertCopiedItemsAtFront}
+        labels={t}
       />
 
       {/* Product Selector Modal */}
