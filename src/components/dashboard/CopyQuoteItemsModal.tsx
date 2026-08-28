@@ -22,15 +22,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import {
   Select,
   SelectContent,
   SelectItem,
@@ -103,6 +94,7 @@ export function CopyQuoteItemsModal({
   const [selectedQuoteId, setSelectedQuoteId] = useState("");
   const [selectedVersionUuid, setSelectedVersionUuid] = useState("");
   const [nameOpen, setNameOpen] = useState(false);
+  const [nameQuery, setNameQuery] = useState("");
   const [items, setItems] = useState<BwfQuoteItemInput[]>([]);
   const [itemsLoading, setItemsLoading] = useState(false);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(() => new Set());
@@ -113,6 +105,7 @@ export function CopyQuoteItemsModal({
     setItems([]);
     setSelectedKeys(new Set());
     setNameOpen(false);
+    setNameQuery("");
   }, []);
 
   useEffect(() => {
@@ -187,6 +180,16 @@ export function CopyQuoteItemsModal({
     [chains, selectedQuoteId],
   );
 
+  const filteredChains = useMemo(() => {
+    const query = nameQuery.trim().toLowerCase();
+    if (!query) return chains;
+    return chains.filter(
+      (chain) =>
+        chain.label.toLowerCase().includes(query) ||
+        chain.quoteId.toLowerCase().includes(query),
+    );
+  }, [chains, nameQuery]);
+
   useEffect(() => {
     if (!selectedVersionUuid) {
       setItems([]);
@@ -219,6 +222,7 @@ export function CopyQuoteItemsModal({
   const handleSelectName = (quoteId: string) => {
     setSelectedQuoteId(quoteId);
     setNameOpen(false);
+    setNameQuery("");
     const chain = chains.find((row) => row.quoteId === quoteId);
     const latest = chain?.versions[0];
     setSelectedVersionUuid(latest?.id || "");
@@ -259,47 +263,60 @@ export function CopyQuoteItemsModal({
             <label className="font-body text-xs font-medium text-muted-foreground">
               {labels.copyFromOtherQuoteName}
             </label>
-            <Popover open={nameOpen} onOpenChange={setNameOpen}>
-              <PopoverTrigger asChild>
-                <button
-                  type="button"
-                  disabled={listLoading}
-                  className="flex h-10 w-full items-center justify-between rounded-md border border-border bg-background px-3 font-body text-sm text-foreground disabled:opacity-60"
-                >
-                  <span className="truncate">
-                    {listLoading
-                      ? labels.copyFromOtherQuoteLoading
-                      : selectedChain?.label || labels.copyFromOtherQuotePickName}
-                  </span>
-                  <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                </button>
-              </PopoverTrigger>
-              <PopoverContent className="z-[80] w-[var(--radix-popover-trigger-width)] p-0" align="start">
-                <Command>
-                  <CommandInput placeholder={labels.copyFromOtherQuoteSearch} />
-                  <CommandList>
-                    <CommandEmpty>沒有符合的提案</CommandEmpty>
-                    <CommandGroup>
-                      {chains.map((chain) => (
-                        <CommandItem
+            <div className="space-y-1.5">
+              <button
+                type="button"
+                disabled={listLoading}
+                onClick={() => setNameOpen((prev) => !prev)}
+                className="flex h-10 w-full items-center justify-between rounded-md border border-border bg-background px-3 font-body text-sm text-foreground disabled:opacity-60"
+              >
+                <span className="truncate">
+                  {listLoading
+                    ? labels.copyFromOtherQuoteLoading
+                    : selectedChain?.label || labels.copyFromOtherQuotePickName}
+                </span>
+                <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+              </button>
+              {nameOpen ? (
+                <div className="overflow-hidden rounded-md border border-border bg-popover shadow-sm">
+                  <input
+                    type="text"
+                    autoFocus
+                    value={nameQuery}
+                    onChange={(e) => setNameQuery(e.target.value)}
+                    placeholder={labels.copyFromOtherQuoteSearch}
+                    className="h-9 w-full border-b border-border bg-transparent px-3 font-body text-sm outline-none placeholder:text-muted-foreground"
+                  />
+                  <div className="max-h-[220px] overflow-y-auto">
+                    {filteredChains.length === 0 ? (
+                      <p className="px-3 py-6 text-center font-body text-sm text-muted-foreground">
+                        沒有符合的提案
+                      </p>
+                    ) : (
+                      filteredChains.map((chain) => (
+                        <button
+                          type="button"
                           key={chain.quoteId}
-                          value={`${chain.label} ${chain.quoteId}`}
-                          onSelect={() => handleSelectName(chain.quoteId)}
+                          onClick={() => handleSelectName(chain.quoteId)}
+                          className={cn(
+                            "flex w-full items-center gap-2 px-3 py-2 text-left font-body text-sm hover:bg-accent",
+                            selectedQuoteId === chain.quoteId && "bg-accent",
+                          )}
                         >
                           <Check
                             className={cn(
-                              "mr-2 h-4 w-4",
+                              "h-4 w-4 shrink-0",
                               selectedQuoteId === chain.quoteId ? "opacity-100" : "opacity-0",
                             )}
                           />
                           <span className="truncate">{chain.label}</span>
-                        </CommandItem>
-                      ))}
-                    </CommandGroup>
-                  </CommandList>
-                </Command>
-              </PopoverContent>
-            </Popover>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </div>
+              ) : null}
+            </div>
           </div>
 
           <div className="min-w-0 space-y-1.5">
