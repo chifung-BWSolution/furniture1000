@@ -18,6 +18,7 @@ import {
   pitchingDisplayTitle,
   type PmsPitchingListItem,
 } from '@/lib/pmsPitchings';
+import { AsanaLinkButton } from '@/components/dashboard/AsanaLinkButton';
 import {
   ListPageShell,
   ListRefreshButton,
@@ -576,6 +577,7 @@ export function QuotationListView({
                   </button>
                 </th>
               ))}
+              <th className={LIST_TABLE_TH_CLASS}>Asana</th>
               <th className={LIST_TABLE_TH_CLASS}>
                 <span className="sr-only">操作</span>
               </th>
@@ -583,10 +585,10 @@ export function QuotationListView({
           </thead>
           <tbody>
             {isLoading ? (
-              <ListTableLoadingRow colSpan={11} label="載入報價單列表…" />
+              <ListTableLoadingRow colSpan={12} label="載入報價單列表…" />
             ) : displayRows.length === 0 ? (
               <ListTableEmptyRow
-                colSpan={11}
+                colSpan={12}
                 message={emptyMessage}
               />
             ) : (
@@ -837,6 +839,18 @@ export function QuotationListView({
                           {pitchingStatusLabel(quote.pitching?.pitching_stages)}
                         </span>
                       )}
+                    </td>
+                    <td
+                      className={cn(
+                        'whitespace-nowrap',
+                        isOldExpanded ? 'px-3 py-2' : 'px-3 py-3',
+                      )}
+                    >
+                      <AsanaLinkButton
+                        asanaLink={quote.pitching?.asana_link}
+                        label={title}
+                        compact={isOldExpanded}
+                      />
                     </td>
                     <td
                       className={cn(
