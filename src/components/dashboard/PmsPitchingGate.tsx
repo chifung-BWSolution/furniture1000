@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type SyntheticEvent } from 'react';
 import { Clock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   fetchPmsPitchings,
   pitchingDisplayTitle,
+  safeAsanaHref,
   type PmsPitchingListItem,
 } from '@/lib/pmsPitchings';
 import { overlayPitchingFinancialsFromQuotes } from '@/lib/quotePitchingFinancials';
@@ -47,6 +48,27 @@ function staffLabel(item: PmsPitchingListItem): string {
     .map((x) => x?.trim())
     .filter(Boolean);
   return parts.length > 0 ? parts.join(' / ') : '—';
+}
+
+/** Official Asana three-dot mark. */
+function AsanaMark({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      className={className}
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path
+        fill="currentColor"
+        d="M18.78 12.653c-2.64 0-4.78 2.16-4.78 4.826 0 2.665 2.14 4.825 4.78 4.825s4.78-2.16 4.78-4.825c0-2.666-2.14-4.826-4.78-4.826zm-13.56 0c-2.64 0-4.78 2.16-4.78 4.826 0 2.665 2.14 4.825 4.78 4.825s4.78-2.16 4.78-4.825c0-2.666-2.14-4.826-4.78-4.826zM12 1.696c-2.64 0-4.78 2.16-4.78 4.825 0 2.666 2.14 4.826 4.78 4.826s4.78-2.16 4.78-4.826c0-2.665-2.14-4.825-4.78-4.825z"
+      />
+    </svg>
+  );
+}
+
+function stopRowSelect(e: SyntheticEvent) {
+  e.stopPropagation();
 }
 
 /**
@@ -195,14 +217,15 @@ export function PmsPitchingGate({ onSelect, title, subtitle }: PmsPitchingGatePr
                 </button>
               </th>
             ))}
+            <th className={LIST_TABLE_TH_CLASS}>Asana</th>
           </tr>
         </thead>
         <tbody>
           {loading ? (
-            <ListTableLoadingRow colSpan={10} label="載入 Pitching 列表…" />
+            <ListTableLoadingRow colSpan={11} label="載入 Pitching 列表…" />
           ) : sortedItems.length === 0 ? (
             <ListTableEmptyRow
-              colSpan={10}
+              colSpan={11}
               message={
                 loadError ||
                 (search.trim()
@@ -215,6 +238,7 @@ export function PmsPitchingGate({ onSelect, title, subtitle }: PmsPitchingGatePr
               const selected = activeId === item.id;
               const title = pitchingDisplayTitle(item);
               const days = item.remaining_days;
+              const asanaHref = safeAsanaHref(item.asana_link);
               return (
                 <tr
                   key={item.id}
@@ -296,6 +320,27 @@ export function PmsPitchingGate({ onSelect, title, subtitle }: PmsPitchingGatePr
                     >
                       {pitchingStatusLabel(item.pitching_stages)}
                     </span>
+                  </td>
+                  <td className="whitespace-nowrap px-3 py-3">
+                    {asanaHref ? (
+                      <a
+                        href={asanaHref}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="在新分頁開啟 Asana"
+                        aria-label={`開啟 ${title} 的 Asana`}
+                        onClick={stopRowSelect}
+                        onPointerDown={stopRowSelect}
+                        onKeyDown={stopRowSelect}
+                        className="inline-flex h-8 w-8 items-center justify-center rounded-md border border-border bg-card text-[#F06A6A] shadow-sm transition-colors hover:bg-[#F06A6A]/10 hover:text-[#E25555]"
+                      >
+                        <AsanaMark className="h-4 w-4" />
+                      </a>
+                    ) : (
+                      <span className="font-body text-xs text-muted-foreground">
+                        —
+                      </span>
+                    )}
                   </td>
                 </tr>
               );

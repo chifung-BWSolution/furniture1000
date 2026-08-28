@@ -20,6 +20,8 @@ export interface PmsPitchingListItem {
   /** PMS customer industry tags (客戶產業), joined with 、 */
   client_industry?: string | null;
   service_type?: string | null;
+  /** PMS `bwf_pitchings.asana_link` (same field as `bwa_pitchings.asana_link`). */
+  asana_link?: string | null;
 }
 
 const EDGE_MAX = 150;
@@ -70,6 +72,7 @@ function mapPitchingRows(items: unknown[]): PmsPitchingListItem[] {
           ? String(r.client_industry)
           : null,
         service_type: r.service_type ? String(r.service_type) : null,
+        asana_link: r.asana_link ? String(r.asana_link).trim() : null,
       } satisfies PmsPitchingListItem;
     })
     .filter((row) => Boolean(row.id));
@@ -220,4 +223,17 @@ export function pitchingDisplayTitle(item: PmsPitchingListItem): string {
     item.pitching_code?.trim() ||
     '未命名 Pitching'
   );
+}
+
+/** Only allow http(s) Asana / project links — reject javascript: and relative junk. */
+export function safeAsanaHref(raw: string | null | undefined): string | null {
+  const value = raw?.trim();
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+    return url.href;
+  } catch {
+    return null;
+  }
 }

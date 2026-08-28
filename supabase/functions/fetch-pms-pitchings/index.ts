@@ -124,7 +124,7 @@ Deno.serve(async (req: Request) => {
     let query = pmsAdmin
       .from("bwf_pitchings")
       .select(
-        "id, pitching_code, pitching_name, customer_id, real_customer_display_name, real_customer_name, main_pm_id, main_designer_id, pitching_stages, estimated_income, estimated_expense, enquiry_date, n_customer_type_id, n_bwf_service_types_id",
+        "id, pitching_code, pitching_name, customer_id, real_customer_display_name, real_customer_name, main_pm_id, main_designer_id, pitching_stages, estimated_income, estimated_expense, enquiry_date, n_customer_type_id, n_bwf_service_types_id, asana_link",
       )
       .order("enquiry_date", { ascending: false, nullsFirst: false })
       .limit(
@@ -335,6 +335,8 @@ Deno.serve(async (req: Request) => {
         service_type: serviceTypeId
           ? serviceTypeById.get(serviceTypeId) || null
           : null,
+        // Same column as bwa_pitchings.asana_link; this list is BWF pitchings.
+        asana_link: (r.asana_link as string | null)?.trim() || null,
       };
     });
 
