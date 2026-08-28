@@ -44,6 +44,8 @@ export const QUOTE_UI = {
     /** Button label after clicking（EN switches to Apply to all; ZH stays 統一匯率）. */
     unifyExchangeRateApplied: '統一匯率',
     hkdCost: 'HKD$成本價',
+    /** Value-added service row — user-entered HKD cost (feeds GP Cost). */
+    hkdCostAmount: 'HKD$成本',
     unit: '單位',
     remarks: '備註',
     image: '圖片',
@@ -106,6 +108,7 @@ export const QUOTE_UI = {
     /** Button label after clicking 統一匯率 / Exchange Rate. */
     unifyExchangeRateApplied: 'Apply to all',
     hkdCost: 'HKD$ Cost Price',
+    hkdCostAmount: 'HKD$ Cost',
     unit: 'Unit',
     remarks: 'Remarks',
     image: 'Image',

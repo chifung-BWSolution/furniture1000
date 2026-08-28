@@ -1333,49 +1333,67 @@ function QuoteCustomTermCard({
               className={QUOTE_INPUT_CLASS}
             />
           </QuoteFieldBlock>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-            <QuoteFieldBlock label={labels.quantity}>
-              <input
-                type="number"
-                value={item.quantity || ""}
-                placeholder="1"
-                min={1}
-                onChange={(e) =>
-                  updateItem(item.id, "quantity", e.target.value ? parseInt(e.target.value) : 0)
-                }
-                className={QUOTE_NUMBER_INPUT_CLASS}
-              />
-            </QuoteFieldBlock>
-            <QuoteFieldBlock label={labels.unit}>
-              <input
-                type="text"
-                value={item.unit || ""}
-                placeholder="—"
-                maxLength={4}
-                onChange={(e) => updateItem(item.id, "unit", e.target.value)}
-                className={QUOTE_INPUT_CLASS}
-              />
-            </QuoteFieldBlock>
-            <QuoteFieldBlock label={labels.hkdUnitPrice}>
-              <input
-                type="number"
-                value={typeof item.unitPrice === "number" ? item.unitPrice : ""}
-                placeholder="0"
-                min={0}
-                onChange={(e) =>
-                  updateItem(item.id, "unitPrice", e.target.value ? parseFloat(e.target.value) : 0)
-                }
-                className={QUOTE_NUMBER_INPUT_CLASS}
-              />
-            </QuoteFieldBlock>
-            <QuoteFieldBlock label={labels.hkdSubtotal}>
-              <div className="flex h-[34px] items-center rounded-md border border-border/60 bg-muted/20 px-2">
-                <span className="font-mono-data text-xs font-medium text-foreground">
-                  ${(item.unitPrice * item.quantity).toLocaleString()}
-                </span>
-              </div>
-            </QuoteFieldBlock>
-            <div className="flex items-end justify-end pb-0.5">
+          <div className="flex flex-col gap-3 min-[650px]:flex-row min-[650px]:items-end">
+            <div className="grid min-w-0 flex-1 grid-cols-5 gap-3">
+              <QuoteFieldBlock label={labels.quantity} className="[&_label]:whitespace-nowrap">
+                <input
+                  type="number"
+                  value={item.quantity || ""}
+                  placeholder="1"
+                  min={1}
+                  onChange={(e) =>
+                    updateItem(item.id, "quantity", e.target.value ? parseInt(e.target.value) : 0)
+                  }
+                  className={QUOTE_NUMBER_INPUT_CLASS}
+                />
+              </QuoteFieldBlock>
+              <QuoteFieldBlock label={labels.unit} className="[&_label]:whitespace-nowrap">
+                <input
+                  type="text"
+                  value={item.unit || ""}
+                  placeholder="—"
+                  maxLength={4}
+                  onChange={(e) => updateItem(item.id, "unit", e.target.value)}
+                  className={QUOTE_INPUT_CLASS}
+                />
+              </QuoteFieldBlock>
+              <QuoteFieldBlock label={labels.hkdCostAmount} className="[&_label]:whitespace-nowrap">
+                <input
+                  type="number"
+                  value={typeof item.hkdCostPrice === "number" ? item.hkdCostPrice : ""}
+                  placeholder="0"
+                  min={0}
+                  onChange={(e) =>
+                    updateItem(
+                      item.id,
+                      "hkdCostPrice",
+                      e.target.value ? parseFloat(e.target.value) : null,
+                    )
+                  }
+                  className={QUOTE_NUMBER_INPUT_CLASS}
+                />
+              </QuoteFieldBlock>
+              <QuoteFieldBlock label={labels.hkdUnitPrice} className="[&_label]:whitespace-nowrap">
+                <input
+                  type="number"
+                  value={typeof item.unitPrice === "number" ? item.unitPrice : ""}
+                  placeholder="0"
+                  min={0}
+                  onChange={(e) =>
+                    updateItem(item.id, "unitPrice", e.target.value ? parseFloat(e.target.value) : 0)
+                  }
+                  className={QUOTE_NUMBER_INPUT_CLASS}
+                />
+              </QuoteFieldBlock>
+              <QuoteFieldBlock label={labels.hkdSubtotal} className="[&_label]:whitespace-nowrap">
+                <div className="flex h-[34px] items-center rounded-md border border-border/60 bg-muted/20 px-2">
+                  <span className="font-mono-data text-xs font-medium text-foreground">
+                    ${(item.unitPrice * item.quantity).toLocaleString()}
+                  </span>
+                </div>
+              </QuoteFieldBlock>
+            </div>
+            <div className="flex shrink-0 items-end justify-end pb-0.5">
               <QuoteRowActionButtons
                 itemId={item.id}
                 cutItemId={cutItemId}

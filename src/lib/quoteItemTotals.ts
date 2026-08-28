@@ -31,7 +31,7 @@ export function quoteItemLineCost(item: QuoteCostLineItem): number {
   return hkdCost * (item.quantity ?? 0);
 }
 
-/** Sum of billable product costs for GP / Cost column. */
+/** Sum of billable line costs for GP / Cost (products + value-added services). */
 export function quoteBillableProductCost(items: QuoteCostLineItem[]): number {
   return items.reduce((sum, item) => sum + quoteItemLineCost(item), 0);
 }
