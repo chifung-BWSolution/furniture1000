@@ -38,6 +38,8 @@ export interface DraftData {
   discountNote?: string;
   installationFee?: Record<string, unknown>;
   gpSummary?: { ship?: number; installation?: number };
+  /** Last applied cost multiplier (e.g. 2.3). */
+  priceMultiplier?: number | string;
 }
 
 function openDB(): Promise<IDBDatabase> {

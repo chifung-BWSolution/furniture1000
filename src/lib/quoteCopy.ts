@@ -32,6 +32,7 @@ export type QuoteCopyPayload = {
   discountNote: string;
   installationFee: QuoteCopyInstallationFee;
   gpSummary: ReturnType<typeof parseGpSummary>;
+  priceMultiplier?: number | string;
 };
 
 function newCopyItemId(index: number): string {
@@ -124,5 +125,9 @@ export async function loadQuoteCopyPayload(
           : null,
     },
     gpSummary: parseGpSummary(projectData.gpSummary),
+    priceMultiplier:
+      projectData.priceMultiplier != null && projectData.priceMultiplier !== ""
+        ? (projectData.priceMultiplier as number | string)
+        : undefined,
   };
 }
