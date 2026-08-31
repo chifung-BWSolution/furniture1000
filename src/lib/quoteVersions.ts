@@ -53,17 +53,26 @@ export function displayQuoteVersion(version: string | null | undefined): string 
   return formatQuoteVersion(seq);
 }
 
-/** PDF / preview 報價單號 with current version, e.g. BWF-OB26-137 v3. */
+/** Customer-facing revision on PDF / preview, e.g. v32 → R32. */
+export function formatQuoteRevisionLabel(version: string | null | undefined): string {
+  const seq = quoteVersionSequence(version);
+  if (seq > 0) return `R${seq}`;
+  const raw = (version || '').trim();
+  if (!raw || raw === '—') return '';
+  const rev = raw.match(/^r(\d+)$/i);
+  if (rev) return `R${rev[1]}`;
+  return raw.replace(/^v/i, 'R');
+}
+
+/** PDF / preview 報價單號 with current revision, e.g. BWF-OB26-109 R32. */
 export function formatQuoteNumberWithVersion(
   quoteNumber: string | null | undefined,
   version?: string | null,
 ): string {
   const number = (quoteNumber || '').trim();
-  const ver = displayQuoteVersion(version);
-  const hasVersion = Boolean(ver) && ver !== '—';
-  if (!number) return hasVersion ? ver : '';
-  if (!hasVersion) return number;
-  const escaped = ver.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  if (new RegExp(`(?:^|[\\s_\\-])${escaped}$`, 'i').test(number)) return number;
-  return `${number} ${ver}`;
+  const rev = formatQuoteRevisionLabel(version);
+  if (!number) return rev;
+  if (!rev) return number;
+  const stripped = number.replace(/[\s_\-]*[vVrR]\d+$/, '').trim() || number;
+  return `${stripped} ${rev}`;
 }
