@@ -19,6 +19,11 @@ import { usePublishRtsList } from './usePublishRtsList';
 import { writeUploadLog, writeUploadLogBatch, type UploadLogEntry } from '@/lib/uploadLog';
 import { CategoryTagPicker, type BwfCat } from './CategoryTagPicker';
 import { parseRtsImageUrls } from '@/lib/rtsImages';
+import {
+  mapProductCategoryRows,
+  resolveProductCategoryId,
+  type ProductCategoryPair,
+} from '@/lib/productCategoryOptions';
 
 type ProductionType = 'stock' | 'custom' | null;
 
@@ -118,20 +123,16 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
   }, []);
 
   // Load level1/level2 category pairs from product_category for the dropdowns
-  const [categoryPairs, setCategoryPairs] = useState<{ level1: string; level2: string }[]>([]);
+  const [categoryPairs, setCategoryPairs] = useState<ProductCategoryPair[]>([]);
   useEffect(() => {
     let cancelled = false;
     (async () => {
       const { data } = await supabase
         .from('product_category')
-        .select('level1, level2, sort_order')
+        .select('id, level1, level2, sort_order')
         .order('sort_order', { ascending: true });
       if (!cancelled && data) {
-        setCategoryPairs(
-          data
-            .map((r: any) => ({ level1: String(r.level1 ?? '').trim(), level2: String(r.level2 ?? '').trim() }))
-            .filter((p) => p.level1)
-        );
+        setCategoryPairs(mapProductCategoryRows(data));
       }
     })();
     return () => { cancelled = true; };
@@ -345,6 +346,7 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
       tags: it.tags,
       level1_category: it.level1 || null,
       level2_category: it.level2 || null,
+      product_category_id: resolveProductCategoryId(categoryPairs, it.level1, it.level2),
       dimension_l_mm: it.dimL,
       dimension_w_mm: it.dimW,
       dimension_h_mm: it.dimH,

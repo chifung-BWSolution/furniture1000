@@ -214,6 +214,7 @@ export async function syncRtsContentToProduct(
     sale_price?: number | null;
     level1_category?: string | null;
     level2_category?: string | null;
+    product_category_id?: string | null;
     dimension_l_mm?: number | null;
     dimension_w_mm?: number | null;
     dimension_h_mm?: number | null;
@@ -254,6 +255,9 @@ export async function syncRtsContentToProduct(
   }
   if (patch.level1_category !== undefined) productsPatch.level1_category = patch.level1_category;
   if (patch.level2_category !== undefined) productsPatch.level2_category = patch.level2_category;
+  if (patch.product_category_id !== undefined) {
+    productsPatch.product_category_id = patch.product_category_id;
+  }
   if (patch.dimension_l_mm !== undefined) productsPatch.dimension_l_mm = patch.dimension_l_mm;
   if (patch.dimension_w_mm !== undefined) productsPatch.dimension_w_mm = patch.dimension_w_mm;
   if (patch.dimension_h_mm !== undefined) productsPatch.dimension_h_mm = patch.dimension_h_mm;

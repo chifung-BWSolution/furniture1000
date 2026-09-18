@@ -53,6 +53,11 @@ import { toast } from 'sonner';
 import { withUpdateAuditFields } from '@/lib/pmsAudit';
 import { collectProductGalleryUrls } from '@/lib/productGallery';
 import { writeProductEditLog } from '@/lib/uploadLog';
+import {
+  mapProductCategoryRows,
+  resolveProductCategoryId,
+  type ProductCategoryPair,
+} from '@/lib/productCategoryOptions';
 // Color map utilities available if needed
 // import { getChineseColorLabel, getColorHex } from '@/constants/color-map';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -420,7 +425,7 @@ export function ProductDetailModal({
   const [selectedScenes, setSelectedScenes] = useState<string[]>([]);
 
   // Category dropdown state — flat level1/level2 pairs from 設定 > 產品分類
-  const [categoryPairs, setCategoryPairs] = useState<{ level1: string; level2: string }[]>([]);
+  const [categoryPairs, setCategoryPairs] = useState<ProductCategoryPair[]>([]);
   const [categoryListLoading, setCategoryListLoading] = useState(false);
   const level1Options = useMemo(
     () => Array.from(new Set(categoryPairs.map((p) => p.level1))),
@@ -560,17 +565,10 @@ export function ProductDetailModal({
       try {
         const { data, error } = await supabase
           .from('product_category')
-          .select('level1, level2, sort_order')
+          .select('id, level1, level2, sort_order')
           .order('sort_order', { ascending: true });
         if (!cancelled && data) {
-          setCategoryPairs(
-            data
-              .map((r: { level1: string | null; level2: string | null }) => ({
-                level1: String(r.level1 ?? '').trim(),
-                level2: String(r.level2 ?? '').trim(),
-              }))
-              .filter((p) => p.level1),
-          );
+          setCategoryPairs(mapProductCategoryRows(data));
         }
         if (error) console.warn('[ProductDetailModal] Failed to fetch categories:', error);
       } catch (err) {
@@ -769,6 +767,11 @@ export function ProductDetailModal({
         category: level2Category || level1Category || product.category || '',
         level1_category: level1Category || null,
         level2_category: level2Category || null,
+        product_category_id: resolveProductCategoryId(
+          categoryPairs,
+          level1Category,
+          level2Category,
+        ),
         cost_price: parsedCostPrice,
         price: parsedSalePrice ?? product.price,
         factory_id: factoryId || null,
@@ -975,7 +978,7 @@ export function ProductDetailModal({
       setUploadProgress(0);
     }
   }, [
-    title, description, level1Category, level2Category, costPrice, salePrice, factoryId,
+    title, description, level1Category, level2Category, categoryPairs, costPrice, salePrice, factoryId,
     productionLeadTime, shippingDays, shippingFee, color, remarks,
     dimensionL, dimensionW, dimensionH,
     images, pendingNewFiles, pendingDeletePaths,

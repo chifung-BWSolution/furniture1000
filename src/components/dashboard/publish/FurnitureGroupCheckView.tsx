@@ -12,7 +12,13 @@ import { syncRtsContentToProduct, syncRtsGalleryToProduct, syncRtsWorkflowToProd
 import { dedupeFactoryNames, normalizeFactoryDisplayName } from '@/lib/factoryNames';
 import { getPublishTimestampHk } from '@/lib/publishTimestamps';
 import { writeUploadLog, writeUploadLogBatch } from '@/lib/uploadLog';
-import { uniqueLevel1InOrder, uniqueLevel2InOrder } from '@/lib/productCategoryOptions';
+import {
+  mapProductCategoryRows,
+  resolveProductCategoryId,
+  uniqueLevel1InOrder,
+  uniqueLevel2InOrder,
+  type ProductCategoryPair,
+} from '@/lib/productCategoryOptions';
 import { toast } from 'sonner';
 
 const ACCEPTED_IMAGE_TYPES = 'image/jpeg,image/jpg,image/webp,image/avif,image/png';
@@ -275,7 +281,7 @@ export function FGProductDetailModal({
   const [isSaving, setIsSaving] = useState(false);
 
   // Category data from product_category table (for L1/L2 dropdowns)
-  const [categoryPairs, setCategoryPairs] = useState<{ level1: string; level2: string }[]>([]);
+  const [categoryPairs, setCategoryPairs] = useState<ProductCategoryPair[]>([]);
   // Tag categories from bwf_product_categories (for CategoryTagPicker)
   const [bwfCats, setBwfCats] = useState<BwfCat[]>([]);
   // Selected L1 / L2 for the cascading dropdown
@@ -312,9 +318,9 @@ export function FGProductDetailModal({
   useEffect(() => {
     supabase
       .from('product_category')
-      .select('level1, level2, sort_order')
+      .select('id, level1, level2, sort_order')
       .order('sort_order', { ascending: true })
-      .then(({ data: cats }) => { if (cats) setCategoryPairs(cats as { level1: string; level2: string }[]); });
+      .then(({ data: cats }) => { if (cats) setCategoryPairs(mapProductCategoryRows(cats)); });
     supabase
       .from('bwf_product_categories')
       .select('id,name,parent_id,level,sort_order')
@@ -508,6 +514,7 @@ export function FGProductDetailModal({
           tags: editTags.length > 0 ? editTags : null,
           level1_category: editL1 || null,
           level2_category: editL2 || null,
+          product_category_id: resolveProductCategoryId(categoryPairs, editL1, editL2),
           dimension_l_mm: dimL,
           dimension_w_mm: dimW,
           dimension_h_mm: dimH,
@@ -1030,7 +1037,7 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
   const [level2Filter, setLevel2Filter] = useState('');
   const [factoryFilter, setFactoryFilter] = useState('');
   const [factoryOptions, setFactoryOptions] = useState<string[]>([]);
-  const [categoryPairs, setCategoryPairs] = useState<{ level1: string; level2: string }[]>([]);
+  const [categoryPairs, setCategoryPairs] = useState<ProductCategoryPair[]>([]);
 
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const fetchSeq = useRef(0);
@@ -1047,9 +1054,9 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
   useEffect(() => {
     supabase
       .from('product_category')
-      .select('level1, level2, sort_order')
+      .select('id, level1, level2, sort_order')
       .order('sort_order', { ascending: true })
-      .then(({ data }) => { if (data) setCategoryPairs(data as { level1: string; level2: string }[]); });
+      .then(({ data }) => { if (data) setCategoryPairs(mapProductCategoryRows(data)); });
   }, []);
 
   useEffect(() => {

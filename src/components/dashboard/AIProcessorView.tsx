@@ -55,6 +55,11 @@ import { simplifiedToTraditional, convertRowToTraditional } from '@/lib/chineseC
 import { useFactoryLearning, CorrectableField } from '@/hooks/use-factory-learning';
 import { toast } from 'sonner';
 import { saveSession, loadSession, clearSession, clearMappings } from '@/lib/sessionStore';
+import {
+  mapProductCategoryRows,
+  resolveProductCategoryId,
+  type ProductCategoryPair,
+} from '@/lib/productCategoryOptions';
 
 // LAZY LOAD: pdfjs-dist is loaded dynamically only when needed to avoid blocking initial render
 let pdfjsLib: typeof import('pdfjs-dist') | null = null;
@@ -1967,7 +1972,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
   const [categoryList, setCategoryList] = useState<{ id: string; name: string; parent_id: string | null; level: number; sort_order: number }[]>([]);
   const [categoryListLoading, setCategoryListLoading] = useState(false);
   // raw 一級/二級 pairs from product_category — used to resolve level1/level2 on upload
-  const [categoryPairs, setCategoryPairs] = useState<{ level1: string; level2: string }[]>([]);
+  const [categoryPairs, setCategoryPairs] = useState<ProductCategoryPair[]>([]);
 
   // Fetch categories from the product_category table (設定 > 產品分類) on mount.
   // Build the cascading-selector shape: level-1 = unique 一級分類, level-2 = 二級分類.
@@ -1978,14 +1983,13 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
       try {
         const { data, error } = await supabase
           .from('product_category')
-          .select('level1, level2, sort_order')
+          .select('id, level1, level2, sort_order')
           .order('sort_order', { ascending: true });
         if (error) {
           console.warn('[AIProcessorView] Failed to fetch product_category:', error.message);
         }
         if (!cancelled && data) {
-          const pairs = data.map((r: any) => ({ level1: String(r.level1 ?? '').trim(), level2: String(r.level2 ?? '').trim() }))
-            .filter((p) => p.level1);
+          const pairs = mapProductCategoryRows(data);
           setCategoryPairs(pairs);
 
           // build flat list for CascadingCategorySelector
@@ -3239,6 +3243,11 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
               category: selectedProductCategory || null,
               level1_category: resolveCategoryLevels(selectedProductCategory).level1,
               level2_category: resolveCategoryLevels(selectedProductCategory).level2,
+              product_category_id: resolveProductCategoryId(
+                categoryPairs,
+                resolveCategoryLevels(selectedProductCategory).level1,
+                resolveCategoryLevels(selectedProductCategory).level2,
+              ),
               delivery_term_id: item.deliveryTermId || null,
               delivery_term_name: item.deliveryTermName || null,
               in_stock: (item as any).inStock ?? null,
@@ -3398,7 +3407,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
       setProcessingProgress({ phase: 'error', message: classifiedError });
       toast.error('❌ 儲存失敗', { description: classifiedError });
     }
-  }, [excelPreviewData, selectedManufacturer, selectedFactoryId, selectedFactoryHighlights, selectedProductCategory, resolveCategoryLevels, applyCorrections, onAddProduct, setCatalogProductsWithRef, removeRowsFromPreview]);
+  }, [excelPreviewData, selectedManufacturer, selectedFactoryId, selectedFactoryHighlights, selectedProductCategory, resolveCategoryLevels, categoryPairs, applyCorrections, onAddProduct, setCatalogProductsWithRef, removeRowsFromPreview]);
 
   const processFiles = useCallback(async (fileList: FileList | File[]) => {
     const files = Array.from(fileList);

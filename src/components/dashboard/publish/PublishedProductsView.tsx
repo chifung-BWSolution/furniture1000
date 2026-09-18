@@ -47,9 +47,12 @@ import {
 } from '@/lib/similarProducts';
 import { withUpdateAuditFields } from '@/lib/pmsAudit';
 import {
+  mapProductCategoryRows,
+  resolveProductCategoryId,
   sortByCategoryRegistryOrder,
   uniqueLevel1InOrder,
   uniqueLevel2InOrder,
+  type ProductCategoryPair,
 } from '@/lib/productCategoryOptions';
 import { toast } from 'sonner';
 import { PublishedProductDetailModal, type PublishedDisplayProduct } from './PublishedProductDetailModal';
@@ -816,7 +819,7 @@ export function PublishedProductsView({
   );
   const [priceCheckMenuOpen, setPriceCheckMenuOpen] = useState(false);
   const [priceCheckCustomDraft, setPriceCheckCustomDraft] = useState('');
-  const [categoryPairs, setCategoryPairs] = useState<{ level1: string; level2: string }[]>([]);
+  const [categoryPairs, setCategoryPairs] = useState<ProductCategoryPair[]>([]);
   const [bwfCats, setBwfCats] = useState<BwfCat[]>([]);
   const [bulkCategoryPickerOpen, setBulkCategoryPickerOpen] = useState(false);
   const [bulkEditL1, setBulkEditL1] = useState('');
@@ -833,10 +836,10 @@ export function PublishedProductsView({
   useEffect(() => {
     supabase
       .from('product_category')
-      .select('level1, level2, sort_order')
+      .select('id, level1, level2, sort_order')
       .order('sort_order', { ascending: true })
       .then(({ data: cats }) => {
-        if (cats) setCategoryPairs(cats as { level1: string; level2: string }[]);
+        if (cats) setCategoryPairs(mapProductCategoryRows(cats));
       });
     supabase
       .from('bwf_product_categories')
@@ -2153,6 +2156,11 @@ export function PublishedProductsView({
           .update(await withUpdateAuditFields({
             level1_category: bulkEditL1,
             level2_category: bulkEditL2,
+            product_category_id: resolveProductCategoryId(
+              categoryPairs,
+              bulkEditL1,
+              bulkEditL2,
+            ),
           }))
           .in('id', sourceIds);
         if (productsErr) {

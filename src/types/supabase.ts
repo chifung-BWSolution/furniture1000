@@ -402,6 +402,9 @@ export type Database = {
           factories_display_name: string | null
           factory_id: string | null
           id: string
+          level1_category: string | null
+          level2_category: string | null
+          product_category_id: string | null
           image_url: string
           images: Json | null
           lifestyle_image_url: string | null
@@ -446,6 +449,9 @@ export type Database = {
           factories_display_name?: string | null
           factory_id?: string | null
           id: string
+          level1_category?: string | null
+          level2_category?: string | null
+          product_category_id?: string | null
           image_url?: string
           images?: Json | null
           lifestyle_image_url?: string | null
@@ -490,6 +496,9 @@ export type Database = {
           factories_display_name?: string | null
           factory_id?: string | null
           id?: string
+          level1_category?: string | null
+          level2_category?: string | null
+          product_category_id?: string | null
           image_url?: string
           images?: Json | null
           lifestyle_image_url?: string | null
@@ -518,6 +527,13 @@ export type Database = {
             columns: ["delivery_term_id"]
             isOneToOne: false
             referencedRelation: "delivery_terms"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "products_product_category_id_fkey"
+            columns: ["product_category_id"]
+            isOneToOne: false
+            referencedRelation: "product_category"
             referencedColumns: ["id"]
           },
         ]
