@@ -35,3 +35,11 @@ export function quoteItemLineCost(item: QuoteCostLineItem): number {
 export function quoteBillableProductCost(items: QuoteCostLineItem[]): number {
   return items.reduce((sum, item) => sum + quoteItemLineCost(item), 0);
 }
+
+/** Preview / PDF CNY grand total: HKD ÷ 1.17, rounded up to a whole number. */
+export const QUOTE_HKD_TO_CNY_DIVISOR = 1.17;
+
+export function quoteCnyTotalFromHkd(hkd: number): number {
+  if (!Number.isFinite(hkd) || hkd <= 0) return 0;
+  return Math.ceil(hkd / QUOTE_HKD_TO_CNY_DIVISOR);
+}

@@ -1,10 +1,11 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { X, Download, Loader2, AlertTriangle } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import type { QuotationDimensionMode, QuotationPDFData } from '@/types/quotation-pdf';
 import { parseRemarksContent } from '@/lib/remarksContent';
 import { multiColorToChineseDisplay } from '@/constants/color-map';
 import { normalizeQuotationPdfGlyphs, pdfDisplayText } from '@/lib/quotationPdfGlyphs';
-import { quoteItemLineSubtotal } from '@/lib/quoteItemTotals';
+import { quoteCnyTotalFromHkd, quoteItemLineSubtotal } from '@/lib/quoteItemTotals';
 import { buildQuotationPdfFilename } from '@/lib/quotationPdfFilename';
 import { formatQuoteNumberWithVersion } from '@/lib/quoteVersions';
 import { quotePdf, type QuotePdfLabels } from '@/lib/quotationLocale';
@@ -1380,7 +1381,15 @@ const styles: Record<string, any> = {
 
 // ─── QuotationDocument (uses PDF primitives from module) ─────────────────────
 
-function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: ReactPdfModule }) {
+function QuotationDocument({
+  data,
+  pdfMod,
+  showCnyTotal = false,
+}: {
+  data: QuotationPDFData;
+  pdfMod: ReactPdfModule;
+  showCnyTotal?: boolean;
+}) {
   const { Document, Page, Text, View, Image } = pdfMod;
 
   if (!data) {
@@ -1598,6 +1607,26 @@ function QuotationDocument({ data, pdfMod }: { data: QuotationPDFData; pdfMod: R
               <Text style={{ ...styles.totalValue, width: 90, textAlign: 'right' }}>HK${totalAmount.toLocaleString()}</Text>
             </View>
           </View>
+          {showCnyTotal ? (
+            <View style={{ flexDirection: 'row', justifyContent: 'flex-end', marginTop: 2, paddingRight: 4, alignItems: 'flex-end' }}>
+              <Text
+                style={{
+                  ...styles.totalLabel,
+                  width: locale === 'en' ? 92 : 60,
+                  textAlign: 'right',
+                  marginRight: 8,
+                }}
+                wrap={false}
+              >
+                {labels.grandTotal}:
+              </Text>
+              <View style={{ borderBottomWidth: 1, borderBottomColor: TABLE_BORDER, minWidth: 90, paddingBottom: 1 }}>
+                <Text style={{ ...styles.totalValue, width: 90, textAlign: 'right' }}>
+                  CNY${quoteCnyTotalFromHkd(totalAmount).toLocaleString()}
+                </Text>
+              </View>
+            </View>
+          ) : null}
         </View>
 
         {/*
@@ -1707,6 +1736,7 @@ interface QuotationPDFPreviewProps {
 
 export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPreviewProps) {
   const [isDownloading, setIsDownloading] = useState(false);
+  const [showCnyTotal, setShowCnyTotal] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [renderError, setRenderError] = useState<string | null>(null);
   const [rendering, setRendering] = useState(false);
@@ -1715,6 +1745,10 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
   const previewUrlRef = useRef<string | null>(null);
   const { mod: pdfMod, loading, error: moduleError } = useReactPdf(fontReloadToken);
   const labels = quotePdf(data?.locale === 'en' ? 'en' : 'zh');
+
+  useEffect(() => {
+    if (open) setShowCnyTotal(false);
+  }, [open]);
 
   const dataKey = useMemo(() => JSON.stringify(data), [data]);
 
@@ -1728,7 +1762,7 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
   const buildPreviewBlob = useCallback(async () => {
     if (!pdfMod || !data) return null;
     return Promise.race([
-      pdfMod.pdf(<QuotationDocument data={data} pdfMod={pdfMod} />).toBlob(),
+      pdfMod.pdf(<QuotationDocument data={data} pdfMod={pdfMod} showCnyTotal={showCnyTotal} />).toBlob(),
       new Promise<never>((_, reject) => {
         window.setTimeout(
           () => reject(new Error('PDF 生成逾時，請檢查網絡後重試。')),
@@ -1736,7 +1770,7 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
         );
       }),
     ]);
-  }, [pdfMod, data]);
+  }, [pdfMod, data, showCnyTotal]);
 
   useEffect(() => {
     if (!open || !pdfMod || !data) return;
@@ -1825,6 +1859,18 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
           </div>
           <div className="flex items-center gap-3">
             <button
+              type="button"
+              onClick={() => setShowCnyTotal((prev) => !prev)}
+              className={cn(
+                "inline-flex items-center gap-2 rounded-lg border px-4 py-2 font-body text-sm font-semibold transition-all active:scale-[0.98]",
+                showCnyTotal
+                  ? "border-primary/40 bg-primary/10 text-primary"
+                  : "border-border bg-background text-foreground hover:bg-accent",
+              )}
+            >
+              {labels.addCnyTotal}
+            </button>
+            <button
               onClick={handleDownload}
               disabled={downloadDisabled}
               className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 font-body text-sm font-semibold text-primary-foreground shadow-md shadow-primary/20 transition-all hover:bg-primary/90 active:scale-[0.98] disabled:opacity-60"
@@ -1885,7 +1931,19 @@ export function QuotationPDFPreviewModal({ open, onClose, data }: QuotationPDFPr
             />
           )}
           {previewUrl && !combinedError && (
-            <div className="absolute inset-x-4 bottom-4 z-20 flex justify-center">
+            <div className="absolute inset-x-4 bottom-4 z-20 flex justify-center gap-3">
+              <button
+                type="button"
+                onClick={() => setShowCnyTotal((prev) => !prev)}
+                className={cn(
+                  "inline-flex items-center gap-2 rounded-lg border px-5 py-2.5 font-body text-sm font-semibold shadow-lg backdrop-blur-sm transition-all active:scale-[0.98]",
+                  showCnyTotal
+                    ? "border-primary/40 bg-primary/15 text-primary"
+                    : "border-border/80 bg-card/95 text-foreground hover:bg-card",
+                )}
+              >
+                {labels.addCnyTotal}
+              </button>
               <button
                 type="button"
                 onClick={handleDownload}

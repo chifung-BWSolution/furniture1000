@@ -211,6 +211,7 @@ export const QUOTE_PDF = {
     modalTitle: '報價單預覽',
     modalSubtitle: 'PDF Preview — A4 Format',
     downloadPdf: '下載 PDF',
+    addCnyTotal: '加入CNY總價',
     installTitle: '傢俱安裝費用',
     installSubtitle: '安裝清單中傢俱產品並清理包裝垃圾',
     installCondition: '訂單總金額滿 HK$12,000\n將不收取安裝費用',
@@ -251,6 +252,7 @@ export const QUOTE_PDF = {
     modalTitle: 'Quotation Preview',
     modalSubtitle: 'PDF Preview — A4 Format',
     downloadPdf: 'Download PDF',
+    addCnyTotal: 'Add CNY Total',
     installTitle: 'Furniture Installation Fee',
     installSubtitle:
       'Installation of furniture items listed in the order and disposal of all packaging waste',
