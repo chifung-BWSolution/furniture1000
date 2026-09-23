@@ -16,7 +16,7 @@ const ENQUIRY_SLA_DAYS = 90;
 /** Same industry collection as fetch-pms-pitching-quote-defaults / 客戶產業 *. */
 const INDUSTRY_COLLECTION_ID = "4f5de598-2dcb-45a6-a106-9d933e9a8007";
 
-const DEFAULT_LIMIT = 80;
+const DEFAULT_LIMIT = 40;
 const MAX_LIMIT = 150;
 
 function jsonResponse(body: unknown, status = 200) {

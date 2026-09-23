@@ -25,6 +25,87 @@ export interface PmsPitchingListItem {
 }
 
 const EDGE_MAX = 150;
+/** Smaller than EDGE_MAX so CN/VPN does not fire several 150-row hops at once. */
+const FETCH_CHUNK = 40;
+const DEFAULT_SEARCH_LIMIT = 40;
+const CACHE_TTL_MS = 5 * 60 * 1000;
+
+type PitchingCacheEntry = { at: number; items: PmsPitchingListItem[] };
+
+const listCache = new Map<string, PitchingCacheEntry>();
+const itemById = new Map<string, { at: number; item: PmsPitchingListItem }>();
+const itemByCode = new Map<string, { at: number; item: PmsPitchingListItem }>();
+
+function isFresh(at: number): boolean {
+  return Date.now() - at < CACHE_TTL_MS;
+}
+
+function rememberPitchings(items: PmsPitchingListItem[]): void {
+  const now = Date.now();
+  for (const item of items) {
+    itemById.set(item.id, { at: now, item });
+    const code = item.pitching_code?.trim();
+    if (code) itemByCode.set(code, { at: now, item });
+  }
+}
+
+function splitCachedIds(ids: string[]): {
+  hits: PmsPitchingListItem[];
+  missing: string[];
+} {
+  const hits: PmsPitchingListItem[] = [];
+  const missing: string[] = [];
+  for (const id of ids) {
+    const hit = itemById.get(id);
+    if (hit && isFresh(hit.at)) hits.push(hit.item);
+    else missing.push(id);
+  }
+  return { hits, missing };
+}
+
+function splitCachedCodes(codes: string[]): {
+  hits: PmsPitchingListItem[];
+  missing: string[];
+} {
+  const hits: PmsPitchingListItem[] = [];
+  const missing: string[] = [];
+  for (const code of codes) {
+    const hit = itemByCode.get(code);
+    if (hit && isFresh(hit.at)) hits.push(hit.item);
+    else missing.push(code);
+  }
+  return { hits, missing };
+}
+
+function listCacheKey(options: {
+  search: string;
+  limit: number;
+  ids: string[];
+  codes: string[];
+}): string {
+  return JSON.stringify({
+    search: options.search,
+    limit: options.limit,
+    ids: [...options.ids].sort(),
+    codes: [...options.codes].sort(),
+  });
+}
+
+async function fetchChunksSequential(
+  chunks: string[][],
+  kind: 'ids' | 'codes',
+): Promise<PmsPitchingListItem[]> {
+  const parts: PmsPitchingListItem[] = [];
+  for (const chunk of chunks) {
+    const rows = await fetchPmsPitchings(
+      kind === 'ids'
+        ? { ids: chunk, limit: chunk.length }
+        : { codes: chunk, limit: chunk.length },
+    );
+    parts.push(...rows);
+  }
+  return parts;
+}
 
 function chunkList<T>(items: T[], size: number): T[][] {
   const chunks: T[][] = [];
@@ -94,46 +175,69 @@ export async function fetchPmsPitchings(options?: {
     const codes = [
       ...new Set((options?.codes || []).map((code) => code.trim()).filter(Boolean)),
     ];
+    const search = options?.search?.trim() || '';
+    const limit =
+      options?.limit ??
+      (ids.length > 0 || codes.length > 0
+        ? Math.max(ids.length, codes.length)
+        : DEFAULT_SEARCH_LIMIT);
 
-    // ids + codes: parallel fetch then merge (edge accepts one filter mode at a time).
+    if (ids.length > 0 && codes.length === 0) {
+      const { hits, missing } = splitCachedIds(ids);
+      if (missing.length === 0) return hits;
+      if (hits.length > 0) {
+        const fetched = await fetchPmsPitchings({ ids: missing, limit: missing.length });
+        return [...hits, ...fetched];
+      }
+    }
+    if (codes.length > 0 && ids.length === 0) {
+      const { hits, missing } = splitCachedCodes(codes);
+      if (missing.length === 0) return hits;
+      if (hits.length > 0) {
+        const fetched = await fetchPmsPitchings({
+          codes: missing,
+          limit: missing.length,
+        });
+        return [...hits, ...fetched];
+      }
+    }
+
+    const key = listCacheKey({ search, limit, ids, codes });
+    const cachedList = listCache.get(key);
+    if (cachedList && isFresh(cachedList.at)) return cachedList.items;
+
+    // ids + codes: sequential then merge (edge accepts one filter mode at a time).
     if (ids.length > 0 && codes.length > 0) {
-      const [byId, byCode] = await Promise.all([
-        fetchPmsPitchings({ ids, limit: ids.length }),
-        fetchPmsPitchings({ codes, limit: codes.length }),
-      ]);
+      const byId = await fetchPmsPitchings({ ids, limit: ids.length });
+      const byCode = await fetchPmsPitchings({ codes, limit: codes.length });
       const map = new Map<string, PmsPitchingListItem>();
       for (const row of [...byId, ...byCode]) map.set(row.id, row);
-      return [...map.values()];
+      const merged = [...map.values()];
+      listCache.set(key, { at: Date.now(), items: merged });
+      rememberPitchings(merged);
+      return merged;
     }
 
-    if (ids.length > EDGE_MAX) {
-      const parts = await Promise.all(
-        chunkList(ids, EDGE_MAX).map((chunk) =>
-          fetchPmsPitchings({ ids: chunk, limit: chunk.length }),
-        ),
-      );
-      return parts.flat();
+    if (ids.length > FETCH_CHUNK) {
+      const merged = await fetchChunksSequential(chunkList(ids, FETCH_CHUNK), 'ids');
+      listCache.set(key, { at: Date.now(), items: merged });
+      rememberPitchings(merged);
+      return merged;
     }
 
-    if (codes.length > EDGE_MAX) {
-      const parts = await Promise.all(
-        chunkList(codes, EDGE_MAX).map((chunk) =>
-          fetchPmsPitchings({ codes: chunk, limit: chunk.length }),
-        ),
-      );
-      return parts.flat();
+    if (codes.length > FETCH_CHUNK) {
+      const merged = await fetchChunksSequential(chunkList(codes, FETCH_CHUNK), 'codes');
+      listCache.set(key, { at: Date.now(), items: merged });
+      rememberPitchings(merged);
+      return merged;
     }
 
     const { data, error } = await supabase.functions.invoke(
       'supabase-functions-fetch-pms-pitchings',
       {
         body: {
-          search: options?.search?.trim() || '',
-          limit:
-            options?.limit ??
-            (ids.length > 0 || codes.length > 0
-              ? Math.max(ids.length, codes.length)
-              : 80),
+          search,
+          limit: Math.min(limit, EDGE_MAX),
           ...(ids.length > 0 ? { ids } : {}),
           ...(codes.length > 0 ? { codes } : {}),
         },
@@ -149,8 +253,10 @@ export async function fetchPmsPitchings(options?: {
       return [];
     }
 
-    const items = Array.isArray(data?.items) ? data.items : [];
-    return mapPitchingRows(items);
+    const items = mapPitchingRows(Array.isArray(data?.items) ? data.items : []);
+    listCache.set(key, { at: Date.now(), items });
+    rememberPitchings(items);
+    return items;
   } catch (err) {
     console.warn('[fetchPmsPitchings] invoke failed:', err);
     return [];

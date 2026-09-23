@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, Clock, Copy, Trash2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
@@ -99,6 +99,15 @@ const LIST_SELECT =
   'id, quote_id, version, status, total_amount, cost_price, submitter, bwf_pitching_id, created_at, modified_date, project_data';
 
 const LARGE_AMOUNT_THRESHOLD = 50000;
+const PAGE_SIZE = 40;
+
+function mergeQuoteRecords<T extends { id: string }>(...groups: T[][]): T[] {
+  const map = new Map<string, T>();
+  for (const group of groups) {
+    for (const row of group) map.set(row.id, row);
+  }
+  return [...map.values()];
+}
 
 type SortKey =
   | 'created_date'
@@ -204,30 +213,127 @@ export function QuotationListView({
   const [expandedQuoteIds, setExpandedQuoteIds] = useState<Set<string>>(
     () => new Set(),
   );
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [totalCount, setTotalCount] = useState<number | null>(null);
+  const fetchGenRef = useRef(0);
+  const loadedOffsetRef = useRef(0);
+
+  const fetchQuotePage = useCallback(
+    async (from: number, withCount: boolean) => {
+      let query = supabase
+        .from('bwf_quote')
+        .select(LIST_SELECT, withCount ? { count: 'exact' } : undefined)
+        .order('created_at', { ascending: false })
+        .range(from, from + PAGE_SIZE - 1);
+      if (isLargeAmount) {
+        query = query.gt('total_amount', LARGE_AMOUNT_THRESHOLD);
+      }
+      const { data, error, count } = await query;
+      if (error) throw error;
+      return { rows: (data as QuoteRecord[]) || [], count: count ?? null };
+    },
+    [isLargeAmount],
+  );
+
+  const attachSiblings = useCallback(async (rows: QuoteRecord[]) => {
+    const quoteIds = [
+      ...new Set(
+        rows
+          .map((row) => row.quote_id?.trim())
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    if (quoteIds.length === 0) return rows;
+    const { data, error } = await supabase
+      .from('bwf_quote')
+      .select(LIST_SELECT)
+      .in('quote_id', quoteIds);
+    if (error || !data) return rows;
+    return mergeQuoteRecords(rows, data as QuoteRecord[]);
+  }, []);
+
+  const appendQuotePage = useCallback(
+    async (from: number, gen: number) => {
+      const page = await fetchQuotePage(from, false);
+      if (gen !== fetchGenRef.current) return null;
+      if (page.rows.length === 0) {
+        loadedOffsetRef.current = from;
+        setHasMore(false);
+        return page;
+      }
+      const withSiblings = await attachSiblings(page.rows);
+      if (gen !== fetchGenRef.current) return null;
+      const withPitch = await loadPitchingsForQuoteRows(withSiblings);
+      if (gen !== fetchGenRef.current) return null;
+      setQuotes((prev) => mergeQuoteRecords(prev, withPitch));
+      loadedOffsetRef.current = from + page.rows.length;
+      setHasMore(page.rows.length === PAGE_SIZE);
+      return page;
+    },
+    [attachSiblings, fetchQuotePage],
+  );
 
   const fetchQuotes = useCallback(async () => {
+    const gen = ++fetchGenRef.current;
+    loadedOffsetRef.current = 0;
     setIsLoading(true);
+    setIsLoadingMore(false);
+    setHasMore(false);
     try {
-      const { data, error } = await supabase
-        .from('bwf_quote')
-        .select(LIST_SELECT)
-        .order('created_at', { ascending: false });
+      const first = await fetchQuotePage(0, true);
+      if (gen !== fetchGenRef.current) return;
+      const firstWithSiblings = await attachSiblings(first.rows);
+      if (gen !== fetchGenRef.current) return;
+      setQuotes(await loadPitchingsForQuoteRows(firstWithSiblings));
+      setTotalCount(first.count);
+      loadedOffsetRef.current = first.rows.length;
+      let keepGoing =
+        first.rows.length === PAGE_SIZE &&
+        (first.count == null || first.count > first.rows.length);
+      setHasMore(keepGoing);
+      setIsLoading(false);
 
-      if (error) throw error;
-      const allRows = (data as QuoteRecord[]) || [];
-
-      // Prefer bwf_pitching_id; for older rows missing the uuid, match quote_id → pitching_code.
-      setQuotes(await loadPitchingsForQuoteRows(allRows));
+      while (gen === fetchGenRef.current && keepGoing) {
+        setIsLoadingMore(true);
+        const page = await appendQuotePage(loadedOffsetRef.current, gen);
+        if (gen !== fetchGenRef.current || !page) return;
+        keepGoing =
+          page.rows.length === PAGE_SIZE &&
+          (first.count == null || loadedOffsetRef.current < first.count);
+        setHasMore(keepGoing);
+      }
     } catch (err: unknown) {
+      if (gen !== fetchGenRef.current) return;
       const message = err instanceof Error ? err.message : '無法載入報價單列表';
       toast.error('載入失敗', { description: message });
     } finally {
-      setIsLoading(false);
+      if (gen === fetchGenRef.current) {
+        setIsLoading(false);
+        setIsLoadingMore(false);
+      }
     }
-  }, []);
+  }, [appendQuotePage, attachSiblings, fetchQuotePage]);
+
+  const loadMoreQuotes = useCallback(async () => {
+    if (isLoading || isLoadingMore || !hasMore) return;
+    const gen = fetchGenRef.current;
+    setIsLoadingMore(true);
+    try {
+      await appendQuotePage(loadedOffsetRef.current, gen);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : '無法載入更多報價';
+      toast.error('載入失敗', { description: message });
+    } finally {
+      if (gen === fetchGenRef.current) setIsLoadingMore(false);
+    }
+  }, [appendQuotePage, hasMore, isLoading, isLoadingMore]);
 
   useEffect(() => {
     fetchQuotes();
+    return () => {
+      fetchGenRef.current += 1;
+    };
   }, [fetchQuotes]);
 
   const handleConfirmDelete = async () => {
@@ -539,15 +645,35 @@ export function QuotationListView({
         <ListTableCard
           minWidthClassName="min-w-[1280px]"
           footer={
-            !isLoading && displayRows.length > 0
-              ? `共 ${sortedLatestQuotes.length} 張報價 · ${
-                  sortedLatestQuotes.reduce(
+            !isLoading && (displayRows.length > 0 || hasMore) ? (
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span>
+                  已顯示最新 {sortedLatestQuotes.length} 張報價
+                  {totalCount != null ? ` · 資料庫共 ${totalCount} 列` : ''}
+                  {' · '}
+                  {sortedLatestQuotes.reduce(
                     (sum, row) =>
                       sum + (quoteGroups.get(row.quote_id)?.length || 1),
                     0,
-                  )
-                } 個版本紀錄`
-              : null
+                  )}{' '}
+                  個版本紀錄
+                  {isLoadingMore ? ' · 正在載入較早的報價…' : ''}
+                  {hasMore && !isLoadingMore
+                    ? ' · 搜尋／篩選僅套用已載入列'
+                    : ''}
+                </span>
+                {hasMore ? (
+                  <button
+                    type="button"
+                    onClick={loadMoreQuotes}
+                    disabled={isLoadingMore}
+                    className="rounded-lg border border-border bg-background px-2.5 py-1 font-body text-[11px] font-medium text-foreground transition-colors hover:bg-accent disabled:opacity-50"
+                  >
+                    {isLoadingMore ? '載入中…' : '載入更多'}
+                  </button>
+                ) : null}
+              </div>
+            ) : null
           }
         >
           <thead>

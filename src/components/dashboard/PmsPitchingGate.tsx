@@ -72,7 +72,7 @@ export function PmsPitchingGate({ onSelect, title, subtitle }: PmsPitchingGatePr
     const timer = window.setTimeout(async () => {
       setLoading(true);
       setLoadError(null);
-      const rows = await fetchPmsPitchings({ search, limit: 100 });
+      const rows = await fetchPmsPitchings({ search, limit: 40 });
       if (cancelled) return;
       // Prefer Contract Sum / GP from the latest Furniture quote when present.
       const withQuoteFinancials = await overlayPitchingFinancialsFromQuotes(rows);
@@ -165,7 +165,7 @@ export function PmsPitchingGate({ onSelect, title, subtitle }: PmsPitchingGatePr
       <ListTableCard
         footer={
           !loading && sortedItems.length > 0
-            ? `共 ${sortedItems.length} 筆 · 點擊任一列即可開始報價`
+            ? `顯示最近 ${sortedItems.length} 筆 · 可用搜尋找更多 · 點擊任一列即可開始報價`
             : null
         }
       >

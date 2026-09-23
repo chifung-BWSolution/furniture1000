@@ -730,19 +730,19 @@ export function AppShell() {
     quoteShareActive,
     invitePortalActive,
   ]);
-  // 方案 D: Supabase health monitoring
+  // 方案 D: Supabase health monitoring (warning only — never treat the site as down)
   const [dbUnhealthy, setDbUnhealthy] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
   const cancelRecoveryRef = useRef<(() => void) | null>(null);
+  const dbUnhealthyRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
-    let alreadyUnhealthy = false; // avoid stacking recovery pollers
     const POLL_INTERVAL = 60_000; // check every 60s — avoid adding load while DB is stressed
 
     async function poll() {
-      if (cancelled || alreadyUnhealthy) return;
-      // Require TWO consecutive failed probes before declaring unhealthy.
+      if (cancelled || dbUnhealthyRef.current) return;
+      // Require TWO consecutive failed probes before showing the warning.
       // A single slow/aborted request during a heavy bulk op (e.g. 全部退回)
       // must NOT flip the banner — the DB is fine, the query was just big.
       const first = await checkSupabaseHealth();
@@ -750,14 +750,15 @@ export function AppShell() {
       const second = await checkSupabaseHealth();
       if (cancelled || second) return;
 
-      alreadyUnhealthy = true;
+      dbUnhealthyRef.current = true;
       setDbUnhealthy(true);
+      cancelRecoveryRef.current?.();
       cancelRecoveryRef.current = waitForSupabaseRecovery(() => {
         if (!cancelled) {
-          alreadyUnhealthy = false;
+          dbUnhealthyRef.current = false;
           setDbUnhealthy(false);
           setIsRetrying(false);
-          toast.success('資料庫連接已恢復', { description: '正在重新載入產品...' });
+          toast.success('連線已恢復', { description: '可繼續操作；正在同步產品列表' });
           store.reloadProducts();
         }
       });
@@ -776,13 +777,16 @@ export function AppShell() {
     setIsRetrying(true);
     const healthy = await checkSupabaseHealth();
     if (healthy) {
+      cancelRecoveryRef.current?.();
+      cancelRecoveryRef.current = null;
+      dbUnhealthyRef.current = false;
       setDbUnhealthy(false);
       setIsRetrying(false);
-      toast.success('連接恢復', { description: '正在重新載入產品...' });
+      toast.success('連線正常', { description: '可繼續操作；正在同步產品列表' });
       store.reloadProducts();
     } else {
       setIsRetrying(false);
-      toast.error('仍然無法連接', { description: '資料庫尚未恢復，請稍後再試' });
+      toast.error('這次仍偏慢', { description: '請再按「立即重試」。其他頁面仍可繼續使用。' });
     }
   }, [store]);
   // Product to scroll-into-view when navigating from 發佈前檢查
@@ -1308,7 +1312,7 @@ export function AppShell() {
         {dbUnhealthy && (
           <div className="flex items-center gap-2 bg-destructive/10 border-b border-destructive/20 px-4 py-2 text-sm text-destructive">
             <WifiOff className="h-4 w-4 shrink-0" />
-            <span className="flex-1">資料庫連接異常 — 系統暫時無法讀取資料，正在等待恢復...</span>
+            <span className="flex-1">連線偏慢或暫時不穩 — 請按「立即重試」，不必空等。其他頁面仍可繼續操作。</span>
             <button
               onClick={handleManualRetry}
               disabled={isRetrying}

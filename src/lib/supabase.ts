@@ -44,12 +44,15 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
 });
 
 // 方案 D: Health check — returns true if Supabase DB is reachable.
-// Uses its OWN short abort signal (8s) independent of the 60s global fetch
-// timeout, and probes a tiny count query (head:true, no rows transferred) so a
-// slow bulk reload elsewhere can never make the probe itself time out.
+// Uses its OWN abort signal, independent of the 60s global fetch timeout, and
+// probes a tiny count query (head:true, no rows transferred) so a slow bulk
+// reload elsewhere can never make the probe itself time out.
+// 20–30s (not 8s): China / VPN RTT often exceeds 8s even when the DB is fine.
+export const HEALTH_CHECK_TIMEOUT_MS = 25_000;
+
 export async function checkSupabaseHealth(): Promise<boolean> {
   const controller = new AbortController();
-  const t = setTimeout(() => controller.abort(), 8_000);
+  const t = setTimeout(() => controller.abort(), HEALTH_CHECK_TIMEOUT_MS);
   try {
     const { error } = await supabase
       .from('products')
@@ -63,26 +66,39 @@ export async function checkSupabaseHealth(): Promise<boolean> {
   }
 }
 
-// 方案 D: Poll health until recovered, then invoke callback
+// Poll until a probe succeeds. Never give up on a max-attempt budget — a 2
+// minute stop left CN/VPN users staring at a dead banner. Cancel via the
+// returned function (unmount / 立即重試 success).
 export function waitForSupabaseRecovery(
   onRecovered: () => void,
-  intervalMs = 10_000,
-  maxAttempts = 12  // ~2 minutes
+  intervalMs = 15_000,
 ): () => void {
+  let cancelled = false;
+  let inFlight = false;
   let attempts = 0;
-  const timer = setInterval(async () => {
-    attempts++;
-    const healthy = await checkSupabaseHealth();
-    if (healthy) {
-      clearInterval(timer);
-      console.info('[Supabase] Connection recovered after', attempts, 'attempt(s).');
-      onRecovered();
-    } else if (attempts >= maxAttempts) {
-      clearInterval(timer);
-      console.error('[Supabase] Still unhealthy after', maxAttempts, 'attempts. Giving up.');
-    }
-  }, intervalMs);
 
-  // Return a cancel function
-  return () => clearInterval(timer);
+  const tick = async () => {
+    if (cancelled || inFlight) return;
+    inFlight = true;
+    attempts += 1;
+    try {
+      const healthy = await checkSupabaseHealth();
+      if (cancelled) return;
+      if (healthy) {
+        clearInterval(timer);
+        console.info('[Supabase] Connection recovered after', attempts, 'attempt(s).');
+        onRecovered();
+      }
+    } finally {
+      inFlight = false;
+    }
+  };
+
+  const timer = setInterval(tick, intervalMs);
+  void tick();
+
+  return () => {
+    cancelled = true;
+    clearInterval(timer);
+  };
 }
