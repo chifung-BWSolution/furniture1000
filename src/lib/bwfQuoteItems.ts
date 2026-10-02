@@ -55,6 +55,8 @@ export type BwfQuoteItemInput = QuoteItemImageFields & {
   galleryUrls?: string[];
   /** Furniture products.id — set from 產品目錄 or backfilled via unique sku/title. */
   productId?: string | null;
+  /** FK to product_category.id (registry 一級/二級). */
+  productCategoryId?: string | null;
 };
 
 export type BwfQuoteItemRow = {
@@ -89,6 +91,7 @@ export type BwfQuoteItemRow = {
   /** Editor-only catalog SKU — not shown on customer PDF. */
   sku?: string | null;
   product_id: string | null;
+  product_category_id: string | null;
   created_at?: string | null;
   updated_at?: string | null;
 };
@@ -141,6 +144,7 @@ export function mapRowToItem(row: BwfQuoteItemRow): BwfQuoteItemInput {
     isSectionTitle: Boolean(row.is_section_title),
     sku: row.sku || undefined,
     productId: row.product_id || undefined,
+    productCategoryId: row.product_category_id || undefined,
   };
 }
 
@@ -178,6 +182,7 @@ export function mapItemToRow(
     isSectionTitle,
     sku,
     productId,
+    productCategoryId,
   } = item;
 
   return {
@@ -209,6 +214,7 @@ export function mapItemToRow(
     is_section_title: Boolean(isSectionTitle),
     sku: sku?.trim() || null,
     product_id: productId?.trim() || null,
+    product_category_id: productCategoryId?.trim() || null,
   };
 }
 

@@ -38,6 +38,16 @@ export function mapProductCategoryRows(
 }
 
 /** Registry UUID for an L1+L2 pair, or null when incomplete / unknown. */
+/** Lookup registry row by UUID (for quote line dropdowns). */
+export function findProductCategoryPairById(
+  pairs: ProductCategoryPair[],
+  id?: string | null,
+): ProductCategoryPair | null {
+  const key = String(id ?? '').trim();
+  if (!key) return null;
+  return pairs.find((p) => p.id === key) ?? null;
+}
+
 export function resolveProductCategoryId(
   pairs: ProductCategoryPair[],
   level1?: string | null,

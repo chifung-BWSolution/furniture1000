@@ -159,6 +159,59 @@ export async function hydrateProductIdsForQuoteItems<
   });
 }
 
+/** When product_id is set, copy products.product_category_id onto the line. */
+export async function hydrateProductCategoryIdsForQuoteItems<
+  T extends BwfQuoteItemInput,
+>(items: T[]): Promise<T[]> {
+  const productIds = [
+    ...new Set(
+      items
+        .filter(
+          (item) =>
+            !item.isSectionTitle &&
+            !item.isCustomTerm &&
+            (item.productId || '').trim(),
+        )
+        .map((item) => (item.productId || '').trim()),
+    ),
+  ];
+  if (productIds.length === 0) return items;
+
+  const { data, error } = await supabase
+    .from('products')
+    .select('id, product_category_id')
+    .in('id', productIds);
+  if (error) {
+    console.warn('[hydrateProductCategoryIdsForQuoteItems]', error.message);
+    return items;
+  }
+
+  const byProduct = new Map<string, string>();
+  for (const row of data || []) {
+    const pid = String(row.id || '').trim();
+    const cat = (row.product_category_id as string | null)?.trim();
+    if (pid && cat) byProduct.set(pid, cat);
+  }
+
+  return items.map((item) => {
+    if (item.isSectionTitle || item.isCustomTerm) return item;
+    const productId = (item.productId || '').trim();
+    if (!productId) return item;
+    const fromProduct = byProduct.get(productId);
+    if (!fromProduct) return item;
+    if ((item.productCategoryId || '').trim() === fromProduct) return item;
+    return { ...item, productCategoryId: fromProduct };
+  });
+}
+
+/** Product id backfill, then category sync from linked products. */
+export async function hydrateQuoteItemProductLinks<
+  T extends BwfQuoteItemInput,
+>(items: T[]): Promise<T[]> {
+  const withProductIds = await hydrateProductIdsForQuoteItems(items);
+  return hydrateProductCategoryIdsForQuoteItems(withProductIds);
+}
+
 /** Clear cached product maps (tests / long sessions). */
 export function resetQuoteItemProductLinkCache(): void {
   mapsCache = null;
@@ -168,13 +221,29 @@ export function resetQuoteItemProductLinkCache(): void {
 export function normalizeLegacyQuoteItemProductId(
   item: BwfQuoteItemInput,
 ): BwfQuoteItemInput {
-  const raw = item as BwfQuoteItemInput & { product_id?: string | null };
+  const raw = item as BwfQuoteItemInput & {
+    product_id?: string | null;
+    product_category_id?: string | null;
+  };
   const productId =
     (item.productId || '').trim() ||
     (raw.product_id || '').trim() ||
     null;
-  if (!productId || productId === item.productId) return item;
-  return { ...item, productId };
+  const productCategoryId =
+    (item.productCategoryId || '').trim() ||
+    (raw.product_category_id || '').trim() ||
+    null;
+  if (
+    productId === (item.productId || null) &&
+    productCategoryId === (item.productCategoryId || null)
+  ) {
+    return item;
+  }
+  return {
+    ...item,
+    ...(productId ? { productId } : {}),
+    ...(productCategoryId ? { productCategoryId } : {}),
+  };
 }
 
 /** Lightweight list columns — never select heavy JSONB `images` on list fetch. */
@@ -215,6 +284,7 @@ const PRODUCT_LINK_LIST_COLUMNS = [
   'in_stock',
   'customize',
   'sku',
+  'product_category_id',
 ].join(',');
 
 function newProductId(): string {

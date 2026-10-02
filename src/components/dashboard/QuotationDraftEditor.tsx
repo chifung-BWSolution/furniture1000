@@ -117,9 +117,17 @@ import { isUrgentWorkPeriod } from "@/lib/quoteStockFilter";
 import {
   buildDraftProductFromQuoteItem,
   fetchProductForQuoteDetail,
-  hydrateProductIdsForQuoteItems,
+  hydrateQuoteItemProductLinks,
   normalizeLegacyQuoteItemProductId,
 } from "@/lib/quoteItemProductLink";
+import {
+  fetchProductCategoryPairs,
+  findProductCategoryPairById,
+  resolveProductCategoryId,
+  uniqueLevel1InOrder,
+  uniqueLevel2InOrder,
+  type ProductCategoryPair,
+} from "@/lib/productCategoryOptions";
 import {
   type QuoteLocale,
   type QuoteUiLabels,
@@ -208,6 +216,11 @@ interface QuotationItem {
   isSectionTitle?: boolean;
   /** Furniture products.id when line is linked to catalog. */
   productId?: string | null;
+  /** FK to product_category.id (一級/二級 registry). */
+  productCategoryId?: string | null;
+  /** UI: selected 一級 when editing registry (may differ before 二級 chosen). */
+  registryLevel1?: string;
+  registryLevel2?: string;
 }
 
 interface QuotationDraftEditorProps {
@@ -909,6 +922,10 @@ function QuoteProductItemCard({
   duplicateItem,
   removeItem,
   onOpenProductLink,
+  onRegistryLevel1Change,
+  onRegistryLevel2Change,
+  categoryPairs,
+  categoryPairsLoading,
   factories,
   factoriesLoading,
   quoteImageScope,
@@ -931,6 +948,10 @@ function QuoteProductItemCard({
   duplicateItem: (id: string) => void;
   removeItem: (id: string) => void;
   onOpenProductLink: (item: QuotationItem) => void;
+  onRegistryLevel1Change: (id: string, level1: string) => void;
+  onRegistryLevel2Change: (id: string, level2: string) => void;
+  categoryPairs: ProductCategoryPair[];
+  categoryPairsLoading: boolean;
   factories: string[];
   factoriesLoading: boolean;
   /** Scope for Supabase Storage paths (quote id or draft key). */
@@ -938,6 +959,14 @@ function QuoteProductItemCard({
   labels: QuoteUiLabels;
 }) {
   const dimensionMode = item.dimensionMode ?? 'lwh';
+  const registryLocked =
+    Boolean(item.productId?.trim()) && Boolean(item.productCategoryId?.trim());
+  const level1Value = item.registryLevel1?.trim() || '';
+  const level2Value = item.registryLevel2?.trim() || '';
+  const level1Options = uniqueLevel1InOrder(categoryPairs);
+  const level2Options = uniqueLevel2InOrder(categoryPairs, level1Value);
+  const registrySelectClass =
+    "h-[34px] w-full min-w-0 cursor-pointer rounded-md border border-border bg-background px-2 font-body text-xs text-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30 disabled:cursor-not-allowed disabled:opacity-60";
   const isDiameterHeight = dimensionMode === 'dh';
   const uploadProductImage = useCallback(
     (file: File) => uploadQuoteImageFile(file, quoteImageScope, item.id, 'product'),
@@ -976,8 +1005,57 @@ function QuoteProductItemCard({
           />
         </div>
 
-        {/* 類別 · 尺寸 · 顏色 */}
+        {/* 一級/二級分類 · 類別 · 尺寸 · 顏色 */}
         <div className="col-start-2 min-w-0 w-full space-y-2 min-[900px]:row-start-1">
+          <div className="grid grid-cols-2 gap-2">
+            <QuoteFieldBlock label={labels.level1Category}>
+              <select
+                value={level1Value || "__none__"}
+                disabled={registryLocked || categoryPairsLoading}
+                title={registryLocked ? labels.productCategoryLockedHint : undefined}
+                onChange={(e) =>
+                  onRegistryLevel1Change(
+                    item.id,
+                    e.target.value === "__none__" ? "" : e.target.value,
+                  )
+                }
+                className={registrySelectClass}
+              >
+                <option value="__none__">—</option>
+                {level1Options.map((l1) => (
+                  <option key={l1} value={l1}>
+                    {l1}
+                  </option>
+                ))}
+              </select>
+            </QuoteFieldBlock>
+            <QuoteFieldBlock label={labels.level2Category}>
+              <select
+                value={level2Value || "__none__"}
+                disabled={
+                  registryLocked ||
+                  categoryPairsLoading ||
+                  !level1Value ||
+                  level2Options.length === 0
+                }
+                title={registryLocked ? labels.productCategoryLockedHint : undefined}
+                onChange={(e) =>
+                  onRegistryLevel2Change(
+                    item.id,
+                    e.target.value === "__none__" ? "" : e.target.value,
+                  )
+                }
+                className={registrySelectClass}
+              >
+                <option value="__none__">—</option>
+                {level2Options.map((l2) => (
+                  <option key={l2} value={l2}>
+                    {l2}
+                  </option>
+                ))}
+              </select>
+            </QuoteFieldBlock>
+          </div>
           <QuoteFieldBlock
             label={labels.category}
             trailing={
@@ -1595,6 +1673,19 @@ function parseDimensionInput(value: string): string | null {
   return trimmed ? trimmed : null;
 }
 
+function enrichQuotationItemRegistry(
+  item: QuotationItem,
+  pairs: ProductCategoryPair[],
+): QuotationItem {
+  const pair = findProductCategoryPairById(pairs, item.productCategoryId);
+  if (!pair) return item;
+  return {
+    ...item,
+    registryLevel1: pair.level1,
+    registryLevel2: pair.level2,
+  };
+}
+
 function createBlankProductItem(): QuotationItem {
   return {
     id: generateId(),
@@ -1870,6 +1961,7 @@ function mapInputToQuotationItem(item: BwfQuoteItemInput): QuotationItem {
     hideInPdf: item.hideInPdf ?? false,
     isSectionTitle: item.isSectionTitle ?? false,
     productId: item.productId ?? null,
+    productCategoryId: item.productCategoryId ?? null,
   };
 }
 
@@ -2170,6 +2262,8 @@ export function QuotationDraftEditor({
   // Product items table
   const [factories, setFactories] = useState<string[]>([]);
   const [factoriesLoading, setFactoriesLoading] = useState(false);
+  const [categoryPairs, setCategoryPairs] = useState<ProductCategoryPair[]>([]);
+  const [categoryPairsLoading, setCategoryPairsLoading] = useState(false);
   const [items, setItems] = useState<QuotationItem[]>(() => {
     if (copyPayload?.items?.length) {
       return copyPayload.items.map((item) => mapInputToQuotationItem(item));
@@ -2201,7 +2295,7 @@ export function QuotationDraftEditor({
     if (!source?.length) return;
     initialItemsHydratedRef.current = true;
     void (async () => {
-      const linked = await hydrateProductIdsForQuoteItems(
+      const linked = await hydrateQuoteItemProductLinks(
         source.map(normalizeLegacyQuoteItemProductId),
       );
       if (itemsUserEditedRef.current) return;
@@ -2243,7 +2337,7 @@ export function QuotationDraftEditor({
           return;
         }
         if (rows.length > 0) {
-          const linked = await hydrateProductIdsForQuoteItems(
+          const linked = await hydrateQuoteItemProductLinks(
             rows.map(normalizeLegacyQuoteItemProductId),
           );
           setItems(linked.map((item) => mapInputToQuotationItem(item)));
@@ -2276,6 +2370,28 @@ export function QuotationDraftEditor({
       cancelled = true;
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setCategoryPairsLoading(true);
+    fetchProductCategoryPairs()
+      .then((pairs) => {
+        if (!cancelled) setCategoryPairs(pairs);
+      })
+      .finally(() => {
+        if (!cancelled) setCategoryPairsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!categoryPairs.length) return;
+    setItems((prev) =>
+      prev.map((item) => enrichQuotationItemRegistry(item, categoryPairs)),
+    );
+  }, [categoryPairs]);
 
   /** Insert a blank product field at `at` (default: start of list). */
   const addItem = (at = 0) => {
@@ -2310,14 +2426,17 @@ export function QuotationDraftEditor({
     if (sourceItems.length === 0) return;
     itemsUserEditedRef.current = true;
     void (async () => {
-      const linked = await hydrateProductIdsForQuoteItems(
+      const linked = await hydrateQuoteItemProductLinks(
         sourceItems.map(normalizeLegacyQuoteItemProductId),
       );
       const rows = linked.map((item, index) =>
-        mapInputToQuotationItem({
-          ...item,
-          id: `${generateId()}-${index}`,
-        }),
+        enrichQuotationItemRegistry(
+          mapInputToQuotationItem({
+            ...item,
+            id: `${generateId()}-${index}`,
+          }),
+          categoryPairs,
+        ),
       );
       setItems((prev) => insertItemsAt(prev, rows, 0));
       toast.success(`${t.copyFromOtherQuoteSuccess}（${rows.length}）`);
@@ -2411,6 +2530,57 @@ export function QuotationDraftEditor({
       }),
     );
   };
+
+  const onRegistryLevel1Change = useCallback(
+    (id: string, level1: string) => {
+      itemsUserEditedRef.current = true;
+      setItems((prev) =>
+        prev.map((item) => {
+          if (item.id !== id) return item;
+          const l2Options = uniqueLevel2InOrder(categoryPairs, level1);
+          const l2 =
+            item.registryLevel2 && l2Options.includes(item.registryLevel2)
+              ? item.registryLevel2
+              : "";
+          const productCategoryId = resolveProductCategoryId(
+            categoryPairs,
+            level1,
+            l2,
+          );
+          return {
+            ...item,
+            registryLevel1: level1,
+            registryLevel2: l2,
+            productCategoryId,
+          };
+        }),
+      );
+    },
+    [categoryPairs],
+  );
+
+  const onRegistryLevel2Change = useCallback(
+    (id: string, level2: string) => {
+      itemsUserEditedRef.current = true;
+      setItems((prev) =>
+        prev.map((item) => {
+          if (item.id !== id) return item;
+          const l1 = item.registryLevel1?.trim() || "";
+          const productCategoryId = resolveProductCategoryId(
+            categoryPairs,
+            l1,
+            level2,
+          );
+          return {
+            ...item,
+            registryLevel2: level2,
+            productCategoryId,
+          };
+        }),
+      );
+    },
+    [categoryPairs],
+  );
 
   const updateExchangeRate = (id: string, raw: string) => {
     itemsUserEditedRef.current = true;
@@ -3247,6 +3417,7 @@ export function QuotationDraftEditor({
       factoryName?: string;
       sku?: string;
       productId?: string | null;
+      productCategoryId?: string | null;
     }[],
   ) => {
     if (products.length === 0) {
@@ -3259,6 +3430,8 @@ export function QuotationDraftEditor({
     const newRows = products.map((p) => {
       const costPrice = p.costPrice ?? null;
       const exchangeRate = null;
+      const productCategoryId = p.productCategoryId?.trim() || null;
+      const pair = findProductCategoryPairById(categoryPairs, productCategoryId);
       return {
         id: generateId(),
         image: p.image && isHttpImageUrl(p.image) ? p.image : "",
@@ -3287,6 +3460,9 @@ export function QuotationDraftEditor({
           (p.productId || "").trim() || p.factoryName?.trim(),
         ),
         productId: p.productId?.trim() || null,
+        productCategoryId,
+        registryLevel1: pair?.level1,
+        registryLevel2: pair?.level2,
       };
     });
 
@@ -3999,6 +4175,10 @@ export function QuotationDraftEditor({
                           duplicateItem={duplicateItem}
                           removeItem={removeItem}
                           onOpenProductLink={openQuoteItemProductLink}
+                          onRegistryLevel1Change={onRegistryLevel1Change}
+                          onRegistryLevel2Change={onRegistryLevel2Change}
+                          categoryPairs={categoryPairs}
+                          categoryPairsLoading={categoryPairsLoading}
                           factories={factories}
                           factoriesLoading={factoriesLoading}
                           quoteImageScope={quoteImageScope}
@@ -4486,10 +4666,29 @@ export function QuotationDraftEditor({
           onClose={() => setQuoteProductModal(null)}
           onProductUpdated={(updated) => {
             itemsUserEditedRef.current = true;
-            updateItem(quoteProductModal.itemId, "productId", updated.id);
-            if (updated.sku?.trim()) {
-              updateItem(quoteProductModal.itemId, "sku", updated.sku.trim());
-            }
+            const itemId = quoteProductModal.itemId;
+            const productCategoryId = resolveProductCategoryId(
+              categoryPairs,
+              updated.level1Category,
+              updated.level2Category,
+            );
+            const pair = findProductCategoryPairById(
+              categoryPairs,
+              productCategoryId,
+            );
+            setItems((prev) =>
+              prev.map((item) => {
+                if (item.id !== itemId) return item;
+                return {
+                  ...item,
+                  productId: updated.id,
+                  sku: updated.sku?.trim() || item.sku,
+                  productCategoryId,
+                  registryLevel1: pair?.level1 ?? item.registryLevel1,
+                  registryLevel2: pair?.level2 ?? item.registryLevel2,
+                };
+              }),
+            );
             setQuoteProductModal(null);
             toast.success(
               quoteProductModal.mode === "create"

@@ -20,6 +20,7 @@ export type CatalogProductRow = {
   category: string | null;
   level1_category: string | null;
   level2_category: string | null;
+  product_category_id: string | null;
   material: string | null;
   dimension_l_mm: number | null;
   dimension_w_mm: number | null;
@@ -153,6 +154,7 @@ function mapProductsRow(row: Record<string, unknown>): CatalogProductRow {
     category: strOrNull(row.level2_category) || strOrNull(row.category),
     level1_category: strOrNull(row.level1_category),
     level2_category: strOrNull(row.level2_category),
+    product_category_id: strOrNull(row.product_category_id),
     material: strOrNull(row.material),
     dimension_l_mm: numOrNull(row.dimension_l_mm),
     dimension_w_mm: numOrNull(row.dimension_w_mm),
@@ -187,6 +189,7 @@ function mapRtsRow(
       strOrNull(p.category),
     level1_category: strOrNull(p.level1_category) || parsed.level1,
     level2_category: strOrNull(p.level2_category) || parsed.level2,
+    product_category_id: strOrNull(p.product_category_id),
     material: strOrNull(row.material) || strOrNull(p.material),
     dimension_l_mm: numOrNull(row.dimension_l_mm) ?? numOrNull(p.dimension_l_mm),
     dimension_w_mm: numOrNull(row.dimension_w_mm) ?? numOrNull(p.dimension_w_mm),
@@ -227,6 +230,7 @@ function mapShopifyProductsRow(
       strOrNull(p.category),
     level1_category: strOrNull(p.level1_category) || parsed.level1,
     level2_category: strOrNull(p.level2_category) || parsed.level2,
+    product_category_id: strOrNull(p.product_category_id),
     material: strOrNull(p.material),
     dimension_l_mm: numOrNull(p.dimension_l_mm),
     dimension_w_mm: numOrNull(p.dimension_w_mm),
@@ -284,7 +288,7 @@ async function loadProductsByIds(ids: string[]): Promise<Map<string, Record<stri
     const { data, error } = await supabase
       .from('products')
       .select(
-        'id, title, sku, image_url, images, sale_price, price, cost_price, factories_display_name, level1_category, level2_category, category, material, dimension_l_mm, dimension_w_mm, dimension_h_mm, color, remarks, delivery_term_name, shopify_product_id, modified_date, created_at, in_stock, customize, tags',
+        'id, title, sku, image_url, images, sale_price, price, cost_price, factories_display_name, level1_category, level2_category, product_category_id, category, material, dimension_l_mm, dimension_w_mm, dimension_h_mm, color, remarks, delivery_term_name, shopify_product_id, modified_date, created_at, in_stock, customize, tags',
       )
       .in('id', chunk);
     if (error) throw error;
@@ -324,7 +328,7 @@ function sortByPriorityLevel1(
 }
 
 const PRODUCTS_CATALOG_SELECT =
-  'id, title, sku, image_url, images, sale_price, price, cost_price, factories_display_name, level1_category, level2_category, category, material, dimension_l_mm, dimension_w_mm, dimension_h_mm, color, remarks, delivery_term_name, shopify_product_id, modified_date, created_at, in_stock, customize, tags';
+  'id, title, sku, image_url, images, sale_price, price, cost_price, factories_display_name, level1_category, level2_category, product_category_id, category, material, dimension_l_mm, dimension_w_mm, dimension_h_mm, color, remarks, delivery_term_name, shopify_product_id, modified_date, created_at, in_stock, customize, tags';
 
 const SHOPIFY_CATALOG_SELECT =
   'id, shopify_product_id, source_product_id, title, sku, image_url, images, price, cost, vendor, product_type, variants, imported_at, published_at, shopify_updated_at, in_stock, customize, "my_fields.production_time"';

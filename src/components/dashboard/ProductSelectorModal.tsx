@@ -18,6 +18,11 @@ import {
   type CatalogSourceType,
 } from '@/lib/productCatalogQuery';
 import { resolveProductIdForCatalogPick } from '@/lib/quoteItemProductLink';
+import {
+  mapProductCategoryRows,
+  resolveProductCategoryId,
+  type ProductCategoryPair,
+} from '@/lib/productCategoryOptions';
 import { formatProductDimensionsMm } from '@/lib/productDimensions';
 import {
   Select,
@@ -53,6 +58,7 @@ interface ProductSelectorModalProps {
     factoryName?: string;
     sku?: string;
     productId?: string | null;
+    productCategoryId?: string | null;
   }[]) => void;
   existingProductNames?: string[];
   /** Level-1 categories from quote wizard — products in these categories appear first when no level1 filter is set. */
@@ -88,7 +94,7 @@ export function ProductSelectorModal({
   const [level1Filter, setLevel1Filter] = useState('');
   const [level2Filter, setLevel2Filter] = useState('');
   const stockFilterActive = stockOnly || readyStockOnly;
-  const [categoryPairs, setCategoryPairs] = useState<{ level1: string; level2: string }[]>([]);
+  const [categoryPairs, setCategoryPairs] = useState<ProductCategoryPair[]>([]);
   const [factories, setFactories] = useState<string[]>([]);
   const filteredFactories = useMemo(() => {
     const q = factoryQuery.trim().toLowerCase();
@@ -124,18 +130,11 @@ export function ProductSelectorModal({
     if (!open) return;
     supabase
       .from('product_category')
-      .select('level1, level2, sort_order')
+      .select('id, level1, level2, sort_order')
       .order('sort_order', { ascending: true })
       .then(({ data }) => {
         if (!data) return;
-        setCategoryPairs(
-          data
-            .map((r: { level1: string | null; level2: string | null }) => ({
-              level1: String(r.level1 ?? '').trim(),
-              level2: String(r.level2 ?? '').trim(),
-            }))
-            .filter((p) => p.level1),
-        );
+        setCategoryPairs(mapProductCategoryRows(data));
       });
   }, [open]);
 
@@ -313,6 +312,13 @@ export function ProductSelectorModal({
       const mapped = await Promise.all(
         selected.map(async (p) => {
           const productId = await resolveProductIdForCatalogPick(p);
+          const productCategoryId =
+            p.product_category_id?.trim() ||
+            resolveProductCategoryId(
+              categoryPairs,
+              p.level1_category,
+              p.level2_category,
+            );
           return {
             image: p.image_url || '',
             name: p.title || '',
@@ -329,6 +335,7 @@ export function ProductSelectorModal({
             factoryName: p.factory_name?.trim() || undefined,
             sku: p.sku?.trim() || undefined,
             productId,
+            productCategoryId,
           };
         }),
       );
