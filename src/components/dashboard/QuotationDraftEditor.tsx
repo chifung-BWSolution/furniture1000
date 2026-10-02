@@ -18,6 +18,8 @@ import {
   Save,
   Link2,
   QrCode,
+  PackagePlus,
+  PackageSearch,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TermsRichEditor } from "@/components/dashboard/TermsRichEditor";
@@ -28,6 +30,11 @@ import { toast } from "sonner";
 import { SubmitReviewModal, type SubmitReviewResult } from "@/components/dashboard/SubmitReviewModal";
 import { persistBwfQuote } from "@/lib/persistBwfQuote";
 import { ProductSelectorModal } from "@/components/dashboard/ProductSelectorModal";
+import {
+  ProductDetailModal,
+  type ProductForDetail,
+} from "@/components/dashboard/ProductDetailModal";
+import { fetchFactoriesWithIds } from "@/lib/factorySupabase";
 import { CopyQuoteItemsModal } from "@/components/dashboard/CopyQuoteItemsModal";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -108,6 +115,8 @@ import { bumpQuoteVersion, displayQuoteVersion } from "@/lib/quoteVersions";
 import { createQuoteShareLink } from "@/lib/bwfQuoteShareLinks";
 import { isUrgentWorkPeriod } from "@/lib/quoteStockFilter";
 import {
+  buildDraftProductFromQuoteItem,
+  fetchProductForQuoteDetail,
   hydrateProductIdsForQuoteItems,
   normalizeLegacyQuoteItemProductId,
 } from "@/lib/quoteItemProductLink";
@@ -302,6 +311,8 @@ function QuoteRowActionButtons({
   onCut,
   onDuplicate,
   onRemove,
+  onOpenProduct,
+  productLinked,
   labels,
 }: {
   itemId: string;
@@ -309,11 +320,37 @@ function QuoteRowActionButtons({
   onCut: (id: string) => void;
   onDuplicate: (id: string) => void;
   onRemove: (id: string) => void;
+  onOpenProduct?: () => void;
+  productLinked?: boolean;
   labels: QuoteUiLabels;
 }) {
   const isCut = cutItemId === itemId;
   return (
     <div className="flex h-[34px] items-center gap-0.5">
+      {onOpenProduct ? (
+        <button
+          type="button"
+          onClick={onOpenProduct}
+          className={cn(
+            "rounded-md p-1.5 transition-colors",
+            productLinked
+              ? "text-primary/70 hover:bg-primary/10 hover:text-primary"
+              : "text-muted-foreground/50 hover:bg-emerald-500/10 hover:text-emerald-600",
+          )}
+          title={
+            productLinked ? labels.openLinkedProduct : labels.createLinkedProduct
+          }
+          aria-label={
+            productLinked ? labels.openLinkedProduct : labels.createLinkedProduct
+          }
+        >
+          {productLinked ? (
+            <PackageSearch className="h-4 w-4" />
+          ) : (
+            <PackagePlus className="h-4 w-4" />
+          )}
+        </button>
+      ) : null}
       <button
         type="button"
         onClick={() => onCut(itemId)}
@@ -871,6 +908,7 @@ function QuoteProductItemCard({
   cutItem,
   duplicateItem,
   removeItem,
+  onOpenProductLink,
   factories,
   factoriesLoading,
   quoteImageScope,
@@ -892,6 +930,7 @@ function QuoteProductItemCard({
   cutItem: (id: string) => void;
   duplicateItem: (id: string) => void;
   removeItem: (id: string) => void;
+  onOpenProductLink: (item: QuotationItem) => void;
   factories: string[];
   factoriesLoading: boolean;
   /** Scope for Supabase Storage paths (quote id or draft key). */
@@ -1258,14 +1297,20 @@ function QuoteProductItemCard({
           </QuoteFieldBlock>
         </div>
 
-        <div className="shrink-0 min-[650px]:col-span-2 min-[900px]:col-span-1 min-[900px]:col-start-9 min-[900px]:row-start-2">
-          <div className="mb-1 hidden h-4 min-[900px]:block" aria-hidden="true" />
+        <div
+          className={cn(
+            "col-span-2 flex justify-end pt-0.5",
+            "min-[900px]:col-start-5 min-[900px]:col-span-5 min-[900px]:row-start-3",
+          )}
+        >
           <QuoteRowActionButtons
             itemId={item.id}
             cutItemId={cutItemId}
             onCut={cutItem}
             onDuplicate={duplicateItem}
             onRemove={removeItem}
+            onOpenProduct={() => onOpenProductLink(item)}
+            productLinked={Boolean(item.productId?.trim())}
             labels={labels}
           />
         </div>
@@ -2699,8 +2744,38 @@ export function QuotationDraftEditor({
   const [showProductSelector, setShowProductSelector] = useState(false);
   const [showCopyFromOther, setShowCopyFromOther] = useState(false);
   const [activeItemId, setActiveItemId] = useState<string | null>(null);
+  const [quoteProductModal, setQuoteProductModal] = useState<{
+    itemId: string;
+    product: ProductForDetail;
+    mode: "edit" | "create";
+  } | null>(null);
+  const [quoteProductModalBusy, setQuoteProductModalBusy] = useState(false);
   /** Index where products from the selector should be inserted (0 = start). */
   const productInsertAtRef = useRef(0);
+
+  const openQuoteItemProductLink = useCallback(async (item: QuotationItem) => {
+    if (quoteProductModalBusy) return;
+    setQuoteProductModalBusy(true);
+    try {
+      const linkedId = item.productId?.trim();
+      if (linkedId) {
+        const product = await fetchProductForQuoteDetail(linkedId);
+        if (!product) {
+          toast.error("找不到關聯產品", {
+            description: "products 表可能已刪除該產品，可重新建立並連結。",
+          });
+          return;
+        }
+        setQuoteProductModal({ itemId: item.id, product, mode: "edit" });
+        return;
+      }
+      const factoriesWithIds = await fetchFactoriesWithIds();
+      const product = buildDraftProductFromQuoteItem(item, { factoriesWithIds });
+      setQuoteProductModal({ itemId: item.id, product, mode: "create" });
+    } finally {
+      setQuoteProductModalBusy(false);
+    }
+  }, [quoteProductModalBusy]);
 
   // Draft state — baseline snapshot detects unsaved edits vs loaded content.
   const [draftLoaded, setDraftLoaded] = useState(false);
@@ -3923,6 +3998,7 @@ export function QuotationDraftEditor({
                           cutItem={cutItem}
                           duplicateItem={duplicateItem}
                           removeItem={removeItem}
+                          onOpenProductLink={openQuoteItemProductLink}
                           factories={factories}
                           factoriesLoading={factoriesLoading}
                           quoteImageScope={quoteImageScope}
@@ -4400,6 +4476,29 @@ export function QuotationDraftEditor({
         priorityLevel1Categories={formData.serviceScope}
         stockOnly={isUrgentWorkPeriod(formData.workPeriod)}
       />
+
+      {quoteProductModal ? (
+        <ProductDetailModal
+          product={quoteProductModal.product}
+          open
+          mode={quoteProductModal.mode}
+          activityStage="product_catalog"
+          onClose={() => setQuoteProductModal(null)}
+          onProductUpdated={(updated) => {
+            itemsUserEditedRef.current = true;
+            updateItem(quoteProductModal.itemId, "productId", updated.id);
+            if (updated.sku?.trim()) {
+              updateItem(quoteProductModal.itemId, "sku", updated.sku.trim());
+            }
+            setQuoteProductModal(null);
+            toast.success(
+              quoteProductModal.mode === "create"
+                ? "已建立產品並連結此報價列"
+                : "已更新關聯產品",
+            );
+          }}
+        />
+      ) : null}
 
       {shareModalOpen ? (
         <div

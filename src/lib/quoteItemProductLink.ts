@@ -5,8 +5,10 @@
 import { supabase } from '@/lib/supabase';
 import type { BwfQuoteItemInput } from '@/lib/bwfQuoteItems';
 import type { CatalogProductRow } from '@/lib/productCatalogQuery';
-
-const PRODUCT_ID_CHUNK = 150;
+import type { ProductForDetail } from '@/components/dashboard/ProductDetailModal';
+import type { FactoryItem } from '@/lib/factorySupabase';
+import { materialPlainText } from '@/lib/quotationMaterialHtml';
+import { isHttpImageUrl } from '@/lib/imageStorage';
 
 function normSku(s: string | null | undefined): string {
   return (s || '').trim().toUpperCase();
@@ -173,4 +175,194 @@ export function normalizeLegacyQuoteItemProductId(
     null;
   if (!productId || productId === item.productId) return item;
   return { ...item, productId };
+}
+
+/** Lightweight list columns — never select heavy JSONB `images` on list fetch. */
+const PRODUCT_LINK_LIST_COLUMNS = [
+  'id',
+  'title',
+  'description',
+  'tags',
+  'price',
+  'compare_at_price',
+  'collection',
+  'status',
+  'image_url',
+  'shopify_product_id',
+  'source',
+  'synced_at',
+  'created_at',
+  'color',
+  'factory_id',
+  'factories_display_name',
+  'cost_price',
+  'sale_price',
+  'production_date',
+  'shipping_days',
+  'total_lead_time',
+  'bwf_master_id',
+  'remarks',
+  'shipping_fee',
+  'category',
+  'level1_category',
+  'level2_category',
+  'material',
+  'delivery_term_id',
+  'delivery_term_name',
+  'dimension_l_mm',
+  'dimension_w_mm',
+  'dimension_h_mm',
+  'in_stock',
+  'customize',
+  'sku',
+].join(',');
+
+function newProductId(): string {
+  return Math.random().toString(36).substring(2, 12);
+}
+
+/** First integer in freeform quote dimension text (e.g. 2200 or 1000+600). */
+export function parseQuoteDimensionMm(value: string | number | null | undefined): number | null {
+  if (value == null || value === '') return null;
+  if (typeof value === 'number' && Number.isFinite(value)) return Math.round(value);
+  const match = String(value).match(/\d+/);
+  if (!match) return null;
+  const n = parseInt(match[0], 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+function mapProductRow(row: Record<string, unknown>): ProductForDetail {
+  const price = row.price != null ? parseFloat(String(row.price)) : 0;
+  return {
+    id: String(row.id),
+    title: String(row.title || ''),
+    description: String(row.description || ''),
+    descriptionHtml: row.description_html ? String(row.description_html) : undefined,
+    tags: Array.isArray(row.tags) ? (row.tags as string[]) : [],
+    price: Number.isFinite(price) ? price : 0,
+    compareAtPrice:
+      row.compare_at_price != null ? parseFloat(String(row.compare_at_price)) : undefined,
+    collection: String(row.collection || ''),
+    status: String(row.status || 'draft'),
+    imageUrl: String(row.image_url || ''),
+    images: [],
+    shopifyProductId: row.shopify_product_id ? String(row.shopify_product_id) : null,
+    source: String(row.source || 'local'),
+    syncedAt: row.synced_at ? String(row.synced_at) : null,
+    createdAt: String(row.created_at || new Date().toISOString()),
+    color: row.color ? String(row.color) : null,
+    factoryId: row.factory_id ? String(row.factory_id) : null,
+    factoriesDisplayName: row.factories_display_name
+      ? String(row.factories_display_name)
+      : null,
+    costPrice: row.cost_price != null ? parseFloat(String(row.cost_price)) : null,
+    productionLeadTime:
+      row.production_date != null ? parseInt(String(row.production_date), 10) : null,
+    shippingDays: row.shipping_days != null ? parseInt(String(row.shipping_days), 10) : null,
+    shippingFee: row.shipping_fee != null ? parseFloat(String(row.shipping_fee)) : null,
+    totalLeadTime:
+      row.total_lead_time != null ? parseInt(String(row.total_lead_time), 10) : null,
+    bwfMasterId: row.bwf_master_id ? String(row.bwf_master_id) : null,
+    remarks: row.remarks ? String(row.remarks) : null,
+    category: row.category ? String(row.category) : null,
+    level1Category: row.level1_category ? String(row.level1_category) : null,
+    level2Category: row.level2_category ? String(row.level2_category) : null,
+    deliveryTermId: row.delivery_term_id ? String(row.delivery_term_id) : null,
+    deliveryTermName: row.delivery_term_name ? String(row.delivery_term_name) : null,
+    dimensionLMm: parseQuoteDimensionMm(row.dimension_l_mm as string | number | null),
+    dimensionWMm: parseQuoteDimensionMm(row.dimension_w_mm as string | number | null),
+    dimensionHMm: parseQuoteDimensionMm(row.dimension_h_mm as string | number | null),
+    inStock: row.in_stock != null ? Boolean(row.in_stock) : null,
+    customize: row.customize ? String(row.customize) : null,
+    sku: row.sku ? String(row.sku) : null,
+  };
+}
+
+export async function fetchProductForQuoteDetail(
+  productId: string,
+): Promise<ProductForDetail | null> {
+  const id = productId.trim();
+  if (!id) return null;
+  const { data, error } = await supabase
+    .from('products')
+    .select(PRODUCT_LINK_LIST_COLUMNS)
+    .eq('id', id)
+    .maybeSingle();
+  if (error || !data) {
+    console.warn('[fetchProductForQuoteDetail]', error?.message || 'not found');
+    return null;
+  }
+  return mapProductRow(data as unknown as Record<string, unknown>);
+}
+
+export type QuoteItemProductSeed = {
+  name?: string;
+  image?: string;
+  sku?: string;
+  category?: string;
+  material?: string;
+  color?: string;
+  remarks?: string;
+  costPrice?: number | null;
+  unitPrice?: number;
+  dimensionLMm?: string | number | null;
+  dimensionWMm?: string | number | null;
+  dimensionHMm?: string | number | null;
+  deliveryTermName?: string;
+  factoryName?: string;
+};
+
+/** Draft product row for ProductDetailModal create mode from a quote line. */
+export function buildDraftProductFromQuoteItem(
+  item: QuoteItemProductSeed,
+  opts?: { id?: string; factoriesWithIds?: FactoryItem[] },
+): ProductForDetail {
+  const id = opts?.id?.trim() || newProductId();
+  const materialText = materialPlainText(item.material);
+  const descriptionParts = [materialText, item.remarks?.trim()].filter(Boolean);
+  const description = descriptionParts.join('\n\n');
+  const imageUrl = isHttpImageUrl(item.image || '') ? item.image!.trim() : '';
+  const factoryName = item.factoryName?.trim() || '';
+  const factoryMatch = opts?.factoriesWithIds?.find((f) => f.display_name === factoryName);
+
+  return {
+    id,
+    title: item.name?.trim() || '',
+    description,
+    descriptionHtml: description,
+    tags: [],
+    price: typeof item.unitPrice === 'number' && Number.isFinite(item.unitPrice) ? item.unitPrice : 0,
+    collection: item.category?.trim() || '',
+    status: 'draft',
+    imageUrl,
+    images: imageUrl ? [{ src: imageUrl, alt: item.name || '' }] : [],
+    shopifyProductId: null,
+    source: 'local',
+    syncedAt: null,
+    createdAt: new Date().toISOString(),
+    color: item.color?.trim() || null,
+    factoryId: factoryMatch?.factory_id || null,
+    factoriesDisplayName: factoryName || null,
+    costPrice:
+      typeof item.costPrice === 'number' && Number.isFinite(item.costPrice)
+        ? item.costPrice
+        : null,
+    productionLeadTime: null,
+    shippingDays: null,
+    shippingFee: null,
+    totalLeadTime: null,
+    bwfMasterId: null,
+    remarks: item.remarks?.trim() || null,
+    category: item.category?.trim() || null,
+    level1Category: null,
+    level2Category: null,
+    deliveryTermId: null,
+    deliveryTermName: item.deliveryTermName?.trim() || null,
+    dimensionLMm: parseQuoteDimensionMm(item.dimensionLMm),
+    dimensionWMm: parseQuoteDimensionMm(item.dimensionWMm),
+    dimensionHMm: parseQuoteDimensionMm(item.dimensionHMm),
+    inStock: null,
+    customize: null,
+    sku: item.sku?.trim() || null,
+  };
 }

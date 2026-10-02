@@ -71,6 +71,8 @@ export const QUOTE_UI = {
     duplicateItem: '複製此列',
     cutItem: '剪下此列',
     pasteItem: '貼上',
+    openLinkedProduct: '查看／編輯關聯產品',
+    createLinkedProduct: '由報價列建立產品',
     valueServiceDesc: '增值服務說明',
     valueServicePlaceholder: '輸入額外增值服務（例如：清拆、拆裝舊家私等）...',
     defaultValueServiceName: '運輸安裝費用 (包含清理傢俬包裝垃圾)',
@@ -149,6 +151,8 @@ export const QUOTE_UI = {
     duplicateItem: 'Duplicate row',
     cutItem: 'Cut row',
     pasteItem: 'Paste',
+    openLinkedProduct: 'View / edit linked product',
+    createLinkedProduct: 'Create product from quote line',
     valueServiceDesc: 'Value-added Service Description',
     valueServicePlaceholder:
       'Enter additional value-added services (e.g. dismantling, removal of old furniture)...',

@@ -48,9 +48,13 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { supabase } from '@/lib/supabase';
-import { uploadBase64Image } from '@/lib/imageStorage';
+import {
+  productImageFieldsPendingStorage,
+  resolveRowsImagesToStorage,
+  uploadBase64Image,
+} from '@/lib/imageStorage';
 import { toast } from 'sonner';
-import { withUpdateAuditFields } from '@/lib/pmsAudit';
+import { withInsertAuditFields, withUpdateAuditFields } from '@/lib/pmsAudit';
 import { collectProductGalleryUrls } from '@/lib/productGallery';
 import { writeProductEditLog } from '@/lib/uploadLog';
 import {
@@ -69,7 +73,7 @@ interface ProductImage {
   path?: string;
 }
 
-interface ProductForDetail {
+export interface ProductForDetail {
   id: string;
   title: string;
   description: string;
@@ -116,6 +120,8 @@ interface ProductDetailModalProps {
   showAIImageTools?: boolean;
   /** Audit log stage when saving from 待處理產品 / 產品目錄 */
   activityStage?: 'listed_products' | 'product_catalog';
+  /** Insert a new products row on save (quote line → 建立產品). */
+  mode?: 'edit' | 'create';
 }
 
 // ─── Lightbox Component ────────────────────────────────────────────────
@@ -401,6 +407,7 @@ export function ProductDetailModal({
   onProductUpdated,
   showAIImageTools = false,
   activityStage,
+  mode = 'edit',
 }: ProductDetailModalProps) {
   // Form state
   const [title, setTitle] = useState('');
@@ -522,7 +529,7 @@ export function ProductDetailModal({
 
   // Lazy-load heavy fields (description_html, images) — list RPC omits them to avoid 500s.
   useEffect(() => {
-    if (!open || !product?.id) return;
+    if (!open || !product?.id || mode === 'create') return;
     let cancelled = false;
     (async () => {
       try {
@@ -554,7 +561,7 @@ export function ProductDetailModal({
       }
     })();
     return () => { cancelled = true; };
-  }, [open, product?.id, product?.title]);
+  }, [open, product?.id, product?.title, mode]);
 
   // Fetch level1/level2 pairs from product_category when modal opens
   useEffect(() => {
@@ -758,6 +765,34 @@ export function ProductDetailModal({
         path: img.path || '',
       }));
 
+      let imageUrlPrimary = localImagesList[0]?.src || product.imageUrl || null;
+      let imageUrl2: string | null = null;
+      let imageUrl3: string | null = null;
+
+      if (mode === 'create' && !product.bwfMasterId) {
+        const [resolved] = await resolveRowsImagesToStorage([
+          {
+            id: product.id,
+            image_url: imageUrlPrimary || '',
+            image_url_2: localImagesList[1]?.src ?? null,
+            image_url_3: localImagesList[2]?.src ?? null,
+            lifestyle_image_url: null,
+          },
+        ]);
+        if (productImageFieldsPendingStorage(resolved)) {
+          toast.error('圖片上傳失敗', {
+            id: toastId,
+            description: '請確認圖片格式後再儲存。',
+            duration: 8000,
+          });
+          setIsSaving(false);
+          return;
+        }
+        imageUrlPrimary = resolved.image_url || null;
+        imageUrl2 = resolved.image_url_2 ?? null;
+        imageUrl3 = resolved.image_url_3 ?? null;
+      }
+
       const localUpdate: Record<string, unknown> = {
         title,
         description: description,
@@ -775,6 +810,7 @@ export function ProductDetailModal({
         cost_price: parsedCostPrice,
         price: parsedSalePrice ?? product.price,
         factory_id: factoryId || null,
+        factories_display_name: product.factoriesDisplayName || null,
         production_date: parsedProductionLeadTime,
         shipping_days: parsedShippingDays,
         shipping_fee: parsedShippingFee,
@@ -787,24 +823,52 @@ export function ProductDetailModal({
         in_stock: inStockValue,
         customize: customizeLabel,
         images: localImagesList,
-        image_url: localImagesList[0]?.src || product.imageUrl || null,
+        image_url: imageUrlPrimary,
         sku: sku.trim() || null,
       };
 
-      const { error: localError } = await supabase
-        .from('products')
-        .update(await withUpdateAuditFields(localUpdate))
-        .eq('id', product.id);
-
-      if (localError) {
-        console.error('[ProductDetail] Local update error:', localError);
-        toast.error('本地資料庫更新失敗', {
-          id: toastId,
-          description: localError.message,
-          duration: 8000,
+      if (mode === 'create') {
+        const insertRow = await withInsertAuditFields({
+          ...localUpdate,
+          image_url_2: imageUrl2,
+          image_url_3: imageUrl3,
+          id: product.id,
+          tags: product.tags?.length ? product.tags : [],
+          compare_at_price: product.compareAtPrice ?? null,
+          status: product.status || 'draft',
+          source: product.source || 'local',
+          shopify_product_id: null,
+          bwf_master_id: null,
+          created_at: product.createdAt || new Date().toISOString(),
+          sale_price: parsedSalePrice ?? product.price,
         });
-        setIsSaving(false);
-        return;
+        const { error: localError } = await supabase.from('products').insert(insertRow);
+        if (localError) {
+          console.error('[ProductDetail] Local insert error:', localError);
+          toast.error('建立產品失敗', {
+            id: toastId,
+            description: localError.message,
+            duration: 8000,
+          });
+          setIsSaving(false);
+          return;
+        }
+      } else {
+        const { error: localError } = await supabase
+          .from('products')
+          .update(await withUpdateAuditFields(localUpdate))
+          .eq('id', product.id);
+
+        if (localError) {
+          console.error('[ProductDetail] Local update error:', localError);
+          toast.error('本地資料庫更新失敗', {
+            id: toastId,
+            description: localError.message,
+            duration: 8000,
+          });
+          setIsSaving(false);
+          return;
+        }
       }
 
       if (activityStage) {
@@ -817,7 +881,7 @@ export function ProductDetailModal({
 
       // ─── Step 2: If product has a bwfMasterId, sync to master DB ────
       let masterSyncSuccess = true;
-      if (product.bwfMasterId) {
+      if (mode !== 'create' && product.bwfMasterId) {
         try {
           const masterPayload = {
             master_id: product.bwfMasterId,
@@ -982,7 +1046,7 @@ export function ProductDetailModal({
     productionLeadTime, shippingDays, shippingFee, color, remarks,
     dimensionL, dimensionW, dimensionH,
     images, pendingNewFiles, pendingDeletePaths,
-    product, onProductUpdated, onClose, activityStage, sku,
+    product, onProductUpdated, onClose, activityStage, sku, mode,
   ]);
 
   // Get the selected display image
