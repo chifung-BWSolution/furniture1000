@@ -108,6 +108,10 @@ import { bumpQuoteVersion, displayQuoteVersion } from "@/lib/quoteVersions";
 import { createQuoteShareLink } from "@/lib/bwfQuoteShareLinks";
 import { isUrgentWorkPeriod } from "@/lib/quoteStockFilter";
 import {
+  hydrateProductIdsForQuoteItems,
+  normalizeLegacyQuoteItemProductId,
+} from "@/lib/quoteItemProductLink";
+import {
   type QuoteLocale,
   type QuoteUiLabels,
   quoteUi,
@@ -2116,6 +2120,8 @@ export function QuotationDraftEditor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [existingQuote?.quoteId]);
 
+  const initialItemsHydratedRef = useRef(false);
+
   // Product items table
   const [factories, setFactories] = useState<string[]>([]);
   const [factoriesLoading, setFactoriesLoading] = useState(false);
@@ -2137,6 +2143,26 @@ export function QuotationDraftEditor({
   const itemsUserEditedRef = useRef(false);
   /** Tracks which quote uuid already hydrated items in this editor session. */
   const itemsHydratedForUuidRef = useRef<string | null>(null);
+
+  // Copy / legacy JSON drafts: infer product_id before first save (no quote UUID yet).
+  useEffect(() => {
+    if (initialItemsHydratedRef.current) return;
+    if (existingQuote?.quoteUuid) return;
+    const source = copyPayload?.items?.length
+      ? copyPayload.items
+      : legacyItems.length > 0
+        ? legacyItems
+        : null;
+    if (!source?.length) return;
+    initialItemsHydratedRef.current = true;
+    void (async () => {
+      const linked = await hydrateProductIdsForQuoteItems(
+        source.map(normalizeLegacyQuoteItemProductId),
+      );
+      if (itemsUserEditedRef.current) return;
+      setItems(linked.map((item) => mapInputToQuotationItem(item)));
+    })();
+  }, [existingQuote?.quoteUuid, copyPayload, legacyItems]);
 
   // Load line items from bwf_quote_item (prefer over empty legacy JSON)
   useEffect(() => {
@@ -2172,7 +2198,10 @@ export function QuotationDraftEditor({
           return;
         }
         if (rows.length > 0) {
-          setItems(rows.map((item) => mapInputToQuotationItem(item)));
+          const linked = await hydrateProductIdsForQuoteItems(
+            rows.map(normalizeLegacyQuoteItemProductId),
+          );
+          setItems(linked.map((item) => mapInputToQuotationItem(item)));
         }
         itemsHydratedForUuidRef.current = quoteUuid;
       } catch (err) {
@@ -2235,14 +2264,19 @@ export function QuotationDraftEditor({
   const insertCopiedItemsAtFront = (sourceItems: BwfQuoteItemInput[]) => {
     if (sourceItems.length === 0) return;
     itemsUserEditedRef.current = true;
-    const rows = sourceItems.map((item, index) =>
-      mapInputToQuotationItem({
-        ...item,
-        id: `${generateId()}-${index}`,
-      }),
-    );
-    setItems((prev) => insertItemsAt(prev, rows, 0));
-    toast.success(`${t.copyFromOtherQuoteSuccess}（${rows.length}）`);
+    void (async () => {
+      const linked = await hydrateProductIdsForQuoteItems(
+        sourceItems.map(normalizeLegacyQuoteItemProductId),
+      );
+      const rows = linked.map((item, index) =>
+        mapInputToQuotationItem({
+          ...item,
+          id: `${generateId()}-${index}`,
+        }),
+      );
+      setItems((prev) => insertItemsAt(prev, rows, 0));
+      toast.success(`${t.copyFromOtherQuoteSuccess}（${rows.length}）`);
+    })();
   };
 
   const [cutItemId, setCutItemId] = useState<string | null>(null);
@@ -3174,7 +3208,9 @@ export function QuotationDraftEditor({
         dimensionMode: 'lwh' as const,
         deliveryTermName: p.deliveryTermName,
         factoryName: p.factoryName?.trim() || "",
-        factoryFromCatalog: Boolean(p.factoryName?.trim()),
+        factoryFromCatalog: Boolean(
+          (p.productId || "").trim() || p.factoryName?.trim(),
+        ),
         productId: p.productId?.trim() || null,
       };
     });

@@ -17,6 +17,7 @@ import {
   type CatalogProductRow,
   type CatalogSourceType,
 } from '@/lib/productCatalogQuery';
+import { resolveProductIdForCatalogPick } from '@/lib/quoteItemProductLink';
 import { formatProductDimensionsMm } from '@/lib/productDimensions';
 import {
   Select,
@@ -307,25 +308,33 @@ export function ProductSelectorModal({
   const isSomeSelected = products.some((p) => selectedProducts.has(p.id)) && !isAllSelected;
 
   const handleAdd = () => {
-    const mapped = Array.from(selectedProducts.values()).map((p) => ({
-      image: p.image_url || '',
-      name: p.title || '',
-      unitPrice: p.sale_price || p.cost_price || 0,
-      costPrice: p.cost_price,
-      category: p.category?.trim() || undefined,
-      material: p.material || undefined,
-      color: normalizeProductColor(p.color),
-      remarks: p.remarks || undefined,
-      dimensionLMm: p.dimension_l_mm,
-      dimensionWMm: p.dimension_w_mm,
-      dimensionHMm: p.dimension_h_mm,
-      deliveryTermName: p.delivery_term_name || undefined,
-      factoryName: p.factory_name?.trim() || undefined,
-      sku: p.sku?.trim() || undefined,
-      productId: p.productId?.trim() || null,
-    }));
-    onSelect(mapped);
-    onClose();
+    void (async () => {
+      const selected = Array.from(selectedProducts.values());
+      const mapped = await Promise.all(
+        selected.map(async (p) => {
+          const productId = await resolveProductIdForCatalogPick(p);
+          return {
+            image: p.image_url || '',
+            name: p.title || '',
+            unitPrice: p.sale_price || p.cost_price || 0,
+            costPrice: p.cost_price,
+            category: p.category?.trim() || undefined,
+            material: p.material || undefined,
+            color: normalizeProductColor(p.color),
+            remarks: p.remarks || undefined,
+            dimensionLMm: p.dimension_l_mm,
+            dimensionWMm: p.dimension_w_mm,
+            dimensionHMm: p.dimension_h_mm,
+            deliveryTermName: p.delivery_term_name || undefined,
+            factoryName: p.factory_name?.trim() || undefined,
+            sku: p.sku?.trim() || undefined,
+            productId,
+          };
+        }),
+      );
+      onSelect(mapped);
+      onClose();
+    })();
   };
 
   if (!open) return null;

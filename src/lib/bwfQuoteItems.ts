@@ -283,7 +283,9 @@ export function itemsFromLegacyProjectData(
     if (!item || typeof item !== 'object') {
       return { id: String(index), name: '', image: '', unitPrice: 0, quantity: 1 };
     }
-    const row = item as BwfQuoteItemInput;
+    const row = item as BwfQuoteItemInput & { product_id?: string | null };
+    const productId =
+      (row.productId || '').trim() || (row.product_id || '').trim() || undefined;
     return {
       ...row,
       id: row.id || String(index),
@@ -291,6 +293,7 @@ export function itemsFromLegacyProjectData(
       image: row.image || '',
       unitPrice: numOrZero(row.unitPrice),
       quantity: numOrZero(row.quantity) || 1,
+      productId,
     };
   });
 }

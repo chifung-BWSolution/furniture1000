@@ -213,6 +213,7 @@ function mapShopifyProductsRow(
   return {
     id: `shopify:${String(row.id)}`,
     sourceKind: 'shopify',
+    // A 類: products.id via mirror source_product_id — never shopify_products.id (UUID).
     productId: strOrNull(row.source_product_id) || strOrNull(p.id),
     title: String(row.title || p.title || ''),
     sku: strOrNull(row.sku) || variantSku || strOrNull(p.sku),

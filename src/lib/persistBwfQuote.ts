@@ -20,6 +20,10 @@ import {
   type BwfQuoteItemInput,
 } from '@/lib/bwfQuoteItems';
 import {
+  hydrateProductIdsForQuoteItems,
+  normalizeLegacyQuoteItemProductId,
+} from '@/lib/quoteItemProductLink';
+import {
   nextQuoteVersionFromChain,
   quoteVersionSequence,
 } from '@/lib/quoteVersions';
@@ -213,7 +217,10 @@ export async function persistBwfQuote(
     throw new Error('internal: project_data must not contain items');
   }
 
-  const resolvedItems = await resolveItemImagesToStorage(sourceItems, quoteId);
+  const linkedItems = await hydrateProductIdsForQuoteItems(
+    sourceItems.map(normalizeLegacyQuoteItemProductId),
+  );
+  const resolvedItems = await resolveItemImagesToStorage(linkedItems, quoteId);
   if (resolvedItems.some((item) => quoteItemHasBase64Images(item))) {
     throw new Error('部分圖片未能上傳至 Storage，請檢查網絡後重試');
   }

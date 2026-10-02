@@ -27,6 +27,7 @@ import {
   stripItemsFromProjectData,
   type BwfQuoteItemInput,
 } from '@/lib/bwfQuoteItems';
+import { hydrateProductIdsForQuoteItems } from '@/lib/quoteItemProductLink';
 import { compareQuoteVersion, displayQuoteVersion } from '@/lib/quoteVersions';
 import { quoteStatusBadgeClass } from '@/lib/listTableUtils';
 import {
@@ -1703,6 +1704,7 @@ export function CustomerQuoteSchemesView() {
           name: product.productTitle,
           image: product.productImageUrl,
           galleryUrls: meta?.galleryUrls || [],
+          productId: product.productId?.trim() || null,
           unitPrice: product.salePrice,
           quantity: product.quantity,
           unit: '件',
@@ -2848,10 +2850,12 @@ export function CustomerQuoteSchemesView() {
           if (updateError) throw updateError;
           await replaceQuoteItems(
             quoteUuid,
-            productItems.map((item) => ({
-              ...item,
-              quantity: quantities[item.id!],
-            })),
+            await hydrateProductIdsForQuoteItems(
+              productItems.map((item) => ({
+                ...item,
+                quantity: quantities[item.id!],
+              })),
+            ),
           );
         }
       }
@@ -2888,10 +2892,12 @@ export function CustomerQuoteSchemesView() {
         quoteUuid = inserted.id;
         await replaceQuoteItems(
           quoteUuid,
-          productItems.map((item) => ({
-            ...item,
-            quantity: quantities[item.id!],
-          })),
+          await hydrateProductIdsForQuoteItems(
+            productItems.map((item) => ({
+              ...item,
+              quantity: quantities[item.id!],
+            })),
+          ),
         );
       }
 
