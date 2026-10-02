@@ -193,6 +193,8 @@ interface QuotationItem {
   isCustomTerm?: boolean;
   /** Section heading row (一、開放區) — not priced; draggable. */
   isSectionTitle?: boolean;
+  /** Furniture products.id when line is linked to catalog. */
+  productId?: string | null;
 }
 
 interface QuotationDraftEditorProps {
@@ -1818,6 +1820,7 @@ function mapInputToQuotationItem(item: BwfQuoteItemInput): QuotationItem {
     isOptional: item.isOptional ?? false,
     hideInPdf: item.hideInPdf ?? false,
     isSectionTitle: item.isSectionTitle ?? false,
+    productId: item.productId ?? null,
   };
 }
 
@@ -3134,6 +3137,7 @@ export function QuotationDraftEditor({
       deliveryTermName?: string;
       factoryName?: string;
       sku?: string;
+      productId?: string | null;
     }[],
   ) => {
     if (products.length === 0) {
@@ -3171,6 +3175,7 @@ export function QuotationDraftEditor({
         deliveryTermName: p.deliveryTermName,
         factoryName: p.factoryName?.trim() || "",
         factoryFromCatalog: Boolean(p.factoryName?.trim()),
+        productId: p.productId?.trim() || null,
       };
     });
 

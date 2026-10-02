@@ -51,6 +51,7 @@ interface ProductSelectorModalProps {
     deliveryTermName?: string;
     factoryName?: string;
     sku?: string;
+    productId?: string | null;
   }[]) => void;
   existingProductNames?: string[];
   /** Level-1 categories from quote wizard — products in these categories appear first when no level1 filter is set. */
@@ -321,6 +322,7 @@ export function ProductSelectorModal({
       deliveryTermName: p.delivery_term_name || undefined,
       factoryName: p.factory_name?.trim() || undefined,
       sku: p.sku?.trim() || undefined,
+      productId: p.productId?.trim() || null,
     }));
     onSelect(mapped);
     onClose();

@@ -143,6 +143,7 @@ export type Database = {
           factory_from_catalog: boolean | null
           is_custom_term: boolean | null
           sku: string | null
+          product_id: string | null
           created_at: string | null
           updated_at: string | null
         }
@@ -173,6 +174,7 @@ export type Database = {
           factory_from_catalog?: boolean | null
           is_custom_term?: boolean | null
           sku?: string | null
+          product_id?: string | null
           created_at?: string | null
           updated_at?: string | null
         }
@@ -203,10 +205,18 @@ export type Database = {
           factory_from_catalog?: boolean | null
           is_custom_term?: boolean | null
           sku?: string | null
+          product_id?: string | null
           created_at?: string | null
           updated_at?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "bwf_quote_item_product_id_fkey"
+            columns: ["product_id"]
+            isOneToOne: false
+            referencedRelation: "products"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "bwf_quote_item_quote_uuid_fkey"
             columns: ["quote_uuid"]
