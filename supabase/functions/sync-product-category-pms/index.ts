@@ -83,7 +83,9 @@ Deno.serve(async (req: Request) => {
     const deletes = normalizeIds(body.deletes);
 
     const furnitureAdmin = createClient(furnitureUrl, furnitureServiceKey);
-    const pmsAdmin = createClient(PMS_PROJECT_URL, pmsServiceKey);
+    const pmsAdmin = createClient(PMS_PROJECT_URL, pmsServiceKey, {
+      global: { headers: { "x-sync-origin": "furniture" } },
+    });
 
     if (action === "apply") {
       if (!isSyncOriginPms(req, body)) {

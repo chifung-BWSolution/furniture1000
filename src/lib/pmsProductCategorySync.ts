@@ -29,7 +29,8 @@ export async function pushProductCategorySettingsToPms(
 
   for (const slug of INVOKE_SLUGS) {
     const { data, error } = await supabase.functions.invoke(slug, {
-      body: { action: 'push', ...payload },
+      body: { action: 'push', syncOrigin: 'furniture', ...payload },
+      headers: { 'x-sync-origin': 'furniture' },
     });
 
     if (error) {
