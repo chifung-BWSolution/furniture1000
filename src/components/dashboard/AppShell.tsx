@@ -892,7 +892,6 @@ export function AppShell() {
             onDeleteProduct={store.deleteProduct}
             onClearFilter={handleClearFilter}
             onSyncFromShopify={store.syncFromShopify}
-            onUploadUnsyncedToMaster={store.publishSelected}
             onRevertToInfo={async (ids, reasons) => {
               // ids = ready_to_shopify.id (RTS row IDs — that is what ProductTableView stores)
               const revertReason = (reasons.labels.length > 0 || reasons.other)

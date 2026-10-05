@@ -753,118 +753,6 @@ export function ListedProductsView({
     }
   }, [onSyncFromShopify, fetchProducts]);
 
-  // Sync from Master DB — pull products from bwf_product_master that aren't in local DB
-  const [isSyncingMaster, setIsSyncingMaster] = useState(false);
-  const handleSyncFromMaster = useCallback(async () => {
-    setIsSyncingMaster(true);
-    const toastId = toast.loading('正在從全域資料庫同步產品...', {
-      description: '正在從 bwf_product_master 取得最新產品資料。',
-    });
-
-    try {
-      const { data, error } = await supabase.functions.invoke(
-        'supabase-functions-sync-from-master-db',
-        { body: {} }
-      );
-
-      if (error) {
-        toast.error('全域資料庫同步失敗', {
-          id: toastId,
-          description: error.message,
-        });
-        setIsSyncingMaster(false);
-        return;
-      }
-
-      if (!data?.products || data.products.length === 0) {
-        toast.info('全域資料庫無可同步產品', { id: toastId });
-        setIsSyncingMaster(false);
-        return;
-      }
-
-      // Get existing bwf_master_ids to avoid duplicates
-      const { data: existingProducts } = await supabase
-        .from('products')
-        .select('bwf_master_id')
-        .not('bwf_master_id', 'is', null);
-
-      const existingMasterIds = new Set(
-        (existingProducts || []).map((p: any) => p.bwf_master_id)
-      );
-
-      // Filter to only products not yet in local DB
-      const newProducts = data.products.filter(
-        (mp: any) => !existingMasterIds.has(mp.master_id)
-      );
-
-      if (newProducts.length === 0) {
-        toast.success('所有全域產品已同步至本地', {
-          id: toastId,
-          description: `全域資料庫共有 ${data.products.length} 個產品，全部已存在於本地資料庫。`,
-        });
-        setIsSyncingMaster(false);
-        return;
-      }
-
-      // Insert new products into local DB
-      const localRows = newProducts.map((mp: any) => ({
-        id: crypto.randomUUID(),
-        title: mp.title || 'Untitled',
-        description: mp.description || '',
-        description_html: mp.description_html || mp.description || '',
-        tags: mp.tags || [],
-        price: mp.price ?? 0,
-        compare_at_price: mp.compare_at_price ?? null,
-        collection: mp.collection || '',
-        status: 'draft',
-        image_url: mp.image_url || '',
-        images: mp.images || [],
-        source: 'master-sync',
-        factory_id: mp.factory_id || '',
-        factories_display_name: mp.factories_display_name || '',
-        cost_price: mp.cost_price ?? null,
-        production_date: mp.production_date ?? null,
-        shipping_days: mp.shipping_days ?? null,
-        shipping_fee: mp.shipping_fee ?? null,
-        total_lead_time: mp.total_lead_time ?? null,
-        remarks: mp.remarks || '',
-        color: mp.color || '',
-        bwf_master_id: mp.master_id,
-        synced_at: new Date().toISOString(),
-        created_at: mp.created_at || new Date().toISOString(),
-        dimension_l_mm: mp.dimension_l_mm ?? null,
-        dimension_w_mm: mp.dimension_w_mm ?? null,
-        dimension_h_mm: mp.dimension_h_mm ?? null,
-        material: mp.material || '',
-        lifestyle_image_url: mp.lifestyle_image_url || null,
-        delivery_term_id: mp.delivery_term_id || null,
-        delivery_term_name: mp.delivery_term_name || null,
-      }));
-
-      const { error: insertErr } = await supabase
-        .from('products')
-        .upsert(localRows, { onConflict: 'id' });
-
-      if (insertErr) {
-        toast.error('同步至本地資料庫失敗', {
-          id: toastId,
-          description: insertErr.message,
-        });
-      } else {
-        toast.success(`✅ 已同步 ${newProducts.length} 個新產品至本地`, {
-          id: toastId,
-          description: `從全域資料庫同步了 ${newProducts.length} 個產品，${data.products.length - newProducts.length} 個已存在。`,
-        });
-        await fetchProducts(); // Refresh the table
-      }
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Unknown error';
-      toast.error('同步異常', { id: toastId, description: msg });
-    } finally {
-      setIsSyncingMaster(false);
-    }
-  }, [fetchProducts]);
-
   const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
 
   // Generate page numbers for pagination
@@ -893,40 +781,6 @@ export function ListedProductsView({
     if (product.productionLeadTime != null) return `${product.productionLeadTime}天 (生產)`;
     if (product.shippingDays != null) return `${product.shippingDays}天 (運輸)`;
     return '—';
-  };
-
-  // Synced status badge component
-  const SyncStatusBadge = ({ product }: { product: ListedProduct }) => {
-    if (product.bwfMasterId) {
-      return (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Badge className="gap-1 bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 hover:bg-emerald-500/20 font-mono-data text-[9px] cursor-default">
-              <Check className="h-2.5 w-2.5" />
-              已同步
-            </Badge>
-          </TooltipTrigger>
-          <TooltipContent>
-            <div className="space-y-1">
-              <p className="font-mono-data text-[11px]">已同步至全域資料庫</p>
-              <p className="font-mono-data text-[10px] text-muted-foreground">
-                Master ID: {product.bwfMasterId.slice(0, 8)}...
-              </p>
-              {product.syncedAt && (
-                <p className="font-mono-data text-[10px] text-muted-foreground">
-                  同步時間: {new Date(product.syncedAt).toLocaleString()}
-                </p>
-              )}
-            </div>
-          </TooltipContent>
-        </Tooltip>
-      );
-    }
-    return (
-      <Badge variant="outline" className="gap-1 font-mono-data text-[9px] text-muted-foreground border-dashed">
-        未同步
-      </Badge>
-    );
   };
 
   // Selection logic
@@ -990,47 +844,11 @@ export function ListedProductsView({
     setShowDeleteConfirm(false);
 
     const toastId = toast.loading(`正在刪除 ${productsToDelete.length} 件產品...`, {
-      description: '正在從全域資料庫和本地資料庫中移除產品。',
+      description: '正在從本地資料庫移除產品。',
     });
 
     try {
-      // Step 1: Delete from master DB (bwf_product_master) for products that have bwf_master_id
-      const masterIds = productsToDelete
-        .filter(p => p.bwfMasterId)
-        .map(p => p.bwfMasterId as string);
-
-      const masterDeleteErrors: string[] = [];
-
-      if (masterIds.length > 0) {
-        try {
-          const { data, error } = await supabase.functions.invoke(
-            'supabase-functions-delete-from-master-db',
-            {
-              body: { master_ids: masterIds },
-            }
-          );
-
-          if (error) {
-            console.error('[DeleteProducts] Master DB edge function error:', error);
-            masterDeleteErrors.push(`全域資料庫刪除失敗: ${error.message}`);
-          } else if (data?.results) {
-            const failedMaster = data.results.filter((r: any) => !r.success);
-            if (failedMaster.length > 0) {
-              failedMaster.forEach((r: any) => {
-                masterDeleteErrors.push(`Master ID ${r.master_id.slice(0, 8)}...: ${r.error}`);
-              });
-            }
-            console.log('[DeleteProducts] Master DB delete summary:', data.summary);
-          }
-        } catch (masterErr) {
-          console.error('[DeleteProducts] Master DB delete exception:', masterErr);
-          masterDeleteErrors.push(
-            `全域資料庫刪除異常: ${masterErr instanceof Error ? masterErr.message : 'Unknown error'}`
-          );
-        }
-      }
-
-      // Step 2: Delete variants from local DB
+      // Delete variants from local DB
       const localIds = productsToDelete.map(p => p.id);
       const { error: variantDelErr } = await supabase
         .from('product_variants')
@@ -1041,7 +859,7 @@ export function ListedProductsView({
         console.error('[DeleteProducts] Local variant delete error:', variantDelErr);
       }
 
-      // Step 3: Delete products from local DB
+      // Delete products from local DB
       const { error: productDelErr } = await supabase
         .from('products')
         .delete()
@@ -1058,27 +876,16 @@ export function ListedProductsView({
         return;
       }
 
-      // Step 4: Update local state — remove deleted products from the table
+      // Update local state — remove deleted products from the table
       setProducts(prev => prev.filter(p => !localIds.includes(p.id)));
       setTotalCount(prev => prev - localIds.length);
       setSelectedIds(new Set());
 
-      // Step 5: Show result toast
-      if (masterDeleteErrors.length > 0) {
-        toast.warning(`已刪除 ${localIds.length} 件產品（部分全域資料庫刪除失敗）`, {
-          id: toastId,
-          description: masterDeleteErrors.join('\n'),
-          duration: 10000,
-        });
-      } else {
-        toast.success(`已成功刪除 ${localIds.length} 件產品`, {
-          id: toastId,
-          description: masterIds.length > 0
-            ? `已從全域資料庫和本地資料庫中移除 ${localIds.length} 件產品。`
-            : `已從本地資料庫移除 ${localIds.length} 件產品。`,
-          duration: 5000,
-        });
-      }
+      toast.success(`已成功刪除 ${localIds.length} 件產品`, {
+        id: toastId,
+        description: `已從本地資料庫移除 ${localIds.length} 件產品。`,
+        duration: 5000,
+      });
 
       // Refresh if the current page might be empty now
       if (products.length === localIds.length && currentPage > 1) {
@@ -2586,7 +2393,7 @@ export function ListedProductsView({
                 是否刪除所選的 <span className="font-bold text-foreground">{selectedIds.size}</span> 件產品？
                 <br />
                 <span className="text-xs text-muted-foreground mt-2 block">
-                  此操作將從本地資料庫和全域資料庫（bwf_product_master）中永久移除所選產品。此操作無法撤銷。
+                  此操作將從本地資料庫永久移除所選產品。此操作無法撤銷。
                 </span>
               </AlertDialogDescription>
             </AlertDialogHeader>

@@ -504,45 +504,6 @@ export function useAppStore() {
     }
   }, []);
 
-  // Sync sale_price and shopify_price to the Master DB for products that have a bwfMasterId
-  const updateMasterProductPrice = useCallback(async (productsToSync: Product[]) => {
-    const productsWithMasterId = productsToSync.filter(p => p.bwfMasterId);
-    if (productsWithMasterId.length === 0) {
-      console.log('[updateMasterProductPrice] No products with bwfMasterId to sync');
-      return { synced: 0, errors: 0 };
-    }
-
-    let synced = 0;
-    let errors = 0;
-
-    for (const p of productsWithMasterId) {
-      try {
-        const { error } = await supabase.functions.invoke('supabase-functions-update-master-db', {
-          body: {
-            master_id: p.bwfMasterId,
-            product: {
-              sale_price: p.salePrice ?? 0,
-              shopify_price: p.salePrice ?? 0,
-            },
-          },
-        });
-
-        if (error) {
-          console.error(`[updateMasterProductPrice] Error syncing "${p.title}":`, error.message);
-          errors++;
-        } else {
-          synced++;
-        }
-      } catch (err) {
-        console.error(`[updateMasterProductPrice] Exception syncing "${p.title}":`, err);
-        errors++;
-      }
-    }
-
-    console.log(`[updateMasterProductPrice] Synced ${synced}/${productsWithMasterId.length} products to Master DB (${errors} errors)`);
-    return { synced, errors };
-  }, []);
-
   // Public save function — syncs current state to Supabase
   const saveProducts = useCallback(async () => {
     setIsSaving(true);
@@ -564,133 +525,16 @@ export function useAppStore() {
         await saveProductsToDb(products);
       }
 
-      // Auto-sync to Master DB: upload products that already have a bwfMasterId
-      const productsWithMasterId = products.filter(p => p.bwfMasterId);
-      if (productsWithMasterId.length > 0) {
-        console.log(`[saveProducts] Auto-syncing ${productsWithMasterId.length} products to Master DB...`);
-        const masterPayload = productsWithMasterId.map(p => ({
-          local_id: p.id,
-          master_id: p.bwfMasterId || null,
-          title: p.title,
-          description_html: p.descriptionHtml || p.description,
-          description: p.description,
-          tags: p.tags,
-          price: p.price,
-          compare_at_price: p.compareAtPrice || null,
-          collection: p.collection,
-          image_url: p.imageUrl,
-          shopify_product_id: p.shopifyProductId || null,
-          category: p.category || p.collection || '',
-          factory_name: p.factoryName || p.factoriesDisplayName || '',
-          factory_id: p.factoryId || '',
-          material: p.material || '',
-          dimension_l_mm: p.dimensionLMm || null,
-          dimension_w_mm: p.dimensionWMm || null,
-          dimension_h_mm: p.dimensionHMm || null,
-          cost_price: p.costPrice || null,
-          sale_price: p.salePrice ?? 0,
-          shopify_price: p.price || 0,
-          shopify_compare_at_price: p.shopifyCompareAtPrice || p.compareAtPrice || null,
-          delivery_days: p.deliveryDays || null,
-          shopify_id: p.shopifyProductId || null,
-          production_lead_time: p.productionLeadTime ?? null,
-          total_lead_time: (p.productionLeadTime != null && p.shippingDays != null)
-            ? (p.productionLeadTime + p.shippingDays)
-            : (p.productionLeadTime ?? p.shippingDays ?? null),
-          shipping_days: p.shippingDays ?? null,
-          shipping_fee: p.shippingFee ?? null,
-          remarks: p.remarks || null,
-          color: p.color || null,
-          factory_highlight: p.factoryHighlight || [],
-          delivery_term_id: p.deliveryTermId || null,
-          delivery_term_name: p.deliveryTermName || null,
-          lifestyle_image_url: p.lifestyleImageUrl || null,
-        }));
-
-        try {
-          const { data: masterData, error: masterError } = await supabase.functions.invoke('supabase-functions-upload-to-master-db', {
-            body: { products: masterPayload },
-          });
-
-          if (masterError) {
-            console.error('[saveProducts] Auto-sync to Master DB failed:', masterError.message);
-            toast.error('Master DB 自動同步失敗', {
-              description: masterError.message || 'upload-to-master-db edge function error',
-            });
-          } else if (masterData?.results) {
-            const successCount = (masterData.results as any[]).filter(r => r.success).length;
-            const errorCount = (masterData.results as any[]).filter(r => !r.success).length;
-
-            // Update bwfMasterId for any newly assigned master IDs
-            const resultsMap = new Map(
-              (masterData.results as { local_id: string; success: boolean; master_id?: string }[])
-                .map(r => [r.local_id, r])
-            );
-            setProducts(prev => prev.map(p => {
-              const result = resultsMap.get(p.id);
-              if (result?.success && result.master_id) {
-                return { ...p, bwfMasterId: result.master_id };
-              }
-              return p;
-            }));
-
-            // Persist updated bwf_master_id to local DB
-            const syncTimestamp = new Date().toISOString();
-            for (const [localId, result] of resultsMap.entries()) {
-              if (result.success && result.master_id) {
-                await supabase.from('products').update(
-                  await withUpdateAuditFields({
-                    bwf_master_id: result.master_id,
-                    synced_at: syncTimestamp,
-                  }),
-                ).eq('id', localId);
-              }
-            }
-
-            if (successCount > 0) {
-              toast.success(`已自動同步 ${successCount} 個產品到 Master DB`, {
-                description: 'Products auto-synced to Master Database on save',
-                icon: '🔄',
-              });
-            }
-            if (errorCount > 0) {
-              toast.error(`${errorCount} 個產品同步到 Master DB 失敗`, {
-                description: 'Some products failed to sync',
-              });
-            }
-          }
-        } catch (masterSyncErr) {
-          console.error('[saveProducts] Auto-sync exception:', masterSyncErr);
-          toast.error('Master DB 自動同步異常', {
-            description: String(masterSyncErr),
-          });
-        }
-      }
-
-      // Sync sale_price to Master DB for products that have a bwfMasterId (legacy direct DB update)
-      const productsWithPrice = products.filter(p => p.bwfMasterId && (p.salePrice ?? 0) > 0);
-      if (productsWithPrice.length > 0) {
-        const result = await updateMasterProductPrice(productsWithPrice);
-        if (result.synced > 0) {
-          console.log(`[saveProducts] sale_price synced for ${result.synced} products`);
-        }
-        if (result.errors > 0) {
-          console.warn(`[saveProducts] sale_price sync errors: ${result.errors}`);
-        }
-      }
-
       setHasUnsavedChanges(false);
     } catch (err) {
       console.error('[Supabase] Save failed:', err);
     } finally {
       setIsSaving(false);
     }
-  }, [products, updateMasterProductPrice]);
+  }, [products]);
 
   // Remove a single product from DB immediately
   // NOTE: Only removes from the PRIMARY project (products + product_variants).
-  // The bwf_product_master record in the Global Master project is NEVER deleted
-  // — it serves as a permanent archive of all products ever published.
   const removeProductFromDb = async (id: string) => {
     try {
       await supabase.from('product_variants').delete().eq('product_id', id);
@@ -937,7 +781,6 @@ export function useAppStore() {
     setSelectedProductIds(new Set());
   }, []);
 
-  // Upload selected products to Global Master Database (bwf_product_master on kqwktnplkqucsbasyfjl)
   const publishSelected = useCallback(async () => {
     const ids = Array.from(selectedProductIds);
     setIsPublishing(true);
@@ -1694,157 +1537,6 @@ export function useAppStore() {
   // Alias: backupFromShopify = syncFromShopify (explicit backup naming)
   const backupFromShopify = syncFromShopify;
 
-  // Upload all products that have no bwf_master_id to Master DB
-  const uploadUnsyncedToMaster = useCallback(async () => {
-    const unsyncedProducts = products.filter(p => !p.bwfMasterId && p.source !== 'shopify');
-    if (unsyncedProducts.length === 0) {
-      toast.info('所有產品均已上傳到 Master DB', { description: '沒有找到未同步的產品' });
-      return { total: 0, success: 0, errors: 0 };
-    }
-
-    toast.info(`找到 ${unsyncedProducts.length} 個未上傳產品`, { description: '開始批量上傳到 Master DB...' });
-    setIsPublishing(true);
-
-    // Set status to publishing for these products
-    setProducts(prev => prev.map(p => {
-      if (unsyncedProducts.some(u => u.id === p.id)) {
-        return { ...p, status: 'publishing' as ProductStatus };
-      }
-      return p;
-    }));
-
-    // Process in batches of 20
-    const BATCH_SIZE = 20;
-    let totalSuccess = 0;
-    let totalErrors = 0;
-
-    for (let i = 0; i < unsyncedProducts.length; i += BATCH_SIZE) {
-      const batch = unsyncedProducts.slice(i, i + BATCH_SIZE);
-      const payload = batch.map(p => ({
-        local_id: p.id,
-        master_id: null,
-        title: p.title,
-        description_html: p.descriptionHtml || p.description,
-        description: p.description,
-        tags: p.tags,
-        price: p.price,
-        compare_at_price: p.compareAtPrice || null,
-        collection: p.collection,
-        image_url: p.imageUrl,
-        shopify_product_id: p.shopifyProductId || null,
-        category: p.category || p.collection || '',
-        factory_name: p.factoryName || p.factoriesDisplayName || '',
-        factory_id: p.factoryId || '',
-        material: p.material || '',
-        dimension_l_mm: p.dimensionLMm || null,
-        dimension_w_mm: p.dimensionWMm || null,
-        dimension_h_mm: p.dimensionHMm || null,
-        cost_price: p.costPrice || null,
-        sale_price: p.salePrice ?? 0,
-        shopify_price: p.price || 0,
-        shopify_compare_at_price: p.shopifyCompareAtPrice || p.compareAtPrice || null,
-        delivery_days: p.deliveryDays || null,
-        shopify_id: p.shopifyProductId || null,
-        production_lead_time: p.productionLeadTime ?? null,
-        total_lead_time: (p.productionLeadTime != null && p.shippingDays != null)
-          ? (p.productionLeadTime + p.shippingDays)
-          : (p.productionLeadTime ?? p.shippingDays ?? null),
-        shipping_days: p.shippingDays ?? null,
-        shipping_fee: p.shippingFee ?? null,
-        remarks: p.remarks || null,
-        color: p.color || null,
-        factory_highlight: p.factoryHighlight || [],
-        delivery_term_id: p.deliveryTermId || null,
-        delivery_term_name: p.deliveryTermName || null,
-        lifestyle_image_url: p.lifestyleImageUrl || null,
-      }));
-
-      try {
-        console.log(`[uploadUnsyncedToMaster] Batch ${Math.floor(i / BATCH_SIZE) + 1}: uploading ${batch.length} products...`);
-        const { data, error } = await supabase.functions.invoke('supabase-functions-upload-to-master-db', {
-          body: { products: payload },
-        });
-
-        if (error) {
-          console.error(`[uploadUnsyncedToMaster] Batch error:`, error.message);
-          totalErrors += batch.length;
-          setProducts(prev => prev.map(p => {
-            if (batch.some(b => b.id === p.id)) {
-              return { ...p, status: 'error' as ProductStatus, errorMessage: error.message };
-            }
-            return p;
-          }));
-        } else if (data?.results) {
-          const results = data.results as { local_id: string; success: boolean; master_id?: string; error?: string }[];
-          const syncTimestamp = new Date().toISOString();
-
-          for (const result of results) {
-            if (result.success) {
-              totalSuccess++;
-              // Update in-memory state
-              setProducts(prev => prev.map(p => {
-                if (p.id === result.local_id) {
-                  return { ...p, bwfMasterId: result.master_id || null, status: 'success' as ProductStatus, syncedAt: syncTimestamp };
-                }
-                return p;
-              }));
-              // Persist to local DB
-              if (result.master_id) {
-                await supabase.from('products').update(
-                  await withUpdateAuditFields({
-                    bwf_master_id: result.master_id,
-                    synced_at: syncTimestamp,
-                    status: 'success',
-                    error_message: null,
-                  }),
-                ).eq('id', result.local_id);
-              }
-            } else {
-              totalErrors++;
-              setProducts(prev => prev.map(p => {
-                if (p.id === result.local_id) {
-                  return { ...p, status: 'error' as ProductStatus, errorMessage: result.error || 'Upload failed' };
-                }
-                return p;
-              }));
-              await supabase.from('products').update(
-                await withUpdateAuditFields({
-                  status: 'error',
-                  error_message: result.error || 'Upload to master failed',
-                }),
-              ).eq('id', result.local_id);
-            }
-          }
-        }
-      } catch (err) {
-        console.error(`[uploadUnsyncedToMaster] Batch exception:`, err);
-        totalErrors += batch.length;
-        setProducts(prev => prev.map(p => {
-          if (batch.some(b => b.id === p.id)) {
-            return { ...p, status: 'error' as ProductStatus, errorMessage: err instanceof Error ? err.message : 'Unknown error' };
-          }
-          return p;
-        }));
-      }
-
-      // Small delay between batches to avoid overwhelming the edge function
-      if (i + BATCH_SIZE < unsyncedProducts.length) {
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      }
-    }
-
-    setIsPublishing(false);
-    const summary = { total: unsyncedProducts.length, success: totalSuccess, errors: totalErrors };
-
-    if (totalErrors === 0) {
-      toast.success(`全部上傳成功！`, { description: `${totalSuccess} 個產品已同步到 Master DB` });
-    } else {
-      toast.warning(`批量上傳完成`, { description: `成功: ${totalSuccess}, 失敗: ${totalErrors} / 共 ${unsyncedProducts.length} 個` });
-    }
-
-    return summary;
-  }, [products]);
-
   const navigateToProduct = useCallback((productId: string) => {
     setFilterProductId(productId);
     setCurrentView('ready-to-publish');
@@ -1905,7 +1597,6 @@ export function useAppStore() {
     clearSelection,
     publishSelected,
     retryPublish,
-    uploadUnsyncedToMaster,
     syncFromShopify,
     backupFromShopify,
     navigateToProduct,

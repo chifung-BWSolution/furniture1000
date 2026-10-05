@@ -52,6 +52,7 @@ import {
   productImageFieldsPendingStorage,
   resolveRowsImagesToStorage,
   uploadBase64Image,
+  uploadFileToStorage,
 } from '@/lib/imageStorage';
 import { toast } from 'sonner';
 import { withInsertAuditFields, withUpdateAuditFields } from '@/lib/pmsAudit';
@@ -658,7 +659,7 @@ export function ProductDetailModal({
   const handleSave = useCallback(async () => {
     setIsSaving(true);
     const toastId = toast.loading('正在儲存產品資料...', {
-      description: '正在更新本地及全域資料庫。',
+      description: '正在更新本地資料庫。',
     });
 
     try {
@@ -687,72 +688,35 @@ export function ProductDetailModal({
       const totalLead = (parsedProductionLeadTime ?? 0) + (parsedShippingDays ?? 0);
       const computedTotal = (parsedProductionLeadTime != null || parsedShippingDays != null) ? totalLead : null;
 
-      // ─── Handle image uploads/deletes for master DB ─────────────────
-      let finalImages = images.filter((img) => !img.path?.startsWith('__pending__'));
+      let finalImages = images.filter(
+        (img) => !img.path?.startsWith('__pending__') && !pendingDeletePaths.includes(img.path || ''),
+      );
       let mediaUploadSuccess = true;
 
-      if (product.bwfMasterId) {
-        // Upload new files
-        if (pendingNewFiles.length > 0) {
-          setIsUploading(true);
-          setUploadProgress(10);
-
-          const formData = new FormData();
-          formData.append('master_id', product.bwfMasterId);
-          pendingNewFiles.forEach((file) => {
-            formData.append('files', file);
-          });
-
-          setUploadProgress(30);
-
-          try {
-            const { data: uploadResult, error: uploadError } = await supabase.functions.invoke(
-              'supabase-functions-manage-master-media',
-              { body: formData }
-            );
-
-            setUploadProgress(70);
-
-            if (uploadError || !uploadResult?.success) {
-              console.error('[ProductDetail] Media upload error:', uploadError || uploadResult?.error);
+      if (pendingNewFiles.length > 0) {
+        setIsUploading(true);
+        setUploadProgress(20);
+        const resolvedImages: ProductImage[] = [];
+        let uploadIndex = 0;
+        for (const img of images) {
+          if (pendingDeletePaths.includes(img.path || '')) continue;
+          if (img.path?.startsWith('__pending__')) {
+            const fileName = img.path.replace('__pending__', '');
+            const file = pendingNewFiles.find((f) => f.name === fileName);
+            if (!file) continue;
+            try {
+              const url = await uploadFileToStorage(file, product.id, `gallery-${uploadIndex++}`);
+              resolvedImages.push({ src: url, alt: img.alt || '' });
+              URL.revokeObjectURL(img.src);
+            } catch (uploadErr) {
+              console.error('[ProductDetail] Storage upload error:', uploadErr);
               mediaUploadSuccess = false;
-              toast.warning('部分圖片上傳失敗', {
-                description: uploadError?.message || uploadResult?.error || '請重試',
-              });
-            } else if (uploadResult?.all_images) {
-              finalImages = uploadResult.all_images;
             }
-          } catch (uploadErr) {
-            console.error('[ProductDetail] Media upload exception:', uploadErr);
-            mediaUploadSuccess = false;
-          }
-
-          setUploadProgress(80);
-        }
-
-        // Delete removed files
-        if (pendingDeletePaths.length > 0) {
-          try {
-            const { error: deleteError } = await supabase.functions.invoke(
-              'supabase-functions-manage-master-media',
-              {
-                body: {
-                  action: 'delete',
-                  master_id: product.bwfMasterId,
-                  file_paths: pendingDeletePaths,
-                  images: finalImages,
-                },
-              }
-            );
-
-            if (deleteError) {
-              console.error('[ProductDetail] Media delete error:', deleteError);
-            }
-          } catch (delErr) {
-            console.error('[ProductDetail] Media delete exception:', delErr);
+          } else {
+            resolvedImages.push(img);
           }
         }
-
+        finalImages = resolvedImages;
         setUploadProgress(90);
         setIsUploading(false);
         setUploadProgress(0);
@@ -769,7 +733,7 @@ export function ProductDetailModal({
       let imageUrl2: string | null = null;
       let imageUrl3: string | null = null;
 
-      if (mode === 'create' && !product.bwfMasterId) {
+      if (mode === 'create') {
         const [resolved] = await resolveRowsImagesToStorage([
           {
             id: product.id,
@@ -879,51 +843,7 @@ export function ProductDetailModal({
         });
       }
 
-      // ─── Step 2: If product has a bwfMasterId, sync to master DB ────
-      let masterSyncSuccess = true;
-      if (mode !== 'create' && product.bwfMasterId) {
-        try {
-          const masterPayload = {
-            master_id: product.bwfMasterId,
-            product: {
-              title,
-              description: description,
-              category: level2Category || level1Category || null,
-              factory_id: factoryId || null,
-              cost_price: parsedCostPrice,
-              sale_price: parsedSalePrice ?? product.price,
-              shopify_price: parsedSalePrice ?? product.price,
-              production_lead_time: parsedProductionLeadTime,
-              shipping_days: parsedShippingDays,
-              shipping_fee: parsedShippingFee,
-              color: color || null,
-              remarks: remarks || null,
-              dimension_l_mm: parsedDimensionL,
-              dimension_w_mm: parsedDimensionW,
-              dimension_h_mm: parsedDimensionH,
-              images: finalImages,
-            },
-          };
-
-          const { data, error } = await supabase.functions.invoke(
-            'supabase-functions-update-master-db',
-            { body: masterPayload }
-          );
-
-          if (error) {
-            console.error('[ProductDetail] Master DB sync error:', error);
-            masterSyncSuccess = false;
-          } else if (data && !data.success) {
-            console.error('[ProductDetail] Master DB returned error:', data.error);
-            masterSyncSuccess = false;
-          }
-        } catch (masterErr) {
-          console.error('[ProductDetail] Master DB sync exception:', masterErr);
-          masterSyncSuccess = false;
-        }
-      }
-
-      // ─── Step 3: Build updated product object for parent state ──────
+      // ─── Build updated product object for parent state ──────
       const updatedProduct: ProductForDetail = {
         ...product,
         title,
@@ -1007,23 +927,21 @@ export function ProductDetailModal({
       if (shopifySyncResult === 'fail') {
         toast.warning('已儲存，但 Shopify 同步失敗', {
           id: toastId,
-          description: '本地/全域資料已更新，但更新 Shopify 上的產品時出錯，請稍後重試。',
+          description: '本地資料已更新，但更新 Shopify 上的產品時出錯，請稍後重試。',
           duration: 8000,
         });
-      } else if (product.bwfMasterId && (!masterSyncSuccess || !mediaUploadSuccess)) {
-        toast.warning('已儲存至本地，全域同步部分失敗', {
+      } else if (!mediaUploadSuccess) {
+        toast.warning('已儲存至本地，部分圖片上傳失敗', {
           id: toastId,
-          description: '本地資料已更新，但全域資料庫同步或媒體上傳未完全成功。',
+          description: '本地資料已更新，但部分圖片未能上傳至 Storage，請重試。',
           duration: 8000,
         });
       } else {
         toast.success('產品資料已儲存', {
           id: toastId,
           description: shopifySyncResult === 'ok'
-            ? '已同步更新本地、全域資料庫及 Shopify 上的產品。'
-            : product.bwfMasterId
-              ? '已同時更新本地及全域資料庫。'
-              : '已更新本地資料庫。',
+            ? '已同步更新本地資料庫及 Shopify 上的產品。'
+            : '已更新本地資料庫。',
           duration: 4000,
         });
       }
@@ -1098,12 +1016,6 @@ export function ProductDetailModal({
                 >
                   {modalHeaderTitle}
                 </span>
-                {product.bwfMasterId && (
-                  <Badge className="gap-1 bg-emerald-500/10 text-emerald-500 border border-emerald-500/20 font-mono-data text-xs">
-                    <Check className="h-2.5 w-2.5" />
-                    已同步至全域
-                  </Badge>
-                )}
               </div>
               <Button
                 onClick={handleSave}
@@ -1290,18 +1202,6 @@ export function ProductDetailModal({
                       </div>
                       <span className="font-mono-data text-xs text-emerald-500">
                         {product.shopifyProductId}
-                      </span>
-                    </div>
-                  )}
-
-                  {product.bwfMasterId && (
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground font-body">
-                        <Package className="h-3.5 w-3.5" />
-                        <span>Master ID</span>
-                      </div>
-                      <span className="font-mono-data text-xs text-indigo-400">
-                        {product.bwfMasterId.slice(0, 12)}...
                       </span>
                     </div>
                   )}
@@ -1740,25 +1640,6 @@ export function ProductDetailModal({
                   </div>
                 </section>
 
-                {/* Sync Info Footer */}
-                {product.bwfMasterId && (
-                  <>
-                    <Separator />
-                    <div className="rounded-lg border border-indigo-500/20 bg-indigo-500/5 p-4">
-                      <div className="flex items-start gap-3">
-                        <AlertCircle className="h-4 w-4 text-indigo-400 mt-0.5 flex-shrink-0" />
-                        <div className="space-y-1">
-                          <p className="font-display text-xs font-bold text-indigo-400">
-                            全域資料庫同步
-                          </p>
-                          <p className="font-body text-sm text-muted-foreground">
-                            此產品已同步至全域資料庫 (bwf_product_master)。儲存時將同時更新本地及全域資料，包括圖片媒體檔案。
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  </>
-                )}
               </div>
             </div>
           </motion.div>

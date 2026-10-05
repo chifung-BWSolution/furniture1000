@@ -227,11 +227,6 @@ const ProductTableRow = memo(function ProductTableRow({
             >
               {product.salePrice != null && product.salePrice > 0 ? `HK$${product.salePrice.toFixed(2)}` : <span className="text-muted-foreground/50">HK$0.00</span>}
             </button>
-            {product.bwfMasterId && product.salePrice != null && product.salePrice > 0 && (
-              <span className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-emerald-500/20 text-emerald-400" title="Will sync to Master DB on save">
-                <Database className="w-2 h-2" />
-              </span>
-            )}
           </div>
         )}
       </td>
@@ -332,7 +327,6 @@ interface ProductTableViewProps {
   onBatchDeleteProducts?: (ids: string[]) => Promise<void>;
   onClearFilter: () => void;
   onSyncFromShopify?: () => Promise<any>;
-  onUploadUnsyncedToMaster?: () => Promise<any>;
   onRevertToInfo?: (ids: string[], reasons: { labels: string[]; other: string }) => Promise<void>;
   onVariantsSaved?: () => void;
   isSyncing?: boolean;
@@ -359,7 +353,6 @@ export const ProductTableView = memo(function ProductTableView({
   onBatchDeleteProducts,
   onClearFilter,
   onSyncFromShopify,
-  onUploadUnsyncedToMaster,
   onRevertToInfo,
   onVariantsSaved,
   isSyncing,
@@ -783,7 +776,7 @@ export const ProductTableView = memo(function ProductTableView({
           <div className="flex items-center gap-2 border-b border-border bg-primary/5 px-6 py-1.5">
             <Sparkles className="h-3 w-3 text-primary" />
             <span className="text-[11px] text-primary font-body">
-              這些是 AI 生成及本地建立的產品。選擇項目以上傳到<strong>全域資料庫</strong>。
+              這些是 AI 生成及本地建立的產品。選擇項目以上傳到 <strong>Shopify</strong>。
             </span>
           </div>
         )}
@@ -909,7 +902,7 @@ export const ProductTableView = memo(function ProductTableView({
                 </th>
                 <th className="px-4 py-3 text-left">
                   <span className="font-mono-data text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                    售價 <span className="text-emerald-500/70 normal-case">(→ Master)</span>
+                    售價
                   </span>
                 </th>
                 <th className="px-4 py-3 text-left">

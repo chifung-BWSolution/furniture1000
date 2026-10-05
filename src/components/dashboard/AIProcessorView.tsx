@@ -2914,179 +2914,11 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
       // Apply factory corrections
       const correctedProds = applyCorrections(catalogProds);
 
-      // ═══ BOTH actions require master DB write first ═══
-      const payload = correctedProds.map(p => ({
-        local_id: p.id,
-        master_id: null,
-        title: p.title,
-        description_html: p.description,
-        description: p.description,
-        tags: p.tags,
-        price: p.price,
-        compare_at_price: null,
-        collection: p.collection,
-        image_url: p.cropped_image_url || p.lifestyleImageUrl || '',
-        lifestyle_image_url: p.lifestyleImageUrl || '',
-        category: selectedProductCategory || p.collection || '',
-        // factory_name: prefer Excel-mapped value, then sidebar selector
-        factory_name: (p as any).factoriesDisplayName || selectedManufacturer || '',
-        // factory_id MUST be null (not empty string) if not set — DB expects UUID or null
-        factory_id: selectedFactoryId || null,
-        material: p.material || '',
-        // Use nullish coalescing (??) instead of || for numeric fields — 0 is valid!
-        dimension_l_mm: p.dimensionLMm ?? null,
-        dimension_w_mm: p.dimensionWMm ?? null,
-        dimension_h_mm: p.dimensionHMm ?? null,
-        cost_price: p.costPrice ?? null,
-        sale_price: 0,
-        shopify_price: 0,
-        color: p.color || null,
-        production_lead_time: (p as any).productionLeadTime ?? null,
-        delivery_days: (p as any).deliveryDays ?? null,
-        shipping_days: (p as any).shippingDays ?? null,
-        shipping_fee: (p as any).shippingFee ?? null,
-        remarks: (p as any).remarks || null,
-        factory_highlight: selectedFactoryHighlights || [],
-        delivery_term_id: p.deliveryTermId || null,
-        delivery_term_name: p.deliveryTermName || null,
-      }));
-
-      // ─── DEBUG: Log first item of payload so we can see exactly what's being sent ───
-      console.log(`[PreviewAction:${action}] Payload sample (first item):`, JSON.stringify(payload[0], null, 2));
-
-      // ─── MANDATORY: Write to master DB first (both actions) ───
-      // Store image data as text strings (URL or base64 data URI) in bwf_product_master
-      // Both http URLs and data:image/... base64 strings are valid text for the DB
-      const MAX_IMAGE_SIZE_CHARS = 2_000_000; // ~2MB per image string limit to avoid payload overflow
-      const isValidImageString = (v: unknown) => typeof v === 'string' && v.length > 0 && (v.startsWith('http://') || v.startsWith('https://') || v.startsWith('data:image/'));
-      const sanitizedPayload = payload.map(p => {
-        let imageUrl = isValidImageString(p.image_url) ? p.image_url : '';
-        let lifestyleUrl = isValidImageString(p.lifestyle_image_url) ? p.lifestyle_image_url : '';
-        
-        // Guard against oversized base64 strings that would exceed Supabase's payload limits
-        if (imageUrl.length > MAX_IMAGE_SIZE_CHARS) {
-          console.warn(`[PreviewAction] image_url for "${p.title}" exceeds ${MAX_IMAGE_SIZE_CHARS} chars (${Math.round(imageUrl.length / 1024)}KB) — truncating to empty`);
-          imageUrl = '';
-        }
-        if (lifestyleUrl.length > MAX_IMAGE_SIZE_CHARS) {
-          console.warn(`[PreviewAction] lifestyle_image_url for "${p.title}" exceeds ${MAX_IMAGE_SIZE_CHARS} chars (${Math.round(lifestyleUrl.length / 1024)}KB) — truncating to empty`);
-          lifestyleUrl = '';
-        }
-        
-        return {
-          ...p,
-          image_url: imageUrl,
-          lifestyle_image_url: lifestyleUrl,
-        };
-      });
-
-      // Use direct fetch with chunking (1 product per request to handle large base64 images safely)
-      // If no images, we can use larger chunks for speed
-      const hasLargePayloads = sanitizedPayload.some(p => (p.image_url?.length || 0) > 100_000 || (p.lifestyle_image_url?.length || 0) > 100_000);
-      const CHUNK_SIZE = hasLargePayloads ? 1 : 3;
-      const chunks: typeof sanitizedPayload[] = [];
-      for (let i = 0; i < sanitizedPayload.length; i += CHUNK_SIZE) {
-        chunks.push(sanitizedPayload.slice(i, i + CHUNK_SIZE));
-      }
-
-      const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
-      const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-      
-      // ─── PRE-FLIGHT VALIDATION ───
-      if (!supabaseUrl || !supabaseAnonKey) {
-        throw new Error('Missing environment variables: VITE_SUPABASE_URL or VITE_SUPABASE_ANON_KEY. Go to Project Settings to configure them.');
-      }
-      
-      // Validate that payload is JSON-serializable (catches circular refs, undefined, etc.)
-      try {
-        JSON.stringify(sanitizedPayload);
-      } catch (jsonErr: any) {
-        console.error(`[PreviewAction:${action}] ❌ PAYLOAD SERIALIZATION FAILED:`, jsonErr);
-        console.error(`[PreviewAction:${action}] First product keys:`, Object.keys(sanitizedPayload[0] || {}));
-        throw new Error(`Data serialization failed: ${jsonErr.message}. Check the product data for circular references or invalid values.`);
-      }
-      
-      const fnUrl = `${supabaseUrl}/functions/v1/supabase-functions-upload-to-master-db`;
-
-      console.log(`[PreviewAction:${action}] Uploading ${sanitizedPayload.length} products in ${chunks.length} chunks to ${fnUrl}`);
-
-      const dbResults: any[] = [];
-      for (let ci = 0; ci < chunks.length; ci++) {
-        const chunk = chunks[ci];
-        console.log(`[PreviewAction:${action}] Sending chunk ${ci + 1}/${chunks.length} (${chunk.length} products)`);
-        
-        const payloadStr = JSON.stringify({ products: chunk });
-        const payloadSizeKB = Math.round(payloadStr.length / 1024);
-        console.log(`[PreviewAction:${action}] Chunk ${ci + 1} payload size: ${payloadSizeKB}KB`);
-        
-        // Guard: if single-chunk payload exceeds 5MB, it will likely fail
-        if (payloadStr.length > 5_000_000) {
-          console.warn(`[PreviewAction:${action}] Chunk ${ci + 1} payload is ${payloadSizeKB}KB — very large, may fail`);
-        }
-        
-        const resp = await fetch(fnUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${supabaseAnonKey}`,
-            'apikey': supabaseAnonKey,
-          },
-          body: payloadStr,
-        });
-
-        if (!resp.ok) {
-          const errText = await resp.text().catch(() => `HTTP ${resp.status}`);
-          console.error(`[PreviewAction:${action}] Chunk ${ci + 1} failed:`, resp.status, errText);
-          // Parse error details if available
-          let detail = errText.substring(0, 300);
-          try {
-            const errJson = JSON.parse(errText);
-            detail = errJson.error || errJson.message || detail;
-          } catch {}
-          // For catalog-only, the master DB write is best-effort — we still
-          // persist to the local `products` table below. Don't abort the whole
-          // upload just because the external master DB rejected the chunk.
-          if (action === 'catalog-only') {
-            console.warn(`[PreviewAction:catalog-only] Master DB chunk ${ci + 1} failed (non-fatal): ${detail}`);
-            continue;
-          }
-          throw new Error(`Database save failed (chunk ${ci + 1}/${chunks.length}, ${payloadSizeKB}KB): HTTP ${resp.status} — ${detail}`);
-        }
-
-        const chunkData = await resp.json();
-        console.log(`[PreviewAction:${action}] Chunk ${ci + 1} response:`, chunkData);
-        if (chunkData?.results) {
-          dbResults.push(...chunkData.results);
-        }
-      }
-
-      // Validate response — must get results
-      const successCount = dbResults.filter((r: any) => r.success).length;
-      const failCount = dbResults.filter((r: any) => !r.success).length;
-      console.log(`[PreviewAction:${action}] Master DB total: ${successCount} success, ${failCount} failed`);
-
-      // ─── CRITICAL: Log per-item error details for debugging ───
-      const failedItems = dbResults.filter((r: any) => !r.success);
-      if (failedItems.length > 0) {
-        console.error(`[PreviewAction:${action}] ❌ FAILED ITEMS DETAIL:`, JSON.stringify(failedItems, null, 2));
-        failedItems.forEach((item: any, idx: number) => {
-          console.error(`  [${idx}] local_id=${item.local_id}, error="${item.error}"`);
-        });
-      }
-
-      if (successCount === 0 && correctedProds.length > 0 && action !== 'catalog-only') {
-        const firstError = failedItems[0]?.error || 'Unknown error';
-        const errorSummary = failedItems.slice(0, 3).map((r: any) => r.error).join(' | ');
-        console.error(`[PreviewAction:${action}] ALL FAILED. First error: ${firstError}`);
-        console.error(`[PreviewAction:${action}] Payload sample (first item):`, JSON.stringify(sanitizedPayload[0], null, 2));
-        throw new Error(`All ${correctedProds.length} products failed to save. Errors: ${errorSummary}`);
-      }
+      const successCount = correctedProds.length;
+      const failCount = 0;
 
       // ─── SELECTIVE BURN-DOWN: Only remove rows that were SUCCESSFULLY saved ───
-      // Build a Set of local_ids that succeeded in the DB response
-      const successfulLocalIds = new Set(
-        dbResults.filter((r: any) => r.success).map((r: any) => r.local_id)
-      );
+      const successfulLocalIds = new Set(correctedProds.map((p) => p.id));
       // Map successful local_ids back to their original row indices (page_number)
       const successfulRowIndices = correctedProds
         .filter(p => successfulLocalIds.has(p.id))
@@ -3096,7 +2928,6 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         const itemsToAdd = correctedProds.filter((item) => successfulLocalIds.has(item.id));
         const stagingRows = itemsToAdd.map((item) => ({
           item,
-          dbResult: dbResults.find((r: any) => r.local_id === item.id),
           row: {
             id: `excel-queue-${item.id}`,
             image_url: item.cropped_image_url || '',
@@ -3119,7 +2950,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
           }
 
           for (let i = 0; i < stagingRows.length; i++) {
-            const { item, dbResult } = stagingRows[i];
+            const { item } = stagingRows[i];
             const img = resolvedImgRows[i];
             onAddProduct({
               title: item.title,
@@ -3149,7 +2980,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
               factoryHighlight: selectedFactoryHighlights,
               titleEn: item.titleEn || undefined,
               titleZh: item.titleZh || undefined,
-              bwfMasterId: dbResult?.master_id || undefined,
+              bwfMasterId: undefined,
               deliveryTermId: item.deliveryTermId || null,
               deliveryTermName: item.deliveryTermName || null,
               lifestyleImageUrl: (img.lifestyle_image_url as string) || null,
@@ -3171,9 +3002,6 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         // in 產品目錄 only — do NOT call onAddProduct (which would push them
         // into the in-memory store and the 待上傳到 Shopify queue).
         //
-        // IMPORTANT: write ALL selected products regardless of whether the
-        // external master DB accepted them — the products table is the source
-        // of truth for 所有產品, and master DB is just an optional backup.
         const nowIso = new Date().toISOString();
 
         // ── Merge factory highlights for this factory ──
@@ -3197,7 +3025,6 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
 
         const productRows = correctedProds
           .map(item => {
-            const dbResult = dbResults.find((r: any) => r.local_id === item.id);
             const imageUrl = item.cropped_image_url || '';
             const lifestyleUrl = item.lifestyleImageUrl || '';
             const newId = Math.random().toString(36).substring(2, 15);
@@ -3224,7 +3051,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
               factories_display_name: selectedManufacturer || '',
               factory_id: selectedFactoryId || '',
               factory_highlights: mergedHighlights,
-              bwf_master_id: dbResult?.master_id || null,
+              bwf_master_id: null,
               cost_price: item.costPrice ?? null,
               sale_price: 0,
               // production_date = integer day-count; customize = lead-time bucket text

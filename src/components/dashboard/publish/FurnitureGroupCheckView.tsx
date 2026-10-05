@@ -605,7 +605,7 @@ export function FGProductDetailModal({
             </span>
             {data?.shopify_product_id && (
               <span className="shrink-0 flex items-center gap-1 rounded-full bg-green-500/10 px-2.5 py-0.5 text-[11px] font-semibold text-green-700 dark:text-green-400">
-                ✓ 已同步至全域
+                ✓ 已在 Shopify
               </span>
             )}
           </div>
