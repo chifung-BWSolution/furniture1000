@@ -3,6 +3,7 @@ import * as XLSX from 'xlsx';
 import { cn } from '@/lib/utils';
 import { supabase } from '@/lib/supabase';
 import { reconcileProductsFromCategoryRegistry, syncCategoryRenames, type CategoryRename } from '@/lib/categorySync';
+import { pushProductCategorySettingsToPms } from '@/lib/pmsProductCategorySync';
 import { toast } from 'sonner';
 import { withInsertAuditFields, withUpdateAuditFields } from '@/lib/pmsAudit';
 import {
@@ -194,6 +195,7 @@ export function ProductCategoryView() {
 
       // 3) insert new rows (let DB assign the uuid)
       const fresh = valid.filter((r) => r.isNew);
+      let createRowsForPms: { id: string; level1: string; level2: string; sort_order: number }[] = [];
       if (fresh.length > 0) {
         const payload = await Promise.all(
           fresh.map((r) =>
@@ -204,9 +206,36 @@ export function ProductCategoryView() {
             }),
           ),
         );
-        const { error: insErr } = await supabase.from('product_category').insert(payload);
+        const { data: insData, error: insErr } = await supabase
+          .from('product_category')
+          .insert(payload)
+          .select('id, level1, level2, sort_order');
         if (insErr) throw insErr;
+        createRowsForPms = insData ?? [];
       }
+
+      const pmsUpdates = existing.map((r) => {
+        const orig = originalById.get(r.id);
+        return {
+          id: r.id,
+          level1: r.level1.trim(),
+          level2: r.level2.trim(),
+          sort_order: orderOf.get(r.id) ?? 0,
+          previousLevel1: orig?.level1 ?? r.level1.trim(),
+          previousLevel2: orig?.level2 ?? r.level2.trim(),
+        };
+      });
+
+      const pmsSync = await pushProductCategorySettingsToPms({
+        deletes: [...deletedIds],
+        updates: pmsUpdates,
+        creates: createRowsForPms.map((r) => ({
+          id: r.id,
+          level1: r.level1,
+          level2: r.level2,
+          sort_order: r.sort_order ?? 0,
+        })),
+      });
 
       if (renames.length > 0) {
         const { productErrors, rtsErrors } = await syncCategoryRenames(supabase, renames);
@@ -229,10 +258,16 @@ export function ProductCategoryView() {
         });
       }
 
+      if (!pmsSync.ok && !pmsSync.skipped) {
+        toast.warning('分類已儲存，但 PMS 同步失敗', {
+          description: pmsSync.errors.slice(0, 2).join(' · '),
+        });
+      }
+
       toast.success('已儲存產品分類', {
         description: renames.length > 0
-          ? `更新 ${existing.length} 筆、新增 ${fresh.length} 筆、刪除 ${deletedIds.length} 筆；已同步 ${renames.length} 組分類至 products 及 ready_to_shopify`
-          : `更新 ${existing.length} 筆、新增 ${fresh.length} 筆、刪除 ${deletedIds.length} 筆`,
+          ? `更新 ${existing.length} 筆、新增 ${fresh.length} 筆、刪除 ${deletedIds.length} 筆；已同步 ${renames.length} 組分類至 products 及 ready_to_shopify${pmsSync.ok ? '，並已推送 PMS' : ''}`
+          : `更新 ${existing.length} 筆、新增 ${fresh.length} 筆、刪除 ${deletedIds.length} 筆${pmsSync.ok ? '；已推送 PMS' : ''}`,
       });
       await load();
     } catch (err) {

@@ -95,4 +95,9 @@ Deploy-Function `
   -FilePath (Join-Path $root 'supabase\functions\send-upload-log-report-email\index.ts') `
   -Name 'send-upload-log-report-email'
 
+Deploy-Function `
+  -Slug 'supabase-functions-sync-product-category-pms' `
+  -FilePath (Join-Path $root 'supabase\functions\sync-product-category-pms\index.ts') `
+  -Name 'sync-product-category-pms'
+
 Write-Host 'All functions deployed successfully.'
