@@ -631,6 +631,12 @@ const PDF_DESC_LABEL_PCT = { zh: 0.4, en: 0.6 } as const;
 const PDF_DESC_VALUE_PCT = { zh: 0.6, en: 0.4 } as const;
 /** 單價 column — ZH trimmed to fund wider 說明 (EN unchanged). */
 const PDF_COL_UNIT_PRICE_PCT = { zh: 0.097, en: 0.105 } as const;
+const PDF_COL_INDEX_PCT = 0.05;
+const PDF_COL_QTY_PCT = 0.05;
+const PDF_COL_UNIT_PCT = 0.05;
+const PDF_COL_SUBTOTAL_PCT = 0.125;
+/** Install-fee title block. The condition cell fills up to the 單價 column. */
+const PDF_INSTALL_LEAD_PCT = 0.57;
 
 function pdfColWidthPct(locale: 'zh' | 'en', key: 'desc' | 'material' | 'unitPrice'): string {
   const pct =
@@ -640,6 +646,31 @@ function pdfColWidthPct(locale: 'zh' | 'en', key: 'desc' | 'material' | 'unitPri
         ? PDF_COL_MATERIAL_PCT[locale]
         : PDF_COL_UNIT_PRICE_PCT[locale];
   return `${(pct * 100).toFixed(1)}%`;
+}
+
+/**
+ * Install-fee row: FREE sits in 單價. ZH 單價 is 9.7% (EN 10.5%); a fixed 10.5%
+ * cell starts too far left on the Chinese preview. Width matches the column
+ * above, and the condition cell absorbs the difference so the left rule lines up.
+ */
+function pdfInstallRowWidths(locale: 'zh' | 'en') {
+  const unitPrice = PDF_COL_UNIT_PRICE_PCT[locale];
+  const beforeUnitPrice =
+    PDF_COL_INDEX_PCT +
+    PDF_COL_DESC_PCT[locale] +
+    PDF_COL_MATERIAL_PCT[locale] +
+    PDF_COL_REMARKS_PCT +
+    PDF_COL_IMAGE_PCT +
+    PDF_COL_QTY_PCT +
+    PDF_COL_UNIT_PCT;
+  const condition = beforeUnitPrice - PDF_INSTALL_LEAD_PCT;
+  const pct = (n: number) => `${(n * 100).toFixed(1)}%`;
+  return {
+    lead: pct(PDF_INSTALL_LEAD_PCT),
+    condition: pct(condition),
+    unitPrice: pct(unitPrice),
+    subtotal: pct(PDF_COL_SUBTOTAL_PCT),
+  };
 }
 
 /** 增值服務：說明跨 說明+材質+備註+圖例，其餘欄與產品列同寬。 */
@@ -1486,21 +1517,23 @@ function QuotationDocument({
     </View>
   );
 
+  const installWidths = pdfInstallRowWidths(locale);
+
   const renderInstallRow = () => (
     <View style={styles.installRow} wrap={false}>
-      <View style={{ width: '57%', padding: 4, justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' }}>
+      <View style={{ width: installWidths.lead, padding: 4, justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' }}>
         <Text style={{ fontSize: 7, fontWeight: 700, lineHeight: 1.4 }}>{pdfDisplayText(data.installationFee?.title || labels.installTitle)}</Text>
         <Text style={{ fontSize: 6.5, color: '#666', lineHeight: 1.4 }}>{pdfDisplayText(data.installationFee?.subtitle || labels.installSubtitle)}</Text>
       </View>
-      <View style={{ width: '20%', padding: 4, justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' }}>
+      <View style={{ width: installWidths.condition, padding: 4, justifyContent: 'center', borderRightWidth: 0.5, borderColor: '#ddd' }}>
         <Text style={{ fontSize: 6.5, textAlign: 'center', lineHeight: 1.4 }}>
           {pdfDisplayText(data.installationFee?.conditionText || labels.installCondition)}
         </Text>
       </View>
-      <View style={{ width: '10.5%', padding: 4, justifyContent: 'center', alignItems: 'center', borderRightWidth: 0.5, borderColor: '#ddd' }}>
+      <View style={{ ...styles.colUnitPrice, width: installWidths.unitPrice }}>
         <Text style={styles.tableCellText}>{isFreeInstallation ? 'FREE' : ''}</Text>
       </View>
-      <View style={{ width: '12.5%', padding: 4, justifyContent: 'center', alignItems: 'center' }}>
+      <View style={{ ...styles.colSubtotal, width: installWidths.subtotal }}>
         <Text style={styles.tableCellText}>
           {isFreeInstallation
             ? 'FREE'
