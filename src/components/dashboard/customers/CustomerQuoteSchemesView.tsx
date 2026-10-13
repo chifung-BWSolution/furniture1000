@@ -1285,15 +1285,19 @@ export function CustomerQuoteSchemesView() {
   const staffName = usePmsStaffName(user?.id);
   const currentUserName = (staffName || user?.email || '用戶').trim() || '用戶';
   const { projects: clientProjects } = useClientZoneContext();
-  const { role: platformRole } = usePlatformRole();
+  const { role: platformRole, loading: roleLoading } = usePlatformRole();
   const [searchParams] = useSearchParams();
   const quoteShareFromUrl = searchParams.get('quote_share');
   const hasPortalToken = Boolean(readStoredPortalToken());
   const hasQuoteShareToken = Boolean(
     quoteShareFromUrl?.trim() || readStoredQuoteShareToken()?.trim(),
   );
+  const staffAccount =
+    !roleLoading && (platformRole === 'staff' || platformRole === 'admin');
+  // A quote-share link must not pin a logged-in staff/admin account to one quote.
+  const quoteShareGuest = hasQuoteShareToken && !staffAccount;
   const clientOnly =
-    platformRole === 'client' || hasPortalToken || hasQuoteShareToken;
+    platformRole === 'client' || hasPortalToken || quoteShareGuest;
 
   const [quotes, setQuotes] = useState<QuoteRecord[]>([]);
   const [portalProjects, setPortalProjects] = useState<DesignProject[]>([]);
@@ -1316,7 +1320,7 @@ export function CustomerQuoteSchemesView() {
   const sharedQuoteOpenedRef = useRef(false);
   /** Logged-in only: 全部 = design+quote list; BWA = 設計專案; BWF = 報價單一覽. */
   const [sourceFilter, setSourceFilter] = useState<'all' | 'bwa' | 'bwf'>('all');
-  const showSourceFilter = Boolean(user) && !hasQuoteShareToken;
+  const showSourceFilter = Boolean(user) && !quoteShareGuest;
   const [itemReviews, setItemReviews] = useState<Record<string, ItemReview>>({});
   const [itemDraftNotes, setItemDraftNotes] = useState<Record<string, string>>(
     {},
@@ -1382,7 +1386,7 @@ export function CustomerQuoteSchemesView() {
 
   const fetchQuotes = useCallback(async () => {
     // Quote-share sessions load only the shared row (see resolve effect below).
-    if (hasQuoteShareToken) return;
+    if (quoteShareGuest) return;
     setLoading(true);
     try {
       const { data, error } = await supabase
@@ -1403,15 +1407,15 @@ export function CustomerQuoteSchemesView() {
     } finally {
       setLoading(false);
     }
-  }, [hasQuoteShareToken]);
+  }, [quoteShareGuest]);
 
   // Load exactly one quotation for quote_share links (guest or logged-in preview).
   useEffect(() => {
     let cancelled = false;
     const token =
       quoteShareFromUrl?.trim() || readStoredQuoteShareToken()?.trim() || '';
-    if (!token) {
-      if (!hasQuoteShareToken) setSharedQuoteTarget(null);
+    if (!token || staffAccount) {
+      if (!quoteShareGuest) setSharedQuoteTarget(null);
       return;
     }
     storeQuoteShareToken(token);
@@ -1521,17 +1525,17 @@ export function CustomerQuoteSchemesView() {
     return () => {
       cancelled = true;
     };
-  }, [quoteShareFromUrl, hasQuoteShareToken]);
+  }, [quoteShareFromUrl, quoteShareGuest, staffAccount]);
 
   // Restore share target from storage after refresh when URL param was dropped.
   useEffect(() => {
-    if (sharedQuoteTarget || !hasQuoteShareToken) return;
+    if (sharedQuoteTarget || !quoteShareGuest) return;
     const stored = readStoredQuoteShareTarget();
     if (stored) setSharedQuoteTarget(stored);
-  }, [hasQuoteShareToken, sharedQuoteTarget]);
+  }, [quoteShareGuest, sharedQuoteTarget]);
 
   useEffect(() => {
-    if (hasQuoteShareToken) return;
+    if (quoteShareGuest) return;
     void fetchQuotes();
     // Quote-share guests only need the shared bwf_quote — skip design-project cards.
     void fetchProjects().then(async (rows) => {
@@ -1573,7 +1577,7 @@ export function CustomerQuoteSchemesView() {
       );
       setPortalProjects(withFurniture.map((entry) => entry.project));
     });
-  }, [fetchQuotes, hasQuoteShareToken]);
+  }, [fetchQuotes, quoteShareGuest]);
 
   useEffect(() => {
     const allowedQuoteIds = new Set(
@@ -1947,7 +1951,7 @@ export function CustomerQuoteSchemesView() {
   const availableQuotes = useMemo(() => {
     // Quote-share sessions only ever load the shared row — show it without
     // allow-list / invite filtering (those hide non-demo quotations).
-    if (hasQuoteShareToken) {
+    if (quoteShareGuest) {
       const target =
         sharedQuoteTarget || readStoredQuoteShareTarget();
       const rows = [...versionsByQuote.values()].map((versions) => versions[0]);
@@ -2023,7 +2027,7 @@ export function CustomerQuoteSchemesView() {
   }, [
     clientOnly,
     clientProjects,
-    hasQuoteShareToken,
+    quoteShareGuest,
     portalProjects,
     sharedQuoteTarget,
     showSourceFilter,
