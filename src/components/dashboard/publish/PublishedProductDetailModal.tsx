@@ -19,6 +19,7 @@ import { MANUFACTURERS } from '@/constants/manufacturers';
 import { fetchFactoriesWithIds, type FactoryItem } from '@/lib/factorySupabase';
 import { buildMoreImageMetafieldColumns } from '@/lib/shopifyMetafieldImages';
 import { syncShopifyProductToProduct, syncShopifyCostsToProducts } from '@/lib/rtsProductSync';
+import { invokeEdgeFunctionDirect } from '@/lib/invokeEdgeFunction';
 
 interface ShopifyVariant {
   id?: string | number;
@@ -106,13 +107,6 @@ function fmtDate(d: string | null | undefined) {
   const x = new Date(d);
   if (isNaN(x.getTime())) return '—';
   return `${x.getFullYear()}/${String(x.getMonth() + 1).padStart(2, '0')}/${String(x.getDate()).padStart(2, '0')}`;
-}
-
-function fmtMoney(n: number | string | null | undefined): string {
-  if (n == null || n === '') return '—';
-  const num = typeof n === 'string' ? parseFloat(n) : n;
-  if (!Number.isFinite(num)) return '—';
-  return `$${num.toLocaleString()}`;
 }
 
 function normalizeCostInput(value: unknown): string {
@@ -267,6 +261,7 @@ export function PublishedProductDetailModal({
   const [editSeoDesc, setEditSeoDesc] = useState('');
   const [editHandle, setEditHandle] = useState('');
   const [editVariantSkus, setEditVariantSkus] = useState<Record<string, string>>({});
+  const [editVariantPrices, setEditVariantPrices] = useState<Record<string, string>>({});
   const [editVariantCosts, setEditVariantCosts] = useState<Record<string, string>>({});
   const [editVariantImageSrc, setEditVariantImageSrc] = useState<Record<string, string>>({});
   const [variantImagePickerKey, setVariantImagePickerKey] = useState<string | null>(null);
@@ -333,6 +328,12 @@ export function PublishedProductDetailModal({
       }, {})
     );
     const productCostFallback = product.costPrice ?? r.cost ?? null;
+    setEditVariantPrices(
+      (Array.isArray(r.variants) ? r.variants : []).reduce<Record<string, string>>((acc, v, i) => {
+        acc[variantEditKey(v, i)] = normalizeCostInput(v.price);
+        return acc;
+      }, {}),
+    );
     setEditVariantCosts(
       (Array.isArray(r.variants) ? r.variants : []).reduce<Record<string, string>>((acc, v, i) => {
         acc[variantEditKey(v, i)] = normalizeCostInput(
@@ -423,7 +424,6 @@ export function PublishedProductDetailModal({
     setIsSaving(true);
     const toastId = toast.loading('正在儲存...');
     try {
-      const priceNum = editPrice !== '' ? parseFloat(editPrice) : null;
       const compareNum = editCompareAtPrice !== '' ? parseFloat(editCompareAtPrice) : null;
       const productType = [editL1, editL2].filter(Boolean).join(' / ') || null;
       const handleNorm = editHandle.trim() || null;
@@ -454,18 +454,28 @@ export function PublishedProductDetailModal({
           ? resolveImageIdForSrc(selectedSrc, sortedImgs, editImages[0] ?? r.image_url)
           : v.image_id;
         const costNum = parseCostInput(editVariantCosts[key] ?? '');
+        const variantPrice = parseCostInput(editVariantPrices[key] ?? '');
         const next = {
           ...v,
           sku: editVariantSkus[key] ?? v.sku ?? '',
           cost: costNum,
+          ...(variantPrice != null ? { price: String(variantPrice) } : {}),
           ...(imageId != null ? { image_id: imageId } : {}),
         };
-        // One-variant products: keep 規格價錢 in sync with the 售價 field.
-        if (priceNum != null && (r.variants?.length ?? 0) === 1) {
-          return { ...next, price: String(priceNum) };
-        }
         return next;
       });
+
+      const firstVariantPrice = updatedVariants
+        .map((v) => parseCostInput(String(v.price ?? '')))
+        .find((n): n is number => n != null) ?? null;
+      const originalFirstPrice = parseCostInput(
+        String((Array.isArray(r.variants) ? r.variants[0]?.price : null) ?? ''),
+      );
+      const firstPriceChanged = firstVariantPrice != null && firstVariantPrice !== originalFirstPrice;
+      const typedSale = editPrice !== '' ? parseFloat(editPrice) : NaN;
+      const priceNum = updatedVariants.length === 1 || firstPriceChanged
+        ? (firstVariantPrice ?? (Number.isFinite(typedSale) ? typedSale : null))
+        : (Number.isFinite(typedSale) ? typedSale : firstVariantPrice);
 
       const primarySku = updatedVariants.length === 0
         ? (editFallbackSku.trim() || null)
@@ -541,27 +551,38 @@ export function PublishedProductDetailModal({
         productCost,
         variantCosts,
       });
-      if (productsCostSync.error) {
-        toast.warning('已儲存 Shopify 產品成本，但同步 products 成本失敗', {
+      toast.loading('正在把價錢同步至 Shopify...', { id: toastId });
+      const push = await invokeEdgeFunctionDirect<{
+        success?: boolean;
+        failed?: number;
+        error?: string;
+      }>(
+        'supabase-functions-update-shopify-product',
+        { push_from_mirror: true, shopify_product_id: String(shopifyId) },
+        { timeoutMs: 90_000 },
+      );
+      const pushFailed = Boolean(push.error)
+        || push.data?.success === false
+        || (push.data?.failed ?? 0) > 0;
+      const pushError = push.error?.message || push.data?.error || '請稍後再試';
+
+      if (pushFailed) {
+        toast.warning('價錢已儲存，但同步至 Shopify 失敗', {
           id: toastId,
-          description: productsCostSync.error,
+          description: productsCostSync.error
+            ? `${pushError}\n本系統成本同步亦失敗：${productsCostSync.error}`
+            : pushError,
           duration: 8000,
         });
-        onSaved();
-        onClose();
-        return;
-      }
-
-      toast.success(
-        productsCostSync.updated > 0
-          ? `已儲存至本地，並同步 ${productsCostSync.updated} 筆產品成本`
-          : '已儲存至本地',
-        {
+      } else {
+        toast.success('價錢已儲存並同步至 Shopify', {
           id: toastId,
-          description: '按「與 Shopify 同步」將本地資料推送至 Shopify（圖片 metafield 會使用 Shopify CDN）。成本只留在本系統，不會上載到 Shopify。',
+          description: productsCostSync.error
+            ? `Shopify 價錢已更新。本系統成本同步失敗：${productsCostSync.error}`
+            : '成本只留在本系統，不會上載到 Shopify。',
           duration: 5000,
-        },
-      );
+        });
+      }
       onSaved();
       onClose();
     } catch (e) {
@@ -919,7 +940,20 @@ export function PublishedProductDetailModal({
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="mb-1 block text-xs font-medium text-muted-foreground">售價 (HK$)</label>
-                  <input className={inputCls} type="number" min="0" step="0.01" value={editPrice} onChange={(e) => setEditPrice(e.target.value)} />
+                  <input
+                    className={inputCls}
+                    type="text"
+                    inputMode="decimal"
+                    value={editPrice}
+                    onChange={(e) => {
+                      const next = sanitizeCostInput(e.target.value);
+                      setEditPrice(next);
+                      if (variants.length === 1) {
+                        const key = variantEditKey(variants[0], 0);
+                        setEditVariantPrices((prev) => ({ ...prev, [key]: next }));
+                      }
+                    }}
+                  />
                 </div>
                 <div>
                   <label className="mb-1 block text-xs font-medium text-muted-foreground">Compare-at 價格 (HK$)</label>
@@ -1013,26 +1047,34 @@ export function PublishedProductDetailModal({
                               placeholder="輸入 SKU"
                             />
                           </td>
-                          <td
-                            className={cn(
-                              'px-3 py-2 text-right font-mono-data font-semibold',
-                              isPriceAtOrBelowCostMultiple(
-                                v.price,
-                                parseCostInput(editVariantCosts[key] ?? '') ?? costForAlert,
-                              )
-                                ? 'text-red-600'
-                                : 'text-foreground',
-                            )}
-                            title={
-                              isPriceAtOrBelowCostMultiple(
-                                v.price,
-                                parseCostInput(editVariantCosts[key] ?? '') ?? costForAlert,
-                              )
-                                ? '價錢 ≤ 成本 × 1.5'
-                                : undefined
-                            }
-                          >
-                            {fmtMoney(v.price ?? null)}
+                          <td className="px-3 py-2 text-right">
+                            <input
+                              className={cn(
+                                'ml-auto block w-[96px] rounded-md border border-border bg-background px-2 py-1.5 text-right font-mono-data text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-primary/30',
+                                isPriceAtOrBelowCostMultiple(
+                                  editVariantPrices[key] ?? v.price,
+                                  parseCostInput(editVariantCosts[key] ?? '') ?? costForAlert,
+                                )
+                                  ? 'text-red-600'
+                                  : 'text-foreground',
+                              )}
+                              value={editVariantPrices[key] ?? ''}
+                              onChange={(e) => {
+                                const next = sanitizeCostInput(e.target.value);
+                                setEditVariantPrices((prev) => ({ ...prev, [key]: next }));
+                                if (variants.length === 1) setEditPrice(next);
+                              }}
+                              placeholder="0"
+                              inputMode="decimal"
+                              title={
+                                isPriceAtOrBelowCostMultiple(
+                                  editVariantPrices[key] ?? v.price,
+                                  parseCostInput(editVariantCosts[key] ?? '') ?? costForAlert,
+                                )
+                                  ? '價錢 ≤ 成本 × 1.5。可直接修改，儲存後即時同步至 Shopify'
+                                  : '可直接修改，儲存後即時同步至 Shopify'
+                              }
+                            />
                           </td>
                           <td className="px-3 py-2 text-right font-mono-data text-muted-foreground">{v.inventory_quantity ?? '—'}</td>
                           <td className="px-3 py-2 text-right">
