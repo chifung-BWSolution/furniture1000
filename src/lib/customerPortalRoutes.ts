@@ -95,6 +95,25 @@ function captureQuoteShareTokenFromUrl(): void {
 }
 captureQuoteShareTokenFromUrl();
 
+/**
+ * Opening the staff site (e.g. https://www.bwteam-furniture.com/) must not keep
+ * a previous quote-share preview. The token stays only for /customer and for
+ * URLs that still carry ?quote_share=.
+ */
+function releaseQuoteShareLockOutsidePortal(): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('quote_share')?.trim()) return;
+    if (isCustomerPortalPath(window.location.pathname)) return;
+    localStorage.removeItem(CUSTOMER_QUOTE_SHARE_TOKEN_KEY);
+    localStorage.removeItem(CUSTOMER_QUOTE_SHARE_TARGET_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+releaseQuoteShareLockOutsidePortal();
+
 export function readStoredQuoteShareToken(): string | null {
   if (typeof window === 'undefined') return null;
   try {
@@ -163,15 +182,32 @@ export function readStoredQuoteShareTarget(): {
   }
 }
 
-/** True when URL or storage has a quote-share token (guest portal access). */
+/**
+ * Quote-share guest mode follows the link the user opened.
+ * `?quote_share=` always counts. A token left in storage only keeps the
+ * session alive on /customer (refresh and in-portal pages). It must not
+ * pull https://www.bwteam-furniture.com/ back into 客戶專區.
+ */
+export function quoteShareSessionApplies(
+  pathname: string,
+  search: string,
+  storedToken: string | null | undefined,
+): boolean {
+  const fromUrl = new URLSearchParams(search).get('quote_share')?.trim();
+  if (fromUrl) return true;
+  if (!isCustomerPortalPath(pathname)) return false;
+  return Boolean(storedToken?.trim());
+}
+
+/** True when this page load should enter 客戶專區 without staff login. */
 export function hasActiveQuoteShareAccess(): boolean {
   if (typeof window === 'undefined') return false;
   try {
-    const fromUrl = new URLSearchParams(window.location.search)
-      .get('quote_share')
-      ?.trim();
-    if (fromUrl) return true;
-    return Boolean(readStoredQuoteShareToken()?.trim());
+    return quoteShareSessionApplies(
+      window.location.pathname,
+      window.location.search,
+      readStoredQuoteShareToken(),
+    );
   } catch {
     return false;
   }

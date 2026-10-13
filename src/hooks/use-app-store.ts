@@ -11,6 +11,7 @@ import { resolveRowsImagesToStorage, productImageFieldsPendingStorage, stripBase
 import { toast } from 'sonner';
 import { withInsertAuditFields, withUpdateAuditFields, withUpsertAuditFields } from '@/lib/pmsAudit';
 import { customerViewFromPath } from '@/lib/customerPortalRoutes';
+import { appViewFromPath } from '@/lib/appSectionRoutes';
 
 const generateId = () => Math.random().toString(36).substring(2, 15);
 
@@ -334,6 +335,9 @@ export function useAppStore() {
           }
           return 'customer-quote-schemes';
         }
+        // Staff home and section URLs win over a leftover 客戶專區 view.
+        const fromPath = appViewFromPath(path);
+        if (fromPath) return fromPath;
       }
       const saved = sessionStorage.getItem('current-view');
       if (saved === 'product-report' || saved === 'quotation-settings') {

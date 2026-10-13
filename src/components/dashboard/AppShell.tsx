@@ -43,6 +43,7 @@ import {
   isCustomerPortalView,
   pathFromCustomerView,
   readStoredPortalToken,
+  quoteShareSessionApplies,
   readStoredQuoteShareToken,
   storePortalToken,
   storeQuoteShareToken,
@@ -310,7 +311,11 @@ export function AppShell() {
   const storedPortalToken = readStoredPortalToken();
   const storedQuoteShareToken = readStoredQuoteShareToken();
   const invitePortalActive = Boolean(portalToken || storedPortalToken);
-  const quoteShareActive = Boolean(quoteShareToken || storedQuoteShareToken);
+  const quoteShareActive = quoteShareSessionApplies(
+    location.pathname,
+    location.search,
+    storedQuoteShareToken,
+  );
   const portalTokenActive = invitePortalActive || quoteShareActive;
   // Quote-share links always lock to 客戶專區 (no email login required).
   // Project invite tokens lock unknown/client roles; staff/admin can leave those.
@@ -649,6 +654,14 @@ export function AppShell() {
     }
   }, [location.pathname, store]);
 
+  // Leaving /customer without ?quote_share= ends the guest preview. A stored
+  // token must not be glued back on when the user opens the staff site.
+  useEffect(() => {
+    if (quoteShareToken) return;
+    if (isCustomerPortalPath(location.pathname)) return;
+    if (readStoredQuoteShareToken()) clearQuoteShareToken();
+  }, [quoteShareToken, location.pathname]);
+
   // Keep browser URL aligned with quote / design-project / customer / section views.
   useEffect(() => {
     let target: string | null = null;
@@ -699,7 +712,13 @@ export function AppShell() {
         }
       }
     } else if (isCustomerPortalView(store.currentView)) {
-      target = withToken(pathFromCustomerView(store.currentView));
+      if (!isCustomerPortalPath(location.pathname) && !quoteShareToken) {
+        // Address bar is the staff app. Do not follow a leftover 客戶專區 view.
+        const staffView = appViewFromPath(location.pathname);
+        target = (staffView && pathFromAppView(staffView)) || '/';
+      } else {
+        target = withToken(pathFromCustomerView(store.currentView));
+      }
     } else {
       const sectionPath = pathFromAppView(store.currentView);
       if (sectionPath) {
