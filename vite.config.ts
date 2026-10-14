@@ -68,6 +68,7 @@ export default defineConfig({
     },
   },
   server: {
+    port: 8080,
     // @ts-ignore
     allowedHosts: process.env.TEMPO === "true" ? true : undefined,
     host: process.env.TEMPO === "true" ? "0.0.0.0" : undefined,
