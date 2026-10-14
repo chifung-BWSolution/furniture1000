@@ -1,6 +1,7 @@
 import fs from "fs";
 import path from "path";
-import { defineConfig, type Plugin } from "vite";
+import { execSync } from "node:child_process";
+import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react-swc";
 
 const appBuildId =
@@ -8,6 +9,38 @@ const appBuildId =
   process.env.CF_PAGES_COMMIT_SHA ||
   process.env.VITE_APP_BUILD_ID ||
   `dev-${Date.now()}`;
+
+function currentGitBranch(): string {
+  const fromCi = process.env.VERCEL_GIT_COMMIT_REF?.trim();
+  if (fromCi) return fromCi;
+  try {
+    return execSync("git rev-parse --abbrev-ref HEAD", {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return "";
+  }
+}
+
+/** One-click login is baked in only for the develop branch. main always gets empty values. */
+export function resolveQuickLoginConfig(input: {
+  gitBranch: string;
+  enabled: string | undefined;
+  email: string | undefined;
+  password: string | undefined;
+}) {
+  const email = String(input.email || "").trim();
+  const password = String(input.password || "");
+  const enabledFlag = String(input.enabled || "").trim().toLowerCase();
+  const enabledOn = enabledFlag === "true" || enabledFlag === "1" || enabledFlag === "yes";
+  const active = input.gitBranch === "develop" && enabledOn && Boolean(email) && Boolean(password);
+  return {
+    enabled: active ? "true" : "false",
+    email: active ? email : "",
+    password: active ? password : "",
+  };
+}
 
 /** Emit public/version.json so clients can detect redeploys without forced reload. */
 function versionJsonPlugin(buildId: string): Plugin {
@@ -40,11 +73,25 @@ function versionJsonPlugin(buildId: string): Plugin {
 }
 
 // https://vitejs.dev/config/
-export default defineConfig({
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), "");
+  const quickLogin = resolveQuickLoginConfig({
+    gitBranch: currentGitBranch(),
+    enabled: process.env.VITE_ENABLE_QUICK_LOGIN ?? env.VITE_ENABLE_QUICK_LOGIN,
+    email: process.env.VITE_QUICK_LOGIN_EMAIL ?? env.VITE_QUICK_LOGIN_EMAIL,
+    password: process.env.VITE_QUICK_LOGIN_PASSWORD ?? env.VITE_QUICK_LOGIN_PASSWORD,
+  });
+
+  return {
   base:
     process.env.NODE_ENV === "development"
       ? "/"
       : process.env.VITE_BASE_PATH || "/",
+  define: {
+    "import.meta.env.VITE_ENABLE_QUICK_LOGIN": JSON.stringify(quickLogin.enabled),
+    "import.meta.env.VITE_QUICK_LOGIN_EMAIL": JSON.stringify(quickLogin.email),
+    "import.meta.env.VITE_QUICK_LOGIN_PASSWORD": JSON.stringify(quickLogin.password),
+  },
   optimizeDeps: {
     entries: ["./src/main.tsx", "./src/App.tsx"],
     include: [
@@ -73,4 +120,5 @@ export default defineConfig({
     allowedHosts: process.env.TEMPO === "true" ? true : undefined,
     host: process.env.TEMPO === "true" ? "0.0.0.0" : undefined,
   },
+};
 });

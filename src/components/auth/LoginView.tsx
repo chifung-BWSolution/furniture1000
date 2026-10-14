@@ -1,7 +1,10 @@
-import { useEffect } from 'react';
-import { LogIn } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { LogIn, LoaderCircle, Zap } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { FdsLogo } from '@/components/brand/FdsLogo';
+import { supabase } from '@/lib/supabase';
+import { getQuickLoginCredentials } from '@/lib/quick-login';
 
 const PMS_SSO_START_URL = import.meta.env.VITE_PMS_SSO_START_URL?.trim() || '';
 
@@ -15,6 +18,9 @@ function getPmsOrigin(): string | null {
 }
 
 export function LoginView() {
+  const quickLogin = getQuickLoginCredentials();
+  const [busy, setBusy] = useState(false);
+
   useEffect(() => {
     if (!PMS_SSO_START_URL) return;
 
@@ -52,6 +58,19 @@ export function LoginView() {
     }
   };
 
+  const handleQuickLogin = async () => {
+    if (!quickLogin || busy) return;
+    setBusy(true);
+    const { error } = await supabase.auth.signInWithPassword({
+      email: quickLogin.email,
+      password: quickLogin.password,
+    });
+    if (error) {
+      toast.error('預覽帳戶登入失敗', { description: '請檢查 develop 的 Preview Credential。' });
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
       <div className="w-full max-w-md space-y-8 rounded-2xl border border-border bg-card p-10 text-center shadow-sm">
@@ -68,14 +87,28 @@ export function LoginView() {
           </p>
         </div>
 
-        <Button
-          className="h-11 w-full gap-2 text-sm font-semibold"
-          onClick={handleSignIn}
-          disabled={!PMS_SSO_START_URL}
-        >
-          <LogIn className="h-4 w-4" />
-          使用 PMS 登入
-        </Button>
+        <div className="space-y-3">
+          <Button
+            className="h-11 w-full gap-2 text-sm font-semibold"
+            onClick={handleSignIn}
+            disabled={!PMS_SSO_START_URL || busy}
+          >
+            <LogIn className="h-4 w-4" />
+            使用 PMS 登入
+          </Button>
+
+          {quickLogin && (
+            <Button
+              variant="secondary"
+              className="h-11 w-full gap-2 text-sm font-semibold"
+              onClick={() => void handleQuickLogin()}
+              disabled={busy}
+            >
+              {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
+              一鍵登入（開發／Preview）
+            </Button>
+          )}
+        </div>
 
         {!PMS_SSO_START_URL && (
           <p className="text-xs text-destructive">
