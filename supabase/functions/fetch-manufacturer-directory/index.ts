@@ -82,6 +82,19 @@ Deno.serve(async (req: Request) => {
       // No body is fine - fetch all
     }
 
+    // Homepage only needs the active-factory total. Skip projects, comments, and products.
+    if (body.action === "count_factories") {
+      const { count, error } = await masterSupabase
+        .from("factories")
+        .select("id", { count: "exact", head: true })
+        .ilike("status", "active");
+      if (error) throw new Error(`Failed to count factories: ${error.message}`);
+      return new Response(JSON.stringify({ active_factories: count ?? 0 }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 200,
+      });
+    }
+
     // Handle save feedback action
     if (body.action === "save_feedback" && body.feedback) {
       const { factory_id: fId, factory_name, comment, staff_name } = body.feedback;

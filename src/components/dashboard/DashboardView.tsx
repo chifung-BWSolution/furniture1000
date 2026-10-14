@@ -58,12 +58,16 @@ async function fetchHomeDashboardMetrics(): Promise<HomeDashboardMetrics> {
     countTable('product_category'),
     countTable('shopify_products', { status: 'active' }),
     countTable('bwf_quote', { status: '待審核' }),
-    supabase.functions.invoke('supabase-functions-fetch-manufacturer-directory'),
+    supabase.functions.invoke('supabase-functions-fetch-manufacturer-directory', {
+      body: { action: 'count_factories' },
+    }),
   ]);
 
-  const activeFactories = Array.isArray(factoriesRes.data?.factories)
-    ? factoriesRes.data.factories.length
-    : 0;
+  const activeFactories = typeof factoriesRes.data?.active_factories === 'number'
+    ? factoriesRes.data.active_factories
+    : Array.isArray(factoriesRes.data?.factories)
+      ? factoriesRes.data.factories.length
+      : 0;
 
   return {
     totalProducts,
