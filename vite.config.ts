@@ -43,7 +43,7 @@ export function resolveQuickLoginConfig(input: {
 }
 
 /** Emit public/version.json so clients can detect redeploys without forced reload. */
-function versionJsonPlugin(buildId: string): Plugin {
+function versionJsonPlugin(buildId: string, opts?: { writePublic?: boolean }): Plugin {
   const write = (outDir: string) => {
     const payload = JSON.stringify(
       { buildId, builtAt: new Date().toISOString() },
@@ -64,6 +64,7 @@ function versionJsonPlugin(buildId: string): Plugin {
       };
     },
     buildStart() {
+      if (opts?.writePublic === false) return;
       write(path.resolve(__dirname, "public"));
     },
     closeBundle() {
@@ -73,7 +74,7 @@ function versionJsonPlugin(buildId: string): Plugin {
 }
 
 // https://vitejs.dev/config/
-export default defineConfig(({ mode }) => {
+export default defineConfig(({ command, mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
   const quickLogin = resolveQuickLoginConfig({
     gitBranch: currentGitBranch(),
@@ -107,7 +108,7 @@ export default defineConfig(({ mode }) => {
     ],
     exclude: ["framer-motion"],
   },
-  plugins: [react(), versionJsonPlugin(appBuildId)],
+  plugins: [react(), versionJsonPlugin(appBuildId, { writePublic: command !== "serve" })],
   resolve: {
     preserveSymlinks: true,
     alias: {

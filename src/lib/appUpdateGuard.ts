@@ -155,6 +155,9 @@ async function checkBuildId(): Promise<void> {
 /** Wire global listeners once (call from main.tsx). */
 export function startAppUpdateGuard(): void {
   if (started || typeof window === 'undefined') return;
+  // Local Vite rewrites version.json on every start (`dev-<timestamp>`), so the
+  // build-id check never matches and the banner stays up. Production deploys still poll.
+  if (import.meta.env.DEV) return;
   started = true;
 
   bootBuildId =
