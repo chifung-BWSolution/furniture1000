@@ -8,7 +8,49 @@ const corsHeaders = {
 };
 
 const MASTER_PROJECT_URL = "https://kqwktnplkqucsbasyfjl.supabase.co";
-const MASTER_SERVICE_KEY = Deno.env.get("FACTORY_SERVICE_ROLE_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
+const PMS_PROJECT_REF = "kqwktnplkqucsbasyfjl";
+const PROD_FUNCTION_URL =
+  "https://riaubhtruisbwdlwjzur.supabase.co/functions/v1/supabase-functions-fetch-manufacturer-directory";
+/** Public production anon key. Preview branches do not inherit PMS service-role secrets. */
+const PROD_ANON_KEY =
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJpYXViaHRydWlzYndkbHdqenVyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzU2MTkxNDQsImV4cCI6MjA5MTE5NTE0NH0.esE4QVARPCAgU7QShija0iIZr_eXS4xMwUERNERY13Q";
+
+function jwtProjectRef(token: string): string | null {
+  const part = token.split(".")[1];
+  if (!part) return null;
+  try {
+    const payload = JSON.parse(atob(part.replace(/-/g, "+").replace(/_/g, "/")));
+    return typeof payload.ref === "string" ? payload.ref : null;
+  } catch {
+    return null;
+  }
+}
+
+function pmsServiceKey(): string {
+  const candidates = [
+    Deno.env.get("FACTORY_SERVICE_ROLE_KEY") ?? "",
+    Deno.env.get("MASTER_SERVICE_ROLE_KEY") ?? "",
+    Deno.env.get("PMS_SUPABASE_SERVICE_ROLE_KEY") ?? "",
+  ];
+  return candidates.find((key) => jwtProjectRef(key) === PMS_PROJECT_REF) ?? "";
+}
+
+async function proxyToProduction(req: Request): Promise<Response> {
+  const body = await req.text();
+  const upstream = await fetch(PROD_FUNCTION_URL, {
+    method: "POST",
+    headers: {
+      apikey: PROD_ANON_KEY,
+      Authorization: `Bearer ${PROD_ANON_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: body.trim() ? body : "{}",
+  });
+  return new Response(await upstream.text(), {
+    status: upstream.status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
 
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
@@ -16,9 +58,18 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
+    const MASTER_SERVICE_KEY = pmsServiceKey();
+    const selfUrl = Deno.env.get("SUPABASE_URL") ?? "";
+    const isProduction = selfUrl.includes("riaubhtruisbwdlwjzur");
+    if (!MASTER_SERVICE_KEY && !isProduction) {
+      console.log(
+        "[fetch-manufacturer-directory] PMS service key missing on this project; proxying to production",
+      );
+      return await proxyToProduction(req);
+    }
     if (!MASTER_SERVICE_KEY) {
       throw new Error(
-        "FACTORY_SERVICE_ROLE_KEY (or SUPABASE_SERVICE_ROLE_KEY) is not configured. Please set this secret in the Supabase project Edge Function settings."
+        "FACTORY_SERVICE_ROLE_KEY or MASTER_SERVICE_ROLE_KEY is not configured. Please set this secret in the Supabase project Edge Function settings."
       );
     }
 
