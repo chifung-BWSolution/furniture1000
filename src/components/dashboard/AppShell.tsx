@@ -64,7 +64,7 @@ import { PublishModal } from "./PublishModal";
 import { FurnitureGroupCheckView } from "./publish/FurnitureGroupCheckView";
 import { ReadyToPublishView } from "./publish/ReadyToPublishView";
 import { Construction, WifiOff, RefreshCw } from "lucide-react";
-import { findSection, isAdminOnlyView, getFirstVisibleView, getViewMeta, isSitemapPlaceholderView } from "./navConfig";
+import { findSection, isAdminOnlyView, getFirstVisibleView, getViewMeta, isSitemapPlaceholderView, implementedPage, isImplementedLegacyView } from "./navConfig";
 import { PlannedPage } from "./PlannedPage";
 import { type PrimarySection, type ViewType } from "@/types/product";
 import { addToCatalog } from "@/lib/catalogStore";
@@ -442,7 +442,13 @@ export function AppShell() {
         quoteUrlSyncRef.current = target;
         navigate(target, { replace: true });
       }
-    } else if (!isSitemapPlaceholderView(store.currentView)) {
+    } else if (
+      store.currentView !== 'dashboard' &&
+      store.currentView !== 'factory-detail' &&
+      !isSitemapPlaceholderView(store.currentView) &&
+      !isImplementedLegacyView(store.currentView) &&
+      !implementedPage(store.currentView)
+    ) {
       store.setCurrentView('dashboard');
     }
     if (
@@ -859,7 +865,7 @@ export function AppShell() {
 
   const handleBulkPublish = useCallback(async () => {
     // 所有產品頁：「上傳到產品目錄」— 把已選產品標記 in_catalog（寫入 Supabase，跨裝置共用）
-    if (store.currentView === 'listed-products') {
+    if ((implementedPage(store.currentView) ?? store.currentView) === 'listed-products') {
       if (listedStats.selectedIds.length === 0) {
         toast.message('請先勾選產品');
         return;
@@ -874,7 +880,7 @@ export function AppShell() {
     }
     if (store.selectedProductIds.size > 0) {
       const ids = Array.from(store.selectedProductIds);
-      const inMemory = store.currentView === 'ready-to-publish'
+      const inMemory = (implementedPage(store.currentView) ?? store.currentView) === 'ready-to-publish'
         ? rtpPageProductsRef.current
         : [...store.products, ...store.readyToPublishList];
       const resolved = await resolveSelectedPublishProducts(ids, inMemory);
@@ -905,12 +911,14 @@ export function AppShell() {
     store.setCurrentView("quotation-list");
   }, [store]);
 
+  const contentView = implementedPage(store.currentView) ?? store.currentView;
+
   const renderView = () => {
     if (isSitemapPlaceholderView(store.currentView)) {
       const meta = getViewMeta(store.currentView);
       return <PlannedPage sectionLabel={meta.sectionLabel} title={meta.viewLabel} />;
     }
-    switch (store.currentView) {
+    switch (contentView) {
       case "dashboard":
         return (
           <DashboardView onNavigate={handleViewChange} />
@@ -1142,7 +1150,7 @@ export function AppShell() {
         return (
           <QuotationListView
             mode={
-              store.currentView === 'quotation-large-amount'
+              contentView === 'quotation-large-amount'
                 ? 'large-amount'
                 : 'all'
             }
@@ -1178,11 +1186,12 @@ export function AppShell() {
   const activeSection: PrimarySection = findSection(store.currentView);
 
   const handleViewChange = (view: typeof store.currentView) => {
-    if (!roleLoading && !isAdmin && isAdminOnlyView(view)) {
+    const linked = implementedPage(view);
+    if (!roleLoading && !isAdmin && (isAdminOnlyView(view) || (linked != null && isAdminOnlyView(linked)))) {
       return;
     }
 
-    if (view === "quick-quote") {
+    if (linked === "quick-quote" || view === "quick-quote") {
       if (unsavedGuard.isDirty && !unsavedGuard.confirmLeave()) return;
       writeQuickQuoteCopyFrom(user?.email, null);
       resetQuickQuoteSessionStorage(user?.email);
@@ -1191,19 +1200,27 @@ export function AppShell() {
       setEditingQuoteUuidRaw(null);
       setEditingQuoteVersionRaw(null);
       setQuickQuoteFreshKey((k) => k + 1);
-      quoteUrlSyncRef.current = QUOTE_QUICK_PATH;
-      navigate(QUOTE_QUICK_PATH, { replace: true });
-      store.setCurrentView("quick-quote");
+      const stayOnSitemap = linked === "quick-quote";
+      const targetPath = stayOnSitemap ? pathFromAppView(view) : QUOTE_QUICK_PATH;
+      quoteUrlSyncRef.current = targetPath || QUOTE_QUICK_PATH;
+      navigate(quoteUrlSyncRef.current, { replace: true });
+      store.setCurrentView(stayOnSitemap ? view : "quick-quote");
       store.setFilterProductId(null);
       return;
     }
 
-    if (view === "quotation-list" || view === "quotation-large-amount") {
+    if (
+      view === "quotation-list" ||
+      view === "quotation-large-amount" ||
+      linked === "quotation-list" ||
+      linked === "quotation-large-amount"
+    ) {
       if (view !== store.currentView && unsavedGuard.isDirty && !unsavedGuard.confirmLeave()) {
         return;
       }
-      const targetPath =
-        view === "quotation-large-amount"
+      const targetPath = linked
+        ? (pathFromAppView(view) || QUOTE_LIST_PATH)
+        : view === "quotation-large-amount"
           ? QUOTE_LARGE_AMOUNT_PATH
           : QUOTE_LIST_PATH;
       quoteUrlSyncRef.current = targetPath;
@@ -1234,7 +1251,9 @@ export function AppShell() {
     if (view !== store.currentView && unsavedGuard.isDirty && !unsavedGuard.confirmLeave()) {
       return;
     }
-    if (store.currentView === 'category-management' && view !== 'category-management') {
+    const leavingView = implementedPage(store.currentView) ?? store.currentView;
+    const enteringView = linked ?? view;
+    if (leavingView === 'category-management' && enteringView !== 'category-management') {
       store.reloadProducts();
     }
     if (isCustomerPortalView(view)) {
@@ -1383,8 +1402,9 @@ export function AppShell() {
         )}
         <TopBar
           currentView={store.currentView}
-          selectedCount={store.currentView === 'listed-products' ? listedStats.selected : store.selectedProductIds.size}
-          totalProducts={store.currentView === 'listed-products' ? listedStats.total : store.currentView === 'ready-to-publish' ? rtpTotalCount : store.products.length}
+          pageView={contentView}
+          selectedCount={contentView === 'listed-products' ? listedStats.selected : store.selectedProductIds.size}
+          totalProducts={contentView === 'listed-products' ? listedStats.total : contentView === 'ready-to-publish' ? rtpTotalCount : store.products.length}
           onBulkPublish={handleBulkPublish}
           onSave={store.saveProducts}
           isSaving={store.isSaving}
@@ -1403,7 +1423,7 @@ export function AppShell() {
         />
 
         <div className="flex-1 overflow-hidden">
-          {store.isLoading && !isSitemapPlaceholderView(store.currentView) && !SELF_LOADING_VIEWS.has(store.currentView) ? (
+          {store.isLoading && !isSitemapPlaceholderView(store.currentView) && !SELF_LOADING_VIEWS.has(contentView) ? (
             <div className="flex h-full items-center justify-center">
               <div className="flex flex-col items-center gap-3">
                 <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />

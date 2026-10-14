@@ -161,8 +161,10 @@ export const NAV_CONFIG: PrimaryItem[] = [
 ];
 
 export function findSection(view: ViewType): PrimarySection {
+  const primarySitemap = PRIMARY_SITEMAP_BY_LEGACY[view];
+  const matchView = primarySitemap ?? view;
   for (const p of NAV_CONFIG) {
-    if (p.children.some((c) => c.view === view)) return p.id;
+    if (p.children.some((c) => c.view === matchView)) return p.id;
   }
   // Removed 客戶專區 / 傢俬方案 pages — keep deep-links under customers / solutions
   if (
@@ -178,6 +180,7 @@ export function findSection(view: ViewType): PrimarySection {
   ) {
     return 'designer';
   }
+  if (view === 'factory-detail') return 'products';
   return 'home';
 }
 
@@ -198,8 +201,75 @@ export const ADMIN_ONLY_VIEWS: ViewType[] = [
   'fds2-report-upload-log',
 ];
 
+/**
+ * FDS 2.0 items that already exist. Opening them renders the original page
+ * instead of the「待開發」shell. `primary` is the menu item highlighted
+ * when an old URL opens that page.
+ */
+const MOVED_PAGES: { sitemap: ViewType; legacy: ViewType; primary?: boolean }[] = [
+  { sitemap: 'fds2-pm-quick', legacy: 'quick-quote' },
+  { sitemap: 'fds2-quote-factories', legacy: 'manufacturer-catalog' },
+  { sitemap: 'fds2-quote-quick', legacy: 'quick-quote', primary: true },
+  { sitemap: 'fds2-quote-list', legacy: 'quotation-list', primary: true },
+  { sitemap: 'fds2-quote-large', legacy: 'quotation-large-amount', primary: true },
+  { sitemap: 'fds2-factory-info', legacy: 'manufacturer-catalog' },
+  { sitemap: 'fds2-factory-upload', legacy: 'ai-processor' },
+  { sitemap: 'fds2-products-factories', legacy: 'manufacturer-catalog', primary: true },
+  { sitemap: 'fds2-products-quote-pdf', legacy: 'ai-processor', primary: true },
+  { sitemap: 'fds2-products-pending', legacy: 'listed-products', primary: true },
+  { sitemap: 'fds2-products-catalog', legacy: 'product-catalog', primary: true },
+  { sitemap: 'fds2-publish-copy', legacy: 'publish-copywriting', primary: true },
+  { sitemap: 'fds2-publish-price', legacy: 'publish-product-info', primary: true },
+  { sitemap: 'fds2-publish-check', legacy: 'furniture-group-check', primary: true },
+  { sitemap: 'fds2-publish-ready', legacy: 'ready-to-publish', primary: true },
+  { sitemap: 'fds2-publish-done', legacy: 'published-products', primary: true },
+  { sitemap: 'fds2-publish-abnormal', legacy: 'abnormal-price-products', primary: true },
+  { sitemap: 'fds2-report-factory', legacy: 'report-factory', primary: true },
+  { sitemap: 'fds2-report-product', legacy: 'report-product', primary: true },
+  { sitemap: 'fds2-report-upload-log', legacy: 'upload-product-log', primary: true },
+  { sitemap: 'fds2-admin-users', legacy: 'user-management', primary: true },
+  { sitemap: 'fds2-admin-logins', legacy: 'login-history', primary: true },
+  { sitemap: 'fds2-admin-shopify', legacy: 'category-management', primary: true },
+  { sitemap: 'fds2-admin-categories', legacy: 'category-registry', primary: true },
+  { sitemap: 'fds2-admin-settings', legacy: 'settings', primary: true },
+  { sitemap: 'fds2-customer-quotes', legacy: 'customer-quote-schemes', primary: true },
+  { sitemap: 'fds2-customer-search', legacy: 'customer-product-search', primary: true },
+  { sitemap: 'fds2-customer-custom', legacy: 'customer-custom-furniture', primary: true },
+  { sitemap: 'fds2-customer-pay', legacy: 'customer-payment-delivery', primary: true },
+  { sitemap: 'fds2-customer-orders', legacy: 'customer-order-status', primary: true },
+  { sitemap: 'fds2-customer-cases', legacy: 'customer-case-studies', primary: true },
+  { sitemap: 'fds2-customer-services', legacy: 'customer-services', primary: true },
+  { sitemap: 'fds2-customer-company', legacy: 'customer-company-info', primary: true },
+  { sitemap: 'fds2-customer-contact', legacy: 'customer-contact', primary: true },
+  { sitemap: 'fds2-customer-org', legacy: 'customer-org-account', primary: true },
+];
+
+const LEGACY_BY_SITEMAP: Partial<Record<ViewType, ViewType>> = {};
+const PRIMARY_SITEMAP_BY_LEGACY: Partial<Record<ViewType, ViewType>> = {};
+for (const row of MOVED_PAGES) {
+  LEGACY_BY_SITEMAP[row.sitemap] = row.legacy;
+  if (!PRIMARY_SITEMAP_BY_LEGACY[row.legacy] || row.primary) {
+    PRIMARY_SITEMAP_BY_LEGACY[row.legacy] = row.sitemap;
+  }
+}
+
+/** Original page for a moved sitemap item, if one already exists. */
+export function implementedPage(view: ViewType): ViewType | null {
+  return LEGACY_BY_SITEMAP[view] ?? null;
+}
+
+export function isImplementedLegacyView(view: ViewType): boolean {
+  return PRIMARY_SITEMAP_BY_LEGACY[view] != null;
+}
+
+export function navItemIsActive(itemView: ViewType, currentView: ViewType): boolean {
+  if (itemView === currentView) return true;
+  const legacy = implementedPage(itemView);
+  return legacy !== null && legacy === currentView;
+}
+
 export function isSitemapPlaceholderView(view: ViewType): boolean {
-  return NAV_CONFIG.some((section) => section.children.some((child) => child.view === view));
+  return view.startsWith('fds2-') && LEGACY_BY_SITEMAP[view] == null;
 }
 
 export function isAdminOnlyView(view: ViewType): boolean {
@@ -240,8 +310,10 @@ export function getFirstVisibleView(
 }
 
 export function getViewMeta(view: ViewType): { sectionLabel: string; viewLabel: string } {
+  const primarySitemap = PRIMARY_SITEMAP_BY_LEGACY[view];
+  const matchView = primarySitemap ?? view;
   for (const p of NAV_CONFIG) {
-    const child = p.children.find((c) => c.view === view);
+    const child = p.children.find((c) => c.view === matchView);
     if (child) return { sectionLabel: p.label, viewLabel: child.label };
   }
   if (

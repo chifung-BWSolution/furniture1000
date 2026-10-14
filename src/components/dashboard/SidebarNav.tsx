@@ -8,7 +8,7 @@ import {
   TooltipTrigger,
   TooltipProvider,
 } from '@/components/ui/tooltip';
-import { getSection, filterNavChildren } from './navConfig';
+import { getSection, filterNavChildren, navItemIsActive } from './navConfig';
 
 interface SidebarNavProps {
   activeSection: PrimarySection;
@@ -86,7 +86,7 @@ export function SidebarNav({
         <nav className="flex-1 overflow-y-auto px-3 py-3">
           <div className="space-y-1">
             {visibleChildren.map(({ view, label, icon: Icon }) => {
-              const isActive = currentView === view;
+              const isActive = navItemIsActive(view, currentView);
               if (isCollapsed) {
                 return (
                   <Tooltip key={view}>

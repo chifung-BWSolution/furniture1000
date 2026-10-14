@@ -19,6 +19,8 @@ import { useDesignProjectStickyChrome } from '@/lib/designProjectStickyChrome';
 
 interface TopBarProps {
   currentView: ViewType;
+  /** Real page behind a moved sitemap item. Button visibility follows this. */
+  pageView?: ViewType;
   selectedCount: number;
   totalProducts: number;
   onBulkPublish: () => void;
@@ -45,6 +47,7 @@ interface TopBarProps {
 
 export function TopBar({
   currentView,
+  pageView,
   selectedCount,
   totalProducts,
   onBulkPublish,
@@ -64,18 +67,19 @@ export function TopBar({
   const meta = getViewMeta(currentView);
   const showParent = !hideBreadcrumbParent && meta.sectionLabel && meta.sectionLabel !== meta.viewLabel;
   const viewInfo = { label: meta.viewLabel, parent: showParent ? meta.sectionLabel : '' };
+  const page = pageView ?? currentView;
   const designSticky = useDesignProjectStickyChrome();
   const stickyMode = designSticky?.mode || 'design';
   const showPartitionSticky =
     Boolean(designSticky?.active) &&
-    ((currentView === 'design-projects' && stickyMode === 'design') ||
-      (currentView === 'customer-quote-schemes' && stickyMode === 'quote'));
+    ((page === 'design-projects' && stickyMode === 'design') ||
+      (page === 'customer-quote-schemes' && stickyMode === 'quote'));
 
   // Show stats (總共/已選) on product list views
-  const showProductButtons = currentView === 'listed-products' || currentView === 'ready-to-publish' || currentView === 'product-catalog';
+  const showProductButtons = page === 'listed-products' || page === 'ready-to-publish' || page === 'product-catalog';
   // The upload-to-catalog action only appears on the 所有產品 / 待發佈 views
-  const showUploadButton = currentView === 'listed-products' || currentView === 'ready-to-publish';
-  const uploadLabel = currentView === 'listed-products' ? '上傳到產品目錄' : '上傳到 Shopify';
+  const showUploadButton = page === 'listed-products' || page === 'ready-to-publish';
+  const uploadLabel = page === 'listed-products' ? '上傳到產品目錄' : '上傳到 Shopify';
 
   if (showPartitionSticky && designSticky) {
     const isQuoteSticky = stickyMode === 'quote';
