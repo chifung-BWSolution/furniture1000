@@ -64,7 +64,8 @@ import { PublishModal } from "./PublishModal";
 import { FurnitureGroupCheckView } from "./publish/FurnitureGroupCheckView";
 import { ReadyToPublishView } from "./publish/ReadyToPublishView";
 import { Construction, WifiOff, RefreshCw } from "lucide-react";
-import { findSection, isAdminOnlyView, getFirstVisibleView } from "./navConfig";
+import { findSection, isAdminOnlyView, getFirstVisibleView, getViewMeta, isSitemapPlaceholderView } from "./navConfig";
+import { PlannedPage } from "./PlannedPage";
 import { type PrimarySection, type ViewType } from "@/types/product";
 import { addToCatalog } from "@/lib/catalogStore";
 import { toast } from "sonner";
@@ -431,27 +432,30 @@ export function AppShell() {
 
   useEffect(() => {
     if (clientOnly && findSection(store.currentView) !== 'customers') {
-      store.setCurrentView('customer-quote-schemes');
-      if (!isCustomerPortalPath(location.pathname)) {
-        const target = withCustomerPortalQuery(CUSTOMER_PORTAL_BASE, {
+      const customerHome = 'fds2-customer-quotes' as const;
+      store.setCurrentView(customerHome);
+      if (!location.pathname.startsWith('/fds/customer')) {
+        const target = withCustomerPortalQuery(pathFromAppView(customerHome) || '/fds/customer/quote-schemes', {
           portalToken: portalToken || storedPortalToken,
           quoteShareToken: quoteShareToken || storedQuoteShareToken,
         });
         quoteUrlSyncRef.current = target;
         navigate(target, { replace: true });
       }
+    } else if (!isSitemapPlaceholderView(store.currentView)) {
+      store.setCurrentView('dashboard');
     }
     if (
       store.currentView === 'customer-design-projects' ||
       store.currentView === 'customer-confirmed-products'
     ) {
-      store.setCurrentView('customer-quote-schemes');
+      store.setCurrentView('fds2-customer-quotes');
     }
     if (store.currentView === 'report-sales') {
-      store.setCurrentView('report-factory');
+      store.setCurrentView('fds2-report-factory');
     }
     if (!roleLoading && !clientOnly && !isAdmin && isAdminOnlyView(store.currentView)) {
-      store.setCurrentView('category-management');
+      store.setCurrentView('fds2-admin-shopify');
     }
   }, [
     clientOnly,
@@ -902,6 +906,10 @@ export function AppShell() {
   }, [store]);
 
   const renderView = () => {
+    if (isSitemapPlaceholderView(store.currentView)) {
+      const meta = getViewMeta(store.currentView);
+      return <PlannedPage sectionLabel={meta.sectionLabel} title={meta.viewLabel} />;
+    }
     switch (store.currentView) {
       case "dashboard":
         return (
@@ -1298,7 +1306,10 @@ export function AppShell() {
     <div
       className="flex h-screen w-screen flex-col overflow-hidden"
       data-typography-zone={
-        activeSection === 'solutions' || activeSection === 'customers'
+        activeSection === 'designer' ||
+        activeSection === 'cases' ||
+        activeSection === 'solutions' ||
+        activeSection === 'customers'
           ? 'cjk-portal'
           : undefined
       }
@@ -1392,7 +1403,7 @@ export function AppShell() {
         />
 
         <div className="flex-1 overflow-hidden">
-          {store.isLoading && !SELF_LOADING_VIEWS.has(store.currentView) ? (
+          {store.isLoading && !isSitemapPlaceholderView(store.currentView) && !SELF_LOADING_VIEWS.has(store.currentView) ? (
             <div className="flex h-full items-center justify-center">
               <div className="flex flex-col items-center gap-3">
                 <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
