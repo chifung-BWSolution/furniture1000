@@ -131,6 +131,15 @@ const LoginHistoryView = lazy(() =>
 const UploadProductLogView = lazy(() =>
   import("./admin/UploadProductLogView").then((mod) => ({ default: mod.UploadProductLogView }))
 );
+const PrdDescriptionsView = lazy(() =>
+  import("./admin/PrdDescriptionsView").then((mod) => ({ default: mod.PrdDescriptionsView }))
+);
+const DailyCommandLogsView = lazy(() =>
+  import("./admin/DailyCommandLogsView").then((mod) => ({ default: mod.DailyCommandLogsView }))
+);
+const DevelopmentCostView = lazy(() =>
+  import("./admin/DevelopmentCostView").then((mod) => ({ default: mod.DevelopmentCostView }))
+);
 // 傢俬方案 (Furniture Scheme)
 const SolutionProjectListView = lazy(() =>
   import("./solutions/SolutionProjectListView").then((mod) => ({ default: mod.SolutionProjectListView }))
@@ -914,6 +923,9 @@ export function AppShell() {
   const contentView = implementedPage(store.currentView) ?? store.currentView;
 
   const renderView = () => {
+    if (store.currentView === 'fds2-admin-prd') return <PrdDescriptionsView />;
+    if (store.currentView === 'fds2-admin-command-logs') return <DailyCommandLogsView />;
+    if (store.currentView === 'fds2-admin-dev-cost') return <DevelopmentCostView />;
     if (isSitemapPlaceholderView(store.currentView)) {
       const meta = getViewMeta(store.currentView);
       return <PlannedPage sectionLabel={meta.sectionLabel} title={meta.viewLabel} />;

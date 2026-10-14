@@ -2,6 +2,7 @@ import {
   Users, Calculator, Package, Globe, BarChart3, Settings as SettingsIcon,
   LayoutDashboard, Search, PenTool, Boxes, BookOpen, FileText, FileUp,
   Sofa, BadgeDollarSign, Sparkles, Box, Cuboid, Wallet, Images, Star, Trash2,
+  BookOpenText, ListChecks,
   Building2, BarChart2, Map, LogIn, Mail, FolderTree, History,
   UserCog, ClipboardList, CircleDollarSign, Truck, PackageCheck, Film,
   Briefcase, Phone, Landmark, Heart, Combine,
@@ -138,6 +139,9 @@ export const NAV_CONFIG: PrimaryItem[] = [
       { view: 'fds2-admin-shopify', label: 'Shopify 分類', icon: FolderTree },
       { view: 'fds2-admin-categories', label: '產品分類', icon: FolderTree },
       { view: 'fds2-admin-settings', label: '系統設定', icon: SettingsIcon, adminOnly: true },
+      { view: 'fds2-admin-prd', label: 'PRD功能描述', icon: BookOpenText, adminOnly: true },
+      { view: 'fds2-admin-command-logs', label: '每日指令記錄', icon: ListChecks, adminOnly: true },
+      { view: 'fds2-admin-dev-cost', label: '開發成本', icon: CircleDollarSign, adminOnly: true },
       { view: 'fds2-admin-email', label: '電郵通知', icon: Mail, adminOnly: true },
     ],
   },
@@ -197,14 +201,17 @@ export const ADMIN_ONLY_VIEWS: ViewType[] = [
   'fds2-admin-users',
   'fds2-admin-logins',
   'fds2-admin-settings',
+  'fds2-admin-prd',
+  'fds2-admin-command-logs',
+  'fds2-admin-dev-cost',
   'fds2-admin-email',
   'fds2-report-upload-log',
 ];
 
 /**
- * FDS 2.0 items that already exist. Opening them renders the original page
- * instead of the「待開發」shell. `primary` is the menu item highlighted
- * when an old URL opens that page.
+ * FDS 2.0 items that already exist. Opening them loads the original page
+ * (same view, same URL) instead of the「待開發」shell.
+ * `primary` is the menu item that stays highlighted for that original page.
  */
 const MOVED_PAGES: { sitemap: ViewType; legacy: ViewType; primary?: boolean }[] = [
   { sitemap: 'fds2-pm-quick', legacy: 'quick-quote' },
