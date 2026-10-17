@@ -52,6 +52,14 @@ export function LoginView() {
       if (redirectTo && redirectTo !== '/') {
         start.searchParams.set('redirect_to', redirectTo);
       }
+      // Tell PMS which app origin the SSO callback must return to. PMS defaults to
+      // the production domain, so without this a preview deployment (Vercel
+      // deployment / branch alias) would be bounced to production and never get
+      // its session. PMS only accepts allowlisted origins (production + previews).
+      const appOrigin = window.location.origin;
+      if (appOrigin.startsWith('https://')) {
+        start.searchParams.set('app_origin', appOrigin);
+      }
       window.location.href = start.toString();
     } catch {
       window.location.href = PMS_SSO_START_URL;
