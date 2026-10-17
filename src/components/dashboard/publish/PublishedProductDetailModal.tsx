@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
+import { productThumbUrl } from '@/lib/imageThumb';
 import {
   X, Loader2, Package, Tag, DollarSign, Ruler, Boxes, Store, RefreshCw, ImageIcon, Search,
   Factory, ChevronsUpDown, Check, GripVertical, ChevronLeft, ChevronRight, ZoomIn,
@@ -695,7 +696,7 @@ export function PublishedProductDetailModal({
               >
                 {displayImg ? (
                   <>
-                    <img src={displayImg} alt={editTitle} className="h-full w-full object-contain" />
+                    <img src={productThumbUrl(displayImg, 500)} alt={editTitle} loading="lazy" decoding="async" className="h-full w-full object-contain" />
                     <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/0 transition-colors group-hover:bg-black/25">
                       <span className="flex h-10 w-10 items-center justify-center rounded-full bg-black/55 text-white opacity-0 transition-opacity group-hover:opacity-100">
                         <ZoomIn className="h-5 w-5" />
@@ -743,7 +744,7 @@ export function PublishedProductDetailModal({
                         className="h-full w-full"
                         title={i === 0 ? '切換至產品主圖' : `切換至圖片 ${i + 1}`}
                       >
-                        <img src={src} alt="" draggable={false} className="h-full w-full object-cover" />
+                        <img src={productThumbUrl(src)} alt="" draggable={false} loading="lazy" decoding="async" className="h-full w-full object-cover" />
                       </button>
                       {i === 0 && (
                         <span className="pointer-events-none absolute left-0.5 top-0.5 rounded bg-primary px-1 py-px text-[8px] font-bold leading-none text-primary-foreground">
@@ -1026,8 +1027,10 @@ export function PublishedProductDetailModal({
                               >
                                 {thumbUrl ? (
                                   <img
-                                    src={thumbUrl}
+                                    src={productThumbUrl(thumbUrl)}
                                     alt=""
+                                    loading="lazy"
+                                    decoding="async"
                                     className="h-full w-full object-cover"
                                   />
                                 ) : (
@@ -1212,7 +1215,7 @@ export function PublishedProductDetailModal({
                         isSelected ? 'border-primary ring-2 ring-primary/30' : 'border-border hover:border-primary/50',
                       )}
                     >
-                      <img src={src} alt="" className="h-full w-full object-cover" />
+                      <img src={productThumbUrl(src)} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
                       {isSelected && (
                         <span className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground">
                           <Check className="h-3 w-3" />

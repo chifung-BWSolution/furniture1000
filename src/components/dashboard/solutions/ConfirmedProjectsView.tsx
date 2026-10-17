@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
+import { productThumbUrl } from '@/lib/imageThumb';
 import {
   CheckCircle2, MessageSquare, ChevronDown, Clock, Loader2,
 } from 'lucide-react';
@@ -147,7 +148,7 @@ export function ConfirmedProjectsView() {
                       <tr key={zp.id} className="hover:bg-muted/20">
                         <td className="py-2.5 pl-5 pr-3">
                           <div className="flex items-center gap-3">
-                            <img src={zp.productImageUrl} alt={zp.productTitle} loading="lazy" className="h-10 w-10 rounded-md object-cover bg-muted" />
+                            <img src={productThumbUrl(zp.productImageUrl)} alt={zp.productTitle} loading="lazy" decoding="async" className="h-10 w-10 rounded-md object-cover bg-muted" />
                             <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
                               <span className="truncate font-body text-[15px] text-foreground">
                                 {zp.productTitle}

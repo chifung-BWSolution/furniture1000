@@ -7,6 +7,7 @@ import {
   Ban, Archive, RotateCcw,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { productThumbUrl } from '@/lib/imageThumb';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { uploadFileToStorage, uploadImageSourceToStorage, isHttpImageUrl } from '@/lib/imageStorage';
@@ -877,7 +878,7 @@ ${rawDesc}
                     </div>
                   )}
                   <div className="flex items-center gap-4 pl-6">
-                    <img src={p.imageUrl} alt={p.title} loading="lazy" className="h-20 w-20 shrink-0 rounded-xl object-cover bg-muted" />
+                    <img src={productThumbUrl(p.imageUrl)} alt={p.title} loading="lazy" decoding="async" className="h-20 w-20 shrink-0 rounded-xl object-cover bg-muted" />
                     <div className="min-w-0 flex-1">
                       <h3 className="font-display text-[14px] font-bold text-foreground line-clamp-1">{p.title}</h3>
                       {dimensionsLabel && (
@@ -1011,9 +1012,11 @@ ${rawDesc}
                     onDrop={() => handleDrop({ zone: 'primary' })}
                   >
                     <img
-                      src={primaryImg}
+                      src={productThumbUrl(primaryImg)}
                       alt="主圖"
                       draggable={false}
+                      loading="lazy"
+                      decoding="async"
                       className="h-full w-full object-cover cursor-zoom-in"
                       onClick={(e) => { e.stopPropagation(); setLightboxSrc(primaryImg); }}
                     />
@@ -1064,9 +1067,11 @@ ${rawDesc}
                       onDrop={() => handleDrop({ zone: 'extra', index: i })}
                     >
                       <img
-                        src={src}
+                        src={productThumbUrl(src)}
                         alt={`圖 ${i + 2}`}
                         draggable={false}
+                        loading="lazy"
+                        decoding="async"
                         className="h-full w-full object-cover cursor-zoom-in"
                         onClick={(e) => { e.stopPropagation(); setLightboxSrc(src); }}
                       />

@@ -608,6 +608,54 @@ export async function fetchZoneProducts(projectId: string): Promise<ZoneProduct[
   }
 }
 
+/** Batch zone fetch for many projects (avoids N+1). */
+export async function fetchZonesForProjects(
+  projectIds: string[],
+): Promise<Record<string, ProjectZone[]>> {
+  const out: Record<string, ProjectZone[]> = {};
+  const ids = [...new Set(projectIds.filter(Boolean))];
+  if (ids.length === 0) return out;
+  const chunkSize = 200;
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    const chunk = ids.slice(i, i + chunkSize);
+    const { data, error } = await supabase
+      .from('project_zones')
+      .select('*')
+      .in('project_id', chunk)
+      .order('sort_order', { ascending: true });
+    if (error || !data) continue;
+    for (const row of data) {
+      const mapped = mapZone(row);
+      (out[mapped.projectId] ||= []).push(mapped);
+    }
+  }
+  return out;
+}
+
+/** Batch zone-product fetch for many projects (avoids N+1). */
+export async function fetchZoneProductsForProjects(
+  projectIds: string[],
+): Promise<Record<string, ZoneProduct[]>> {
+  const out: Record<string, ZoneProduct[]> = {};
+  const ids = [...new Set(projectIds.filter(Boolean))];
+  if (ids.length === 0) return out;
+  const chunkSize = 200;
+  for (let i = 0; i < ids.length; i += chunkSize) {
+    const chunk = ids.slice(i, i + chunkSize);
+    const { data, error } = await supabase
+      .from('zone_products')
+      .select('*')
+      .in('project_id', chunk)
+      .order('sort_order', { ascending: true });
+    if (error || !data) continue;
+    for (const row of data) {
+      const mapped = mapZoneProduct(row);
+      (out[mapped.projectId] ||= []).push(mapped);
+    }
+  }
+  return out;
+}
+
 export async function fetchInvitations(projectId: string): Promise<ProjectInvitation[]> {
   try {
     const { data, error } = await supabase
@@ -1166,10 +1214,10 @@ export async function fetchInvitedProjectsWithProducts(
 }> {
   const projects = await fetchInvitedProjects(clientEmail, shareToken);
   const productsByProject: Record<string, ZoneProduct[]> = {};
-  await Promise.all(projects.map(async (p) => {
-    const zps = await fetchZoneProducts(p.id);
-    productsByProject[p.id] = zps.filter((x) => x.zoneId);
-  }));
+  const allProducts = await fetchZoneProductsForProjects(projects.map((p) => p.id));
+  for (const p of projects) {
+    productsByProject[p.id] = (allProducts[p.id] ?? []).filter((x) => x.zoneId);
+  }
   return { projects, productsByProject };
 }
 

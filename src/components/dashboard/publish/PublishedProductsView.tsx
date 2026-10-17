@@ -1,5 +1,6 @@
 import { Fragment, useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { cn } from '@/lib/utils';
+import { productThumbUrl } from '@/lib/imageThumb';
 import {
   CheckCheck, Search, ArrowDownToLine, ArrowUpToLine, RotateCcw, ChevronDown,
   CloudDownload, Loader2, X, Store, RefreshCw, ArrowUp, ArrowDown, GitMerge, FolderTree,
@@ -578,8 +579,27 @@ function resolveCatalogListImage(
 }
 
 const B_CLASS_FIRST_PAGE = 25;
+// Lightweight projection for the catalog→shopify link lookup. The thumbnail
+// uses `image_url`, so the heavy `images` JSONB is not needed here.
 const UPLOADED_SHOPIFY_SELECT =
-  'source_product_id,shopify_product_id,title,image_url,images,configurable';
+  'source_product_id,shopify_product_id,title,image_url,configurable';
+
+// Explicit column list for the 已發佈/全部/已下架 list query. Same fields as
+// ShopifyProductRow (used by the table, filters, stats, merge & detail modals)
+// but WITHOUT unused/unbounded-heavy columns: `metafields`, `options`, the extra
+// `my_fields.*` / `custom.*` text columns, `in_stock`, `customize`,
+// `shopify.color-pattern`, `ready_to_shopify_id`, and the two heavy per-row
+// columns `body_html` + `images` (hydrated lazily for the visible page / the
+// opened detail — see heavyById). Dotted column names must be double-quoted.
+const UPLOADED_SHOPIFY_LIST_SELECT = [
+  'id', 'shopify_product_id', 'source_product_id', 'title',
+  'vendor', 'product_type', 'handle', 'status', 'published_at', 'image_url',
+  'variants', 'tags', 'price', 'compare_at_price',
+  'shopify_created_at', 'shopify_updated_at', 'imported_at', 'shop_domain',
+  '"my_fields.normal_size"', '"my_fields.materials"',
+  'cost', 'sku', 'configurable',
+  'shopify_page_title', 'shopify_page_description', 'shopify_url',
+].join(',');
 
 async function fetchShopifyLinksForCatalog(
   catalogRows: CatalogProductListRow[],
@@ -771,6 +791,10 @@ export function PublishedProductsView({
   const tableColCount = priceAudit ? 10 : 14;
   const thumbPx = priceAudit ? 180 : 150;
   const [items, setItems] = useState<DisplayProduct[]>([]);
+  // Heavy per-row fields (body_html / images) hydrated only for the visible page.
+  const [heavyById, setHeavyById] = useState<
+    Record<string, { body_html: string | null; images: ShopifyImage[] | null }>
+  >({});
   const [isLoading, setIsLoading] = useState(true);
   /** B 類其餘頁與倍數／排除A類統計尚未算完 */
   const [statsReady, setStatsReady] = useState(false);
@@ -935,7 +959,7 @@ export function PublishedProductsView({
       // must never appear in 全部 / 已發佈 / 已下架 (已下架 = manual delist only).
       const { data, error } = await supabase
         .from('shopify_products')
-        .select('*')
+        .select(UPLOADED_SHOPIFY_LIST_SELECT)
         .is('configurable', null)
         .order('imported_at', { ascending: false })
         .order('published_at', { ascending: false, nullsFirst: true });
@@ -944,7 +968,7 @@ export function PublishedProductsView({
         setItems([]);
         setStatsReady(true);
       } else {
-        const rows = (data ?? []).filter(
+        const rows = ((data ?? []) as unknown as ShopifyProductRow[]).filter(
           (r) => !(typeof r.configurable === 'string' && r.configurable.trim()),
         );
         const sourceIds = rows
@@ -1315,11 +1339,25 @@ export function PublishedProductsView({
       setDetailProduct(rowToDisplay(data as ShopifyProductRow, p.costPrice ?? null));
       return;
     }
+    // Mirror rows: refetch the full row so heavy fields (images etc.) omitted
+    // from the lightweight list projection are available in the detail modal.
+    if (p.shopify_product_id) {
+      const { data } = await supabase
+        .from('shopify_products')
+        .select('*')
+        .eq('shopify_product_id', p.shopify_product_id)
+        .maybeSingle();
+      if (data) {
+        setCatalogDetailProduct(null);
+        setDetailProduct(rowToDisplay(data as unknown as ShopifyProductRow, p.costPrice ?? null));
+        return;
+      }
+    }
     setCatalogDetailProduct(null);
     setDetailProduct(p);
   }, []);
 
-  const openMergeModal = useCallback(() => {
+  const openMergeModal = useCallback(async () => {
     if (selectedIds.length < 2) {
       toast.message('請至少勾選 2 件產品進行合併（最先勾選的為主產品）');
       return;
@@ -1328,7 +1366,25 @@ export function PublishedProductsView({
       .map((id) => items.find((p) => p.id === id))
       .filter((p): p is DisplayProduct => Boolean(p));
     if (ordered.length < 2) return;
-    setMergeProducts(ordered);
+
+    // Hydrate images for the selected rows (omitted from the light list query).
+    const ids = ordered.map((p) => p.id);
+    const { data } = await supabase
+      .from('shopify_products')
+      .select('id, images')
+      .in('id', ids);
+    const imagesById = new Map(
+      (data ?? []).map((row) => [
+        String((row as { id: string }).id),
+        (row as { images: ShopifyImage[] | null }).images,
+      ]),
+    );
+    const hydrated = ordered.map((p) => (
+      imagesById.has(p.id) && p.raw
+        ? { ...p, raw: { ...p.raw, images: imagesById.get(p.id) ?? null } as ShopifyProductRow }
+        : p
+    ));
+    setMergeProducts(hydrated);
     setShowMergeModal(true);
   }, [selectedIds, items]);
 
@@ -1620,6 +1676,35 @@ export function PublishedProductsView({
     }
     return sorted.slice((currentPage - 1) * pageSize, currentPage * pageSize);
   }, [similarPages, sorted, currentPage, pageSize]);
+
+  // Lazily fetch the heavy fields (body_html / images) for just the visible page,
+  // so the list query never needs to transfer them for every row.
+  useEffect(() => {
+    const ids = paged
+      .map((p) => p.id)
+      .filter((id) => !(id in heavyById));
+    if (ids.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const { data, error } = await supabase
+        .from('shopify_products')
+        .select('id, body_html, images')
+        .in('id', ids);
+      if (cancelled || error || !data) return;
+      setHeavyById((prev) => {
+        const next = { ...prev };
+        for (const row of data as Array<{
+          id: string;
+          body_html: string | null;
+          images: ShopifyImage[] | null;
+        }>) {
+          next[row.id] = { body_html: row.body_html ?? null, images: row.images ?? null };
+        }
+        return next;
+      });
+    })();
+    return () => { cancelled = true; };
+  }, [paged, heavyById]);
 
   const detailPageIndex = useMemo(() => {
     if (!detailProduct) return -1;
@@ -3216,8 +3301,11 @@ export function PublishedProductsView({
                 const r = p.raw;
                 const variants: ShopifyVariant[] = Array.isArray(r.variants) ? r.variants : [];
                 const tags: string[] = priceAudit ? [] : (Array.isArray(r.tags) ? r.tags : []);
-                const bodyText = priceAudit ? '' : (r.body_html ? r.body_html.replace(/<[^>]*>/g, '') : '');
+                const hydratedHtml = heavyById[r.id]?.body_html ?? r.body_html ?? '';
+                const bodyText = priceAudit ? '' : hydratedHtml.replace(/<[^>]*>/g, '');
                 const skuText = resolveProductSku(r);
+                const thumbSrc = p.imageUrl
+                  || resolveMirrorPrimaryImageUrl({ image_url: r.image_url, images: heavyById[r.id]?.images ?? null });
                 const groupMeta = groupMetaByProductId.get(p.id);
                 const prevGroupId =
                   pageIndex > 0
@@ -3283,12 +3371,13 @@ export function PublishedProductsView({
                     {/* 產品圖片（含名稱） */}
                     <td className="px-3 py-2.5 sticky left-[44px] bg-card z-10 align-top overflow-hidden">
                       <div className="flex items-start gap-3">
-                        {p.imageUrl ? (
+                        {thumbSrc ? (
                           <img
-                            key={p.imageUrl}
-                            src={p.imageUrl}
+                            key={thumbSrc}
+                            src={productThumbUrl(thumbSrc, 400)}
                             alt={p.title}
                             loading="lazy"
+                            decoding="async"
                             className="rounded-md object-contain bg-muted flex-shrink-0"
                             style={{ height: thumbPx, width: thumbPx }}
                           />
@@ -3561,7 +3650,7 @@ export function PublishedProductsView({
                       <td className="px-3 py-2.5">
                         <div className="flex items-center gap-2.5">
                           {p.image_url ? (
-                            <img src={p.image_url} alt={p.title} className="h-9 w-9 rounded-md object-cover bg-muted flex-shrink-0" />
+                            <img src={productThumbUrl(p.image_url)} alt={p.title} loading="lazy" decoding="async" className="h-9 w-9 rounded-md object-cover bg-muted flex-shrink-0" />
                           ) : (
                             <div className="h-9 w-9 rounded-md bg-muted flex items-center justify-center flex-shrink-0">
                               <Store className="h-4 w-4 text-muted-foreground/40" />

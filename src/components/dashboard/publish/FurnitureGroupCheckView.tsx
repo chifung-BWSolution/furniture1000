@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
+import { productThumbUrl } from '@/lib/imageThumb';
 import {
   Sofa, Loader2, CheckCheck, ChevronLeft, ChevronRight, Image as ImageIcon,
   X, Package, Tag, DollarSign, Search, RotateCcw, Save, Check, Ruler, Truck,
@@ -671,8 +672,10 @@ export function FGProductDetailModal({
               <div className="aspect-square w-full overflow-hidden rounded-xl border border-border bg-muted flex items-center justify-center">
                 {displayImg ? (
                   <img
-                    src={displayImg}
+                    src={productThumbUrl(displayImg, 640)}
                     alt={data.title ?? ''}
+                    loading="lazy"
+                    decoding="async"
                     className="h-full w-full object-contain"
                   />
                 ) : (
@@ -698,7 +701,7 @@ export function FGProductDetailModal({
                             : 'border-transparent hover:border-muted-foreground/40'
                         )}
                       >
-                        <img src={src} alt={`媒體 ${i + 1}`} className="h-full w-full object-cover" />
+                        <img src={productThumbUrl(src)} alt={`媒體 ${i + 1}`} loading="lazy" decoding="async" className="h-full w-full object-cover" />
                       </button>
                       <button
                         type="button"
@@ -1431,8 +1434,10 @@ export function FurnitureGroupCheckView({ onEnterReadyToPublish }: Props) {
                       <div className="flex items-center gap-3">
                         {row.imageUrl ? (
                           <img
-                            src={row.imageUrl}
+                            src={productThumbUrl(row.imageUrl)}
                             alt={row.title}
+                            loading="lazy"
+                            decoding="async"
                             className="h-12 w-12 shrink-0 rounded-lg object-cover bg-muted"
                             draggable={false}
                           />

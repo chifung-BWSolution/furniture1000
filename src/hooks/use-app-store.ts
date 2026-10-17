@@ -420,7 +420,7 @@ export function useAppStore() {
         const productIds = productRows.map((p: any) => p.id);
         supabase
           .from('product_variants')
-          .select('*')
+          .select('id,product_id,size,color,sku,price,inventory')
           .in('product_id', productIds)
           .then(({ data: variantRows }) => {
             if (!variantRows || variantRows.length === 0) return;
@@ -487,7 +487,7 @@ export function useAppStore() {
       const { data: variantRows } = productIds.length > 0
         ? await supabase
             .from('product_variants')
-            .select('*')
+            .select('id,product_id,size,color,sku,price,inventory')
             .in('product_id', productIds)
         : { data: [] };
 

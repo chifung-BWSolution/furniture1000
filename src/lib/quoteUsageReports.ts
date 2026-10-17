@@ -99,6 +99,16 @@ async function fetchAllQuoteItemRows(): Promise<QuoteItemScanRow[]> {
 
 /** Latest bwf_quote.id per quote_id chain (same grouping as 報價單一覽). */
 async function fetchLatestQuoteUuidSet(): Promise<Set<string>> {
+  // Preferred: one server-side DISTINCT ON round-trip (one id per quote_id).
+  const { data: rpcRows, error: rpcErr } = await supabase.rpc('latest_quote_version_ids');
+  if (!rpcErr && rpcRows) {
+    return new Set((rpcRows as { id: string }[]).map((row) => String(row.id)));
+  }
+  console.warn(
+    '[quoteUsageReports] latest_quote_version_ids RPC unavailable, falling back to scan:',
+    rpcErr?.message,
+  );
+
   const latestByQuoteId = new Map<string, { id: string; createdAt: number }>();
   let from = 0;
   for (;;) {
@@ -313,6 +323,19 @@ async function countFactoriesFromColumn(
   opts?: { requireTitle?: boolean },
 ): Promise<Map<string, number>> {
   const counts = new Map<string, number>();
+
+  // Preferred: server-side GROUP BY (one round-trip).
+  const { data: rpcRows, error: rpcErr } = await supabase.rpc('factory_counts', { p_source: table });
+  if (!rpcErr && rpcRows) {
+    for (const row of rpcRows as { factory_name: string | null; cnt: number }[]) {
+      const name = normalizeFactoryDisplayName(row.factory_name);
+      if (!name) continue;
+      counts.set(name, (counts.get(name) || 0) + (Number(row.cnt) || 0));
+    }
+    return counts;
+  }
+  console.warn('[quoteUsageReports] factory_counts RPC unavailable, falling back to scan:', rpcErr?.message);
+
   let from = 0;
   for (;;) {
     let query = supabase.from(table).select(column);

@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef, useMemo, memo } from 'react';
 import { cn } from '@/lib/utils';
+import { productThumbUrl } from '@/lib/imageThumb';
 import { Product, ProductVariant } from '@/types/product';
 import { TagSelector } from './TagSelector';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -138,8 +139,10 @@ const ProductTableRow = memo(function ProductTableRow({
           <div className="h-9 w-9 rounded-md overflow-hidden flex-shrink-0 bg-white border border-border/50 aspect-square">
             {product.imageUrl ? (
               <img
-                src={product.imageUrl}
+                src={productThumbUrl(product.imageUrl)}
                 alt=""
+                loading="lazy"
+                decoding="async"
                 className="h-full w-full object-cover"
               />
             ) : (
@@ -1232,7 +1235,7 @@ export const ProductTableView = memo(function ProductTableView({
                       >
                         <div className="h-8 w-8 shrink-0 rounded overflow-hidden border border-border bg-muted/30">
                           {p.imageUrl ? (
-                            <img src={p.imageUrl} alt="" className="h-full w-full object-cover" />
+                            <img src={productThumbUrl(p.imageUrl)} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
                           ) : (
                             <div className="flex h-full w-full items-center justify-center">
                               <Package className="h-3 w-3 text-muted-foreground/40" />

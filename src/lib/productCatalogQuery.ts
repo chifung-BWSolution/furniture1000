@@ -288,7 +288,7 @@ async function loadProductsByIds(ids: string[]): Promise<Map<string, Record<stri
     const { data, error } = await supabase
       .from('products')
       .select(
-        'id, title, sku, image_url, images, sale_price, price, cost_price, factories_display_name, level1_category, level2_category, product_category_id, category, material, dimension_l_mm, dimension_w_mm, dimension_h_mm, color, remarks, delivery_term_name, shopify_product_id, modified_date, created_at, in_stock, customize, tags',
+        'id, title, sku, image_url, sale_price, price, cost_price, factories_display_name, level1_category, level2_category, product_category_id, category, material, dimension_l_mm, dimension_w_mm, dimension_h_mm, color, remarks, delivery_term_name, shopify_product_id, modified_date, created_at, in_stock, customize, tags',
       )
       .in('id', chunk);
     if (error) throw error;
@@ -328,13 +328,13 @@ function sortByPriorityLevel1(
 }
 
 const PRODUCTS_CATALOG_SELECT =
-  'id, title, sku, image_url, images, sale_price, price, cost_price, factories_display_name, level1_category, level2_category, product_category_id, category, material, dimension_l_mm, dimension_w_mm, dimension_h_mm, color, remarks, delivery_term_name, shopify_product_id, modified_date, created_at, in_stock, customize, tags';
+  'id, title, sku, image_url, sale_price, price, cost_price, factories_display_name, level1_category, level2_category, product_category_id, category, material, dimension_l_mm, dimension_w_mm, dimension_h_mm, color, remarks, delivery_term_name, shopify_product_id, modified_date, created_at, in_stock, customize, tags';
 
 const SHOPIFY_CATALOG_SELECT =
-  'id, shopify_product_id, source_product_id, title, sku, image_url, images, price, cost, vendor, product_type, variants, imported_at, published_at, shopify_updated_at, in_stock, customize, "my_fields.production_time"';
+  'id, shopify_product_id, source_product_id, title, sku, image_url, price, cost, vendor, product_type, variants, imported_at, published_at, shopify_updated_at, in_stock, customize, "my_fields.production_time"';
 
 const RTS_CATALOG_SELECT =
-  'id, product_id, shopify_product_id, title, sku, image_url, images, price, vendor, product_type, material, dimension_l_mm, dimension_w_mm, dimension_h_mm, color, remarks, imported_at, cost, in_stock, customize, tags';
+  'id, product_id, shopify_product_id, title, sku, image_url, price, vendor, product_type, material, dimension_l_mm, dimension_w_mm, dimension_h_mm, color, remarks, imported_at, cost, in_stock, customize, tags';
 
 function applyProductsCatalogFilters(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { cn } from '@/lib/utils';
+import { productThumbUrl } from '@/lib/imageThumb';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -391,7 +392,7 @@ function ImageLightbox({
                   : 'border-transparent opacity-60 hover:opacity-100'
               )}
             >
-              <img src={img.src} alt={img.alt || `Thumb ${idx + 1}`} className="h-full w-full object-cover" />
+              <img src={productThumbUrl(img.src)} alt={img.alt || `Thumb ${idx + 1}`} loading="lazy" decoding="async" className="h-full w-full object-cover" />
             </button>
           ))}
         </div>
@@ -1055,8 +1056,10 @@ export function ProductDetailModal({
                   {displayImage ? (
                     <>
                       <img
-                        src={displayImage}
+                        src={productThumbUrl(displayImage, 500)}
                         alt={product.title}
+                        loading="lazy"
+                        decoding="async"
                         className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
                       />
                       <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors flex items-center justify-center">
@@ -1100,8 +1103,10 @@ export function ProductDetailModal({
                         onClick={() => setSelectedImageIndex(idx)}
                       >
                         <img
-                          src={img.src}
+                          src={productThumbUrl(img.src)}
                           alt={img.alt || `Image ${idx + 1}`}
+                          loading="lazy"
+                          decoding="async"
                           className="h-full w-full object-cover"
                         />
                         {/* Delete button - top-left corner */}

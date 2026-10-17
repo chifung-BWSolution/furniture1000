@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { cn } from '@/lib/utils';
+import { productThumbUrl } from '@/lib/imageThumb';
 import {
   Boxes, Check, ChevronLeft, ChevronRight, Loader2, Tag, Ruler, DollarSign, Truck, FolderTree, X, ZoomIn,
 } from 'lucide-react';
@@ -882,7 +883,7 @@ function LazyProductThumb({
     >
       {visible ? (
         <img
-          src={src}
+          src={productThumbUrl(src)}
           alt={alt}
           loading={priority ? 'eager' : 'lazy'}
           decoding="async"

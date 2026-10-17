@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { productThumbUrl } from '@/lib/imageThumb';
 
 /**
  * Reserved row under a product main image.
@@ -51,9 +52,11 @@ export function ProductExtraImageThumbs({
         const content = (
           <>
             <img
-              src={src}
+              src={productThumbUrl(src)}
               alt=""
               draggable={false}
+              loading="lazy"
+              decoding="async"
               className="h-full w-full select-none object-cover"
             />
             {showOverflow ? (

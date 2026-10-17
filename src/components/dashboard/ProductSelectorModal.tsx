@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
+import { productThumbUrl } from '@/lib/imageThumb';
 import {
   fetchCatalogFactoryNames,
   fetchProductCatalog,
@@ -630,10 +631,11 @@ export function ProductSelectorModal({
                       <div className="relative aspect-[4/3] bg-muted">
                         {product.image_url ? (
                           <img
-                            src={product.image_url}
+                            src={productThumbUrl(product.image_url)}
                             alt={product.title || ''}
                             className="h-full w-full object-cover"
                             loading="lazy"
+                            decoding="async"
                           />
                         ) : (
                           <div className="flex h-full w-full items-center justify-center">

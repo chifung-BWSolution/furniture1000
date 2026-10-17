@@ -3,6 +3,7 @@ import {
   Check, ChevronLeft, ChevronRight, GripVertical, Loader2, Package, Plus, Search, X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { productThumbUrl } from '@/lib/imageThumb';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -260,7 +261,7 @@ function MergeVariantRowView({
             )}
           >
             {row.imageSrc ? (
-              <img src={row.imageSrc} alt="" className="h-full w-full object-cover" />
+              <img src={productThumbUrl(row.imageSrc)} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
             ) : (
               <Package className="h-5 w-5 text-muted-foreground/40" />
             )}
@@ -682,7 +683,7 @@ export function PublishedProductMergeModal({
                       className="h-full w-full overflow-hidden rounded-md border border-border bg-muted/30 hover:ring-2 hover:ring-primary/40 transition-shadow cursor-grab active:cursor-grabbing"
                       title="拖曳至規格主圖，或點擊放大"
                     >
-                      <img src={url} alt="" className="h-full w-full object-cover" draggable={false} />
+                      <img src={productThumbUrl(url)} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" draggable={false} />
                     </button>
                     <button
                       type="button"
@@ -801,7 +802,7 @@ export function PublishedProductMergeModal({
                   >
                     <div className="h-8 w-8 shrink-0 rounded overflow-hidden border border-border bg-muted/30">
                       {p.image_url ? (
-                        <img src={p.image_url} alt="" className="h-full w-full object-cover" />
+                        <img src={productThumbUrl(p.image_url)} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
                       ) : (
                         <div className="flex h-full w-full items-center justify-center">
                           <Package className="h-3 w-3 text-muted-foreground/40" />

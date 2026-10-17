@@ -8,6 +8,7 @@ import {
 } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { cn } from '@/lib/utils';
+import { productThumbUrl } from '@/lib/imageThumb';
 import {
   Plus, Loader2, Search, Check, CheckCircle2, Trash2, X, LayoutGrid, UserRound, Tag,
   ImagePlus, PenLine, ZoomIn, Save, Link2, RefreshCw, MessageSquare, Layers,
@@ -792,8 +793,10 @@ function ZoneProductRow({
             aria-label={`${titleLabel}圖片預覽`}
           >
             <img
-              src={item.productImageUrl}
+              src={productThumbUrl(item.productImageUrl)}
               alt=""
+              loading="lazy"
+              decoding="async"
               className="h-full w-full object-cover transition group-hover:scale-105"
             />
             <span className="absolute inset-0 flex items-center justify-center bg-black/0 text-white opacity-0 transition group-hover:bg-black/35 group-hover:opacity-100">
@@ -4165,7 +4168,7 @@ export function DesignProjectsView() {
                       >
                         <div className="aspect-[4/3] bg-muted">
                           {p.imageUrl ? (
-                            <img src={p.imageUrl} alt="" className="h-full w-full object-cover" />
+                            <img src={productThumbUrl(p.imageUrl)} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
                           ) : null}
                         </div>
                         <div className="space-y-1.5 p-2.5">

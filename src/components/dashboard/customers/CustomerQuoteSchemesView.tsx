@@ -19,6 +19,7 @@ import {
   ZoomIn,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { productThumbUrl } from '@/lib/imageThumb';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import {
@@ -46,6 +47,8 @@ import {
   fetchProjectById,
   fetchZones,
   fetchZoneProducts,
+  fetchZonesForProjects,
+  fetchZoneProductsForProjects,
   fetchProductsDisplayMeta,
   applyZoneProductClientReview,
   updateZoneProductNotes,
@@ -1084,8 +1087,10 @@ function QuotePortalProductCard({
             aria-label={`${title}圖片預覽`}
           >
             <img
-              src={item.image}
+              src={productThumbUrl(item.image)}
               alt={title}
+              loading="lazy"
+              decoding="async"
               className="h-full w-full object-cover transition group-hover:scale-105"
             />
             <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/0 text-white opacity-0 transition group-hover:bg-black/35 group-hover:opacity-100">
@@ -1539,27 +1544,28 @@ export function CustomerQuoteSchemesView() {
     void fetchQuotes();
     // Quote-share guests only need the shared bwf_quote — skip design-project cards.
     void fetchProjects().then(async (rows) => {
-      const loaded = await Promise.all(
-        rows.map(async (project) => {
-          const [zones, products] = await Promise.all([
-            fetchZones(project.id),
-            fetchZoneProducts(project.id),
-          ]);
-          const assigned = products.filter((product) => product.zoneId);
-          const total = assigned.reduce(
-            (sum, product) => sum + product.salePrice * product.quantity,
-            0,
-          );
-          return {
-            project,
-            projectId: project.id,
-            zones,
-            products,
-            total,
-            hasFurniture: assigned.length > 0,
-          };
-        }),
-      );
+      const projectIds = rows.map((project) => project.id);
+      const [zonesByProject, productsByProjectMap] = await Promise.all([
+        fetchZonesForProjects(projectIds),
+        fetchZoneProductsForProjects(projectIds),
+      ]);
+      const loaded = rows.map((project) => {
+        const zones = zonesByProject[project.id] ?? [];
+        const products = productsByProjectMap[project.id] ?? [];
+        const assigned = products.filter((product) => product.zoneId);
+        const total = assigned.reduce(
+          (sum, product) => sum + product.salePrice * product.quantity,
+          0,
+        );
+        return {
+          project,
+          projectId: project.id,
+          zones,
+          products,
+          total,
+          hasFurniture: assigned.length > 0,
+        };
+      });
       // Design-project quotes: any project that already has furniture configured.
       const withFurniture = loaded.filter((entry) => entry.hasFurniture);
       setPortalProjectData(

@@ -3,6 +3,7 @@ import { Check, ChevronsUpDown, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
+import { productThumbUrl } from "@/lib/imageThumb";
 import type { BwfQuoteItemInput } from "@/lib/bwfQuoteItems";
 import { loadQuoteLineItemsForPicker } from "@/lib/quoteCopy";
 import {
@@ -423,8 +424,10 @@ export function CopyQuoteItemsModal({
                       <td className="px-2 py-2 align-middle">
                         {item.image ? (
                           <img
-                            src={item.image}
+                            src={productThumbUrl(item.image)}
                             alt=""
+                            loading="lazy"
+                            decoding="async"
                             className="h-10 w-10 rounded-md border border-border object-cover"
                           />
                         ) : (

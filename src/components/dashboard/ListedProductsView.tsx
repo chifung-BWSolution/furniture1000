@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { dedupeFactoryNames, expandFactoryFilterSelection } from '@/lib/factoryNames';
 import { fetchFactories } from '@/lib/factorySupabase';
 import { cn } from '@/lib/utils';
+import { productThumbUrl } from '@/lib/imageThumb';
 import { ProductVariant } from '@/types/product';
 import { StatusBadge } from './StatusBadge';
 import { Badge } from '@/components/ui/badge';
@@ -45,10 +46,6 @@ import {
   Calculator,
   Check,
   ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  ChevronsLeft,
-  ChevronsRight,
   Clock,
   CloudDownload,
   Database,
@@ -176,6 +173,13 @@ export function ListedProductsView({
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const [pageSize, setPageSize] = useState<PageSize>(20);
   const [currentPage, setCurrentPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const pageRef = useRef(1);
+  const hasMoreRef = useRef(false);
+  const loadingMoreRef = useRef(false);
+  const loadTokenRef = useRef(0);
+  const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [variantModal, setVariantModal] = useState<{ product: ListedProduct } | null>(null);
@@ -261,16 +265,57 @@ export function ListedProductsView({
     return () => { cancelled = true; };
   }, []);
 
-  // Fetch category product counts — paginated to bypass Supabase's 1000-row server cap.
-  // Must respect factory filter so dropdown numbers match the filtered list (0 when empty).
+  // Fetch category product counts via server-side GROUP BY (one round-trip —
+  // fast at 3k+ rows). Respects the factory filter so dropdown numbers match
+  // the filtered list (0 when empty). Falls back to a client-side scan if the
+  // product_category_counts RPC is not deployed yet.
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      const BATCH = 1000;
       const factoryNames = selectedFactories.length > 0
         ? expandFactoryFilterSelection(selectedFactories)
         : null;
 
+      // Known taxonomy options with no matching rows under the current factory
+      // filter should display 0 (not a stale global count / blank).
+      const applyZeroes = (counts: Record<string, number>) => {
+        for (const { level1, level2 } of categoryPairs) {
+          const l1 = (level1 || '').trim();
+          const l2 = (level2 || '').trim();
+          if (l1 && counts[`level1:${l1}`] == null) counts[`level1:${l1}`] = 0;
+          if (l1 && l2 && counts[`level2:${l1}:${l2}`] == null) {
+            counts[`level2:${l1}:${l2}`] = 0;
+          }
+        }
+        return counts;
+      };
+
+      // ── Preferred path: server-side aggregation ──
+      const { data: rpcRows, error: rpcErr } = await supabase.rpc('product_category_counts', {
+        p_mode: isCatalog ? 'catalog' : 'all',
+        p_factories: factoryNames,
+      });
+      if (cancelled) return;
+      if (!rpcErr && rpcRows) {
+        const counts: Record<string, number> = {};
+        for (const row of rpcRows as { level1: string | null; level2: string | null; cnt: number }[]) {
+          const l1 = (row.level1 || '').trim();
+          if (!l1) continue;
+          const n = Number(row.cnt) || 0;
+          counts[`level1:${l1}`] = (counts[`level1:${l1}`] || 0) + n;
+          const l2 = (row.level2 || '').trim();
+          if (l2) counts[`level2:${l1}:${l2}`] = n;
+        }
+        setCategoryCounts(applyZeroes(counts));
+        return;
+      }
+      console.warn(
+        '[ListedProductsView] product_category_counts RPC unavailable, falling back to client scan:',
+        rpcErr?.message,
+      );
+
+      // ── Fallback: paginated client-side scan (slow; only if RPC missing) ──
+      const BATCH = 1000;
       const applyVisibility = (q: any) => {
         let query = isCatalog
           ? applyCatalogFilters(q)
@@ -281,7 +326,6 @@ export function ListedProductsView({
         return query;
       };
 
-      // Paginated fetch helper
       const fetchAllPages = async (columns: string, extraFilter: (q: any) => any) => {
         const rows: any[] = [];
         let page = 0;
@@ -322,17 +366,7 @@ export function ListedProductsView({
         if (!l1 || !l2) continue;
         counts[`level2:${l1}:${l2}`] = (counts[`level2:${l1}:${l2}`] || 0) + 1;
       }
-      // Known taxonomy options with no matching rows under the current factory
-      // filter should display 0 (not a stale global count / blank).
-      for (const { level1, level2 } of categoryPairs) {
-        const l1 = (level1 || '').trim();
-        const l2 = (level2 || '').trim();
-        if (l1 && counts[`level1:${l1}`] == null) counts[`level1:${l1}`] = 0;
-        if (l1 && l2 && counts[`level2:${l1}:${l2}`] == null) {
-          counts[`level2:${l1}:${l2}`] = 0;
-        }
-      }
-      if (!cancelled) setCategoryCounts(counts);
+      setCategoryCounts(applyZeroes(counts));
     })();
     return () => { cancelled = true; };
   }, [isCatalog, selectedFactories, categoryPairs]);
@@ -350,27 +384,42 @@ export function ListedProductsView({
       try {
         const fromMaster = await fetchFactories();
 
-        // Scan product display names in the current view (paginated + ordered)
-        // so any local-only / legacy names not in the master table still appear.
-        const batchSize = 1000;
-        let page = 0;
+        // Names present in the current view, fetched server-side (DISTINCT) so
+        // any local-only / legacy names not in the master table still appear.
+        // Falls back to a client scan if the RPC is not deployed yet.
         const fromProducts: string[] = [];
-        while (true) {
-          let q = supabase
-            .from('products')
-            .select('factories_display_name')
-            .not('factories_display_name', 'is', null)
-            .neq('factories_display_name', '')
-            .order('factories_display_name', { ascending: true })
-            .range(page * batchSize, (page + 1) * batchSize - 1);
-          q = isCatalog ? applyCatalogFilters(q) : applyPendingProductsFilters(q);
-          const { data } = await q;
-          if (!data || data.length === 0) break;
-          fromProducts.push(
-            ...data.map((r: { factories_display_name: string | null }) => r.factories_display_name || '').filter(Boolean)
+        const { data: rpcRows, error: rpcErr } = await supabase.rpc('product_factory_names', {
+          p_mode: isCatalog ? 'catalog' : 'all',
+        });
+        if (!rpcErr && rpcRows) {
+          for (const row of rpcRows as { factory_name: string | null }[]) {
+            const n = (row.factory_name || '').trim();
+            if (n) fromProducts.push(n);
+          }
+        } else {
+          console.warn(
+            '[ListedProductsView] product_factory_names RPC unavailable, falling back to scan:',
+            rpcErr?.message,
           );
-          if (data.length < batchSize) break;
-          page++;
+          const batchSize = 1000;
+          let page = 0;
+          while (true) {
+            let q = supabase
+              .from('products')
+              .select('factories_display_name')
+              .not('factories_display_name', 'is', null)
+              .neq('factories_display_name', '')
+              .order('factories_display_name', { ascending: true })
+              .range(page * batchSize, (page + 1) * batchSize - 1);
+            q = isCatalog ? applyCatalogFilters(q) : applyPendingProductsFilters(q);
+            const { data } = await q;
+            if (!data || data.length === 0) break;
+            fromProducts.push(
+              ...data.map((r: { factories_display_name: string | null }) => r.factories_display_name || '').filter(Boolean)
+            );
+            if (data.length < batchSize) break;
+            page++;
+          }
         }
 
         setAvailableFactories(dedupeFactoryNames([...fromMaster, ...fromProducts]));
@@ -404,6 +453,27 @@ export function ListedProductsView({
     if (!showDuplicates) { setDuplicateSkus(null); return; }
     let cancelled = false;
     (async () => {
+      // Server-side: only the product_sku values that appear more than once.
+      // Falls back to the old full scan if the RPC is not deployed yet.
+      const { data: rpcRows, error: rpcErr } = await supabase.rpc('product_duplicate_skus', {
+        p_mode: isCatalog ? 'catalog' : 'all',
+      });
+      if (cancelled) return;
+      if (!rpcErr && rpcRows) {
+        const dups = new Set(
+          (rpcRows as { product_sku: string | null }[])
+            .map((r) => (r.product_sku || '').trim())
+            .filter(Boolean),
+        );
+        setDuplicateSkus(dups);
+        setCurrentPage(1);
+        return;
+      }
+      console.warn(
+        '[ListedProductsView] product_duplicate_skus RPC unavailable, falling back to scan:',
+        rpcErr?.message,
+      );
+
       // Find all product_sku values that appear more than once (within the same catalog mode)
       let q = supabase
         .from('products')
@@ -430,12 +500,21 @@ export function ListedProductsView({
     return () => { cancelled = true; };
   }, [showDuplicates, isCatalog]);
 
-  // Fetch products from Supabase — ALL products, sorted by created_at DESC by default
-  const fetchProducts = useCallback(async () => {
-    setIsLoading(true);
+  // Load one page of products. append=false replaces the list (filter/sort
+  // change, retry, deletes); append=true adds the next page (infinite scroll).
+  const loadPage = useCallback(async (targetPage: number, append: boolean) => {
+    // Drop stale results if a newer load started (e.g. filter changed mid-flight).
+    const token = ++loadTokenRef.current;
+    if (append) {
+      if (loadingMoreRef.current) return;
+      loadingMoreRef.current = true;
+      setIsLoadingMore(true);
+    } else {
+      setIsLoading(true);
+    }
     setFetchError(null);
     try {
-      const from = (currentPage - 1) * pageSize;
+      const from = (targetPage - 1) * pageSize;
       const to = from + pageSize - 1;
 
       // Always use 'exact' count — 'estimated' uses planner stats and is inaccurate
@@ -553,22 +632,27 @@ export function ListedProductsView({
       const [{ count, error: countErr }, { data: productRows, error: prodErr }] =
         await Promise.all([countQuery, dataQuery]);
 
+      if (token !== loadTokenRef.current) return;
+
       if (countErr) {
         console.error('[ProductCatalog] Count error:', countErr);
       }
-      setTotalCount(count || 0);
+      const total = count || 0;
+      setTotalCount(total);
 
       if (prodErr) {
         console.error('[ProductCatalog] Fetch error:', prodErr);
         setFetchError(prodErr.message || '無法連接到資料庫，請稍後重試');
-        setProducts([]);
-        setIsLoading(false);
+        if (!append) setProducts([]);
         return;
       }
 
       if (!productRows || productRows.length === 0) {
-        setProducts([]);
-        setIsLoading(false);
+        if (!append) setProducts([]);
+        pageRef.current = targetPage;
+        setCurrentPage(targetPage);
+        hasMoreRef.current = false;
+        setHasMore(false);
         return;
       }
 
@@ -623,15 +707,27 @@ export function ListedProductsView({
         variants: [],
       }));
 
-      // 立即渲染前 N 件 — 首屏不再等 variants
-      setProducts(mapped);
+      // 立即渲染 — 首屏不再等 variants
+      if (append) {
+        setProducts((prev) => {
+          const seen = new Set(prev.map((p) => p.id));
+          return [...prev, ...mapped.filter((p) => !seen.has(p.id))];
+        });
+      } else {
+        setProducts(mapped);
+      }
+      pageRef.current = targetPage;
+      setCurrentPage(targetPage);
+      const more = to + 1 < total;
+      hasMoreRef.current = more;
+      setHasMore(more);
       setIsLoading(false);
 
       // 背景非阻塞抓取 variants，回來後再 patch 進已渲染的列
       const productIds = productRows.map((p: any) => p.id);
       supabase
         .from('product_variants')
-        .select('*')
+        .select('id,product_id,size,color,sku,price,inventory')
         .in('product_id', productIds)
         .then(({ data: variantRows }) => {
           if (!variantRows || variantRows.length === 0) return;
@@ -683,16 +779,40 @@ export function ListedProductsView({
     } catch (err) {
       console.error('[ProductCatalog] Unexpected error:', err);
       setFetchError('連線逾時或發生未預期的錯誤，請檢查資料庫狀態');
-      setProducts([]);
+      if (!append) setProducts([]);
     } finally {
-      setIsLoading(false);
+      if (append) {
+        loadingMoreRef.current = false;
+        setIsLoadingMore(false);
+      } else {
+        setIsLoading(false);
+      }
     }
-  }, [currentPage, pageSize, sortField, sortOrder, debouncedSearch, shopifyFilter, selectedFactories, level1Filter, level2Filter, isCatalog, showDuplicates, duplicateSkus]);
+  }, [pageSize, sortField, sortOrder, debouncedSearch, shopifyFilter, selectedFactories, level1Filter, level2Filter, isCatalog, showDuplicates, duplicateSkus]);
 
-  // Fetch on mount and when deps change
+  // Reload from page 1 — used on filter/sort/search change, retry, deletes, sync.
+  const fetchProducts = useCallback(() => loadPage(1, false), [loadPage]);
+
+  // Fetch on mount and when deps change (filter/sort/search/pageSize)
   useEffect(() => {
     fetchProducts();
   }, [fetchProducts]);
+
+  // Infinite scroll: auto-load the next page when the sentinel scrolls into view.
+  useEffect(() => {
+    const el = loadMoreSentinelRef.current;
+    if (!el) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting && hasMoreRef.current && !loadingMoreRef.current) {
+          loadPage(pageRef.current + 1, true);
+        }
+      },
+      { rootMargin: '600px 0px' },
+    );
+    io.observe(el);
+    return () => io.disconnect();
+  }, [loadPage, hasMore]);
 
   // Re-fetch after sync with toast notifications
   const handleSync = useCallback(async () => {
@@ -753,25 +873,6 @@ export function ListedProductsView({
     }
   }, [onSyncFromShopify, fetchProducts]);
 
-  const totalPages = Math.max(1, Math.ceil(totalCount / pageSize));
-
-  // Generate page numbers for pagination
-  const getPageNumbers = () => {
-    const pages: (number | '...')[] = [];
-    if (totalPages <= 7) {
-      for (let i = 1; i <= totalPages; i++) pages.push(i);
-    } else {
-      pages.push(1);
-      if (currentPage > 3) pages.push('...');
-      const start = Math.max(2, currentPage - 1);
-      const end = Math.min(totalPages - 1, currentPage + 1);
-      for (let i = start; i <= end; i++) pages.push(i);
-      if (currentPage < totalPages - 2) pages.push('...');
-      pages.push(totalPages);
-    }
-    return pages;
-  };
-
   // Compute total lead time display
   const getLeadTimeDisplay = (product: ListedProduct) => {
     if (product.totalLeadTime != null) return `${product.totalLeadTime}天`;
@@ -814,10 +915,10 @@ export function ListedProductsView({
   const isAllSelected = products.length > 0 && products.every(p => selectedIds.has(p.id));
   const isSomeSelected = products.some(p => selectedIds.has(p.id)) && !isAllSelected;
 
-  // Clear selection when products change (e.g. page change, search)
+  // Clear selection when the filter/sort/search changes (not on scroll-append).
   useEffect(() => {
     setSelectedIds(new Set());
-  }, [currentPage, debouncedSearch, sortField, sortOrder, pageSize, shopifyFilter, selectedFactories, level1Filter, level2Filter, showDuplicates]);
+  }, [debouncedSearch, sortField, sortOrder, pageSize, shopifyFilter, selectedFactories, level1Filter, level2Filter, showDuplicates]);
 
   // Delete selected products — master DB + local DB
   const handleDeleteSelected = useCallback(async () => {
@@ -887,9 +988,9 @@ export function ListedProductsView({
         duration: 5000,
       });
 
-      // Refresh if the current page might be empty now
-      if (products.length === localIds.length && currentPage > 1) {
-        setCurrentPage(prev => Math.max(1, prev - 1));
+      // If everything on screen was deleted, reload from the first page.
+      if (products.length === localIds.length) {
+        fetchProducts();
       }
     } catch (err) {
       console.error('[DeleteProducts] Unexpected error:', err);
@@ -901,7 +1002,7 @@ export function ListedProductsView({
     } finally {
       setIsDeleting(false);
     }
-  }, [selectedIds, products, currentPage, isCatalog]);
+  }, [selectedIds, products, isCatalog, fetchProducts]);
 
   // ── Per-row processing actions (所有產品頁) ──
   // Optimistically remove the row from view, then persist the flag.
@@ -1297,11 +1398,11 @@ export function ListedProductsView({
                 <SelectValue placeholder="Per page" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="20">每頁 20 項</SelectItem>
-                <SelectItem value="50">每頁 50 項</SelectItem>
-                <SelectItem value="100">每頁 100 項</SelectItem>
-                <SelectItem value="200">每頁 200 項</SelectItem>
-                <SelectItem value="500">每頁 500 項</SelectItem>
+                <SelectItem value="20">每次 20 項</SelectItem>
+                <SelectItem value="50">每次 50 項</SelectItem>
+                <SelectItem value="100">每次 100 項</SelectItem>
+                <SelectItem value="200">每次 200 項</SelectItem>
+                <SelectItem value="500">每次 500 項</SelectItem>
               </SelectContent>
             </Select>
 
@@ -1612,7 +1713,7 @@ export function ListedProductsView({
               <span className="text-[11px] text-indigo-500 font-body">
                 {isCatalog
                   ? `產品目錄 • 共 ${totalCount.toLocaleString()} 件 — 此處只顯示已加入目錄的產品，所有裝置即時同步`
-                  : `已優化載入速度 • 預設顯示前 ${pageSize} 件產品，其餘資料將於滾動或切換分頁時延遲載入`}
+                  : `已優化載入速度 • 每次載入 ${pageSize} 件，向下滾動自動載入更多`}
               </span>
             </motion.div>
           )}
@@ -1712,7 +1813,7 @@ export function ListedProductsView({
                       <div className="relative flex-shrink-0 w-[40%] aspect-square bg-white dark:bg-muted overflow-hidden border-r border-border">
                         {imgSrc ? (
                           <img
-                            src={imgSrc}
+                            src={productThumbUrl(imgSrc)}
                             alt={product.title}
                             loading="lazy"
                             className="absolute inset-0 h-full w-full object-contain p-2"
@@ -1969,7 +2070,7 @@ export function ListedProductsView({
                         const imgSrc = product.images?.[0]?.src || product.imageUrl || '';
                         return imgSrc ? (
                           <img
-                            src={imgSrc}
+                            src={productThumbUrl(imgSrc)}
                             alt={product.images?.[0]?.alt || product.title}
                             loading="lazy"
                             decoding="async"
@@ -2243,85 +2344,35 @@ export function ListedProductsView({
               </tbody>
             </table>
           )}
+          {!isLoading && !fetchError && products.length > 0 && hasMore && (
+            <div ref={loadMoreSentinelRef} className="h-8 w-full" aria-hidden />
+          )}
         </div>
 
-        {/* Pagination Footer */}
+        {/* Infinite-scroll footer */}
         {!isLoading && products.length > 0 && (
           <div className="flex items-center justify-between border-t border-border bg-muted/30 px-6 py-2.5">
             <span className="font-mono-data text-xs text-muted-foreground">
-              顯示 {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, totalCount)}，共 {totalCount} 項
+              已載入 {products.length} / 共 {totalCount} 項
             </span>
-
-            <div className="flex items-center gap-1">
-              {/* First */}
+            {isLoadingMore ? (
+              <span className="flex items-center gap-2 font-body text-xs text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                正在載入更多...
+              </span>
+            ) : hasMore ? (
               <Button
-                variant="ghost"
+                variant="outline"
                 size="sm"
-                disabled={currentPage === 1}
-                onClick={() => setCurrentPage(1)}
-                className="h-7 w-7 p-0"
+                className="h-7 gap-1.5 text-xs font-body"
+                onClick={() => loadPage(currentPage + 1, true)}
               >
-                <ChevronsLeft className="h-3.5 w-3.5" />
+                <ChevronDown className="h-3.5 w-3.5" />
+                載入更多
               </Button>
-
-              {/* Previous */}
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={currentPage === 1}
-                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                className="h-7 w-7 p-0"
-              >
-                <ChevronLeft className="h-3.5 w-3.5" />
-              </Button>
-
-              {/* Page Numbers */}
-              {getPageNumbers().map((page, idx) =>
-                page === '...' ? (
-                  <span
-                    key={`ellipsis-${idx}`}
-                    className="flex h-7 w-7 items-center justify-center font-mono-data text-[10px] text-muted-foreground"
-                  >
-                    …
-                  </span>
-                ) : (
-                  <Button
-                    key={page}
-                    variant={currentPage === page ? 'default' : 'ghost'}
-                    size="sm"
-                    onClick={() => setCurrentPage(page as number)}
-                    className={cn(
-                      'h-7 w-7 p-0 font-mono-data text-[11px]',
-                      currentPage === page && 'bg-primary text-primary-foreground'
-                    )}
-                  >
-                    {page}
-                  </Button>
-                )
-              )}
-
-              {/* Next */}
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={currentPage === totalPages}
-                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                className="h-7 w-7 p-0"
-              >
-                <ChevronRight className="h-3.5 w-3.5" />
-              </Button>
-
-              {/* Last */}
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={currentPage === totalPages}
-                onClick={() => setCurrentPage(totalPages)}
-                className="h-7 w-7 p-0"
-              >
-                <ChevronsRight className="h-3.5 w-3.5" />
-              </Button>
-            </div>
+            ) : (
+              <span className="font-body text-xs text-muted-foreground/60">已顯示全部</span>
+            )}
           </div>
         )}
 

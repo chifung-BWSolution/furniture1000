@@ -594,28 +594,48 @@ async function fetchPublishedShopifyStats(): Promise<{
   count: number;
   breakdown: ShopifyCategoryBreakdown[];
 }> {
-  const [rows, sortOrders] = await Promise.all([
-    fetchAllPages<{ product_type: string | null }>('shopify_products.product_type', async (from, to) =>
+  const sortOrders = await fetchCategorySortOrders();
+
+  const l1Counts = new Map<string, number>();
+  const l2Counts = new Map<string, Map<string, number>>();
+  let total = 0;
+
+  const addCount = (level1: string, level2: string, n: number) => {
+    l1Counts.set(level1, (l1Counts.get(level1) || 0) + n);
+    if (level2) {
+      if (!l2Counts.has(level1)) l2Counts.set(level1, new Map());
+      const child = l2Counts.get(level1)!;
+      child.set(level2, (child.get(level2) || 0) + n);
+    }
+  };
+
+  // Preferred: one server-side GROUP BY round-trip.
+  const { data: rpcRows, error: rpcErr } = await supabase.rpc('shopify_published_category_counts');
+  if (!rpcErr && rpcRows) {
+    for (const row of rpcRows as { level1: string | null; level2: string | null; cnt: number }[]) {
+      const l1 = (row.level1 || '').trim() || UNCATEGORIZED_LABEL;
+      const l2 = (row.level2 || '').trim();
+      const n = Number(row.cnt) || 0;
+      total += n;
+      addCount(l1, l2, n);
+    }
+  } else {
+    console.warn(
+      '[uploadLogReport] shopify_published_category_counts RPC unavailable, falling back to scan:',
+      rpcErr?.message,
+    );
+    const rows = await fetchAllPages<{ product_type: string | null }>('shopify_products.product_type', async (from, to) =>
       supabase
         .from('shopify_products')
         .select('product_type')
         .eq('status', 'active')
         .is('configurable', null)
         .range(from, to),
-    ),
-    fetchCategorySortOrders(),
-  ]);
-
-  const l1Counts = new Map<string, number>();
-  const l2Counts = new Map<string, Map<string, number>>();
-
-  for (const row of rows) {
-    const { level1, level2 } = splitProductType(row.product_type);
-    l1Counts.set(level1, (l1Counts.get(level1) || 0) + 1);
-    if (level2) {
-      if (!l2Counts.has(level1)) l2Counts.set(level1, new Map());
-      const child = l2Counts.get(level1)!;
-      child.set(level2, (child.get(level2) || 0) + 1);
+    );
+    total = rows.length;
+    for (const row of rows) {
+      const { level1, level2 } = splitProductType(row.product_type);
+      addCount(level1, level2, 1);
     }
   }
 
@@ -651,7 +671,7 @@ async function fetchPublishedShopifyStats(): Promise<{
       return { level1, count, children };
     });
 
-  return { count: rows.length, breakdown };
+  return { count: total, breakdown };
 }
 
 async function fetchPendingCounts(): Promise<Record<PublishLogStage, number>> {

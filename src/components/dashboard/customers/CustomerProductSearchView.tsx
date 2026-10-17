@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { cn } from '@/lib/utils';
+import { productThumbUrl } from '@/lib/imageThumb';
 import {
   Search, ShoppingCart, Plus, Trash2, Loader2, SlidersHorizontal, RotateCcw,
 } from 'lucide-react';
@@ -710,9 +711,10 @@ export function CustomerProductSearchView() {
                       <div className="aspect-[4/3] bg-muted">
                         {p.imageUrl ? (
                           <img
-                            src={p.imageUrl}
+                            src={productThumbUrl(p.imageUrl)}
                             alt={p.title}
                             loading="lazy"
+                            decoding="async"
                             className="h-full w-full object-cover"
                           />
                         ) : (
@@ -801,7 +803,7 @@ export function CustomerProductSearchView() {
                   >
                     <div className="h-12 w-12 overflow-hidden rounded-lg bg-muted">
                       {c.imageUrl ? (
-                        <img src={c.imageUrl} alt="" className="h-full w-full object-cover" />
+                        <img src={productThumbUrl(c.imageUrl)} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
                       ) : null}
                     </div>
                     <div className="min-w-0 flex-1">
