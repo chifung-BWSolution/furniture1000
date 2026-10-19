@@ -88,6 +88,15 @@
 | T-304 | F-AI-002/004 | P0 | T-301 | migration、UI | `extraction_items` 審核 UI（approve/reject/改欄/改圖） | 可逐筆審核、保留 AI 原值與修正 | 審核工作量 |
 | T-305 | F-AI-003 | P0 | T-301 | migration | `supplier_prices`、`product_source_refs` 表 | 產品/報價/來源分離 | 身份鍵已決議：型號＋供應商 |
 
+**Day 3 進度（2026-10-19）**：T-301～T-305 完成。
+- Migration `20261019_fds21_extraction_review.sql`：`supplier_document_images`、`extraction_items`（`raw_json` AI 原值＋`corrected_json` 人工修正、置信度、flags、圖片、審核狀態）、`supplier_prices`、`product_source_refs`；RLS 只限 admin／uploader；審核 RPC `fds_extraction_item_review`／`fds_extraction_items_review_batch`（已匯入項目不可改）。
+- Migration `20261019_fds21_extraction_finalize.sql`：全文件型號重複標記、logo 圖移除、重算「需注意」。
+- `parse_pdf` 加第三階段 `structure`：分段切成 ≤5 頁的單元，每單元交 Gemini（固定 JSON Schema，含圖片）→ 規則校驗：缺型號、缺價、價格不在原文、缺幣種、尺寸可疑（<50 或 >6000mm）、AI 不確定 → 置信度 <0.7 或有硬性異常即進「需注意」。目錄類文件缺價只作提示。結果附建議幣種（只供參考，幣種仍由人決定）。
+- 圖片：抽文字頁內 ≥200px 的 JPEG，sha256 去重存 `product-images/supplier-extracts/`，出現 ≥3 頁視為 logo；AI 指定圖片類型（主圖／細節／尺寸圖／布料…）並關聯產品。
+- 新頁面「產品管理 → AI 提取審核」（`fds2-products-ai-review`）：按文件列出、篩選（待審核／需注意／已通過／已拒絕）、搜尋、單筆／批量通過拒絕、逐欄修正（顯示 AI 原值）、選主圖、跳到原文 PDF 對應頁。
+- 27 頁合成測試：67 件產品，價目表 48 件價格全對，人民幣型號 HZ-801 ¥3,280 正確；重新解析保留已審核項目不重複。
+- 限制：PDF 內非 JPEG 圖片（Flate／JPX）未抽，待 Python Worker；仍需真實供應商 PDF 驗收（T-503）。
+
 ### Day 4 — 產品資料庫、全文搜索、詳情
 
 | Task ID | 功能 ID | 優先級 | 依賴 | 改動模組 | 交付內容 | 驗收標準 | 風險 |

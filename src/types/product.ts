@@ -179,6 +179,7 @@ export type ViewType =
   | 'fds2-factory-login'
   | 'fds2-products-factories'
   | 'fds2-products-quote-pdf'
+  | 'fds2-products-ai-review'
   | 'fds2-products-pending'
   | 'fds2-products-catalog'
   | 'fds2-publish-copy'

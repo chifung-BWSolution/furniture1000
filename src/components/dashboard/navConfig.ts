@@ -101,6 +101,7 @@ export const NAV_CONFIG: PrimaryItem[] = [
     children: [
       { view: 'fds2-products-factories', label: '廠家目錄', icon: BookOpen },
       { view: 'fds2-products-quote-pdf', label: '上載報價PDF', icon: FileUp },
+      { view: 'fds2-products-ai-review', label: 'AI 提取審核', icon: ListChecks },
       { view: 'fds2-products-pending', label: '待處理產品', icon: Boxes },
       { view: 'fds2-products-catalog', label: '產品目錄', icon: BookOpen },
     ],

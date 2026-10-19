@@ -38,6 +38,17 @@ const OCR_CONCURRENCY = 4;
 // Pages with less real text than this are treated as scanned and sent to OCR.
 const MIN_TEXT_CHARS = 40;
 const CLASSIFY_TEXT_CHARS = 1500;
+const STRUCTURE_MAX_PAGES = 5;
+const STRUCTURE_MAX_IMAGES = 10;
+const MIN_IMAGE_PX = 200;
+const MAX_INLINE_IMAGE_BYTES = 4 * 1024 * 1024;
+// Edge CPU budget: base64-encoding inline images is the expensive part of a structure batch.
+const MAX_INLINE_TOTAL_BYTES = 12 * 1024 * 1024;
+// The same picture on this many pages is a logo / decoration, not a product photo.
+const LOGO_PAGE_OCCURRENCES = 3;
+const STRUCTURE_KINDS = ["product", "price_table", "other"];
+const IMAGE_TYPES = ["main", "detail", "dimension", "fabric", "logo", "other"] as const;
+const ATTENTION_CONFIDENCE = 0.7;
 
 const PDFJS_ASSETS = "https://cdn.jsdelivr.net/npm/pdfjs-dist@6.4.299";
 const GEMINI_MODEL = "gemini-2.5-flash";
@@ -56,12 +67,18 @@ type Job = {
   max_attempts: number;
 };
 
+type StructureUnit = { segment_id: string; start: number; end: number };
+
 type ParseState = {
-  phase: "extract" | "classify";
+  phase: "extract" | "classify" | "structure";
   cursor: number;
   page_count: number;
   tokens: number;
   ocr_pages: number;
+  /** structure phase: cursor indexes into units. */
+  units?: StructureUnit[];
+  segments?: number;
+  currencies?: Record<string, number>;
 };
 
 type PageRow = {
@@ -206,7 +223,7 @@ async function extractPageText(
   return out.replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
-type EmbeddedImage = { bytes: Uint8Array; area: number; jpeg: boolean };
+type EmbeddedImage = { bytes: Uint8Array; width: number; height: number; area: number; jpeg: boolean };
 
 function collectImages(doc: PDFDocument, resources: PDFDict | undefined, depth: number, out: EmbeddedImage[]) {
   const xobjects = resources?.lookupMaybe(PDFName.of("XObject"), PDFDict);
@@ -218,13 +235,15 @@ function collectImages(doc: PDFDocument, resources: PDFDict | undefined, depth: 
     if (subtype === PDFName.of("Image")) {
       const filter = obj.dict.lookup(PDFName.of("Filter"));
       const filters = filter instanceof PDFArray ? filter.asArray() : filter ? [filter] : [];
-      const width = obj.dict.lookup(PDFName.of("Width"));
-      const height = obj.dict.lookup(PDFName.of("Height"));
-      const area = (width instanceof PDFNumber ? width.asNumber() : 0) *
-        (height instanceof PDFNumber ? height.asNumber() : 0);
+      const w = obj.dict.lookup(PDFName.of("Width"));
+      const h = obj.dict.lookup(PDFName.of("Height"));
+      const width = w instanceof PDFNumber ? w.asNumber() : 0;
+      const height = h instanceof PDFNumber ? h.asNumber() : 0;
       out.push({
         bytes: obj.contents,
-        area,
+        width,
+        height,
+        area: width * height,
         jpeg: filters.length === 1 && filters[0] === PDFName.of("DCTDecode"),
       });
     } else if (subtype === PDFName.of("Form") && depth < 2) {
@@ -504,6 +523,464 @@ async function classifyBatch(admin: SupabaseClient, documentId: string, state: P
   state.cursor = last + 1;
 }
 
+// ── structure phase（T-301 / T-302 / T-303）──────────────────────────────
+
+const ITEM_SCHEMA = {
+  type: "OBJECT",
+  properties: {
+    page: { type: "INTEGER" },
+    name: { type: "STRING" },
+    model: { type: "STRING", nullable: true },
+    series: { type: "STRING", nullable: true },
+    category: { type: "STRING", nullable: true },
+    width_mm: { type: "NUMBER", nullable: true },
+    depth_mm: { type: "NUMBER", nullable: true },
+    height_mm: { type: "NUMBER", nullable: true },
+    dimensions_text: { type: "STRING", nullable: true },
+    material: { type: "STRING", nullable: true },
+    colors: { type: "ARRAY", items: { type: "STRING" } },
+    description: { type: "STRING", nullable: true },
+    unit: { type: "STRING", nullable: true },
+    moq: { type: "NUMBER", nullable: true },
+    price: { type: "NUMBER", nullable: true },
+    price_text: { type: "STRING", nullable: true },
+    currency: { type: "STRING", nullable: true },
+    other_prices: {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: { label: { type: "STRING" }, price: { type: "NUMBER" } },
+        required: ["label", "price"],
+      },
+    },
+    valid_from: { type: "STRING", nullable: true },
+    valid_to: { type: "STRING", nullable: true },
+    lead_time_days: { type: "INTEGER", nullable: true },
+    images: {
+      type: "ARRAY",
+      items: {
+        type: "OBJECT",
+        properties: { index: { type: "INTEGER" }, type: { type: "STRING", enum: [...IMAGE_TYPES] } },
+        required: ["index", "type"],
+      },
+    },
+    confidence: { type: "NUMBER" },
+    uncertain_fields: { type: "ARRAY", items: { type: "STRING" } },
+  },
+  required: ["page", "name", "confidence"],
+};
+
+const STRUCTURE_SCHEMA = {
+  type: "OBJECT",
+  properties: {
+    currency_detected: { type: "STRING", nullable: true },
+    items: { type: "ARRAY", items: ITEM_SCHEMA },
+  },
+  required: ["items"],
+};
+
+const STRUCTURE_PROMPT = `You extract furniture products from pages of a supplier PDF (catalogue or price quotation).
+Rules:
+- Extract only products that appear on the target "pages". "previous_page" is context only.
+- One item per distinct model / SKU. If one model has several prices (finish, size, grade), put the first one in price
+  and the others in other_prices with a short label.
+- Never invent values: anything not printed is null. price must be a number printed on the page, and price_text must
+  be copied exactly as printed (e.g. "¥3,280", "USD 199.00").
+- currency: RMB for Chinese yuan (¥, 元, 人民幣), HKD, USD, EUR, etc. Use symbols or headers on these pages or the
+  document context; null if unknown.
+- Dimensions in millimetres: width_mm (W/L), depth_mm (D), height_mm (H). Convert cm or m to mm. Copy the printed
+  size into dimensions_text.
+- name and material in the original language. category in English (desk, meeting table, chair, sofa, cabinet, bookcase, ...).
+- valid_from / valid_to as YYYY-MM-DD when printed here or in the document context.
+- images: for each picture "IMAGE n" that shows this product give its index and type (main = clean product photo,
+  detail, dimension = drawing with measurements, fabric = swatch, logo, other). A picture belongs to at most one product.
+- confidence 0-1 for the whole item; list field names you are unsure about in uncertain_fields.`;
+
+type StructuredItem = {
+  page: number;
+  name: string;
+  model: string | null;
+  series: string | null;
+  category: string | null;
+  width_mm: number | null;
+  depth_mm: number | null;
+  height_mm: number | null;
+  dimensions_text: string | null;
+  material: string | null;
+  colors: string[];
+  description: string | null;
+  unit: string | null;
+  moq: number | null;
+  price: number | null;
+  price_text: string | null;
+  currency: string | null;
+  other_prices: { label: string; price: number }[];
+  valid_from: string | null;
+  valid_to: string | null;
+  lead_time_days: number | null;
+  images: { index: number; type: typeof IMAGE_TYPES[number] }[];
+  confidence: number;
+  uncertain_fields: string[];
+};
+
+type UnitImage = { id: string; page_no: number; bytes: Uint8Array; area: number };
+
+function str(v: unknown): string | null {
+  return typeof v === "string" && v.trim() ? v.trim() : null;
+}
+
+function num(v: unknown): number | null {
+  const n = typeof v === "string" ? Number(v.replace(/[^\d.\-]/g, "")) : Number(v);
+  return v === null || v === undefined || v === "" || !Number.isFinite(n) ? null : n;
+}
+
+function isoDate(v: unknown): string | null {
+  const s = str(v);
+  return s && /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : null;
+}
+
+function normalizeItem(raw: Record<string, unknown>): StructuredItem {
+  return {
+    page: Number(raw.page) || 0,
+    name: str(raw.name) ?? "",
+    model: str(raw.model),
+    series: str(raw.series),
+    category: str(raw.category),
+    width_mm: num(raw.width_mm),
+    depth_mm: num(raw.depth_mm),
+    height_mm: num(raw.height_mm),
+    dimensions_text: str(raw.dimensions_text),
+    material: str(raw.material),
+    colors: Array.isArray(raw.colors) ? raw.colors.map(str).filter((c): c is string => !!c) : [],
+    description: str(raw.description),
+    unit: str(raw.unit),
+    moq: num(raw.moq),
+    price: num(raw.price),
+    price_text: str(raw.price_text),
+    currency: str(raw.currency)?.toUpperCase().replace("CNY", "RMB") ?? null,
+    other_prices: Array.isArray(raw.other_prices)
+      ? raw.other_prices
+        .map((p) => ({ label: str((p as Record<string, unknown>).label) ?? "", price: num((p as Record<string, unknown>).price) }))
+        .filter((p): p is { label: string; price: number } => p.price !== null)
+      : [],
+    valid_from: isoDate(raw.valid_from),
+    valid_to: isoDate(raw.valid_to),
+    lead_time_days: num(raw.lead_time_days),
+    images: Array.isArray(raw.images)
+      ? raw.images
+        .map((i) => i as Record<string, unknown>)
+        .filter((i) => Number.isInteger(Number(i.index)))
+        .map((i) => ({
+          index: Number(i.index),
+          type: IMAGE_TYPES.includes(i.type as typeof IMAGE_TYPES[number]) ? i.type as typeof IMAGE_TYPES[number] : "other",
+        }))
+      : [],
+    confidence: Math.min(1, Math.max(0, num(raw.confidence) ?? 0.5)),
+    uncertain_fields: Array.isArray(raw.uncertain_fields) ? raw.uncertain_fields.map(String).slice(0, 20) : [],
+  };
+}
+
+function priceAppearsInText(price: number, normalizedText: string): boolean {
+  const candidates = new Set([String(price), price.toFixed(2), price.toFixed(0)]);
+  for (const c of candidates) if (normalizedText.includes(c)) return true;
+  return false;
+}
+
+/** T-302: rule checks on top of the model's own confidence. */
+function assessItem(item: StructuredItem, pageText: string, docCurrency: string | null, isCatalog: boolean) {
+  const flags: string[] = [];
+  let confidence = item.confidence;
+  const normalized = pageText.replace(/[,\s，]/g, "");
+
+  if (!item.model) {
+    flags.push("missing_model");
+    confidence = Math.min(confidence, 0.6);
+  }
+  if (item.price === null) {
+    // Catalogues often carry no prices; that is expected, not an extraction error.
+    if (isCatalog) {
+      flags.push("catalog_no_price");
+    } else {
+      flags.push("missing_price");
+      confidence = Math.min(confidence, 0.5);
+    }
+  } else {
+    if (!priceAppearsInText(item.price, normalized)) {
+      flags.push("price_not_in_source");
+      confidence = Math.min(confidence, 0.4);
+    }
+    if (!item.currency) flags.push(docCurrency ? "currency_from_document" : "currency_missing");
+  }
+  const dims = [item.width_mm, item.depth_mm, item.height_mm].filter((d): d is number => d !== null);
+  if (dims.some((d) => d < 50 || d > 6000)) {
+    flags.push("dimension_suspicious");
+    confidence *= 0.8;
+  }
+  if (item.uncertain_fields.length > 0) flags.push("ai_uncertain");
+  if (confidence < ATTENTION_CONFIDENCE) flags.push("low_confidence");
+
+  const attention = confidence < ATTENTION_CONFIDENCE ||
+    flags.some((f) => ["missing_price", "price_not_in_source", "missing_model", "currency_missing", "dimension_suspicious"].includes(f));
+  return { flags, confidence: Math.round(confidence * 1000) / 1000, attention };
+}
+
+async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** T-303: store product-sized JPEGs from the unit's pages once per document; skip logos. */
+async function collectUnitImages(
+  admin: SupabaseClient,
+  documentId: string,
+  bytes: Uint8Array,
+  textPages: number[],
+): Promise<UnitImage[]> {
+  if (textPages.length === 0) return [];
+  let doc: PDFDocument;
+  try {
+    doc = await PDFDocument.load(bytes, { ignoreEncryption: true, updateMetadata: false });
+  } catch {
+    return [];
+  }
+
+  const found = new Map<string, { page_no: number; pages: Set<number>; img: EmbeddedImage }>();
+  for (const pageNo of textPages) {
+    for (const img of pageImages(doc, pageNo)) {
+      if (!img.jpeg || img.width < MIN_IMAGE_PX || img.height < MIN_IMAGE_PX) continue;
+      if (img.bytes.length > MAX_INLINE_IMAGE_BYTES) continue;
+      const hash = await sha256Hex(img.bytes);
+      const seen = found.get(hash);
+      if (seen) seen.pages.add(pageNo);
+      else found.set(hash, { page_no: pageNo, pages: new Set([pageNo]), img });
+    }
+  }
+  if (found.size === 0) return [];
+
+  const hashes = [...found.keys()];
+  const { data: existing, error } = await admin
+    .from("supplier_document_images")
+    .select("id, content_hash, page_no, page_occurrences")
+    .eq("document_id", documentId)
+    .in("content_hash", hashes);
+  if (error) throw new Error(`image lookup failed: ${error.message}`);
+  const byHash = new Map((existing ?? []).map((r) => [r.content_hash as string, r]));
+
+  const out: UnitImage[] = [];
+  for (const [hash, { page_no, pages, img }] of found) {
+    let row = byHash.get(hash);
+    // Pages in this unit that the stored row has not counted yet.
+    const extra = row ? [...pages].filter((p) => p !== row!.page_no).length : pages.size - 1;
+    if (row && extra > 0) {
+      const occurrences = Number(row.page_occurrences) + extra;
+      await admin
+        .from("supplier_document_images")
+        .update({
+          page_occurrences: occurrences,
+          ...(occurrences >= LOGO_PAGE_OCCURRENCES ? { image_type: "logo" } : {}),
+        })
+        .eq("id", row.id);
+      row = { ...row, page_occurrences: occurrences };
+    }
+    if (!row) {
+      const path = `supplier-extracts/${documentId}/${hash}.jpg`;
+      const { error: upErr } = await admin.storage
+        .from("product-images")
+        .upload(path, img.bytes, { contentType: "image/jpeg", upsert: true });
+      if (upErr) throw new Error(`image upload failed: ${upErr.message}`);
+      const publicUrl = admin.storage.from("product-images").getPublicUrl(path).data.publicUrl;
+      const { data: inserted, error: insErr } = await admin
+        .from("supplier_document_images")
+        .upsert({
+          document_id: documentId,
+          page_no,
+          storage_path: path,
+          public_url: publicUrl,
+          width: img.width,
+          height: img.height,
+          byte_size: img.bytes.length,
+          content_hash: hash,
+          page_occurrences: pages.size,
+          ...(pages.size >= LOGO_PAGE_OCCURRENCES ? { image_type: "logo" } : {}),
+        }, { onConflict: "document_id,content_hash" })
+        .select("id, content_hash, page_no, page_occurrences")
+        .single();
+      if (insErr) throw new Error(`image insert failed: ${insErr.message}`);
+      row = inserted;
+    }
+    if (Number(row.page_occurrences) >= LOGO_PAGE_OCCURRENCES) continue;
+    out.push({ id: row.id as string, page_no, bytes: img.bytes, area: img.area });
+  }
+
+  let budget = MAX_INLINE_TOTAL_BYTES;
+  return out
+    .sort((a, b) => a.page_no - b.page_no || b.area - a.area)
+    .filter((img) => (budget -= img.bytes.length) >= 0)
+    .slice(0, STRUCTURE_MAX_IMAGES);
+}
+
+async function geminiStructure(
+  apiKey: string,
+  input: unknown,
+  images: UnitImage[],
+): Promise<{ items: StructuredItem[]; currency: string | null; tokens: number }> {
+  const parts: Record<string, unknown>[] = [{ text: JSON.stringify(input) }];
+  images.forEach((img, i) => {
+    parts.push({ text: `IMAGE ${i} (page ${img.page_no})` });
+    parts.push({ inline_data: { mime_type: "image/jpeg", data: toBase64(img.bytes) } });
+  });
+
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${apiKey}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: STRUCTURE_PROMPT }] },
+        contents: [{ parts }],
+        generationConfig: {
+          temperature: 0.1,
+          responseMimeType: "application/json",
+          responseSchema: STRUCTURE_SCHEMA,
+          maxOutputTokens: 65536,
+        },
+      }),
+      signal: AbortSignal.timeout(140_000),
+    },
+  );
+  const body = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(`Gemini ${res.status}: ${body?.error?.message ?? res.statusText}`);
+  if (body?.candidates?.[0]?.finishReason === "MAX_TOKENS") {
+    throw new Error("Gemini output truncated (MAX_TOKENS)");
+  }
+
+  const raw = String(body?.candidates?.[0]?.content?.parts?.[0]?.text ?? "");
+  let parsed: { items?: unknown[]; currency_detected?: unknown };
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    throw new Error(`Gemini returned invalid JSON: ${raw.slice(0, 200)}`);
+  }
+  return {
+    items: (parsed.items ?? []).map((i) => normalizeItem(i as Record<string, unknown>)).filter((i) => i.name),
+    currency: str(parsed.currency_detected)?.toUpperCase().replace("CNY", "RMB") ?? null,
+    tokens: Number(body?.usageMetadata?.totalTokenCount ?? 0),
+  };
+}
+
+function modelKey(model: unknown): string {
+  return String(model ?? "").replace(/\s+/g, "").toLowerCase();
+}
+
+async function buildStructureUnits(admin: SupabaseClient, documentId: string): Promise<StructureUnit[]> {
+  const [{ data: segments, error: segErr }, { data: pages, error: pageErr }] = await Promise.all([
+    admin.from("supplier_document_segments").select("id, start_page, end_page, kind").eq("document_id", documentId).order("seq"),
+    admin.from("supplier_document_pages").select("page_no, char_count").eq("document_id", documentId),
+  ]);
+  if (segErr || pageErr) throw new Error(`unit lookup failed: ${(segErr ?? pageErr)!.message}`);
+  const chars = new Map((pages ?? []).map((p) => [p.page_no as number, Number(p.char_count)]));
+
+  const units: StructureUnit[] = [];
+  for (const s of segments ?? []) {
+    if (!STRUCTURE_KINDS.includes(s.kind)) continue;
+    let total = 0;
+    for (let p = s.start_page; p <= s.end_page; p++) total += chars.get(p) ?? 0;
+    if (total < MIN_TEXT_CHARS) continue;
+    for (let start = s.start_page; start <= s.end_page; start += STRUCTURE_MAX_PAGES) {
+      units.push({ segment_id: s.id, start, end: Math.min(s.end_page, start + STRUCTURE_MAX_PAGES - 1) });
+    }
+  }
+  return units;
+}
+
+async function structureBatch(admin: SupabaseClient, job: Job, documentId: string, state: ParseState) {
+  const apiKey = Deno.env.get("GEMINI_API_KEY") ?? "";
+  if (!apiKey) throw new NonRetryableError("GEMINI_API_KEY 未設定");
+  const unit = state.units![state.cursor];
+
+  const [{ data: doc }, { data: pages, error: pageErr }, { data: contextPages }, { data: reviewed }] = await Promise.all([
+    admin.from("supplier_documents").select("factory_name, currency, doc_type").eq("id", documentId).single(),
+    admin.from("supplier_document_pages")
+      .select("page_no, content, text_source")
+      .eq("document_id", documentId)
+      .gte("page_no", Math.max(1, unit.start - 1))
+      .lte("page_no", unit.end)
+      .order("page_no"),
+    admin.from("supplier_document_pages")
+      .select("content")
+      .eq("document_id", documentId)
+      .in("page_type", ["cover", "terms"])
+      .order("page_no")
+      .limit(4),
+    admin.from("extraction_items").select("raw_json->>model").eq("document_id", documentId).neq("status", "pending"),
+  ]);
+  if (pageErr) throw new Error(`page read failed: ${pageErr.message}`);
+
+  const target = (pages ?? []).filter((p) => p.page_no >= unit.start);
+  const prev = (pages ?? []).find((p) => p.page_no === unit.start - 1);
+  const docCurrency = (doc?.currency as string | null) ?? null;
+
+  const textPages = target.filter((p) => p.text_source === "text").map((p) => p.page_no as number);
+  const images = await collectUnitImages(admin, documentId, await downloadDocument(admin, documentId), textPages);
+  await heartbeat(admin, job.id, progressOf(state));
+
+  const { items, currency, tokens } = await geminiStructure(apiKey, {
+    document: { factory: doc?.factory_name ?? "", doc_type: doc?.doc_type ?? "quote", currency: docCurrency },
+    document_context: (contextPages ?? []).map((p) => String(p.content)).join("\n---\n").slice(0, 2500),
+    previous_page: prev ? { page: prev.page_no, text: String(prev.content).slice(-800) } : null,
+    pages: target.map((p) => ({ page: p.page_no, text: String(p.content).slice(0, 6000) })),
+  }, images);
+  state.tokens += tokens;
+
+  const reviewedModels = new Set((reviewed ?? []).map((r) => modelKey((r as Record<string, unknown>).model)).filter(Boolean));
+  const textByPage = new Map(target.map((p) => [p.page_no as number, String(p.content)]));
+  const allText = target.map((p) => String(p.content)).join("\n");
+  const now = new Date().toISOString();
+
+  const rows = items
+    .filter((item) => !item.model || !reviewedModels.has(modelKey(item.model)))
+    .map((item, i) => {
+      const page = item.page >= unit.start && item.page <= unit.end ? item.page : unit.start;
+      const { flags, confidence, attention } = assessItem(
+        item,
+        textByPage.get(page) ?? allText,
+        docCurrency,
+        doc?.doc_type === "catalog",
+      );
+      const imageIds = item.images.map((ref) => images[ref.index]?.id).filter((id): id is string => !!id);
+      const mainRef = item.images.find((ref) => ref.type === "main" && images[ref.index]);
+      const cur = item.currency ?? currency;
+      if (cur) state.currencies = { ...state.currencies, [cur]: (state.currencies?.[cur] ?? 0) + 1 };
+      return {
+        job_id: job.id,
+        document_id: documentId,
+        segment_id: unit.segment_id,
+        seq: state.cursor * 1000 + i,
+        page_no: page,
+        raw_json: item,
+        confidence,
+        flags,
+        needs_attention: attention,
+        image_ids: [...new Set(imageIds)],
+        main_image_id: mainRef ? images[mainRef.index].id : imageIds[0] ?? null,
+        updated_at: now,
+      };
+    });
+
+  if (rows.length > 0) {
+    const { error } = await admin.from("extraction_items").insert(rows);
+    if (error) throw new Error(`extraction insert failed: ${error.message}`);
+  }
+
+  const typed = items.flatMap((item) => item.images)
+    .filter((ref) => images[ref.index] && ref.type !== "other");
+  await Promise.all(typed.map((ref) =>
+    admin.from("supplier_document_images").update({ image_type: ref.type }).eq("id", images[ref.index].id)
+  ));
+
+  state.cursor += 1;
+}
+
 /** Returns true when the job is finished, false when another batch is queued. */
 async function handleParsePdf(admin: SupabaseClient, job: Job): Promise<boolean> {
   const documentId = job.document_id ?? String(job.payload.document_id ?? "");
@@ -514,6 +991,13 @@ async function handleParsePdf(admin: SupabaseClient, job: Job): Promise<boolean>
     const { error: delErr } = await admin.from("supplier_document_pages").delete().eq("document_id", documentId);
     if (delErr) throw new Error(`reset pages failed: ${delErr.message}`);
     await admin.from("supplier_document_segments").delete().eq("document_id", documentId);
+    // Reviewed items stay; only unreviewed AI output is regenerated.
+    const { error: itemErr } = await admin
+      .from("extraction_items").delete().eq("document_id", documentId).eq("status", "pending");
+    if (itemErr) throw new Error(`reset extraction items failed: ${itemErr.message}`);
+    // Images stay (reviewed items point at them); occurrence counts are rebuilt by this run.
+    await admin.from("supplier_document_images")
+      .update({ page_occurrences: 1, image_type: "other" }).eq("document_id", documentId);
 
     const pdf = await openPdfText(await downloadDocument(admin, documentId));
     state = { phase: "extract", cursor: 1, page_count: pdf.numPages, tokens: 0, ocr_pages: 0 };
@@ -525,11 +1009,24 @@ async function handleParsePdf(admin: SupabaseClient, job: Job): Promise<boolean>
 
   if (state.phase === "extract") {
     await extractBatch(admin, job, documentId, state);
-  } else {
+  } else if (state.phase === "classify") {
     await classifyBatch(admin, documentId, state);
+    if (state.cursor > state.page_count) {
+      const { data: segmentCount, error: segErr } = await admin.rpc("fds_supplier_document_build_segments", {
+        p_document_id: documentId,
+        p_job_id: job.id,
+      });
+      if (segErr) throw new Error(`build segments failed: ${segErr.message}`);
+      state.segments = Number(segmentCount ?? 0);
+      state.units = await buildStructureUnits(admin, documentId);
+      state.phase = "structure";
+      state.cursor = 0;
+    }
+  } else {
+    await structureBatch(admin, job, documentId, state);
   }
 
-  const finished = state.phase === "classify" && state.cursor > state.page_count;
+  const finished = state.phase === "structure" && state.cursor >= (state.units?.length ?? 0);
   if (!finished) {
     const { data: ok, error } = await admin.rpc("fds_processing_job_checkpoint", {
       p_job_id: job.id,
@@ -541,11 +1038,11 @@ async function handleParsePdf(admin: SupabaseClient, job: Job): Promise<boolean>
     return false;
   }
 
-  const { data: segmentCount, error: segErr } = await admin.rpc("fds_supplier_document_build_segments", {
+  const { data: summary, error: finErr } = await admin.rpc("fds_extraction_items_finalize", {
     p_document_id: documentId,
-    p_job_id: job.id,
   });
-  if (segErr) throw new Error(`build segments failed: ${segErr.message}`);
+  if (finErr) throw new Error(`finalize failed: ${finErr.message}`);
+  const currencySuggestion = Object.entries(state.currencies ?? {}).sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
 
   const { data: pageStats } = await admin
     .from("supplier_document_pages")
@@ -561,9 +1058,13 @@ async function handleParsePdf(admin: SupabaseClient, job: Job): Promise<boolean>
   const { data: done, error: doneErr } = await admin.rpc("fds_processing_job_complete", {
     p_job_id: job.id,
     p_result: {
-      stage: "segmented",
+      stage: "extracted",
       page_count: state.page_count,
-      segments: segmentCount,
+      segments: state.segments ?? 0,
+      units: state.units?.length ?? 0,
+      items: Number(summary?.items ?? 0),
+      needs_attention: Number(summary?.needsAttention ?? 0),
+      currency_suggestion: currencySuggestion,
       ocr,
       empty_pages: emptyPages,
       worker: WORKER_NAME,
@@ -579,8 +1080,12 @@ async function handleParsePdf(admin: SupabaseClient, job: Job): Promise<boolean>
 }
 
 function progressOf(state: ParseState): number {
+  if (state.phase === "structure") {
+    const ratio = Math.min(1, state.cursor / Math.max(1, state.units?.length ?? 0));
+    return 0.75 + 0.23 * ratio;
+  }
   const ratio = Math.min(1, (state.cursor - 1) / Math.max(1, state.page_count));
-  return state.phase === "extract" ? 0.05 + 0.75 * ratio : 0.8 + 0.18 * ratio;
+  return state.phase === "extract" ? 0.05 + 0.55 * ratio : 0.6 + 0.15 * ratio;
 }
 
 async function runJob(admin: SupabaseClient, job: Job) {

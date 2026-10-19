@@ -76,7 +76,12 @@ const OCR_LABEL: Record<string, string> = {
 
 function jobProgressText(job: ProcessingJobSummary): string | null {
   const s = job.state;
-  if (!s?.phase || !s.page_count) return null;
+  if (!s?.phase) return null;
+  if (s.phase === 'structure') {
+    const total = s.units?.length ?? 0;
+    return `AI 提取產品 ${Math.min(total, s.cursor ?? 0)}/${total} 組`;
+  }
+  if (!s.page_count) return null;
   const done = Math.min(s.page_count, Math.max(0, (s.cursor ?? 1) - 1));
   return `${s.phase === 'extract' ? '提取文字' : '分類頁面'} 第 ${done}/${s.page_count} 頁`;
 }
@@ -88,7 +93,11 @@ function jobResultText(job: ProcessingJobSummary): string | null {
     .filter(([, n]) => n)
     .map(([k, n]) => `${OCR_LABEL[k] ?? k} ${n}`)
     .join('、');
-  return `${r.segments} 段${ocr ? ` · 掃描頁 OCR：${ocr}` : ''}`;
+  const items = r.items !== undefined
+    ? ` · ${r.items} 件產品${r.needs_attention ? `（${r.needs_attention} 件需注意）` : ''}`
+    : '';
+  const currency = r.currency_suggestion ? ` · 建議幣種 ${r.currency_suggestion}` : '';
+  return `${r.segments} 段${items}${currency}${ocr ? ` · 掃描頁 OCR：${ocr}` : ''}`;
 }
 
 function formatSize(bytes: number | null): string {

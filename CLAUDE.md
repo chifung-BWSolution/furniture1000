@@ -279,3 +279,10 @@ node scripts/check-supabase-env.mjs --live   # 額外對各 project 發一次請
 - Edge 每次請求 CPU 很短：`parse_pdf` 每次只做一批（8 頁抽字／20 頁分類），用
   `fds_processing_job_checkpoint` 存斷點後自己觸發下一批。加新的重型步驟也要照這個分批模式，不要一次跑完整份 PDF。
 - 掃描頁 OCR 用 Grok（edge secret `XAI_API_KEY`，模型 `XAI_OCR_MODEL`）；頁面分類與分段用現有 `GEMINI_API_KEY`。
+- `parse_pdf` 第三階段 `structure`：每次一個單元（同一分段最多 5 頁）交 Gemini（`responseSchema`）輸出產品 →
+  `extraction_items.raw_json`（AI 原值，永不改寫）。人工修正只寫 `corrected_json`（只存與 AI 不同的欄位），
+  經 `fds_extraction_item_review`／`_batch` RPC。重新解析只刪 `pending` 項，已審核的保留且同型號不再重複產生。
+- 抽出的產品圖存 `product-images/supplier-extracts/<document_id>/<sha256>.jpg`，登記在 `supplier_document_images`
+  （同文件同 hash 只存一次）；同一張圖出現 ≥3 頁視為 logo，由 `fds_extraction_items_finalize` 從待審項目移除。
+- 正式價錢在 `supplier_prices`、來源在 `product_source_refs`（產品／報價／來源分離，產品身份＝型號＋供應商）；
+  只有審核通過的項目才可寫入（BR-02，Day 4 匯入 RPC）。

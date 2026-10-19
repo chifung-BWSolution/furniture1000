@@ -75,6 +75,7 @@ const VIEW_PATHS: { view: ViewType; path: string }[] = [
   { view: 'fds2-factory-login', path: `${FDS_BASE}/factories/login` },
   { view: 'fds2-products-factories', path: `${FDS_BASE}/products/factories` },
   { view: 'fds2-products-quote-pdf', path: `${FDS_BASE}/products/quote-pdf` },
+  { view: 'fds2-products-ai-review', path: `${FDS_BASE}/products/ai-review` },
   { view: 'fds2-products-pending', path: `${FDS_BASE}/products/pending` },
   { view: 'fds2-products-catalog', path: `${FDS_BASE}/products/catalog` },
   { view: 'fds2-publish-copy', path: `${FDS_BASE}/publish/copywriting` },

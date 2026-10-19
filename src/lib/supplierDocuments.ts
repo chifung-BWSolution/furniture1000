@@ -25,10 +25,18 @@ export interface ProcessingJobSummary {
   created_at: string;
   finished_at: string | null;
   /** parse_pdf checkpoint: which phase and the next page to process. */
-  state: { phase?: 'extract' | 'classify'; cursor?: number; page_count?: number } | null;
+  state: {
+    phase?: 'extract' | 'classify' | 'structure';
+    cursor?: number;
+    page_count?: number;
+    units?: unknown[];
+  } | null;
   result: {
     page_count?: number;
     segments?: number;
+    items?: number;
+    needs_attention?: number;
+    currency_suggestion?: string | null;
     empty_pages?: number;
     ocr?: Partial<Record<'done' | 'failed' | 'skipped' | 'unsupported', number>>;
   } | null;

@@ -140,6 +140,9 @@ const DailyCommandLogsView = lazy(() =>
 const DevelopmentCostView = lazy(() =>
   import("./admin/DevelopmentCostView").then((mod) => ({ default: mod.DevelopmentCostView }))
 );
+const ExtractionReviewView = lazy(() =>
+  import("./ExtractionReviewView").then((mod) => ({ default: mod.ExtractionReviewView }))
+);
 // 傢俬方案 (Furniture Scheme)
 const SolutionProjectListView = lazy(() =>
   import("./solutions/SolutionProjectListView").then((mod) => ({ default: mod.SolutionProjectListView }))
@@ -926,6 +929,7 @@ export function AppShell() {
     if (store.currentView === 'fds2-admin-prd') return <PrdDescriptionsView />;
     if (store.currentView === 'fds2-admin-command-logs') return <DailyCommandLogsView />;
     if (store.currentView === 'fds2-admin-dev-cost') return <DevelopmentCostView />;
+    if (store.currentView === 'fds2-products-ai-review') return <ExtractionReviewView />;
     if (isSitemapPlaceholderView(store.currentView)) {
       const meta = getViewMeta(store.currentView);
       return <PlannedPage sectionLabel={meta.sectionLabel} title={meta.viewLabel} />;
