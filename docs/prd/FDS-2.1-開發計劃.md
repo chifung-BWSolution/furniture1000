@@ -107,6 +107,16 @@
 | T-404 | F-AI-005 | P0 | T-402 | 新 view / `fds2-designer-types` | 搜索結果卡片（圖/名/型號/尺寸/供應商/報價/幣/有效性/來源） | 2 秒內返回（實量測試） | 資料量效能（Q） |
 | T-405 | F-AI-005 | P0 | T-402 | 新 view | 產品詳情（多圖/規格/來源） | 可進詳情 | — |
 
+**Day 4 進度（2026-10-19）**：T-401～T-405 完成，正式庫與 FDS2.0 分支都已部署。
+- Migration `20261019_fds21_import_search.sql`：
+  - `fds_import_extracted_products(document_id, item_ids?)`：只收「已通過、未匯入」項目。身份＝型號（去空格／橫線）＋文件廠家；同廠家同型號沿用既有 `products` 列、**不改動它**，只追加 `supplier_prices`（`other_prices` 另成規格列；同文件同型號第二項自動加規格標籤）與 `product_source_refs`。新產品進「待處理產品」（`source=local`、`in_catalog=false`），**不寫** `products.cost_price`（報價可能是外幣）。缺型號跳過並回報；文件未指定廠家直接拒絕。重複匯入不會重複寫價（`supplier_prices` 以提取項目＋規格唯一）。全部審完後文件轉 `ready`。
+  - `fds_search_products`：關鍵字逐詞 AND 比對名稱／型號（含去符號型號）／SKU／廠家／顏色／材質／分類（`pg_trgm` GIN 索引），型號精確命中置頂，其次現貨；篩選可疊加（廠家、level1/2、顏色多選、材質多選、長闊高、價錢、只看現貨、範圍：全部／產品目錄／已上架／有供應商報價）；排序：相關度／最新／價錢／尺寸。
+  - `fds_product_detail`：多圖、規格、全部報價（含歷史）、來源文件與頁碼。`fds_product_search_facets`：廠家與分類選項。
+  - 成本只回給 admin／uploader；pm／designer 只拿中間價（賣價 × 0.8），原文 PDF 路徑也不回傳。價錢篩選／排序對成本角色用報價原幣（未換匯），對其他角色用中間價。
+- 前端：「設計師選傢俬 → 產品類型」（`fds2-designer-types`，`FurnitureSearchView`）＝搜索頁＋詳情；「AI 提取審核」加「匯入產品庫」按鈕。中文顏色詞（如「墨綠」）自動轉成顏色篩選，因 `products.color` 存英文色名。材質標籤規則抽到 `src/constants/material-tags.ts` 與客戶專區共用。
+- 實測：5,290 件產品，DB 端 0.35–0.7 秒，瀏覽器整體約 1.2 秒（首次開頁約 2 秒，含連線冷啟動）；型號 `FDS-T900`／`fds t900`／`SH T1206` 都能精確命中；designer 角色查不到成本與 PDF 路徑。
+- 限制：AI 產品的分類只存文字 `category`，`product_category_id` 待在「待處理產品」人手歸類；AI 顏色是原文（多為中文），顏色篩選對它們靠原文比對。
+
 ### Day 5 — 原 PDF 溯源、價格校驗、真實資料測試
 
 | Task ID | 功能 ID | 優先級 | 依賴 | 改動模組 | 交付內容 | 驗收標準 | 風險 |

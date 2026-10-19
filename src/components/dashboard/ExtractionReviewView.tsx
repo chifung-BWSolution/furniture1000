@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { Check, ExternalLink, ImageOff, Loader2, Lock, Pencil, RefreshCw, Search, X } from 'lucide-react';
+import { Check, ExternalLink, ImageOff, Loader2, Lock, PackagePlus, Pencil, RefreshCw, Search, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { canManageSupplierDocuments } from '@/lib/supplierDocuments';
+import { importExtractedProducts } from '@/lib/productSearch';
 import {
   EDITABLE_FIELDS,
   FLAG_LABELS,
@@ -224,6 +225,26 @@ export function ExtractionReviewView() {
     }
   };
 
+  const importable = items.filter((i) => i.status === 'approved' && !i.imported_product_id);
+
+  const handleImport = async () => {
+    if (!doc || importable.length === 0) return;
+    setBusy(true);
+    try {
+      const res = await importExtractedProducts(doc.id);
+      const missingModel = res.skipped.filter((s) => s.reason === 'missing_model').length;
+      toast.success(`已匯入：新產品 ${res.created} 件、沿用既有產品 ${res.linked} 件、報價 ${res.prices} 條`, {
+        description: missingModel > 0 ? `${missingModel} 項缺型號未匯入，請先修正型號` : undefined,
+      });
+      await reloadItems(doc.id);
+      refreshDocCounts();
+    } catch (err) {
+      toast.error('匯入失敗', { description: errorText(err) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handleOpenSource = async (page: number | null) => {
     if (!doc) return;
     try {
@@ -309,6 +330,15 @@ export function ExtractionReviewView() {
               </div>
               <Button variant="outline" size="sm" onClick={() => void handleOpenSource(null)}>
                 <ExternalLink className="mr-1 h-3.5 w-3.5" /> 原文 PDF
+              </Button>
+              <Button
+                size="sm"
+                disabled={busy || importable.length === 0}
+                title="把已通過的項目寫入產品庫（型號＋廠家相同即沿用既有產品，只追加報價）"
+                onClick={() => void handleImport()}
+              >
+                <PackagePlus className="mr-1 h-3.5 w-3.5" /> 匯入產品庫
+                {importable.length > 0 && <span className="ml-1 opacity-80">{importable.length}</span>}
               </Button>
             </div>
 

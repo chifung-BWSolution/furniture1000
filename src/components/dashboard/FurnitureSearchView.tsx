@@ -1,0 +1,723 @@
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { toast } from 'sonner';
+import {
+  ChevronLeft, ChevronRight, ExternalLink, FileText, Loader2, Lock, Package, RotateCcw, Ruler, Search,
+} from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { productThumbUrl } from '@/lib/imageThumb';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { MultiColorSelector } from '@/components/dashboard/MultiColorSelector';
+import { multiColorToChineseDisplay } from '@/constants/color-map';
+import { MATERIAL_TAG_RULES } from '@/constants/material-tags';
+import { openSourcePage } from '@/lib/extractionReview';
+import {
+  EMPTY_SEARCH_FILTERS,
+  VALIDITY_LABELS,
+  fetchProductDetail,
+  fetchSearchFacets,
+  moneyLabel,
+  searchProducts,
+  sizeLabel,
+  type PriceValidity,
+  type ProductDetail,
+  type SearchFacets,
+  type SearchFilters,
+  type SearchProduct,
+  type SearchResult,
+  type SearchScope,
+  type SearchSort,
+} from '@/lib/productSearch';
+
+const PAGE_SIZE = 24;
+const ALL = '__all';
+
+const SCOPES: { id: SearchScope; label: string }[] = [
+  { id: 'all', label: '全部產品' },
+  { id: 'catalog', label: '產品目錄' },
+  { id: 'shopify', label: '已上架' },
+  { id: 'quoted', label: '有供應商報價' },
+];
+
+const SORTS: { id: SearchSort; label: string }[] = [
+  { id: 'relevance', label: '相關度' },
+  { id: 'newest', label: '最新' },
+  { id: 'price_asc', label: '價錢 低→高' },
+  { id: 'price_desc', label: '價錢 高→低' },
+  { id: 'size', label: '尺寸（長）' },
+];
+
+const VALIDITY_CLASS: Record<PriceValidity, string> = {
+  valid: 'border-emerald-500/40 text-emerald-700',
+  expired: 'border-destructive/40 text-destructive',
+  future: 'border-sky-500/40 text-sky-700',
+  unmarked: 'border-border text-muted-foreground',
+};
+
+function errorText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
+function useDebounced<T>(value: T, ms: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), ms);
+    return () => clearTimeout(t);
+  }, [value, ms]);
+  return debounced;
+}
+
+function activeFilterCount(f: SearchFilters): number {
+  return [
+    f.factory, f.level1, f.level2, f.priceMin, f.priceMax,
+    f.lMin, f.lMax, f.wMin, f.wMax, f.hMin, f.hMax,
+  ].filter(Boolean).length
+    + f.colors.length
+    + f.materialTags.length
+    + (f.inStock ? 1 : 0)
+    + (f.scope !== 'all' ? 1 : 0);
+}
+
+async function openSource(storagePath: string | undefined, page: number | null | undefined) {
+  if (!storagePath) return;
+  try {
+    await openSourcePage(storagePath, page ?? null);
+  } catch (err) {
+    toast.error('無法開啟原文', { description: errorText(err) });
+  }
+}
+
+export function FurnitureSearchView() {
+  const [filters, setFilters] = useState<SearchFilters>(EMPTY_SEARCH_FILTERS);
+  const [page, setPage] = useState(0);
+  const [result, setResult] = useState<SearchResult | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [elapsedMs, setElapsedMs] = useState<number | null>(null);
+  const [facets, setFacets] = useState<SearchFacets | null>(null);
+  const [detailId, setDetailId] = useState<string | null>(null);
+
+  const closeDetail = useCallback(() => setDetailId(null), []);
+  const debounced = useDebounced(filters, 300);
+  const canViewCost = result?.can_view_cost ?? false;
+
+  const patch = useCallback((next: Partial<SearchFilters>) => {
+    setFilters((cur) => ({ ...cur, ...next }));
+    setPage(0);
+  }, []);
+
+  useEffect(() => {
+    fetchSearchFacets().then(setFacets).catch((err) => {
+      toast.error('讀取篩選選項失敗', { description: errorText(err) });
+    });
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    const started = performance.now();
+    searchProducts(debounced, page, PAGE_SIZE)
+      .then((res) => {
+        if (cancelled) return;
+        setResult(res);
+        setElapsedMs(Math.round(performance.now() - started));
+      })
+      .catch((err) => {
+        if (!cancelled) toast.error('搜索失敗', { description: errorText(err) });
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [debounced, page]);
+
+  const level1Options = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const c of facets?.categories ?? []) map.set(c.level1, (map.get(c.level1) ?? 0) + c.count);
+    return [...map.entries()].map(([name, count]) => ({ name, count }));
+  }, [facets]);
+
+  const level2Options = useMemo(
+    () => (facets?.categories ?? []).filter((c) => c.level1 === filters.level1 && c.level2),
+    [facets, filters.level1],
+  );
+
+  const total = result?.total ?? 0;
+  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const filterCount = activeFilterCount(filters);
+
+  return (
+    <div className="flex h-full min-h-0 flex-col gap-3 p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative min-w-[16rem] flex-1">
+          <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={filters.query}
+            onChange={(e) => patch({ query: e.target.value })}
+            placeholder="搜尋名稱、型號、SKU、廠家、顏色、材質（例：梳化 墨綠、M-123）"
+            className="pl-8"
+          />
+        </div>
+        <Select value={filters.sort} onValueChange={(v) => patch({ sort: v as SearchSort })}>
+          <SelectTrigger className="w-36">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {SORTS.map((s) => (
+              <SelectItem key={s.id} value={s.id}>
+                {s.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        {SCOPES.map((s) => (
+          <Button
+            key={s.id}
+            size="sm"
+            variant={filters.scope === s.id ? 'default' : 'outline'}
+            className="h-8"
+            onClick={() => patch({ scope: s.id })}
+          >
+            {s.label}
+          </Button>
+        ))}
+
+        <Select
+          value={filters.factory || ALL}
+          onValueChange={(v) => patch({ factory: v === ALL ? '' : v })}
+        >
+          <SelectTrigger className="h-8 w-44">
+            <SelectValue placeholder="廠家" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALL}>全部廠家</SelectItem>
+            {(facets?.factories ?? []).map((f) => (
+              <SelectItem key={f.name} value={f.name}>
+                {f.name} ({f.count})
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Select
+          value={filters.level1 || ALL}
+          onValueChange={(v) => patch({ level1: v === ALL ? '' : v, level2: '' })}
+        >
+          <SelectTrigger className="h-8 w-36">
+            <SelectValue placeholder="產品類型" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ALL}>全部類型</SelectItem>
+            {level1Options.map((c) => (
+              <SelectItem key={c.name} value={c.name}>
+                {c.name} ({c.count})
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        {level2Options.length > 0 && (
+          <Select
+            value={filters.level2 || ALL}
+            onValueChange={(v) => patch({ level2: v === ALL ? '' : v })}
+          >
+            <SelectTrigger className="h-8 w-36">
+              <SelectValue placeholder="子類別" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={ALL}>全部子類別</SelectItem>
+              {level2Options.map((c) => (
+                <SelectItem key={c.level2!} value={c.level2!}>
+                  {c.level2} ({c.count})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
+
+        <div className="w-48">
+          <MultiColorSelector
+            value={filters.colors.join(',')}
+            onChange={(v) => patch({ colors: v ? v.split(',').filter(Boolean) : [] })}
+            placeholder="顏色（可多選）"
+            className="[&>button]:min-h-8 [&>button]:py-1"
+          />
+        </div>
+
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button size="sm" variant="outline" className="h-8">
+              材質{filters.materialTags.length > 0 && ` (${filters.materialTags.length})`}
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-80" align="start">
+            <div className="flex flex-wrap gap-1.5">
+              {MATERIAL_TAG_RULES.map((rule) => {
+                const on = filters.materialTags.includes(rule.tag);
+                return (
+                  <button
+                    key={rule.tag}
+                    type="button"
+                    onClick={() =>
+                      patch({
+                        materialTags: on
+                          ? filters.materialTags.filter((t) => t !== rule.tag)
+                          : [...filters.materialTags, rule.tag],
+                      })
+                    }
+                    className={cn(
+                      'rounded-full border px-2 py-0.5 text-xs',
+                      on ? 'border-primary bg-primary text-primary-foreground' : 'border-border hover:bg-muted',
+                    )}
+                  >
+                    {rule.tag}
+                  </button>
+                );
+              })}
+            </div>
+          </PopoverContent>
+        </Popover>
+
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button size="sm" variant="outline" className="h-8">
+              <Ruler className="mr-1 h-3.5 w-3.5" /> 尺寸／價錢
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent className="w-80 space-y-3" align="start">
+            {([
+              ['長 L (mm)', 'lMin', 'lMax'],
+              ['闊 W (mm)', 'wMin', 'wMax'],
+              ['高 H (mm)', 'hMin', 'hMax'],
+              [canViewCost ? '成本價' : '中間價', 'priceMin', 'priceMax'],
+            ] as const).map(([label, minKey, maxKey]) => (
+              <div key={label} className="space-y-1">
+                <Label className="text-xs">{label}</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    inputMode="decimal"
+                    value={filters[minKey]}
+                    onChange={(e) => patch({ [minKey]: e.target.value })}
+                    placeholder="最小"
+                    className="h-8"
+                  />
+                  <span className="text-muted-foreground">–</span>
+                  <Input
+                    inputMode="decimal"
+                    value={filters[maxKey]}
+                    onChange={(e) => patch({ [maxKey]: e.target.value })}
+                    placeholder="最大"
+                    className="h-8"
+                  />
+                </div>
+              </div>
+            ))}
+            {canViewCost && (
+              <p className="text-[11px] text-muted-foreground">成本價按報價原幣比較，未換算匯率。</p>
+            )}
+          </PopoverContent>
+        </Popover>
+
+        <label className="flex items-center gap-1.5 text-sm">
+          <Checkbox checked={filters.inStock} onCheckedChange={(v) => patch({ inStock: v === true })} />
+          只看現貨
+        </label>
+
+        {filterCount > 0 && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-8"
+            onClick={() => {
+              setFilters({ ...EMPTY_SEARCH_FILTERS, query: filters.query, sort: filters.sort });
+              setPage(0);
+            }}
+          >
+            <RotateCcw className="mr-1 h-3.5 w-3.5" /> 清除篩選
+          </Button>
+        )}
+      </div>
+
+      <div className="flex items-center justify-between text-xs text-muted-foreground">
+        <span>
+          {loading ? '搜尋中…' : `共 ${total.toLocaleString()} 件產品`}
+          {!loading && elapsedMs != null && ` · ${(elapsedMs / 1000).toFixed(2)} 秒`}
+        </span>
+        <span>{canViewCost ? '顯示供應商成本（只限 admin／傢俬組）' : '價錢為中間價（賣價 × 0.8）'}</span>
+      </div>
+
+      <div className="relative min-h-0 flex-1 overflow-y-auto">
+        {loading && !result ? (
+          <div className="flex items-center justify-center py-24 text-sm text-muted-foreground">
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 載入中…
+          </div>
+        ) : (result?.items.length ?? 0) === 0 ? (
+          <div className="py-24 text-center text-sm text-muted-foreground">沒有符合條件的產品</div>
+        ) : (
+          <div
+            className={cn(
+              'grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5',
+              loading && 'opacity-60',
+            )}
+          >
+            {result!.items.map((p) => (
+              <ProductCard key={p.id} product={p} canViewCost={canViewCost} onOpen={() => setDetailId(p.id)} />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {pageCount > 1 && (
+        <div className="flex items-center justify-center gap-2 text-sm">
+          <Button size="icon" variant="outline" className="h-8 w-8" disabled={page === 0} onClick={() => setPage(page - 1)}>
+            <ChevronLeft className="h-4 w-4" />
+          </Button>
+          <span className="tabular-nums">
+            {page + 1} / {pageCount}
+          </span>
+          <Button
+            size="icon"
+            variant="outline"
+            className="h-8 w-8"
+            disabled={page + 1 >= pageCount}
+            onClick={() => setPage(page + 1)}
+          >
+            <ChevronRight className="h-4 w-4" />
+          </Button>
+        </div>
+      )}
+
+      {detailId && <ProductDetailDialog productId={detailId} onClose={closeDetail} />}
+    </div>
+  );
+}
+
+function PriceBlock({ product, canViewCost }: { product: SearchProduct; canViewCost: boolean }) {
+  const q = product.quote;
+  if (canViewCost) {
+    const cost = q?.cost != null ? moneyLabel(q.cost, q.currency) : moneyLabel(product.legacy_cost);
+    return (
+      <div className="space-y-0.5">
+        <div className="text-sm font-semibold tabular-nums">
+          {cost ?? <span className="font-normal text-muted-foreground">未有報價</span>}
+          {q?.unit && <span className="ml-1 text-xs font-normal text-muted-foreground">/ {q.unit}</span>}
+        </div>
+        {!q && product.legacy_cost != null && <div className="text-[11px] text-muted-foreground">舊成本（未註明幣種）</div>}
+        {product.middle_price != null && (
+          <div className="text-[11px] text-muted-foreground">中間價 {moneyLabel(product.middle_price)}</div>
+        )}
+      </div>
+    );
+  }
+  return (
+    <div className="text-sm font-semibold tabular-nums">
+      {product.middle_price != null ? (
+        <>
+          {moneyLabel(product.middle_price)}
+          <span className="ml-1 text-[11px] font-normal text-muted-foreground">中間價</span>
+        </>
+      ) : (
+        <span className="font-normal text-muted-foreground">未定價</span>
+      )}
+    </div>
+  );
+}
+
+function ProductCard({
+  product: p,
+  canViewCost,
+  onOpen,
+}: {
+  product: SearchProduct;
+  canViewCost: boolean;
+  onOpen: () => void;
+}) {
+  const size = sizeLabel(p);
+  const colors = p.color ? multiColorToChineseDisplay(p.color) : null;
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className="group flex flex-col overflow-hidden rounded-lg border border-border bg-card text-left transition-shadow hover:shadow-md"
+    >
+      <div className="relative aspect-[4/3] bg-muted">
+        {p.image_url ? (
+          <img
+            src={productThumbUrl(p.image_url)}
+            alt={p.title}
+            className="h-full w-full object-cover"
+            loading="lazy"
+            decoding="async"
+          />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center">
+            <Package className="h-8 w-8 text-muted-foreground/40" />
+          </div>
+        )}
+        <div className="absolute left-2 top-2 flex flex-wrap gap-1">
+          {p.exact && <Badge className="px-1.5 py-0 text-[10px]">型號命中</Badge>}
+          {p.in_stock && (
+            <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
+              現貨
+            </Badge>
+          )}
+        </div>
+      </div>
+      <div className="flex flex-1 flex-col gap-1.5 p-3">
+        <div className="line-clamp-2 text-sm font-medium leading-snug">{p.title}</div>
+        <div className="flex flex-wrap gap-x-2 text-xs text-muted-foreground">
+          {p.model && <span className="font-mono">{p.model}</span>}
+          {p.factory_name && <span className="truncate">{p.factory_name}</span>}
+        </div>
+        <div className="space-y-0.5 text-xs text-muted-foreground">
+          {size && <div>尺寸 {size} mm</div>}
+          {(p.material || colors) && <div className="truncate">{[p.material, colors].filter(Boolean).join(' · ')}</div>}
+          {p.lead_time && <div>交期 {p.lead_time}</div>}
+        </div>
+        <div className="mt-auto flex items-end justify-between gap-2 pt-1">
+          <PriceBlock product={p} canViewCost={canViewCost} />
+          {p.quote && (
+            <Badge variant="outline" className={cn('shrink-0 px-1.5 py-0 text-[10px] font-normal', VALIDITY_CLASS[p.quote.validity])}>
+              {VALIDITY_LABELS[p.quote.validity]}
+            </Badge>
+          )}
+        </div>
+        {p.source && (
+          <div className="flex items-center gap-1 truncate border-t border-border pt-1.5 text-[11px] text-muted-foreground">
+            <FileText className="h-3 w-3 shrink-0" />
+            <span className="truncate">
+              {p.source.title ?? '供應商文件'}
+              {p.source.page_no != null && ` · 第 ${p.source.page_no} 頁`}
+            </span>
+            {(p.quote?.count ?? 0) > 1 && <span className="shrink-0">· {p.quote!.count} 個報價</span>}
+          </div>
+        )}
+      </div>
+    </button>
+  );
+}
+
+function ProductDetailDialog({ productId, onClose }: { productId: string; onClose: () => void }) {
+  const [detail, setDetail] = useState<ProductDetail | null>(null);
+  const [activeImage, setActiveImage] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchProductDetail(productId)
+      .then((d) => {
+        if (!cancelled) setDetail(d);
+      })
+      .catch((err) => {
+        toast.error('讀取產品失敗', { description: errorText(err) });
+        onClose();
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [productId, onClose]);
+
+  const specs: [string, string | null | undefined][] = detail
+    ? [
+        ['型號', detail.model],
+        ['SKU', detail.sku],
+        ['廠家', detail.factory_name],
+        ['類別', [detail.level1_category, detail.level2_category].filter(Boolean).join(' / ') || detail.category],
+        ['尺寸 (mm)', sizeLabel(detail)],
+        ['材質', detail.material],
+        ['顏色', detail.color ? multiColorToChineseDisplay(detail.color) : null],
+        ['交期', detail.lead_time],
+        ['現貨', detail.in_stock ? '是' : null],
+        ['中間價', moneyLabel(detail.middle_price)],
+        ...(detail.can_view_cost
+          ? ([
+              ['賣價', moneyLabel(detail.sale_price)],
+              ['舊成本', moneyLabel(detail.legacy_cost)],
+            ] as [string, string | null][])
+          : []),
+      ].filter(([, v]) => v) as [string, string | null | undefined][]
+    : [];
+
+  return (
+    <Dialog open onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
+        {!detail ? (
+          <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 載入中…
+          </div>
+        ) : (
+          <>
+            <DialogHeader>
+              <DialogTitle className="pr-6">{detail.title}</DialogTitle>
+            </DialogHeader>
+
+            <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+              <div className="space-y-2">
+                <div className="aspect-[4/3] overflow-hidden rounded-lg bg-muted">
+                  {detail.images.length > 0 ? (
+                    <img src={detail.images[activeImage]} alt={detail.title} className="h-full w-full object-contain" />
+                  ) : (
+                    <div className="flex h-full items-center justify-center">
+                      <Package className="h-10 w-10 text-muted-foreground/40" />
+                    </div>
+                  )}
+                </div>
+                {detail.images.length > 1 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {detail.images.map((src, i) => (
+                      <button
+                        key={src}
+                        type="button"
+                        onClick={() => setActiveImage(i)}
+                        className={cn(
+                          'h-14 w-14 overflow-hidden rounded border-2',
+                          i === activeImage ? 'border-primary' : 'border-transparent',
+                        )}
+                      >
+                        <img src={productThumbUrl(src)} alt="" className="h-full w-full object-cover" loading="lazy" />
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-3 text-sm">
+                <dl className="grid grid-cols-[6rem_1fr] gap-x-3 gap-y-1.5">
+                  {specs.map(([label, value]) => (
+                    <div key={label} className="contents">
+                      <dt className="text-muted-foreground">{label}</dt>
+                      <dd>{value}</dd>
+                    </div>
+                  ))}
+                </dl>
+                {detail.specifications && (
+                  <p className="whitespace-pre-line text-xs text-muted-foreground">{detail.specifications}</p>
+                )}
+                {detail.description && (
+                  <p className="line-clamp-6 whitespace-pre-line text-xs text-muted-foreground">{detail.description}</p>
+                )}
+              </div>
+            </div>
+
+            <section className="space-y-2">
+              <h3 className="text-sm font-medium">供應商報價</h3>
+              {detail.prices.length === 0 ? (
+                <p className="text-xs text-muted-foreground">未有經審核的供應商報價。</p>
+              ) : (
+                <div className="overflow-x-auto rounded border border-border">
+                  <table className="w-full text-xs">
+                    <thead className="bg-muted/50 text-muted-foreground">
+                      <tr>
+                        <th className="px-2 py-1.5 text-left font-medium">規格</th>
+                        <th className="px-2 py-1.5 text-left font-medium">廠家</th>
+                        {detail.can_view_cost && <th className="px-2 py-1.5 text-right font-medium">成本</th>}
+                        <th className="px-2 py-1.5 text-left font-medium">單位／MOQ</th>
+                        <th className="px-2 py-1.5 text-left font-medium">有效期</th>
+                        <th className="px-2 py-1.5 text-left font-medium">來源</th>
+                        <th className="px-2 py-1.5 text-left font-medium">匯入日期</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {detail.prices.map((row) => (
+                        <tr key={row.id} className="border-t border-border/60">
+                          <td className="px-2 py-1.5">{row.variant_label ?? '標準'}</td>
+                          <td className="px-2 py-1.5">{row.factory_name ?? '—'}</td>
+                          {detail.can_view_cost && (
+                            <td className="px-2 py-1.5 text-right tabular-nums">{moneyLabel(row.cost, row.currency) ?? '—'}</td>
+                          )}
+                          <td className="px-2 py-1.5">
+                            {[row.unit, row.moq != null ? `MOQ ${row.moq}` : null].filter(Boolean).join(' · ') || '—'}
+                          </td>
+                          <td className="px-2 py-1.5">
+                            <Badge variant="outline" className={cn('px-1.5 py-0 text-[10px] font-normal', VALIDITY_CLASS[row.validity])}>
+                              {VALIDITY_LABELS[row.validity]}
+                            </Badge>
+                            {(row.valid_from || row.valid_to) && (
+                              <div className="mt-0.5 text-muted-foreground">
+                                {row.valid_from ?? '…'} – {row.valid_to ?? '…'}
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-2 py-1.5">
+                            <SourceLink
+                              title={row.document_title}
+                              page={row.page_no}
+                              storagePath={row.storage_path}
+                              canOpen={detail.can_open_source}
+                            />
+                          </td>
+                          <td className="px-2 py-1.5 text-muted-foreground">{row.created_at.slice(0, 10)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+
+            {detail.sources.length > 0 && (
+              <section className="space-y-1.5">
+                <h3 className="text-sm font-medium">原始文件</h3>
+                <ul className="space-y-1 text-xs">
+                  {detail.sources.map((s) => (
+                    <li key={`${s.document_id}-${s.page_no}`} className="flex items-center gap-2">
+                      <span className="text-muted-foreground">{s.doc_type === 'catalog' ? '目錄' : '報價單'}</span>
+                      <SourceLink
+                        title={s.title}
+                        page={s.page_no}
+                        storagePath={s.storage_path}
+                        canOpen={detail.can_open_source}
+                      />
+                      {s.factory_name && <span className="text-muted-foreground">· {s.factory_name}</span>}
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            )}
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function SourceLink({
+  title,
+  page,
+  storagePath,
+  canOpen,
+}: {
+  title?: string | null;
+  page?: number | null;
+  storagePath?: string;
+  canOpen: boolean;
+}) {
+  const label = `${title ?? '供應商文件'}${page != null ? ` · 第 ${page} 頁` : ''}`;
+  if (!canOpen || !storagePath) {
+    return (
+      <span className="inline-flex items-center gap-1 text-muted-foreground" title="原文 PDF 只限 admin／傢俬組開啟">
+        {label}
+        <Lock className="h-3 w-3" />
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      className="inline-flex items-center gap-1 text-primary underline-offset-2 hover:underline"
+      onClick={() => void openSource(storagePath, page)}
+    >
+      {label}
+      <ExternalLink className="h-3 w-3" />
+    </button>
+  );
+}

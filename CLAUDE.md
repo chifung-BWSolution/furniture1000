@@ -288,4 +288,7 @@ node scripts/check-supabase-env.mjs --live   # 額外對各 project 發一次請
   要**兩邊都部署**（正式 `riaubhtruisbwdlwjzur` ＋ 分支）；套到分支時把 cron 裡的 worker URL 換成分支 ref。
   分支的一鍵登入帳號 `fds-develop-preview@…` 在分支 `platform_user_profiles` 設為 admin。
 - 正式價錢在 `supplier_prices`、來源在 `product_source_refs`（產品／報價／來源分離，產品身份＝型號＋供應商）；
-  只有審核通過的項目才可寫入（BR-02，Day 4 匯入 RPC）。
+ 只有審核通過的項目才可寫入（BR-02）。匯入只經 `fds_import_extracted_products`：同廠家同型號沿用既有產品且不改它，
+ 只追加報價；不寫 `products.cost_price`（報價可能是外幣）。
+- 產品搜索（「產品類型」頁）只經 `fds_search_products`／`fds_product_detail` RPC：成本只回給 admin／uploader，
+ 其他角色只拿中間價（賣價 × 0.8）。不要在前端直接 select `supplier_prices`（RLS 只開給 admin／uploader）。
