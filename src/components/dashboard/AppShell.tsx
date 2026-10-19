@@ -114,6 +114,9 @@ const PublishPrecheckView = lazy(() =>
 const PublishedProductsView = lazy(() =>
   import("./publish/PublishedProductsView").then((mod) => ({ default: mod.PublishedProductsView }))
 );
+const SimilarProductsView = lazy(() =>
+  import("./publish/SimilarProductsView").then((mod) => ({ default: mod.SimilarProductsView }))
+);
 // 分析報表 (Analytics Reports)
 const FactoryReportView = lazy(() =>
   import("./reports/FactoryReportView").then((mod) => ({ default: mod.FactoryReportView }))
@@ -239,6 +242,7 @@ const SELF_LOADING_VIEWS = new Set<ViewType>([
   "furniture-group-check",
   "published-products",
   "abnormal-price-products",
+  "fds2-publish-similar",
   "report-factory",
   "report-product",
   "user-management",
@@ -930,6 +934,7 @@ export function AppShell() {
     if (store.currentView === 'fds2-admin-command-logs') return <DailyCommandLogsView />;
     if (store.currentView === 'fds2-admin-dev-cost') return <DevelopmentCostView />;
     if (store.currentView === 'fds2-products-ai-review') return <ExtractionReviewView />;
+    if (store.currentView === 'fds2-publish-similar') return <SimilarProductsView />;
     if (isSitemapPlaceholderView(store.currentView)) {
       const meta = getViewMeta(store.currentView);
       return <PlannedPage sectionLabel={meta.sectionLabel} title={meta.viewLabel} />;
