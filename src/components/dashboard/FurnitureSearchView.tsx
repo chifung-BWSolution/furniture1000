@@ -19,7 +19,8 @@ import { MultiColorSelector } from '@/components/dashboard/MultiColorSelector';
 import { ProductImageGalleryLightbox } from '@/components/dashboard/ProductImageGallery';
 import { multiColorToChineseDisplay } from '@/constants/color-map';
 import { MATERIAL_TAG_RULES } from '@/constants/material-tags';
-import { openSourcePage } from '@/lib/extractionReview';
+import { SourcePageDialog } from '@/components/dashboard/SourcePageDialog';
+import type { SourcePageRequest } from '@/lib/sourcePage';
 import {
   EMPTY_SEARCH_FILTERS,
   VALIDITY_LABELS,
@@ -87,15 +88,6 @@ function activeFilterCount(f: SearchFilters): number {
     + (f.scope !== 'all' ? 1 : 0);
 }
 
-async function openSource(storagePath: string | undefined, page: number | null | undefined) {
-  if (!storagePath) return;
-  try {
-    await openSourcePage(storagePath, page ?? null);
-  } catch (err) {
-    toast.error('無法開啟原文', { description: errorText(err) });
-  }
-}
-
 export function FurnitureSearchView() {
   const [filters, setFilters] = useState<SearchFilters>(EMPTY_SEARCH_FILTERS);
   const [page, setPage] = useState(0);
@@ -104,6 +96,7 @@ export function FurnitureSearchView() {
   const [elapsedMs, setElapsedMs] = useState<number | null>(null);
   const [facets, setFacets] = useState<SearchFacets | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
+  const [sourcePage, setSourcePage] = useState<(SourcePageRequest & { title?: string | null }) | null>(null);
 
   const closeDetail = useCallback(() => setDetailId(null), []);
   const debounced = useDebounced(filters, 300);
@@ -369,7 +362,12 @@ export function FurnitureSearchView() {
             )}
           >
             {result!.items.map((p) => (
-              <ProductCard key={p.id} product={p} onOpen={() => setDetailId(p.id)} />
+              <ProductCard
+                key={p.id}
+                product={p}
+                onOpen={() => setDetailId(p.id)}
+                onOpenSource={setSourcePage}
+              />
             ))}
           </div>
         )}
@@ -395,7 +393,10 @@ export function FurnitureSearchView() {
         </div>
       )}
 
-      {detailId && <ProductDetailDialog productId={detailId} onClose={closeDetail} />}
+      {detailId && (
+        <ProductDetailDialog productId={detailId} onClose={closeDetail} onOpenSource={setSourcePage} />
+      )}
+      {sourcePage && <SourcePageDialog request={sourcePage} onClose={() => setSourcePage(null)} />}
     </div>
   );
 }
@@ -447,18 +448,17 @@ function PriceLockup({
 function ProductCard({
   product: p,
   onOpen,
+  onOpenSource,
 }: {
   product: SearchProduct;
   onOpen: () => void;
+  onOpenSource: (request: SourcePageRequest & { title?: string | null }) => void;
 }) {
   const size = sizeLabel(p);
   const colors = p.color ? multiColorToChineseDisplay(p.color) : null;
   return (
-    <button
-      type="button"
-      onClick={onOpen}
-      className="group flex flex-col overflow-hidden rounded-lg border border-border bg-card text-left transition-shadow hover:shadow-md"
-    >
+    <div className="group flex flex-col overflow-hidden rounded-lg border border-border bg-card text-left transition-shadow hover:shadow-md">
+      <button type="button" onClick={onOpen} className="flex flex-1 flex-col text-left">
       <div className="relative h-36 bg-white">
         {p.image_url ? (
           <LoadingImage
@@ -501,22 +501,40 @@ function ProductCard({
             </Badge>
           )}
         </div>
-        {p.source && (
-          <div className="flex items-center gap-1 truncate border-t border-border pt-1.5 text-[11px] text-muted-foreground">
-            <FileText className="h-3 w-3 shrink-0" />
-            <span className="truncate">
-              {p.source.title ?? '供應商文件'}
-              {p.source.page_no != null && ` · 第 ${p.source.page_no} 頁`}
-            </span>
-            {(p.quote?.count ?? 0) > 1 && <span className="shrink-0">· {p.quote!.count} 個報價</span>}
-          </div>
-        )}
       </div>
-    </button>
+      </button>
+      {p.source && (
+        <button
+          type="button"
+          className="flex items-center gap-1 truncate border-t border-border px-3 py-1.5 text-left text-[11px] text-primary hover:bg-muted/40"
+          onClick={() => onOpenSource({
+            documentId: p.source!.document_id,
+            pageNo: p.source!.page_no,
+            productId: p.id,
+            title: p.source!.title,
+          })}
+        >
+          <FileText className="h-3 w-3 shrink-0" />
+          <span className="truncate">
+            {p.source.title ?? '供應商文件'}
+            {p.source.page_no != null && ` · 第 ${p.source.page_no} 頁`}
+          </span>
+          {(p.quote?.count ?? 0) > 1 && <span className="shrink-0 text-muted-foreground">· {p.quote!.count} 個報價</span>}
+        </button>
+      )}
+    </div>
   );
 }
 
-function ProductDetailDialog({ productId, onClose }: { productId: string; onClose: () => void }) {
+function ProductDetailDialog({
+  productId,
+  onClose,
+  onOpenSource,
+}: {
+  productId: string;
+  onClose: () => void;
+  onOpenSource: (request: SourcePageRequest & { title?: string | null }) => void;
+}) {
   const [detail, setDetail] = useState<ProductDetail | null>(null);
   const [activeImage, setActiveImage] = useState(0);
   const [zoomed, setZoomed] = useState(false);
@@ -664,8 +682,9 @@ function ProductDetailDialog({ productId, onClose }: { productId: string; onClos
                             <SourceLink
                               title={row.document_title}
                               page={row.page_no}
-                              storagePath={row.storage_path}
-                              canOpen={detail.can_open_source}
+                              documentId={row.document_id}
+                              productId={detail.id}
+                              onOpen={onOpenSource}
                             />
                           </td>
                           <td className="px-2 py-1.5 text-muted-foreground">{row.created_at.slice(0, 10)}</td>
@@ -687,8 +706,9 @@ function ProductDetailDialog({ productId, onClose }: { productId: string; onClos
                       <SourceLink
                         title={s.title}
                         page={s.page_no}
-                        storagePath={s.storage_path}
-                        canOpen={detail.can_open_source}
+                        documentId={s.document_id}
+                        productId={detail.id}
+                        onOpen={onOpenSource}
                       />
                       {s.factory_name && <span className="text-muted-foreground">· {s.factory_name}</span>}
                     </li>
@@ -719,28 +739,23 @@ function ProductDetailDialog({ productId, onClose }: { productId: string; onClos
 function SourceLink({
   title,
   page,
-  storagePath,
-  canOpen,
+  documentId,
+  productId,
+  onOpen,
 }: {
   title?: string | null;
   page?: number | null;
-  storagePath?: string;
-  canOpen: boolean;
+  documentId?: string;
+  productId: string;
+  onOpen: (request: SourcePageRequest & { title?: string | null }) => void;
 }) {
   const label = `${title ?? '供應商文件'}${page != null ? ` · 第 ${page} 頁` : ''}`;
-  if (!canOpen || !storagePath) {
-    return (
-      <span className="inline-flex items-center gap-1 text-muted-foreground" title="原文 PDF 只限 admin／傢俬組開啟">
-        {label}
-        <Lock className="h-3 w-3" />
-      </span>
-    );
-  }
+  if (!documentId) return <span className="text-muted-foreground">{label}</span>;
   return (
     <button
       type="button"
       className="inline-flex items-center gap-1 text-primary underline-offset-2 hover:underline"
-      onClick={() => void openSource(storagePath, page)}
+      onClick={() => onOpen({ documentId, pageNo: page, productId, title })}
     >
       {label}
       <ExternalLink className="h-3 w-3" />

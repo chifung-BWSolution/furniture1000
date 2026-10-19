@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { SourcePageDialog } from '@/components/dashboard/SourcePageDialog';
 import { canManageSupplierDocuments } from '@/lib/supplierDocuments';
 import { importExtractedProducts } from '@/lib/productSearch';
 import {
@@ -20,7 +21,6 @@ import {
   listExtractionImages,
   listExtractionItems,
   listReviewDocuments,
-  openSourcePage,
   reviewExtractionItem,
   reviewExtractionItemsBatch,
   type ExtractedProduct,
@@ -101,6 +101,7 @@ export function ExtractionReviewView() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<ExtractionItem | null>(null);
+  const [sourcePage, setSourcePage] = useState<number | null | undefined>(undefined);
   const itemsRequestRef = useRef(0);
 
   const doc = docs.find((d) => d.id === docId) ?? null;
@@ -212,11 +213,14 @@ export function ExtractionReviewView() {
     if (ids.length === 0) return;
     setBusy(true);
     try {
-      const n = await reviewExtractionItemsBatch(ids, status);
-      applyLocal(ids, status);
+      const { updated, blocked } = await reviewExtractionItemsBatch(ids, status);
+      if (blocked > 0 && doc) await reloadItems(doc.id);
+      else applyLocal(ids, status);
       setSelected(new Set());
       refreshDocCounts();
-      toast.success(`${status === 'approved' ? '已通過' : status === 'rejected' ? '已拒絕' : '已退回待審'} ${n} 項`);
+      toast.success(`${status === 'approved' ? '已通過' : status === 'rejected' ? '已拒絕' : '已退回待審'} ${updated} 項`, {
+        description: blocked > 0 ? `${blocked} 項報價未確認，仍是待審。請先填上核對後的價格。` : undefined,
+      });
     } catch (err) {
       toast.error('批量審核失敗', { description: errorText(err) });
     } finally {
@@ -245,8 +249,13 @@ export function ExtractionReviewView() {
     try {
       const res = await importExtractedProducts(doc.id);
       const missingModel = res.skipped.filter((s) => s.reason === 'missing_model').length;
+      const unconfirmed = res.skipped.filter((s) => s.reason === 'price_not_confirmed').length;
+      const notes = [
+        missingModel > 0 ? `${missingModel} 項缺型號未匯入，請先修正型號` : '',
+        unconfirmed > 0 ? `${unconfirmed} 項價格未確認，未寫成正式價` : '',
+      ].filter(Boolean);
       toast.success(`已匯入：新產品 ${res.created} 件、沿用既有產品 ${res.linked} 件、報價 ${res.prices} 條`, {
-        description: missingModel > 0 ? `${missingModel} 項缺型號未匯入，請先修正型號` : undefined,
+        description: notes.length > 0 ? notes.join('；') : undefined,
       });
       await reloadItems(doc.id);
       refreshDocCounts();
@@ -257,13 +266,9 @@ export function ExtractionReviewView() {
     }
   };
 
-  const handleOpenSource = async (page: number | null) => {
+  const handleOpenSource = (page: number | null) => {
     if (!doc) return;
-    try {
-      await openSourcePage(doc.storage_path, page);
-    } catch (err) {
-      toast.error('無法開啟原文', { description: errorText(err) });
-    }
+    setSourcePage(page);
   };
 
   if (canManage === null) {
@@ -564,6 +569,12 @@ export function ExtractionReviewView() {
             setEditing(null);
             refreshDocCounts();
           }}
+        />
+      )}
+      {doc && sourcePage !== undefined && (
+        <SourcePageDialog
+          request={{ documentId: doc.id, pageNo: sourcePage, title: doc.title }}
+          onClose={() => setSourcePage(undefined)}
         />
       )}
     </div>

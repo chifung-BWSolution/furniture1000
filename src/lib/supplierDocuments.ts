@@ -31,6 +31,10 @@ export interface ProcessingJobSummary {
     page_count?: number;
     units?: unknown[];
   } | null;
+  pages: number | null;
+  ocr_pages: number | null;
+  tokens: number | null;
+  cost_actual: number | null;
   result: {
     page_count?: number;
     segments?: number;
@@ -38,6 +42,11 @@ export interface ProcessingJobSummary {
     needs_attention?: number;
     currency_suggestion?: string | null;
     empty_pages?: number;
+    duration_seconds?: number;
+    cost_usd?: number;
+    success_rate?: number;
+    tokens?: number;
+    ocr_pages?: number;
     ocr?: Partial<Record<'done' | 'failed' | 'skipped' | 'unsupported', number>>;
   } | null;
 }
@@ -92,7 +101,7 @@ export interface UploadSupplierDocumentResult {
 const DOCUMENT_COLUMNS = [
   'id', 'factory_id', 'factory_name', 'doc_type', 'title', 'storage_path', 'file_size',
   'page_count', 'currency', 'source', 'status', 'error_message', 'created_at', 'modified_date',
-  'processing_jobs(id, job_type, status, progress, attempts, max_attempts, error, run_after, created_at, finished_at, state:payload->state, result)',
+  'processing_jobs(id, job_type, status, progress, attempts, max_attempts, error, run_after, created_at, finished_at, pages, ocr_pages, tokens, cost_actual, state:payload->state, result)',
 ].join(', ');
 
 export const ACTIVE_JOB_STATUSES: ProcessingJobStatus[] = ['queued', 'running'];

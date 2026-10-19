@@ -97,7 +97,12 @@ function jobResultText(job: ProcessingJobSummary): string | null {
     ? ` · ${r.items} 件產品${r.needs_attention ? `（${r.needs_attention} 件需注意）` : ''}`
     : '';
   const currency = r.currency_suggestion ? ` · 建議幣種 ${r.currency_suggestion}` : '';
-  return `${r.segments} 段${items}${currency}${ocr ? ` · 掃描頁 OCR：${ocr}` : ''}`;
+  const rate = r.success_rate != null ? ` · 提取成功率 ${Math.round(r.success_rate * 100)}%` : '';
+  const duration = r.duration_seconds != null ? ` · ${r.duration_seconds}s` : '';
+  const cost = job.cost_actual != null ? ` · 費用 USD ${Number(job.cost_actual).toFixed(4)}` : '';
+  const usage = job.tokens != null ? ` · ${job.tokens} tokens` : '';
+  const scanned = job.ocr_pages ? ` · OCR ${job.ocr_pages} 頁` : '';
+  return `${r.segments} 段${items}${rate}${currency}${ocr ? ` · 掃描頁 OCR：${ocr}` : ''}${scanned}${usage}${duration}${cost}`;
 }
 
 function formatSize(bytes: number | null): string {

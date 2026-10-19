@@ -127,6 +127,14 @@
 | T-504 | F-PLT-001 | P0 | T-205 | `processing_jobs` | 成本記錄（頁數/OCR 頁/token/時長/成功率/費用） | 每任務有成本欄 | 成本估算模型 |
 | T-505 | F-AI-005 | P0 | T-403 | UI | **核心查價 MVP** 整合與驗收 | Day 5 交付可示範 | — |
 
+**Day 5 進度（2026-10-19）**：T-501、T-502、T-504 完成。T-503 未做（沒有 5–10 份真實供應商 PDF 可對答案）。T-505 的溯源已接到搜索與審核，可示範上載→解析→審核→搜索→開原文頁。
+- Migration `20261019181000_fds21_source_page_price_gate.sql`：
+  - `fds_source_page_context`：designer／pm／admin／uploader 只能開「已連到該產品」的原文頁。搜索結果仍不回 storage 路徑。Edge `supabase-functions-source-page` 簽 5 分鐘 URL，前端用 pdf.js 畫出該頁；有 bbox 時加框。
+  - 報價單要通過審核，價格必須是 ≥ 0 的數字。`price_not_in_source`／`missing_price` 必須由審核人在修正欄寫下價格才算確認。目錄可以沒有價格。批量通過會跳過未確認項。`supplier_prices.verified` 只接受已通過的提取項。匯入會跳過未確認價格，不寫正式價。
+  - `fds_processing_job_complete` 寫入 token、OCR 頁、時長、費用（Gemini Flash 混合單價 USD 0.30／1M tokens）與提取成功率。已完成但未記費用的任務會回填。
+- 前端：產品卡片與詳情的「來源」打開頁內原文；AI 審核的原文也走同一檢視器；文件列表顯示 tokens、時長與費用。
+- 限制：現有解析流程多數沒有產品 bbox，所以框線只在有座標時出現。T-503 的準確率要等真實 PDF。
+
 **Day 5 交付里程碑**：核心查價 MVP（上載→解析→審核→搜索→溯源）。
 
 ---

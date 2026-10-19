@@ -171,6 +171,7 @@ function rpcErrorMessage(message: string): string {
   if (message.includes('document_factory_missing')) return '文件未指定廠家，無法以「型號＋廠家」建立產品';
   if (message.includes('document_not_found')) return '找不到文件';
   if (message.includes('product_not_found')) return '找不到產品';
+  if (message.includes('price_not_reviewed')) return '未審核的價格不能寫成正式價';
   return message;
 }
 

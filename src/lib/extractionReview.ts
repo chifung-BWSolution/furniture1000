@@ -122,6 +122,10 @@ function rpcErrorMessage(message: string): string {
   if (message.includes('item_already_imported')) return '此項已匯入產品，不能再修改';
   if (message.includes('image_not_linked')) return '所選圖片不屬於此產品';
   if (message.includes('item_not_found')) return '找不到提取項目';
+  if (message.includes('price_needs_confirmation')) {
+    return '報價單的價格未確認。請先在修正欄填上原文核對後的價格，再按通過。目錄可以沒有價格。';
+  }
+  if (message.includes('price_not_reviewed')) return '未審核的價格不能寫成正式價';
   return message;
 }
 
@@ -184,14 +188,18 @@ export async function reviewExtractionItem(input: {
   if (error) throw new Error(rpcErrorMessage(error.message));
 }
 
-export async function reviewExtractionItemsBatch(itemIds: string[], status: ExtractionStatus): Promise<number> {
-  if (itemIds.length === 0) return 0;
+export async function reviewExtractionItemsBatch(
+  itemIds: string[],
+  status: ExtractionStatus,
+): Promise<{ updated: number; blocked: number }> {
+  if (itemIds.length === 0) return { updated: 0, blocked: 0 };
   const { data, error } = await supabase.rpc('fds_extraction_items_review_batch', {
     p_item_ids: itemIds,
     p_status: status,
   });
   if (error) throw new Error(rpcErrorMessage(error.message));
-  return Number(data ?? 0);
+  const row = (data ?? {}) as { updated?: number; blocked?: number };
+  return { updated: Number(row.updated ?? 0), blocked: Number(row.blocked ?? 0) };
 }
 
 /** Opens the original PDF at the item's page (signed URL, browser PDF viewer honours #page). */
