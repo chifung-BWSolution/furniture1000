@@ -151,6 +151,9 @@ const ExtractionReviewView = lazy(() =>
 const FurnitureSearchView = lazy(() =>
   import("./FurnitureSearchView").then((mod) => ({ default: mod.FurnitureSearchView }))
 );
+const FurnitureModelView = lazy(() =>
+  import("./FurnitureModelView").then((mod) => ({ default: mod.FurnitureModelView }))
+);
 // 傢俬方案 (Furniture Scheme)
 const SolutionProjectListView = lazy(() =>
   import("./solutions/SolutionProjectListView").then((mod) => ({ default: mod.SolutionProjectListView }))
@@ -941,6 +944,8 @@ export function AppShell() {
     if (store.currentView === 'fds2-admin-dev-cost') return <DevelopmentCostView />;
     if (store.currentView === 'fds2-products-ai-review') return <ExtractionReviewView />;
     if (store.currentView === 'fds2-designer-types') return <FurnitureSearchView />;
+    if (store.currentView === 'fds2-designer-su') return <FurnitureModelView focus="su" />;
+    if (store.currentView === 'fds2-designer-3d') return <FurnitureModelView focus="3d" />;
     if (store.currentView === 'fds2-publish-similar') return <SimilarProductsView />;
     if (isSitemapPlaceholderView(store.currentView)) {
       const meta = getViewMeta(store.currentView);

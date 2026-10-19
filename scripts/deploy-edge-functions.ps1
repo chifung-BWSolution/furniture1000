@@ -120,4 +120,9 @@ Deploy-Function `
   -FilePath (Join-Path $root 'supabase\functions\embed-products\index.ts') `
   -Name 'embed-products'
 
+Deploy-Function `
+  -Slug 'supabase-functions-generate-furniture-model' `
+  -FilePath (Join-Path $root 'supabase\functions\generate-furniture-model\index.ts') `
+  -Name 'generate-furniture-model'
+
 Write-Host 'All functions deployed successfully.'
