@@ -38,7 +38,7 @@ export type ThumbOptions = {
   quality?: number;
   /** Output format (default 'webp'). */
   format?: 'webp' | 'origin';
-  /** Supabase resize mode (only relevant with height). */
+  /** Supabase resize mode (defaults to `contain` when no height is given). */
   resize?: 'cover' | 'contain' | 'fill';
 };
 
@@ -70,7 +70,10 @@ export function toThumbUrl(
   if (options.height) params.set('height', String(Math.round(options.height)));
   params.set('quality', String(Math.round(options.quality ?? THUMB_QUALITY)));
   params.set('format', options.format ?? 'webp');
+  // Supabase defaults to `cover` against the original height, so a width-only
+  // request returns e.g. 320x1024 for a 1024x1024 source; `contain` keeps the ratio.
   if (options.resize) params.set('resize', options.resize);
+  else if (!options.height && !params.has('resize')) params.set('resize', 'contain');
 
   return `${renderBase}?${params.toString()}`;
 }

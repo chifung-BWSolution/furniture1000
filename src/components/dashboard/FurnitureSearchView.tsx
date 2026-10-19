@@ -367,7 +367,7 @@ export function FurnitureSearchView() {
         ) : (
           <div
             className={cn(
-              'grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5',
+              'grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6',
               loading && 'opacity-60',
             )}
           >
@@ -451,12 +451,12 @@ function ProductCard({
       onClick={onOpen}
       className="group flex flex-col overflow-hidden rounded-lg border border-border bg-card text-left transition-shadow hover:shadow-md"
     >
-      <div className="relative aspect-[4/3] bg-muted">
+      <div className="relative h-36 bg-white">
         {p.image_url ? (
           <LoadingImage
             src={productThumbUrl(p.image_url)}
             alt={p.title}
-            className="h-full w-full object-cover"
+            className="h-full w-full object-contain p-2"
             loading="lazy"
             decoding="async"
           />
@@ -563,7 +563,7 @@ function ProductDetailDialog({ productId, onClose }: { productId: string; onClos
 
             <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
               <div className="space-y-2">
-                <div className="aspect-[4/3] overflow-hidden rounded-lg bg-muted">
+                <div className="h-64 overflow-hidden rounded-lg bg-white">
                   {detail.images.length > 0 ? (
                     <LoadingImage src={detail.images[activeImage]} alt={detail.title} className="h-full w-full object-contain" />
                   ) : (

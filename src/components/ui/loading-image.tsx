@@ -36,8 +36,8 @@ function splitClassName(className?: string) {
 /**
  * Product image with a placeholder until the file has decoded.
  * A sized box (h-/w-/aspect/absolute, or width/height style) fills that box.
- * Lightbox images that only set max-height/max-width keep their intrinsic size
- * and show a placeholder until decode.
+ * Lightbox images that only set max-height/max-width keep their intrinsic size;
+ * until decode they show a small spinner, never a box that sets the layout height.
  */
 function LoadingImage({
   src,
@@ -114,14 +114,13 @@ function LoadingImage({
     return (
       <span className="relative inline-block max-w-full align-middle" style={style} onClick={onClick}>
         {!loaded && !failed ? (
-          <span className="relative flex h-36 w-36 items-center justify-center overflow-hidden rounded-lg bg-muted">
-            <span className="absolute inset-0 animate-pulse bg-primary/10" />
-            <Spinner className="relative size-5 text-muted-foreground/70" />
+          <span className="inline-flex size-8 items-center justify-center">
+            <Spinner className="size-5 text-muted-foreground/70" />
           </span>
         ) : null}
         {failed ? (
-          <span className="flex h-36 w-36 items-center justify-center rounded-lg bg-muted">
-            {fallback ?? <ImageOff className="h-6 w-6 text-muted-foreground/40" aria-hidden />}
+          <span className="inline-flex size-8 items-center justify-center">
+            {fallback ?? <ImageOff className="h-5 w-5 text-muted-foreground/40" aria-hidden />}
           </span>
         ) : null}
         {image}
