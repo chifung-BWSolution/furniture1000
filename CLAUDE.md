@@ -291,4 +291,4 @@ node scripts/check-supabase-env.mjs --live   # 額外對各 project 發一次請
  只有審核通過的項目才可寫入（BR-02）。匯入只經 `fds_import_extracted_products`：同廠家同型號沿用既有產品且不改它，
  只追加報價；不寫 `products.cost_price`（報價可能是外幣）。
 - 產品搜索（「產品類型」頁）只經 `fds_search_products`／`fds_product_detail` RPC：成本只回給 admin／uploader，
- 其他角色只拿中間價（賣價 × 0.8）。不要在前端直接 select `supplier_prices`（RLS 只開給 admin／uploader）。
+  設計師／PM 拿折扣價（售價 × 0.8）和原價。不要在前端直接 select `supplier_prices`（RLS 只開給 admin／uploader）。

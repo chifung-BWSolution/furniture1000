@@ -208,7 +208,7 @@ export const PERMISSIONS = ['查看產品', '編輯產品', '上架發佈', '管
 export const ROLE_PERMISSIONS: Record<UserRole, boolean[]> = {
   admin: [true, true, true, true, true, true],
   uploader: [true, true, true, false, true, false],
-  pm: [true, true, false, true, true, false],
+  pm: [true, true, false, true, false, false],
   designer: [true, true, false, false, false, false],
   client: [true, false, false, false, false, false],
 };

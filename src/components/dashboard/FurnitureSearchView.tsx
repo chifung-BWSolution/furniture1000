@@ -302,7 +302,7 @@ export function FurnitureSearchView() {
               ['長 L (mm)', 'lMin', 'lMax'],
               ['闊 W (mm)', 'wMin', 'wMax'],
               ['高 H (mm)', 'hMin', 'hMax'],
-              [canViewCost ? '成本價' : '中間價', 'priceMin', 'priceMax'],
+              [canViewCost ? '成本價' : '折扣價', 'priceMin', 'priceMax'],
             ] as const).map(([label, minKey, maxKey]) => (
               <div key={label} className="space-y-1">
                 <Label className="text-xs">{label}</Label>
@@ -356,7 +356,7 @@ export function FurnitureSearchView() {
           {loading ? '搜尋中…' : `共 ${total.toLocaleString()} 件產品`}
           {!loading && elapsedMs != null && ` · ${(elapsedMs / 1000).toFixed(2)} 秒`}
         </span>
-        <span>{canViewCost ? '顯示供應商成本（只限 admin／傢俬組）' : '價錢為中間價（賣價 × 0.8）'}</span>
+        <span>{canViewCost ? '顯示供應商成本（只限 admin／傢俬組）' : '折扣價為售價 × 0.8，其後為原價'}</span>
       </div>
 
       <div className="relative min-h-0 flex-1 overflow-y-auto">
@@ -416,21 +416,33 @@ function PriceBlock({ product, canViewCost }: { product: SearchProduct; canViewC
           {q?.unit && <span className="ml-1 text-xs font-normal text-muted-foreground">/ {q.unit}</span>}
         </div>
         {!q && product.legacy_cost != null && <div className="text-[11px] text-muted-foreground">舊成本（未註明幣種）</div>}
-        {product.middle_price != null && (
-          <div className="text-[11px] text-muted-foreground">中間價 {moneyLabel(product.middle_price)}</div>
-        )}
+        <DiscountAndOriginal product={product} />
       </div>
     );
   }
   return (
     <div className="text-sm font-semibold tabular-nums">
-      {product.middle_price != null ? (
-        <>
-          {moneyLabel(product.middle_price)}
-          <span className="ml-1 text-[11px] font-normal text-muted-foreground">中間價</span>
-        </>
+      {product.middle_price != null || product.sale_price != null ? (
+        <DiscountAndOriginal product={product} prominent />
       ) : (
         <span className="font-normal text-muted-foreground">未定價</span>
+      )}
+    </div>
+  );
+}
+
+function DiscountAndOriginal({ product, prominent }: { product: SearchProduct; prominent?: boolean }) {
+  if (product.middle_price == null && product.sale_price == null) return null;
+  return (
+    <div className={prominent ? undefined : 'text-[11px] text-muted-foreground'}>
+      {product.middle_price != null && (
+        <>
+          {moneyLabel(product.middle_price)}
+          <span className={cn('ml-1 font-normal text-muted-foreground', prominent ? 'text-[11px]' : undefined)}>折扣價</span>
+        </>
+      )}
+      {product.sale_price != null && (
+        <span className="ml-2 text-[11px] font-normal text-muted-foreground">原價 {moneyLabel(product.sale_price)}</span>
       )}
     </div>
   );
@@ -542,12 +554,10 @@ function ProductDetailDialog({ productId, onClose }: { productId: string; onClos
         ['顏色', detail.color ? multiColorToChineseDisplay(detail.color) : null],
         ['交期', detail.lead_time],
         ['現貨', detail.in_stock ? '是' : null],
-        ['中間價', moneyLabel(detail.middle_price)],
+        ['折扣價', moneyLabel(detail.middle_price)],
+        ['原價', moneyLabel(detail.sale_price)],
         ...(detail.can_view_cost
-          ? ([
-              ['賣價', moneyLabel(detail.sale_price)],
-              ['舊成本', moneyLabel(detail.legacy_cost)],
-            ] as [string, string | null][])
+          ? ([['舊成本', moneyLabel(detail.legacy_cost)]] as [string, string | null][])
           : []),
       ].filter(([, v]) => v) as [string, string | null | undefined][]
     : [];
