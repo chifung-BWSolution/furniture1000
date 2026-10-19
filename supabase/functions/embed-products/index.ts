@@ -30,7 +30,7 @@ function thumbUrl(url: string): string {
   if (at < 0) return url;
   const rewritten = `${url.slice(0, at)}/storage/v1/render/image/public/${url.slice(at + marker.length)}`;
   const join = rewritten.includes("?") ? "&" : "?";
-  return `${rewritten}${join}width=512&quality=70&format=jpeg`;
+  return `${rewritten}${join}width=512&quality=70`;
 }
 
 async function embed(apiKey: string, parts: unknown[]): Promise<number[]> {
@@ -58,6 +58,21 @@ function bytesToBase64(bytes: Uint8Array): string {
     binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
   }
   return btoa(binary);
+}
+
+async function loadImage(url: string): Promise<{ bytes: Uint8Array; mime: string }> {
+  const attempts = url.includes("/storage/v1/object/public/") ? [thumbUrl(url), url] : [url];
+  let last = "image HTTP";
+  for (const candidate of attempts) {
+    const res = await fetch(candidate);
+    if (!res.ok) {
+      last = `image HTTP ${res.status}`;
+      continue;
+    }
+    const mime = (res.headers.get("content-type") ?? "image/jpeg").split(";")[0].trim();
+    return { bytes: new Uint8Array(await res.arrayBuffer()), mime: mime || "image/jpeg" };
+  }
+  throw new Error(last);
 }
 
 async function sha256Hex(bytes: Uint8Array): Promise<string> {
@@ -92,13 +107,12 @@ async function indexOne(admin: SupabaseClient, apiKey: string, row: {
   material?: string | null;
   color?: string | null;
 }): Promise<void> {
-  const res = await fetch(thumbUrl(row.image_url));
-  if (!res.ok) throw new Error(`image HTTP ${res.status}`);
-  const bytes = new Uint8Array(await res.arrayBuffer());
+  const loaded = await loadImage(row.image_url);
+  const bytes = loaded.bytes;
   if (bytes.byteLength < 32 || bytes.byteLength > 2_000_000) throw new Error("image_size");
   const hash = await sha256Hex(bytes);
   const imageValues = await embed(apiKey, [{
-    inline_data: { mime_type: "image/jpeg", data: bytesToBase64(bytes) },
+    inline_data: { mime_type: loaded.mime, data: bytesToBase64(bytes) },
   }]);
   const { error: imageErr } = await admin.rpc("fds_upsert_embedding", {
     p_entity_id: row.id,
