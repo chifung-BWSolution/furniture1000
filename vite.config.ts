@@ -23,6 +23,23 @@ function currentGitBranch(): string {
   }
 }
 
+/**
+ * Browser Supabase connection. Unprefixed names win so Vercel Preview can set
+ * SUPABASE_URL / SUPABASE_ANON_KEY without a VITE_ prefix. Existing
+ * VITE_SUPABASE_* values remain the fallback for production.
+ */
+export function resolveSupabasePublicEnv(input: {
+  supabaseUrl?: string;
+  supabaseAnonKey?: string;
+  viteSupabaseUrl?: string;
+  viteSupabaseAnonKey?: string;
+}) {
+  return {
+    url: String(input.supabaseUrl || input.viteSupabaseUrl || "").trim(),
+    anonKey: String(input.supabaseAnonKey || input.viteSupabaseAnonKey || "").trim(),
+  };
+}
+
 /** One-click login is baked in only for the develop branch. main always gets empty values. */
 export function resolveQuickLoginConfig(input: {
   gitBranch: string;
@@ -76,6 +93,12 @@ function versionJsonPlugin(buildId: string, opts?: { writePublic?: boolean }): P
 // https://vitejs.dev/config/
 export default defineConfig(({ command, mode }) => {
   const env = loadEnv(mode, process.cwd(), "");
+  const supabasePublic = resolveSupabasePublicEnv({
+    supabaseUrl: process.env.SUPABASE_URL ?? env.SUPABASE_URL,
+    supabaseAnonKey: process.env.SUPABASE_ANON_KEY ?? env.SUPABASE_ANON_KEY,
+    viteSupabaseUrl: process.env.VITE_SUPABASE_URL ?? env.VITE_SUPABASE_URL,
+    viteSupabaseAnonKey: process.env.VITE_SUPABASE_ANON_KEY ?? env.VITE_SUPABASE_ANON_KEY,
+  });
   const quickLogin = resolveQuickLoginConfig({
     gitBranch: currentGitBranch(),
     enabled: process.env.VITE_ENABLE_QUICK_LOGIN ?? env.VITE_ENABLE_QUICK_LOGIN,
@@ -89,6 +112,8 @@ export default defineConfig(({ command, mode }) => {
       ? "/"
       : process.env.VITE_BASE_PATH || "/",
   define: {
+    "import.meta.env.VITE_SUPABASE_URL": JSON.stringify(supabasePublic.url),
+    "import.meta.env.VITE_SUPABASE_ANON_KEY": JSON.stringify(supabasePublic.anonKey),
     "import.meta.env.VITE_ENABLE_QUICK_LOGIN": JSON.stringify(quickLogin.enabled),
     "import.meta.env.VITE_QUICK_LOGIN_EMAIL": JSON.stringify(quickLogin.email),
     "import.meta.env.VITE_QUICK_LOGIN_PASSWORD": JSON.stringify(quickLogin.password),
