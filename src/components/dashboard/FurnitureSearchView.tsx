@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
 import {
   ChevronLeft, ChevronRight, ExternalLink, FileText, Loader2, Lock, Package, RotateCcw, Ruler, Search,
@@ -15,6 +16,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { MultiColorSelector } from '@/components/dashboard/MultiColorSelector';
+import { ProductImageGalleryLightbox } from '@/components/dashboard/ProductImageGallery';
 import { multiColorToChineseDisplay } from '@/constants/color-map';
 import { MATERIAL_TAG_RULES } from '@/constants/material-tags';
 import { openSourcePage } from '@/lib/extractionReview';
@@ -511,6 +513,8 @@ function ProductCard({
 function ProductDetailDialog({ productId, onClose }: { productId: string; onClose: () => void }) {
   const [detail, setDetail] = useState<ProductDetail | null>(null);
   const [activeImage, setActiveImage] = useState(0);
+  const [zoomed, setZoomed] = useState(false);
+  const closeZoom = useCallback(() => setZoomed(false), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -550,7 +554,11 @@ function ProductDetailDialog({ productId, onClose }: { productId: string; onClos
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-h-[90vh] max-w-4xl overflow-y-auto">
+      <DialogContent
+        className="max-h-[90vh] max-w-4xl overflow-y-auto"
+        onInteractOutside={(event) => zoomed && event.preventDefault()}
+        onEscapeKeyDown={(event) => zoomed && event.preventDefault()}
+      >
         {!detail ? (
           <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">
             <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 載入中…
@@ -565,7 +573,15 @@ function ProductDetailDialog({ productId, onClose }: { productId: string; onClos
               <div className="space-y-2">
                 <div className="h-64 overflow-hidden rounded-lg bg-white">
                   {detail.images.length > 0 ? (
-                    <LoadingImage src={detail.images[activeImage]} alt={detail.title} className="h-full w-full object-contain" />
+                    <button
+                      type="button"
+                      onClick={() => setZoomed(true)}
+                      className="h-full w-full cursor-zoom-in"
+                      title="點擊放大圖片"
+                      aria-label="放大圖片"
+                    >
+                      <LoadingImage src={detail.images[activeImage]} alt={detail.title} className="h-full w-full object-contain" />
+                    </button>
                   ) : (
                     <div className="flex h-full items-center justify-center">
                       <Package className="h-10 w-10 text-muted-foreground/40" />
@@ -687,6 +703,19 @@ function ProductDetailDialog({ productId, onClose }: { productId: string; onClos
           </>
         )}
       </DialogContent>
+      {zoomed && detail && detail.images.length > 0
+        ? createPortal(
+            <div className="pointer-events-auto">
+              <ProductImageGalleryLightbox
+                urls={detail.images}
+                title={detail.title}
+                startIndex={activeImage}
+                onClose={closeZoom}
+              />
+            </div>,
+            document.body,
+          )
+        : null}
     </Dialog>
   );
 }
