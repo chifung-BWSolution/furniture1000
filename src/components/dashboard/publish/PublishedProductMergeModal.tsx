@@ -354,6 +354,7 @@ export function PublishedProductMergeModal({
   const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
   const [showPicker, setShowPicker] = useState(false);
   const [pickerSearch, setPickerSearch] = useState('');
+  const [debouncedPickerSearch, setDebouncedPickerSearch] = useState('');
   const [pickerFactory, setPickerFactory] = useState('');
   const [pickerPage, setPickerPage] = useState(0);
   const [pickerTotal, setPickerTotal] = useState(0);
@@ -386,6 +387,7 @@ export function PublishedProductMergeModal({
     setGalleryUrls(buildGalleryFromProducts(order, cache));
     setShowPicker(false);
     setPickerSearch('');
+    setDebouncedPickerSearch('');
     setPickerFactory('');
     setPickerPage(0);
   }, [open, products]);
@@ -394,6 +396,14 @@ export function PublishedProductMergeModal({
     () => new Set(rows.map((r) => r.shopify_product_id)),
     [rows],
   );
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedPickerSearch(pickerSearch);
+      setPickerPage(0);
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [pickerSearch]);
 
   const loadPicker = useCallback(async () => {
     if (!showPicker || !hostShopifyId) return;
@@ -418,7 +428,7 @@ export function PublishedProductMergeModal({
         const quoted = excludeIds.map((id) => `"${id}"`).join(',');
         q = q.not('shopify_product_id', 'in', `(${quoted})`);
       }
-      const term = pickerSearch.trim();
+      const term = debouncedPickerSearch.trim();
       if (term) {
         q = q.or(`title.ilike.%${term}%,sku.ilike.%${term}%`);
       }
@@ -448,7 +458,7 @@ export function PublishedProductMergeModal({
     } finally {
       setPickerLoading(false);
     }
-  }, [showPicker, hostShopifyId, pickerPage, pickerSearch, pickerFactory, addedShopifyIds, pickerFactories.length]);
+  }, [showPicker, hostShopifyId, pickerPage, debouncedPickerSearch, pickerFactory, addedShopifyIds, pickerFactories.length]);
 
   useEffect(() => {
     void loadPicker();
@@ -542,6 +552,7 @@ export function PublishedProductMergeModal({
     setRows((prev) => assignDuplicateMergeSkus([...prev, ...newRows]));
     setShowPicker(false);
     setPickerSearch('');
+    setDebouncedPickerSearch('');
     setPickerFactory('');
     setPickerPage(0);
   };
@@ -744,6 +755,7 @@ export function PublishedProductMergeModal({
             onClick={() => {
               setShowPicker(true);
               setPickerSearch('');
+              setDebouncedPickerSearch('');
               setPickerFactory('');
               setPickerPage(0);
             }}
@@ -771,7 +783,7 @@ export function PublishedProductMergeModal({
                 <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/60" />
                 <Input
                   value={pickerSearch}
-                  onChange={(e) => { setPickerSearch(e.target.value); setPickerPage(0); }}
+                  onChange={(e) => setPickerSearch(e.target.value)}
                   placeholder="搜尋產品名稱或 SKU…"
                   className="pl-8 h-8 text-xs font-body"
                 />

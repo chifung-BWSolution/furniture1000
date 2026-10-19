@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import * as XLSX from 'xlsx';
 import {
@@ -69,6 +69,24 @@ export function DailyCommandLogsView() {
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<CommandLogRow | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [debouncedSearch, setDebouncedSearch] = useState(filters.search);
+  const appliedSearchRef = useRef(filters.search);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      if (appliedSearchRef.current === filters.search) return;
+      appliedSearchRef.current = filters.search;
+      setDebouncedSearch(filters.search);
+      setPage(1);
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [filters.search]);
+
+  const { from, to, developerEmail, status, model } = filters;
+  const queryFilters = useMemo<CommandLogFilters>(
+    () => ({ from, to, developerEmail, status, model, search: debouncedSearch }),
+    [from, to, developerEmail, status, model, debouncedSearch],
+  );
 
   const load = useCallback(async (nextFilters: CommandLogFilters, nextPage: number) => {
     setLoading(true);
@@ -89,21 +107,21 @@ export function DailyCommandLogsView() {
   }, []);
 
   useEffect(() => {
-    void load(filters, page);
-  }, [filters, page, load]);
+    void load(queryFilters, page);
+  }, [queryFilters, page, load]);
 
   const totalPages = Math.max(1, Math.ceil(total / COMMAND_LOG_PAGE_SIZE));
   const summary = analytics?.summary;
 
   const updateFilter = (patch: Partial<CommandLogFilters>) => {
-    setPage(1);
+    if (!('search' in patch)) setPage(1);
     setFilters((prev) => ({ ...prev, ...patch }));
   };
 
   const exportExcel = async () => {
     setExporting(true);
     try {
-      const all = await getCommandLogs(filters, 1, 2000);
+      const all = await getCommandLogs(queryFilters, 1, 2000);
       const sheet = XLSX.utils.json_to_sheet(all.rows.map((row) => ({
         日期: row.businessDate,
         程式員: row.developerName,
@@ -134,7 +152,7 @@ export function DailyCommandLogsView() {
       await deleteCommandLog(row.id);
       toast.success('已刪除指令記錄');
       setSelected(null);
-      await load(filters, page);
+      await load(queryFilters, page);
     } catch (err) {
       toast.error(developmentOpsError(err as { message?: string }));
     }
@@ -155,7 +173,7 @@ export function DailyCommandLogsView() {
           </div>
         </div>
         <div className="flex gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={() => void load(filters, page)} disabled={loading}>
+          <Button type="button" variant="outline" size="sm" onClick={() => void load(queryFilters, page)} disabled={loading}>
             <RefreshCw className={`mr-1 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             重新載入
           </Button>

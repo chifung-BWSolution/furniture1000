@@ -327,6 +327,7 @@ export function ReadyToPublishMergeModal({
   const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
   const [showPicker, setShowPicker] = useState(false);
   const [pickerSearch, setPickerSearch] = useState('');
+  const [debouncedPickerSearch, setDebouncedPickerSearch] = useState('');
   const [pickerFactory, setPickerFactory] = useState('');
   const [pickerPage, setPickerPage] = useState(0);
   const [pickerTotal, setPickerTotal] = useState(0);
@@ -415,6 +416,7 @@ export function ReadyToPublishMergeModal({
     if (!open || !product) return;
     setShowPicker(false);
     setPickerSearch('');
+    setDebouncedPickerSearch('');
     setPickerFactory('');
     setPickerPage(0);
     void loadMergeState();
@@ -429,6 +431,14 @@ export function ReadyToPublishMergeModal({
     () => pickerRows.filter((p) => isPickableRtsProduct(p, hostRtsId, addedVariantKeys)),
     [pickerRows, hostRtsId, addedVariantKeys],
   );
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setDebouncedPickerSearch(pickerSearch);
+      setPickerPage(0);
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [pickerSearch]);
 
   const loadPicker = useCallback(async () => {
     if (!showPicker || !hostRtsId) return;
@@ -446,7 +456,7 @@ export function ReadyToPublishMergeModal({
         .order('title', { ascending: true })
         .range(from, to);
 
-      const term = pickerSearch.trim();
+      const term = debouncedPickerSearch.trim();
       if (term) {
         q = q.or(`title.ilike.%${term}%,sku.ilike.%${term}%`);
       }
@@ -477,7 +487,7 @@ export function ReadyToPublishMergeModal({
     } finally {
       setPickerLoading(false);
     }
-  }, [showPicker, hostRtsId, pickerPage, pickerSearch, pickerFactory, pickerFactories.length]);
+  }, [showPicker, hostRtsId, pickerPage, debouncedPickerSearch, pickerFactory, pickerFactories.length]);
 
   useEffect(() => {
     void loadPicker();
@@ -818,6 +828,7 @@ export function ReadyToPublishMergeModal({
                 onClick={() => {
                   setShowPicker(true);
                   setPickerSearch('');
+                  setDebouncedPickerSearch('');
                   setPickerFactory('');
                   setPickerPage(0);
                 }}
@@ -845,7 +856,7 @@ export function ReadyToPublishMergeModal({
                     <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground/60" />
                     <Input
                       value={pickerSearch}
-                      onChange={(e) => { setPickerSearch(e.target.value); setPickerPage(0); }}
+                      onChange={(e) => setPickerSearch(e.target.value)}
                       placeholder="搜尋產品名稱或 SKU…"
                       className="pl-8 h-8 text-xs font-body"
                     />
