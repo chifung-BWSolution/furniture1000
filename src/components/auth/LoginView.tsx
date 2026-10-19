@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { FdsLogo } from '@/components/brand/FdsLogo';
 import { supabase } from '@/lib/supabase';
-import { getQuickLoginCredentials } from '@/lib/quick-login';
+import { getQuickLoginCredentials, isDevelopQuickLoginBuild } from '@/lib/quick-login';
 
 const PMS_SSO_START_URL = import.meta.env.VITE_PMS_SSO_START_URL?.trim() || '';
 
@@ -18,11 +18,12 @@ function getPmsOrigin(): string | null {
 }
 
 export function LoginView() {
+  const useQuickLogin = isDevelopQuickLoginBuild();
   const quickLogin = getQuickLoginCredentials();
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    if (!PMS_SSO_START_URL) return;
+    if (useQuickLogin || !PMS_SSO_START_URL) return;
 
     const params = new URLSearchParams(window.location.search);
     const returnTo = params.get('return_to');
@@ -38,7 +39,7 @@ export function LoginView() {
         );
       }
     }
-  }, []);
+  }, [useQuickLogin]);
 
   const handleSignIn = () => {
     if (!PMS_SSO_START_URL) {
@@ -51,14 +52,6 @@ export function LoginView() {
       const redirectTo = `${window.location.pathname}${window.location.search}`;
       if (redirectTo && redirectTo !== '/') {
         start.searchParams.set('redirect_to', redirectTo);
-      }
-      // Tell PMS which app origin the SSO callback must return to. PMS defaults to
-      // the production domain, so without this a preview deployment (Vercel
-      // deployment / branch alias) would be bounced to production and never get
-      // its session. PMS only accepts allowlisted origins (production + previews).
-      const appOrigin = window.location.origin;
-      if (appOrigin.startsWith('https://')) {
-        start.searchParams.set('app_origin', appOrigin);
       }
       window.location.href = start.toString();
     } catch {
@@ -91,34 +84,41 @@ export function LoginView() {
             FDS Furniture Design Platform
           </h1>
           <p className="text-sm text-muted-foreground">
-            請使用 PMS 帳號登入以存取傢俬設計管理平台
+            {useQuickLogin
+              ? '開發預覽請使用一鍵登入'
+              : '請使用 PMS 帳號登入以存取傢俬設計管理平台'}
           </p>
         </div>
 
         <div className="space-y-3">
-          <Button
-            className="h-11 w-full gap-2 text-sm font-semibold"
-            onClick={handleSignIn}
-            disabled={!PMS_SSO_START_URL || busy}
-          >
-            <LogIn className="h-4 w-4" />
-            使用 PMS 登入
-          </Button>
-
-          {quickLogin && (
+          {useQuickLogin ? (
             <Button
-              variant="secondary"
               className="h-11 w-full gap-2 text-sm font-semibold"
               onClick={() => void handleQuickLogin()}
-              disabled={busy}
+              disabled={!quickLogin || busy}
             >
               {busy ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <Zap className="h-4 w-4" />}
-              一鍵登入（開發／Preview）
+              一鍵登入
+            </Button>
+          ) : (
+            <Button
+              className="h-11 w-full gap-2 text-sm font-semibold"
+              onClick={handleSignIn}
+              disabled={!PMS_SSO_START_URL || busy}
+            >
+              <LogIn className="h-4 w-4" />
+              使用 PMS 登入
             </Button>
           )}
         </div>
 
-        {!PMS_SSO_START_URL && (
+        {useQuickLogin && !quickLogin && (
+          <p className="text-xs text-destructive">
+            未設定預覽帳戶。請在 develop 的 Preview 環境設定 VITE_ENABLE_QUICK_LOGIN、VITE_QUICK_LOGIN_EMAIL、VITE_QUICK_LOGIN_PASSWORD。
+          </p>
+        )}
+
+        {!useQuickLogin && !PMS_SSO_START_URL && (
           <p className="text-xs text-destructive">
             未設定 VITE_PMS_SSO_START_URL。請聯絡管理員。
           </p>

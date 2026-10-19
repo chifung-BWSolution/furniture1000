@@ -140,21 +140,10 @@ Furniture `/auth/pms/callback` 交換 session 後必須導向 `redirect_to`（�
 `pms-sso` mint 若收到最終 path（如 `/quote/quick?...`）會包進 callback 的
 `?redirect_to=`。登入頁「使用 PMS 登入」會自動帶上目前 path（含 `/design-projects/:id`）。
 
-**SSO 的 preview 支援（`app_origin`）**：callback origin 由 PMS 決定，預設是
-`FURNITURE_APP_URL`（正式站）。Vercel preview 登入頁會多帶
-`app_origin=<目前 origin>`，PMS 用 allowlist 驗證後（正式站 origin +
-`FURNITURE_PREVIEW_ORIGIN_PATTERN`，預設只允許
-`https://furniture1000-*-bwsystem.vercel.app`）才把 callback 指回該 origin，
-否則 session 會建在正式站、preview 永遠登不進去。
-**preview 必須 mint 到自己的 Supabase 專案**：preview 前端打的是 branch 專案
-（FDS2.0 = `omxizeukbcqzsnjsuwod`），所以 PMS 要用
-`BWF_PREVIEW_SUPABASE_URL`（＋ `BWF_PREVIEW_PMS_SSO_SHARED_SECRET`，未設則用
-`PMS_SSO_SHARED_SECRET`）呼叫 branch 的 `supabase-functions-pms-sso`。
-**branch 專案不會繼承 edge secrets**（每天要記得的坑）：FDS2.0 必須手動加
-`PMS_SSO_SHARED_SECRET`（與 PMS／正式站同值），否則 branch 的 mint 會回
-500 `PMS_SSO_SHARED_SECRET not configured`。
-程式碼位置：Furniture `LoginView.handleSignIn`；PMS3.0
-`src/lib/supabase/bwf/sso-origins.ts` ＋ `src/app/api/bwf/sso/start/route.ts`。
+**登入**：main（正式站）才用 PMS SSO。develop 的 preview 只顯示一鍵登入
+（`VITE_LOGIN_METHOD=quick`，Vite 依 git 分支寫入），不呼叫 SSO。
+一鍵登入帳號由 `VITE_ENABLE_QUICK_LOGIN`、`VITE_QUICK_LOGIN_EMAIL`、
+`VITE_QUICK_LOGIN_PASSWORD` 提供，同樣只在 develop 建置時寫進前端。
 
 **設計專案 deep link**：`/design-projects/:projectId`（見 `src/lib/designProjectRoutes.ts`）。
 切換專案會同步 URL；可貼上連結 → 登入後直接開啟該專案。

@@ -99,6 +99,7 @@ export default defineConfig(({ command, mode }) => {
     viteSupabaseUrl: process.env.VITE_SUPABASE_URL ?? env.VITE_SUPABASE_URL,
     viteSupabaseAnonKey: process.env.VITE_SUPABASE_ANON_KEY ?? env.VITE_SUPABASE_ANON_KEY,
   });
+  const loginMethod = currentGitBranch() === "develop" ? "quick" : "sso";
   const quickLogin = resolveQuickLoginConfig({
     gitBranch: currentGitBranch(),
     enabled: process.env.VITE_ENABLE_QUICK_LOGIN ?? env.VITE_ENABLE_QUICK_LOGIN,
@@ -112,6 +113,7 @@ export default defineConfig(({ command, mode }) => {
       ? "/"
       : process.env.VITE_BASE_PATH || "/",
   define: {
+    "import.meta.env.VITE_LOGIN_METHOD": JSON.stringify(loginMethod),
     "import.meta.env.VITE_SUPABASE_URL": JSON.stringify(supabasePublic.url),
     "import.meta.env.VITE_SUPABASE_ANON_KEY": JSON.stringify(supabasePublic.anonKey),
     "import.meta.env.VITE_ENABLE_QUICK_LOGIN": JSON.stringify(quickLogin.enabled),
