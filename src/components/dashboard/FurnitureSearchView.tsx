@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
 import {
-  ChevronLeft, ChevronRight, ExternalLink, FileText, Loader2, Lock, Package, RotateCcw, Ruler, Search,
+  ChevronLeft, ChevronRight, ExternalLink, FileText, Loader2, Package, RotateCcw, Ruler, Search,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { productThumbUrl } from '@/lib/imageThumb';
@@ -400,35 +400,46 @@ export function FurnitureSearchView() {
   );
 }
 
-function PriceBlock({ product }: { product: SearchProduct }) {
-  const q = product.quote;
+function PriceLockup({
+  discount,
+  original,
+  unit,
+  size = 'card',
+}: {
+  discount?: number;
+  original?: number;
+  unit?: string;
+  size?: 'card' | 'detail';
+}) {
+  const discountText = moneyLabel(discount);
+  const originalText = moneyLabel(original);
+  if (!discountText && !originalText) {
+    return <span className="text-sm font-normal text-muted-foreground">未定價</span>;
+  }
   return (
-    <div className="space-y-0.5">
-      <div className="text-sm font-semibold tabular-nums">
-        {product.middle_price != null || product.sale_price != null ? (
-          <DiscountAndOriginal product={product} prominent />
-        ) : (
-          <span className="font-normal text-muted-foreground">未定價</span>
-        )}
-      </div>
-      {q?.unit && <div className="text-[11px] text-muted-foreground">/ {q.unit}</div>}
-    </div>
-  );
-}
-
-function DiscountAndOriginal({ product, prominent }: { product: SearchProduct; prominent?: boolean }) {
-  if (product.middle_price == null && product.sale_price == null) return null;
-  return (
-    <div className={prominent ? undefined : 'text-[11px] text-muted-foreground'}>
-      {product.middle_price != null && (
-        <>
-          {moneyLabel(product.middle_price)}
-          <span className={cn('ml-1 font-normal text-muted-foreground', prominent ? 'text-[11px]' : undefined)}>折扣價</span>
-        </>
-      )}
-      {product.sale_price != null && (
-        <span className="ml-2 text-[11px] font-normal text-muted-foreground">原價 {moneyLabel(product.sale_price)}</span>
-      )}
+    <div className="min-w-0">
+      {discountText ? (
+        <div className="flex flex-wrap items-baseline gap-x-1.5">
+          <span
+            className={cn(
+              'font-mono-data font-semibold tabular-nums tracking-tight text-foreground',
+              size === 'detail' ? 'text-2xl' : 'text-[15px]',
+            )}
+          >
+            {discountText}
+          </span>
+          <span className="text-[10px] font-medium text-muted-foreground">折扣價</span>
+          {unit ? <span className="text-[10px] text-muted-foreground">/ {unit}</span> : null}
+        </div>
+      ) : null}
+      {originalText ? (
+        <p className={cn('text-muted-foreground', discountText ? 'mt-0.5 text-[11px] leading-none' : 'text-sm')}>
+          原價{' '}
+          <span className={cn('font-mono-data tabular-nums', discountText && 'line-through decoration-current/70')}>
+            {originalText}
+          </span>
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -483,7 +494,7 @@ function ProductCard({
           {p.lead_time && <div>交期 {p.lead_time}</div>}
         </div>
         <div className="mt-auto flex items-end justify-between gap-2 pt-1">
-          <PriceBlock product={p} />
+          <PriceLockup discount={p.middle_price} original={p.sale_price} unit={p.quote?.unit} />
           {p.quote && (
             <Badge variant="outline" className={cn('shrink-0 px-1.5 py-0 text-[10px] font-normal', VALIDITY_CLASS[p.quote.validity])}>
               {VALIDITY_LABELS[p.quote.validity]}
@@ -537,8 +548,6 @@ function ProductDetailDialog({ productId, onClose }: { productId: string; onClos
         ['顏色', detail.color ? multiColorToChineseDisplay(detail.color) : null],
         ['交期', detail.lead_time],
         ['現貨', detail.in_stock ? '是' : null],
-        ['折扣價', moneyLabel(detail.middle_price)],
-        ['原價', moneyLabel(detail.sale_price)],
       ].filter(([, v]) => v) as [string, string | null | undefined][]
     : [];
 
@@ -598,6 +607,7 @@ function ProductDetailDialog({ productId, onClose }: { productId: string; onClos
               </div>
 
               <div className="space-y-3 text-sm">
+                <PriceLockup discount={detail.middle_price} original={detail.sale_price} size="detail" />
                 <dl className="grid grid-cols-[6rem_1fr] gap-x-3 gap-y-1.5">
                   {specs.map(([label, value]) => (
                     <div key={label} className="contents">
