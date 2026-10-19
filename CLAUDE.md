@@ -3,6 +3,8 @@
 給 Claude Code 與開發者的專案備忘。隨 git 同步，任何電腦 `git pull` 後都能讀到。
 **切勿在此檔案寫入任何 token / 密鑰**（此檔案會進 git）。機密放 Windows 環境變數。
 
+開發功能時先查 PMS 與 Furniture 1000（FDS）有沒有相關功能、資料或接口，並考慮與 PMS 的兼容。現有 Table、Column、Function、RLS、Edge Function 或頁面流程可以對照實現時，沿用它們，不要為同一件事再新增接口。只有兩邊都沒有可對應的能力時，才在 FDS 追加，而且不改寫 PMS 既有契約。同一條也寫在 `AGENTS.md`。
+
 ---
 
 ## 0. Edge Function 有「重複 slug」陷阱：部署前先確認前端呼叫哪個 slug
