@@ -10,6 +10,19 @@ const corsHeaders = {
 const MASTER_PROJECT_URL = "https://kqwktnplkqucsbasyfjl.supabase.co";
 const MASTER_SERVICE_KEY = Deno.env.get("FACTORY_SERVICE_ROLE_KEY") || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 
+const FACTORY_ID_UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** PMS stores created_date / evaluator. The directory UI still reads created_at / staff_name. */
+function toStaffCommentShape(row: Record<string, unknown>) {
+  const evaluator = typeof row.evaluator === "string" ? row.evaluator.trim() : "";
+  return {
+    ...row,
+    created_at: row.created_date ?? null,
+    staff_name: evaluator || "匿名用戶",
+  };
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders, status: 200 });
@@ -31,17 +44,26 @@ Deno.serve(async (req: Request) => {
       // No body is fine - fetch all
     }
 
-    // Handle save feedback action
+    // Handle save feedback action. PMS factory_id is factories.id (uuid).
     if (body.action === "save_feedback" && body.feedback) {
       const { factory_id: fId, factory_name, comment, staff_name } = body.feedback;
+      if (!FACTORY_ID_UUID.test(fId ?? "")) {
+        return new Response(
+          JSON.stringify({ error: "factory_id 必須是 factories.id（uuid），不能使用廠商編號" }),
+          {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+            status: 400,
+          },
+        );
+      }
+      const evaluator = (staff_name ?? "").trim() || "匿名用戶";
       const { data: insertedComment, error: insertError } = await masterSupabase
         .from("staff_supplier_comments")
         .insert({
           factory_id: fId,
           factory: factory_name,
           comment,
-          staff_name: staff_name || "匿名用戶",
-          created_at: new Date().toISOString(),
+          evaluator,
         })
         .select()
         .single();
@@ -51,7 +73,7 @@ Deno.serve(async (req: Request) => {
       }
 
       return new Response(
-        JSON.stringify({ success: true, comment: insertedComment }),
+        JSON.stringify({ success: true, comment: toStaffCommentShape(insertedComment) }),
         {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
           status: 200,
@@ -152,7 +174,7 @@ Deno.serve(async (req: Request) => {
       const { data, error } = await masterSupabase
         .from("staff_supplier_comments")
         .select("*")
-        .order("created_at", { ascending: false });
+        .order("created_date", { ascending: false });
       if (error) {
         console.error("[fetch-manufacturer-directory] Failed to fetch comments:", error.message);
       } else {
@@ -163,30 +185,10 @@ Deno.serve(async (req: Request) => {
       console.error("[fetch-manufacturer-directory] Exception fetching comments:", (e as Error).message);
     }
 
-    // --- Fetch products from bwf_product_master ---
-    let products: any[] = [];
-    try {
-      const { data, error } = await masterSupabase
-        .from("bwf_product_master")
-        .select("id, title, factory_id, factory_name, images, category")
-        .order("created_at", { ascending: false });
-      if (error) {
-        console.error("[fetch-manufacturer-directory] Failed to fetch products:", error.message);
-      } else {
-        products = data || [];
-        console.log(`[fetch-manufacturer-directory] Fetched ${products.length} products`);
-      }
-    } catch (e) {
-      console.error("[fetch-manufacturer-directory] Exception fetching products:", (e as Error).message);
-    }
+    // Products stay empty until FDS has its own source. PMS Production has no bwf_product_master.
+    const products: any[] = [];
 
-    // Enrich comments - resolve factory_id using direct ID match
-    const enrichedComments = comments.map(c => {
-      if (c.factory_id && factoryById.has(c.factory_id)) {
-        return { ...c, factory_id: c.factory_id };
-      }
-      return c;
-    });
+    const enrichedComments = comments.map((c) => toStaffCommentShape(c));
 
     // Build aggregate stats per factory
     const factoryStats: Record<string, { order_count: number; comment_count: number }> = {};
