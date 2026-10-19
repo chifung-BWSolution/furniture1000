@@ -9,7 +9,7 @@ export type PmsStaffInfo = {
 
 let cachedAuthUserId: string | null = null;
 let cachedInfo: PmsStaffInfo | null = null;
-let inflight: Promise<PmsStaffInfo> | null = null;
+const inflightByUser = new Map<string, Promise<PmsStaffInfo>>();
 
 function normalizeInfo(raw: { staff_id?: unknown; name?: unknown } | null | undefined): PmsStaffInfo {
   const staff_id =
@@ -25,7 +25,7 @@ function normalizeInfo(raw: { staff_id?: unknown; name?: unknown } | null | unde
 export function clearPmsStaffCache(): void {
   cachedAuthUserId = null;
   cachedInfo = null;
-  inflight = null;
+  inflightByUser.clear();
 }
 
 /**
@@ -34,10 +34,13 @@ export function clearPmsStaffCache(): void {
  * Results are cached per auth user for the session.
  */
 export async function fetchPmsStaffInfo(authUserId?: string | null): Promise<PmsStaffInfo> {
-  const {
-    data: { session },
-  } = await supabase.auth.getSession();
-  const uid = authUserId || session?.user?.id || null;
+  let uid = authUserId ?? null;
+  if (!uid) {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    uid = session?.user?.id ?? null;
+  }
 
   if (!uid) {
     clearPmsStaffCache();
@@ -48,9 +51,8 @@ export async function fetchPmsStaffInfo(authUserId?: string | null): Promise<Pms
     return cachedInfo;
   }
 
-  if (cachedAuthUserId === uid && inflight) {
-    return inflight;
-  }
+  const existing = inflightByUser.get(uid);
+  if (existing) return existing;
 
   const promise = (async (): Promise<PmsStaffInfo> => {
     try {
@@ -83,12 +85,12 @@ export async function fetchPmsStaffInfo(authUserId?: string | null): Promise<Pms
     return fallback;
   })();
 
-  inflight = promise;
+  inflightByUser.set(uid, promise);
 
   try {
     return await promise;
   } finally {
-    if (inflight === promise) inflight = null;
+    if (inflightByUser.get(uid) === promise) inflightByUser.delete(uid);
   }
 }
 

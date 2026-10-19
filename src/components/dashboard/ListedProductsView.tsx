@@ -220,6 +220,14 @@ export function ListedProductsView({
   const isCatalog = mode === 'catalog';
   const [products, setProducts] = useState<ListedProduct[]>([]);
   const [totalCount, setTotalCount] = useState(0);
+  const totalCountRef = useRef(0);
+  const updateTotalCount = useCallback((next: number | ((current: number) => number)) => {
+    setTotalCount((prev) => {
+      const value = typeof next === 'function' ? next(prev) : next;
+      totalCountRef.current = value;
+      return value;
+    });
+  }, []);
   const [isLoading, setIsLoading] = useState(true);
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [sortField, setSortField] = useState<SortField>('created_at');
@@ -684,17 +692,23 @@ export function ListedProductsView({
         }
       }
 
-      // Run count + data IN PARALLEL — they no longer block each other.
+      // Exact count only when the list is replaced. Scrolling to the next
+      // page reuses the total already shown in the toolbar.
       const [{ count, error: countErr }, { data: productRows, error: prodErr }] =
-        await Promise.all([countQuery, dataQuery]);
+        await Promise.all([
+          append
+            ? Promise.resolve({ count: totalCountRef.current, error: null })
+            : countQuery,
+          dataQuery,
+        ]);
 
       if (token !== loadTokenRef.current) return;
 
-      if (countErr) {
+      if (!append && countErr) {
         console.error('[ProductCatalog] Count error:', countErr);
       }
-      const total = count || 0;
-      setTotalCount(total);
+      const total = append ? totalCountRef.current : (count || 0);
+      if (!append) updateTotalCount(total);
 
       if (prodErr) {
         console.error('[ProductCatalog] Fetch error:', prodErr);
@@ -759,11 +773,10 @@ export function ListedProductsView({
         dimensionHMm: row.dimension_h_mm != null ? parseInt(row.dimension_h_mm) : null,
         productSku: row.product_sku || null,
         sku: row.sku || null,
-        // variants 先留空，下方背景非阻塞補上，讓首屏立即顯示
         variants: [],
       }));
 
-      // 立即渲染 — 首屏不再等 variants
+      // 立即渲染 — 變體只在歸檔時才查
       if (append) {
         setProducts((prev) => {
           const seen = new Set(prev.map((p) => p.id));
@@ -774,40 +787,14 @@ export function ListedProductsView({
       }
       pageRef.current = targetPage;
       setCurrentPage(targetPage);
-      const more = to + 1 < total;
+      const more = productRows.length === pageSize && to + 1 < total;
       hasMoreRef.current = more;
       setHasMore(more);
       setIsLoading(false);
 
-      // 背景非阻塞抓取 variants，回來後再 patch 進已渲染的列
-      const productIds = productRows.map((p: any) => p.id);
-      supabase
-        .from('product_variants')
-        .select('id,product_id,size,color,sku,price,inventory')
-        .in('product_id', productIds)
-        .then(({ data: variantRows }) => {
-          if (!variantRows || variantRows.length === 0) return;
-          const variantsByProduct: Record<string, any[]> = {};
-          variantRows.forEach((v: any) => {
-            (variantsByProduct[v.product_id] ||= []).push(v);
-          });
-          setProducts((prev) =>
-            prev.map((p) =>
-              variantsByProduct[p.id]
-                ? {
-                    ...p,
-                    variants: variantsByProduct[p.id].map((v: any) => ({
-                      id: v.id, size: v.size, color: v.color, sku: v.sku,
-                      price: parseFloat(v.price), inventory: v.inventory,
-                    })),
-                  }
-                : p
-            )
-          );
-        });
-
       // 背景查詢 shopify_products，以 source_product_id 配對 products.id，
       // 標記已上架產品並帶回 Shopify 名稱 / Shopify ID。
+      const productIds = productRows.map((p: any) => p.id as string);
       supabase
         .from('shopify_products')
         .select('source_product_id,shopify_product_id,title')
@@ -844,7 +831,7 @@ export function ListedProductsView({
         setIsLoading(false);
       }
     }
-  }, [pageSize, sortField, sortOrder, debouncedSearch, shopifyFilter, selectedFactories, level1Filter, level2Filter, isCatalog, showDuplicates, duplicateSkus]);
+  }, [pageSize, sortField, sortOrder, debouncedSearch, shopifyFilter, selectedFactories, level1Filter, level2Filter, isCatalog, showDuplicates, duplicateSkus, updateTotalCount]);
 
   // Reload from page 1 — used on filter/sort/search change, retry, deletes, sync.
   const fetchProducts = useCallback(() => loadPage(1, false), [loadPage]);
@@ -864,7 +851,7 @@ export function ListedProductsView({
           loadPage(pageRef.current + 1, true);
         }
       },
-      { rootMargin: '600px 0px' },
+      { rootMargin: '160px 0px' },
     );
     io.observe(el);
     return () => io.disconnect();
@@ -1035,7 +1022,7 @@ export function ListedProductsView({
 
       // Update local state — remove deleted products from the table
       setProducts(prev => prev.filter(p => !localIds.includes(p.id)));
-      setTotalCount(prev => prev - localIds.length);
+      updateTotalCount(prev => prev - localIds.length);
       setSelectedIds(new Set());
 
       toast.success(`已成功刪除 ${localIds.length} 件產品`, {
@@ -1058,7 +1045,7 @@ export function ListedProductsView({
     } finally {
       setIsDeleting(false);
     }
-  }, [selectedIds, products, isCatalog, fetchProducts]);
+  }, [selectedIds, products, isCatalog, fetchProducts, updateTotalCount]);
 
   // ── Per-row processing actions (所有產品頁) ──
   // Optimistically remove the row from view, then persist the flag.
@@ -1066,9 +1053,9 @@ export function ListedProductsView({
 
   const dropRowLocally = useCallback((id: string) => {
     setProducts((prev) => prev.filter((p) => p.id !== id));
-    setTotalCount((c) => Math.max(0, c - 1));
+    updateTotalCount((c) => Math.max(0, c - 1));
     setSelectedIds((prev) => { const n = new Set(prev); n.delete(id); return n; });
-  }, []);
+  }, [updateTotalCount]);
 
   // Upsert one or more products into ready_to_shopify.
   // Base64 images must NEVER be written into ready_to_shopify — they bloat the
@@ -1181,6 +1168,7 @@ export function ListedProductsView({
     setDismissTarget(null);
     if (!product) return;
     dropRowLocally(product.id);
+    const variantMap = await fetchVariantsByProductIds([product.id]);
     const { error: rejectErr } = await supabase.from('rejectedd_products').insert([{
       original_product_id: product.id,
       title: product.title,
@@ -1221,7 +1209,7 @@ export function ListedProductsView({
       dimension_w_mm: product.dimensionWMm ?? null,
       dimension_h_mm: product.dimensionHMm ?? null,
       product_sku: product.productSku ?? null,
-      variants: product.variants ?? null,
+      variants: variantMap[product.id] ?? null,
       rejection_source: 'listed_products',
     }]);
     if (rejectErr) {
@@ -1243,11 +1231,12 @@ export function ListedProductsView({
     setShowBatchRejectConfirm(false);
 
     setProducts(prev => prev.filter(p => !selectedIds.has(p.id)));
-    setTotalCount(c => Math.max(0, c - ids.length));
+    updateTotalCount(c => Math.max(0, c - ids.length));
     setSelectedIds(new Set());
 
     const toastId = toast.loading(`正在將 ${productsToReject.length} 件產品標記為「暫不考慮」...`);
     try {
+      const variantMap = await fetchVariantsByProductIds(productsToReject.map((p) => p.id));
       const rejectedRows = productsToReject.map(p => ({
         original_product_id: p.id,
         title: p.title,
@@ -1288,7 +1277,7 @@ export function ListedProductsView({
         dimension_w_mm: p.dimensionWMm ?? null,
         dimension_h_mm: p.dimensionHMm ?? null,
         product_sku: p.productSku ?? null,
-        variants: p.variants ?? null,
+        variants: variantMap[p.id] ?? null,
         rejection_source: 'listed_products',
       }));
       const { error: rejectErr } = await supabase.from('rejectedd_products').insert(rejectedRows);
@@ -1312,7 +1301,7 @@ export function ListedProductsView({
     } finally {
       setIsBatchRejecting(false);
     }
-  }, [selectedIds, products]);
+  }, [selectedIds, products, updateTotalCount]);
 
   // 批量定價 — 套用定價倍數並寫入 Supabase sale_price
   const handleApplyPricing = useCallback(async () => {
@@ -1373,7 +1362,7 @@ export function ListedProductsView({
     setIsQueuing(true);
     // 前端先樂觀移除選中的列，並清空選取
     setProducts((prev) => prev.filter((p) => !selectedIds.has(p.id)));
-    setTotalCount((c) => Math.max(0, c - ids.length));
+    updateTotalCount((c) => Math.max(0, c - ids.length));
     setSelectedIds(new Set());
     try {
       const [res] = await Promise.all([
@@ -1391,7 +1380,7 @@ export function ListedProductsView({
     } finally {
       setIsQueuing(false);
     }
-  }, [selectedIds, products, fetchProducts, upsertToReadyToShopify]);
+  }, [selectedIds, products, fetchProducts, upsertToReadyToShopify, updateTotalCount]);
 
   // Handle product updated from detail modal
   const handleProductUpdated = useCallback((updatedProduct: ListedProduct) => {

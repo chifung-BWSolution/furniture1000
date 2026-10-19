@@ -43,9 +43,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!mounted) return;
       setSession(current);
       setLoading(false);
-      if (current?.user?.id) {
-        void fetchPmsStaffInfo(current.user.id);
-      }
     });
 
     const {
@@ -54,20 +51,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setSession(nextSession);
       setLoading(false);
 
-      // Refresh / clear PMS staff cache on login, SSO, logout (not every token refresh).
       if (event === 'SIGNED_OUT') {
         clearPmsStaffCache();
-      } else if (nextSession?.user?.id && event === 'INITIAL_SESSION') {
-        clearPmsStaffCache();
+        return;
+      }
+
+      // INITIAL_SESSION and SIGNED_IN both fire on a normal page load.
+      // Leave any in-flight lookup alone — fetchPmsStaffInfo dedupes by user,
+      // and writeLoginLog joins that same request for the display name.
+      if (nextSession?.user?.id && (event === 'INITIAL_SESSION' || event === 'SIGNED_IN')) {
         void fetchPmsStaffInfo(nextSession.user.id);
-        // Page load / browser refresh with an existing session counts as one login.
         logSessionLoginOnce();
-      } else if (nextSession?.user?.id && event === 'SIGNED_IN') {
-        clearPmsStaffCache();
-        void fetchPmsStaffInfo(nextSession.user.id);
-        // Fresh sign-in after logout / password flow (INITIAL_SESSION already handled refresh).
-        logSessionLoginOnce();
-      } else if (nextSession?.user?.id && event === 'USER_UPDATED') {
+        return;
+      }
+
+      if (nextSession?.user?.id && event === 'USER_UPDATED') {
         clearPmsStaffCache();
         void fetchPmsStaffInfo(nextSession.user.id);
       }
