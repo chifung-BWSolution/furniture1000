@@ -143,6 +143,20 @@ begin
       continue;
     end if;
 
+    -- BR-11: two documents of the same supplier and model can pass the
+    -- per-document row lock together. Hold the identity key until commit
+    -- so the second import sees the row the first one inserted.
+    perform pg_catalog.pg_advisory_xact_lock(
+      pg_catalog.hashtextextended(
+        'fds-product:' || v_key || '|' ||
+        case
+          when coalesce(v_doc.factory_id, '') <> '' then 'id:' || v_doc.factory_id
+          else 'name:' || lower(btrim(v_doc.factory_name))
+        end,
+        0
+      )
+    );
+
     select p.id into v_product_id
     from public.products p
     where public.fds_model_key(p.model) = v_key
@@ -288,6 +302,173 @@ $$;
 revoke all on function public.fds_import_extracted_products(uuid, uuid[]) from public, anon;
 grant execute on function public.fds_import_extracted_products(uuid, uuid[]) to authenticated;
 
+-- English swatch names (White) also match the Chinese values kept on import (白色).
+create or replace function public.fds_expand_color_terms(p_colors text[])
+returns text[]
+language sql
+immutable
+set search_path = ''
+as $$
+  with input as (
+    select lower(btrim(c)) as c
+    from unnest(coalesce(p_colors, '{}'::text[])) as t(c)
+    where btrim(c) <> ''
+  ),
+  pairs(en, cn) as (
+    values
+    ('white', '白色'),
+    ('ivory', '象牙色'),
+    ('beige', '米色'),
+    ('linen', '亞麻色'),
+    ('antiquewhite', '奶白色'),
+    ('lightgray', '淺灰色'),
+    ('gray', '灰色'),
+    ('dimgray', '暗灰色'),
+    ('darkgray', '深灰色'),
+    ('silver', '銀色'),
+    ('gainsboro', '煙灰色'),
+    ('slategray', '石板灰'),
+    ('black', '黑色'),
+    ('saddlebrown', '咖啡色'),
+    ('chocolate', '巧克力色'),
+    ('brown', '棕色'),
+    ('darkbrown', '深棕色'),
+    ('sienna', '胡桃木色'),
+    ('tan', '黃褐色'),
+    ('peru', '秘魯色'),
+    ('wheat', '小麥色'),
+    ('maroon', '桃花心木色'),
+    ('burlywood', '原木色'),
+    ('sandybrown', '橙棕色'),
+    ('rosybrown', '古銅色'),
+    ('khaki', '卡其色'),
+    ('darkkhaki', '深卡其色'),
+    ('red', '紅色'),
+    ('darkred', '深紅色'),
+    ('firebrick', '火磚色'),
+    ('crimson', '暗紅色'),
+    ('indianred', '印度紅'),
+    ('pink', '粉紅色'),
+    ('lightpink', '淺粉色'),
+    ('deeppink', '深粉色'),
+    ('coral', '珊瑚色'),
+    ('salmon', '鮭魚色'),
+    ('orange', '橙色'),
+    ('darkorange', '深橙色'),
+    ('orangered', '橙紅色'),
+    ('gold', '金色'),
+    ('yellow', '黃色'),
+    ('lemonchiffon', '檸檬黃'),
+    ('lightgoldenrodyellow', '淡金色'),
+    ('green', '綠色'),
+    ('darkgreen', '深綠色'),
+    ('forestgreen', '森林綠'),
+    ('olive', '橄欖綠'),
+    ('darkolivegreen', '暗橄欖綠'),
+    ('lightgreen', '淺綠色'),
+    ('mediumspringgreen', '薄荷綠'),
+    ('seagreen', '海綠色'),
+    ('teal', '青綠色'),
+    ('blue', '藍色'),
+    ('steelblue', '鋼藍色'),
+    ('darkblue', '深藍色'),
+    ('navy', '海軍藍'),
+    ('skyblue', '天藍色'),
+    ('royalblue', '寶藍色'),
+    ('lightblue', '淺藍色'),
+    ('deepskyblue', '深天藍色'),
+    ('dodgerblue', '道奇藍'),
+    ('cornflowerblue', '矢車菊藍'),
+    ('cyan', '青色'),
+    ('darkcyan', '暗青色'),
+    ('purple', '紫色'),
+    ('darkviolet', '暗紫色'),
+    ('indigo', '靛藍色'),
+    ('lavender', '薰衣草色'),
+    ('orchid', '蘭花紫'),
+    ('plum', '梅紅色'),
+    ('magenta', '品紅色'),
+    ('violet', '紫羅蘭色'),
+    ('mediumpurple', '中紫色'),
+    ('darkmagenta', '暗洋紅'),
+    ('rosybrown', '玫瑰金'),
+    ('blanchedalmond', '香檳色'),
+    ('darkgoldenrod', '青銅色'),
+    ('darkslategray', '炭灰色'),
+    ('whitesmoke', '煙白色'),
+    ('snow', '雪白色'),
+    ('mintcream', '薄荷奶油'),
+    ('ghostwhite', '幽靈白'),
+    ('azure', '水晶白'),
+    ('honeydew', '蜜瓜色'),
+    ('floralwhite', '蕾絲白'),
+    ('oldlace', '紅木色'),
+    ('cornsilk', '玉米絲色'),
+    ('lavenderblush', '薰衣草紅'),
+    ('seashell', '貝殼色'),
+    ('mediumaquamarine', '薄荷色'),
+    ('aquamarine', '水藍色'),
+    ('aqua', '淺青色'),
+    ('cadetblue', '湖藍色'),
+    ('powderblue', '粉藍色'),
+    ('paleturquoise', '淡藍色'),
+    ('mediumturquoise', '藍綠色'),
+    ('darkturquoise', '暗藍綠'),
+    ('slateblue', '石板藍'),
+    ('darkslateblue', '深石板藍'),
+    ('mediumslateblue', '中石板藍'),
+    ('blueviolet', '藍紫色'),
+    ('darkorchid', '深蘭花紫'),
+    ('mediumorchid', '中蘭花紫'),
+    ('thistle', '薊紫色'),
+    ('hotpink', '熱粉色'),
+    ('lightcoral', '淺珊瑚色'),
+    ('lightsalmon', '淺鮭魚色'),
+    ('darksalmon', '暗鮭魚色'),
+    ('tomato', '番茄色'),
+    ('mediumvioletred', '玫瑰色'),
+    ('palevioletred', '淡粉紫'),
+    ('darkgoldenrod', '橄欖褐色'),
+    ('goldenrod', '金菊色'),
+    ('lightgoldenrod', '淡金菊'),
+    ('lightyellow', '淡黃色'),
+    ('papayawhip', '木瓜色'),
+    ('peachpuff', '水蜜桃色'),
+    ('moccasincolor', '橡皮色'),
+    ('moccasin', '海貝色'),
+    ('navajowhite', '那瓦霍白'),
+    ('bisque', '杏色'),
+    ('lawngreen', '草坪綠'),
+    ('chartreuse', '查特酒綠'),
+    ('yellowgreen', '黃綠色'),
+    ('greenyellow', '綠黃色'),
+    ('palegreen', '淡綠色'),
+    ('springgreen', '春綠色'),
+    ('darkseagreen', '深海綠'),
+    ('mediumseagreen', '中海綠'),
+    ('darkturquoise', '暗翠綠'),
+    ('lime', '石灰色'),
+    ('limegreen', '深石灰綠'),
+    ('darkslategray', '深石板灰'),
+    ('midnightblue', '午夜藍'),
+    ('darkslateblue', '深藏青'),
+    ('fuchsia', '紫紅色')
+  )
+  select coalesce(array_agg(distinct term), '{}'::text[])
+  from (
+    select i.c as term from input i
+    union all
+    select p.en from input i
+      join pairs p on i.c = p.en or i.c = lower(p.cn)
+    union all
+    select lower(p.cn) from input i
+      join pairs p on i.c = p.en or i.c = lower(p.cn)
+  ) s(term)
+  where term <> '';
+$$;
+
+revoke all on function public.fds_expand_color_terms(text[]) from public, anon, authenticated;
+
 -- ── T-402～T-404 搜索 ───────────────────────────────────────────────────
 
 create or replace function public.fds_search_products(
@@ -333,7 +514,7 @@ begin
   v_cost := public.bwf_has_role(array['admin', 'uploader']);
   v_terms := case when v_q = '' then '{}'::text[] else regexp_split_to_array(v_q, '\s+') end;
   v_key := public.fds_model_key(v_q);
-  v_colors := array(select lower(btrim(c)) from unnest(coalesce(p_colors, '{}')) c where btrim(c) <> '');
+  v_colors := public.fds_expand_color_terms(p_colors);
   v_materials := array(select lower(btrim(m)) from unnest(coalesce(p_materials, '{}')) m where btrim(m) <> '');
 
   with base as (

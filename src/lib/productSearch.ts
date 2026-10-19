@@ -208,13 +208,39 @@ function colorForTerm(term: string): string | null {
   return null;
 }
 
+/** English swatch value and the Chinese label stored on imported products. */
+function expandColorFilters(colors: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const add = (value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) return;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(trimmed);
+  };
+  for (const color of colors) {
+    add(color);
+    const trimmed = color.trim();
+    const mapped = COLOR_MAP.find(
+      (entry) => entry.en.toLowerCase() === trimmed.toLowerCase() || entry.cn === trimmed,
+    );
+    if (!mapped) continue;
+    add(mapped.en);
+    add(mapped.cn);
+  }
+  return out;
+}
+
 export async function searchProducts(
   filters: SearchFilters,
   page: number,
   pageSize: number,
 ): Promise<SearchResult> {
   const { text, colors: queryColors } = splitColorTerms(filters.query);
-  const colors = [...filters.colors, ...queryColors];
+  // Swatches submit English names (White). Imported rows may still say 白色.
+  const colors = expandColorFilters([...filters.colors, ...queryColors]);
   const materials = materialTermsForTags(filters.materialTags);
   const { data, error } = await supabase.rpc('fds_search_products', {
     p_query: text || null,

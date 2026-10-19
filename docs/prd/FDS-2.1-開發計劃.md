@@ -56,7 +56,7 @@
 | T-104 | F-PLT-001 | P0 | T-102 | migration、Edge | `processing_jobs` 表＋worker 調用骨架（pg_cron＋pg_net 或 Edge） | 任務建立/狀態流轉可查 | ✅ 架構已決議 C-09 |
 
 **Day 1 進度（2026-10-19）**：T-102／T-103／T-104 與 T-000 的角色斷言、`supplier-documents` bucket 已上線。
-- Migration `20261019_fds21_supplier_documents_jobs.sql`：`bwf_has_role`／`bwf_assert_role`／`bwf_current_staff_id`、`supplier_documents`、`processing_jobs`（重試＋指數退避、心跳、取消、同文件只容一個進行中任務）、`fds_*` RPC、pg_cron `fds-process-jobs`（每分鐘，有待處理任務才呼叫）。
+- Migration `20261019040749_fds21_supplier_documents_jobs.sql`：`bwf_has_role`／`bwf_assert_role`／`bwf_current_staff_id`、`supplier_documents`、`processing_jobs`（重試＋指數退避、心跳、取消、同文件只容一個進行中任務）、`fds_*` RPC、pg_cron `fds-process-jobs`（每分鐘，有待處理任務才呼叫）。
 - Edge `supabase-functions-process-jobs`：目前 `parse_pdf` 只做檢查（讀頁數），完成後文件轉 `review`；文字／OCR／結構化從 Day 2 起加在同一 job type。
 - 前端：`AIProcessorView` 第二步下方的「供應商文件」面板（上載→排隊解析、狀態、重新解析、取消、5 分鐘簽名下載）；舊 AI 處理流程上載 PDF 時只存檔原件、不排任務。
 - Storage 專案上限由 50MB 調到 200MB（`product-images` 仍有自己的 50MB 上限）。Edge 只處理 ≤60MB 的 PDF，更大的檔案要等 Python Worker。
@@ -73,7 +73,7 @@
 | T-205 | F-PLT-001 | P0 | T-104 | `processing_jobs` | 進度上報、失敗重試、錯誤日誌 | 失敗任務可見狀態並可重試 | — |
 
 **Day 2 進度（2026-10-19）**：T-201～T-205 完成。T-202 Grok OCR 已驗收（`XAI_API_KEY` 已設，模型預設 `grok-4.7`）：掃描中文報價表逐字正確轉成 Markdown 表，後續提取 3 件產品價格／幣種／尺寸全對；純相片頁回 `NO_TEXT` 不寫入內容。
-- Migration `20261019_fds21_document_pages_segments.sql`：`supplier_document_pages`（逐頁文字、來源、OCR 狀態、頁型、是否延續上一頁）、`supplier_document_segments`、`fds_processing_job_checkpoint`（分批續跑，不消耗重試次數）、`fds_supplier_document_build_segments`。
+- Migration `20261019052246_fds21_document_pages_segments.sql`：`supplier_document_pages`（逐頁文字、來源、OCR 狀態、頁型、是否延續上一頁）、`supplier_document_segments`、`fds_processing_job_checkpoint`（分批續跑，不消耗重試次數）、`fds_supplier_document_build_segments`。
 - `parse_pdf` 分批跑：每次 8 頁抽文字（`unpdf`，CJK CMap 由 jsDelivr 載入）→ 文字少於 40 字且有內嵌 JPEG 的頁交 **Grok** OCR（`XAI_API_KEY`，模型 `XAI_OCR_MODEL`，預設 `grok-4.7`）→ 每次 20 頁交 Gemini 分類並判斷是否延續上一頁 → 建分段。每批後 checkpoint 並立即觸發下一批。
 - 合成 27 頁測試（英文＋中文＋2 頁掃描）：封面／目錄／跨頁產品／4 頁價目表／條款／12 頁椅子系列（跨批次邊界）全部正確成段，中文型號、人民幣價格抽取正確，約 30 秒完成。
 - 限制：非 JPEG 的掃描頁（CCITT／Flate）標 `unsupported`，待 Python Worker；仍需真實供應商 PDF 驗收（T-503）。
@@ -89,8 +89,8 @@
 | T-305 | F-AI-003 | P0 | T-301 | migration | `supplier_prices`、`product_source_refs` 表 | 產品/報價/來源分離 | 身份鍵已決議：型號＋供應商 |
 
 **Day 3 進度（2026-10-19）**：T-301～T-305 完成。
-- Migration `20261019_fds21_extraction_review.sql`：`supplier_document_images`、`extraction_items`（`raw_json` AI 原值＋`corrected_json` 人工修正、置信度、flags、圖片、審核狀態）、`supplier_prices`、`product_source_refs`；RLS 只限 admin／uploader；審核 RPC `fds_extraction_item_review`／`fds_extraction_items_review_batch`（已匯入項目不可改）。
-- Migration `20261019_fds21_extraction_finalize.sql`：全文件型號重複標記、logo 圖移除、重算「需注意」。
+- Migration `20261019053631_fds21_extraction_review.sql`：`supplier_document_images`、`extraction_items`（`raw_json` AI 原值＋`corrected_json` 人工修正、置信度、flags、圖片、審核狀態）、`supplier_prices`、`product_source_refs`；RLS 只限 admin／uploader；審核 RPC `fds_extraction_item_review`／`fds_extraction_items_review_batch`（已匯入項目不可改）。
+- Migration `20261019053721_fds21_extraction_finalize.sql`：全文件型號重複標記、logo 圖移除、重算「需注意」。
 - `parse_pdf` 加第三階段 `structure`：分段切成 ≤5 頁的單元，每單元交 Gemini（固定 JSON Schema，含圖片）→ 規則校驗：缺型號、缺價、價格不在原文、缺幣種、尺寸可疑（<50 或 >6000mm）、AI 不確定 → 置信度 <0.7 或有硬性異常即進「需注意」。目錄類文件缺價只作提示。結果附建議幣種（只供參考，幣種仍由人決定）。
 - 圖片：抽文字頁內 ≥200px 的 JPEG，sha256 去重存 `product-images/supplier-extracts/`，出現 ≥3 頁視為 logo；AI 指定圖片類型（主圖／細節／尺寸圖／布料…）並關聯產品。
 - 新頁面「產品管理 → AI 提取審核」（`fds2-products-ai-review`）：按文件列出、篩選（待審核／需注意／已通過／已拒絕）、搜尋、單筆／批量通過拒絕、逐欄修正（顯示 AI 原值）、選主圖、跳到原文 PDF 對應頁。
@@ -108,7 +108,7 @@
 | T-405 | F-AI-005 | P0 | T-402 | 新 view | 產品詳情（多圖/規格/來源） | 可進詳情 | — |
 
 **Day 4 進度（2026-10-19）**：T-401～T-405 完成，正式庫與 FDS2.0 分支都已部署。
-- Migration `20261019_fds21_import_search.sql`：
+- Migration `20261019063613_fds21_import_search.sql`：
   - `fds_import_extracted_products(document_id, item_ids?)`：只收「已通過、未匯入」項目。身份＝型號（去空格／橫線）＋文件廠家；同廠家同型號沿用既有 `products` 列、**不改動它**，只追加 `supplier_prices`（`other_prices` 另成規格列；同文件同型號第二項自動加規格標籤）與 `product_source_refs`。新產品進「待處理產品」（`source=local`、`in_catalog=false`），**不寫** `products.cost_price`（報價可能是外幣）。缺型號跳過並回報；文件未指定廠家直接拒絕。重複匯入不會重複寫價（`supplier_prices` 以提取項目＋規格唯一）。全部審完後文件轉 `ready`。
   - `fds_search_products`：關鍵字逐詞 AND 比對名稱／型號（含去符號型號）／SKU／廠家／顏色／材質／分類（`pg_trgm` GIN 索引），型號精確命中置頂，其次現貨；篩選可疊加（廠家、level1/2、顏色多選、材質多選、長闊高、價錢、只看現貨、範圍：全部／產品目錄／已上架／有供應商報價）；排序：相關度／最新／價錢／尺寸。
   - `fds_product_detail`：多圖、規格、全部報價（含歷史）、來源文件與頁碼。`fds_product_search_facets`：廠家與分類選項。

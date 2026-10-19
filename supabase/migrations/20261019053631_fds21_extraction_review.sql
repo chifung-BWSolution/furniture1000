@@ -43,6 +43,8 @@ create table if not exists public.extraction_items (
   reviewed_by uuid,
   reviewed_at timestamptz,
   imported_product_id text,
+  -- Retry key for one structure unit slot. Null on rows written before the key existed.
+  unit_item_key text,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint extraction_items_note_len check (review_note is null or char_length(review_note) <= 1000)
@@ -53,6 +55,9 @@ create index if not exists extraction_items_document_idx
 create index if not exists extraction_items_queue_idx
   on public.extraction_items (status, needs_attention desc, created_at)
   where status = 'pending';
+-- Multiple nulls stay allowed so older rows are untouched. A retried unit reuses the same key.
+create unique index if not exists extraction_items_unit_item_key_uidx
+  on public.extraction_items (unit_item_key);
 
 -- F-AI-003：同一產品可有多供應商、多時間的報價（append-only，BR-01）。
 create table if not exists public.supplier_prices (

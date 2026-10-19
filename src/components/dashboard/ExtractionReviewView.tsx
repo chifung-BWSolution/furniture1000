@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { LoadingImage } from '@/components/ui/loading-image';
 import { toast } from 'sonner';
 import { Check, ExternalLink, ImageOff, Loader2, Lock, PackagePlus, Pencil, RefreshCw, Search, X } from 'lucide-react';
@@ -101,6 +101,7 @@ export function ExtractionReviewView() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
   const [editing, setEditing] = useState<ExtractionItem | null>(null);
+  const itemsRequestRef = useRef(0);
 
   const doc = docs.find((d) => d.id === docId) ?? null;
   const imageById = useMemo(() => new Map(images.map((i) => [i.id, i])), [images]);
@@ -129,15 +130,18 @@ export function ExtractionReviewView() {
   }, []);
 
   const reloadItems = useCallback(async (id: string) => {
+    const requestId = ++itemsRequestRef.current;
     setLoadingItems(true);
     try {
       const [rows, imgs] = await Promise.all([listExtractionItems(id), listExtractionImages(id)]);
+      if (requestId !== itemsRequestRef.current) return;
       setItems(rows);
       setImages(imgs);
     } catch (err) {
+      if (requestId !== itemsRequestRef.current) return;
       toast.error('讀取提取結果失敗', { description: errorText(err) });
     } finally {
-      setLoadingItems(false);
+      if (requestId === itemsRequestRef.current) setLoadingItems(false);
     }
   }, []);
 
@@ -147,11 +151,18 @@ export function ExtractionReviewView() {
 
   useEffect(() => {
     setSelected(new Set());
-    if (docId) void reloadItems(docId);
-    else {
+    setEditing(null);
+    if (!docId) {
+      itemsRequestRef.current += 1;
       setItems([]);
       setImages([]);
+      setLoadingItems(false);
+      return;
     }
+    // Drop the previous document immediately so approve/reject cannot hit its items.
+    setItems([]);
+    setImages([]);
+    void reloadItems(docId);
   }, [docId, reloadItems]);
 
   const visible = useMemo(() => {

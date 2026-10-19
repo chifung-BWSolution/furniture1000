@@ -608,6 +608,23 @@ export async function fetchZoneProducts(projectId: string): Promise<ZoneProduct[
   }
 }
 
+/** PostgREST max-rows is 1000. A full page means the next page must be read. */
+const POSTGREST_PAGE_SIZE = 1000;
+
+async function selectAllPages<T>(
+  run: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+): Promise<T[] | null> {
+  const rows: T[] = [];
+  for (let from = 0; ; from += POSTGREST_PAGE_SIZE) {
+    const to = from + POSTGREST_PAGE_SIZE - 1;
+    const { data, error } = await run(from, to);
+    if (error) return rows.length > 0 ? rows : null;
+    if (!data || data.length === 0) return rows;
+    rows.push(...data);
+    if (data.length < POSTGREST_PAGE_SIZE) return rows;
+  }
+}
+
 /** Batch zone fetch for many projects (avoids N+1). */
 export async function fetchZonesForProjects(
   projectIds: string[],
@@ -618,12 +635,17 @@ export async function fetchZonesForProjects(
   const chunkSize = 200;
   for (let i = 0; i < ids.length; i += chunkSize) {
     const chunk = ids.slice(i, i + chunkSize);
-    const { data, error } = await supabase
-      .from('project_zones')
-      .select('*')
-      .in('project_id', chunk)
-      .order('sort_order', { ascending: true });
-    if (error || !data) continue;
+    const data = await selectAllPages((from, to) =>
+      supabase
+        .from('project_zones')
+        .select('*')
+        .in('project_id', chunk)
+        .order('project_id', { ascending: true })
+        .order('sort_order', { ascending: true })
+        .order('id', { ascending: true })
+        .range(from, to),
+    );
+    if (!data) continue;
     for (const row of data) {
       const mapped = mapZone(row);
       (out[mapped.projectId] ||= []).push(mapped);
@@ -642,12 +664,17 @@ export async function fetchZoneProductsForProjects(
   const chunkSize = 200;
   for (let i = 0; i < ids.length; i += chunkSize) {
     const chunk = ids.slice(i, i + chunkSize);
-    const { data, error } = await supabase
-      .from('zone_products')
-      .select('*')
-      .in('project_id', chunk)
-      .order('sort_order', { ascending: true });
-    if (error || !data) continue;
+    const data = await selectAllPages((from, to) =>
+      supabase
+        .from('zone_products')
+        .select('*')
+        .in('project_id', chunk)
+        .order('project_id', { ascending: true })
+        .order('sort_order', { ascending: true })
+        .order('id', { ascending: true })
+        .range(from, to),
+    );
+    if (!data) continue;
     for (const row of data) {
       const mapped = mapZoneProduct(row);
       (out[mapped.projectId] ||= []).push(mapped);

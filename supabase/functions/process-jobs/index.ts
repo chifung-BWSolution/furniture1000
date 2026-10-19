@@ -964,6 +964,9 @@ async function structureBatch(admin: SupabaseClient, job: Job, documentId: strin
         document_id: documentId,
         segment_id: unit.segment_id,
         seq: state.cursor * 1000 + i,
+        // Same slot on a retry hits the unique key instead of inserting again.
+        // The checkpoint is saved only after this write, so a failed batch repeats the unit.
+        unit_item_key: `${documentId}:${unit.segment_id}:${unit.start}-${unit.end}:${i}`,
         page_no: page,
         raw_json: item,
         confidence,
@@ -976,7 +979,10 @@ async function structureBatch(admin: SupabaseClient, job: Job, documentId: strin
     });
 
   if (rows.length > 0) {
-    const { error } = await admin.from("extraction_items").insert(rows);
+    const { error } = await admin.from("extraction_items").upsert(rows, {
+      onConflict: "unit_item_key",
+      ignoreDuplicates: true,
+    });
     if (error) throw new Error(`extraction insert failed: ${error.message}`);
   }
 

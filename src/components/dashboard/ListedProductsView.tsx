@@ -240,6 +240,10 @@ export function ListedProductsView({
   const hasMoreRef = useRef(false);
   const loadingMoreRef = useRef(false);
   const loadTokenRef = useRef(0);
+  /** Next server offset. Shrinks when a loaded row leaves the result set. */
+  const nextOffsetRef = useRef(0);
+  const listEpochRef = useRef(0);
+  const productsRef = useRef<ListedProduct[]>([]);
   const loadMoreSentinelRef = useRef<HTMLDivElement | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
@@ -564,6 +568,25 @@ export function ListedProductsView({
     return () => { cancelled = true; };
   }, [showDuplicates, isCatalog]);
 
+  // Drop loaded rows and pull the next offset back by the same count, so the
+  // following page does not skip the item that slid into the gap.
+  const removeLoadedIds = useCallback((ids: Iterable<string>) => {
+    const drop = new Set(ids);
+    const prev = productsRef.current;
+    let removed = 0;
+    const next: ListedProduct[] = [];
+    for (const product of prev) {
+      if (drop.has(product.id)) removed += 1;
+      else next.push(product);
+    }
+    if (removed > 0) {
+      nextOffsetRef.current = Math.max(0, nextOffsetRef.current - removed);
+      listEpochRef.current += 1;
+    }
+    productsRef.current = next;
+    setProducts(next);
+  }, []);
+
   // Load one page of products. append=false replaces the list (filter/sort
   // change, retry, deletes); append=true adds the next page (infinite scroll).
   const loadPage = useCallback(async (targetPage: number, append: boolean) => {
@@ -577,8 +600,10 @@ export function ListedProductsView({
       setIsLoading(true);
     }
     setFetchError(null);
+    const epoch = listEpochRef.current;
+    const from = append ? nextOffsetRef.current : 0;
+    let retryAppend = false;
     try {
-      const from = (targetPage - 1) * pageSize;
       const to = from + pageSize - 1;
 
       // Always use 'exact' count — 'estimated' uses planner stats and is inaccurate
@@ -704,6 +729,11 @@ export function ListedProductsView({
 
       if (token !== loadTokenRef.current) return;
 
+      if (append && epoch !== listEpochRef.current) {
+        retryAppend = true;
+        return;
+      }
+
       if (!append && countErr) {
         console.error('[ProductCatalog] Count error:', countErr);
       }
@@ -713,12 +743,20 @@ export function ListedProductsView({
       if (prodErr) {
         console.error('[ProductCatalog] Fetch error:', prodErr);
         setFetchError(prodErr.message || '無法連接到資料庫，請稍後重試');
-        if (!append) setProducts([]);
+        if (!append) {
+          productsRef.current = [];
+          nextOffsetRef.current = 0;
+          setProducts([]);
+        }
         return;
       }
 
       if (!productRows || productRows.length === 0) {
-        if (!append) setProducts([]);
+        if (!append) {
+          productsRef.current = [];
+          nextOffsetRef.current = 0;
+          setProducts([]);
+        }
         pageRef.current = targetPage;
         setCurrentPage(targetPage);
         hasMoreRef.current = false;
@@ -778,12 +816,15 @@ export function ListedProductsView({
 
       // 立即渲染 — 變體只在歸檔時才查
       if (append) {
-        setProducts((prev) => {
-          const seen = new Set(prev.map((p) => p.id));
-          return [...prev, ...mapped.filter((p) => !seen.has(p.id))];
-        });
+        const seen = new Set(productsRef.current.map((p) => p.id));
+        const merged = [...productsRef.current, ...mapped.filter((p) => !seen.has(p.id))];
+        productsRef.current = merged;
+        setProducts(merged);
+        nextOffsetRef.current = from + productRows.length;
       } else {
+        productsRef.current = mapped;
         setProducts(mapped);
+        nextOffsetRef.current = productRows.length;
       }
       pageRef.current = targetPage;
       setCurrentPage(targetPage);
@@ -822,11 +863,18 @@ export function ListedProductsView({
     } catch (err) {
       console.error('[ProductCatalog] Unexpected error:', err);
       setFetchError('連線逾時或發生未預期的錯誤，請檢查資料庫狀態');
-      if (!append) setProducts([]);
+      if (!append) {
+        productsRef.current = [];
+        nextOffsetRef.current = 0;
+        setProducts([]);
+      }
     } finally {
       if (append) {
         loadingMoreRef.current = false;
         setIsLoadingMore(false);
+        if (retryAppend && token === loadTokenRef.current && hasMoreRef.current) {
+          void loadPage(pageRef.current + 1, true);
+        }
       } else {
         setIsLoading(false);
       }
@@ -1021,7 +1069,7 @@ export function ListedProductsView({
       }
 
       // Update local state — remove deleted products from the table
-      setProducts(prev => prev.filter(p => !localIds.includes(p.id)));
+      removeLoadedIds(localIds);
       updateTotalCount(prev => prev - localIds.length);
       setSelectedIds(new Set());
 
@@ -1045,17 +1093,17 @@ export function ListedProductsView({
     } finally {
       setIsDeleting(false);
     }
-  }, [selectedIds, products, isCatalog, fetchProducts, updateTotalCount]);
+  }, [selectedIds, products, isCatalog, fetchProducts, updateTotalCount, removeLoadedIds]);
 
   // ── Per-row processing actions (所有產品頁) ──
   // Optimistically remove the row from view, then persist the flag.
   const [dismissTarget, setDismissTarget] = useState<ListedProduct | null>(null);
 
   const dropRowLocally = useCallback((id: string) => {
-    setProducts((prev) => prev.filter((p) => p.id !== id));
+    removeLoadedIds([id]);
     updateTotalCount((c) => Math.max(0, c - 1));
     setSelectedIds((prev) => { const n = new Set(prev); n.delete(id); return n; });
-  }, [updateTotalCount]);
+  }, [removeLoadedIds, updateTotalCount]);
 
   // Upsert one or more products into ready_to_shopify.
   // Base64 images must NEVER be written into ready_to_shopify — they bloat the
@@ -1230,7 +1278,7 @@ export function ListedProductsView({
     setIsBatchRejecting(true);
     setShowBatchRejectConfirm(false);
 
-    setProducts(prev => prev.filter(p => !selectedIds.has(p.id)));
+    removeLoadedIds(ids);
     updateTotalCount(c => Math.max(0, c - ids.length));
     setSelectedIds(new Set());
 
@@ -1301,7 +1349,7 @@ export function ListedProductsView({
     } finally {
       setIsBatchRejecting(false);
     }
-  }, [selectedIds, products, updateTotalCount]);
+  }, [selectedIds, products, updateTotalCount, removeLoadedIds]);
 
   // 批量定價 — 套用定價倍數並寫入 Supabase sale_price
   const handleApplyPricing = useCallback(async () => {
@@ -1361,7 +1409,7 @@ export function ListedProductsView({
     const selectedProducts = products.filter((p) => selectedIds.has(p.id));
     setIsQueuing(true);
     // 前端先樂觀移除選中的列，並清空選取
-    setProducts((prev) => prev.filter((p) => !selectedIds.has(p.id)));
+    removeLoadedIds(ids);
     updateTotalCount((c) => Math.max(0, c - ids.length));
     setSelectedIds(new Set());
     try {
@@ -1380,7 +1428,7 @@ export function ListedProductsView({
     } finally {
       setIsQueuing(false);
     }
-  }, [selectedIds, products, fetchProducts, upsertToReadyToShopify, updateTotalCount]);
+  }, [selectedIds, products, fetchProducts, upsertToReadyToShopify, updateTotalCount, removeLoadedIds]);
 
   // Handle product updated from detail modal
   const handleProductUpdated = useCallback((updatedProduct: ListedProduct) => {
