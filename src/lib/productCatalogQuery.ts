@@ -1,6 +1,5 @@
 import { supabase } from '@/lib/supabase';
 import {
-  passesShopifyCatalogReadyStock,
   passesSystemCatalogReadyStock,
   READY_STOCK_LEAD_TIME,
 } from '@/lib/quoteStockFilter';
@@ -54,8 +53,6 @@ export type CatalogQueryResult = {
   total_pages: number;
 };
 
-const MAX_SCAN_PER_TABLE = 800;
-
 function escapeIlike(value: string): string {
   return value.replace(/[%_\\]/g, '\\$&');
 }
@@ -95,48 +92,6 @@ function firstImage(images: unknown, fallback?: string | null): string | null {
     }
   }
   return null;
-}
-
-function catalogDedupeKey(row: {
-  productId?: string | null;
-  sku?: string | null;
-  shopifyProductId?: string | null;
-  id: string;
-  sourceKind: 'rts' | 'shopify' | 'products';
-}): string {
-  if (row.productId) return `pid:${row.productId}`;
-  if (row.shopifyProductId) return `shopify:${row.shopifyProductId}`;
-  if (row.sku?.trim()) return `sku:${row.sku.trim().toLowerCase()}`;
-  return `${row.sourceKind}:${row.id}`;
-}
-
-function matchesSearch(row: CatalogProductRow, search: string): boolean {
-  const q = search.trim().toLowerCase();
-  if (!q) return true;
-  return (
-    row.title.toLowerCase().includes(q) ||
-    (row.sku || '').toLowerCase().includes(q)
-  );
-}
-
-function matchesFactory(row: CatalogProductRow, factory: string): boolean {
-  const f = factory.trim();
-  if (!f) return true;
-  return (row.factory_name || '').trim() === f;
-}
-
-function matchesLevel(
-  row: CatalogProductRow,
-  level1: string,
-  level2: string,
-): boolean {
-  if (level2.trim()) {
-    return (row.level2_category || row.category || '').trim() === level2.trim();
-  }
-  if (level1.trim()) {
-    return (row.level1_category || '').trim() === level1.trim();
-  }
-  return true;
 }
 
 function mapProductsRow(row: Record<string, unknown>): CatalogProductRow {
@@ -247,58 +202,6 @@ function mapShopifyProductsRow(
   };
 }
 
-function applyClientFilters(
-  rows: CatalogProductRow[],
-  params: CatalogQueryParams,
-): CatalogProductRow[] {
-  const search = params.search || '';
-  const factory = params.factory_name || '';
-  const level1 = params.level1 || '';
-  const level2 = params.level2 || '';
-  return rows.filter(
-    (row) =>
-      matchesSearch(row, search) &&
-      matchesFactory(row, factory) &&
-      matchesLevel(row, level1, level2) &&
-      Boolean(row.title?.trim()),
-  );
-}
-
-function paginate<T>(rows: T[], page: number, pageSize: number) {
-  const total = rows.length;
-  const total_pages = Math.max(1, Math.ceil(total / pageSize));
-  const safePage = Math.min(Math.max(1, page), total_pages);
-  const from = (safePage - 1) * pageSize;
-  return {
-    items: rows.slice(from, from + pageSize),
-    total,
-    page: safePage,
-    page_size: pageSize,
-    total_pages,
-  };
-}
-
-async function loadProductsByIds(ids: string[]): Promise<Map<string, Record<string, unknown>>> {
-  const map = new Map<string, Record<string, unknown>>();
-  if (ids.length === 0) return map;
-  const unique = [...new Set(ids)];
-  const chunkSize = 200;
-  for (let i = 0; i < unique.length; i += chunkSize) {
-    const chunk = unique.slice(i, i + chunkSize);
-    const { data, error } = await supabase
-      .from('products')
-      .select(
-        'id, title, sku, image_url, sale_price, price, cost_price, factories_display_name, level1_category, level2_category, product_category_id, category, material, dimension_l_mm, dimension_w_mm, dimension_h_mm, color, remarks, delivery_term_name, shopify_product_id, modified_date, created_at, in_stock, customize, tags',
-      )
-      .in('id', chunk);
-    if (error) throw error;
-    for (const row of data || []) {
-      map.set(String((row as { id: string }).id), row as Record<string, unknown>);
-    }
-  }
-  return map;
-}
-
 function applySearchToQuery<T extends { or: Function; ilike: Function }>(
   query: T,
   search: string,
@@ -309,22 +212,6 @@ function applySearchToQuery<T extends { or: Function; ilike: Function }>(
   if (!q) return query;
   const pattern = `%${escapeIlike(q)}%`;
   return query.or(`${titleCol}.ilike.${pattern},${skuCol}.ilike.${pattern}`) as T;
-}
-
-function sortByPriorityLevel1(
-  rows: CatalogProductRow[],
-  priority: string[],
-): CatalogProductRow[] {
-  if (!priority.length) return rows;
-  const rank = new Map(priority.map((l1, i) => [l1.trim(), i]));
-  return [...rows].sort((a, b) => {
-    const aKey = (a.level1_category || '').trim();
-    const bKey = (b.level1_category || '').trim();
-    const aRank = rank.has(aKey) ? rank.get(aKey)! : 9999;
-    const bRank = rank.has(bKey) ? rank.get(bKey)! : 9999;
-    if (aRank !== bRank) return aRank - bRank;
-    return (b.sort_ts || '').localeCompare(a.sort_ts || '');
-  });
 }
 
 const PRODUCTS_CATALOG_SELECT =
@@ -362,77 +249,6 @@ function applyProductsCatalogFilters(
     q = q.or(`in_stock.eq.true,customize.eq."${READY_STOCK_LEAD_TIME}"`);
   }
   return q;
-}
-
-async function fetchShopifySourceRows(params: CatalogQueryParams): Promise<CatalogProductRow[]> {
-  const search = params.search || '';
-  const factory = params.factory_name || '';
-
-  let spQuery = supabase
-    .from('shopify_products')
-    .select(SHOPIFY_CATALOG_SELECT)
-    .is('configurable', null)
-    .order('imported_at', { ascending: false })
-    .limit(MAX_SCAN_PER_TABLE);
-  spQuery = applySearchToQuery(spQuery, search);
-  if (factory.trim()) spQuery = spQuery.eq('vendor', factory.trim());
-
-  let rtsQuery = supabase
-    .from('ready_to_shopify')
-    .select(RTS_CATALOG_SELECT)
-    .order('imported_at', { ascending: false })
-    .limit(MAX_SCAN_PER_TABLE);
-  rtsQuery = applySearchToQuery(rtsQuery, search);
-  if (factory.trim()) rtsQuery = rtsQuery.eq('vendor', factory.trim());
-
-  const [{ data: spData, error: spErr }, { data: rtsData, error: rtsErr }] =
-    await Promise.all([spQuery, rtsQuery]);
-  if (spErr) throw spErr;
-  if (rtsErr) throw rtsErr;
-
-  const productIds = [
-    ...new Set(
-      [...(spData || []), ...(rtsData || [])]
-        .map((row) => strOrNull((row as { source_product_id?: string; product_id?: string }).source_product_id)
-          || strOrNull((row as { product_id?: string }).product_id))
-        .filter((id): id is string => Boolean(id)),
-    ),
-  ];
-  const productsById = await loadProductsByIds(productIds);
-
-  const merged = new Map<string, CatalogProductRow>();
-  for (const row of spData || []) {
-    const rec = row as Record<string, unknown>;
-    if (
-      params.stock_only &&
-      !passesShopifyCatalogReadyStock(rec, null)
-    ) {
-      continue;
-    }
-    const pid = strOrNull(rec.source_product_id);
-    const mapped = mapShopifyProductsRow(rec, pid ? productsById.get(pid) : null);
-    merged.set(catalogDedupeKey(mapped), mapped);
-  }
-  for (const row of rtsData || []) {
-    const rec = row as Record<string, unknown>;
-    if (
-      params.stock_only &&
-      !passesShopifyCatalogReadyStock(null, rec)
-    ) {
-      continue;
-    }
-    const pid = strOrNull(rec.product_id);
-    const mapped = mapRtsRow(rec, pid ? productsById.get(pid) : null);
-    const key = catalogDedupeKey(mapped);
-    if (!merged.has(key)) merged.set(key, mapped);
-  }
-
-  const filtered = applyClientFilters([...merged.values()], params);
-  const priority = (params.priority_level1 || []).filter(Boolean);
-  if (priority.length > 0 && !(params.level1 || '').trim()) {
-    return sortByPriorityLevel1(filtered, priority);
-  }
-  return filtered;
 }
 
 async function enrichProductRows(
@@ -599,15 +415,7 @@ export async function fetchProductCatalog(
   const page_size = params.page_size || 20;
 
   if (params.source === 'shopify') {
-    const filtered = await fetchShopifySourceRows(params);
-    const paged = paginate(filtered, page, page_size);
-    return {
-      products: paged.items,
-      total: paged.total,
-      page: paged.page,
-      page_size: paged.page_size,
-      total_pages: paged.total_pages,
-    };
+    return fetchShopifyCatalogPage(params, page, page_size);
   }
 
   const { rows, total } = await fetchSystemSourceRows({ ...params, page, page_size });
@@ -620,45 +428,75 @@ export async function fetchProductCatalog(
   };
 }
 
-/** Page through all rows — PostgREST defaults to ~1000, which truncated B-class factories. */
-async function collectDistinctColumnValues(
-  table: 'products' | 'shopify_products' | 'ready_to_shopify',
-  column: 'vendor' | 'factories_display_name',
-): Promise<Set<string>> {
-  const names = new Set<string>();
-  const pageSize = 1000;
-  let from = 0;
-  for (;;) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let query: any = supabase.from(table).select(column).not(column, 'is', null);
-    if (column === 'factories_display_name') {
-      query = query.neq(column, '');
-    }
-    const { data, error } = await query.range(from, from + pageSize - 1);
-    if (error) throw error;
-    const rows = (data || []) as Array<Record<string, unknown>>;
-    for (const row of rows) {
-      const v = strOrNull(row[column]);
-      if (v) names.add(v);
-    }
-    if (rows.length < pageSize) break;
-    from += pageSize;
-  }
-  return names;
+function asCatalogRow(raw: Record<string, unknown>): CatalogProductRow {
+  const kind = raw.sourceKind === 'rts' ? 'rts' : 'shopify';
+  return {
+    id: String(raw.id || ''),
+    sourceKind: kind,
+    productId: strOrNull(raw.productId),
+    title: String(raw.title || ''),
+    sku: strOrNull(raw.sku),
+    image_url: strOrNull(raw.image_url),
+    sale_price: numOrNull(raw.sale_price),
+    cost_price: numOrNull(raw.cost_price),
+    factory_name: strOrNull(raw.factory_name),
+    category: strOrNull(raw.category),
+    level1_category: strOrNull(raw.level1_category),
+    level2_category: strOrNull(raw.level2_category),
+    product_category_id: strOrNull(raw.product_category_id),
+    material: strOrNull(raw.material),
+    dimension_l_mm: numOrNull(raw.dimension_l_mm),
+    dimension_w_mm: numOrNull(raw.dimension_w_mm),
+    dimension_h_mm: numOrNull(raw.dimension_h_mm),
+    color: strOrNull(raw.color),
+    remarks: strOrNull(raw.remarks),
+    delivery_term_name: strOrNull(raw.delivery_term_name),
+    shopify_product_id: strOrNull(raw.shopify_product_id),
+    sort_ts: strOrNull(raw.sort_ts) || '',
+  };
+}
+
+/** One round trip: join, filter, priority-sort, and return this page only. */
+async function fetchShopifyCatalogPage(
+  params: CatalogQueryParams,
+  page: number,
+  page_size: number,
+): Promise<CatalogQueryResult> {
+  const priority = (params.priority_level1 || []).map((level) => level.trim()).filter(Boolean);
+  const level1 = (params.level1 || '').trim();
+  const { data, error } = await supabase.rpc('get_quote_catalog_page', {
+    p_search: (params.search || '').trim() || null,
+    p_factory: (params.factory_name || '').trim() || null,
+    p_level1: level1 || null,
+    p_level2: (params.level2 || '').trim() || null,
+    p_priority: !level1 && priority.length > 0 ? priority : null,
+    p_stock_only: Boolean(params.stock_only),
+    p_limit: page_size,
+    p_offset: (page - 1) * page_size,
+  });
+  if (error) throw error;
+  const payload = (data && typeof data === 'object' ? data : {}) as {
+    total?: number;
+    products?: Record<string, unknown>[];
+  };
+  const total = Number(payload.total) || 0;
+  const products = (payload.products || []).map((row) => asCatalogRow(row));
+  return {
+    products,
+    total,
+    page,
+    page_size,
+    total_pages: Math.max(1, Math.ceil(total / page_size)),
+  };
 }
 
 export async function fetchCatalogFactoryNames(
   source: CatalogSourceType,
 ): Promise<string[]> {
-  if (source === 'shopify') {
-    const [spNames, rtsNames] = await Promise.all([
-      collectDistinctColumnValues('shopify_products', 'vendor'),
-      collectDistinctColumnValues('ready_to_shopify', 'vendor'),
-    ]);
-    const names = new Set<string>([...spNames, ...rtsNames]);
-    return [...names].sort((a, b) => a.localeCompare(b, 'zh-Hant'));
-  }
-
-  const names = await collectDistinctColumnValues('products', 'factories_display_name');
-  return [...names].sort((a, b) => a.localeCompare(b, 'zh-Hant'));
+  const { data, error } = await supabase.rpc('quote_catalog_factory_names', {
+    p_source: source,
+  });
+  if (error) throw error;
+  const names = Array.isArray(data) ? data.map((name) => String(name || '').trim()).filter(Boolean) : [];
+  return [...new Set(names)].sort((a, b) => a.localeCompare(b, 'zh-Hant'));
 }

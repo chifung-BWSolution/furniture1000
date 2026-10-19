@@ -32,6 +32,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { LoadingImage } from '@/components/ui/loading-image';
 
 function normalizeProductColor(raw?: string | null): string | undefined {
   if (!raw?.trim()) return undefined;
@@ -139,10 +140,24 @@ export function ProductSelectorModal({
       });
   }, [open]);
 
+  const factoriesLoadedFor = useRef<CatalogSourceType | null>(null);
   useEffect(() => {
-    if (!open) return;
-    fetchCatalogFactoryNames(catalogSource).then(setFactories);
-  }, [open, catalogSource]);
+    if (!open) {
+      factoriesLoadedFor.current = null;
+      return;
+    }
+    if (!factoryFilterOpen) return;
+    if (factoriesLoadedFor.current === catalogSource) return;
+    const source = catalogSource;
+    factoriesLoadedFor.current = source;
+    fetchCatalogFactoryNames(source)
+      .then((names) => {
+        if (factoriesLoadedFor.current === source) setFactories(names);
+      })
+      .catch(() => {
+        if (factoriesLoadedFor.current === source) factoriesLoadedFor.current = null;
+      });
+  }, [open, factoryFilterOpen, catalogSource]);
 
   const priorityLevel1 = useMemo(
     () => priorityLevel1Categories.map((c) => c.trim()).filter(Boolean),
@@ -629,19 +644,17 @@ export function ProductSelectorModal({
                       )}
                     >
                       <div className="relative aspect-[4/3] bg-muted">
-                        {product.image_url ? (
-                          <img
-                            src={productThumbUrl(product.image_url)}
-                            alt={product.title || ''}
-                            className="h-full w-full object-cover"
-                            loading="lazy"
-                            decoding="async"
-                          />
-                        ) : (
-                          <div className="flex h-full w-full items-center justify-center">
+                        <LoadingImage
+                          src={
+                            product.image_url
+                              ? productThumbUrl(product.image_url)
+                              : null
+                          }
+                          alt={product.title || ''}
+                          fallback={
                             <Package className="h-8 w-8 text-muted-foreground/40" />
-                          </div>
-                        )}
+                          }
+                        />
                         <div
                           className={cn(
                             'absolute left-2 top-2 flex h-5 w-5 items-center justify-center rounded border shadow-sm',
