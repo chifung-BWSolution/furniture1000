@@ -16,6 +16,7 @@ import { ViewType } from '@/types/product';
 import { getViewMeta } from './navConfig';
 import { Switch } from '@/components/ui/switch';
 import { useDesignProjectStickyChrome } from '@/lib/designProjectStickyChrome';
+import { NavInk } from '@/components/motion/NavInk';
 
 interface TopBarProps {
   currentView: ViewType;
@@ -117,23 +118,29 @@ export function TopBar({
                       type="button"
                       onClick={() => designSticky.onJump(group.label)}
                       className={cn(
-                        'inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-[13px] transition-colors md:text-[14px]',
+                        'relative inline-flex items-center gap-1 rounded-lg border px-2.5 py-1 text-[13px] transition-colors duration-200 md:text-[14px]',
                         isActive
-                          ? 'border-primary/50 bg-primary/15 text-primary shadow-sm'
+                          ? 'border-primary/50 text-primary shadow-sm'
                           : 'border-border bg-card text-muted-foreground hover:border-primary/40 hover:bg-primary/5 hover:text-foreground',
                       )}
                       title={`跳至「${group.label}」`}
                       aria-current={isActive ? 'true' : undefined}
                     >
+                      {isActive ? (
+                        <NavInk
+                          layoutId="design-zone-ink"
+                          className="absolute inset-0 z-0 rounded-lg bg-primary/15"
+                        />
+                      ) : null}
                       <span
                         className={cn(
-                          'font-semibold',
+                          'relative z-10 font-semibold',
                           isActive ? 'text-primary' : 'text-foreground',
                         )}
                       >
                         {group.label}
                       </span>
-                      <span className={isActive ? 'text-primary/80' : 'text-muted-foreground'}>
+                      <span className={cn('relative z-10', isActive ? 'text-primary/80' : 'text-muted-foreground')}>
                         ：{group.count}
                       </span>
                     </button>
@@ -235,17 +242,22 @@ export function TopBar({
             <PanelLeft className="h-4 w-4" />
           </button>
         ) : null}
-        {viewInfo.parent && (
-          <>
-            <span className="hidden font-body text-xs text-muted-foreground sm:inline">
-              {viewInfo.parent}
-            </span>
-            <ChevronRight className="hidden h-3 w-3 text-muted-foreground/50 sm:inline" />
-          </>
-        )}
-        <h2 className="truncate font-display text-base font-bold tracking-tight sm:text-lg">
-          {viewInfo.label}
-        </h2>
+        <div
+          key={`${viewInfo.parent}-${viewInfo.label}`}
+          className="view-title-in flex min-w-0 items-center gap-2"
+        >
+          {viewInfo.parent && (
+            <>
+              <span className="hidden font-body text-xs text-muted-foreground sm:inline">
+                {viewInfo.parent}
+              </span>
+              <ChevronRight className="hidden h-3 w-3 text-muted-foreground/50 sm:inline" />
+            </>
+          )}
+          <h2 className="truncate font-display text-base font-bold tracking-tight sm:text-lg">
+            {viewInfo.label}
+          </h2>
+        </div>
       </div>
 
       {/* Right — Stats & CTA (only on product catalog views) */}

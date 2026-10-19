@@ -1,6 +1,8 @@
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { ViewType, PrimarySection } from '@/types/product';
 import { Moon, Sun, PanelLeftClose, PanelLeft } from 'lucide-react';
+import { inkEase, NavInk } from '@/components/motion/NavInk';
 import { Switch } from '@/components/ui/switch';
 import {
   Tooltip,
@@ -39,6 +41,7 @@ export function SidebarNav({
 }: SidebarNavProps) {
   const isCollapsed = isCollapsedProp;
   const setIsCollapsed = (val: boolean) => onCollapseChange?.(val);
+  const reduceMotion = useReducedMotion();
   const section = getSection(activeSection);
   const visibleChildren = filterNavChildren(section.children, isAdmin, {
     quoteShareGuest,
@@ -56,19 +59,28 @@ export function SidebarNav({
         {/* Section header */}
         <div className="flex shrink-0 items-center justify-between gap-2 border-b border-shell-border px-4 py-4">
           {!isCollapsed ? (
-            <div className="flex min-w-0 items-center gap-3">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-shell-primary/20">
-                <SectionIcon className="h-[18px] w-[18px] text-shell-primary" />
-              </div>
-              <div className="min-w-0 leading-tight">
-                <div className="font-mono-data text-[10px] font-semibold uppercase tracking-[0.18em] text-shell-primary">
-                  {section.id}
+            <AnimatePresence initial={false} mode="wait">
+              <motion.div
+                key={section.id}
+                className="flex min-w-0 flex-1 items-center gap-3"
+                initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: -4 }}
+                transition={{ duration: reduceMotion ? 0.12 : 0.18, ease: inkEase }}
+              >
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-shell-primary/20">
+                  <SectionIcon className="h-[18px] w-[18px] text-shell-primary" />
                 </div>
-                <div className="truncate font-display text-[14px] font-bold text-shell-foreground">
-                  {section.label}
+                <div className="min-w-0 leading-tight">
+                  <div className="font-mono-data text-[10px] font-semibold uppercase tracking-[0.18em] text-shell-primary">
+                    {section.id}
+                  </div>
+                  <div className="truncate font-display text-[14px] font-bold text-shell-foreground">
+                    {section.label}
+                  </div>
                 </div>
-              </div>
-            </div>
+              </motion.div>
+            </AnimatePresence>
           ) : (
             <div className="mx-auto flex h-9 w-9 items-center justify-center rounded-lg bg-shell-primary/20">
               <SectionIcon className="h-[18px] w-[18px] text-shell-primary" />
@@ -94,13 +106,19 @@ export function SidebarNav({
                       <button
                         onClick={() => onViewChange(view)}
                         className={cn(
-                          'flex w-full items-center justify-center rounded-lg p-2.5 transition-colors',
+                          'relative flex w-full items-center justify-center rounded-lg p-2.5 transition-colors duration-200',
                           isActive
-                            ? 'bg-shell-primary text-shell-primary-foreground shadow-sm'
+                            ? 'text-shell-primary-foreground'
                             : 'text-shell-muted hover:bg-shell-accent hover:text-shell-accent-foreground',
                         )}
                       >
-                        <Icon className="h-[18px] w-[18px]" />
+                        {isActive ? (
+                          <NavInk
+                            layoutId="sidebar-page-ink"
+                            className="absolute inset-0 z-0 rounded-lg bg-shell-primary shadow-sm"
+                          />
+                        ) : null}
+                        <Icon className="relative z-10 h-[18px] w-[18px]" />
                       </button>
                     </TooltipTrigger>
                     <TooltipContent side="right" sideOffset={8}>
@@ -114,14 +132,20 @@ export function SidebarNav({
                   key={view}
                   onClick={() => onViewChange(view)}
                   className={cn(
-                    'flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-[13.5px] font-medium transition-colors',
+                    'relative flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-[13.5px] font-medium transition-colors duration-200',
                     isActive
-                      ? 'bg-shell-primary text-shell-primary-foreground shadow-sm'
+                      ? 'text-shell-primary-foreground'
                       : 'text-shell-muted hover:bg-shell-accent hover:text-shell-accent-foreground',
                   )}
                 >
-                  <Icon className="h-[18px] w-[18px] shrink-0" />
-                  <span className="font-body truncate">{label}</span>
+                  {isActive ? (
+                    <NavInk
+                      layoutId="sidebar-page-ink"
+                      className="absolute inset-0 z-0 rounded-lg bg-shell-primary shadow-sm"
+                    />
+                  ) : null}
+                  <Icon className="relative z-10 h-[18px] w-[18px] shrink-0" />
+                  <span className="relative z-10 font-body truncate">{label}</span>
                 </button>
               );
             })}

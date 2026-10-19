@@ -34,7 +34,8 @@ import {
   RefreshCw,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
+import { inkEase, NavInk } from '@/components/motion/NavInk';
 
 // ─── Standalone route wrapper ─────────────────────────────────────────────────
 export function FactoryDetailPage() {
@@ -110,6 +111,7 @@ export function FactoryDetailView({
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'info' | 'orders' | 'comments' | 'products'>('info');
   const [urlCopied, setUrlCopied] = useState(false);
+  const reduceMotion = useReducedMotion();
 
   // Fetch all data via the existing edge function
   const fetchData = useCallback(async () => {
@@ -348,14 +350,20 @@ export function FactoryDetailView({
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
               className={cn(
-                'flex items-center gap-1.5 px-5 py-2.5 text-sm font-body transition-colors border-b-2 -mb-[1px]',
+                'relative flex items-center gap-1.5 px-5 py-2.5 text-sm font-body transition-colors duration-200 border-b-2 -mb-[1px] border-transparent',
                 activeTab === tab.id
-                  ? 'border-primary text-primary font-medium'
-                  : 'border-transparent text-muted-foreground hover:text-foreground'
+                  ? 'text-primary font-medium'
+                  : 'text-muted-foreground hover:text-foreground'
               )}
             >
-              <tab.icon className="h-3.5 w-3.5" />
-              {tab.label}
+              {activeTab === tab.id ? (
+                <NavInk
+                  layoutId="factory-detail-tab"
+                  className="absolute inset-x-0 -bottom-0.5 z-0 h-0.5 bg-primary"
+                />
+              ) : null}
+              <tab.icon className="relative z-10 h-3.5 w-3.5" />
+              <span className="relative z-10">{tab.label}</span>
             </button>
           ))}
         </div>
@@ -364,10 +372,10 @@ export function FactoryDetailView({
         <AnimatePresence mode="wait">
           <motion.div
             key={activeTab}
-            initial={{ opacity: 0, y: 6 }}
+            initial={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 6 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            transition={{ duration: 0.15 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: reduceMotion ? 0.12 : 0.22, ease: inkEase }}
           >
             {activeTab === 'info' && (
               <FactoryInfoTab factory={factory} onUpdated={(updated) => setFactory(updated)} />

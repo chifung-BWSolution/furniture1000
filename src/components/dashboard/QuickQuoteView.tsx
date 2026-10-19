@@ -1111,7 +1111,7 @@ export function QuickQuoteView({
 
         {/* Form Card - only for steps 1-2 */}
         {currentStep < 3 && (
-        <div className="rounded-2xl border border-border bg-card p-6 shadow-sm md:p-8">
+        <div key={currentStep} className="tab-panel-in rounded-2xl border border-border bg-card p-6 shadow-sm md:p-8">
           {currentStep === 1 && (
             <div
               className={cn(
@@ -1531,7 +1531,7 @@ export function QuickQuoteView({
 
         {/* Step 3: Quotation Draft Editor (full width, outside the form card) */}
         {currentStep === 3 && (
-          <div className="mt-6">
+          <div className="tab-panel-in mt-6">
             <QuotationDraftEditor
               formData={formData}
               userEmail={userEmail}

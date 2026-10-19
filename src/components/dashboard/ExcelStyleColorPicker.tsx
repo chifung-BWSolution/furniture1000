@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
+import { NavInk } from '@/components/motion/NavInk';
 
 /** Quick swatches shown above「自訂顏色」— includes yellow. */
 export const MATERIAL_QUICK_COLORS: Array<{ label: string; value: string }> = [
@@ -227,31 +228,37 @@ export function ExcelStyleColorPicker({
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => setTab('standard')}
           className={cn(
-            'flex-1 border-b-2 px-2 py-1.5 text-[12px] font-semibold transition-colors',
+            'relative flex-1 border-b-2 border-transparent px-2 py-1.5 text-[12px] font-semibold transition-colors duration-200',
             tab === 'standard'
-              ? 'border-primary text-primary'
-              : 'border-transparent text-muted-foreground hover:text-foreground',
+              ? 'text-primary'
+              : 'text-muted-foreground hover:text-foreground',
           )}
         >
-          標準
+          {tab === 'standard' ? (
+            <NavInk layoutId="color-picker-tab" className="absolute inset-x-2 -bottom-0.5 z-0 h-0.5 bg-primary" />
+          ) : null}
+          <span className="relative z-10">標準</span>
         </button>
         <button
           type="button"
           onMouseDown={(e) => e.preventDefault()}
           onClick={() => setTab('custom')}
           className={cn(
-            'flex-1 border-b-2 px-2 py-1.5 text-[12px] font-semibold transition-colors',
+            'relative flex-1 border-b-2 border-transparent px-2 py-1.5 text-[12px] font-semibold transition-colors duration-200',
             tab === 'custom'
-              ? 'border-primary text-primary'
-              : 'border-transparent text-muted-foreground hover:text-foreground',
+              ? 'text-primary'
+              : 'text-muted-foreground hover:text-foreground',
           )}
         >
-          自訂
+          {tab === 'custom' ? (
+            <NavInk layoutId="color-picker-tab" className="absolute inset-x-2 -bottom-0.5 z-0 h-0.5 bg-primary" />
+          ) : null}
+          <span className="relative z-10">自訂</span>
         </button>
       </div>
 
       {tab === 'standard' ? (
-        <div className="space-y-2">
+        <div className="tab-panel-in space-y-2">
           <div className="flex flex-col items-center gap-0.5 py-1">
             {STANDARD_HONEYCOMB.map((row, ri) => (
               <div
@@ -303,7 +310,7 @@ export function ExcelStyleColorPicker({
           </div>
         </div>
       ) : (
-        <div className="space-y-3 px-1 py-1">
+        <div className="tab-panel-in space-y-3 px-1 py-1">
           <p className="text-[11px] text-muted-foreground">
             拖曳調色盤或輸入色碼，選擇任意顏色。
           </p>

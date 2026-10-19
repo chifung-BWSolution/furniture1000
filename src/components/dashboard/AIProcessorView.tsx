@@ -11,6 +11,7 @@ import { Progress } from '@/components/ui/progress';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from '@/components/ui/command';
 import { motion, AnimatePresence } from 'framer-motion';
+import { NavInk } from '@/components/motion/NavInk';
 import {
   Upload,
   FileImage,
@@ -4308,17 +4309,20 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
           <button
             onClick={() => setCurrentStep(1)}
             className={cn(
-              'flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
+              'relative flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors duration-200',
               currentStep === 1
-                ? 'bg-primary text-primary-foreground shadow-sm'
+                ? 'text-primary-foreground'
                 : 'text-muted-foreground hover:text-foreground hover:bg-muted'
             )}
           >
+            {currentStep === 1 ? (
+              <NavInk layoutId="ai-processor-step" className="absolute inset-0 z-0 rounded-lg bg-primary shadow-sm" />
+            ) : null}
             <span className={cn(
-              'flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold',
+              'relative z-10 flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold',
               currentStep === 1 ? 'bg-white/20' : 'bg-muted-foreground/20'
             )}>1</span>
-            設置廠家資料
+            <span className="relative z-10">設置廠家資料</span>
           </button>
           <div className="h-px flex-1 bg-border max-w-[60px]" />
           <button
@@ -4335,17 +4339,20 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
             }}
             disabled={!canProceedToStep2}
             className={cn(
-              'flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors',
+              'relative flex items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors duration-200',
               currentStep === 2
-                ? 'bg-primary text-primary-foreground shadow-sm'
+                ? 'text-primary-foreground'
                 : 'text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed'
             )}
           >
+            {currentStep === 2 ? (
+              <NavInk layoutId="ai-processor-step" className="absolute inset-0 z-0 rounded-lg bg-primary shadow-sm" />
+            ) : null}
             <span className={cn(
-              'flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold',
+              'relative z-10 flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold',
               currentStep === 2 ? 'bg-white/20' : 'bg-muted-foreground/20'
             )}>2</span>
-            上傳及處理產品
+            <span className="relative z-10">上傳及處理產品</span>
           </button>
         </div>
       </div>

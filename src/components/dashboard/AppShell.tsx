@@ -1,4 +1,6 @@
 import { useState, useCallback, useEffect, useRef, lazy, Suspense } from "react";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { inkEase, ViewEnter } from "@/components/motion/NavInk";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAppStore } from "@/hooks/use-app-store";
 import { unsavedGuard } from "@/lib/unsavedGuard";
@@ -292,6 +294,7 @@ export function AppShell() {
   /** Mobile (< lg): section sidebar is an overlay drawer, closed by default. */
   const [isMobileLayout, setIsMobileLayout] = useState(false);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const reduceMotion = useReducedMotion();
   const [editingQuoteId, setEditingQuoteIdRaw] = useState<string | null>(() => {
     const parsed = parseQuotePathname(location.pathname);
     return parsed.kind === 'quote' ? parsed.quoteId : null;
@@ -1382,32 +1385,46 @@ export function AppShell() {
         ) : null}
 
         {/* Mobile section nav — overlay drawer, closed by default */}
-        {activeSection !== 'home' && isMobileLayout && mobileNavOpen ? (
-          <div className="fixed inset-0 z-[60] lg:hidden">
-            <button
-              type="button"
-              aria-label="關閉選單"
-              className="absolute inset-0 bg-black/45"
-              onClick={() => setMobileNavOpen(false)}
-            />
-            <div className="absolute inset-y-0 left-0 flex w-[min(280px,86vw)] max-w-full shadow-2xl">
-              <SidebarNav
-                activeSection={activeSection}
-                currentView={store.currentView}
-                onViewChange={(view) => {
-                  handleViewChange(view);
-                  setMobileNavOpen(false);
-                }}
-                isDarkMode={store.isDarkMode}
-                onToggleDarkMode={store.toggleDarkMode}
-                isCollapsed={false}
-                onCollapseChange={() => setMobileNavOpen(false)}
-                isAdmin={isAdmin}
-                quoteShareGuest={quoteShareGuestActive}
+        <AnimatePresence>
+          {activeSection !== 'home' && isMobileLayout && mobileNavOpen ? (
+            <motion.div
+              key="mobile-section-nav"
+              className="fixed inset-0 z-[60] lg:hidden"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2, ease: inkEase }}
+            >
+              <button
+                type="button"
+                aria-label="關閉選單"
+                className="absolute inset-0 bg-black/45"
+                onClick={() => setMobileNavOpen(false)}
               />
-            </div>
-          </div>
-        ) : null}
+              <motion.div
+                className="absolute inset-y-0 left-0 flex w-[min(280px,86vw)] max-w-full shadow-2xl"
+                initial={reduceMotion ? { opacity: 0 } : { x: '-100%' }}
+                animate={reduceMotion ? { opacity: 1 } : { x: 0 }}
+                transition={{ duration: reduceMotion ? 0.12 : 0.32, ease: inkEase }}
+              >
+                <SidebarNav
+                  activeSection={activeSection}
+                  currentView={store.currentView}
+                  onViewChange={(view) => {
+                    handleViewChange(view);
+                    setMobileNavOpen(false);
+                  }}
+                  isDarkMode={store.isDarkMode}
+                  onToggleDarkMode={store.toggleDarkMode}
+                  isCollapsed={false}
+                  onCollapseChange={() => setMobileNavOpen(false)}
+                  isAdmin={isAdmin}
+                  quoteShareGuest={quoteShareGuestActive}
+                />
+              </motion.div>
+            </motion.div>
+          ) : null}
+        </AnimatePresence>
 
         <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
         {/* 方案 D: Unhealthy DB banner */}
@@ -1448,31 +1465,41 @@ export function AppShell() {
         />
 
         <div className="flex-1 overflow-hidden">
-          {store.isLoading && !isSitemapPlaceholderView(store.currentView) && !SELF_LOADING_VIEWS.has(contentView) ? (
-            <div className="flex h-full items-center justify-center">
-              <div className="flex flex-col items-center gap-3">
-                <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-                <span className="font-mono-data text-xs text-muted-foreground">
-                  Loading products...
-                </span>
-              </div>
-            </div>
-          ) : (
-            <Suspense
-              fallback={
-                <div className="flex h-full items-center justify-center">
-                  <div className="flex flex-col items-center gap-3">
-                    <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
-                    <span className="font-mono-data text-xs text-muted-foreground">
-                      Loading view...
-                    </span>
-                  </div>
+          <ViewEnter
+            viewKey={
+              store.isLoading &&
+              !isSitemapPlaceholderView(store.currentView) &&
+              !SELF_LOADING_VIEWS.has(contentView)
+                ? 'loading'
+                : contentView
+            }
+          >
+            {store.isLoading && !isSitemapPlaceholderView(store.currentView) && !SELF_LOADING_VIEWS.has(contentView) ? (
+              <div className="flex h-full items-center justify-center">
+                <div className="flex flex-col items-center gap-3">
+                  <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                  <span className="font-mono-data text-xs text-muted-foreground">
+                    Loading products...
+                  </span>
                 </div>
-              }
-            >
-              {renderView()}
-            </Suspense>
-          )}
+              </div>
+            ) : (
+              <Suspense
+                fallback={
+                  <div className="flex h-full items-center justify-center">
+                    <div className="flex flex-col items-center gap-3">
+                      <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+                      <span className="font-mono-data text-xs text-muted-foreground">
+                        Loading view...
+                      </span>
+                    </div>
+                  </div>
+                }
+              >
+                {renderView()}
+              </Suspense>
+            )}
+          </ViewEnter>
         </div>
         </main>
       </div>

@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef, useMemo, memo } from 'react';
 import { cn } from '@/lib/utils';
+import { NavInk } from '@/components/motion/NavInk';
 import { productThumbUrl } from '@/lib/imageThumb';
 import { LoadingImage } from '@/components/ui/loading-image';
 import { Product, ProductVariant } from '@/types/product';
@@ -659,44 +660,53 @@ export const ProductTableView = memo(function ProductTableView({
               <button
                 onClick={() => setActiveTab('local')}
                 className={cn(
-                  'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-display font-bold transition-all',
+                  'relative flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-display font-bold transition-colors duration-200',
                   activeTab === 'local'
-                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    ? 'text-primary-foreground'
                     : 'text-muted-foreground hover:text-foreground'
                 )}
               >
-                <Sparkles className="h-3 w-3" />
-                本地 AI 草稿
-                <Badge variant="secondary" className="ml-1 h-4 min-w-4 px-1 text-[9px]">
+                {activeTab === 'local' ? (
+                  <NavInk layoutId="product-source-ink" className="absolute inset-0 z-0 rounded-md bg-primary shadow-sm" />
+                ) : null}
+                <Sparkles className="relative z-10 h-3 w-3" />
+                <span className="relative z-10">本地 AI 草稿</span>
+                <Badge variant="secondary" className="relative z-10 ml-1 h-4 min-w-4 px-1 text-[9px]">
                   {localProducts.length}
                 </Badge>
               </button>
               <button
                 onClick={() => setActiveTab('shopify')}
                 className={cn(
-                  'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-display font-bold transition-all',
+                  'relative flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-display font-bold transition-colors duration-200',
                   activeTab === 'shopify'
-                    ? 'bg-emerald-600 text-white shadow-sm'
+                    ? 'text-white'
                     : 'text-muted-foreground hover:text-foreground'
                 )}
               >
-                <Database className="h-3 w-3" />
-                已同步 Shopify
-                <Badge variant="secondary" className="ml-1 h-4 min-w-4 px-1 text-[9px]">
+                {activeTab === 'shopify' ? (
+                  <NavInk layoutId="product-source-ink" className="absolute inset-0 z-0 rounded-md bg-emerald-600 shadow-sm" />
+                ) : null}
+                <Database className="relative z-10 h-3 w-3" />
+                <span className="relative z-10">已同步 Shopify</span>
+                <Badge variant="secondary" className="relative z-10 ml-1 h-4 min-w-4 px-1 text-[9px]">
                   {shopifyProducts.length}
                 </Badge>
               </button>
               <button
                 onClick={() => setActiveTab('all')}
                 className={cn(
-                  'flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-display font-bold transition-all',
+                  'relative flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-display font-bold transition-colors duration-200',
                   activeTab === 'all'
-                    ? 'bg-foreground text-background shadow-sm'
+                    ? 'text-background'
                     : 'text-muted-foreground hover:text-foreground'
                 )}
               >
-                全部
-                <Badge variant="secondary" className="ml-1 h-4 min-w-4 px-1 text-[9px]">
+                {activeTab === 'all' ? (
+                  <NavInk layoutId="product-source-ink" className="absolute inset-0 z-0 rounded-md bg-foreground shadow-sm" />
+                ) : null}
+                <span className="relative z-10">全部</span>
+                <Badge variant="secondary" className="relative z-10 ml-1 h-4 min-w-4 px-1 text-[9px]">
                   {baseProducts.length}
                 </Badge>
               </button>
@@ -777,7 +787,7 @@ export const ProductTableView = memo(function ProductTableView({
 
         {/* Section info banner */}
         {activeTab === 'local' && (
-          <div className="flex items-center gap-2 border-b border-border bg-primary/5 px-6 py-1.5">
+          <div className="tab-panel-in flex items-center gap-2 border-b border-border bg-primary/5 px-6 py-1.5">
             <Sparkles className="h-3 w-3 text-primary" />
             <span className="text-[11px] text-primary font-body">
               這些是 AI 生成及本地建立的產品。選擇項目以上傳到 <strong>Shopify</strong>。
@@ -785,7 +795,7 @@ export const ProductTableView = memo(function ProductTableView({
           </div>
         )}
         {activeTab === 'shopify' && (
-          <div className="flex items-center gap-2 border-b border-border bg-emerald-500/5 px-6 py-1.5">
+          <div className="tab-panel-in flex items-center gap-2 border-b border-border bg-emerald-500/5 px-6 py-1.5">
             <Database className="h-3 w-3 text-emerald-500" />
             <span className="text-[11px] text-emerald-500 font-body">
               Shopify 安全備份副本。此為唯讀參考 — 請直接在 Shopify 管理後台編輯。

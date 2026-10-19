@@ -6,6 +6,7 @@ import { useAuth } from '@/contexts/AuthProvider';
 import { usePmsStaffName } from '@/hooks/use-pms-staff-name';
 import { Button } from '@/components/ui/button';
 import { FdsLogo } from '@/components/brand/FdsLogo';
+import { NavInk } from '@/components/motion/NavInk';
 
 interface PrimaryTopNavProps {
   activeSection: PrimarySection;
@@ -55,14 +56,20 @@ export function PrimaryTopNav({
               key={p.id}
               onClick={() => onSectionChange(p.id)}
               className={cn(
-                'flex h-9 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-[12.5px] font-medium transition-all sm:h-10 sm:gap-2 sm:px-3.5 sm:text-[13.5px]',
+                'relative flex h-9 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-[12.5px] font-medium transition-colors duration-200 sm:h-10 sm:gap-2 sm:px-3.5 sm:text-[13.5px]',
                 active
-                  ? 'bg-shell-primary text-shell-primary-foreground shadow-sm'
+                  ? 'text-shell-primary-foreground'
                   : 'text-shell-muted hover:bg-shell-accent hover:text-shell-accent-foreground',
               )}
             >
-              <Icon className="h-4 w-4 sm:h-[18px] sm:w-[18px]" />
-              <span className="font-display whitespace-nowrap">{p.label}</span>
+              {active ? (
+                <NavInk
+                  layoutId="primary-section-ink"
+                  className="absolute inset-0 z-0 rounded-lg bg-shell-primary shadow-sm"
+                />
+              ) : null}
+              <Icon className="relative z-10 h-4 w-4 sm:h-[18px] sm:w-[18px]" />
+              <span className="relative z-10 font-display whitespace-nowrap">{p.label}</span>
             </button>
           );
         })}
