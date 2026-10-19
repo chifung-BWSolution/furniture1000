@@ -278,7 +278,15 @@ const OCR_PROMPT = [
   "Keep model numbers, dimensions, units, prices and currency symbols exactly as printed.",
   "Keep Chinese text in its original characters; do not translate.",
   "Output only the transcription, no commentary.",
+  "If the page has no readable text (e.g. only a photo), output exactly: NO_TEXT",
 ].join("\n");
+
+/** Models sometimes describe an empty page instead of returning nothing. */
+function isNoTextReply(text: string): boolean {
+  const t = text.trim();
+  return t === "" || /^NO_TEXT\.?$/i.test(t) ||
+    (t.length < 80 && /\b(no|without)\b.*\b(text|readable)\b/i.test(t));
+}
 
 async function grokOcr(apiKey: string, model: string, jpeg: Uint8Array): Promise<{ text: string; tokens: number }> {
   const res = await fetch(XAI_URL, {
@@ -302,7 +310,7 @@ async function grokOcr(apiKey: string, model: string, jpeg: Uint8Array): Promise
     throw new Error(`Grok ${res.status}: ${body?.error?.message ?? body?.error ?? res.statusText}`);
   }
   const text = String(body?.choices?.[0]?.message?.content ?? "").trim();
-  return { text, tokens: Number(body?.usage?.total_tokens ?? 0) };
+  return { text: isNoTextReply(text) ? "" : text, tokens: Number(body?.usage?.total_tokens ?? 0) };
 }
 
 type Classification = {
