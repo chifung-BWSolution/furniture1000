@@ -58,6 +58,10 @@ export interface SearchProduct {
   sale_price?: number;
   legacy_cost?: number;
   exact: boolean;
+  /** 0–1 cosine similarity. Present only on image-search hits. */
+  similarity?: number;
+  /** Image search never claims a hit is the same product. */
+  relation?: 'similar';
   quote?: SearchQuote;
   source?: SearchSource;
 }
@@ -212,7 +216,7 @@ function colorForTerm(term: string): string | null {
 }
 
 /** English swatch value and the Chinese label stored on imported products. */
-function expandColorFilters(colors: string[]): string[] {
+export function expandColorFilters(colors: string[]): string[] {
   const seen = new Set<string>();
   const out: string[] = [];
   const add = (value: string) => {

@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { toast } from 'sonner';
 import {
-  ChevronLeft, ChevronRight, ExternalLink, FileText, Loader2, Package, RotateCcw, Ruler, Search,
+  ChevronLeft, ChevronRight, ExternalLink, FileText, ImagePlus, Loader2, Package, RotateCcw, Ruler, Search,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { productThumbUrl } from '@/lib/imageThumb';
@@ -21,6 +21,7 @@ import { autoMatchColor, getChineseColorLabel, getColorHex, multiColorToChineseD
 import { MATERIAL_TAG_RULES } from '@/constants/material-tags';
 import { SourcePageDialog } from '@/components/dashboard/SourcePageDialog';
 import type { SourcePageRequest } from '@/lib/sourcePage';
+import { fetchEmbeddingStatus, searchByImage, startImageIndex, type EmbeddingStatus } from '@/lib/imageSearch';
 import {
   EMPTY_SEARCH_FILTERS,
   VALIDITY_LABELS,
@@ -97,6 +98,12 @@ export function FurnitureSearchView() {
   const [facets, setFacets] = useState<SearchFacets | null>(null);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [sourcePage, setSourcePage] = useState<(SourcePageRequest & { title?: string | null }) | null>(null);
+  const [imageHits, setImageHits] = useState<SearchProduct[] | null>(null);
+  const [imageIndexed, setImageIndexed] = useState<number | null>(null);
+  const [imageLoading, setImageLoading] = useState(false);
+  const [indexStatus, setIndexStatus] = useState<EmbeddingStatus | null>(null);
+  const [indexing, setIndexing] = useState(false);
+  const imageInputRef = useRef<HTMLInputElement>(null);
 
   const closeDetail = useCallback(() => setDetailId(null), []);
   const debounced = useDebounced(filters, 300);
@@ -109,6 +116,7 @@ export function FurnitureSearchView() {
     fetchSearchFacets().then(setFacets).catch((err) => {
       toast.error('讀取篩選選項失敗', { description: errorText(err) });
     });
+    fetchEmbeddingStatus().then(setIndexStatus).catch(() => setIndexStatus(null));
   }, []);
 
   useEffect(() => {
@@ -159,6 +167,58 @@ export function FurnitureSearchView() {
             className="pl-8"
           />
         </div>
+        <input
+          ref={imageInputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = '';
+            if (!file) return;
+            setImageLoading(true);
+            searchByImage(file, filters)
+              .then((res) => {
+                setImageHits(res.items);
+                setImageIndexed(res.indexed);
+              })
+              .catch((err) => toast.error('以圖搜款失敗', { description: errorText(err) }))
+              .finally(() => setImageLoading(false));
+          }}
+        />
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={imageLoading}
+          onClick={() => imageInputRef.current?.click()}
+        >
+          {imageLoading ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="mr-1 h-3.5 w-3.5" />}
+          以圖搜款
+        </Button>
+        {imageHits && (
+          <Button size="sm" variant="ghost" onClick={() => { setImageHits(null); setImageIndexed(null); }}>
+            返回文字搜尋
+          </Button>
+        )}
+        {indexStatus?.can_index && (
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={indexing}
+            onClick={() => {
+              setIndexing(true);
+              startImageIndex()
+                .then((res) => {
+                  toast.success(res.remaining ? `已索引 ${res.indexed} 件，還有未索引的產品` : `已索引 ${res.indexed} 件`);
+                  return fetchEmbeddingStatus().then(setIndexStatus);
+                })
+                .catch((err) => toast.error('索引失敗', { description: errorText(err) }))
+                .finally(() => setIndexing(false));
+            }}
+          >
+            {indexing ? '索引中…' : `索引圖片${indexStatus.indexed ? ` (${indexStatus.indexed})` : ''}`}
+          </Button>
+        )}
         <Select value={filters.sort} onValueChange={(v) => patch({ sort: v as SearchSort })}>
           <SelectTrigger className="w-36">
             <SelectValue />
@@ -341,14 +401,39 @@ export function FurnitureSearchView() {
 
       <div className="flex items-center justify-between text-xs text-muted-foreground">
         <span>
-          {loading ? '搜尋中…' : `共 ${total.toLocaleString()} 件產品`}
-          {!loading && elapsedMs != null && ` · ${(elapsedMs / 1000).toFixed(2)} 秒`}
+          {imageHits
+            ? imageIndexed === 0
+              ? '圖片索引還是空的，請先由管理員索引產品圖'
+              : `相似款 ${imageHits.length} 件（相似度不是同一款）`
+            : loading
+              ? '搜尋中…'
+              : `共 ${total.toLocaleString()} 件產品`}
+          {!imageHits && !loading && elapsedMs != null && ` · ${(elapsedMs / 1000).toFixed(2)} 秒`}
         </span>
         <span>折扣價為售價 × 0.8，其後為原價</span>
       </div>
 
       <div className="relative min-h-0 flex-1 overflow-y-auto">
-        {loading && !result ? (
+        {imageLoading ? (
+          <div className="flex items-center justify-center py-24 text-sm text-muted-foreground">
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 對照產品圖…
+          </div>
+        ) : imageHits ? (
+          imageHits.length === 0 ? (
+            <div className="py-24 text-center text-sm text-muted-foreground">沒有相近的產品</div>
+          ) : (
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,280px),1fr))] gap-4">
+              {imageHits.map((p) => (
+                <ProductCard
+                  key={p.id}
+                  product={p}
+                  onOpen={() => setDetailId(p.id)}
+                  onOpenSource={setSourcePage}
+                />
+              ))}
+            </div>
+          )
+        ) : loading && !result ? (
           <div className="flex items-center justify-center py-24 text-sm text-muted-foreground">
             <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 載入中…
           </div>
@@ -373,7 +458,7 @@ export function FurnitureSearchView() {
         )}
       </div>
 
-      {pageCount > 1 && (
+      {!imageHits && pageCount > 1 && (
         <div className="flex items-center justify-center gap-2 text-sm">
           <Button size="icon" variant="outline" className="h-8 w-8" disabled={page === 0} onClick={() => setPage(page - 1)}>
             <ChevronLeft className="h-4 w-4" />
@@ -493,14 +578,14 @@ function ProductCard({
   const extraThumbs = Math.max(0, photos.length - 1 - thumbs.length);
   const quoteState = p.quote && p.quote.validity !== 'valid' ? p.quote.validity : null;
   return (
-    <div className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card text-left shadow-sm transition-shadow hover:shadow-md">
+    <div className="group flex h-full flex-col overflow-hidden rounded-xl border border-border bg-card text-left shadow-sm transition-shadow hover:shadow-md">
       <button type="button" onClick={onOpen} className="flex flex-1 flex-col text-left">
-        <div className="relative aspect-[16/10] bg-muted">
+        <div className="relative h-28 w-full shrink-0 overflow-hidden bg-muted">
           {photos[0] ? (
             <LoadingImage
               src={productThumbUrl(photos[0], 640)}
               alt={primary}
-              className="h-full w-full object-cover"
+              className="absolute inset-0 h-full w-full object-cover"
               loading="lazy"
               decoding="async"
             />
@@ -516,9 +601,14 @@ function ProductCard({
             {p.exact && (
               <span className="rounded-full bg-white/90 px-2 py-0.5 text-xs font-medium text-foreground">型號命中</span>
             )}
+            {p.relation === 'similar' && (
+              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
+                相似款{typeof p.similarity === 'number' ? ` ${Math.round(p.similarity * 100)}%` : ''}
+              </span>
+            )}
           </div>
         </div>
-        <div className="flex flex-1 flex-col gap-2 p-3">
+        <div className="flex flex-1 flex-col gap-1 p-2.5">
           <div>
             <div className="line-clamp-2 text-[15px] font-semibold leading-snug">{primary}</div>
             {secondary && <div className="line-clamp-1 text-xs text-muted-foreground">{secondary}</div>}
@@ -536,7 +626,7 @@ function ProductCard({
               {thumbs.map((url, index) => {
                 const more = index === thumbs.length - 1 ? extraThumbs : 0;
                 return (
-                  <div key={url} className="relative h-12 w-12 overflow-hidden rounded-md bg-muted">
+                  <div key={url} className="relative h-9 w-9 overflow-hidden rounded-md bg-muted">
                     <LoadingImage
                       src={productThumbUrl(url, 96)}
                       alt=""
