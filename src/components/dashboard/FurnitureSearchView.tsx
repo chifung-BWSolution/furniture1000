@@ -357,7 +357,7 @@ export function FurnitureSearchView() {
         ) : (
           <div
             className={cn(
-              'grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4',
+              'grid grid-cols-[repeat(auto-fill,minmax(min(100%,280px),1fr))] gap-4',
               loading && 'opacity-60',
             )}
           >
