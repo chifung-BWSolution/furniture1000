@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Combine, Loader2, Search } from 'lucide-react';
+import { Combine, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
+import { Progress } from '@/components/ui/progress';
 import { productThumbUrl } from '@/lib/imageThumb';
+import { LoadingImage } from '@/components/ui/loading-image';
 import {
   findSimilarProductGroups,
   type SimilarProductCriterion,
@@ -95,6 +97,9 @@ function rowToItem(row: MirrorRow): SimilarItem | null {
 export function SimilarProductsView() {
   const [items, setItems] = useState<SimilarItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [scanLoaded, setScanLoaded] = useState(0);
+  const [scanTotal, setScanTotal] = useState<number | null>(null);
+  const [scanPhase, setScanPhase] = useState<'counting' | 'fetching' | 'matching'>('counting');
   const [criteria, setCriteria] = useState<SimilarProductCriterion[]>(['name', 'sku']);
   const [search, setSearch] = useState('');
   const [factory, setFactory] = useState('全部');
@@ -108,10 +113,23 @@ export function SimilarProductsView() {
   const load = useCallback(async () => {
     const gen = ++loadGenRef.current;
     setIsLoading(true);
+    setScanPhase('counting');
+    setScanLoaded(0);
+    setScanTotal(null);
     try {
+      const { count, error: countError } = await supabase
+        .from('shopify_products')
+        .select('id', { count: 'exact', head: true })
+        .is('configurable', null);
+      if (countError) throw countError;
+      if (loadGenRef.current !== gen) return;
+      const total = count ?? 0;
+      setScanTotal(total);
+      setScanPhase('fetching');
+
       const rows: MirrorRow[] = [];
       let from = 0;
-      while (true) {
+      while (from < total || (total === 0 && from === 0)) {
         const { data, error } = await supabase
           .from('shopify_products')
           .select(LIST_SELECT)
@@ -119,11 +137,18 @@ export function SimilarProductsView() {
           .order('id', { ascending: true })
           .range(from, from + FETCH_PAGE - 1);
         if (error) throw error;
+        if (loadGenRef.current !== gen) return;
         const pageRows = (data ?? []) as unknown as MirrorRow[];
         rows.push(...pageRows);
+        setScanLoaded(Math.min(rows.length, total || rows.length));
         if (pageRows.length < FETCH_PAGE) break;
         from += FETCH_PAGE;
+        if (total === 0) break;
       }
+      if (loadGenRef.current !== gen) return;
+      setScanLoaded(total || rows.length);
+      setScanPhase('matching');
+      await new Promise((resolve) => setTimeout(resolve, 0));
       if (loadGenRef.current !== gen) return;
       setItems(rows.map(rowToItem).filter((row): row is SimilarItem => Boolean(row)));
     } catch (e) {
@@ -177,6 +202,16 @@ export function SimilarProductsView() {
     safePage * GROUPS_PER_PAGE,
   );
   const similarCount = visibleGroups.reduce((n, g) => n + g.products.length, 0);
+  const scanPercent = scanPhase === 'matching'
+    ? 100
+    : scanTotal && scanTotal > 0
+      ? Math.min(100, Math.round((scanLoaded / scanTotal) * 100))
+      : 0;
+  const scanLabel = scanPhase === 'counting'
+    ? '正在計算產品數量…'
+    : scanPhase === 'matching'
+      ? `已讀取 ${scanLoaded.toLocaleString()} 件，正在比對相似產品…`
+      : `正在掃描 ${scanLoaded.toLocaleString()} / ${(scanTotal ?? 0).toLocaleString()}`;
 
   const toggleCriterion = (key: SimilarProductCriterion, on: boolean) => {
     setCriteria((prev) => {
@@ -253,7 +288,7 @@ export function SimilarProductsView() {
           </div>
           <div className="font-mono-data text-[11px] text-muted-foreground">
             {isLoading
-              ? '掃描中…'
+              ? scanLabel
               : `已掃描 ${items.length} 件 · ${visibleGroups.length} 組 · ${similarCount} 件待合併`}
           </div>
         </div>
@@ -308,10 +343,13 @@ export function SimilarProductsView() {
 
       <div className="min-h-0 flex-1 overflow-auto px-5 py-4">
         {isLoading ? (
-          <div className="flex h-full items-center justify-center">
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              <span className="font-body text-sm">正在掃描已上載產品…</span>
+          <div className="flex h-full items-center justify-center px-6">
+            <div className="w-full max-w-md space-y-3">
+              <div className="flex items-center justify-between gap-3">
+                <span className="font-body text-sm text-muted-foreground">{scanLabel}</span>
+                <span className="font-mono-data text-xs text-muted-foreground">{scanPercent}%</span>
+              </div>
+              <Progress value={scanPercent} aria-label="掃描進度" />
             </div>
           </div>
         ) : criteria.length === 0 ? (
@@ -365,7 +403,7 @@ export function SimilarProductsView() {
                             aria-label={`選擇 ${product.title}`}
                           />
                           {product.imageUrl.startsWith('http') ? (
-                            <img
+                            <LoadingImage
                               src={productThumbUrl(product.imageUrl, 96)}
                               alt=""
                               loading="lazy"
