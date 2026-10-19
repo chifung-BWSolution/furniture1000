@@ -48,6 +48,8 @@ import { CascadingCategorySelector } from './CascadingCategorySelector';
 import { supabase } from '@/lib/supabase';
 import { resolveRowsImagesToStorage, resolveRowsImagesToStorageWithRetry, productImageFieldsPendingStorage } from '@/lib/imageStorage';
 import { fetchFactories, fetchFactoriesWithIds, FactoryItem } from '@/lib/factorySupabase';
+import { uploadSupplierDocument } from '@/lib/supplierDocuments';
+import { SupplierDocumentsPanel } from './SupplierDocumentsPanel';
 import { withInsertAuditFields, withUpdateAuditFields } from '@/lib/pmsAudit';
 import { parseExcelFile, extractImagesFromWorkbook, extractRawExcelTable, ExcelProduct, ExcelImage, getFactoryRule, RawTableExtraction, cleanPrice, parseSmartDimensions, resolveMappedRowImages } from '@/lib/excelParser';
 import { ExcelPreviewTable, ExcelPreviewData, ColumnMappingState, StandardHeaderValue, MultiSheetColumnMapping, MultiSheetDimUnits, DimUnit, PreviewAction } from '@/components/dashboard/ExcelPreviewTable';
@@ -1959,6 +1961,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
   // Restored from IndexedDB asynchronously (see recovery effect below)
   const [selectedManufacturer, setSelectedManufacturer] = useState<string>('');
   const [selectedFactoryId, setSelectedFactoryId] = useState<string>('');
+  const [supplierDocsRefreshKey, setSupplierDocsRefreshKey] = useState(0);
   const [manufacturerOpen, setManufacturerOpen] = useState(false);
   const [manufacturerSearch, setManufacturerSearch] = useState('');
   const [manufacturerList, setManufacturerList] = useState<string[]>(MANUFACTURERS);
@@ -2355,6 +2358,24 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
 
     setUploadedFiles(prev => [...prev, ...newEntries]);
 
+    // Keep the original PDF (FDS 2.1 F-AI-001). Archive only — this flow still
+    // parses in the browser, so no worker job is queued to avoid paying twice.
+    const pdfsToArchive = validFiles.filter(f => f.type === 'application/pdf');
+    if (pdfsToArchive.length > 0) {
+      void Promise.allSettled(pdfsToArchive.map(file => uploadSupplierDocument({
+        file,
+        factoryId: selectedFactoryId || null,
+        factoryName: selectedManufacturer,
+        source: 'ai_processor',
+        enqueue: false,
+      }))).then(results => {
+        results.forEach((r, i) => {
+          if (r.status === 'rejected') console.warn(`[AIProcessor] archive ${pdfsToArchive[i].name}:`, r.reason);
+        });
+        if (results.some(r => r.status === 'fulfilled')) setSupplierDocsRefreshKey(k => k + 1);
+      });
+    }
+
     // Detect processing mode based on files present
     const allFiles = [...uploadedFiles, ...newEntries];
     const hasExcel = allFiles.some(f => excelExtensions.some(ext => f.name.toLowerCase().endsWith(ext)) || excelMimeTypes.includes(f.type));
@@ -2370,7 +2391,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
     } else {
       setProcessingMode('single-image');
     }
-  }, [uploadedFiles]);
+  }, [uploadedFiles, selectedFactoryId, selectedManufacturer]);
 
   // ─── Generate / Process Files (triggered by button) ─────────────────
   // NOTE: handleGenerate is defined after processFiles below
@@ -5085,6 +5106,14 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
             <p className="mt-1 font-mono-data text-[10px] text-muted-foreground/60">PDF（多產品目錄）· XLSX · XLS · JPG · PNG · WEBP</p>
           </div>
         </div>
+
+        {isManufacturerSelected && (
+          <SupplierDocumentsPanel
+            factoryId={selectedFactoryId || null}
+            factoryName={selectedManufacturer}
+            refreshKey={supplierDocsRefreshKey}
+          />
+        )}
 
         {/* File Thumbnails */}
         <AnimatePresence>

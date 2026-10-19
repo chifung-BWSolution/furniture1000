@@ -1,0 +1,306 @@
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { toast } from 'sonner';
+import {
+  AlertTriangle,
+  Ban,
+  Download,
+  FileText,
+  Loader2,
+  Lock,
+  Play,
+  RefreshCw,
+  RotateCcw,
+  Upload,
+} from 'lucide-react';
+import { cn } from '@/lib/utils';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Progress } from '@/components/ui/progress';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  canManageSupplierDocuments,
+  cancelProcessingJob,
+  enqueueSupplierDocumentParse,
+  getSupplierDocumentDownloadUrl,
+  hasActiveJob,
+  isPdfFile,
+  latestJob,
+  listSupplierDocuments,
+  uploadSupplierDocument,
+  type ProcessingJobStatus,
+  type SupplierDocument,
+  type SupplierDocumentStatus,
+} from '@/lib/supplierDocuments';
+
+const POLL_MS = 5000;
+const NO_CURRENCY = '__none__';
+const CURRENCIES = ['HKD', 'RMB', 'USD', 'EUR'];
+
+const DOC_STATUS: Record<SupplierDocumentStatus, { label: string; className: string }> = {
+  uploaded: { label: '已上載', className: 'bg-muted text-muted-foreground border-border' },
+  parsing: { label: '解析中', className: 'bg-sky-500/15 text-sky-600 border-sky-500/30' },
+  review: { label: '待審核', className: 'bg-amber-500/15 text-amber-600 border-amber-500/30' },
+  ready: { label: '已入庫', className: 'bg-emerald-500/15 text-emerald-600 border-emerald-500/30' },
+  failed: { label: '失敗', className: 'bg-destructive/15 text-destructive border-destructive/30' },
+};
+
+const JOB_STATUS: Record<ProcessingJobStatus, string> = {
+  queued: '排隊中',
+  running: '處理中',
+  succeeded: '完成',
+  failed: '失敗',
+  cancelled: '已取消',
+};
+
+function formatSize(bytes: number | null): string {
+  if (!bytes) return '—';
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))}KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
+}
+
+function formatTime(iso: string): string {
+  return new Date(iso).toLocaleString('zh-HK', { hour12: false });
+}
+
+interface SupplierDocumentsPanelProps {
+  factoryId?: string | null;
+  factoryName?: string | null;
+  /** Bump to reload after documents are archived elsewhere (e.g. AI 處理上傳). */
+  refreshKey?: number;
+  className?: string;
+}
+
+export function SupplierDocumentsPanel({ factoryId, factoryName, refreshKey = 0, className }: SupplierDocumentsPanelProps) {
+  const [canManage, setCanManage] = useState<boolean | null>(null);
+  const [docs, setDocs] = useState<SupplierDocument[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState<string[]>([]);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [currency, setCurrency] = useState<string>(NO_CURRENCY);
+  const [docType, setDocType] = useState<'quote' | 'catalog'>('quote');
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    canManageSupplierDocuments().then((ok) => {
+      if (!cancelled) setCanManage(ok);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const reload = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
+    try {
+      setDocs(await listSupplierDocuments({ factoryId: factoryId || null, factoryName }));
+    } catch (err) {
+      if (!silent) toast.error('讀取供應商文件失敗', { description: err instanceof Error ? err.message : String(err) });
+    } finally {
+      if (!silent) setLoading(false);
+    }
+  }, [factoryId, factoryName]);
+
+  useEffect(() => {
+    if (canManage) void reload();
+  }, [canManage, reload, refreshKey]);
+
+  const anyActive = docs.some(hasActiveJob);
+  useEffect(() => {
+    if (!anyActive) return;
+    const timer = setInterval(() => void reload(true), POLL_MS);
+    return () => clearInterval(timer);
+  }, [anyActive, reload]);
+
+  const handleFiles = useCallback(async (fileList: FileList | null) => {
+    const files = Array.from(fileList ?? []).filter(isPdfFile);
+    if (inputRef.current) inputRef.current.value = '';
+    if (files.length === 0) {
+      toast.error('請選擇 PDF 檔');
+      return;
+    }
+    setUploading(files.map((f) => f.name));
+    let created = 0;
+    for (const file of files) {
+      try {
+        const res = await uploadSupplierDocument({
+          file,
+          factoryId,
+          factoryName,
+          docType,
+          currency: currency === NO_CURRENCY ? null : currency,
+        });
+        if (res.duplicate) {
+          toast.message(`${file.name} 已存在，未重複建立`);
+        } else {
+          created += 1;
+        }
+      } catch (err) {
+        toast.error(`${file.name} 上載失敗`, { description: err instanceof Error ? err.message : String(err) });
+      } finally {
+        setUploading((prev) => prev.filter((n) => n !== file.name));
+      }
+    }
+    if (created > 0) toast.success(`已上載 ${created} 份 PDF，解析任務已排隊`);
+    void reload(true);
+  }, [factoryId, factoryName, docType, currency, reload]);
+
+  const runAction = useCallback(async (id: string, action: () => Promise<unknown>, okMessage: string) => {
+    setBusyId(id);
+    try {
+      await action();
+      toast.success(okMessage);
+      await reload(true);
+    } catch (err) {
+      toast.error('操作失敗', { description: err instanceof Error ? err.message : String(err) });
+    } finally {
+      setBusyId(null);
+    }
+  }, [reload]);
+
+  const handleDownload = useCallback(async (doc: SupplierDocument) => {
+    try {
+      window.open(await getSupplierDocumentDownloadUrl(doc.storage_path), '_blank', 'noopener');
+    } catch (err) {
+      toast.error('下載失敗', { description: err instanceof Error ? err.message : String(err) });
+    }
+  }, []);
+
+  if (canManage === false) {
+    return (
+      <div className={cn('flex items-center gap-2 rounded-lg border border-dashed border-border px-3 py-2.5', className)}>
+        <Lock className="h-3.5 w-3.5 text-muted-foreground" />
+        <p className="font-body text-[11px] text-muted-foreground">供應商原始文件只限 admin／傢俬組查看</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className={cn('space-y-3 rounded-xl border border-border bg-card/50 p-3', className)}>
+      <div className="flex flex-wrap items-center gap-2">
+        <FileText className="h-4 w-4 text-primary" />
+        <h3 className="font-display text-sm font-bold tracking-tight">供應商文件（原始 PDF）</h3>
+        <span className="font-body text-[11px] text-muted-foreground truncate">
+          {factoryName || factoryId || '全部廠家'}
+        </span>
+        <div className="ml-auto flex items-center gap-1.5">
+          <Select value={docType} onValueChange={(v) => setDocType(v as 'quote' | 'catalog')}>
+            <SelectTrigger className="h-7 w-[84px] text-[11px]"><SelectValue /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="quote">報價單</SelectItem>
+              <SelectItem value="catalog">目錄</SelectItem>
+            </SelectContent>
+          </Select>
+          <Select value={currency} onValueChange={setCurrency}>
+            <SelectTrigger className="h-7 w-[92px] text-[11px]"><SelectValue placeholder="貨幣" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value={NO_CURRENCY}>貨幣未標示</SelectItem>
+              {CURRENCIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+            </SelectContent>
+          </Select>
+          <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => void reload()} disabled={loading} title="重新整理">
+            <RefreshCw className={cn('h-3.5 w-3.5', loading && 'animate-spin')} />
+          </Button>
+          <Button size="sm" className="h-7 gap-1 text-[11px]" onClick={() => inputRef.current?.click()} disabled={canManage === null || uploading.length > 0}>
+            {uploading.length > 0 ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
+            上載 PDF
+          </Button>
+          <input
+            ref={inputRef}
+            type="file"
+            accept="application/pdf,.pdf"
+            multiple
+            className="hidden"
+            onChange={(e) => void handleFiles(e.target.files)}
+          />
+        </div>
+      </div>
+
+      {uploading.length > 0 && (
+        <div className="space-y-1">
+          {uploading.map((name) => (
+            <div key={name} className="flex items-center gap-2 font-body text-[11px] text-muted-foreground">
+              <Loader2 className="h-3 w-3 animate-spin" />
+              <span className="truncate">上載中：{name}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {docs.length === 0 && !loading ? (
+        <p className="py-3 text-center font-body text-[11px] text-muted-foreground">
+          未有文件。上載的 PDF 會原檔保存，同一廠家可並存多份。
+        </p>
+      ) : (
+        <ul className="divide-y divide-border">
+          {docs.map((doc) => {
+            const job = latestJob(doc);
+            const active = hasActiveJob(doc);
+            const status = DOC_STATUS[doc.status];
+            const busy = busyId === doc.id;
+            return (
+              <li key={doc.id} className="flex flex-col gap-1.5 py-2">
+                <div className="flex items-center gap-2">
+                  <span className="min-w-0 flex-1 truncate font-body text-xs font-medium" title={doc.title ?? undefined}>
+                    {doc.title || doc.storage_path}
+                  </span>
+                  <Badge className={cn('border font-mono-data text-[10px]', status.className)}>{status.label}</Badge>
+                </div>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1 font-mono-data text-[10px] text-muted-foreground">
+                  <span>{formatTime(doc.created_at)}</span>
+                  {!factoryId && !factoryName && doc.factory_name && <span>{doc.factory_name}</span>}
+                  <span>{doc.doc_type === 'catalog' ? '目錄' : '報價單'}</span>
+                  <span>{formatSize(doc.file_size)}</span>
+                  <span>{doc.page_count != null ? `${doc.page_count} 頁` : '頁數未知'}</span>
+                  <span>{doc.currency || '貨幣未標示'}</span>
+                  {doc.source === 'ai_processor' && <span>來自 AI 處理</span>}
+                  {job && (
+                    <span>
+                      任務：{JOB_STATUS[job.status]}（第 {job.attempts}/{job.max_attempts} 次）
+                    </span>
+                  )}
+                </div>
+                {job?.status === 'running' && <Progress value={Math.round(Number(job.progress) * 100)} className="h-1" />}
+                {(doc.error_message || (job?.status === 'queued' && job.error)) && (
+                  <div className="flex items-start gap-1.5 font-body text-[11px] text-destructive">
+                    <AlertTriangle className="mt-0.5 h-3 w-3 flex-shrink-0" />
+                    <span className="break-all">
+                      {doc.error_message || `上次失敗，將自動重試：${job?.error}`}
+                    </span>
+                  </div>
+                )}
+                <div className="flex items-center gap-1.5">
+                  <Button variant="outline" size="sm" className="h-6 gap-1 px-2 text-[10px]" onClick={() => void handleDownload(doc)}>
+                    <Download className="h-3 w-3" />下載原檔
+                  </Button>
+                  {active && job ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-6 gap-1 px-2 text-[10px]"
+                      disabled={busy}
+                      onClick={() => void runAction(doc.id, () => cancelProcessingJob(job.id), '已取消任務')}
+                    >
+                      <Ban className="h-3 w-3" />取消
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-6 gap-1 px-2 text-[10px]"
+                      disabled={busy}
+                      onClick={() => void runAction(doc.id, () => enqueueSupplierDocumentParse(doc.id), '已排隊解析')}
+                    >
+                      {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : job ? <RotateCcw className="h-3 w-3" /> : <Play className="h-3 w-3" />}
+                      {job ? '重新解析' : '開始解析'}
+                    </Button>
+                  )}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}

@@ -264,3 +264,15 @@ node scripts/check-supabase-env.mjs --live   # 額外對各 project 發一次請
 **為什麼一定要跑**：Vite 在 `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` 完全沒設定時
 **build 仍然會成功**，只是產出一個連不上 DB 的 bundle——沒有任何 build error 提醒你。
 這就是 secret 名字設錯時，問題會拖到 runtime 才爆的原因。
+
+## 8. FDS 2.1 供應商文件與背景任務
+
+- 原始 PDF 在**私有** bucket `supplier-documents`，路徑＝`<factory_id 或名稱>/<sha256>.pdf`（同檔重傳自然去重）。
+  下載只用 5 分鐘簽名 URL（`src/lib/supplierDocuments.ts`）。
+- `supplier_documents`／`processing_jobs` **不是 allow-all**：只有 `bwf_has_role(array['admin','uploader'])`
+  讀得到，前端寫入一律走 `fds_*` RPC。新的商業資料表照這個模式做，不要再加 `USING (true)`。
+- 任務狀態只經 `fds_processing_jobs_claim` → `fds_processing_job_heartbeat` → `_complete`／`_fail` 流轉；
+  Edge worker 與之後的 Python Worker 共用這套 RPC，不要直接改 `status`。
+- Worker slug＝`supabase-functions-process-jobs`。pg_cron `fds-process-jobs` 用 vault 的 `fds_worker_secret`
+  （`x-worker-secret` header）授權；vault 裡的 `service_role_key` 只有 26 字元，不像有效的 service role key，別拿它做授權。
+- Storage 專案上限已調到 200MB；Edge worker 只處理 ≤60MB 的 PDF。
