@@ -206,8 +206,8 @@ export const ROLE_META: Record<UserRole, { label: string; className: string }> =
 // permission matrix: role × capability
 export const PERMISSIONS = ['查看產品', '編輯產品', '上架發佈', '管理報價', '查看成本', '管理用戶'];
 export const ROLE_PERMISSIONS: Record<UserRole, boolean[]> = {
-  admin: [true, true, true, true, true, true],
-  uploader: [true, true, true, false, true, false],
+  admin: [true, true, true, true, false, true],
+  uploader: [true, true, true, false, false, false],
   pm: [true, true, false, true, false, false],
   designer: [true, true, false, false, false, false],
   client: [true, false, false, false, false, false],

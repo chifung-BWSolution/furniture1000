@@ -1,7 +1,7 @@
 // ============================================================================
 // FDS 2.1 產品搜索與匯入（F-AI-003 / F-AI-005，T-401～T-405）
-// 搜索經 fds_search_products／fds_product_detail RPC：成本只回給 admin／uploader。
-// 設計師／PM 拿到折扣價（售價 × 0.8）和原價。匯入經 fds_import_extracted_products，只收已通過的提取項目（BR-02）。
+// 搜索經 fds_search_products／fds_product_detail RPC：任何角色都不回傳成本價。
+// 所有人看到折扣價（售價 × 0.8）和原價。匯入經 fds_import_extracted_products，只收已通過的提取項目（BR-02）。
 // ============================================================================
 import { supabase } from '@/lib/supabase';
 import { COLOR_MAP, autoMatchColor } from '@/constants/color-map';

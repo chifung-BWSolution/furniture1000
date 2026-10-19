@@ -107,8 +107,6 @@ export function FurnitureSearchView() {
 
   const closeDetail = useCallback(() => setDetailId(null), []);
   const debounced = useDebounced(filters, 300);
-  const canViewCost = result?.can_view_cost ?? false;
-
   const patch = useCallback((next: Partial<SearchFilters>) => {
     setFilters((cur) => ({ ...cur, ...next }));
     setPage(0);
@@ -302,7 +300,7 @@ export function FurnitureSearchView() {
               ['長 L (mm)', 'lMin', 'lMax'],
               ['闊 W (mm)', 'wMin', 'wMax'],
               ['高 H (mm)', 'hMin', 'hMax'],
-              [canViewCost ? '成本價' : '折扣價', 'priceMin', 'priceMax'],
+              ['折扣價', 'priceMin', 'priceMax'],
             ] as const).map(([label, minKey, maxKey]) => (
               <div key={label} className="space-y-1">
                 <Label className="text-xs">{label}</Label>
@@ -325,9 +323,6 @@ export function FurnitureSearchView() {
                 </div>
               </div>
             ))}
-            {canViewCost && (
-              <p className="text-[11px] text-muted-foreground">成本價按報價原幣比較，未換算匯率。</p>
-            )}
           </PopoverContent>
         </Popover>
 
@@ -356,7 +351,7 @@ export function FurnitureSearchView() {
           {loading ? '搜尋中…' : `共 ${total.toLocaleString()} 件產品`}
           {!loading && elapsedMs != null && ` · ${(elapsedMs / 1000).toFixed(2)} 秒`}
         </span>
-        <span>{canViewCost ? '顯示供應商成本（只限 admin／傢俬組）' : '折扣價為售價 × 0.8，其後為原價'}</span>
+        <span>折扣價為售價 × 0.8，其後為原價</span>
       </div>
 
       <div className="relative min-h-0 flex-1 overflow-y-auto">
@@ -374,7 +369,7 @@ export function FurnitureSearchView() {
             )}
           >
             {result!.items.map((p) => (
-              <ProductCard key={p.id} product={p} canViewCost={canViewCost} onOpen={() => setDetailId(p.id)} />
+              <ProductCard key={p.id} product={p} onOpen={() => setDetailId(p.id)} />
             ))}
           </div>
         )}
@@ -405,28 +400,18 @@ export function FurnitureSearchView() {
   );
 }
 
-function PriceBlock({ product, canViewCost }: { product: SearchProduct; canViewCost: boolean }) {
+function PriceBlock({ product }: { product: SearchProduct }) {
   const q = product.quote;
-  if (canViewCost) {
-    const cost = q?.cost != null ? moneyLabel(q.cost, q.currency) : moneyLabel(product.legacy_cost);
-    return (
-      <div className="space-y-0.5">
-        <div className="text-sm font-semibold tabular-nums">
-          {cost ?? <span className="font-normal text-muted-foreground">未有報價</span>}
-          {q?.unit && <span className="ml-1 text-xs font-normal text-muted-foreground">/ {q.unit}</span>}
-        </div>
-        {!q && product.legacy_cost != null && <div className="text-[11px] text-muted-foreground">舊成本（未註明幣種）</div>}
-        <DiscountAndOriginal product={product} />
-      </div>
-    );
-  }
   return (
-    <div className="text-sm font-semibold tabular-nums">
-      {product.middle_price != null || product.sale_price != null ? (
-        <DiscountAndOriginal product={product} prominent />
-      ) : (
-        <span className="font-normal text-muted-foreground">未定價</span>
-      )}
+    <div className="space-y-0.5">
+      <div className="text-sm font-semibold tabular-nums">
+        {product.middle_price != null || product.sale_price != null ? (
+          <DiscountAndOriginal product={product} prominent />
+        ) : (
+          <span className="font-normal text-muted-foreground">未定價</span>
+        )}
+      </div>
+      {q?.unit && <div className="text-[11px] text-muted-foreground">/ {q.unit}</div>}
     </div>
   );
 }
@@ -450,11 +435,9 @@ function DiscountAndOriginal({ product, prominent }: { product: SearchProduct; p
 
 function ProductCard({
   product: p,
-  canViewCost,
   onOpen,
 }: {
   product: SearchProduct;
-  canViewCost: boolean;
   onOpen: () => void;
 }) {
   const size = sizeLabel(p);
@@ -500,7 +483,7 @@ function ProductCard({
           {p.lead_time && <div>交期 {p.lead_time}</div>}
         </div>
         <div className="mt-auto flex items-end justify-between gap-2 pt-1">
-          <PriceBlock product={p} canViewCost={canViewCost} />
+          <PriceBlock product={p} />
           {p.quote && (
             <Badge variant="outline" className={cn('shrink-0 px-1.5 py-0 text-[10px] font-normal', VALIDITY_CLASS[p.quote.validity])}>
               {VALIDITY_LABELS[p.quote.validity]}
@@ -556,9 +539,6 @@ function ProductDetailDialog({ productId, onClose }: { productId: string; onClos
         ['現貨', detail.in_stock ? '是' : null],
         ['折扣價', moneyLabel(detail.middle_price)],
         ['原價', moneyLabel(detail.sale_price)],
-        ...(detail.can_view_cost
-          ? ([['舊成本', moneyLabel(detail.legacy_cost)]] as [string, string | null][])
-          : []),
       ].filter(([, v]) => v) as [string, string | null | undefined][]
     : [];
 
@@ -646,7 +626,6 @@ function ProductDetailDialog({ productId, onClose }: { productId: string; onClos
                       <tr>
                         <th className="px-2 py-1.5 text-left font-medium">規格</th>
                         <th className="px-2 py-1.5 text-left font-medium">廠家</th>
-                        {detail.can_view_cost && <th className="px-2 py-1.5 text-right font-medium">成本</th>}
                         <th className="px-2 py-1.5 text-left font-medium">單位／MOQ</th>
                         <th className="px-2 py-1.5 text-left font-medium">有效期</th>
                         <th className="px-2 py-1.5 text-left font-medium">來源</th>
@@ -658,9 +637,6 @@ function ProductDetailDialog({ productId, onClose }: { productId: string; onClos
                         <tr key={row.id} className="border-t border-border/60">
                           <td className="px-2 py-1.5">{row.variant_label ?? '標準'}</td>
                           <td className="px-2 py-1.5">{row.factory_name ?? '—'}</td>
-                          {detail.can_view_cost && (
-                            <td className="px-2 py-1.5 text-right tabular-nums">{moneyLabel(row.cost, row.currency) ?? '—'}</td>
-                          )}
                           <td className="px-2 py-1.5">
                             {[row.unit, row.moq != null ? `MOQ ${row.moq}` : null].filter(Boolean).join(' · ') || '—'}
                           </td>
