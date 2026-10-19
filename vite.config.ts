@@ -99,6 +99,16 @@ export default defineConfig(({ command, mode }) => {
     viteSupabaseUrl: process.env.VITE_SUPABASE_URL ?? env.VITE_SUPABASE_URL,
     viteSupabaseAnonKey: process.env.VITE_SUPABASE_ANON_KEY ?? env.VITE_SUPABASE_ANON_KEY,
   });
+  // Vite only ships VITE_* to the browser. Copy the unprefixed Preview values
+  // across before the client bundle is sealed. Never stamp an empty string:
+  // that freezes "supabaseUrl is required" into the deployment.
+  if (supabasePublic.url) process.env.VITE_SUPABASE_URL = supabasePublic.url;
+  if (supabasePublic.anonKey) process.env.VITE_SUPABASE_ANON_KEY = supabasePublic.anonKey;
+  if (process.env.VERCEL && !supabasePublic.url) {
+    throw new Error(
+      "Missing SUPABASE_URL (or VITE_SUPABASE_URL) for this Vercel build. Preview builds cannot read Production-only or Sensitive variables.",
+    );
+  }
   const loginMethod = currentGitBranch() === "develop" ? "quick" : "sso";
   const quickLogin = resolveQuickLoginConfig({
     gitBranch: currentGitBranch(),
@@ -114,8 +124,12 @@ export default defineConfig(({ command, mode }) => {
       : process.env.VITE_BASE_PATH || "/",
   define: {
     "import.meta.env.VITE_LOGIN_METHOD": JSON.stringify(loginMethod),
-    "import.meta.env.VITE_SUPABASE_URL": JSON.stringify(supabasePublic.url),
-    "import.meta.env.VITE_SUPABASE_ANON_KEY": JSON.stringify(supabasePublic.anonKey),
+    ...(supabasePublic.url
+      ? { "import.meta.env.VITE_SUPABASE_URL": JSON.stringify(supabasePublic.url) }
+      : {}),
+    ...(supabasePublic.anonKey
+      ? { "import.meta.env.VITE_SUPABASE_ANON_KEY": JSON.stringify(supabasePublic.anonKey) }
+      : {}),
     "import.meta.env.VITE_ENABLE_QUICK_LOGIN": JSON.stringify(quickLogin.enabled),
     "import.meta.env.VITE_QUICK_LOGIN_EMAIL": JSON.stringify(quickLogin.email),
     "import.meta.env.VITE_QUICK_LOGIN_PASSWORD": JSON.stringify(quickLogin.password),
