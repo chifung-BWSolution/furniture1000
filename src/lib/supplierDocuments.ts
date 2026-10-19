@@ -24,6 +24,25 @@ export interface ProcessingJobSummary {
   run_after: string;
   created_at: string;
   finished_at: string | null;
+  /** parse_pdf checkpoint: which phase and the next page to process. */
+  state: { phase?: 'extract' | 'classify'; cursor?: number; page_count?: number } | null;
+  result: {
+    page_count?: number;
+    segments?: number;
+    empty_pages?: number;
+    ocr?: Partial<Record<'done' | 'failed' | 'skipped' | 'unsupported', number>>;
+  } | null;
+}
+
+export type PageType = 'cover' | 'toc' | 'product' | 'price_table' | 'terms' | 'other';
+
+export interface DocumentSegment {
+  id: string;
+  seq: number;
+  start_page: number;
+  end_page: number;
+  kind: PageType;
+  title: string | null;
 }
 
 export interface SupplierDocument {
@@ -65,7 +84,7 @@ export interface UploadSupplierDocumentResult {
 const DOCUMENT_COLUMNS = [
   'id', 'factory_id', 'factory_name', 'doc_type', 'title', 'storage_path', 'file_size',
   'page_count', 'currency', 'source', 'status', 'error_message', 'created_at', 'modified_date',
-  'processing_jobs(id, job_type, status, progress, attempts, max_attempts, error, run_after, created_at, finished_at)',
+  'processing_jobs(id, job_type, status, progress, attempts, max_attempts, error, run_after, created_at, finished_at, state:payload->state, result)',
 ].join(', ');
 
 export const ACTIVE_JOB_STATUSES: ProcessingJobStatus[] = ['queued', 'running'];
@@ -174,6 +193,16 @@ export async function listSupplierDocuments(opts: {
   const { data, error } = await query;
   if (error) throw new Error(error.message);
   return (data ?? []) as unknown as SupplierDocument[];
+}
+
+export async function listDocumentSegments(documentId: string): Promise<DocumentSegment[]> {
+  const { data, error } = await supabase
+    .from('supplier_document_segments')
+    .select('id, seq, start_page, end_page, kind, title')
+    .eq('document_id', documentId)
+    .order('seq');
+  if (error) throw new Error(error.message);
+  return (data ?? []) as DocumentSegment[];
 }
 
 export async function enqueueSupplierDocumentParse(documentId: string): Promise<void> {

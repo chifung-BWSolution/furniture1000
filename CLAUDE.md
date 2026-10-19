@@ -276,3 +276,6 @@ node scripts/check-supabase-env.mjs --live   # 額外對各 project 發一次請
 - Worker slug＝`supabase-functions-process-jobs`。pg_cron `fds-process-jobs` 用 vault 的 `fds_worker_secret`
   （`x-worker-secret` header）授權；vault 裡的 `service_role_key` 只有 26 字元，不像有效的 service role key，別拿它做授權。
 - Storage 專案上限已調到 200MB；Edge worker 只處理 ≤60MB 的 PDF。
+- Edge 每次請求 CPU 很短：`parse_pdf` 每次只做一批（8 頁抽字／20 頁分類），用
+  `fds_processing_job_checkpoint` 存斷點後自己觸發下一批。加新的重型步驟也要照這個分批模式，不要一次跑完整份 PDF。
+- 掃描頁 OCR 用 Grok（edge secret `XAI_API_KEY`，模型 `XAI_OCR_MODEL`）；頁面分類與分段用現有 `GEMINI_API_KEY`。

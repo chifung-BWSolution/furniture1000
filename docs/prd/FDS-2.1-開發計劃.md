@@ -72,6 +72,12 @@
 | T-204 | F-AI-002 | P0 | T-201 | Worker | **語意分段**（不固定頁數切割、保護跨頁） | 跨頁產品不被拆散 | 分段演算法 |
 | T-205 | F-PLT-001 | P0 | T-104 | `processing_jobs` | 進度上報、失敗重試、錯誤日誌 | 失敗任務可見狀態並可重試 | — |
 
+**Day 2 進度（2026-10-19）**：T-201／T-203／T-204／T-205 完成；T-202 程式已上線，待設定 `XAI_API_KEY` 後驗收。
+- Migration `20261019_fds21_document_pages_segments.sql`：`supplier_document_pages`（逐頁文字、來源、OCR 狀態、頁型、是否延續上一頁）、`supplier_document_segments`、`fds_processing_job_checkpoint`（分批續跑，不消耗重試次數）、`fds_supplier_document_build_segments`。
+- `parse_pdf` 分批跑：每次 8 頁抽文字（`unpdf`，CJK CMap 由 jsDelivr 載入）→ 文字少於 40 字且有內嵌 JPEG 的頁交 **Grok** OCR（`XAI_API_KEY`，模型 `XAI_OCR_MODEL`，預設 `grok-4.7`）→ 每次 20 頁交 Gemini 分類並判斷是否延續上一頁 → 建分段。每批後 checkpoint 並立即觸發下一批。
+- 合成 27 頁測試（英文＋中文＋2 頁掃描）：封面／目錄／跨頁產品／4 頁價目表／條款／12 頁椅子系列（跨批次邊界）全部正確成段，中文型號、人民幣價格抽取正確，約 30 秒完成。
+- 限制：非 JPEG 的掃描頁（CCITT／Flate）標 `unsupported`，待 Python Worker；仍需真實供應商 PDF 驗收（T-503）。
+
 ### Day 3 — AI 結構化、圖片、審核
 
 | Task ID | 功能 ID | 優先級 | 依賴 | 改動模組 | 交付內容 | 驗收標準 | 風險 |

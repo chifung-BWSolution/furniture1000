@@ -3,6 +3,8 @@ import { toast } from 'sonner';
 import {
   AlertTriangle,
   Ban,
+  ChevronDown,
+  ChevronUp,
   Download,
   FileText,
   Loader2,
@@ -25,9 +27,13 @@ import {
   hasActiveJob,
   isPdfFile,
   latestJob,
+  listDocumentSegments,
   listSupplierDocuments,
   uploadSupplierDocument,
+  type DocumentSegment,
+  type PageType,
   type ProcessingJobStatus,
+  type ProcessingJobSummary,
   type SupplierDocument,
   type SupplierDocumentStatus,
 } from '@/lib/supplierDocuments';
@@ -51,6 +57,39 @@ const JOB_STATUS: Record<ProcessingJobStatus, string> = {
   failed: '失敗',
   cancelled: '已取消',
 };
+
+const PAGE_TYPE_LABEL: Record<PageType, string> = {
+  cover: '封面',
+  toc: '目錄',
+  product: '產品',
+  price_table: '價目表',
+  terms: '條款',
+  other: '其他',
+};
+
+const OCR_LABEL: Record<string, string> = {
+  done: '完成',
+  failed: '失敗',
+  skipped: '跳過',
+  unsupported: '不支援',
+};
+
+function jobProgressText(job: ProcessingJobSummary): string | null {
+  const s = job.state;
+  if (!s?.phase || !s.page_count) return null;
+  const done = Math.min(s.page_count, Math.max(0, (s.cursor ?? 1) - 1));
+  return `${s.phase === 'extract' ? '提取文字' : '分類頁面'} 第 ${done}/${s.page_count} 頁`;
+}
+
+function jobResultText(job: ProcessingJobSummary): string | null {
+  const r = job.result;
+  if (job.status !== 'succeeded' || !r?.segments) return null;
+  const ocr = Object.entries(r.ocr ?? {})
+    .filter(([, n]) => n)
+    .map(([k, n]) => `${OCR_LABEL[k] ?? k} ${n}`)
+    .join('、');
+  return `${r.segments} 段${ocr ? ` · 掃描頁 OCR：${ocr}` : ''}`;
+}
 
 function formatSize(bytes: number | null): string {
   if (!bytes) return '—';
@@ -78,7 +117,23 @@ export function SupplierDocumentsPanel({ factoryId, factoryName, refreshKey = 0,
   const [busyId, setBusyId] = useState<string | null>(null);
   const [currency, setCurrency] = useState<string>(NO_CURRENCY);
   const [docType, setDocType] = useState<'quote' | 'catalog'>('quote');
+  const [openSegments, setOpenSegments] = useState<{ docId: string; rows: DocumentSegment[] | null } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const toggleSegments = useCallback(async (docId: string) => {
+    if (openSegments?.docId === docId) {
+      setOpenSegments(null);
+      return;
+    }
+    setOpenSegments({ docId, rows: null });
+    try {
+      const rows = await listDocumentSegments(docId);
+      setOpenSegments((cur) => (cur?.docId === docId ? { docId, rows } : cur));
+    } catch (err) {
+      setOpenSegments(null);
+      toast.error('讀取分段失敗', { description: err instanceof Error ? err.message : String(err) });
+    }
+  }, [openSegments]);
 
   useEffect(() => {
     let cancelled = false;
@@ -256,11 +311,16 @@ export function SupplierDocumentsPanel({ factoryId, factoryName, refreshKey = 0,
                   {doc.source === 'ai_processor' && <span>來自 AI 處理</span>}
                   {job && (
                     <span>
-                      任務：{JOB_STATUS[job.status]}（第 {job.attempts}/{job.max_attempts} 次）
+                      任務：{JOB_STATUS[job.status]}
+                      {active && jobProgressText(job) ? ` · ${jobProgressText(job)}` : ''}
+                      {job.attempts > 1 ? `（第 ${job.attempts}/${job.max_attempts} 次）` : ''}
                     </span>
                   )}
+                  {job && jobResultText(job) && <span>{jobResultText(job)}</span>}
                 </div>
-                {job?.status === 'running' && <Progress value={Math.round(Number(job.progress) * 100)} className="h-1" />}
+                {active && job && Number(job.progress) > 0 && (
+                  <Progress value={Math.round(Number(job.progress) * 100)} className="h-1" />
+                )}
                 {(doc.error_message || (job?.status === 'queued' && job.error)) && (
                   <div className="flex items-start gap-1.5 font-body text-[11px] text-destructive">
                     <AlertTriangle className="mt-0.5 h-3 w-3 flex-shrink-0" />
@@ -295,7 +355,37 @@ export function SupplierDocumentsPanel({ factoryId, factoryName, refreshKey = 0,
                       {job ? '重新解析' : '開始解析'}
                     </Button>
                   )}
+                  {job && jobResultText(job) && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 gap-1 px-2 text-[10px]"
+                      onClick={() => void toggleSegments(doc.id)}
+                    >
+                      {openSegments?.docId === doc.id ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+                      查看分段
+                    </Button>
+                  )}
                 </div>
+                {openSegments?.docId === doc.id && (
+                  <div className="rounded-md bg-muted/40 px-2 py-1.5">
+                    {openSegments.rows === null ? (
+                      <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />
+                    ) : (
+                      <ul className="space-y-0.5">
+                        {openSegments.rows.map((s) => (
+                          <li key={s.id} className="flex gap-2 font-body text-[11px]">
+                            <span className="w-14 flex-shrink-0 font-mono-data text-muted-foreground">
+                              {s.start_page === s.end_page ? `p.${s.start_page}` : `p.${s.start_page}–${s.end_page}`}
+                            </span>
+                            <span className="w-10 flex-shrink-0 text-muted-foreground">{PAGE_TYPE_LABEL[s.kind]}</span>
+                            <span className="truncate">{s.title || '—'}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
               </li>
             );
           })}
