@@ -37,6 +37,8 @@ export interface SearchProduct {
   model?: string;
   sku?: string;
   image_url?: string;
+  /** HTTP gallery only: main, image 2, image 3, lifestyle. No base64. */
+  image_urls?: string[];
   factory_id?: string;
   factory_name?: string;
   dimension_l_mm?: number;

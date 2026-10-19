@@ -17,7 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { MultiColorSelector } from '@/components/dashboard/MultiColorSelector';
 import { ProductImageGalleryLightbox } from '@/components/dashboard/ProductImageGallery';
-import { multiColorToChineseDisplay } from '@/constants/color-map';
+import { autoMatchColor, getChineseColorLabel, getColorHex, multiColorToChineseDisplay } from '@/constants/color-map';
 import { MATERIAL_TAG_RULES } from '@/constants/material-tags';
 import { SourcePageDialog } from '@/components/dashboard/SourcePageDialog';
 import type { SourcePageRequest } from '@/lib/sourcePage';
@@ -357,7 +357,7 @@ export function FurnitureSearchView() {
         ) : (
           <div
             className={cn(
-              'grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6',
+              'grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4',
               loading && 'opacity-60',
             )}
           >
@@ -401,45 +401,75 @@ export function FurnitureSearchView() {
   );
 }
 
+function splitTitle(title: string): { primary: string; secondary: string | null } {
+  const match = title.match(/^(.*[\u3400-\u9fff])\s+([A-Za-z0-9][\w .,&/'’\-]*[A-Za-z])\s*$/);
+  if (!match) return { primary: title, secondary: null };
+  const secondary = match[2].trim();
+  if (secondary.length < 3) return { primary: title, secondary: null };
+  return { primary: match[1].trim(), secondary };
+}
+
+function materialLine(material: string | undefined): string | null {
+  if (!material) return null;
+  const line = material
+    .split(/\n|；|;/)
+    .map((part) => part.trim())
+    .find(Boolean);
+  return line || null;
+}
+
+function colorSwatches(color: string | undefined): { key: string; hex: string; label: string }[] {
+  if (!color) return [];
+  const seen = new Set<string>();
+  const swatches: { key: string; hex: string; label: string }[] = [];
+  for (const part of color.split(/[,，/|、]/)) {
+    const raw = part.trim();
+    if (!raw) continue;
+    const en = autoMatchColor(raw);
+    if (!en) continue;
+    const key = en.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    swatches.push({ key, hex: getColorHex(en), label: getChineseColorLabel(en) });
+    if (swatches.length >= 6) break;
+  }
+  return swatches;
+}
+
+function galleryUrls(product: SearchProduct): string[] {
+  const listed = (product.image_urls ?? []).filter((url) => /^https?:\/\//i.test(url));
+  if (listed.length > 0) return listed;
+  return product.image_url && /^https?:\/\//i.test(product.image_url) ? [product.image_url] : [];
+}
+
 function PriceLockup({
   discount,
   original,
-  unit,
   size = 'card',
 }: {
   discount?: number;
   original?: number;
-  unit?: string;
   size?: 'card' | 'detail';
 }) {
-  const discountText = moneyLabel(discount);
-  const originalText = moneyLabel(original);
+  const discountText = moneyLabel(discount, 'HK$');
+  const originalText = moneyLabel(original, 'HK$');
   if (!discountText && !originalText) {
     return <span className="text-sm font-normal text-muted-foreground">未定價</span>;
   }
   return (
-    <div className="min-w-0">
-      {discountText ? (
-        <div className="flex flex-wrap items-baseline gap-x-1.5">
-          <span
-            className={cn(
-              'font-mono-data font-semibold tabular-nums tracking-tight text-foreground',
-              size === 'detail' ? 'text-2xl' : 'text-[15px]',
-            )}
-          >
-            {discountText}
-          </span>
-          <span className="text-[10px] font-medium text-muted-foreground">折扣價</span>
-          {unit ? <span className="text-[10px] text-muted-foreground">/ {unit}</span> : null}
-        </div>
-      ) : null}
-      {originalText ? (
-        <p className={cn('text-muted-foreground', discountText ? 'mt-0.5 text-[11px] leading-none' : 'text-sm')}>
-          原價{' '}
-          <span className={cn('font-mono-data tabular-nums', discountText && 'line-through decoration-current/70')}>
-            {originalText}
-          </span>
-        </p>
+    <div className="flex min-w-0 flex-wrap items-baseline gap-x-2">
+      <span
+        className={cn(
+          'font-semibold tabular-nums tracking-tight text-foreground',
+          size === 'detail' ? 'text-2xl' : 'text-base',
+        )}
+      >
+        {discountText ?? originalText}
+      </span>
+      {discountText && originalText ? (
+        <span className="text-xs tabular-nums text-muted-foreground line-through decoration-current/70">
+          {originalText}
+        </span>
       ) : null}
     </div>
   );
@@ -455,53 +485,112 @@ function ProductCard({
   onOpenSource: (request: SourcePageRequest & { title?: string | null }) => void;
 }) {
   const size = sizeLabel(p);
-  const colors = p.color ? multiColorToChineseDisplay(p.color) : null;
+  const { primary, secondary } = splitTitle(p.title);
+  const feature = materialLine(p.material);
+  const swatches = colorSwatches(p.color);
+  const photos = galleryUrls(p);
+  const thumbs = photos.slice(1, 5);
+  const extraThumbs = Math.max(0, photos.length - 1 - thumbs.length);
+  const quoteState = p.quote && p.quote.validity !== 'valid' ? p.quote.validity : null;
   return (
-    <div className="group flex flex-col overflow-hidden rounded-lg border border-border bg-card text-left transition-shadow hover:shadow-md">
+    <div className="group flex flex-col overflow-hidden rounded-xl border border-border bg-card text-left shadow-sm transition-shadow hover:shadow-md">
       <button type="button" onClick={onOpen} className="flex flex-1 flex-col text-left">
-      <div className="relative h-36 bg-white">
-        {p.image_url ? (
-          <LoadingImage
-            src={productThumbUrl(p.image_url)}
-            alt={p.title}
-            className="h-full w-full object-contain p-2"
-            loading="lazy"
-            decoding="async"
-          />
-        ) : (
-          <div className="flex h-full w-full items-center justify-center">
-            <Package className="h-8 w-8 text-muted-foreground/40" />
+        <div className="relative aspect-[16/10] bg-muted">
+          {photos[0] ? (
+            <LoadingImage
+              src={productThumbUrl(photos[0], 640)}
+              alt={primary}
+              className="h-full w-full object-cover"
+              loading="lazy"
+              decoding="async"
+            />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center">
+              <Package className="h-8 w-8 text-muted-foreground/40" />
+            </div>
+          )}
+          <div className="absolute left-3 top-3 flex flex-wrap gap-1">
+            {p.in_stock && (
+              <span className="rounded-full bg-sky-100 px-2 py-0.5 text-xs font-medium text-sky-700">現貨</span>
+            )}
+            {p.exact && (
+              <span className="rounded-full bg-white/90 px-2 py-0.5 text-xs font-medium text-foreground">型號命中</span>
+            )}
           </div>
-        )}
-        <div className="absolute left-2 top-2 flex flex-wrap gap-1">
-          {p.exact && <Badge className="px-1.5 py-0 text-[10px]">型號命中</Badge>}
-          {p.in_stock && (
-            <Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
-              現貨
-            </Badge>
+        </div>
+        <div className="flex flex-1 flex-col gap-2 p-3">
+          <div>
+            <div className="line-clamp-2 text-[15px] font-semibold leading-snug">{primary}</div>
+            {secondary && <div className="line-clamp-1 text-xs text-muted-foreground">{secondary}</div>}
+          </div>
+          {(p.model || p.factory_name) && (
+            <div className="truncate text-xs text-muted-foreground">
+              {p.model && <span className="font-mono">{p.model}</span>}
+              {p.model && p.factory_name && <span> | </span>}
+              {p.factory_name && <span>{p.factory_name}</span>}
+            </div>
           )}
-        </div>
-      </div>
-      <div className="flex flex-1 flex-col gap-1.5 p-3">
-        <div className="line-clamp-2 text-sm font-medium leading-snug">{p.title}</div>
-        <div className="flex flex-wrap gap-x-2 text-xs text-muted-foreground">
-          {p.model && <span className="font-mono">{p.model}</span>}
-          {p.factory_name && <span className="truncate">{p.factory_name}</span>}
-        </div>
-        <div className="space-y-0.5 text-xs text-muted-foreground">
-          {size && <div>尺寸 {size} mm</div>}
-          {(p.material || colors) && <div className="truncate">{[p.material, colors].filter(Boolean).join(' · ')}</div>}
-          {p.lead_time && <div>交期 {p.lead_time}</div>}
-        </div>
-        <div className="mt-auto flex items-end justify-between gap-2 pt-1">
-          <PriceLockup discount={p.middle_price} original={p.sale_price} unit={p.quote?.unit} />
-          {p.quote && (
-            <Badge variant="outline" className={cn('shrink-0 px-1.5 py-0 text-[10px] font-normal', VALIDITY_CLASS[p.quote.validity])}>
-              {VALIDITY_LABELS[p.quote.validity]}
-            </Badge>
+          {feature && <div className="line-clamp-1 text-xs text-muted-foreground">{feature}</div>}
+          {thumbs.length > 0 && (
+            <div className="flex gap-1.5">
+              {thumbs.map((url, index) => {
+                const more = index === thumbs.length - 1 ? extraThumbs : 0;
+                return (
+                  <div key={url} className="relative h-12 w-12 overflow-hidden rounded-md bg-muted">
+                    <LoadingImage
+                      src={productThumbUrl(url, 96)}
+                      alt=""
+                      className="h-full w-full object-cover"
+                      loading="lazy"
+                      decoding="async"
+                    />
+                    {more > 0 && (
+                      <span className="absolute inset-0 flex items-center justify-center bg-black/45 text-xs font-medium text-white">
+                        +{more}
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           )}
+          {swatches.length > 0 && (
+            <div className="flex items-center gap-1.5">
+              {swatches.map((swatch) => (
+                <span
+                  key={swatch.key}
+                  title={swatch.label}
+                  className="h-4 w-4 rounded-full ring-1 ring-inset ring-black/15"
+                  style={{ backgroundColor: swatch.hex }}
+                />
+              ))}
+            </div>
+          )}
+          {(size || p.in_stock) && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+              {size && (
+                <span className="inline-flex items-center gap-1">
+                  <Ruler className="h-3.5 w-3.5" />
+                  {size} mm
+                </span>
+              )}
+              {p.in_stock && (
+                <span className="inline-flex items-center gap-1">
+                  <Package className="h-3.5 w-3.5" />
+                  現貨
+                </span>
+              )}
+            </div>
+          )}
+          <div className="mt-auto flex items-end justify-between gap-2 pt-1">
+            <PriceLockup discount={p.middle_price} original={p.sale_price} />
+            {quoteState && (
+              <Badge variant="outline" className={cn('shrink-0 px-1.5 py-0 text-[10px] font-normal', VALIDITY_CLASS[quoteState])}>
+                {VALIDITY_LABELS[quoteState]}
+              </Badge>
+            )}
+          </div>
         </div>
-      </div>
       </button>
       {p.source && (
         <button
