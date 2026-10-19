@@ -40,8 +40,17 @@ import {
   type SearchSort,
 } from '@/lib/productSearch';
 
-const PAGE_SIZE = 24;
+/** Card floor that yields 6 columns at a 1920 screen with the sidebar open. */
+const CARD_MIN_PX = 240;
+const GRID_GAP_PX = 16;
+const ROWS_PER_PAGE = 4;
+const PRODUCT_GRID_CLASS = 'grid grid-cols-[repeat(auto-fill,minmax(min(100%,240px),1fr))] gap-4';
 const ALL = '__all';
+
+function columnsForWidth(width: number): number {
+  if (width <= 0) return 1;
+  return Math.max(1, Math.floor((width + GRID_GAP_PX) / (CARD_MIN_PX + GRID_GAP_PX)));
+}
 
 const SCOPES: { id: SearchScope; label: string }[] = [
   { id: 'all', label: '全部產品' },
@@ -104,6 +113,11 @@ export function FurnitureSearchView() {
   const [indexStatus, setIndexStatus] = useState<EmbeddingStatus | null>(null);
   const [indexing, setIndexing] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const [columns, setColumns] = useState(() =>
+    typeof window === 'undefined' ? 6 : columnsForWidth(Math.max(0, window.innerWidth - 292)),
+  );
+  const pageSize = columns * ROWS_PER_PAGE;
 
   const closeDetail = useCallback(() => setDetailId(null), []);
   const debounced = useDebounced(filters, 300);
@@ -123,7 +137,7 @@ export function FurnitureSearchView() {
     let cancelled = false;
     setLoading(true);
     const started = performance.now();
-    searchProducts(debounced, page, PAGE_SIZE)
+    searchProducts(debounced, page, pageSize)
       .then((res) => {
         if (cancelled) return;
         setResult(res);
@@ -138,7 +152,27 @@ export function FurnitureSearchView() {
     return () => {
       cancelled = true;
     };
-  }, [debounced, page]);
+  }, [debounced, page, pageSize]);
+
+  useEffect(() => {
+    const el = scrollerRef.current;
+    if (!el) return;
+    const apply = () => {
+      const next = columnsForWidth(el.clientWidth);
+      setColumns((cur) => (cur === next ? cur : next));
+    };
+    apply();
+    const observer = new ResizeObserver(apply);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  const seenColumns = useRef(columns);
+  useEffect(() => {
+    if (seenColumns.current === columns) return;
+    seenColumns.current = columns;
+    setPage(0);
+  }, [columns]);
 
   const level1Options = useMemo(() => {
     const map = new Map<string, number>();
@@ -152,7 +186,7 @@ export function FurnitureSearchView() {
   );
 
   const total = result?.total ?? 0;
-  const pageCount = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(total / pageSize));
   const filterCount = activeFilterCount(filters);
 
   return (
@@ -413,7 +447,7 @@ export function FurnitureSearchView() {
         <span>折扣價為售價 × 0.8，其後為原價</span>
       </div>
 
-      <div className="relative min-h-0 flex-1 overflow-y-auto">
+      <div ref={scrollerRef} className="relative min-h-0 flex-1 overflow-y-auto">
         {imageLoading ? (
           <div className="flex items-center justify-center py-24 text-sm text-muted-foreground">
             <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 對照產品圖…
@@ -422,7 +456,7 @@ export function FurnitureSearchView() {
           imageHits.length === 0 ? (
             <div className="py-24 text-center text-sm text-muted-foreground">沒有相近的產品</div>
           ) : (
-            <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,280px),1fr))] gap-4">
+            <div className={PRODUCT_GRID_CLASS}>
               {imageHits.map((p) => (
                 <ProductCard
                   key={p.id}
@@ -442,7 +476,7 @@ export function FurnitureSearchView() {
         ) : (
           <div
             className={cn(
-              'grid grid-cols-[repeat(auto-fill,minmax(min(100%,280px),1fr))] gap-4',
+              PRODUCT_GRID_CLASS,
               loading && 'opacity-60',
             )}
           >
