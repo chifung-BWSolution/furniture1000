@@ -27,12 +27,15 @@ import {
   VALIDITY_LABELS,
   fetchProductDetail,
   fetchSearchFacets,
+  fetchSupplierCompare,
+  mergeDuplicateProduct,
   moneyLabel,
   searchProducts,
   sizeLabel,
   type PriceValidity,
   type ProductDetail,
   type SearchFacets,
+  type SupplierCompare,
   type SearchFilters,
   type SearchProduct,
   type SearchResult,
@@ -739,6 +742,126 @@ function ProductCard({
   );
 }
 
+const TREND_LABEL = { up: '上升', down: '下降', flat: '持平' } as const;
+
+function SupplierCompareSection({
+  compare,
+  keepId,
+  canMerge,
+  onOpenSource,
+  onMerged,
+}: {
+  compare: SupplierCompare | null;
+  keepId: string;
+  canMerge: boolean;
+  onOpenSource: (request: SourcePageRequest & { title?: string | null }) => void;
+  onMerged: () => void;
+}) {
+  if (!compare) return null;
+  const others = compare.suppliers.filter((row) => !row.is_current);
+  return (
+    <section className="space-y-2">
+      <h3 className="text-sm font-medium">同型號比較</h3>
+      <p className="text-xs text-muted-foreground">最低價不會被標成最佳，也不會自動選用。匯率未記錄時不換算。</p>
+      {!compare.model_key ? (
+        <p className="text-xs text-muted-foreground">這件產品沒有型號，不能對其他供應商。</p>
+      ) : others.length === 0 ? (
+        <p className="text-xs text-muted-foreground">沒有其他供應商的同型號。</p>
+      ) : null}
+      {compare.truncated && (
+        <p className="text-xs text-muted-foreground">同型號太多，只顯示前 20 個供應商。</p>
+      )}
+      {compare.suppliers.some((row) => row.offers.length > 0) && (
+        <div className="overflow-x-auto rounded border border-border">
+          <table className="w-full text-xs">
+            <thead className="bg-muted/50 text-muted-foreground">
+              <tr>
+                <th className="px-2 py-1.5 text-left font-medium">廠家</th>
+                <th className="px-2 py-1.5 text-left font-medium">尺寸／材質</th>
+                <th className="px-2 py-1.5 text-left font-medium">報價</th>
+                <th className="px-2 py-1.5 text-left font-medium">狀態</th>
+                <th className="px-2 py-1.5 text-left font-medium">來源</th>
+              </tr>
+            </thead>
+            <tbody>
+              {compare.suppliers.flatMap((row) => {
+                const offers = row.offers.length > 0 ? row.offers : [null];
+                return offers.map((offer, index) => (
+                  <tr key={offer?.id ?? row.product_id} className="border-t border-border/60">
+                    <td className="px-2 py-1.5 align-top">
+                      {index === 0 ? (
+                        <div>
+                          <div>{row.factory_name ?? '—'}</div>
+                          {row.is_current && <div className="text-muted-foreground">目前這件</div>}
+                          {canMerge && row.same_supplier && !row.is_current && (
+                            <button
+                              type="button"
+                              className="mt-1 text-primary hover:underline"
+                              onClick={() => {
+                                if (!window.confirm(`把「${row.factory_name ?? row.model ?? '這件'}」的報價併入目前產品？被合併的產品會從列表隱藏。`)) return;
+                                mergeDuplicateProduct(keepId, row.product_id)
+                                  .then(() => {
+                                    toast.success('已合併重複產品');
+                                    onMerged();
+                                  })
+                                  .catch((err) => toast.error('合併失敗', { description: errorText(err) }));
+                              }}
+                            >
+                              合併重複
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-muted-foreground">歷史</span>
+                      )}
+                    </td>
+                    <td className="px-2 py-1.5 align-top text-muted-foreground">
+                      {index === 0 ? [sizeLabel(row), row.material].filter(Boolean).join(' · ') || '—' : offer?.variant_label ?? ''}
+                    </td>
+                    <td className="px-2 py-1.5 align-top">
+                      {offer ? (
+                        <div>
+                          <div>
+                            {compare.can_view_cost && offer.cost != null
+                              ? moneyLabel(offer.cost, offer.currency)
+                              : offer.currency ?? '已報價'}
+                          </div>
+                          {offer.currency && offer.currency !== 'HKD' && !offer.fx_recorded && (
+                            <div className="text-muted-foreground">未記錄匯率</div>
+                          )}
+                          {offer.trend && <div className="text-muted-foreground">{TREND_LABEL[offer.trend]}</div>}
+                        </div>
+                      ) : '未有已審核報價'}
+                    </td>
+                    <td className="px-2 py-1.5 align-top">
+                      {offer && (
+                        <Badge variant="outline" className={cn('px-1.5 py-0 text-[10px] font-normal', VALIDITY_CLASS[offer.validity])}>
+                          {offer.current ? '當前' : '歷史'} · {VALIDITY_LABELS[offer.validity]}
+                        </Badge>
+                      )}
+                    </td>
+                    <td className="px-2 py-1.5 align-top">
+                      {offer?.document_id && (
+                        <SourceLink
+                          title={offer.document_title}
+                          page={offer.page_no}
+                          documentId={offer.document_id}
+                          productId={row.product_id}
+                          onOpen={onOpenSource}
+                        />
+                      )}
+                    </td>
+                  </tr>
+                ));
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
 function ProductDetailDialog({
   productId,
   onClose,
@@ -749,12 +872,15 @@ function ProductDetailDialog({
   onOpenSource: (request: SourcePageRequest & { title?: string | null }) => void;
 }) {
   const [detail, setDetail] = useState<ProductDetail | null>(null);
+  const [compare, setCompare] = useState<SupplierCompare | null>(null);
   const [activeImage, setActiveImage] = useState(0);
   const [zoomed, setZoomed] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
   const closeZoom = useCallback(() => setZoomed(false), []);
 
   useEffect(() => {
     let cancelled = false;
+    setCompare(null);
     fetchProductDetail(productId)
       .then((d) => {
         if (!cancelled) setDetail(d);
@@ -763,10 +889,17 @@ function ProductDetailDialog({
         toast.error('讀取產品失敗', { description: errorText(err) });
         onClose();
       });
+    fetchSupplierCompare(productId)
+      .then((c) => {
+        if (!cancelled) setCompare(c);
+      })
+      .catch((err) => {
+        if (!cancelled) toast.error('讀取供應商比較失敗', { description: errorText(err) });
+      });
     return () => {
       cancelled = true;
     };
-  }, [productId, onClose]);
+  }, [productId, onClose, reloadKey]);
 
   const specs: [string, string | null | undefined][] = detail
     ? [
@@ -908,6 +1041,14 @@ function ProductDetailDialog({
                 </div>
               )}
             </section>
+
+            <SupplierCompareSection
+              compare={compare}
+              keepId={detail.id}
+              canMerge={detail.can_view_cost}
+              onOpenSource={onOpenSource}
+              onMerged={() => setReloadKey((n) => n + 1)}
+            />
 
             {detail.sources.length > 0 && (
               <section className="space-y-1.5">

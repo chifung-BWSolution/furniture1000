@@ -146,6 +146,49 @@ export interface ProductSourceRow {
   created_at: string;
 }
 
+export type PriceTrend = 'up' | 'down' | 'flat';
+
+export interface SupplierOffer {
+  id: string;
+  current: boolean;
+  cost?: number;
+  currency?: string;
+  fx_recorded: boolean;
+  unit?: string;
+  moq?: number;
+  variant_label?: string;
+  valid_from?: string;
+  valid_to?: string;
+  validity: PriceValidity;
+  trend?: PriceTrend;
+  page_no?: number;
+  document_id?: string;
+  document_title?: string;
+  created_at: string;
+}
+
+export interface SupplierCompareRow {
+  product_id: string;
+  is_current: boolean;
+  same_supplier: boolean;
+  model?: string;
+  factory_name?: string;
+  dimension_l_mm?: number;
+  dimension_w_mm?: number;
+  dimension_h_mm?: number;
+  material?: string;
+  color?: string;
+  offers: SupplierOffer[];
+}
+
+export interface SupplierCompare {
+  model_key: string | null;
+  auto_selected: false;
+  can_view_cost: boolean;
+  truncated: boolean;
+  suppliers: SupplierCompareRow[];
+}
+
 export interface ProductDetail extends Omit<SearchProduct, 'exact' | 'quote' | 'source'> {
   description?: string;
   specifications?: string;
@@ -178,6 +221,10 @@ function rpcErrorMessage(message: string): string {
   if (message.includes('document_not_found')) return '找不到文件';
   if (message.includes('product_not_found')) return '找不到產品';
   if (message.includes('price_not_reviewed')) return '未審核的價格不能寫成正式價';
+  if (message.includes('model_mismatch')) return '型號不同，不能合併';
+  if (message.includes('different_supplier')) return '不同供應商要留作比較，不能合併';
+  if (message.includes('published_product')) return '已上架的產品不能被合併掉';
+  if (message.includes('same_product')) return '不能和自己合併';
   return message;
 }
 
@@ -284,6 +331,20 @@ export async function fetchProductDetail(productId: string): Promise<ProductDeta
   const { data, error } = await supabase.rpc('fds_product_detail', { p_product_id: productId });
   if (error) throw new Error(rpcErrorMessage(error.message));
   return data as ProductDetail;
+}
+
+export async function fetchSupplierCompare(productId: string): Promise<SupplierCompare> {
+  const { data, error } = await supabase.rpc('fds_compare_supplier_prices', { p_product_id: productId });
+  if (error) throw new Error(rpcErrorMessage(error.message));
+  return data as SupplierCompare;
+}
+
+export async function mergeDuplicateProduct(keepId: string, dropId: string): Promise<void> {
+  const { error } = await supabase.rpc('fds_merge_duplicate_product', {
+    p_keep_id: keepId,
+    p_drop_id: dropId,
+  });
+  if (error) throw new Error(rpcErrorMessage(error.message));
 }
 
 export async function importExtractedProducts(documentId: string, itemIds?: string[]): Promise<ImportResult> {
