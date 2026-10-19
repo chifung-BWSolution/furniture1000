@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
 import { productThumbUrl } from '@/lib/imageThumb';
+import { LoadingImage } from '@/components/ui/loading-image';
 import {
   X, Loader2, Package, Tag, DollarSign, Ruler, Boxes, Store, RefreshCw, ImageIcon, Search,
   Factory, ChevronsUpDown, Check, GripVertical, ChevronLeft, ChevronRight, ZoomIn,
@@ -696,7 +697,7 @@ export function PublishedProductDetailModal({
               >
                 {displayImg ? (
                   <>
-                    <img src={productThumbUrl(displayImg, 500)} alt={editTitle} loading="lazy" decoding="async" className="h-full w-full object-contain" />
+                    <LoadingImage src={productThumbUrl(displayImg, 500)} alt={editTitle} loading="lazy" decoding="async" className="h-full w-full object-contain" />
                     <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/0 transition-colors group-hover:bg-black/25">
                       <span className="flex h-10 w-10 items-center justify-center rounded-full bg-black/55 text-white opacity-0 transition-opacity group-hover:opacity-100">
                         <ZoomIn className="h-5 w-5" />
@@ -744,7 +745,7 @@ export function PublishedProductDetailModal({
                         className="h-full w-full"
                         title={i === 0 ? '切換至產品主圖' : `切換至圖片 ${i + 1}`}
                       >
-                        <img src={productThumbUrl(src)} alt="" draggable={false} loading="lazy" decoding="async" className="h-full w-full object-cover" />
+                        <LoadingImage src={productThumbUrl(src)} alt="" draggable={false} loading="lazy" decoding="async" className="h-full w-full object-cover" />
                       </button>
                       {i === 0 && (
                         <span className="pointer-events-none absolute left-0.5 top-0.5 rounded bg-primary px-1 py-px text-[8px] font-bold leading-none text-primary-foreground">
@@ -1026,7 +1027,7 @@ export function PublishedProductDetailModal({
                                 title="點擊從媒體選擇規格主圖"
                               >
                                 {thumbUrl ? (
-                                  <img
+                                  <LoadingImage
                                     src={productThumbUrl(thumbUrl)}
                                     alt=""
                                     loading="lazy"
@@ -1215,7 +1216,7 @@ export function PublishedProductDetailModal({
                         isSelected ? 'border-primary ring-2 ring-primary/30' : 'border-border hover:border-primary/50',
                       )}
                     >
-                      <img src={productThumbUrl(src)} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
+                      <LoadingImage src={productThumbUrl(src)} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
                       {isSelected && (
                         <span className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-primary text-primary-foreground">
                           <Check className="h-3 w-3" />
@@ -1252,7 +1253,7 @@ export function PublishedProductDetailModal({
           >
             <X className="h-4 w-4" />
           </button>
-          <img
+          <LoadingImage
             src={mediaLightboxSrc}
             alt={editTitle || '產品圖片'}
             className="max-h-[90vh] max-w-[90vw] rounded-xl object-contain shadow-2xl"
@@ -1275,7 +1276,7 @@ export function PublishedProductDetailModal({
           >
             <X className="h-4 w-4" />
           </button>
-          <img
+          <LoadingImage
             src={variantLightboxSrc}
             alt="規格原圖"
             className="max-h-[90vh] max-w-[90vw] rounded-xl object-contain shadow-2xl"

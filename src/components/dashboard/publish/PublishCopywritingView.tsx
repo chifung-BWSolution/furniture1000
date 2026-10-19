@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { productThumbUrl } from '@/lib/imageThumb';
+import { LoadingImage } from '@/components/ui/loading-image';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { uploadFileToStorage, uploadImageSourceToStorage, isHttpImageUrl } from '@/lib/imageStorage';
@@ -878,7 +879,7 @@ ${rawDesc}
                     </div>
                   )}
                   <div className="flex items-center gap-4 pl-6">
-                    <img src={productThumbUrl(p.imageUrl)} alt={p.title} loading="lazy" decoding="async" className="h-20 w-20 shrink-0 rounded-xl object-cover bg-muted" />
+                    <LoadingImage src={productThumbUrl(p.imageUrl)} alt={p.title} loading="lazy" decoding="async" className="h-20 w-20 shrink-0 rounded-xl object-cover bg-muted" />
                     <div className="min-w-0 flex-1">
                       <h3 className="font-display text-[14px] font-bold text-foreground line-clamp-1">{p.title}</h3>
                       {dimensionsLabel && (
@@ -1011,7 +1012,7 @@ ${rawDesc}
                     onDragOver={(e) => e.preventDefault()}
                     onDrop={() => handleDrop({ zone: 'primary' })}
                   >
-                    <img
+                    <LoadingImage
                       src={productThumbUrl(primaryImg)}
                       alt="主圖"
                       draggable={false}
@@ -1066,7 +1067,7 @@ ${rawDesc}
                       onDragOver={(e) => e.preventDefault()}
                       onDrop={() => handleDrop({ zone: 'extra', index: i })}
                     >
-                      <img
+                      <LoadingImage
                         src={productThumbUrl(src)}
                         alt={`圖 ${i + 2}`}
                         draggable={false}
@@ -1388,7 +1389,7 @@ function ImageLightbox({ src, onClose }: { src: string; onClose: () => void }) {
       onClick={onClose}
     >
       {/* Native img so right-click copy/save works normally */}
-      <img
+      <LoadingImage
         src={src}
         alt="預覽"
         className="max-h-[90vh] max-w-[90vw] rounded-xl shadow-2xl object-contain select-auto"
@@ -1599,7 +1600,7 @@ function ImageUploadDialog({ productId, onConfirm, onClose }: { productId: strin
               </div>
             ) : slots[activeSlot]?.src ? (
               <>
-                <img src={slots[activeSlot].src} alt="" className="max-h-[200px] max-w-full rounded-lg object-contain" />
+                <LoadingImage src={slots[activeSlot].src} alt="" className="max-h-[200px] max-w-full rounded-lg object-contain" />
                 <button
                   onClick={(e) => { e.stopPropagation(); setSrc(activeSlot, ''); setSlotError(''); }}
                   className="absolute top-2 right-2 rounded-full bg-black/60 p-1 text-white hover:bg-black/80"

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import { productThumbUrl } from '@/lib/imageThumb';
+import { LoadingImage } from '@/components/ui/loading-image';
 import {
   Boxes, Check, ChevronLeft, ChevronRight, Loader2, Tag, Ruler, DollarSign, Truck, FolderTree, X, ZoomIn,
 } from 'lucide-react';
@@ -741,7 +742,7 @@ export function PublishProductInfoView({ focusProductId, onFocusHandled, onCompl
           >
             <X className="h-4 w-4" />
           </button>
-          <img
+          <LoadingImage
             src={lightboxSrc}
             alt="放大圖片"
             className="max-h-[90vh] max-w-[90vw] rounded-xl object-contain shadow-2xl"
@@ -882,7 +883,7 @@ function LazyProductThumb({
       onClick={onClick}
     >
       {visible ? (
-        <img
+        <LoadingImage
           src={productThumbUrl(src)}
           alt={alt}
           loading={priority ? 'eager' : 'lazy'}

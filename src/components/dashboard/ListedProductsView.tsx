@@ -3,6 +3,7 @@ import { dedupeFactoryNames, expandFactoryFilterSelection } from '@/lib/factoryN
 import { fetchFactories } from '@/lib/factorySupabase';
 import { cn } from '@/lib/utils';
 import { productThumbUrl } from '@/lib/imageThumb';
+import { LoadingImage } from '@/components/ui/loading-image';
 import { ProductVariant } from '@/types/product';
 import { StatusBadge } from './StatusBadge';
 import { Badge } from '@/components/ui/badge';
@@ -156,6 +157,58 @@ function applyCatalogFilters(q: any) {
   return q.eq('in_catalog', true).not('dismissed', 'is', true);
 }
 
+function withCategoryCountZeroes(
+  counts: Record<string, number>,
+  pairs: { level1: string; level2: string }[],
+): Record<string, number> {
+  let changed = false;
+  const next = { ...counts };
+  for (const { level1, level2 } of pairs) {
+    const l1 = (level1 || '').trim();
+    const l2 = (level2 || '').trim();
+    if (l1 && next[`level1:${l1}`] == null) {
+      next[`level1:${l1}`] = 0;
+      changed = true;
+    }
+    if (l1 && l2 && next[`level2:${l1}:${l2}`] == null) {
+      next[`level2:${l1}:${l2}`] = 0;
+      changed = true;
+    }
+  }
+  return changed ? next : counts;
+}
+
+/** Variants are only needed when archiving a row, not for the grid. */
+async function fetchVariantsByProductIds(ids: string[]): Promise<Record<string, ProductVariant[]>> {
+  const unique = [...new Set(ids.filter(Boolean))];
+  const map: Record<string, ProductVariant[]> = {};
+  if (unique.length === 0) return map;
+  const { data } = await supabase
+    .from('product_variants')
+    .select('id,product_id,size,color,sku,price,inventory')
+    .in('product_id', unique);
+  for (const v of data ?? []) {
+    const row = v as {
+      id: string;
+      product_id: string;
+      size: string;
+      color: string;
+      sku: string;
+      price: number | string;
+      inventory: number;
+    };
+    (map[row.product_id] ||= []).push({
+      id: row.id,
+      size: row.size,
+      color: row.color,
+      sku: row.sku,
+      price: parseFloat(String(row.price)),
+      inventory: row.inventory,
+    });
+  }
+  return map;
+}
+
 export function ListedProductsView({
   onSyncFromShopify,
   isSyncing,
@@ -265,10 +318,16 @@ export function ListedProductsView({
     return () => { cancelled = true; };
   }, []);
 
+  const categoryPairsRef = useRef(categoryPairs);
+  categoryPairsRef.current = categoryPairs;
+  const categoryCountsReadyRef = useRef(false);
+
   // Fetch category product counts via server-side GROUP BY (one round-trip —
   // fast at 3k+ rows). Respects the factory filter so dropdown numbers match
   // the filtered list (0 when empty). Falls back to a client-side scan if the
   // product_category_counts RPC is not deployed yet.
+  // Do not depend on categoryPairs: that list arrives in a second effect and
+  // would fire this RPC twice with the same arguments.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -276,19 +335,8 @@ export function ListedProductsView({
         ? expandFactoryFilterSelection(selectedFactories)
         : null;
 
-      // Known taxonomy options with no matching rows under the current factory
-      // filter should display 0 (not a stale global count / blank).
-      const applyZeroes = (counts: Record<string, number>) => {
-        for (const { level1, level2 } of categoryPairs) {
-          const l1 = (level1 || '').trim();
-          const l2 = (level2 || '').trim();
-          if (l1 && counts[`level1:${l1}`] == null) counts[`level1:${l1}`] = 0;
-          if (l1 && l2 && counts[`level2:${l1}:${l2}`] == null) {
-            counts[`level2:${l1}:${l2}`] = 0;
-          }
-        }
-        return counts;
-      };
+      const applyZeroes = (counts: Record<string, number>) =>
+        withCategoryCountZeroes(counts, categoryPairsRef.current);
 
       // ── Preferred path: server-side aggregation ──
       const { data: rpcRows, error: rpcErr } = await supabase.rpc('product_category_counts', {
@@ -306,6 +354,7 @@ export function ListedProductsView({
           const l2 = (row.level2 || '').trim();
           if (l2) counts[`level2:${l1}:${l2}`] = n;
         }
+        categoryCountsReadyRef.current = true;
         setCategoryCounts(applyZeroes(counts));
         return;
       }
@@ -366,10 +415,17 @@ export function ListedProductsView({
         if (!l1 || !l2) continue;
         counts[`level2:${l1}:${l2}`] = (counts[`level2:${l1}:${l2}`] || 0) + 1;
       }
+      categoryCountsReadyRef.current = true;
       setCategoryCounts(applyZeroes(counts));
     })();
     return () => { cancelled = true; };
-  }, [isCatalog, selectedFactories, categoryPairs]);
+  }, [isCatalog, selectedFactories]);
+
+  // Fill 0 for taxonomy rows the RPC didn't return, once the option list arrives.
+  useEffect(() => {
+    if (!categoryCountsReadyRef.current) return;
+    setCategoryCounts((prev) => withCategoryCountZeroes(prev, categoryPairs));
+  }, [categoryPairs]);
 
   // Fetch factory names for filter — DEFERRED until the dropdown opens.
   // Prefer the full manufacturer directory (edge function); also merge names
@@ -1812,7 +1868,7 @@ export function ListedProductsView({
                       {/* Image — 1:1 square, object-contain to show full product */}
                       <div className="relative flex-shrink-0 w-[40%] aspect-square bg-white dark:bg-muted overflow-hidden border-r border-border">
                         {imgSrc ? (
-                          <img
+                          <LoadingImage
                             src={productThumbUrl(imgSrc)}
                             alt={product.title}
                             loading="lazy"
@@ -2069,7 +2125,7 @@ export function ListedProductsView({
                       {(() => {
                         const imgSrc = product.images?.[0]?.src || product.imageUrl || '';
                         return imgSrc ? (
-                          <img
+                          <LoadingImage
                             src={productThumbUrl(imgSrc)}
                             alt={product.images?.[0]?.alt || product.title}
                             loading="lazy"

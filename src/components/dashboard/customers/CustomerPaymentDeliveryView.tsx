@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { productThumbUrl } from '@/lib/imageThumb';
+import { LoadingImage } from '@/components/ui/loading-image';
 import {
   CreditCard, Truck, ShoppingBag, Trash2, Loader2, Lock, MapPin,
 } from 'lucide-react';
@@ -162,7 +163,7 @@ export function CustomerPaymentDeliveryView() {
                       <li key={c.id} className="flex items-center gap-3 py-3">
                         <div className="h-14 w-14 overflow-hidden rounded-lg bg-muted">
                           {c.imageUrl ? (
-                            <img src={productThumbUrl(c.imageUrl)} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
+                            <LoadingImage src={productThumbUrl(c.imageUrl)} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
                           ) : null}
                         </div>
                         <div className="min-w-0 flex-1">
@@ -234,7 +235,7 @@ export function CustomerPaymentDeliveryView() {
                     >
                       <div className="aspect-square bg-muted">
                         {p.imageUrl ? (
-                          <img src={productThumbUrl(p.imageUrl)} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
+                          <LoadingImage src={productThumbUrl(p.imageUrl)} alt="" loading="lazy" decoding="async" className="h-full w-full object-cover" />
                         ) : null}
                       </div>
                       <div className="p-2">

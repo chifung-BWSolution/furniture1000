@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import { cn } from "@/lib/utils";
 import { productThumbUrl } from "@/lib/imageThumb";
+import { LoadingImage } from "@/components/ui/loading-image";
 import type { BwfQuoteItemInput } from "@/lib/bwfQuoteItems";
 import { loadQuoteLineItemsForPicker } from "@/lib/quoteCopy";
 import {
@@ -423,7 +424,7 @@ export function CopyQuoteItemsModal({
                       </td>
                       <td className="px-2 py-2 align-middle">
                         {item.image ? (
-                          <img
+                          <LoadingImage
                             src={productThumbUrl(item.image)}
                             alt=""
                             loading="lazy"

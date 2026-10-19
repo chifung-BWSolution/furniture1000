@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { cn } from '@/lib/utils';
 import { productThumbUrl } from '@/lib/imageThumb';
+import { LoadingImage } from '@/components/ui/loading-image';
 import { BarChart2, Loader2, Package } from 'lucide-react';
 import {
   BarChart,
@@ -218,7 +219,7 @@ export function ProductReportView() {
                             <div className="flex items-center gap-2.5">
                               <RankBadge rank={i + 1} />
                               {p.image ? (
-                                <img
+                                <LoadingImage
                                   src={productThumbUrl(p.image)}
                                   alt=""
                                   className="h-9 w-9 shrink-0 rounded-md border border-border object-cover bg-muted"

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { productThumbUrl } from '@/lib/imageThumb';
+import { LoadingImage } from '@/components/ui/loading-image';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -332,7 +333,7 @@ function ImageLightbox({
         className="max-w-[85vw] max-h-[75vh] flex items-center justify-center"
         onClick={(e) => e.stopPropagation()}
       >
-        <img
+        <LoadingImage
           src={displaySrc}
           alt="Product image"
           className="max-w-full max-h-[75vh] object-contain rounded-lg shadow-2xl"
@@ -392,7 +393,7 @@ function ImageLightbox({
                   : 'border-transparent opacity-60 hover:opacity-100'
               )}
             >
-              <img src={productThumbUrl(img.src)} alt={img.alt || `Thumb ${idx + 1}`} loading="lazy" decoding="async" className="h-full w-full object-cover" />
+              <LoadingImage src={productThumbUrl(img.src)} alt={img.alt || `Thumb ${idx + 1}`} loading="lazy" decoding="async" className="h-full w-full object-cover" />
             </button>
           ))}
         </div>
@@ -1055,7 +1056,7 @@ export function ProductDetailModal({
                 >
                   {displayImage ? (
                     <>
-                      <img
+                      <LoadingImage
                         src={productThumbUrl(displayImage, 500)}
                         alt={product.title}
                         loading="lazy"
@@ -1102,7 +1103,7 @@ export function ProductDetailModal({
                         )}
                         onClick={() => setSelectedImageIndex(idx)}
                       >
-                        <img
+                        <LoadingImage
                           src={productThumbUrl(img.src)}
                           alt={img.alt || `Image ${idx + 1}`}
                           loading="lazy"

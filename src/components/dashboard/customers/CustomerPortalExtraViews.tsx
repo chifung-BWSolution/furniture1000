@@ -25,6 +25,7 @@ import {
 import { PortalPageShell } from '@/components/dashboard/customers/PortalPageShell';
 import { fetchPortalBrowseProducts } from '@/lib/solutionsApi';
 import { productThumbUrl } from '@/lib/imageThumb';
+import { LoadingImage } from '@/components/ui/loading-image';
 import { useClientZoneContext } from '@/hooks/use-client-zone-context';
 import type { SearchProduct } from '@/types/solutions';
 import { toast } from 'sonner';
@@ -340,7 +341,7 @@ export function CustomerCustomFurnitureView() {
                     >
                       <div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg bg-muted">
                         {product.imageUrl ? (
-                          <img
+                          <LoadingImage
                             src={productThumbUrl(product.imageUrl)}
                             alt={product.title}
                             loading="lazy"

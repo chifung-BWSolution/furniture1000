@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { LoadingImage } from '@/components/ui/loading-image';
 import { Loader2, Upload, X } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -124,7 +125,7 @@ export function ProductImageUploadModal({
 
         {previewUrl ? (
           <div className="mb-4 flex max-h-[50vh] items-center justify-center overflow-hidden rounded-lg border border-border bg-muted/20 p-3">
-            <img
+            <LoadingImage
               src={previewUrl}
               alt=""
               className="max-h-[46vh] max-w-full object-contain"

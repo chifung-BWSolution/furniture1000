@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { LoadingImage } from '@/components/ui/loading-image';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Progress } from '@/components/ui/progress';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -5124,7 +5125,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
                 {uploadedFiles.map((file) => (
                   <div key={file.id} className="group/file relative flex-shrink-0 overflow-hidden rounded-lg border border-border">
                     {file.thumbnail ? (
-                      <img src={file.thumbnail} alt={file.name} className="h-20 w-20 object-cover cursor-zoom-in" onClick={(e) => { e.stopPropagation(); setPreviewImage(file.thumbnail); }} />
+                      <LoadingImage src={file.thumbnail} alt={file.name} className="h-20 w-20 object-cover cursor-zoom-in" onClick={(e) => { e.stopPropagation(); setPreviewImage(file.thumbnail); }} />
                     ) : (
                       <div className="flex h-20 w-20 items-center justify-center bg-muted">
                         {file.name.match(/\.xlsx?$/i) ? <FileSpreadsheet className="h-8 w-8 text-emerald-500/50" /> : <FileText className="h-8 w-8 text-muted-foreground/50" />}
@@ -5326,7 +5327,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
         {previewImage && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm" onClick={() => setPreviewImage(null)}>
             <motion.div initial={{ scale: 0.9 }} animate={{ scale: 1 }} exit={{ scale: 0.9 }} className="relative max-h-[80vh] max-w-[80vw]">
-              <img src={previewImage} alt="Preview" className="max-h-[80vh] max-w-[80vw] rounded-xl object-contain shadow-2xl" />
+              <LoadingImage src={previewImage} alt="Preview" className="max-h-[80vh] max-w-[80vw] rounded-xl object-contain shadow-2xl" />
               <button onClick={() => setPreviewImage(null)} className="absolute -right-3 -top-3 rounded-full bg-black/80 p-2 text-white hover:bg-black"><X className="h-4 w-4" /></button>
             </motion.div>
           </motion.div>
@@ -5612,7 +5613,7 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
                       {/* Product Thumbnail — Red Border Debug for bad bbox quality */}
                       {item.cropped_image_url ? (
                         <div className="relative flex-shrink-0">
-                          <img
+                          <LoadingImage
                             src={item.cropped_image_url}
                             alt={item.title}
                             className={cn(
@@ -5622,7 +5623,6 @@ export function AIProcessorView({ onAddProduct, onNavigateToPublish, selectedMod
                                 : "border border-border"
                             )}
                             onClick={(e) => { e.stopPropagation(); setPreviewImage(item.cropped_image_url!); }}
-                            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
                           />
                           {item.bbox_quality && item.bbox_quality !== 'ok' && (
                             <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-rose-500 text-[8px] text-white font-bold" title={`Bbox quality: ${item.bbox_quality} — AI may have misread the grid`}>!</span>

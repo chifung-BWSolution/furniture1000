@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { cn } from '@/lib/utils';
+import { LoadingImage } from '@/components/ui/loading-image';
 import { trimImageSolidEdgeBorders } from '@/lib/trimImageEdges';
 
 type TrimmedEdgeImageProps = {
@@ -57,6 +57,6 @@ export function TrimmedEdgeImage({
   }, [src]);
 
   return (
-    <img src={displaySrc} alt={alt} title={title} className={cn(className)} />
+    <LoadingImage src={displaySrc} alt={alt} title={title} className={className} />
   );
 }

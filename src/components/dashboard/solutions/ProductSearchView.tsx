@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import { productThumbUrl } from '@/lib/imageThumb';
+import { LoadingImage } from '@/components/ui/loading-image';
 import {
   Search, SlidersHorizontal, LayoutGrid, List, Share2, FolderPlus,
   FileText, Check, Package, Truck,
@@ -133,7 +134,7 @@ export function ProductSearchView() {
               return (
                 <div key={p.id} className={cn('group flex flex-col overflow-hidden rounded-xl border bg-card transition-all hover:shadow-md', isSel ? 'border-primary ring-2 ring-primary/20' : 'border-border')}>
                   <div className="relative aspect-[4/3] bg-muted">
-                    <img src={productThumbUrl(p.imageUrl)} alt={p.title} loading="lazy" decoding="async" className="h-full w-full object-cover" />
+                    <LoadingImage src={productThumbUrl(p.imageUrl)} alt={p.title} loading="lazy" decoding="async" className="h-full w-full object-cover" />
                     <span className={cn('absolute left-2 top-2 rounded-full border px-2 py-0.5 text-xs font-bold', TIER_META[p.tier].className)}>{TIER_META[p.tier].label}</span>
                     <button onClick={() => toggle(p.id)} className={cn('absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full border transition-colors', isSel ? 'border-primary bg-primary text-primary-foreground' : 'border-border bg-card/80 text-muted-foreground hover:text-foreground')}>
                       <Check className="h-3.5 w-3.5" />
@@ -179,7 +180,7 @@ export function ProductSearchView() {
                     <td className="px-4 py-2.5"><input type="checkbox" checked={selected.has(p.id)} onChange={() => toggle(p.id)} className="rounded border-border" /></td>
                     <td className="px-3 py-2.5">
                       <div className="flex items-center gap-3">
-                        <img src={productThumbUrl(p.imageUrl)} alt={p.title} loading="lazy" decoding="async" className="h-10 w-10 rounded-md object-cover bg-muted" />
+                        <LoadingImage src={productThumbUrl(p.imageUrl)} alt={p.title} loading="lazy" decoding="async" className="h-10 w-10 rounded-md object-cover bg-muted" />
                         <div>
                           <p className="font-body text-[15px] font-medium text-foreground">{p.title}</p>
                           <p className="line-clamp-1 text-xs text-muted-foreground">{p.description}</p>

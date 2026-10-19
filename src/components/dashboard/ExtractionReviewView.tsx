@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { LoadingImage } from '@/components/ui/loading-image';
 import { toast } from 'sonner';
 import { Check, ExternalLink, ImageOff, Loader2, Lock, PackagePlus, Pencil, RefreshCw, Search, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -430,7 +431,7 @@ export function ExtractionReviewView() {
                           </td>
                           <td className="py-2">
                             {main ? (
-                              <img src={main.public_url} alt="" className="h-10 w-10 rounded object-cover" loading="lazy" />
+                              <LoadingImage src={main.public_url} alt="" className="h-10 w-10 rounded object-cover" loading="lazy" />
                             ) : (
                               <div className="flex h-10 w-10 items-center justify-center rounded bg-muted text-muted-foreground">
                                 <ImageOff className="h-4 w-4" />
@@ -697,7 +698,7 @@ function EditItemDialog({ item, images, docCurrency, onClose, onOpenSource, onSa
                   )}
                   title={`第 ${img.page_no} 頁 · ${img.image_type}`}
                 >
-                  <img src={img.public_url} alt="" className="h-20 w-20 object-cover" />
+                  <LoadingImage src={img.public_url} alt="" className="h-20 w-20 object-cover" />
                 </button>
               ))}
             </div>

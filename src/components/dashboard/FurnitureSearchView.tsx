@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { productThumbUrl } from '@/lib/imageThumb';
+import { LoadingImage } from '@/components/ui/loading-image';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -452,7 +453,7 @@ function ProductCard({
     >
       <div className="relative aspect-[4/3] bg-muted">
         {p.image_url ? (
-          <img
+          <LoadingImage
             src={productThumbUrl(p.image_url)}
             alt={p.title}
             className="h-full w-full object-cover"
@@ -564,7 +565,7 @@ function ProductDetailDialog({ productId, onClose }: { productId: string; onClos
               <div className="space-y-2">
                 <div className="aspect-[4/3] overflow-hidden rounded-lg bg-muted">
                   {detail.images.length > 0 ? (
-                    <img src={detail.images[activeImage]} alt={detail.title} className="h-full w-full object-contain" />
+                    <LoadingImage src={detail.images[activeImage]} alt={detail.title} className="h-full w-full object-contain" />
                   ) : (
                     <div className="flex h-full items-center justify-center">
                       <Package className="h-10 w-10 text-muted-foreground/40" />
@@ -583,7 +584,7 @@ function ProductDetailDialog({ productId, onClose }: { productId: string; onClos
                           i === activeImage ? 'border-primary' : 'border-transparent',
                         )}
                       >
-                        <img src={productThumbUrl(src)} alt="" className="h-full w-full object-cover" loading="lazy" />
+                        <LoadingImage src={productThumbUrl(src)} alt="" className="h-full w-full object-cover" loading="lazy" />
                       </button>
                     ))}
                   </div>

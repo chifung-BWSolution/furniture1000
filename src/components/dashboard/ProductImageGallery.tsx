@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { productThumbUrl } from '@/lib/imageThumb';
+import { LoadingImage } from '@/components/ui/loading-image';
 
 /**
  * Reserved row under a product main image.
@@ -51,7 +52,7 @@ export function ProductExtraImageThumbs({
 
         const content = (
           <>
-            <img
+            <LoadingImage
               src={productThumbUrl(src)}
               alt=""
               draggable={false}
@@ -167,7 +168,7 @@ export function ProductImageGalleryLightbox({
         </button>
       ) : null}
 
-      <img
+      <LoadingImage
         src={current}
         alt={title || '產品圖片'}
         className="max-h-[90vh] max-w-[90vw] rounded-xl object-contain shadow-2xl"

@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { productThumbUrl } from '@/lib/imageThumb';
+import { LoadingImage } from '@/components/ui/loading-image';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
 import {
@@ -1086,7 +1087,7 @@ function QuotePortalProductCard({
             }
             aria-label={`${title}圖片預覽`}
           >
-            <img
+            <LoadingImage
               src={productThumbUrl(item.image)}
               alt={title}
               loading="lazy"

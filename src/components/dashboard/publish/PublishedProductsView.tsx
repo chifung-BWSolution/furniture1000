@@ -1,6 +1,7 @@
 import { Fragment, useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { cn } from '@/lib/utils';
 import { productThumbUrl } from '@/lib/imageThumb';
+import { LoadingImage } from '@/components/ui/loading-image';
 import {
   CheckCheck, Search, ArrowDownToLine, ArrowUpToLine, RotateCcw, ChevronDown,
   CloudDownload, Loader2, X, Store, RefreshCw, ArrowUp, ArrowDown, GitMerge, FolderTree,
@@ -3372,7 +3373,7 @@ export function PublishedProductsView({
                     <td className="px-3 py-2.5 sticky left-[44px] bg-card z-10 align-top overflow-hidden">
                       <div className="flex items-start gap-3">
                         {thumbSrc ? (
-                          <img
+                          <LoadingImage
                             key={thumbSrc}
                             src={productThumbUrl(thumbSrc, 400)}
                             alt={p.title}
@@ -3650,7 +3651,7 @@ export function PublishedProductsView({
                       <td className="px-3 py-2.5">
                         <div className="flex items-center gap-2.5">
                           {p.image_url ? (
-                            <img src={productThumbUrl(p.image_url)} alt={p.title} loading="lazy" decoding="async" className="h-9 w-9 rounded-md object-cover bg-muted flex-shrink-0" />
+                            <LoadingImage src={productThumbUrl(p.image_url)} alt={p.title} loading="lazy" decoding="async" className="h-9 w-9 rounded-md object-cover bg-muted flex-shrink-0" />
                           ) : (
                             <div className="h-9 w-9 rounded-md bg-muted flex items-center justify-center flex-shrink-0">
                               <Store className="h-4 w-4 text-muted-foreground/40" />

@@ -15,6 +15,7 @@
  */
 
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
+import { LoadingImage } from '@/components/ui/loading-image';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -543,7 +544,7 @@ function ImageOverrideModal({ isOpen, onClose, currentImage, onConfirm, mode }: 
         {(!isReplacing && previewImage) ? (
           // ── replace mode: show current image + paste button ──
           <div className="flex flex-col items-center gap-3">
-            <img
+            <LoadingImage
               src={previewImage}
               alt="Current image"
               className="max-h-[240px] max-w-full rounded-xl object-contain border border-white/10"
@@ -581,7 +582,7 @@ function ImageOverrideModal({ isOpen, onClose, currentImage, onConfirm, mode }: 
             )}
           >
             {previewImage ? (
-              <img
+              <LoadingImage
                 src={previewImage}
                 alt="New image"
                 className="max-h-[200px] max-w-full rounded-lg object-contain"
@@ -2044,7 +2045,7 @@ export function ExcelPreviewTable({
                               <div className="w-12 h-12 mx-auto rounded border border-cyan-500/30 overflow-hidden cursor-pointer hover:scale-110 transition-transform hover:border-cyan-400 hover:shadow-lg hover:shadow-cyan-500/10"
                                 onClick={() => handleImageClick(row, 'product')}
                               >
-                                <img
+                                <LoadingImage
                                   src={img}
                                   alt={`Product Row ${row.rowIndex}`}
                                   className="w-full h-full object-cover"
@@ -2071,7 +2072,7 @@ export function ExcelPreviewTable({
                               <div className="w-12 h-12 mx-auto rounded border border-purple-500/30 overflow-hidden cursor-pointer hover:scale-110 transition-transform hover:border-purple-400 hover:shadow-lg hover:shadow-purple-500/10"
                                 onClick={() => handleImageClick(row, 'lifestyle')}
                               >
-                                <img
+                                <LoadingImage
                                   src={img}
                                   alt={`Lifestyle Row ${row.rowIndex}`}
                                   className="w-full h-full object-cover"
@@ -2100,7 +2101,7 @@ export function ExcelPreviewTable({
                                 onClick={() => handleImageClick(row, 'product2')}
                                 title="點擊更換圖片 / Ctrl+V 貼上"
                               >
-                                <img src={img2} alt={`Product 2 Row ${row.rowIndex}`} className="w-full h-full object-cover" />
+                                <LoadingImage src={img2} alt={`Product 2 Row ${row.rowIndex}`} className="w-full h-full object-cover" />
                                 <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                                   <ZoomIn className="w-4 h-4 text-white" />
                                 </div>
@@ -2128,7 +2129,7 @@ export function ExcelPreviewTable({
                                 onClick={() => handleImageClick(row, 'product3')}
                                 title="點擊更換圖片 / Ctrl+V 貼上"
                               >
-                                <img src={img3} alt={`Product 3 Row ${row.rowIndex}`} className="w-full h-full object-cover" />
+                                <LoadingImage src={img3} alt={`Product 3 Row ${row.rowIndex}`} className="w-full h-full object-cover" />
                                 <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                                   <ZoomIn className="w-4 h-4 text-white" />
                                 </div>
@@ -2507,7 +2508,7 @@ export function ExcelPreviewTable({
           onClick={() => setEnlargedImage(null)}
         >
           <div className="relative max-h-[80vh] max-w-[80vw]">
-            <img
+            <LoadingImage
               src={enlargedImage}
               alt="Enlarged preview"
               className="max-h-[80vh] max-w-[80vw] rounded-xl object-contain shadow-2xl border border-white/10"
