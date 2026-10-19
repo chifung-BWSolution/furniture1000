@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ImgHTMLAttributes, type MouseEvent, type ReactNode, type SyntheticEvent } from "react"
 import { ImageOff } from "lucide-react"
 
+import { compressStorageDisplayUrl } from "@/lib/imageThumb"
 import { cn } from "@/lib/utils"
 import { Spinner } from "@/components/ui/spinner"
 
@@ -57,35 +58,43 @@ function LoadingImage({
   const imgRef = useRef<HTMLImageElement>(null)
   const [loadedSrc, setLoadedSrc] = useState("")
   const [failedSrc, setFailedSrc] = useState("")
-  const loaded = normalized !== "" && loadedSrc === normalized
-  const failed = normalized === "" || failedSrc === normalized
+  const [bypassSrc, setBypassSrc] = useState("")
+  const compressed = compressStorageDisplayUrl(normalized, className)
+  const requestSrc = bypassSrc === normalized ? normalized : compressed
+  const loaded = requestSrc !== "" && loadedSrc === requestSrc
+  const failed = requestSrc === "" || failedSrc === requestSrc
   const { wrapper, fit, imgRest, scales, sized, hasClass } = splitClassName(className)
   const styleSized = Boolean(style && (style.width != null || style.height != null))
   const fills = sized || styleSized || !hasClass
 
   useEffect(() => {
     const img = imgRef.current
-    if (!img || !normalized) return
+    if (!img || !requestSrc) return
     if (!img.complete) return
-    if (img.naturalWidth > 0) setLoadedSrc(normalized)
-    else setFailedSrc(normalized)
-  }, [normalized])
+    if (img.naturalWidth > 0) setLoadedSrc(requestSrc)
+    else if (requestSrc !== normalized) setBypassSrc(normalized)
+    else setFailedSrc(requestSrc)
+  }, [requestSrc, normalized])
 
   const handleLoad = (event: SyntheticEvent<HTMLImageElement>) => {
-    setLoadedSrc(normalized)
+    setLoadedSrc(requestSrc)
     onLoad?.(event)
   }
 
   const handleError = (event: SyntheticEvent<HTMLImageElement>) => {
-    setFailedSrc(normalized)
+    if (requestSrc !== normalized) {
+      setBypassSrc(normalized)
+      return
+    }
+    setFailedSrc(requestSrc)
     onError?.(event)
   }
 
-  const image = normalized && !failed ? (
+  const image = requestSrc && !failed ? (
     <img
       {...props}
       ref={imgRef}
-      src={normalized}
+      src={requestSrc}
       alt={alt}
       loading={loading}
       decoding={decoding}

@@ -6,8 +6,9 @@
  * with `width`/`quality`/`format=webp` returns a compressed, cached thumbnail
  * (typically ~20x smaller) without touching the DB or re-uploading.
  *
- * Use ONLY for list/grid/table/card thumbnails. Always keep the original URL for
- * lightboxes / click-to-enlarge / any place the full-resolution image is needed.
+ * `LoadingImage` sends every public object URL through this helper.
+ * A URL that is already `/render/image/` is left alone, so an explicit
+ * `productThumbUrl(url, 640)` keeps its width. Lightbox-sized boxes use 1600px.
  */
 
 const SUPABASE_OBJECT_MARKER = '/storage/v1/object/public/';
@@ -84,4 +85,21 @@ export function productThumbUrl(
   width: number = THUMB_WIDTH,
 ): string {
   return toThumbUrl(url, { width });
+}
+
+/** Wider compressed rendition for enlarge / preview boxes. */
+export const PREVIEW_WIDTH = 1600;
+
+/**
+ * Display URL for a Supabase Storage public object.
+ * Shopify, data, and blob URLs are unchanged. An existing render URL is kept.
+ */
+export function compressStorageDisplayUrl(
+  url: string | null | undefined,
+  className?: string,
+): string {
+  const src = (url || '').trim();
+  if (!src.includes(SUPABASE_OBJECT_MARKER)) return src;
+  const preview = /(?:^|\s)max-[hw]-/.test(` ${className || ''} `);
+  return toThumbUrl(src, { width: preview ? PREVIEW_WIDTH : THUMB_WIDTH });
 }
