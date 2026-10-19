@@ -30,6 +30,7 @@ import { toast } from "sonner";
 import { SubmitReviewModal, type SubmitReviewResult } from "@/components/dashboard/SubmitReviewModal";
 import { persistBwfQuote } from "@/lib/persistBwfQuote";
 import { ProductSelectorModal } from "@/components/dashboard/ProductSelectorModal";
+import { fetchProductCatalog } from "@/lib/productCatalogQuery";
 import {
   ProductDetailModal,
   type ProductForDetail,
@@ -2397,6 +2398,20 @@ export function QuotationDraftEditor({
     };
   }, []);
 
+  const catalogScopeKey = formData.serviceScope.join('\u0001');
+  const catalogStockOnly = isUrgentWorkPeriod(formData.workPeriod);
+  useEffect(() => {
+    void fetchProductCatalog({
+      source: 'shopify',
+      priority_level1: formData.serviceScope,
+      stock_only: catalogStockOnly || undefined,
+      page: 1,
+      page_size: 20,
+    }).catch(() => {});
+    // catalogScopeKey already captures serviceScope contents.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [catalogScopeKey, catalogStockOnly]);
+
   useEffect(() => {
     if (!categoryPairs.length) return;
     setItems((prev) =>
@@ -4671,6 +4686,7 @@ export function QuotationDraftEditor({
         existingProductNames={[]}
         priorityLevel1Categories={formData.serviceScope}
         stockOnly={isUrgentWorkPeriod(formData.workPeriod)}
+        categoryPairs={categoryPairs}
       />
 
       {quoteProductModal ? (

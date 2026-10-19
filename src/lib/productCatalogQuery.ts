@@ -456,8 +456,64 @@ function asCatalogRow(raw: Record<string, unknown>): CatalogProductRow {
   };
 }
 
+const SHOPIFY_PAGE_CACHE_MS = 60_000;
+const shopifyPageCache = new Map<string, { at: number; result: CatalogQueryResult }>();
+const shopifyPageInflight = new Map<string, Promise<CatalogQueryResult>>();
+
+function shopifyPageCacheKey(
+  params: CatalogQueryParams,
+  page: number,
+  pageSize: number,
+): string {
+  const level1 = (params.level1 || '').trim();
+  const priority = level1
+    ? []
+    : (params.priority_level1 || []).map((level) => level.trim()).filter(Boolean);
+  return JSON.stringify({
+    search: (params.search || '').trim(),
+    factory: (params.factory_name || '').trim(),
+    level1,
+    level2: (params.level2 || '').trim(),
+    priority,
+    stock: Boolean(params.stock_only),
+    page,
+    pageSize,
+  });
+}
+
+export function peekProductCatalog(params: CatalogQueryParams): CatalogQueryResult | null {
+  if (params.source !== 'shopify') return null;
+  const key = shopifyPageCacheKey(params, params.page || 1, params.page_size || 20);
+  const hit = shopifyPageCache.get(key);
+  if (!hit || Date.now() - hit.at > SHOPIFY_PAGE_CACHE_MS) return null;
+  return hit.result;
+}
+
 /** One round trip: join, filter, priority-sort, and return this page only. */
 async function fetchShopifyCatalogPage(
+  params: CatalogQueryParams,
+  page: number,
+  page_size: number,
+): Promise<CatalogQueryResult> {
+  const key = shopifyPageCacheKey({ ...params, source: 'shopify' }, page, page_size);
+  const hit = shopifyPageCache.get(key);
+  if (hit && Date.now() - hit.at < SHOPIFY_PAGE_CACHE_MS) return hit.result;
+  const pending = shopifyPageInflight.get(key);
+  if (pending) return pending;
+
+  const request = loadShopifyCatalogPage(params, page, page_size)
+    .then((result) => {
+      shopifyPageCache.set(key, { at: Date.now(), result });
+      return result;
+    })
+    .finally(() => {
+      shopifyPageInflight.delete(key);
+    });
+  shopifyPageInflight.set(key, request);
+  return request;
+}
+
+async function loadShopifyCatalogPage(
   params: CatalogQueryParams,
   page: number,
   page_size: number,

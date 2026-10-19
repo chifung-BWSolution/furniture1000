@@ -15,6 +15,7 @@ import { productThumbUrl } from '@/lib/imageThumb';
 import {
   fetchCatalogFactoryNames,
   fetchProductCatalog,
+  peekProductCatalog,
   type CatalogProductRow,
   type CatalogSourceType,
 } from '@/lib/productCatalogQuery';
@@ -67,6 +68,8 @@ interface ProductSelectorModalProps {
   priorityLevel1Categories?: string[];
   /** Urgent work period — only show in-stock (現貨) products with 3-7天送貨 tag. */
   stockOnly?: boolean;
+  /** Quote editor already loaded these. Skip a second product_category round trip. */
+  categoryPairs?: ProductCategoryPair[];
 }
 
 const CATALOG_SOURCE_OPTIONS: Array<{
@@ -84,6 +87,7 @@ export function ProductSelectorModal({
   existingProductNames = [],
   priorityLevel1Categories = [],
   stockOnly = false,
+  categoryPairs: categoryPairsProp,
 }: ProductSelectorModalProps) {
   const [catalogSource, setCatalogSource] = useState<CatalogSourceType>('shopify');
   const [search, setSearch] = useState('');
@@ -96,7 +100,8 @@ export function ProductSelectorModal({
   const [level1Filter, setLevel1Filter] = useState('');
   const [level2Filter, setLevel2Filter] = useState('');
   const stockFilterActive = stockOnly || readyStockOnly;
-  const [categoryPairs, setCategoryPairs] = useState<ProductCategoryPair[]>([]);
+  const [fetchedCategoryPairs, setFetchedCategoryPairs] = useState<ProductCategoryPair[]>([]);
+  const categoryPairs = categoryPairsProp ?? fetchedCategoryPairs;
   const [factories, setFactories] = useState<string[]>([]);
   const filteredFactories = useMemo(() => {
     const q = factoryQuery.trim().toLowerCase();
@@ -129,16 +134,16 @@ export function ProductSelectorModal({
   );
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || categoryPairsProp) return;
     supabase
       .from('product_category')
       .select('id, level1, level2, sort_order')
       .order('sort_order', { ascending: true })
       .then(({ data }) => {
         if (!data) return;
-        setCategoryPairs(mapProductCategoryRows(data));
+        setFetchedCategoryPairs(mapProductCategoryRows(data));
       });
-  }, [open]);
+  }, [open, categoryPairsProp]);
 
   const factoriesLoadedFor = useRef<CatalogSourceType | null>(null);
   useEffect(() => {
@@ -176,22 +181,31 @@ export function ProductSelectorModal({
       priorityLevel1Val: string[],
       stockOnlyVal: boolean,
     ) => {
+      const request = {
+        source,
+        search: searchVal,
+        factory_name: factoryVal,
+        level1: level1Val,
+        level2: level2Val,
+        priority_level1:
+          !level1Val.trim() && priorityLevel1Val.length > 0
+            ? priorityLevel1Val
+            : undefined,
+        stock_only: stockOnlyVal || undefined,
+        page: pageVal,
+        page_size: PAGE_SIZE,
+      };
+      const cached = peekProductCatalog(request);
+      if (cached) {
+        setProducts(cached.products);
+        setTotalPages(cached.total_pages || 1);
+        setTotal(cached.total || 0);
+        setIsLoading(false);
+        return;
+      }
       setIsLoading(true);
       try {
-        const result = await fetchProductCatalog({
-          source,
-          search: searchVal,
-          factory_name: factoryVal,
-          level1: level1Val,
-          level2: level2Val,
-          priority_level1:
-            !level1Val.trim() && priorityLevel1Val.length > 0
-              ? priorityLevel1Val
-              : undefined,
-          stock_only: stockOnlyVal || undefined,
-          page: pageVal,
-          page_size: PAGE_SIZE,
-        });
+        const result = await fetchProductCatalog(request);
         setProducts(result.products);
         setTotalPages(result.total_pages || 1);
         setTotal(result.total || 0);
@@ -274,10 +288,11 @@ export function ProductSelectorModal({
   useEffect(() => {
     if (!open) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    const delay = search.trim() ? 400 : 0;
     debounceRef.current = setTimeout(() => {
       setPage(1);
       runFetch(1);
-    }, 400);
+    }, delay);
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };

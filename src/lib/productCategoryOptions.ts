@@ -113,15 +113,26 @@ export async function fetchLevel1CategoryOptions(): Promise<string[]> {
   return uniqueLevel1InOrder(await fetchProductCategoryPairs());
 }
 
-/** Level1/level2 pairs from 設定 > 產品分類（唯讀）. */
+let categoryPairCache: ProductCategoryPair[] | null = null;
+let categoryPairInflight: Promise<ProductCategoryPair[]> | null = null;
+
+/** Level1/level2 pairs from 設定 > 產品分類（唯讀）. Cached for the session. */
 export async function fetchProductCategoryPairs(): Promise<ProductCategoryPair[]> {
-  const { data, error } = await supabase
-    .from('product_category')
-    .select('id, level1, level2, sort_order')
-    .order('sort_order', { ascending: true });
-  if (error) {
-    console.warn('[productCategoryOptions] fetch pairs failed:', error.message);
-    return [];
-  }
-  return mapProductCategoryRows(data);
+  if (categoryPairCache) return categoryPairCache;
+  if (categoryPairInflight) return categoryPairInflight;
+  categoryPairInflight = (async () => {
+    const { data, error } = await supabase
+      .from('product_category')
+      .select('id, level1, level2, sort_order')
+      .order('sort_order', { ascending: true });
+    if (error) {
+      console.warn('[productCategoryOptions] fetch pairs failed:', error.message);
+      return [];
+    }
+    categoryPairCache = mapProductCategoryRows(data);
+    return categoryPairCache;
+  })().finally(() => {
+    categoryPairInflight = null;
+  });
+  return categoryPairInflight;
 }
