@@ -614,7 +614,7 @@ function ProductCard({
   return (
     <div className="group flex h-full flex-col overflow-hidden rounded-xl border border-border bg-card text-left shadow-sm transition-shadow hover:shadow-md">
       <button type="button" onClick={onOpen} className="flex flex-1 flex-col text-left">
-        <div className="relative h-28 w-full shrink-0 overflow-hidden bg-muted">
+        <div className="relative h-36 w-full shrink-0 overflow-hidden bg-muted">
           {photos[0] ? (
             <LoadingImage
               src={productThumbUrl(photos[0], 640)}
