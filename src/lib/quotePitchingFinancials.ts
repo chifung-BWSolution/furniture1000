@@ -10,7 +10,7 @@ type QuoteFinancialRow = {
   bwf_pitching_id: string | null;
   total_amount: number | null;
   cost_price: number | null;
-  project_data: unknown;
+  gpSummary?: unknown;
   modified_date?: string | null;
   created_at?: string | null;
 };
@@ -50,10 +50,11 @@ export async function overlayPitchingFinancialsFromQuotes(
   ];
   if (ids.length === 0) return pitchings;
 
+  // project_data is ~10KB per quote. This list only needs gpSummary (~50 bytes).
   const { data, error } = await supabase
     .from('bwf_quote')
     .select(
-      'bwf_pitching_id, total_amount, cost_price, project_data, modified_date, created_at',
+      'bwf_pitching_id, total_amount, cost_price, modified_date, created_at, project_data->gpSummary',
     )
     .in('bwf_pitching_id', ids)
     .order('modified_date', { ascending: false, nullsFirst: false });
@@ -81,7 +82,11 @@ export async function overlayPitchingFinancialsFromQuotes(
     return {
       ...row,
       estimated_income: Number(quote.total_amount) || 0,
-      estimated_gross_profit: quoteGpFromSavedQuote(quote),
+      estimated_gross_profit: quoteGpFromSavedQuote({
+        total_amount: quote.total_amount,
+        cost_price: quote.cost_price,
+        project_data: { gpSummary: quote.gpSummary },
+      }),
     };
   });
 }
