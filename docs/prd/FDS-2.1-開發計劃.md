@@ -150,6 +150,8 @@
 | T-603 | F-AI-006 | P1 | T-601 | 新 Edge `search-by-image`、UI | 上圖→向量→候選（Top 5）＋尺寸/材質/供應商篩選 | AC-006、Top 5 | 相似度準確度 |
 | T-604 | F-AI-006 | P1 | T-603 | 復用 `visual-match-images` | 相似款 vs 同型號語意區分 | 不誤判同款 | 標示不清 |
 
+進度（2026-10-19）：T-601–T-604 已接上。`search_embeddings` 用 `gemini-embedding-2` 的 1536 維（圖片與文字同一空間；以圖搜款只查 image）。結果固定 `relation=similar`，卡片標「相似款」，不用 cosine 當同款。索引每次 4 件，由管理員按鈕啟動，不會在部署時掃完整目錄。
+
 ### Day 7 — 多供應商比較、去重、歷史價格
 
 | Task ID | 功能 ID | 優先級 | 依賴 | 改動模組 | 交付內容 | 驗收標準 | 風險 |

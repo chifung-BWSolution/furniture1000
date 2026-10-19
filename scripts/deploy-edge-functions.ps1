@@ -110,4 +110,14 @@ Deploy-Function `
   -FilePath (Join-Path $root 'supabase\functions\source-page\index.ts') `
   -Name 'source-page'
 
+Deploy-Function `
+  -Slug 'supabase-functions-search-by-image' `
+  -FilePath (Join-Path $root 'supabase\functions\search-by-image\index.ts') `
+  -Name 'search-by-image'
+
+Deploy-Function `
+  -Slug 'supabase-functions-embed-products' `
+  -FilePath (Join-Path $root 'supabase\functions\embed-products\index.ts') `
+  -Name 'embed-products'
+
 Write-Host 'All functions deployed successfully.'
