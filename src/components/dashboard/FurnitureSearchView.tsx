@@ -1631,8 +1631,12 @@ function ProductModelsSection({
         notes,
         parts,
       });
-    } finally {
+      handoffToConfirm();
+    } catch (err) {
       clearProgress();
+      setConfirmShown(false);
+      toast.error(target === 'su' ? '準備生成 SU 失敗' : '準備生成 3D 失敗', { description: errorText(err) });
+    } finally {
       setBusy(null);
     }
   };
@@ -1760,7 +1764,7 @@ function ProductModelsSection({
       return;
     }
     setBusy(target);
-    clearProgress();
+    setConfirmShown(false);
     showProgress(12, '建立模型');
     try {
       const model = buildParametric({
@@ -1814,6 +1818,7 @@ function ProductModelsSection({
       }
     } catch (err) {
       clearProgress();
+      setConfirmShown(true);
       toast.error(target === 'su' ? '生成 SU 失敗' : '生成 3D 失敗', { description: errorText(err) });
     } finally {
       setBusy(null);
@@ -1914,27 +1919,7 @@ function ProductModelsSection({
         </p>
       )}
       {filesError && <p className="text-xs text-destructive">讀不到現有模型檔，暫時不能生成。</p>}
-      <Dialog open={genProgress != null}>
-        <DialogContent
-          className="bg-white text-slate-900 sm:max-w-sm"
-          hideClose
-          style={workbench ? WORKBENCH_TONE : undefined}
-          onInteractOutside={(event) => event.preventDefault()}
-          onEscapeKeyDown={(event) => event.preventDefault()}
-        >
-          {genProgress && (
-            <>
-              <DialogHeader>
-                <DialogTitle className="text-base">{genProgress.label}</DialogTitle>
-                <DialogDescription className="sr-only">生成進度 {genProgress.percent}%</DialogDescription>
-              </DialogHeader>
-              <p className="text-center text-4xl font-semibold tabular-nums text-[#5b4dff]">{genProgress.percent}%</p>
-              <Progress value={genProgress.percent} className="h-2" />
-            </>
-          )}
-        </DialogContent>
-      </Dialog>
-      <Dialog open={reuse != null && genProgress == null} onOpenChange={(open) => { if (!open && busy == null) setReuse(null); }}>
+      <Dialog open={reuse != null && genProgress == null && draft == null} onOpenChange={(open) => { if (!open && busy == null) setReuse(null); }}>
         <DialogContent className="bg-white text-slate-900 sm:max-w-md" style={workbench ? WORKBENCH_TONE : undefined}>
           {reuse && (
             <>
@@ -1969,17 +1954,42 @@ function ProductModelsSection({
         </DialogContent>
       </Dialog>
       <Dialog
-        open={draft != null && genProgress == null}
-        onOpenChange={(open) => { if (!open && busy == null && !partsBusy) setDraft(null); }}
+        open={genProgress != null || draft != null}
+        onOpenChange={(open) => {
+          if (open || busy != null || partsBusy || genProgress != null) return;
+          setDraft(null);
+          setConfirmShown(false);
+        }}
       >
         <DialogContent
-          className="max-h-[90vh] overflow-y-auto bg-white text-slate-900 sm:max-w-3xl"
+          className={cn(
+            'max-h-[90vh] overflow-hidden bg-white text-slate-900 transition-[max-width] duration-500 ease-out',
+            confirmShown ? 'sm:max-w-3xl' : 'sm:max-w-sm',
+          )}
+          hideClose={genProgress != null}
           style={workbench ? WORKBENCH_TONE : undefined}
-          onInteractOutside={(event) => { if (busy != null || partsBusy) event.preventDefault(); }}
-          onEscapeKeyDown={(event) => { if (busy != null || partsBusy) event.preventDefault(); }}
+          onInteractOutside={(event) => { if (genProgress != null || busy != null || partsBusy) event.preventDefault(); }}
+          onEscapeKeyDown={(event) => { if (genProgress != null || busy != null || partsBusy) event.preventDefault(); }}
         >
+          <div className={cn('grid transition-[grid-template-rows] duration-500 ease-out', confirmShown ? 'grid-rows-[0fr_1fr]' : 'grid-rows-[1fr_0fr]')}>
+            <div className="min-h-0 overflow-hidden">
+              <div className={cn('transition-all duration-500 ease-out', confirmShown ? '-translate-y-2 scale-95 opacity-0' : 'translate-y-0 scale-100 opacity-100')}>
+                {genProgress && (
+                  <>
+                    <DialogHeader>
+                      <DialogTitle className="text-base">{genProgress.label}</DialogTitle>
+                      <DialogDescription className="sr-only">生成進度 {genProgress.percent}%</DialogDescription>
+                    </DialogHeader>
+                    <p className="py-2 text-center text-4xl font-semibold tabular-nums text-[#5b4dff]">{genProgress.percent}%</p>
+                    <Progress value={genProgress.percent} className="h-2" />
+                  </>
+                )}
+              </div>
+            </div>
+            <div className="min-h-0 overflow-hidden">
+              <div className={cn('transition-all duration-500 ease-out', confirmShown ? 'translate-y-0 opacity-100' : 'pointer-events-none translate-y-4 opacity-0')}>
           {draft && (
-        <div className="space-y-3 text-xs">
+        <div className="max-h-[70vh] space-y-3 overflow-y-auto text-xs">
           <DialogHeader>
             <DialogTitle className="text-base">生成前請確認結構（{draft.target === 'su' ? 'SU' : '3D'}）</DialogTitle>
             <DialogDescription className="sr-only">確認家具類型、尺寸和結構後再生出模型。</DialogDescription>
@@ -2177,12 +2187,15 @@ function ProductModelsSection({
               {busy === draft.target ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
               確認生成
             </Button>
-            <Button size="sm" variant="ghost" className="h-7" disabled={busy != null} onClick={() => setDraft(null)}>
+            <Button size="sm" variant="ghost" className="h-7" disabled={busy != null} onClick={() => { setDraft(null); setConfirmShown(false); }}>
               取消
             </Button>
           </div>
         </div>
           )}
+              </div>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
       {skp && skp.status !== 'none' && (
