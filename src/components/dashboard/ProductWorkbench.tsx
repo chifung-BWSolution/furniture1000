@@ -4,7 +4,7 @@ import { useSearchParams } from 'react-router-dom';
 import QRCode from 'qrcode';
 import { toast } from 'sonner';
 import {
-  Cable, ChevronLeft, Heart, Image as ImageIcon, Leaf, Loader2, Maximize2, Move, Package, RotateCcw, Ruler, Search, Share2, Sparkles, Users, ZoomIn,
+  Box, Cable, ChevronLeft, Heart, Image as ImageIcon, Leaf, Loader2, Maximize2, Move, Package, RotateCcw, Ruler, Search, Share2, Sparkles, Users, ZoomIn,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -129,7 +129,7 @@ export function ProductWorkbench({
   const [glbRatio, setGlbRatio] = useState<number | null>(0);
   const [glbReady, setGlbReady] = useState(false);
   const [retry, setRetry] = useState(0);
-  const [stage, setStage] = useState<'3d' | 'image' | 'scene' | 'ar'>('3d');
+  const [stage, setStage] = useState<'3d' | 'image' | 'scene' | 'ar'>('image');
   const [tool, setTool] = useState<ViewportTool>('rotate');
   const [wireframe, setWireframe] = useState(false);
   const [showMaterial, setShowMaterial] = useState(true);
@@ -155,7 +155,7 @@ export function ProductWorkbench({
     setSelected([detail.id]);
     setExtra([]);
     setActiveImage(0);
-    setStage('3d');
+    setStage(detail.images.length > 0 ? 'image' : '3d');
     setViewerOn(false);
     setGlbUrl(null);
     setGlbReady(false);
@@ -388,50 +388,68 @@ export function ProductWorkbench({
             </button>
           </div>
           <section className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
-            <div className="mb-3 flex flex-wrap items-center gap-2">
-              {(
-                [
-                  ['3d', '3D 預覽'],
-                  ['ar', 'AR 預覽'],
-                  ['scene', '場景應用'],
-                ] as const
-              ).map(([id, label]) => (
-                <button
-                  key={id}
-                  type="button"
-                  className={cn(
-                    'rounded-full px-3.5 py-1.5 text-xs',
-                    stage === id ? 'bg-[#5b4dff] text-white' : 'border border-slate-200 bg-white text-slate-600',
-                  )}
-                  onClick={() => setStage(id)}
-                >
-                  {label}
-                </button>
-              ))}
-              <div className="ml-auto flex items-center gap-1 text-xs text-slate-500">
-                <button type="button" className={cn('rounded-md px-2 py-1', wireframe && 'bg-slate-900 text-white')} onClick={() => setWireframe((v) => !v)}>線框</button>
-                <button type="button" className={cn('rounded-md px-2 py-1', showMaterial && 'bg-slate-900 text-white')} onClick={() => setShowMaterial((v) => !v)}>材質</button>
-                <button type="button" className={cn('rounded-md px-2 py-1', showSize && 'bg-slate-900 text-white')} onClick={() => setShowSize((v) => !v)}>尺寸</button>
-              </div>
-            </div>
-            <div ref={stageRef} className="flex gap-3">
-              <div className="flex h-[420px] w-[72px] shrink-0 flex-col gap-2 overflow-y-auto">
-                {detail.images.map((src, index) => (
+            {stage !== 'image' && (
+              <div className="mb-3 flex flex-wrap items-center gap-2">
+                {(
+                  [
+                    ['3d', '3D 預覽'],
+                    ['ar', 'AR 預覽'],
+                    ['scene', '場景應用'],
+                  ] as const
+                ).map(([id, label]) => (
                   <button
-                    key={src}
+                    key={id}
                     type="button"
                     className={cn(
-                      'h-16 w-16 shrink-0 overflow-hidden rounded-xl border bg-white shadow-sm',
-                      stage === 'image' && index === activeImage ? 'border-[#5b4dff] ring-1 ring-[#5b4dff]' : 'border-slate-200',
+                      'rounded-full px-3.5 py-1.5 text-xs',
+                      stage === id ? 'bg-[#5b4dff] text-white' : 'border border-slate-200 bg-white text-slate-600',
                     )}
-                    onClick={() => {
-                      setActiveImage(index);
-                      setStage('image');
-                    }}
+                    onClick={() => setStage(id)}
                   >
-                    <LoadingImage src={productThumbUrl(src)} alt="" className="h-full w-full object-cover" />
+                    {label}
                   </button>
                 ))}
+                <div className="ml-auto flex items-center gap-1 text-xs text-slate-500">
+                  <button type="button" className={cn('rounded-md px-2 py-1', wireframe && 'bg-slate-900 text-white')} onClick={() => setWireframe((v) => !v)}>線框</button>
+                  <button type="button" className={cn('rounded-md px-2 py-1', showMaterial && 'bg-slate-900 text-white')} onClick={() => setShowMaterial((v) => !v)}>材質</button>
+                  <button type="button" className={cn('rounded-md px-2 py-1', showSize && 'bg-slate-900 text-white')} onClick={() => setShowSize((v) => !v)}>尺寸</button>
+                </div>
+              </div>
+            )}
+            <div ref={stageRef} className="flex gap-3">
+              <div className="flex h-[420px] w-[72px] shrink-0 flex-col gap-2">
+                <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
+                  {detail.images.map((src, index) => (
+                    <button
+                      key={src}
+                      type="button"
+                      className={cn(
+                        'h-16 w-16 shrink-0 overflow-hidden rounded-xl border bg-white shadow-sm',
+                        stage === 'image' && index === activeImage ? 'border-[#5b4dff] ring-1 ring-[#5b4dff]' : 'border-slate-200',
+                      )}
+                      onClick={() => {
+                        setActiveImage(index);
+                        setStage('image');
+                      }}
+                    >
+                      <LoadingImage src={productThumbUrl(src)} alt="" className="h-full w-full object-cover" />
+                    </button>
+                  ))}
+                </div>
+                {glb && (
+                  <button
+                    type="button"
+                    aria-label="3D 模型"
+                    className={cn(
+                      'flex h-16 w-16 shrink-0 flex-col items-center justify-center gap-0.5 rounded-xl border bg-white text-[10px] font-medium shadow-sm',
+                      stage === '3d' ? 'border-[#5b4dff] text-[#5b4dff] ring-1 ring-[#5b4dff]' : 'border-slate-200 text-slate-500',
+                    )}
+                    onClick={() => setStage('3d')}
+                  >
+                    <Box className="h-5 w-5" />
+                    3D
+                  </button>
+                )}
               </div>
               <div className="relative h-[420px] min-w-0 flex-1 overflow-hidden rounded-xl bg-[#eef1f6]">
                 {stage === '3d' && glbUrl && !glbError && (
@@ -491,6 +509,7 @@ export function ProductWorkbench({
                 </button>
               </div>
             </div>
+            {stage !== 'image' && (
             <div className="mt-3 flex flex-wrap justify-center gap-2">
               {(
                 [
@@ -519,6 +538,7 @@ export function ProductWorkbench({
                 重置視角
               </button>
             </div>
+            )}
           </section>
 
           <aside className="flex h-full flex-col rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
