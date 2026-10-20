@@ -4,7 +4,7 @@ import { useSearchParams } from 'react-router-dom';
 import QRCode from 'qrcode';
 import { toast } from 'sonner';
 import {
-  Box, Cable, ChevronLeft, Heart, Image as ImageIcon, Leaf, Loader2, Maximize2, Move, Package, RotateCcw, Ruler, Search, Share2, Sparkles, Users, ZoomIn,
+  Cable, ChevronLeft, Heart, Image as ImageIcon, Leaf, Loader2, Maximize2, Move, Package, RotateCcw, Ruler, Search, Share2, Sparkles, Users, ZoomIn,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -421,13 +421,13 @@ export function ProductWorkbench({
                     type="button"
                     aria-label="3D 模型"
                     className={cn(
-                      'flex h-16 w-16 shrink-0 flex-col items-center justify-center gap-0.5 rounded-xl border bg-white text-[10px] font-medium shadow-sm',
-                      stage === '3d' ? 'border-[#5b4dff] text-[#5b4dff] ring-1 ring-[#5b4dff]' : 'border-slate-200 text-slate-500',
+                      'flex h-16 w-16 shrink-0 flex-col items-center justify-center gap-1 rounded-xl border bg-white shadow-sm',
+                      stage === '3d' ? 'border-[#5b4dff] ring-1 ring-[#5b4dff]' : 'border-slate-200 hover:border-slate-300',
                     )}
                     onClick={() => setStage('3d')}
                   >
-                    <Box className="h-5 w-5" />
-                    3D
+                    <ModelThumbMark />
+                    <span className={cn('text-[10px] font-semibold leading-none tracking-wide', stage === '3d' ? 'text-[#5b4dff]' : 'text-slate-500')}>3D</span>
                   </button>
                 )}
               </div>
@@ -788,6 +788,16 @@ export function ProductWorkbench({
           )
         : null}
     </div>
+  );
+}
+
+function ModelThumbMark() {
+  return (
+    <svg viewBox="0 0 32 32" className="h-8 w-8" aria-hidden="true">
+      <path d="M16 4.8 26.4 10.4 16 16 5.6 10.4Z" fill="#ddd9ff" stroke="#fff" strokeWidth="0.8" strokeLinejoin="round" />
+      <path d="M5.6 10.4 16 16v11.2L5.6 21.6Z" fill="#8f86ff" stroke="#fff" strokeWidth="0.8" strokeLinejoin="round" />
+      <path d="M26.4 10.4 16 16v11.2l10.4-5.6Z" fill="#5b4dff" stroke="#fff" strokeWidth="0.8" strokeLinejoin="round" />
+    </svg>
   );
 }
 
