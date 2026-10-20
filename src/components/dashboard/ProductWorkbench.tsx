@@ -352,36 +352,52 @@ export function ProductWorkbench({
   return (
     <div className="flex h-full min-h-0 flex-col bg-[#f4f6fb] text-slate-900">
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-        <div className="grid items-stretch gap-4 xl:grid-cols-[minmax(0,1.7fr)_minmax(320px,0.9fr)]">
-          <section className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
-            {stage !== 'image' && (
-              <div className="mb-3 flex flex-wrap items-center gap-2">
-                {(
-                  [
-                    ['3d', '3D 預覽'],
-                    ['ar', 'AR 預覽'],
-                    ['scene', '場景應用'],
-                  ] as const
-                ).map(([id, label]) => (
-                  <button
-                    key={id}
-                    type="button"
-                    className={cn(
-                      'rounded-full px-3.5 py-1.5 text-xs',
-                      stage === id ? 'bg-[#5b4dff] text-white' : 'border border-slate-200 bg-white text-slate-600',
-                    )}
-                    onClick={() => setStage(id)}
-                  >
-                    {label}
-                  </button>
-                ))}
-                <div className="ml-auto flex items-center gap-1 text-xs text-slate-500">
-                  <button type="button" className={cn('rounded-md px-2 py-1', wireframe && 'bg-slate-900 text-white')} onClick={() => setWireframe((v) => !v)}>線框</button>
-                  <button type="button" className={cn('rounded-md px-2 py-1', showMaterial && 'bg-slate-900 text-white')} onClick={() => setShowMaterial((v) => !v)}>材質</button>
-                  <button type="button" className={cn('rounded-md px-2 py-1', showSize && 'bg-slate-900 text-white')} onClick={() => setShowSize((v) => !v)}>尺寸</button>
-                </div>
+        <div className="grid items-start gap-x-4 gap-y-3 xl:grid-cols-[minmax(0,1.7fr)_minmax(320px,0.9fr)]">
+          <div className="flex items-center">
+            <button type="button" className="inline-flex items-center text-[13px] text-slate-600 hover:text-slate-900" onClick={onClose}>
+              <ChevronLeft className="mr-0.5 h-4 w-4" /> 返回列表
+            </button>
+          </div>
+          <aside className="row-span-2 flex h-full flex-col rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h1 className="text-[22px] font-semibold leading-snug tracking-tight">{names.primary}</h1>
+                {names.secondary && <p className="mt-1 text-sm text-slate-400">{names.secondary}</p>}
               </div>
-            )}
+              <div className="flex shrink-0 items-center gap-4">
+                <button
+                  type="button"
+                  className="inline-flex items-center text-[13px] text-slate-600 hover:text-slate-900"
+                  onClick={() => onToggleFavorite(!loved).catch(() => undefined)}
+                >
+                  <Heart className={cn('mr-1 h-3.5 w-3.5', loved && 'fill-rose-500 text-rose-500')} />
+                  {loved ? '已收藏' : '加入收藏'}
+                </button>
+                <button
+                  type="button"
+                  className="inline-flex items-center text-[13px] text-slate-600 hover:text-slate-900"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(window.location.href).then(
+                      () => toast.success('已複製連結'),
+                      () => toast.error('複製失敗'),
+                    );
+                  }}
+                >
+                  <Share2 className="mr-1 h-3.5 w-3.5" /> 分享
+                </button>
+              </div>
+            </div>
+            <dl className="mt-5 grid grid-cols-[4.5rem_1fr] gap-y-3 text-sm">
+              {specRows.map(([label, value]) => (
+                <div key={label} className="contents">
+                  <dt className="text-slate-400">{label}</dt>
+                  <dd className={cn('text-slate-800', value === MISSING && 'text-slate-300')}>{value}</dd>
+                </div>
+              ))}
+            </dl>
+            <div className="mt-auto pt-5">{actions(() => setArOpen(true))}</div>
+          </aside>
+          <section className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
             <div ref={stageRef} className="flex gap-3">
               <div className="flex h-[420px] w-[72px] shrink-0 flex-col gap-2 overflow-y-auto">
                 {detail.images.map((src, index) => (
@@ -452,57 +468,89 @@ export function ProductWorkbench({
                 {glbError && stage === '3d' && (
                   <button
                     type="button"
-                    className="absolute bottom-3 left-3 rounded-md bg-white px-2 py-1 text-xs text-[#5b4dff] shadow"
+                    className="absolute bottom-14 left-3 z-10 rounded-md bg-white px-2 py-1 text-xs text-[#5b4dff] shadow"
                     onClick={() => setRetry((n) => n + 1)}
                   >
                     重試
                   </button>
                 )}
                 {showSize && stage === '3d' && (
-                  <p className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full bg-white/95 px-3 py-1 text-xs text-slate-600 shadow">
+                  <p className="absolute bottom-14 left-1/2 z-10 -translate-x-1/2 rounded-full bg-white/95 px-3 py-1 text-xs text-slate-600 shadow">
                     {sizeText ? `${sizeText} mm` : MISSING} · 官方規格，不是模型量度
                   </p>
                 )}
-                <button
-                  type="button"
-                  className="absolute right-3 top-3 rounded-md bg-white/90 p-1.5 text-slate-600 shadow"
-                  aria-label="全螢幕"
-                  onClick={() => void stageRef.current?.requestFullscreen?.()}
-                >
-                  <Maximize2 className="h-4 w-4" />
-                </button>
+                {stage !== 'image' && (
+                  <>
+                    <div className="absolute left-3 top-3 z-10 flex max-w-[55%] flex-wrap gap-2">
+                      {(
+                        [
+                          ['3d', '3D 預覽'],
+                          ['ar', 'AR 預覽'],
+                          ['scene', '場景應用'],
+                        ] as const
+                      ).map(([id, label]) => (
+                        <button
+                          key={id}
+                          type="button"
+                          className={cn(
+                            'rounded-full px-3.5 py-1.5 text-xs shadow-sm',
+                            stage === id ? 'bg-[#5b4dff] text-white' : 'border border-slate-200 bg-white text-slate-600',
+                          )}
+                          onClick={() => setStage(id)}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="absolute inset-x-3 bottom-3 z-10 flex flex-wrap justify-center gap-2">
+                      {(
+                        [
+                          ['rotate', '旋轉', RotateCcw],
+                          ['pan', '平移', Move],
+                          ['zoom', '縮放', ZoomIn],
+                        ] as const
+                      ).map(([id, label, Icon]) => (
+                        <button
+                          key={id}
+                          type="button"
+                          className={cn(
+                            'inline-flex items-center rounded-full border px-3.5 py-1.5 text-xs shadow-sm',
+                            tool === id ? 'border-[#5b4dff] bg-[#5b4dff] text-white' : 'border-slate-200 bg-white text-slate-600',
+                          )}
+                          onClick={() => setTool(id)}
+                        >
+                          <Icon className="mr-1 h-3.5 w-3.5" /> {label}
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3.5 py-1.5 text-xs text-slate-600 shadow-sm"
+                        onClick={() => setResetKey((n) => n + 1)}
+                      >
+                        重置視角
+                      </button>
+                    </div>
+                  </>
+                )}
+                <div className="absolute right-3 top-3 z-10 flex items-center gap-2">
+                  {stage !== 'image' && (
+                    <div className="flex items-center gap-1 rounded-md bg-white/90 p-0.5 text-xs text-slate-500 shadow-sm">
+                      <button type="button" className={cn('rounded-md px-2 py-1', wireframe && 'bg-slate-900 text-white')} onClick={() => setWireframe((v) => !v)}>線框</button>
+                      <button type="button" className={cn('rounded-md px-2 py-1', showMaterial && 'bg-slate-900 text-white')} onClick={() => setShowMaterial((v) => !v)}>材質</button>
+                      <button type="button" className={cn('rounded-md px-2 py-1', showSize && 'bg-slate-900 text-white')} onClick={() => setShowSize((v) => !v)}>尺寸</button>
+                    </div>
+                  )}
+                  <button
+                    type="button"
+                    className="rounded-md bg-white/90 p-1.5 text-slate-600 shadow"
+                    aria-label="全螢幕"
+                    onClick={() => void stageRef.current?.requestFullscreen?.()}
+                  >
+                    <Maximize2 className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
             </div>
-            {stage !== 'image' && (
-            <div className="mt-3 flex flex-wrap justify-center gap-2">
-              {(
-                [
-                  ['rotate', '旋轉', RotateCcw],
-                  ['pan', '平移', Move],
-                  ['zoom', '縮放', ZoomIn],
-                ] as const
-              ).map(([id, label, Icon]) => (
-                <button
-                  key={id}
-                  type="button"
-                  className={cn(
-                    'inline-flex items-center rounded-full border px-3.5 py-1.5 text-xs shadow-sm',
-                    tool === id ? 'border-[#5b4dff] bg-[#5b4dff] text-white' : 'border-slate-200 bg-white text-slate-600',
-                  )}
-                  onClick={() => setTool(id)}
-                >
-                  <Icon className="mr-1 h-3.5 w-3.5" /> {label}
-                </button>
-              ))}
-              <button
-                type="button"
-                className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3.5 py-1.5 text-xs text-slate-600 shadow-sm"
-                onClick={() => setResetKey((n) => n + 1)}
-              >
-                重置視角
-              </button>
-            </div>
-            )}
           </section>
 
           <aside className="flex h-full flex-col rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
