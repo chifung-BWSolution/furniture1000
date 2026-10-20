@@ -399,7 +399,7 @@ export function ProductWorkbench({
           </aside>
           <section className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
             <div ref={stageRef} className="flex gap-3">
-              <div className="flex h-[420px] w-[72px] shrink-0 flex-col gap-2 overflow-y-auto">
+              <div className="flex h-[420px] w-20 shrink-0 flex-col items-center gap-2 overflow-y-auto px-1 py-0.5">
                 {detail.images.map((src, index) => (
                   <button
                     key={src}
