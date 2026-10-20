@@ -127,6 +127,23 @@ function modelSizeLabel(bytes: number | null): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
+/** One row per format and origin. Regenerating keeps older files; the menu shows the newest. */
+function latestModelFiles(files: ProductModelFile[]): ProductModelFile[] {
+  const seen = new Set<string>();
+  return [...files]
+    .sort((a, b) => (a.created_at < b.created_at ? 1 : a.created_at > b.created_at ? -1 : 0))
+    .filter((file) => {
+      const key = `${file.format}:${file.source}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
+function modelSourceLabel(source: ProductModelFile['source']): string {
+  return source === 'uploaded' ? '上載' : 'AI 生成';
+}
+
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
@@ -1470,7 +1487,7 @@ function ProductModelsSection({
         creepToward(70);
         try {
           const guess = await analyzeProductImages(photos, {
-            title: product.title,
+            title: [product.model, product.title].filter(Boolean).join(' '),
             width_mm: width,
             depth_mm: depth,
             height_mm: height,
@@ -1571,7 +1588,7 @@ function ProductModelsSection({
     try {
       const result = await analyzeProductImages(photos, {
         mode: 'parts',
-        title: product.title,
+        title: [product.model, product.title].filter(Boolean).join(' '),
         width_mm: size(draft.width),
         depth_mm: size(draft.depth),
         height_mm: size(draft.height),
@@ -1786,12 +1803,12 @@ function ProductModelsSection({
                 {files.length === 0 ? (
                   <DropdownMenuItem disabled>未有可下載的檔案</DropdownMenuItem>
                 ) : (
-                  files.map((file) => (
+                  latestModelFiles(files).map((file) => (
                     <DropdownMenuItem
                       key={file.id}
                       onClick={() => void downloadModel(file.storage_path, file.file_name).catch((err) => toast.error('下載失敗', { description: errorText(err) }))}
                     >
-                      {(file.format ?? '').toUpperCase()} · {file.source === 'generated' ? 'AI 生成' : '上載'}
+                      {(file.format ?? '').toUpperCase()} · {modelSourceLabel(file.source)}
                       {file.size_bytes != null ? ` · ${modelSizeLabel(file.size_bytes)}` : ''}
                     </DropdownMenuItem>
                   ))
@@ -1834,9 +1851,7 @@ function ProductModelsSection({
               <DialogHeader>
                 <DialogTitle className="text-base">已有模型檔</DialogTitle>
                 <DialogDescription>
-                  這件產品已有 {[...new Set(reuse.files.map((file) => file.format.toUpperCase()))].join('、')}（
-                  {reuse.files.map((f) => (f.source === 'uploaded' ? '上載' : 'AI 生成')).join('、')}
-                  ），可以直接下載，不用再生成。
+                  {`這件產品已有 ${[...new Set(reuse.files.map((file) => file.format.toUpperCase()))].join('、')}（${[...new Set(reuse.files.map((file) => modelSourceLabel(file.source)))].join('、')}），可以直接下載，不用再生成。`}
                 </DialogDescription>
               </DialogHeader>
               <div className="flex flex-wrap gap-2">
@@ -1936,7 +1951,7 @@ function ProductModelsSection({
         <p className="text-xs text-muted-foreground">未有模型檔。</p>
       ) : !workbench ? (
         <ul className="space-y-1 text-xs">
-          {files.map((f) => (
+          {latestModelFiles(files).map((f) => (
             <li key={f.id} className="flex flex-wrap items-center gap-2">
               <Badge variant="outline" className="px-1.5 py-0 text-[10px] font-semibold">
                 {f.model_type === 'su' ? 'SU' : '3D'}
