@@ -78,7 +78,7 @@ function cardOf(product: Pick<SearchProduct, 'id' | 'title' | 'model' | 'sku' | 
 const COMPARE_FIELDS: { key: string; label: string; value: (card: Card, flags: ModelFlags) => string }[] = [
   { key: 'model', label: '型號', value: (card) => shown(card.model) },
   { key: 'sku', label: 'SKU', value: (card) => shown(card.sku) },
-  { key: 'size', label: '尺寸 (mm)', value: (card) => shown(card.size) },
+  { key: 'size', label: '尺寸', value: (card) => (card.size ? `${card.size} mm` : MISSING) },
   { key: 'material', label: '材質', value: (card) => shown(card.material) },
   { key: 'color', label: '顏色', value: (card) => shown(card.color) },
   { key: 'stock', label: '現貨', value: (card) => (card.stock == null ? MISSING : card.stock ? '是' : '否') },
@@ -305,19 +305,19 @@ export function ProductWorkbench({
     });
   };
 
+  const sizeText = sizeLabel(detail);
   const specRows: [string, string][] = [
     ['型號', shown(detail.model)],
     ['SKU', shown(detail.sku)],
     ['品牌', shown(detail.factory_name)],
     ['系列', shown(detail.level2_category || detail.category)],
-    ['尺寸 (mm)', shown(sizeLabel(detail))],
+    ['尺寸', sizeText ? `${sizeText} mm` : MISSING],
     ['材質', shown(detail.material)],
     ['顏色', shown(detail.color ? multiColorToChineseDisplay(detail.color) : null)],
     ['現貨', detail.in_stock == null ? MISSING : detail.in_stock ? '是' : '否'],
   ];
 
   const chips = featureChips(detail, names.primary);
-  const sizeText = sizeLabel(detail);
   const arLink = typeof window === 'undefined' ? '' : `${window.location.origin}${window.location.pathname}?ar=1`;
 
   if (arPage) {
@@ -689,7 +689,7 @@ export function ProductWorkbench({
                         )}
                       </div>
                       <p className="mt-1 truncate text-xs font-medium">{card.model || card.sku || MISSING}</p>
-                      <p className="truncate text-[11px] text-slate-500">{card.size ? `${card.size}` : MISSING}</p>
+                      <p className="truncate text-[11px] text-slate-500">{card.size ? `${card.size} mm` : MISSING}</p>
                       <p className="truncate text-[11px] text-slate-500">{shown(card.color)}</p>
                     </button>
                   );
