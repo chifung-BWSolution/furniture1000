@@ -398,8 +398,8 @@ export function ProductWorkbench({
             <div className="mt-auto pt-5">{actions(() => setArOpen(true))}</div>
           </aside>
           <section className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
-            <div ref={stageRef} className="flex gap-3">
-              <div className="flex h-[420px] w-20 shrink-0 flex-col items-center gap-2 overflow-y-auto px-1 py-0.5">
+            <div ref={stageRef} className="fds-product-stage flex gap-3">
+              <div className="fds-stage-rail flex h-[420px] w-20 shrink-0 flex-col items-center gap-2 overflow-y-auto px-1 py-0.5">
                 {detail.images.map((src, index) => (
                   <button
                     key={src}
@@ -431,7 +431,7 @@ export function ProductWorkbench({
                   </button>
                 )}
               </div>
-              <div className="relative h-[420px] min-w-0 flex-1 overflow-hidden rounded-xl bg-[#eef1f6]">
+              <div className="fds-stage-view relative h-[420px] min-w-0 flex-1 overflow-hidden rounded-xl bg-[#eef1f6]">
                 {stage === '3d' && glbUrl && !glbError && (
                   <GlbViewport
                     url={glbUrl}
@@ -544,7 +544,15 @@ export function ProductWorkbench({
                     type="button"
                     className="rounded-md bg-white/90 p-1.5 text-slate-600 shadow"
                     aria-label="全螢幕"
-                    onClick={() => void stageRef.current?.requestFullscreen?.()}
+                    onClick={() => {
+                      const stage = stageRef.current;
+                      if (!stage) return;
+                      if (document.fullscreenElement === stage) {
+                        void document.exitFullscreen();
+                        return;
+                      }
+                      void stage.requestFullscreen();
+                    }}
                   >
                     <Maximize2 className="h-4 w-4" />
                   </button>
