@@ -11,6 +11,8 @@ type LoadingImageProps = Omit<ImgHTMLAttributes<HTMLImageElement>, "src" | "onCl
   fallback?: ReactNode
   /** Extra classes applied only to the inner img (after object-fit). */
   imgClassName?: string
+  /** Large preview: use the original file instead of the 320px thumbnail. */
+  hd?: boolean
   onClick?: (event: MouseEvent<HTMLElement>) => void
 }
 
@@ -52,6 +54,7 @@ function LoadingImage({
   onLoad,
   onError,
   onClick,
+  hd = false,
   ...props
 }: LoadingImageProps) {
   const normalized = (src || "").trim()
@@ -59,7 +62,7 @@ function LoadingImage({
   const [loadedSrc, setLoadedSrc] = useState("")
   const [failedSrc, setFailedSrc] = useState("")
   const [bypassSrc, setBypassSrc] = useState("")
-  const compressed = compressStorageDisplayUrl(normalized, className)
+  const compressed = hd ? normalized : compressStorageDisplayUrl(normalized, className)
   const requestSrc = bypassSrc === normalized ? normalized : compressed
   const loaded = requestSrc !== "" && loadedSrc === requestSrc
   const failed = requestSrc === "" || failedSrc === requestSrc

@@ -858,7 +858,7 @@ function ImageStage({
   }
   return (
     <button type="button" className="relative h-full w-full" onClick={onZoom}>
-      <LoadingImage src={src} alt={detail.title} className="h-full w-full object-contain" />
+      <LoadingImage src={src} alt={detail.title} hd className="h-full w-full object-contain" />
       {emptyLabel && (
         <span className="absolute left-3 top-3 rounded-full bg-white/95 px-2 py-1 text-xs text-slate-600 shadow">{emptyLabel}</span>
       )}
