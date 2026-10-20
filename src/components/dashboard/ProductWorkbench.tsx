@@ -122,9 +122,11 @@ export function ProductWorkbench({
   const names = splitTitle(detail.title);
   const category = detail.level2_category || detail.category || detail.level1_category || '未分類';
   const glb = modelFiles.find((file) => file.format === 'glb') ?? null;
+  const [viewerOn, setViewerOn] = useState(false);
   const [glbUrl, setGlbUrl] = useState<string | null>(null);
   const [glbError, setGlbError] = useState<string | null>(null);
-  const [glbProgress, setGlbProgress] = useState('載入中');
+  const [glbProgress, setGlbProgress] = useState('即將載入 3D');
+  const [glbRatio, setGlbRatio] = useState<number | null>(0);
   const [glbReady, setGlbReady] = useState(false);
   const [retry, setRetry] = useState(0);
   const [stage, setStage] = useState<'3d' | 'image' | 'scene' | 'ar'>('3d');
@@ -153,30 +155,76 @@ export function ProductWorkbench({
     setExtra([]);
     setActiveImage(0);
     setStage('3d');
+    setViewerOn(false);
+    setGlbUrl(null);
+    setGlbReady(false);
+    setGlbRatio(0);
+    setGlbProgress('即將載入 3D');
+    let second = 0;
+    const first = window.requestAnimationFrame(() => {
+      second = window.requestAnimationFrame(() => setViewerOn(true));
+    });
+    return () => {
+      window.cancelAnimationFrame(first);
+      window.cancelAnimationFrame(second);
+    };
   }, [detail.id]);
 
+  const glbPath = glb?.storage_path ?? null;
+  const glbBytes = glb?.size_bytes ?? null;
   useEffect(() => {
-    if (!glb) {
-      setGlbUrl(null);
-      setGlbError(null);
-      setGlbReady(false);
+    if (!viewerOn || !glbPath) {
+      if (!glbPath) {
+        setGlbUrl(null);
+        setGlbError(null);
+        setGlbReady(false);
+      }
       return;
     }
+    const storagePath = glbPath;
+    const knownBytes = glbBytes;
     let cancelled = false;
+    const objectUrls: string[] = [];
+    const controller = new AbortController();
+    setGlbUrl(null);
     setGlbReady(false);
     setGlbError(null);
-    setGlbProgress('載入中');
-    signedModelUrl(glb.storage_path)
-      .then((url) => {
-        if (!cancelled) setGlbUrl(url);
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setGlbError(err instanceof Error ? err.message : '無法開啟模型');
-      });
+    setGlbRatio(0);
+    setGlbProgress('準備模型');
+    (async () => {
+      const signed = await signedModelUrl(storagePath);
+      if (cancelled) return;
+      setGlbProgress('下載模型');
+      const response = await fetch(signed, { signal: controller.signal });
+      if (!response.ok || !response.body) throw new Error('模型下載失敗');
+      const total = Number(response.headers.get('content-length')) || knownBytes || 0;
+      const reader = response.body.getReader();
+      const parts: Uint8Array[] = [];
+      let loaded = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        parts.push(value);
+        loaded += value.byteLength;
+        if (!cancelled) setGlbRatio(total > 0 ? Math.min(0.98, loaded / total) : null);
+      }
+      if (cancelled) return;
+      const blob = new Blob(parts, { type: 'model/gltf-binary' });
+      const objectUrl = URL.createObjectURL(blob);
+      objectUrls.push(objectUrl);
+      setGlbRatio(1);
+      setGlbProgress('建立預覽');
+      setGlbUrl(objectUrl);
+    })().catch((err: unknown) => {
+      if (cancelled || (err instanceof DOMException && err.name === 'AbortError')) return;
+      setGlbError(err instanceof Error ? err.message : '無法開啟模型');
+    });
     return () => {
       cancelled = true;
+      controller.abort();
+      objectUrls.forEach((url) => URL.revokeObjectURL(url));
     };
-  }, [glb, retry]);
+  }, [viewerOn, glbPath, glbBytes, retry]);
 
   useEffect(() => {
     const query = names.primary.trim();
@@ -295,13 +343,9 @@ export function ProductWorkbench({
               onFailed={setGlbError}
             />
           ) : (
-            <ImageStage detail={detail} activeImage={0} onZoom={() => undefined} emptyLabel={glb ? glbError || glbProgress : '暫無 3D 模型'} />
+            <ImageStage detail={detail} activeImage={0} onZoom={() => undefined} emptyLabel={glb && !glbError ? undefined : glbError || '暫無 3D 模型'} />
           )}
-          {glbUrl && !glbReady && !glbError && (
-            <div className="absolute inset-0 flex items-center justify-center bg-[#f4f6fb]/80 text-sm text-slate-500">
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" /> {glbProgress}
-            </div>
-          )}
+          {glb && !glbReady && !glbError && <ModelLoadBar ratio={glbRatio} label={glbProgress} />}
         </div>
       </div>
     );
@@ -437,15 +481,9 @@ export function ProductWorkbench({
                   />
                 )}
                 {stage === '3d' && glb && !glbUrl && !glbError && (
-                  <div className="flex h-full items-center justify-center text-sm text-slate-500">
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 準備模型…
-                  </div>
+                  <ImageStage detail={detail} activeImage={activeImage} onZoom={() => setZoomed(true)} />
                 )}
-                {stage === '3d' && glbUrl && !glbReady && !glbError && (
-                  <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-[#f7f8fb]/75 text-sm text-slate-500">
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> {glbProgress}
-                  </div>
-                )}
+                {stage === '3d' && glb && !glbReady && !glbError && <ModelLoadBar ratio={glbRatio} label={glbProgress} />}
                 {stage === 'image' && (
                   <ImageStage detail={detail} activeImage={activeImage} onZoom={() => setZoomed(true)} />
                 )}
@@ -772,6 +810,28 @@ export function ProductWorkbench({
             document.body,
           )
         : null}
+    </div>
+  );
+}
+
+function ModelLoadBar({ ratio, label }: { ratio: number | null; label: string }) {
+  const percent = ratio == null ? null : Math.round(ratio * 100);
+  return (
+    <div className="pointer-events-none absolute inset-0 flex items-end bg-[#f7f8fb]/55">
+      <div className="w-full px-8 pb-8">
+        <div className="mx-auto max-w-sm">
+          <div className="mb-2 flex items-center justify-between text-xs text-slate-600">
+            <span>{label}</span>
+            <span>{percent == null ? '' : `${percent}%`}</span>
+          </div>
+          <div className="h-1.5 overflow-hidden rounded-full bg-slate-200" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent ?? undefined} aria-label={label}>
+            <div
+              className={cn('h-full rounded-full bg-[#5b4dff] transition-[width] duration-150', percent == null && 'w-1/3 animate-pulse')}
+              style={percent == null ? undefined : { width: `${Math.max(percent, 4)}%` }}
+            />
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
