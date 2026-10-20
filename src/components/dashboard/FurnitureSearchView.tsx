@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
-  ChevronDown, ChevronLeft, ChevronRight, ExternalLink, FileText, Heart, ImagePlus, Loader2, Package, RotateCcw, Ruler, Search, Smartphone,
+  ChevronDown, ChevronLeft, ChevronRight, ExternalLink, FileText, Heart, ImagePlus, Loader2, Package, RotateCcw, Ruler, Search, Smartphone, Sparkles,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { productThumbUrl } from '@/lib/imageThumb';
@@ -14,6 +14,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Progress } from '@/components/ui/progress';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -37,9 +39,14 @@ import {
   STYLE_FIELDS,
   STYLE_LIMITS,
   buildParametric,
+  customPartsSize,
+  fitCustomParts,
   inferFurnitureKindFrom,
   inferModelStyle,
+  inferShelfTiers,
   resolveStyle,
+  sanitizeCustomParts,
+  type CustomPartSpec,
   type FurnitureKind,
   type ModelStyle,
   type ParametricModel,
@@ -1176,12 +1183,25 @@ type ImageAnalysis = {
   depth_mm?: number | null;
   height_mm?: number | null;
   style?: Partial<ModelStyle> | null;
+  /** custom only: raw part list, checked by sanitizeCustomParts before use. */
+  parts?: unknown;
   structure_notes?: string | null;
   image_count?: number;
 };
 
-/** Up to three product photos in one call, so the AI can compare views (T-801). */
-async function analyzeProductImages(urls: string[]): Promise<ImageAnalysis | null> {
+type AnalysisRequest = {
+  mode?: 'classify' | 'parts';
+  title?: string | null;
+  width_mm?: number | null;
+  depth_mm?: number | null;
+  height_mm?: number | null;
+};
+
+/**
+ * Up to three product photos in one call, so the AI can compare views (T-801).
+ * mode 'parts' asks only for the part list used when no template fits.
+ */
+async function analyzeProductImages(urls: string[], request: AnalysisRequest = {}): Promise<ImageAnalysis | null> {
   const images: { image_base64: string; mime_type: string }[] = [];
   for (const url of urls.slice(0, 3)) {
     try {
@@ -1195,12 +1215,13 @@ async function analyzeProductImages(urls: string[]): Promise<ImageAnalysis | nul
     }
   }
   if (images.length === 0) throw new Error('讀不到產品圖');
+  const body = { images, ...request };
   let result = await invokeEdgeFunctionDirect<ImageAnalysis & { supported?: boolean; reason?: string }>(
     'supabase-functions-generate-furniture-model',
-    { images },
+    body,
   );
   if (result.status === 404) {
-    result = await invokeEdgeFunctionDirect('generate-furniture-model', { images });
+    result = await invokeEdgeFunctionDirect('generate-furniture-model', body);
   }
   if (result.error || !result.data) throw new Error(result.error?.message ?? '無法辨認圖片');
   if (result.data.supported === false || !result.data.kind) return null;
@@ -1219,7 +1240,77 @@ type ModelDraft = {
   /** Where the structure came from, shown so the user knows what to check. */
   styleSource: 'image' | 'name';
   notes: string | null;
+  /** custom only: the checked part list the user can edit. */
+  parts: CustomPartSpec[];
 };
+
+const SHAPE_LABELS: Record<CustomPartSpec['shape'], string> = { box: '方塊', cylinder: '圓柱', profile: '輪廓' };
+const AXIS_INDEX: Record<SizeAxis, 0 | 1 | 2> = { width: 0, depth: 1, height: 2 };
+/** Which size axes a profile outline spans, per extrusion axis (same as the engine's PLANE). */
+const PART_PLANE: Record<'x' | 'y' | 'z', [number, number]> = { z: [0, 1], y: [0, 2], x: [1, 2] };
+
+/** Painter's-order isometric sketch of the parts, so the user sees the shape before generating. */
+function ModelSketch({ model }: { model: ParametricModel }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = ref.current;
+    const ctx = canvas?.getContext('2d');
+    if (!canvas || !ctx) return;
+    const ratio = window.devicePixelRatio || 1;
+    const width = canvas.clientWidth;
+    const height = canvas.clientHeight;
+    canvas.width = width * ratio;
+    canvas.height = height * ratio;
+    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+    ctx.clearRect(0, 0, width, height);
+    const unit = (v: number[]) => {
+      const n = Math.hypot(v[0], v[1], v[2]) || 1;
+      return v.map((x) => x / n);
+    };
+    const cross = (a: number[], b: number[]) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+    const dot = (a: number[], b: number[]) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+    // Viewer in front (+y), a little to the right and above.
+    const eye = unit([0.55, 1, 0.75]);
+    const right = unit(cross(eye, [0, 0, 1]));
+    const up = cross(right, eye);
+    const faces = model.components.flatMap((part) =>
+      part.faces_mm.map((face) => {
+        const sum = [0, 0, 0];
+        face.forEach((a, i) => {
+          const b = face[(i + 1) % face.length];
+          sum[0] += (a[1] - b[1]) * (a[2] + b[2]);
+          sum[1] += (a[2] - b[2]) * (a[0] + b[0]);
+          sum[2] += (a[0] - b[0]) * (a[1] + b[1]);
+        });
+        const normal = unit(sum);
+        const depth = face.reduce((sum, p) => sum + dot(p, eye), 0) / face.length;
+        return { points: face.map((p) => [dot(p, right), -dot(p, up)]), normal, depth };
+      }),
+    );
+    const visible = faces.filter((f) => dot(f.normal, eye) > 0.001);
+    const xs = visible.flatMap((f) => f.points.map((p) => p[0]));
+    const ys = visible.flatMap((f) => f.points.map((p) => p[1]));
+    if (xs.length === 0) return;
+    const [minX, maxX, minY, maxY] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
+    const scale = Math.min((width - 16) / (maxX - minX || 1), (height - 16) / (maxY - minY || 1));
+    const offX = (width - (maxX - minX) * scale) / 2 - minX * scale;
+    const offY = (height - (maxY - minY) * scale) / 2 - minY * scale;
+    visible.sort((a, b) => a.depth - b.depth);
+    ctx.lineWidth = 0.6;
+    ctx.strokeStyle = 'rgba(30,41,59,0.55)';
+    for (const face of visible) {
+      const light = 0.55 + 0.35 * Math.max(0, face.normal[2]) + 0.1 * Math.max(0, face.normal[1]);
+      const tone = Math.round(150 + 90 * light);
+      ctx.fillStyle = `rgb(${tone - 20},${tone - 10},${tone})`;
+      ctx.beginPath();
+      face.points.forEach(([px, py], i) => (i === 0 ? ctx.moveTo(px * scale + offX, py * scale + offY) : ctx.lineTo(px * scale + offX, py * scale + offY)));
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+    }
+  }, [model]);
+  return <canvas ref={ref} className="h-40 w-full rounded border bg-white" aria-label="模型預覽" />;
+}
 
 const TOP_OPTIONS: [ModelStyle['top'], string][] = [['rect', '矩形'], ['boat', '船形（兩端收窄）'], ['round', '圓形']];
 const LEG_OPTIONS: [ModelStyle['legs'], string][] = [['four', '四腳'], ['panel', '折板腳'], ['pedestal', '中柱']];
@@ -1228,12 +1319,28 @@ const TOGGLE_LABELS: Partial<Record<StyleField, string>> = {
   cable_tray: '中間走線槽',
   screen: '屏風',
   arms: '扶手',
+  frame: '金屬框架（無側板）',
 };
 const COUNT_LABELS: Partial<Record<StyleField, string>> = {
   doors: '門',
   drawers: '抽屜',
   shelves: '層板',
   seats: '座位',
+};
+
+/** Dialog portals to document.body, so the workbench color tokens have to travel with it. */
+const WORKBENCH_TONE = {
+  ['--muted-foreground' as string]: '215 16% 47%',
+  ['--foreground' as string]: '222 47% 11%',
+  ['--muted' as string]: '210 40% 96%',
+  ['--border' as string]: '214 32% 91%',
+  ['--input' as string]: '214 32% 91%',
+  ['--background' as string]: '0 0% 100%',
+  ['--primary' as string]: '243 100% 68%',
+  ['--primary-foreground' as string]: '0 0% 100%',
+  ['--accent' as string]: '210 40% 96%',
+  ['--accent-foreground' as string]: '222 47% 11%',
+  ['--ring' as string]: '243 100% 68%',
 };
 
 function ProductModelsSection({
@@ -1263,6 +1370,55 @@ function ProductModelsSection({
   const [skpModelId, setSkpModelId] = useState<string | null>(null);
   const savedRef = useRef<{ key: string; id: string } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const [genProgress, setGenProgress] = useState<{ percent: number; label: string } | null>(null);
+  const creepRef = useRef<number | null>(null);
+  const progressCloseRef = useRef<number | null>(null);
+
+  const stopCreep = () => {
+    if (creepRef.current != null) {
+      window.clearInterval(creepRef.current);
+      creepRef.current = null;
+    }
+  };
+
+  const showProgress = (percent: number, label: string) => {
+    setGenProgress({ percent: Math.max(0, Math.min(100, Math.round(percent))), label });
+  };
+
+  /** While an AI call is in flight, ease the number forward but stop short of the next real step. */
+  const creepToward = (cap: number) => {
+    stopCreep();
+    creepRef.current = window.setInterval(() => {
+      setGenProgress((current) => {
+        if (!current || current.percent >= cap) return current;
+        return { ...current, percent: current.percent + 1 };
+      });
+    }, 450);
+  };
+
+  const clearProgress = () => {
+    stopCreep();
+    if (progressCloseRef.current != null) {
+      window.clearTimeout(progressCloseRef.current);
+      progressCloseRef.current = null;
+    }
+    setGenProgress(null);
+  };
+
+  const closeProgressSoon = (label: string) => {
+    stopCreep();
+    showProgress(100, label);
+    if (progressCloseRef.current != null) window.clearTimeout(progressCloseRef.current);
+    progressCloseRef.current = window.setTimeout(() => {
+      progressCloseRef.current = null;
+      setGenProgress(null);
+    }, 700);
+  };
+
+  useEffect(() => () => {
+    stopCreep();
+    if (progressCloseRef.current != null) window.clearTimeout(progressCloseRef.current);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -1321,6 +1477,7 @@ function ProductModelsSection({
       depth: model.depth_mm,
       height: model.height_mm,
       style: model.style ?? null,
+      parts: model.custom_parts ?? null,
       estimated: model.estimated_axes,
     });
     if (savedRef.current?.key === key) return savedRef.current.id;
@@ -1357,6 +1514,8 @@ function ProductModelsSection({
   /** T-801: read kind, size, and table structure, then hand a draft to the user to confirm. */
   const prepare = async (target: 'su' | '3d') => {
     setBusy(target);
+    clearProgress();
+    showProgress(8, target === 'su' ? '準備生成 SU' : '準備生成 3D');
     try {
       const text = [product.title, product.model, product.category, product.level1_category, product.level2_category]
         .filter(Boolean)
@@ -1376,13 +1535,23 @@ function ProductModelsSection({
       let style: Partial<ModelStyle> = nameStyle;
       let styleSource: ModelDraft['styleSource'] = 'name';
       let notes: string | null = null;
+      let parts: CustomPartSpec[] = [];
       const needsStructure = kind == null || STYLE_FIELDS[kind].length > 0;
       const photos = (product.images ?? []).filter((src) => /^https?:\/\//i.test(src));
       if (photos.length > 0 && (needsStructure || width == null || depth == null || height == null)) {
+        showProgress(24, '辨認產品圖');
+        creepToward(70);
         try {
-          const guess = await analyzeProductImages(photos);
+          const guess = await analyzeProductImages(photos, {
+            title: product.title,
+            width_mm: width,
+            depth_mm: depth,
+            height_mm: height,
+          });
           if (guess) {
             if (!kind && guess.kind) kind = guess.kind;
+            parts = sanitizeCustomParts(guess.parts);
+            if (kind === 'custom') notes = guess.structure_notes ?? null;
             if (width == null && guess.width_mm) {
               width = Math.round(guess.width_mm);
               estimated.push('width');
@@ -1404,6 +1573,26 @@ function ProductModelsSection({
           }
         } catch (err) {
           toast('讀不到產品圖，結構先按產品名稱判斷', { description: errorText(err) });
+        } finally {
+          stopCreep();
+        }
+      }
+      showProgress(88, '整理結構');
+      const tiers = kind === 'shelf' ? inferShelfTiers(text) : undefined;
+      if (tiers !== undefined) style = { ...style, shelves: tiers - 2 };
+      const partsSize = kind === 'custom' ? customPartsSize(parts) : null;
+      if (partsSize) {
+        if (width == null) {
+          width = partsSize[0];
+          estimated.push('width');
+        }
+        if (depth == null) {
+          depth = partsSize[1];
+          estimated.push('depth');
+        }
+        if (height == null) {
+          height = partsSize[2];
+          estimated.push('height');
         }
       }
       setDraft({
@@ -1416,8 +1605,10 @@ function ProductModelsSection({
         style,
         styleSource,
         notes,
+        parts,
       });
     } finally {
+      clearProgress();
       setBusy(null);
     }
   };
@@ -1429,6 +1620,101 @@ function ProductModelsSection({
       return { ...current, ...patch, estimated };
     });
   };
+
+  const [partsBusy, setPartsBusy] = useState(false);
+  /** No template fits: ask the AI to break the photo into simple solids at the confirmed size. */
+  const loadParts = async () => {
+    if (!draft) return;
+    const photos = (product.images ?? []).filter((src) => /^https?:\/\//i.test(src));
+    if (photos.length === 0) {
+      toast.error('沒有產品圖，無法拆部件');
+      return;
+    }
+    const size = (value: string) => (Number(value) > 0 ? Number(value) : null);
+    setPartsBusy(true);
+    try {
+      const result = await analyzeProductImages(photos, {
+        mode: 'parts',
+        title: product.title,
+        width_mm: size(draft.width),
+        depth_mm: size(draft.depth),
+        height_mm: size(draft.height),
+      });
+      const parts = sanitizeCustomParts(result?.parts);
+      if (parts.length === 0) throw new Error('AI 沒有給出可用的部件');
+      const missing = (['width', 'depth', 'height'] as SizeAxis[]).filter((axis) => !(Number(draft[axis]) > 0));
+      const partsSize = customPartsSize(parts);
+      updateDraft({
+        parts,
+        notes: result?.structure_notes ?? draft.notes,
+        ...(partsSize ? Object.fromEntries(missing.map((axis) => [axis, String(partsSize[AXIS_INDEX[axis]])])) : {}),
+        estimated: [...new Set([...draft.estimated, ...missing])],
+      });
+    } catch (err) {
+      toast.error('拆部件失敗', { description: errorText(err) });
+    } finally {
+      setPartsBusy(false);
+    }
+  };
+
+  /** The parts at the overall size in the form, which is what the preview and generation use. */
+  const fittedParts = (current: ModelDraft): CustomPartSpec[] => {
+    const [w, d, h] = [Number(current.width), Number(current.depth), Number(current.height)];
+    return w > 0 && d > 0 && h > 0 ? fitCustomParts(current.parts, w, d, h) : current.parts;
+  };
+
+  /** After deleting or resizing one part the overall size follows the parts instead of stretching them. */
+  const commitParts = (parts: CustomPartSpec[]) => {
+    const size = customPartsSize(parts);
+    updateDraft({
+      parts,
+      ...(size ? { width: String(size[0]), depth: String(size[1]), height: String(size[2]) } : {}),
+    });
+  };
+
+  const resizePart = (index: number, axis: 0 | 1 | 2, value: string) => {
+    if (!draft) return;
+    const n = Number(value);
+    if (!Number.isFinite(n) || n < 3 || n > 10000) return;
+    commitParts(
+      fittedParts(draft).map((part, i) => {
+        if (i !== index) return part;
+        const ratio = n / part.size_mm[axis];
+        const size_mm = part.size_mm.map((v, k) => (k === axis ? n : v)) as CustomPartSpec['size_mm'];
+        if (!part.points_mm || !part.axis) return { ...part, size_mm };
+        // A profile's outline is its shape across the axis; stretch it with the size.
+        const cross = PART_PLANE[part.axis];
+        const points_mm = part.points_mm.map(
+          (point) => point.map((v, j) => (cross[j] === axis ? Math.round(v * ratio) : v)) as [number, number],
+        );
+        return { ...part, size_mm, points_mm };
+      }),
+    );
+  };
+
+  const removePart = (index: number) => {
+    if (!draft) return;
+    commitParts(fittedParts(draft).filter((_, i) => i !== index));
+  };
+
+  const previewModel = useMemo(() => {
+    if (!draft?.kind) return null;
+    const [w, d, h] = [Number(draft.width), Number(draft.depth), Number(draft.height)];
+    if (!(w > 0 && d > 0 && h > 0)) return null;
+    try {
+      return buildParametric({
+        kind: draft.kind,
+        width_mm: w,
+        depth_mm: d,
+        height_mm: h,
+        estimated_axes: draft.estimated,
+        style: draft.style,
+        parts: draft.kind === 'custom' ? fitCustomParts(draft.parts, w, d, h) : [],
+      });
+    } catch {
+      return null;
+    }
+  }, [draft]);
 
   /** T-804: build only what the user confirmed. */
   const generate = async () => {
@@ -1445,7 +1731,13 @@ function ProductModelsSection({
       toast('請填寫闊、深、高（mm）');
       return;
     }
+    if (kind === 'custom' && draft.parts.length === 0) {
+      toast('請先讓 AI 拆部件');
+      return;
+    }
     setBusy(target);
+    clearProgress();
+    showProgress(12, '建立模型');
     try {
       const model = buildParametric({
         kind,
@@ -1454,10 +1746,13 @@ function ProductModelsSection({
         height_mm: height,
         estimated_axes: draft.estimated,
         style: draft.style,
+        parts: kind === 'custom' ? fittedParts(draft) : [],
       });
+      showProgress(34, '儲存模型');
       const id = await ensureSaved(model);
       setDraft(null);
       if (target === 'su') {
+        showProgress(68, '排入 SU 生成');
         const status = await requestSkp(id);
         setSkpModelId(id);
         setSkp(status);
@@ -1465,17 +1760,21 @@ function ProductModelsSection({
           setReload((n) => n + 1);
           onChanged();
         }
-        toast.success(status.status === 'ready' ? 'SKP 已可下載' : '已排入 SU 生成');
+        const doneLabel = status.status === 'ready' ? 'SKP 已可下載' : '已排入 SU 生成';
+        toast.success(doneLabel);
+        closeProgressSoon(doneLabel);
       } else {
         const base = (product.model || product.sku || model.label).replace(/[^\w.\-\u3400-\u9fff]+/g, '_').slice(0, 80);
         const problems: string[] = [];
         let done = 0;
+        showProgress(55, '寫出 GLB');
         try {
           await registerGeneratedFile(id, buildFurnitureGlb(model), `${base}.glb`, 'glb');
           done += 1;
         } catch (err) {
           problems.push(`GLB：${errorText(err)}`);
         }
+        showProgress(82, '寫出 FBX');
         try {
           await registerGeneratedFile(id, buildFurnitureFbx(model), `${base}.fbx`, 'fbx');
           done += 1;
@@ -1487,8 +1786,10 @@ function ProductModelsSection({
         if (done === 0) throw new Error(problems.join('；'));
         if (problems.length > 0) toast.warning('3D 只完成一部分', { description: problems.join('；') });
         else toast.success('3D 模型已生成（GLB 預覽、FBX 檔）');
+        closeProgressSoon(done === 2 ? '3D 模型已生成' : '3D 只完成一部分');
       }
     } catch (err) {
+      clearProgress();
       toast.error(target === 'su' ? '生成 SU 失敗' : '生成 3D 失敗', { description: errorText(err) });
     } finally {
       setBusy(null);
@@ -1529,18 +1830,18 @@ function ProductModelsSection({
       <div className={workbench ? 'flex flex-wrap gap-2' : 'flex flex-wrap items-center justify-between gap-2'}>
         {!workbench && <h3 className="text-sm font-medium">模型檔</h3>}
         <div className="flex flex-wrap gap-1.5">
-          <Button size="sm" className={workbench ? 'h-9 bg-[#5b4dff] hover:bg-[#4d40e6]' : 'h-7'} disabled={busy != null} onClick={() => start('su')}>
-            {busy === 'su' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+          <Button size="sm" className={workbench ? 'h-10 rounded-lg bg-[#5b4dff] px-4 hover:bg-[#4d40e6]' : 'h-7'} disabled={busy != null} onClick={() => start('su')}>
+            {busy === 'su' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : workbench ? <Sparkles className="mr-1 h-3.5 w-3.5" /> : null}
             {skp?.status === 'failed' || skp?.status === 'cancelled' ? '重新生成 SU' : '生成 SU'}
           </Button>
-          <Button size="sm" variant="outline" className={workbench ? 'h-9' : 'h-7'} disabled={busy != null} onClick={() => start('3d')}>
+          <Button size="sm" variant="outline" className={workbench ? 'h-10 rounded-lg border-slate-200 bg-white px-4 text-slate-700 hover:bg-slate-50' : 'h-7'} disabled={busy != null} onClick={() => start('3d')}>
             {busy === '3d' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
             生成 3D
           </Button>
           {workbench ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button size="sm" variant="outline" className="h-9" disabled={files.length === 0} title={files.length === 0 ? '未有可下載的檔案' : '下載已有的模型檔'}>
+                <Button size="sm" variant="outline" className="h-10 rounded-lg border-slate-200 bg-white px-4 text-slate-700 hover:bg-slate-50" disabled={files.length === 0} title={files.length === 0 ? '未有可下載的檔案' : '下載已有的模型檔'}>
                   下載模型 <ChevronDown className="ml-1 h-3.5 w-3.5" />
                 </Button>
               </DropdownMenuTrigger>
@@ -1570,7 +1871,7 @@ function ProductModelsSection({
             </DropdownMenu>
           ) : null}
           {workbench && (
-            <Button size="sm" variant="outline" className="h-9" onClick={onAr}>
+            <Button size="sm" variant="outline" className="h-10 rounded-lg border-slate-200 bg-white px-4 text-slate-700 hover:bg-slate-50" onClick={onAr}>
               <Smartphone className="mr-1 h-3.5 w-3.5" /> 手機 AR 預覽
             </Button>
           )}
@@ -1583,42 +1884,82 @@ function ProductModelsSection({
           {uploadInput}
         </div>
       </div>
-      <p className="text-xs text-muted-foreground">
-        {workbench
-          ? '確認尺寸和結構後生成。SU 是 SKP；生成 3D 會同時寫出 GLB 預覽和 FBX。沒有檔案時不能下載。'
-          : '用這件產品的尺寸和產品圖辨認結構，確認後生成。SU 是 SKP，完成後可下載；3D 會同時寫出 GLB 和 FBX。'}
-      </p>
-      {filesError && <p className="text-xs text-destructive">讀不到現有模型檔，暫時不能生成。</p>}
-      {reuse && (
-        <div className="space-y-1.5 rounded-md border bg-muted/40 p-2 text-xs">
-          <p>
-            這件產品已有 {[...new Set(reuse.files.map((file) => file.format.toUpperCase()))].join('、')}（
-            {reuse.files.map((f) => (f.source === 'uploaded' ? '上載' : 'AI 生成')).join('、')}
-            ），可以直接下載，不用再生成。
-          </p>
-          <div className="flex flex-wrap gap-1.5">
-            <Button
-              size="sm"
-              className="h-7"
-              onClick={() => {
-                const f = reuse.files[0];
-                void downloadModel(f.storage_path, f.file_name).catch((err) => toast.error('下載失敗', { description: errorText(err) }));
-              }}
-            >
-              下載現有檔
-            </Button>
-            <Button size="sm" variant="outline" className="h-7" disabled={busy != null} onClick={() => start(reuse.target, true)}>
-              仍要重新生成
-            </Button>
-            <Button size="sm" variant="ghost" className="h-7" onClick={() => setReuse(null)}>
-              取消
-            </Button>
-          </div>
-        </div>
+      {!workbench && (
+        <p className="text-xs text-muted-foreground">
+          用這件產品的尺寸和產品圖辨認結構，確認後生成。SU 是 SKP，完成後可下載；3D 會同時寫出 GLB 和 FBX。
+        </p>
       )}
-      {draft && (
-        <div className="space-y-2 rounded-md border bg-muted/40 p-2 text-xs">
-          <p className="font-medium">生成前請確認結構（{draft.target === 'su' ? 'SU' : '3D'}）</p>
+      {filesError && <p className="text-xs text-destructive">讀不到現有模型檔，暫時不能生成。</p>}
+      <Dialog open={genProgress != null}>
+        <DialogContent
+          className="bg-white text-slate-900 sm:max-w-sm"
+          hideClose
+          style={workbench ? WORKBENCH_TONE : undefined}
+          onInteractOutside={(event) => event.preventDefault()}
+          onEscapeKeyDown={(event) => event.preventDefault()}
+        >
+          {genProgress && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="text-base">{genProgress.label}</DialogTitle>
+                <DialogDescription className="sr-only">生成進度 {genProgress.percent}%</DialogDescription>
+              </DialogHeader>
+              <p className="text-center text-4xl font-semibold tabular-nums text-[#5b4dff]">{genProgress.percent}%</p>
+              <Progress value={genProgress.percent} className="h-2" />
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+      <Dialog open={reuse != null && genProgress == null} onOpenChange={(open) => { if (!open && busy == null) setReuse(null); }}>
+        <DialogContent className="bg-white text-slate-900 sm:max-w-md" style={workbench ? WORKBENCH_TONE : undefined}>
+          {reuse && (
+            <>
+              <DialogHeader>
+                <DialogTitle className="text-base">已有模型檔</DialogTitle>
+                <DialogDescription>
+                  這件產品已有 {[...new Set(reuse.files.map((file) => file.format.toUpperCase()))].join('、')}（
+                  {reuse.files.map((f) => (f.source === 'uploaded' ? '上載' : 'AI 生成')).join('、')}
+                  ），可以直接下載，不用再生成。
+                </DialogDescription>
+              </DialogHeader>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  size="sm"
+                  className={workbench ? 'h-9 rounded-lg' : 'h-8'}
+                  onClick={() => {
+                    const f = reuse.files[0];
+                    void downloadModel(f.storage_path, f.file_name).catch((err) => toast.error('下載失敗', { description: errorText(err) }));
+                  }}
+                >
+                  下載現有檔
+                </Button>
+                <Button size="sm" variant="outline" className={workbench ? 'h-9 rounded-lg' : 'h-8'} disabled={busy != null} onClick={() => start(reuse.target, true)}>
+                  仍要重新生成
+                </Button>
+                <Button size="sm" variant="ghost" className={workbench ? 'h-9 rounded-lg' : 'h-8'} onClick={() => setReuse(null)}>
+                  取消
+                </Button>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={draft != null && genProgress == null}
+        onOpenChange={(open) => { if (!open && busy == null && !partsBusy) setDraft(null); }}
+      >
+        <DialogContent
+          className="max-h-[90vh] overflow-y-auto bg-white text-slate-900 sm:max-w-3xl"
+          style={workbench ? WORKBENCH_TONE : undefined}
+          onInteractOutside={(event) => { if (busy != null || partsBusy) event.preventDefault(); }}
+          onEscapeKeyDown={(event) => { if (busy != null || partsBusy) event.preventDefault(); }}
+        >
+          {draft && (
+        <div className="space-y-3 text-xs">
+          <DialogHeader>
+            <DialogTitle className="text-base">生成前請確認結構（{draft.target === 'su' ? 'SU' : '3D'}）</DialogTitle>
+            <DialogDescription className="sr-only">確認家具類型、尺寸和結構後再生出模型。</DialogDescription>
+          </DialogHeader>
           <div className="space-y-1">
             {FURNITURE_GROUPS.map((group) => (
               <div key={group.label} className="flex flex-wrap items-center gap-1">
@@ -1718,17 +2059,19 @@ function ProductModelsSection({
                   .filter((field) => COUNT_LABELS[field])
                   .map((field) => {
                     const [min, max] = STYLE_LIMITS[field as keyof typeof STYLE_LIMITS];
+                    // A shelf is counted by its levels, top and bottom boards included.
+                    const offset = draft.kind === 'shelf' && field === 'shelves' ? 2 : 0;
                     return (
                       <label key={field} className="flex items-center gap-1">
-                        {COUNT_LABELS[field]}
+                        {offset ? '層數' : COUNT_LABELS[field]}
                         <Input
                           type="number"
-                          min={min}
-                          max={max}
-                          value={String(shownStyle[field])}
+                          min={min + offset}
+                          max={max + offset}
+                          value={String(Number(shownStyle[field]) + offset)}
                           className="h-6 w-14 px-1.5 text-xs"
                           onChange={(event) => {
-                            const n = Number(event.target.value);
+                            const n = Number(event.target.value) - offset;
                             if (Number.isFinite(n)) updateDraft({ style: { ...draft.style, [field]: Math.min(max, Math.max(min, Math.round(n))) } });
                           }}
                         />
@@ -1753,8 +2096,60 @@ function ProductModelsSection({
               </p>
             </>
           )}
+          {draft.kind === 'custom' && (
+            <div className="space-y-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-muted-foreground">
+                  沒有對應模板，按產品圖拆成 {draft.parts.length} 個部件（方塊、圓柱、輪廓）。可刪掉或改尺寸再生成。
+                </span>
+                <Button size="sm" variant="outline" className="h-6 px-2 text-xs" disabled={partsBusy || busy != null} onClick={() => void loadParts()}>
+                  {partsBusy ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
+                  {draft.parts.length > 0 ? '重新辨認部件' : 'AI 拆部件'}
+                </Button>
+              </div>
+              {draft.parts.length > 0 && (
+                <ul className="max-h-48 space-y-0.5 overflow-y-auto rounded border bg-background p-1">
+                  {fittedParts(draft).map((part, index) => (
+                    <li key={`${index}-${part.name}`} className="flex flex-wrap items-center gap-1">
+                      <span className="w-24 truncate" title={part.name}>
+                        {part.name}
+                      </span>
+                      <span className="w-8 text-muted-foreground">{SHAPE_LABELS[part.shape]}</span>
+                      {([0, 1, 2] as const).map((axis) => (
+                        <Input
+                          key={`${axis}-${part.size_mm[axis]}`}
+                          defaultValue={String(part.size_mm[axis])}
+                          inputMode="numeric"
+                          aria-label={`${part.name} ${['闊', '深', '高'][axis]}`}
+                          className="h-5 w-14 px-1 text-[11px]"
+                          onBlur={(event) => resizePart(index, axis, event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter') event.currentTarget.blur();
+                          }}
+                        />
+                      ))}
+                      <button
+                        type="button"
+                        className="ml-1 text-muted-foreground hover:text-destructive"
+                        onClick={() => removePart(index)}
+                      >
+                        刪除
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {draft.notes && <p className="text-muted-foreground">AI：{draft.notes}</p>}
+            </div>
+          )}
+          {previewModel && <ModelSketch model={previewModel} />}
           <div className="flex flex-wrap gap-1.5">
-            <Button size="sm" className="h-7" disabled={busy != null} onClick={() => void generate()}>
+            <Button
+              size="sm"
+              className="h-7"
+              disabled={busy != null || partsBusy || (draft.kind === 'custom' && draft.parts.length === 0)}
+              onClick={() => void generate()}
+            >
               {busy === draft.target ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
               確認生成
             </Button>
@@ -1763,15 +2158,17 @@ function ProductModelsSection({
             </Button>
           </div>
         </div>
-      )}
+          )}
+        </DialogContent>
+      </Dialog>
       {skp && skp.status !== 'none' && (
         <p className={skp.status === 'failed' ? 'text-xs text-destructive' : 'text-xs text-muted-foreground'}>
           {skpStatusText(skp)}
         </p>
       )}
-      {files.length === 0 ? (
+      {!workbench && files.length === 0 ? (
         <p className="text-xs text-muted-foreground">未有模型檔。</p>
-      ) : (
+      ) : !workbench ? (
         <ul className="space-y-1 text-xs">
           {files.map((f) => (
             <li key={f.id} className="flex flex-wrap items-center gap-2">
@@ -1805,7 +2202,7 @@ function ProductModelsSection({
             </li>
           ))}
         </ul>
-      )}
+      ) : null}
     </section>
   );
 }
