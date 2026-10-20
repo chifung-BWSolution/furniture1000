@@ -161,6 +161,7 @@ export type ViewType =
   | 'fds2-pm-budget'
   | 'fds2-pm-quick'
   | 'fds2-pm-pro-pdf'
+  | 'fds2-pm-presentation'
   | 'fds2-cases-orders'
   | 'fds2-cases-photos'
   | 'fds2-cases-clients'

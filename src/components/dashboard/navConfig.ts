@@ -5,7 +5,7 @@ import {
   BookOpenText, ListChecks,
   Building2, BarChart2, Map, LogIn, Mail, FolderTree, History,
   UserCog, ClipboardList, CircleDollarSign, Truck, PackageCheck, Film,
-  Briefcase, Phone, Landmark, Heart, Combine,
+  Briefcase, Phone, Landmark, Heart, Combine, Presentation,
   type LucideIcon,
 } from 'lucide-react';
 import { type PrimarySection, type ViewType } from '@/types/product';
@@ -55,6 +55,7 @@ export const NAV_CONFIG: PrimaryItem[] = [
       { view: 'fds2-pm-budget', label: '報價預算', icon: CircleDollarSign },
       { view: 'fds2-pm-quick', label: '快速報價', icon: Calculator },
       { view: 'fds2-pm-pro-pdf', label: '專業說明 PDF (常用廠家)', icon: FileText },
+      { view: 'fds2-pm-presentation', label: '簡報生成', icon: Presentation },
     ],
   },
   {

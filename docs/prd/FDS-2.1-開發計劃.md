@@ -182,6 +182,13 @@
 | T-902 | F-AI-009 | P2 | T-901 | UI | 選產品→生成 PPT/PDF、事後可編輯 | 匯出成功 | 配額/授權 |
 | T-903 | F-AI-009, R5.2 | P2 | T-901 | 模板層 | 與專業說明 PDF 共用模板元素 | 品牌一致 | 模板設計 |
 
+進度（2026-10-20）：T-901～T-903 完成（除了 Canva 匯入通路要等 `chifung.login` 完成 Canva 連接 App 註冊後才能打通）。
+- 交付通路（決議 C-07 模板路線）：`src/lib/presentation.ts`（PresentationDoc、品牌常數、內容整理規則，與未來專業 PDF `@react-pdf/renderer` 共用）＋ `src/lib/presentationPptx.ts`（pptxgenjs 渲染：封面 → 產品清單（每頁 6 格，圖＋型號＋尺寸＋材質＋折扣價/原價）→ 收尾）。瀏覽器端生成，直接下載 PPTX——驗收標準「可編輯簡報」即此。
+- 新 PM 專屬入口「PM報價 → 簡報生成」（`fds2-pm-presentation`，`PresentationView`）：`fds_search_products` 選產品（≤30 件、排序、折扣價按角色遮蔽）→ 生成並下載 PPTX → 勾「同時匯入 Canva」把同一個 PPTX 經 edge 匯入。
+- Canva 匯入通路（T-901）：Edge `supabase-functions-generate-canva-presentation`，OAuth Authorization-Code＋PKCE（secrets `CANVA_CLIENT_ID`／`CANVA_CLIENT_SECRET`；scope `design:content:write design:meta:read profile:read`）→ token 存 `canva_connections`（migration `20261020015000`，無 policy 只讓 service role 讀）→ `POST /v1/imports`（Design Imports：PPTX → 可編輯 Canva 設計）→ 輪詢回傳 edit_url。匯入留審計 `canva_imports`（本人可讀 own rows）。前端流程：頁上「連接 Canva」→ Canva 授權回本頁 query → exchange＋清 query。
+- 已部署：migration（正式＋FDS2.0 分支）、edge（正式＋分支）。正式與 branch 部署後 `status` action 實測回 `configured:false`。本機以 3 件產品實測 PPTX 生成與下載成功。
+- 限制／待辦：`chifung.login` 在 canva.dev/開發者平台註冊 Connect API App（redirect URI＝`<域名>/fds/pm/presentation`）＋設定兩個 edge secrets 後，匯入通路即可打通；T-903 的 PDF 版共用模板等 `fds2-pm-pro-pdf` 開發時兌現；自動化（非固定）驗證 PPTX 匯入到 Canva 亦待憑證。
+
 ### Day 10 — 聯調、權限、性能、錯誤處理、部署
 
 | Task ID | 功能 ID | 優先級 | 依賴 | 改動模組 | 交付內容 | 驗收標準 | 風險 |

@@ -81,7 +81,7 @@ export async function searchByImage(file: File, filters: SearchFilters): Promise
     },
   });
   if (error || !data) throw new Error(error?.message ?? '以圖搜款失敗');
-  const payload = data as ImageSearchResult;
+  const payload = data as unknown as ImageSearchResult;
   return {
     indexed: Number(payload.indexed ?? 0),
     items: (payload.items ?? []).map((item) => ({ ...item, relation: 'similar' as const, exact: false })),

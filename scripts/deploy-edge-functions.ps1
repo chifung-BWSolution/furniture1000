@@ -125,4 +125,9 @@ Deploy-Function `
   -FilePath (Join-Path $root 'supabase\functions\generate-furniture-model\index.ts') `
   -Name 'generate-furniture-model'
 
+Deploy-Function `
+  -Slug 'supabase-functions-generate-canva-presentation' `
+  -FilePath (Join-Path $root 'supabase\functions\generate-canva-presentation\index.ts') `
+  -Name 'generate-canva-presentation'
+
 Write-Host 'All functions deployed successfully.'
