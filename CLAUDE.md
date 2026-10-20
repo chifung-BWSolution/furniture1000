@@ -284,6 +284,11 @@ node scripts/check-supabase-env.mjs --live   # 額外對各 project 發一次請
   經 `fds_extraction_item_review`／`_batch` RPC。重新解析只刪 `pending` 項，已審核的保留且同型號不再重複產生。
 - 抽出的產品圖存 `product-images/supplier-extracts/<document_id>/<sha256>.jpg`，登記在 `supplier_document_images`
   （同文件同 hash 只存一次）；同一張圖出現 ≥3 頁視為 logo，由 `fds_extraction_items_finalize` 從待審項目移除。
+- Canva（Day 9）：edge slug `supabase-functions-generate-canva-presentation`。OAuth PKCE（scope
+  `design:content:write design:meta:read profile:read`），token 只存 `canva_connections`（無 policy，
+  只 service role 讀）；匯入審計 `canva_imports`（本人讀 own rows）。secrets＝`CANVA_CLIENT_ID`／
+  `CANVA_CLIENT_SECRET`；Canva 通路是 Design Imports（前端生成的 PPTX → 可編輯設計 edit_url，30 天）。
+  redirect URI＝`<域名>/fds/pm/presentation`。匯入限 admin/uploader；PPTX 下載不限。
 - 本機 dev／develop 連的是 Supabase 分支 FDS2.0（`omxizeukbcqzsnjsuwod`）。FDS 2.1 的 migration 與 `process-jobs`
   要**兩邊都部署**（正式 `riaubhtruisbwdlwjzur` ＋ 分支）；套到分支時把 cron 裡的 worker URL 換成分支 ref。
   分支的一鍵登入帳號 `fds-develop-preview@…` 在分支 `platform_user_profiles` 設為 admin。

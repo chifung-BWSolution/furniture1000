@@ -200,6 +200,13 @@
 | T-1005 | 全部 | P0 | T-1002 | Vercel/Supabase | 部署內部 Beta | Beta 可存取 | 環境設定 |
 | T-1006 | — | P0 | T-1005 | 文件 | Beta 測試指引＋已知限制 | 測試者可上手 | — |
 
+進度（2026-10-20）：
+- T-1001 完成：12 張 FDS 2.1 新表在正式與 FDS2.0 分支逐表核對——RLS 全開；reading policy＝`bwf_has_role(['admin','uploader'])` 或 own-row；寫入只經 security-definer RPC；`canva_connections` 無 policy（service role only）；`furniture_models` 同模式。沒有新增 allow-all。
+- T-1004 完成（結構性驗證）：`processing_jobs` 有 `idempotency_key` 唯一鍵＋`one_active_per_document`（document_id, job_type WHERE queued/running）部分唯一索引；兩邊查無重複活動任務（claim/heartbeat/complete/fail 的 runtime 行為 Day 2–5 已驗）。
+- T-1003 抽測：`fds_search_products`（5,289 件）經 PostgREST 3 次連續呼叫 0.99–1.43 秒（含本機→Supabase 網路），無登入 JWT 呼叫正確被拒。與 Day 4 記錄一致，在 2 秒預算內。
+- T-1005／T-1006：edge 與 migration 已雙環境部署；`docs/prd/FDS-2.1-Beta測試指引.md` 已寫。剩把 develop push 觸發 Vercel build（若 CI 未自動）；端到端示範已在 Day 5/7/9 做過（上載→解析→審核→搜索→溯源、比較、GLB、PPTX）。
+- 待完成：真實 PDF 準確率回測（T-503）、SketchUp 實機驗證（T-803）、Canva 憑證匯入 PoC（T-901 收尾）。
+
 ---
 
 ## 4. 依賴關聯圖（摘要）
