@@ -1,7 +1,7 @@
 import {
   Users, Calculator, Package, Globe, BarChart3, Settings as SettingsIcon,
   LayoutDashboard, Search, PenTool, Boxes, BookOpen, FileText, FileUp,
-  Sofa, BadgeDollarSign, Sparkles, Box, Cuboid, Wallet, Images, Star, Trash2,
+  Sofa, BadgeDollarSign, Sparkles, Wallet, Images, Star, Trash2,
   BookOpenText, ListChecks,
   Building2, BarChart2, Map, LogIn, Mail, FolderTree, History,
   UserCog, ClipboardList, CircleDollarSign, Truck, PackageCheck, Film,
@@ -43,8 +43,6 @@ export const NAV_CONFIG: PrimaryItem[] = [
       { view: 'fds2-designer-pdf', label: '產品PDF', icon: FileText },
       { view: 'fds2-designer-common', label: '常用傢俬', icon: Heart },
       { view: 'fds2-designer-latest', label: '最新產品', icon: Sparkles },
-      { view: 'fds2-designer-su', label: 'SU模型', icon: Box },
-      { view: 'fds2-designer-3d', label: '3D模型', icon: Cuboid },
     ],
   },
   {

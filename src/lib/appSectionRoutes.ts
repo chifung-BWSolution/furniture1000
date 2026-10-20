@@ -52,8 +52,6 @@ const VIEW_PATHS: { view: ViewType; path: string }[] = [
   { view: 'fds2-designer-pdf', path: `${FDS_BASE}/designer/pdf` },
   { view: 'fds2-designer-common', path: `${FDS_BASE}/designer/common` },
   { view: 'fds2-designer-latest', path: `${FDS_BASE}/designer/latest` },
-  { view: 'fds2-designer-su', path: `${FDS_BASE}/designer/su` },
-  { view: 'fds2-designer-3d', path: `${FDS_BASE}/designer/3d` },
   { view: 'fds2-pm-budget', path: `${FDS_BASE}/pm/budget` },
   { view: 'fds2-pm-quick', path: `${FDS_BASE}/pm/quick` },
   { view: 'fds2-pm-pro-pdf', path: `${FDS_BASE}/pm/pro-pdf` },
@@ -146,6 +144,30 @@ export function pathFromAppView(view: ViewType): string | null {
   return PATH_BY_VIEW.get(view) ?? null;
 }
 
+/** 產品類型 list. A product opens at `${DESIGNER_TYPES_PATH}/:productId`. */
+export const DESIGNER_TYPES_PATH = `${FDS_BASE}/designer/types`;
+
+export function buildDesignerProductPath(productId: string): string {
+  const id = productId.trim();
+  if (!id) return DESIGNER_TYPES_PATH;
+  return `${DESIGNER_TYPES_PATH}/${encodeURIComponent(id)}`;
+}
+
+/** Product id from `/fds/designer/types/:productId`, or null on the list. */
+export function designerProductIdFromPath(pathname: string): string | null {
+  const path = pathname.replace(/\/+$/, '') || '/';
+  const prefix = `${DESIGNER_TYPES_PATH}/`;
+  if (!path.startsWith(prefix)) return null;
+  const segment = path.slice(prefix.length);
+  if (!segment || segment.includes('/')) return null;
+  try {
+    const id = decodeURIComponent(segment).trim();
+    return id || null;
+  } catch {
+    return null;
+  }
+}
+
 export function isAppSectionPath(pathname: string): boolean {
   const path = pathname.replace(/\/+$/, '') || '/';
   if (path === '/') return false;
@@ -173,6 +195,11 @@ export function appViewFromPath(pathname: string): ViewType | null {
 
   // Removed 銷售報告 — old bookmarks land on 廠家報告
   if (path === `${REPORTS_BASE}/sales`) return 'report-factory';
+
+  // SU／3D 模型頁已從設計師選傢俬拿掉，舊連結回到產品類型。
+  if (path === `${FDS_BASE}/designer/su` || path === `${FDS_BASE}/designer/3d`) {
+    return 'fds2-designer-types';
+  }
 
   // Moved Shopify 上載產品紀錄 from 設定 → 分析報表
   if (path === `${SETTINGS_BASE}/upload-product-log`) {

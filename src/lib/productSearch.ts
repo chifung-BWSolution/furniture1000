@@ -54,6 +54,8 @@ export interface SearchProduct {
   created_at: string;
   on_shopify: boolean;
   in_catalog: boolean;
+  /** Current user's 常用傢俬 heart. */
+  favorited?: boolean;
   middle_price?: number;
   sale_price?: number;
   legacy_cost?: number;
@@ -69,6 +71,8 @@ export interface SearchProduct {
 export interface SearchResult {
   total: number;
   can_view_cost: boolean;
+  /** Private supplier PDF: only admin / uploader may open it. */
+  can_open_source: boolean;
   items: SearchProduct[];
 }
 
@@ -178,6 +182,9 @@ export interface SupplierCompareRow {
   dimension_h_mm?: number;
   material?: string;
   color?: string;
+  /** Middle price (sale price × 0.8). Every role sees it; cost stays masked. */
+  middle_price?: number;
+  sale_price?: number;
   offers: SupplierOffer[];
 }
 
@@ -287,10 +294,20 @@ export function expandColorFilters(colors: string[]): string[] {
   return out;
 }
 
+export interface SearchExtra {
+  /** Only products created within this many days. */
+  sinceDays?: number | null;
+  /** Current user's 常用傢俬 only. */
+  onlyFavorites?: boolean;
+  /** Products linked to one supplier PDF. */
+  documentId?: string | null;
+}
+
 export async function searchProducts(
   filters: SearchFilters,
   page: number,
   pageSize: number,
+  extra?: SearchExtra,
 ): Promise<SearchResult> {
   const { text, colors: queryColors } = splitColorTerms(filters.query);
   // Swatches submit English names (White). Imported rows may still say 白色.
@@ -316,6 +333,9 @@ export async function searchProducts(
     p_sort: filters.sort,
     p_limit: pageSize,
     p_offset: page * pageSize,
+    p_since_days: extra?.sinceDays && extra.sinceDays > 0 ? extra.sinceDays : null,
+    p_only_favorites: extra?.onlyFavorites ? true : null,
+    p_document_id: extra?.documentId || null,
   });
   if (error) throw new Error(rpcErrorMessage(error.message));
   return data as SearchResult;
@@ -360,6 +380,23 @@ export function sizeLabel(p: Pick<SearchProduct, 'dimension_l_mm' | 'dimension_w
   const dims = [p.dimension_l_mm, p.dimension_w_mm, p.dimension_h_mm];
   if (dims.every((d) => d == null || d <= 0)) return null;
   return dims.map((d) => (d == null || d <= 0 ? '?' : Math.round(d))).join(' × ');
+}
+
+export async function setDesignerFavorite(productId: string, on: boolean): Promise<boolean> {
+  const { data, error } = await supabase.rpc('fds_designer_favorite_set', {
+    p_product_id: productId,
+    p_on: on,
+  });
+  if (error) throw new Error(rpcErrorMessage(error.message));
+  return data === true;
+}
+
+export async function isDesignerFavorite(productId: string): Promise<boolean> {
+  const { data, error } = await supabase.rpc('fds_designer_favorite_has', {
+    p_product_id: productId,
+  });
+  if (error) throw new Error(rpcErrorMessage(error.message));
+  return data === true;
 }
 
 export function moneyLabel(value: number | null | undefined, currency?: string | null): string | null {

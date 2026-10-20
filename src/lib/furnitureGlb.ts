@@ -1,30 +1,27 @@
-import type { ModelPart, ParametricModel } from '@/lib/furnitureParametric';
+import { faceNormal, partFaces, triangulateFace, type ModelPart, type ParametricModel, type Vec3 } from '@/lib/furnitureParametric';
 
-/** glTF is Y-up. Our parts are Z-up, so height becomes Y and depth becomes Z. */
-function boxVertices(part: ModelPart): { positions: number[]; normals: number[]; indices: number[] } {
-  const [w, d, h] = part.size_mm.map((n) => n / 1000);
-  const hx = w / 2;
-  const hy = h / 2;
-  const hz = d / 2;
-  const faces: Array<{ n: [number, number, number]; corners: Array<[number, number, number]> }> = [
-    { n: [0, 0, 1], corners: [[hx, hy, hz], [-hx, hy, hz], [-hx, -hy, hz], [hx, -hy, hz]] },
-    { n: [0, 0, -1], corners: [[-hx, hy, -hz], [hx, hy, -hz], [hx, -hy, -hz], [-hx, -hy, -hz]] },
-    { n: [1, 0, 0], corners: [[hx, hy, -hz], [hx, hy, hz], [hx, -hy, hz], [hx, -hy, -hz]] },
-    { n: [-1, 0, 0], corners: [[-hx, hy, hz], [-hx, hy, -hz], [-hx, -hy, -hz], [-hx, -hy, hz]] },
-    { n: [0, 1, 0], corners: [[-hx, hy, -hz], [hx, hy, -hz], [hx, hy, hz], [-hx, hy, hz]] },
-    { n: [0, -1, 0], corners: [[-hx, -hy, hz], [hx, -hy, hz], [hx, -hy, -hz], [-hx, -hy, -hz]] },
-  ];
+/**
+ * glTF is Y-up, ours is Z-up: rotate -90° about X, so (x, y, z) becomes (x, z, -y).
+ * A rotation keeps handedness, so the model is not mirrored and the winding stays outward.
+ */
+const toGltf = ([x, y, z]: Vec3): Vec3 => [x / 1000, z / 1000, -y / 1000];
+
+/** Flat-shaded faces relative to the part center; concave faces (folded legs) are ear-clipped. */
+function partVertices(part: ModelPart): { positions: number[]; normals: number[]; indices: number[] } {
+  const faces = part.faces_mm?.length ? part.faces_mm : partFaces(part);
+  const [cx, cy, cz] = part.position_mm;
   const positions: number[] = [];
   const normals: number[] = [];
   const indices: number[] = [];
-  faces.forEach((face, faceIndex) => {
-    const base = faceIndex * 4;
-    for (const [x, y, z] of face.corners) {
-      positions.push(x, y, z);
-      normals.push(...face.n);
+  for (const face of faces) {
+    const base = positions.length / 3;
+    const normal = toGltf(faceNormal(face).map((n) => n * 1000) as Vec3);
+    for (const [x, y, z] of face) {
+      positions.push(...toGltf([x - cx, y - cy, z - cz]));
+      normals.push(...normal);
     }
-    indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
-  });
+    for (const [i, j, k] of triangulateFace(face)) indices.push(base + i, base + j, base + k);
+  }
   return { positions, normals, indices };
 }
 
@@ -45,7 +42,7 @@ export function buildFurnitureGlb(model: ParametricModel): Blob {
   const normalArrays: Float32Array[] = [];
   const indexArrays: Uint16Array[] = [];
   parts.forEach((part) => {
-    const box = boxVertices(part);
+    const box = partVertices(part);
     positionArrays.push(new Float32Array(box.positions));
     normalArrays.push(new Float32Array(box.normals));
     indexArrays.push(Uint16Array.from(box.indices.map((index) => index)));
@@ -83,10 +80,9 @@ export function buildFurnitureGlb(model: ParametricModel): Blob {
       view.setUint16(offset, value, true);
       offset += 2;
     });
-    const [px, py, pz] = part.position_mm;
     return {
       part,
-      translation: [px / 1000, pz / 1000, py / 1000],
+      translation: toGltf(part.position_mm),
       positionOffset,
       normalOffset,
       indexOffset,

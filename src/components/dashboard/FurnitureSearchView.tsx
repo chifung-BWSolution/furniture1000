@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
-  ChevronLeft, ChevronRight, ExternalLink, FileText, ImagePlus, Loader2, Package, RotateCcw, Ruler, Search,
+  ChevronLeft, ChevronRight, ExternalLink, FileText, Heart, ImagePlus, Loader2, Package, RotateCcw, Ruler, Search,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { productThumbUrl } from '@/lib/imageThumb';
@@ -14,14 +15,39 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { MultiColorSelector } from '@/components/dashboard/MultiColorSelector';
 import { ProductImageGalleryLightbox } from '@/components/dashboard/ProductImageGallery';
 import { autoMatchColor, getChineseColorLabel, getColorHex, multiColorToChineseDisplay } from '@/constants/color-map';
 import { MATERIAL_TAG_RULES } from '@/constants/material-tags';
+import { DESIGNER_TYPES_PATH, buildDesignerProductPath, designerProductIdFromPath } from '@/lib/appSectionRoutes';
 import { SourcePageDialog } from '@/components/dashboard/SourcePageDialog';
 import type { SourcePageRequest } from '@/lib/sourcePage';
 import { fetchEmbeddingStatus, searchByImage, startImageIndex, type EmbeddingStatus } from '@/lib/imageSearch';
+import { supabase } from '@/lib/supabase';
+import { invokeEdgeFunctionDirect } from '@/lib/invokeEdgeFunction';
+import { buildFurnitureGlb } from '@/lib/furnitureGlb';
+import {
+  FURNITURE_KINDS,
+  buildParametric,
+  inferFurnitureKind,
+  inferTableStyle,
+  type FurnitureKind,
+  type ParametricModel,
+  type SizeAxis,
+} from '@/lib/furnitureParametric';
+import {
+  deleteProductModel,
+  downloadModel,
+  fetchModelFlags,
+  fetchProductModels,
+  fetchSkpStatus,
+  registerGeneratedGlb,
+  requestSkp,
+  uploadProductModel,
+  type ModelFlags,
+  type ProductModelFile,
+  type SkpStatus,
+} from '@/lib/productModels';
 import {
   EMPTY_SEARCH_FILTERS,
   VALIDITY_LABELS,
@@ -30,7 +56,9 @@ import {
   fetchSupplierCompare,
   mergeDuplicateProduct,
   moneyLabel,
+  isDesignerFavorite,
   searchProducts,
+  setDesignerFavorite,
   sizeLabel,
   type PriceValidity,
   type ProductDetail,
@@ -101,18 +129,46 @@ function activeFilterCount(f: SearchFilters): number {
     + (f.scope !== 'all' ? 1 : 0);
 }
 
-export function FurnitureSearchView() {
-  const [filters, setFilters] = useState<SearchFilters>(EMPTY_SEARCH_FILTERS);
+const NEW_PRODUCT_MS = 14 * 24 * 60 * 60 * 1000;
+const DAY_WINDOWS = [7, 30, 90] as const;
+
+export type DesignerBrowseMode = 'browse' | 'latest' | 'favorites';
+
+function isNewProduct(createdAt: string | undefined): boolean {
+  if (!createdAt) return false;
+  const time = new Date(createdAt).getTime();
+  return Number.isFinite(time) && Date.now() - time <= NEW_PRODUCT_MS;
+}
+
+export function FurnitureSearchView({
+  mode = 'browse',
+  documentId = null,
+}: {
+  mode?: DesignerBrowseMode;
+  /** Limit the grid to products linked from one supplier PDF. */
+  documentId?: string | null;
+}) {
+  const [filters, setFilters] = useState<SearchFilters>(() => ({
+    ...EMPTY_SEARCH_FILTERS,
+    sort: mode === 'latest' ? 'newest' : EMPTY_SEARCH_FILTERS.sort,
+  }));
+  const [sinceDays, setSinceDays] = useState<number | null>(null);
   const [page, setPage] = useState(0);
   const [result, setResult] = useState<SearchResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [elapsedMs, setElapsedMs] = useState<number | null>(null);
   const [facets, setFacets] = useState<SearchFacets | null>(null);
-  const [detailId, setDetailId] = useState<string | null>(null);
+  const navigate = useNavigate();
+  const location = useLocation();
+  const routeDetail = mode === 'browse' && !documentId;
+  const [localDetailId, setLocalDetailId] = useState<string | null>(null);
+  const detailId = routeDetail ? designerProductIdFromPath(location.pathname) : localDetailId;
   const [sourcePage, setSourcePage] = useState<(SourcePageRequest & { title?: string | null }) | null>(null);
   const [imageHits, setImageHits] = useState<SearchProduct[] | null>(null);
   const [imageIndexed, setImageIndexed] = useState<number | null>(null);
   const [imageLoading, setImageLoading] = useState(false);
+  /** The uploaded picture stays put so a filter change can re-run the image search. */
+  const [imageFile, setImageFile] = useState<File | null>(null);
   const [indexStatus, setIndexStatus] = useState<EmbeddingStatus | null>(null);
   const [indexing, setIndexing] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -122,7 +178,37 @@ export function FurnitureSearchView() {
   );
   const pageSize = columns * ROWS_PER_PAGE;
 
-  const closeDetail = useCallback(() => setDetailId(null), []);
+  const closeDetail = useCallback(() => {
+    if (routeDetail) navigate(DESIGNER_TYPES_PATH);
+    else setLocalDetailId(null);
+  }, [navigate, routeDetail]);
+  const openDetail = useCallback((productId: string) => {
+    if (routeDetail) navigate(buildDesignerProductPath(productId));
+    else setLocalDetailId(productId);
+  }, [navigate, routeDetail]);
+  const toggleFavorite = useCallback((productId: string, next: boolean) => {
+    return setDesignerFavorite(productId, next)
+      .then((on) => {
+        const paint = (item: SearchProduct) => (item.id === productId ? { ...item, favorited: on } : item);
+        setImageHits((cur) => cur?.map(paint) ?? cur);
+        setResult((cur) => {
+          if (!cur) return cur;
+          if (mode === 'favorites' && !on) {
+            return {
+              ...cur,
+              total: Math.max(0, cur.total - 1),
+              items: cur.items.filter((item) => item.id !== productId),
+            };
+          }
+          return { ...cur, items: cur.items.map(paint) };
+        });
+        return on;
+      })
+      .catch((err) => {
+        toast.error('更新常用傢俬失敗', { description: errorText(err) });
+        throw err;
+      });
+  }, [mode]);
   const debounced = useDebounced(filters, 300);
   const patch = useCallback((next: Partial<SearchFilters>) => {
     setFilters((cur) => ({ ...cur, ...next }));
@@ -137,10 +223,16 @@ export function FurnitureSearchView() {
   }, []);
 
   useEffect(() => {
+    // Image mode owns the list; the text search would only waste a round trip.
+    if (imageFile) return;
     let cancelled = false;
     setLoading(true);
     const started = performance.now();
-    searchProducts(debounced, page, pageSize)
+    searchProducts(debounced, page, pageSize, {
+      sinceDays: mode === 'latest' ? sinceDays : null,
+      onlyFavorites: mode === 'favorites',
+      documentId,
+    })
       .then((res) => {
         if (cancelled) return;
         setResult(res);
@@ -155,7 +247,34 @@ export function FurnitureSearchView() {
     return () => {
       cancelled = true;
     };
-  }, [debounced, page, pageSize]);
+  }, [debounced, page, pageSize, imageFile, mode, sinceDays, documentId]);
+
+  // Any filter change re-runs the image search with the same picture.
+  useEffect(() => {
+    if (!imageFile) return;
+    let cancelled = false;
+    setImageLoading(true);
+    searchByImage(imageFile, debounced)
+      .then((res) => {
+        if (cancelled) return;
+        setImageHits(res.items);
+        setImageIndexed(res.indexed);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        // Stop the spinner and leave an empty list; the toast carries the reason.
+        setImageHits([]);
+        toast.error('以圖搜款失敗', { description: errorText(err) });
+      })
+      .finally(() => {
+        if (!cancelled) setImageLoading(false);
+      });
+    return () => {
+      cancelled = true;
+      // Leaving image mode must not leave the spinner running.
+      setImageLoading(false);
+    };
+  }, [imageFile, debounced]);
 
   useEffect(() => {
     const el = scrollerRef.current;
@@ -169,6 +288,25 @@ export function FurnitureSearchView() {
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
+
+  const [modelFlags, setModelFlags] = useState<ModelFlags>({});
+  const [modelFlagsKey, setModelFlagsKey] = useState(0);
+  const visibleIds = useMemo(
+    () => (imageHits ?? result?.items ?? []).map((p) => p.id).join(','),
+    [imageHits, result],
+  );
+  useEffect(() => {
+    if (!visibleIds) return;
+    let cancelled = false;
+    fetchModelFlags(visibleIds.split(','))
+      .then((flags) => {
+        if (!cancelled) setModelFlags(flags);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [visibleIds, modelFlagsKey]);
 
   const seenColumns = useRef(columns);
   useEffect(() => {
@@ -191,6 +329,24 @@ export function FurnitureSearchView() {
   const total = result?.total ?? 0;
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
   const filterCount = activeFilterCount(filters);
+  const allowImageSearch = mode === 'browse' && !documentId;
+  const openFavorite = (imageHits ?? result?.items ?? []).find((item) => item.id === detailId)?.favorited === true;
+
+  if (detailId) {
+    return (
+      <>
+        <ProductDetailPage
+          productId={detailId}
+          favorited={openFavorite}
+          onToggleFavorite={(next) => toggleFavorite(detailId, next)}
+          onClose={closeDetail}
+          onOpenSource={setSourcePage}
+          onModelsChanged={() => setModelFlagsKey((n) => n + 1)}
+        />
+        {sourcePage && <SourcePageDialog request={sourcePage} onClose={() => setSourcePage(null)} />}
+      </>
+    );
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 p-4">
@@ -204,6 +360,7 @@ export function FurnitureSearchView() {
             className="pl-8"
           />
         </div>
+        {allowImageSearch && (
         <input
           ref={imageInputRef}
           type="file"
@@ -213,16 +370,12 @@ export function FurnitureSearchView() {
             const file = e.target.files?.[0];
             e.target.value = '';
             if (!file) return;
-            setImageLoading(true);
-            searchByImage(file, filters)
-              .then((res) => {
-                setImageHits(res.items);
-                setImageIndexed(res.indexed);
-              })
-              .catch((err) => toast.error('以圖搜款失敗', { description: errorText(err) }))
-              .finally(() => setImageLoading(false));
+            // The effect above runs the search; a later filter change reuses it.
+            setImageFile(file);
           }}
         />
+        )}
+        {allowImageSearch && (
         <Button
           size="sm"
           variant="outline"
@@ -232,12 +385,13 @@ export function FurnitureSearchView() {
           {imageLoading ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="mr-1 h-3.5 w-3.5" />}
           以圖搜款
         </Button>
-        {imageHits && (
-          <Button size="sm" variant="ghost" onClick={() => { setImageHits(null); setImageIndexed(null); }}>
+        )}
+        {allowImageSearch && imageFile && (
+          <Button size="sm" variant="ghost" onClick={() => { setImageFile(null); setImageHits(null); setImageIndexed(null); }}>
             返回文字搜尋
           </Button>
         )}
-        {indexStatus?.can_index && (
+        {allowImageSearch && indexStatus?.can_index && (
           <Button
             size="sm"
             variant="outline"
@@ -269,6 +423,35 @@ export function FurnitureSearchView() {
           </SelectContent>
         </Select>
       </div>
+
+      {mode === 'latest' && (
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs text-muted-foreground">上架時間</span>
+          <Button
+            size="sm"
+            variant={sinceDays == null ? 'default' : 'outline'}
+            className="h-8"
+            onClick={() => { setSinceDays(null); setPage(0); }}
+          >
+            全部
+          </Button>
+          {DAY_WINDOWS.map((days) => (
+            <Button
+              key={days}
+              size="sm"
+              variant={sinceDays === days ? 'default' : 'outline'}
+              className="h-8"
+              onClick={() => { setSinceDays(days); setPage(0); }}
+            >
+              最近 {days} 天
+            </Button>
+          ))}
+          <span className="text-xs text-muted-foreground">14 天內上架會標「新」</span>
+        </div>
+      )}
+      {mode === 'favorites' && (
+        <p className="text-xs text-muted-foreground">這是你的愛心清單，其他同事看不到。</p>
+      )}
 
       <div className="flex flex-wrap items-center gap-2">
         {SCOPES.map((s) => (
@@ -438,20 +621,22 @@ export function FurnitureSearchView() {
 
       <div className="flex items-center justify-between text-xs text-muted-foreground">
         <span>
-          {imageHits
-            ? imageIndexed === 0
-              ? '圖片索引還是空的，請先由管理員索引產品圖'
-              : `相似款 ${imageHits.length} 件（相似度不是同一款）`
+          {imageFile
+            ? imageLoading
+              ? '以圖搜款中…'
+              : imageIndexed === 0
+                ? '圖片索引還是空的，請先由管理員索引產品圖'
+                : `相似款 ${imageHits?.length ?? 0} 件（相似度不是同一款）`
             : loading
               ? '搜尋中…'
               : `共 ${total.toLocaleString()} 件產品`}
-          {!imageHits && !loading && elapsedMs != null && ` · ${(elapsedMs / 1000).toFixed(2)} 秒`}
+          {!imageFile && !loading && elapsedMs != null && ` · ${(elapsedMs / 1000).toFixed(2)} 秒`}
         </span>
         <span>折扣價為售價 × 0.8，其後為原價</span>
       </div>
 
       <div ref={scrollerRef} className="relative min-h-0 flex-1 overflow-y-auto">
-        {imageLoading ? (
+        {(imageLoading || (imageFile && !imageHits)) ? (
           <div className="flex items-center justify-center py-24 text-sm text-muted-foreground">
             <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 對照產品圖…
           </div>
@@ -464,8 +649,12 @@ export function FurnitureSearchView() {
                 <ProductCard
                   key={p.id}
                   product={p}
-                  onOpen={() => setDetailId(p.id)}
+                  models={modelFlags[p.id]}
+                  showNew={mode === 'latest'}
+                  onOpen={() => openDetail(p.id)}
+                  onToggleFavorite={() => toggleFavorite(p.id, p.favorited !== true)}
                   onOpenSource={setSourcePage}
+                  canOpenSource={false}
                 />
               ))}
             </div>
@@ -475,7 +664,11 @@ export function FurnitureSearchView() {
             <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 載入中…
           </div>
         ) : (result?.items.length ?? 0) === 0 ? (
-          <div className="py-24 text-center text-sm text-muted-foreground">沒有符合條件的產品</div>
+          <div className="py-24 text-center text-sm text-muted-foreground">
+            {mode === 'favorites' && !filters.query && filterCount === 0
+              ? '還沒有常用傢俬。在產品上按愛心即可加入。'
+              : '沒有符合條件的產品'}
+          </div>
         ) : (
           <div
             className={cn(
@@ -487,15 +680,19 @@ export function FurnitureSearchView() {
               <ProductCard
                 key={p.id}
                 product={p}
-                onOpen={() => setDetailId(p.id)}
+                models={modelFlags[p.id]}
+                showNew={mode === 'latest'}
+                onOpen={() => openDetail(p.id)}
+                onToggleFavorite={() => toggleFavorite(p.id, p.favorited !== true)}
                 onOpenSource={setSourcePage}
+                canOpenSource={result?.can_open_source === true}
               />
             ))}
           </div>
         )}
       </div>
 
-      {!imageHits && pageCount > 1 && (
+      {!imageFile && pageCount > 1 && (
         <div className="flex items-center justify-center gap-2 text-sm">
           <Button size="icon" variant="outline" className="h-8 w-8" disabled={page === 0} onClick={() => setPage(page - 1)}>
             <ChevronLeft className="h-4 w-4" />
@@ -515,9 +712,6 @@ export function FurnitureSearchView() {
         </div>
       )}
 
-      {detailId && (
-        <ProductDetailDialog productId={detailId} onClose={closeDetail} onOpenSource={setSourcePage} />
-      )}
       {sourcePage && <SourcePageDialog request={sourcePage} onClose={() => setSourcePage(null)} />}
     </div>
   );
@@ -599,12 +793,21 @@ function PriceLockup({
 
 function ProductCard({
   product: p,
+  models,
+  showNew,
   onOpen,
+  onToggleFavorite,
   onOpenSource,
+  canOpenSource,
 }: {
   product: SearchProduct;
+  models?: { su: boolean; '3d': boolean };
+  showNew?: boolean;
   onOpen: () => void;
+  onToggleFavorite: () => void;
   onOpenSource: (request: SourcePageRequest & { title?: string | null }) => void;
+  /** Private supplier PDF: only admin / uploader may open it. */
+  canOpenSource: boolean;
 }) {
   const size = sizeLabel(p);
   const { primary, secondary } = splitTitle(p.title);
@@ -615,7 +818,16 @@ function ProductCard({
   const extraThumbs = Math.max(0, photos.length - 1 - thumbs.length);
   const quoteState = p.quote && p.quote.validity !== 'valid' ? p.quote.validity : null;
   return (
-    <div className="group flex h-full flex-col overflow-hidden rounded-xl border border-border bg-card text-left shadow-sm transition-shadow hover:shadow-md">
+    <div className="group relative flex h-full flex-col overflow-hidden rounded-xl border border-border bg-card text-left shadow-sm transition-shadow hover:shadow-md">
+      <button
+        type="button"
+        aria-label={p.favorited ? '取消常用' : '加入常用傢俬'}
+        title={p.favorited ? '取消常用' : '加入常用傢俬'}
+        className="absolute right-2 top-2 z-10 rounded-full bg-white/90 p-1.5 text-muted-foreground shadow-sm hover:text-rose-500"
+        onClick={onToggleFavorite}
+      >
+        <Heart className={cn('h-4 w-4', p.favorited && 'fill-rose-500 text-rose-500')} />
+      </button>
       <button type="button" onClick={onOpen} className="flex flex-1 flex-col text-left">
         <div className="relative h-36 w-full shrink-0 overflow-hidden bg-muted">
           {photos[0] ? (
@@ -632,6 +844,9 @@ function ProductCard({
             </div>
           )}
           <div className="absolute left-3 top-3 flex flex-wrap gap-1">
+            {showNew && isNewProduct(p.created_at) && (
+              <span className="rounded-full bg-violet-100 px-2 py-0.5 text-xs font-medium text-violet-700">新</span>
+            )}
             {p.in_stock && (
               <span className="rounded-full bg-sky-100 px-2 py-0.5 text-xs font-medium text-sky-700">現貨</span>
             )}
@@ -644,6 +859,16 @@ function ProductCard({
               </span>
             )}
           </div>
+          {(models?.su || models?.['3d']) && (
+            <div className="absolute bottom-2 right-2 flex gap-1">
+              {models.su && (
+                <span className="rounded bg-white/90 px-1.5 py-0.5 text-[10px] font-semibold text-foreground">SU</span>
+              )}
+              {models['3d'] && (
+                <span className="rounded bg-white/90 px-1.5 py-0.5 text-[10px] font-semibold text-foreground">3D</span>
+              )}
+            </div>
+          )}
         </div>
         <div className="flex flex-1 flex-col gap-1 p-2.5">
           <div>
@@ -719,7 +944,7 @@ function ProductCard({
           </div>
         </div>
       </button>
-      {p.source && (
+      {p.source && (canOpenSource ? (
         <button
           type="button"
           className="flex items-center gap-1 truncate border-t border-border px-3 py-1.5 text-left text-[11px] text-primary hover:bg-muted/40"
@@ -737,7 +962,16 @@ function ProductCard({
           </span>
           {(p.quote?.count ?? 0) > 1 && <span className="shrink-0 text-muted-foreground">· {p.quote!.count} 個報價</span>}
         </button>
-      )}
+      ) : (
+        // The document itself stays private: show where it came from, not a way in.
+        <div className="flex items-center gap-1 truncate border-t border-border px-3 py-1.5 text-left text-[11px] text-muted-foreground">
+          <FileText className="h-3 w-3 shrink-0" />
+          <span className="truncate">
+            {p.source.title ?? '供應商文件'}
+            {p.source.page_no != null && ` · 第 ${p.source.page_no} 頁`}
+          </span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -748,12 +982,14 @@ function SupplierCompareSection({
   compare,
   keepId,
   canMerge,
+  canOpenSource,
   onOpenSource,
   onMerged,
 }: {
   compare: SupplierCompare | null;
   keepId: string;
   canMerge: boolean;
+  canOpenSource: boolean;
   onOpenSource: (request: SourcePageRequest & { title?: string | null }) => void;
   onMerged: () => void;
 }) {
@@ -779,6 +1015,7 @@ function SupplierCompareSection({
                 <th className="px-2 py-1.5 text-left font-medium">廠家</th>
                 <th className="px-2 py-1.5 text-left font-medium">尺寸／材質</th>
                 <th className="px-2 py-1.5 text-left font-medium">報價</th>
+                <th className="px-2 py-1.5 text-left font-medium">中間價</th>
                 <th className="px-2 py-1.5 text-left font-medium">狀態</th>
                 <th className="px-2 py-1.5 text-left font-medium">來源</th>
               </tr>
@@ -812,7 +1049,7 @@ function SupplierCompareSection({
                           )}
                         </div>
                       ) : (
-                        <span className="text-muted-foreground">歷史</span>
+                        <span className="text-muted-foreground">{offer && !offer.current ? '歷史' : ''}</span>
                       )}
                     </td>
                     <td className="px-2 py-1.5 align-top text-muted-foreground">
@@ -834,6 +1071,16 @@ function SupplierCompareSection({
                       ) : '未有已審核報價'}
                     </td>
                     <td className="px-2 py-1.5 align-top">
+                      {index === 0 && row.middle_price != null ? (
+                        <div>
+                          <div>{moneyLabel(row.middle_price, 'HK$')}</div>
+                          {!compare.can_view_cost && <div className="text-muted-foreground">成本已遮蔽</div>}
+                        </div>
+                      ) : index === 0 ? (
+                        '—'
+                      ) : null}
+                    </td>
+                    <td className="px-2 py-1.5 align-top">
                       {offer && (
                         <Badge variant="outline" className={cn('px-1.5 py-0 text-[10px] font-normal', VALIDITY_CLASS[offer.validity])}>
                           {offer.current ? '當前' : '歷史'} · {VALIDITY_LABELS[offer.validity]}
@@ -848,6 +1095,7 @@ function SupplierCompareSection({
                           documentId={offer.document_id}
                           productId={row.product_id}
                           onOpen={onOpenSource}
+                          canOpen={canOpenSource}
                         />
                       )}
                     </td>
@@ -862,16 +1110,367 @@ function SupplierCompareSection({
   );
 }
 
-function ProductDetailDialog({
+const SKP_POLL_MS = 5000;
+
+function skpStatusText(skp: SkpStatus): string {
+  switch (skp.status) {
+    case 'ready':
+      return 'SKP 已生成，可以下載';
+    case 'queued':
+      return skp.attempts > 0 ? `排隊重試中（第 ${skp.attempts} 次失敗：${skp.error ?? '未知錯誤'}）` : 'SKP 排隊中，等 Windows SKP Worker 處理';
+    case 'running':
+      return 'SKP 生成中…';
+    case 'failed':
+      return `SKP 生成失敗：${skp.error ?? '未知錯誤'}`;
+    case 'cancelled':
+      return 'SKP 任務已取消';
+    default:
+      return '';
+  }
+}
+
+function measuredMm(value?: number | null): number | null {
+  return value != null && Number.isFinite(value) && value > 0 ? value : null;
+}
+
+async function fileToJpeg(file: File): Promise<string> {
+  const bitmap = await createImageBitmap(file);
+  const scale = Math.min(1, 768 / Math.max(bitmap.width, bitmap.height));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+  canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('無法讀取圖片');
+  ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+  bitmap.close();
+  const blob = await new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob((value) => (value ? resolve(value) : reject(new Error('圖片壓縮失敗'))), 'image/jpeg', 0.82);
+  });
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(binary);
+}
+
+async function estimateFromImage(url: string): Promise<{
+  kind?: FurnitureKind;
+  width_mm?: number | null;
+  depth_mm?: number | null;
+  height_mm?: number | null;
+} | null> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('讀不到產品圖');
+  const blob = await res.blob();
+  const image = await fileToJpeg(new File([blob], 'product.jpg', { type: blob.type || 'image/jpeg' }));
+  let result = await invokeEdgeFunctionDirect<{
+    supported?: boolean;
+    kind?: FurnitureKind;
+    width_mm?: number | null;
+    depth_mm?: number | null;
+    height_mm?: number | null;
+    reason?: string;
+  }>('supabase-functions-generate-furniture-model', { image_base64: image, mime_type: 'image/jpeg' });
+  if (result.status === 404) {
+    result = await invokeEdgeFunctionDirect('generate-furniture-model', { image_base64: image, mime_type: 'image/jpeg' });
+  }
+  if (result.error || !result.data) throw new Error(result.error?.message ?? '無法辨認圖片');
+  if (result.data.supported === false || !result.data.kind) return null;
+  return result.data;
+}
+
+function ProductModelsSection({
+  product,
+  canManage,
+  onChanged,
+}: {
+  product: ProductDetail;
+  /** admin / uploader may upload and remove files. */
+  canManage: boolean;
+  onChanged: () => void;
+}) {
+  const productId = product.id;
+  const [files, setFiles] = useState<ProductModelFile[] | null>(null);
+  const [busy, setBusy] = useState<null | 'su' | '3d' | 'upload'>(null);
+  const [reload, setReload] = useState(0);
+  const [askKind, setAskKind] = useState(false);
+  const [pendingTarget, setPendingTarget] = useState<'su' | '3d'>('su');
+  const [skp, setSkp] = useState<SkpStatus | null>(null);
+  const [skpModelId, setSkpModelId] = useState<string | null>(null);
+  const savedRef = useRef<{ key: string; id: string } | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchProductModels(productId)
+      .then((rows) => {
+        if (!cancelled) setFiles(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setFiles([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [productId, reload]);
+
+  const skpPending = skp?.status === 'queued' || skp?.status === 'running';
+  useEffect(() => {
+    if (!skpModelId || !skpPending) return;
+    const timer = window.setInterval(() => {
+      fetchSkpStatus(skpModelId)
+        .then((next) => {
+          setSkp(next);
+          if (next.status === 'ready') {
+            setReload((n) => n + 1);
+            onChanged();
+          }
+        })
+        .catch(() => undefined);
+    }, SKP_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [skpModelId, skpPending, onChanged]);
+
+  const run = async (work: () => Promise<void>, failure: string) => {
+    setBusy('upload');
+    try {
+      await work();
+      setReload((n) => n + 1);
+      onChanged();
+    } catch (err) {
+      toast.error(failure, { description: errorText(err) });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const ensureSaved = async (model: ParametricModel): Promise<string> => {
+    const key = JSON.stringify({
+      productId,
+      kind: model.kind,
+      width: model.width_mm,
+      depth: model.depth_mm,
+      height: model.height_mm,
+      style: model.style ?? null,
+      estimated: model.estimated_axes,
+    });
+    if (savedRef.current?.key === key) return savedRef.current.id;
+    const { data, error } = await supabase.rpc('fds_save_furniture_model', {
+      p_kind: model.kind,
+      p_parametric: model,
+      p_estimated: model.estimated_axes.length > 0,
+      p_product_id: productId,
+    });
+    if (error || typeof data !== 'string') throw new Error(error?.message ?? '沒有回傳編號');
+    savedRef.current = { key, id: data };
+    return data;
+  };
+
+  const generate = async (target: 'su' | '3d', kindOverride?: FurnitureKind) => {
+    setBusy(target);
+    setPendingTarget(target);
+    try {
+      const text = [product.title, product.model, product.category, product.level1_category, product.level2_category]
+        .filter(Boolean)
+        .join(' ');
+      let kind = kindOverride ?? inferFurnitureKind(text);
+      let width = measuredMm(product.dimension_l_mm);
+      let depth = measuredMm(product.dimension_w_mm);
+      let height = measuredMm(product.dimension_h_mm);
+      const estimated: SizeAxis[] = [];
+      if (!kind || width == null || depth == null || height == null) {
+        const image = (product.images ?? []).find((src) => /^https?:\/\//i.test(src));
+        if (image) {
+          try {
+            const guess = await estimateFromImage(image);
+            if (guess) {
+              if (!kind && guess.kind) kind = guess.kind;
+              if (width == null && guess.width_mm) {
+                width = guess.width_mm;
+                estimated.push('width');
+              }
+              if (depth == null && guess.depth_mm) {
+                depth = guess.depth_mm;
+                estimated.push('depth');
+              }
+              if (height == null && guess.height_mm) {
+                height = guess.height_mm;
+                estimated.push('height');
+              }
+            }
+          } catch {
+            if (!kind) {
+              setAskKind(true);
+              toast('讀不到產品圖，請先選擇家具類型');
+              return;
+            }
+          }
+        }
+      }
+      if (!kind) {
+        setAskKind(true);
+        toast('請先選擇家具類型。辦公桌、會議桌、書架和儲物櫃以外不會生成。');
+        return;
+      }
+      setAskKind(false);
+      const model = buildParametric({
+        kind,
+        width_mm: width,
+        depth_mm: depth,
+        height_mm: height,
+        estimated_axes: estimated,
+        style: inferTableStyle(text),
+      });
+      const id = await ensureSaved(model);
+      if (target === 'su') {
+        const status = await requestSkp(id);
+        setSkpModelId(id);
+        setSkp(status);
+        if (status.status === 'ready') {
+          setReload((n) => n + 1);
+          onChanged();
+        }
+        toast.success(status.status === 'ready' ? 'SKP 已可下載' : '已排入 SU 生成');
+      } else {
+        const base = (product.model || product.sku || model.label).replace(/[^\w.\-\u3400-\u9fff]+/g, '_').slice(0, 80);
+        await registerGeneratedGlb(id, buildFurnitureGlb(model), `${base}.glb`);
+        setReload((n) => n + 1);
+        onChanged();
+        toast.success('3D 模型已生成');
+      }
+    } catch (err) {
+      toast.error(target === 'su' ? '生成 SU 失敗' : '生成 3D 失敗', { description: errorText(err) });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  if (!files) {
+    return (
+      <section className="space-y-1.5">
+        <h3 className="text-sm font-medium">模型檔</h3>
+        <p className="flex items-center text-xs text-muted-foreground">
+          <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> 載入模型…
+        </p>
+      </section>
+    );
+  }
+  return (
+    <section className="space-y-1.5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h3 className="text-sm font-medium">模型檔</h3>
+        <div className="flex flex-wrap gap-1.5">
+          <Button size="sm" className="h-7" disabled={busy != null} onClick={() => void generate('su')}>
+            {busy === 'su' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+            {skp?.status === 'failed' || skp?.status === 'cancelled' ? '重新生成 SU' : '生成 SU'}
+          </Button>
+          <Button size="sm" variant="outline" className="h-7" disabled={busy != null} onClick={() => void generate('3d')}>
+            {busy === '3d' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+            生成 3D
+          </Button>
+          {canManage && (
+            <>
+              <input
+                ref={inputRef}
+                type="file"
+                accept=".skp,.glb"
+                className="hidden"
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  event.target.value = '';
+                  if (file) void run(() => uploadProductModel(productId, file), '上載模型失敗');
+                }}
+              />
+              <Button size="sm" variant="outline" className="h-7" disabled={busy != null} onClick={() => inputRef.current?.click()}>
+                {busy === 'upload' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+                上載 SKP／GLB
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        用這件產品的尺寸直接生成。SU 是 SKP，完成後可下載；3D 是 GLB。辦公桌、會議桌、書架和儲物櫃以外不會生成。
+      </p>
+      {askKind && (
+        <div className="flex flex-wrap items-center gap-1">
+          <span className="text-xs text-muted-foreground">選擇類型</span>
+          {FURNITURE_KINDS.map((item) => (
+            <Button
+              key={item.id}
+              size="sm"
+              variant="outline"
+              className="h-7"
+              disabled={busy != null}
+              onClick={() => void generate(pendingTarget, item.id)}
+            >
+              {item.label}
+            </Button>
+          ))}
+        </div>
+      )}
+      {skp && skp.status !== 'none' && (
+        <p className={skp.status === 'failed' ? 'text-xs text-destructive' : 'text-xs text-muted-foreground'}>
+          {skpStatusText(skp)}
+        </p>
+      )}
+      {files.length === 0 ? (
+        <p className="text-xs text-muted-foreground">未有模型檔。</p>
+      ) : (
+        <ul className="space-y-1 text-xs">
+          {files.map((f) => (
+            <li key={f.id} className="flex flex-wrap items-center gap-2">
+              <Badge variant="outline" className="px-1.5 py-0 text-[10px] font-semibold">
+                {f.model_type === 'su' ? 'SU' : '3D'}
+              </Badge>
+              <span className="truncate">{f.file_name ?? `${f.model_type}.${f.format}`}</span>
+              {f.size_bytes != null && (
+                <span className="text-muted-foreground">{(f.size_bytes / 1024 / 1024).toFixed(1)} MB</span>
+              )}
+              {f.source === 'generated' && <span className="text-muted-foreground">AI 生成</span>}
+              <button
+                type="button"
+                className="text-primary hover:underline"
+                onClick={() => void downloadModel(f.storage_path, f.file_name).catch((err) => toast.error('下載失敗', { description: errorText(err) }))}
+              >
+                下載
+              </button>
+              {canManage && f.source === 'uploaded' && (
+                <button
+                  type="button"
+                  className="text-muted-foreground hover:text-destructive"
+                  disabled={busy != null}
+                  onClick={() => {
+                    if (window.confirm('刪除這個模型檔？')) void run(() => deleteProductModel(f.id), '刪除模型失敗');
+                  }}
+                >
+                  刪除
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function ProductDetailPage({
   productId,
+  favorited,
+  onToggleFavorite,
   onClose,
   onOpenSource,
+  onModelsChanged,
 }: {
   productId: string;
+  favorited: boolean;
+  onToggleFavorite: (next: boolean) => Promise<boolean>;
   onClose: () => void;
   onOpenSource: (request: SourcePageRequest & { title?: string | null }) => void;
+  onModelsChanged: () => void;
 }) {
   const [detail, setDetail] = useState<ProductDetail | null>(null);
+  const [loved, setLoved] = useState(favorited);
   const [compare, setCompare] = useState<SupplierCompare | null>(null);
   const [activeImage, setActiveImage] = useState(0);
   const [zoomed, setZoomed] = useState(false);
@@ -901,6 +1500,22 @@ function ProductDetailDialog({
     };
   }, [productId, onClose, reloadKey]);
 
+  useEffect(() => {
+    setLoved(favorited);
+  }, [favorited, productId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    isDesignerFavorite(productId)
+      .then((on) => {
+        if (!cancelled) setLoved(on);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [productId]);
+
   const specs: [string, string | null | undefined][] = detail
     ? [
         ['型號', detail.model],
@@ -916,22 +1531,35 @@ function ProductDetailDialog({
     : [];
 
   return (
-    <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent
-        className="max-h-[90vh] max-w-4xl overflow-y-auto"
-        onInteractOutside={(event) => zoomed && event.preventDefault()}
-        onEscapeKeyDown={(event) => zoomed && event.preventDefault()}
-      >
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+        <Button type="button" variant="ghost" size="sm" className="h-8 shrink-0 px-2" onClick={onClose}>
+          <ChevronLeft className="mr-1 h-4 w-4" />
+          返回列表
+        </Button>
+        <h1 className="min-w-0 flex-1 truncate text-lg font-semibold">{detail?.title ?? '產品詳情'}</h1>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="h-8 shrink-0"
+          onClick={() => {
+            const next = !loved;
+            setLoved(next);
+            onToggleFavorite(next).catch(() => setLoved(!next));
+          }}
+        >
+          <Heart className={cn('mr-1 h-3.5 w-3.5', loved && 'fill-rose-500 text-rose-500')} />
+          {loved ? '已加入常用' : '加入常用'}
+        </Button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto p-4">
         {!detail ? (
           <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">
             <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 載入中…
           </div>
         ) : (
-          <>
-            <DialogHeader>
-              <DialogTitle className="pr-6">{detail.title}</DialogTitle>
-            </DialogHeader>
-
+          <div className="mx-auto max-w-5xl space-y-4">
             <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
               <div className="space-y-2">
                 <div className="h-64 overflow-hidden rounded-lg bg-white">
@@ -1031,6 +1659,7 @@ function ProductDetailDialog({
                               documentId={row.document_id}
                               productId={detail.id}
                               onOpen={onOpenSource}
+                              canOpen={detail.can_open_source}
                             />
                           </td>
                           <td className="px-2 py-1.5 text-muted-foreground">{row.created_at.slice(0, 10)}</td>
@@ -1046,9 +1675,12 @@ function ProductDetailDialog({
               compare={compare}
               keepId={detail.id}
               canMerge={detail.can_view_cost}
+              canOpenSource={detail.can_open_source}
               onOpenSource={onOpenSource}
               onMerged={() => setReloadKey((n) => n + 1)}
             />
+
+            <ProductModelsSection product={detail} canManage={detail.can_view_cost} onChanged={onModelsChanged} />
 
             {detail.sources.length > 0 && (
               <section className="space-y-1.5">
@@ -1063,6 +1695,7 @@ function ProductDetailDialog({
                         documentId={s.document_id}
                         productId={detail.id}
                         onOpen={onOpenSource}
+                        canOpen={detail.can_open_source}
                       />
                       {s.factory_name && <span className="text-muted-foreground">· {s.factory_name}</span>}
                     </li>
@@ -1070,9 +1703,9 @@ function ProductDetailDialog({
                 </ul>
               </section>
             )}
-          </>
+          </div>
         )}
-      </DialogContent>
+      </div>
       {zoomed && detail && detail.images.length > 0
         ? createPortal(
             <div className="pointer-events-auto">
@@ -1086,7 +1719,7 @@ function ProductDetailDialog({
             document.body,
           )
         : null}
-    </Dialog>
+    </div>
   );
 }
 
@@ -1096,15 +1729,18 @@ function SourceLink({
   documentId,
   productId,
   onOpen,
+  canOpen = true,
 }: {
   title?: string | null;
   page?: number | null;
   documentId?: string;
   productId: string;
   onOpen: (request: SourcePageRequest & { title?: string | null }) => void;
+  /** Private supplier PDF: only admin / uploader may open it. */
+  canOpen?: boolean;
 }) {
   const label = `${title ?? '供應商文件'}${page != null ? ` · 第 ${page} 頁` : ''}`;
-  if (!documentId) return <span className="text-muted-foreground">{label}</span>;
+  if (!documentId || !canOpen) return <span className="text-muted-foreground">{label}</span>;
   return (
     <button
       type="button"

@@ -53,6 +53,7 @@ import {
 } from "@/lib/customerPortalRoutes";
 import {
   appViewFromPath,
+  designerProductIdFromPath,
   isAppSectionPath,
   pathFromAppView,
 } from "@/lib/appSectionRoutes";
@@ -151,8 +152,8 @@ const ExtractionReviewView = lazy(() =>
 const FurnitureSearchView = lazy(() =>
   import("./FurnitureSearchView").then((mod) => ({ default: mod.FurnitureSearchView }))
 );
-const FurnitureModelView = lazy(() =>
-  import("./FurnitureModelView").then((mod) => ({ default: mod.FurnitureModelView }))
+const DesignerPdfView = lazy(() =>
+  import("./DesignerPdfView").then((mod) => ({ default: mod.DesignerPdfView }))
 );
 const PresentationView = lazy(() =>
   import("./PresentationView").then((mod) => ({ default: mod.PresentationView }))
@@ -790,6 +791,11 @@ export function AppShell() {
       } else {
         target = withToken(pathFromCustomerView(store.currentView));
       }
+    } else if (
+      store.currentView === 'fds2-designer-types' &&
+      designerProductIdFromPath(location.pathname)
+    ) {
+      // FurnitureSearchView owns /fds/designer/types/:productId
     } else {
       const sectionPath = pathFromAppView(store.currentView);
       if (sectionPath) {
@@ -953,9 +959,12 @@ export function AppShell() {
     if (store.currentView === 'fds2-admin-command-logs') return <DailyCommandLogsView />;
     if (store.currentView === 'fds2-admin-dev-cost') return <DevelopmentCostView />;
     if (store.currentView === 'fds2-products-ai-review') return <ExtractionReviewView />;
-    if (store.currentView === 'fds2-designer-types') return <FurnitureSearchView />;
-    if (store.currentView === 'fds2-designer-su') return <FurnitureModelView focus="su" />;
-    if (store.currentView === 'fds2-designer-3d') return <FurnitureModelView focus="3d" />;
+    if (store.currentView === 'fds2-designer-types') return <FurnitureSearchView key="browse" />;
+    if (store.currentView === 'fds2-designer-pdf') return <DesignerPdfView />;
+    if (store.currentView === 'fds2-designer-common' || store.currentView === 'fds2-quote-common') {
+      return <FurnitureSearchView key="favorites" mode="favorites" />;
+    }
+    if (store.currentView === 'fds2-designer-latest') return <FurnitureSearchView key="latest" mode="latest" />;
     if (store.currentView === 'fds2-pm-presentation') return <PresentationView />;
     if (store.currentView === 'fds2-publish-similar') return <SimilarProductsView />;
     if (isSitemapPlaceholderView(store.currentView)) {
