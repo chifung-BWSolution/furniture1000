@@ -552,47 +552,6 @@ export function ProductWorkbench({
               </div>
             </div>
           </section>
-
-          <aside className="flex h-full flex-col rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
-            <div className="mb-4 flex flex-wrap items-center justify-end gap-x-4 gap-y-2">
-              <button type="button" className="inline-flex items-center text-[13px] text-slate-600 hover:text-slate-900" onClick={onClose}>
-                <ChevronLeft className="mr-0.5 h-4 w-4" /> 返回列表
-              </button>
-              <button
-                type="button"
-                className="inline-flex items-center text-[13px] text-slate-600 hover:text-slate-900"
-                onClick={() => onToggleFavorite(!loved).catch(() => undefined)}
-              >
-                <Heart className={cn('mr-1 h-3.5 w-3.5', loved && 'fill-rose-500 text-rose-500')} />
-                {loved ? '已收藏' : '加入收藏'}
-              </button>
-              <button
-                type="button"
-                className="inline-flex items-center text-[13px] text-slate-600 hover:text-slate-900"
-                onClick={() => {
-                  void navigator.clipboard.writeText(window.location.href).then(
-                    () => toast.success('已複製連結'),
-                    () => toast.error('複製失敗'),
-                  );
-                }}
-              >
-                <Share2 className="mr-1 h-3.5 w-3.5" /> 分享
-              </button>
-            </div>
-            <div>
-              <h1 className="text-[22px] font-semibold leading-snug tracking-tight">{names.primary}</h1>
-              {names.secondary && <p className="mt-1 text-sm text-slate-400">{names.secondary}</p>}
-            </div>
-            <dl className="mt-5 grid grid-cols-[4.5rem_1fr] gap-y-3 text-sm">
-              {specRows.map(([label, value]) => (
-                <div key={label} className="contents">
-                  <dt className="text-slate-400">{label}</dt>
-                  <dd className={cn('text-slate-800', value === MISSING && 'text-slate-300')}>{value}</dd>
-                </div>
-              ))}
-            </dl>
-            <div className="mt-auto pt-5">{actions(() => setArOpen(true))}</div>
-          </aside>
         </div>
 
         <div className="mt-4 grid items-start gap-4 xl:grid-cols-[minmax(0,1.85fr)_minmax(300px,1fr)]">
