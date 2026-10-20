@@ -36,7 +36,7 @@
 - 非 JPEG 的掃描頁（CCITT／Flate／JPX）與 PDF 內嵌 Flate 圖不支援，會標 `unsupported`（等 Python Worker）。
 - Edge worker 只接 ≤60MB PDF（Storage 上限 200MB）。
 - AI 產品的分類暫存文字 `category`；`product_category_id` 要在「待處理產品」人工歸類；AI 顏色是原文（多為中文），顏色篩選按原文比對。
-- 建模：只有辦公桌／會議桌／書架／儲物櫃四類參數化，輸出 GLB；**SKP 未開 channel**（OpenSKP 未授權，未在 SketchUp 實機驗證 T-803）。沙發／椅子／曲面直接拒絕。
+- 建模：只有辦公桌／會議桌／書架／儲物櫃四類參數化。方案是幾何引擎，不用 OpenSKP。設計師 SU 要下載 SKP；目前只輸出 GLB，SKP 尚未寫出，也未在 SketchUp 實機驗證（T-803）。沙發／椅子／曲面直接拒絕。
 - 簡報：Canva 匯入通路等 `chifung.login` 完成 Connect API 註冊＋secrets 設定（T-901 收尾）；PPTX 通路已可用。
 - 重新解析會保留已審核項目、同型號不重複產生；已匯入的價錢不能透過審核改動（要另開新報價）。
 - 供應商文件/審核/成本頁只對 admin 與傢俬組（uploader）；其他角色搜索只能見折扣價＋原價，看不到任何成本價。

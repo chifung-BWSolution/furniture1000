@@ -394,9 +394,9 @@ PDF 上傳 → 建立解析任務 → 逐頁分析 → 頁面分類（目錄/產
 
 **現況**：倉庫**完全無 3D／SKP**；設計師菜單 `fds2-designer-su`／`fds2-designer-3d` 為 placeholder。
 
-**流程（已確認）**：上圖/設計圖 → AI 識別結構 → 提取尺寸與組件 → 參數化 JSON → 幾何引擎建模 → SKP＋GLB → 瀏覽器預覽/下載編輯。
+**流程（已確認）**：上圖/設計圖 → AI 識別結構 → 提取尺寸與組件 → 參數化 JSON → **幾何引擎**建模 → **SKP（設計師 SU 下載）** ＋ **GLB（3D 頁瀏覽器預覽）**。
 
-**技術要求（建議）**：評估 OpenSKP 等可程式化方案與 SketchUp 官方 SDK；**不假設 OpenSKP 能穩定生成任意複雜家具**；LLM 輸出參數、幾何引擎建模；模型盡量含可獨立編輯組件；**必須在 SketchUp 實測**；支援輸入/確認總寬深高；無可靠尺寸時標示估算；**優先辦公桌/會議桌/書架/儲物櫃**；**沙發/辦公椅/複雜曲面不列入首版承諾**。
+**技術要求（已確認，2026-10-20）**：**不用 OpenSKP，也不用 SketchUp 官方 SDK 做建模。** LLM 只輸出參數；幾何引擎依參數生成組件，並把同一套組件寫成 SKP。設計師 SU 模型的交付檔是 SKP，必須能在 SketchUp 打開、編輯組件、儲存。GLB 只供 3D 頁預覽。支援輸入／確認總寬深高；無可靠尺寸時標示估算。**優先辦公桌／會議桌／書架／儲物櫃**；**沙發／辦公椅／複雜曲面不列入首版承諾**。
 
 **驗收標準**：至少 **兩類簡單家具**可生成 SKP，且能在實際 SketchUp 打開、編輯組件、儲存。
 
@@ -524,7 +524,7 @@ PDF 上傳 → 建立解析任務 → 逐頁分析 → 頁面分類（目錄/產
 - Supabase：PostgreSQL ＋ Auth ＋ Storage ＋ RLS ＋（新增）pgvector ＋ `processing_jobs`。
 - Background：pg_cron＋pg_net（現有）＋（建議）通用任務協調。
 - Python PDF Worker（建議，Cloud Run Jobs）：文字提取／OCR／表格／圖片／AI 結構化／校驗。
-- 3D Worker（建議）：參數化建模 → SKP＋GLB。
+- 3D Worker：參數化幾何引擎 → SKP（設計師 SU）＋ GLB（瀏覽器預覽）。不用 OpenSKP。
 - External AI：LLM／VLM（現用 Gemini）／OCR／Text & Image Embedding／Canva API。
 - **不得**因新功能擅自全面替換現有技術棧（Vite≠Next、Supabase≠其他）。
 
@@ -646,7 +646,7 @@ PDF 上傳 → 建立解析任務 → 逐頁分析 → 頁面分類（目錄/產
 | AI 幻覺／錯價 | 錯誤成本影響報價 | BR-02 審核閘門；Schema 驗證；confidence |
 | 成本外洩（RLS allow-all） | 商業資料泄露 | F-PLT-002 收緊 RLS＋私有 bucket |
 | pgvector/Worker 為全新技術 | 進度風險 | PoC 先行；Edge 過渡 |
-| OpenSKP 能力未證 | SKP 承諾落空 | 限定簡單家具；官方 SDK 評估 |
+| 幾何引擎尚未寫出 SKP | 設計師 SU 拿不到可編輯檔 | SU 頁下載 SKP；GLB 只做預覽；完成後在 SketchUp 實測 |
 | Canva API 限制 | PPT 功能受限 | 先確認帳戶能力；模板化 |
 | 未持久化原文（現況） | 無法溯源 | F-AI-001 新增文件儲存 |
 | 成本不可控（大量匯入） | 費用超支 | 任務記錄頁數/token/費用；並行限制 |
@@ -712,8 +712,9 @@ PDF 上傳 → 建立解析任務 → 逐頁分析 → 頁面分類（目錄/產
 | 29 | Canva 帳戶能力 | **先 PoC 驗證 `chifung.login`，不足才考慮付費** | F-AI-009 |
 | 30 | 私有文件簽名 URL | **短效 5 分鐘 ＋ 需登入** | F-PLT-002 |
 | 31 | RLS 上線策略 | **先新表嚴格，既有 allow-all 表分批收緊** | F-PLT-002 |
+| 32 | SU 建模方案 | **參數化幾何引擎產出模型。不用 OpenSKP，也不用 SketchUp 官方 SDK。設計師 SU 交付 SKP；GLB 只供 3D 頁預覽** | F-AI-008、D-5／D-6 |
 
-> 至此全部決策已拍板；治理類（預算、測試資料、密鑰、合規、OpenSKP 授權、Canva 帳戶管理）見母文件之專案治理清單，屬管理層事項。
+> 至此全部決策已拍板；治理類（預算、測試資料、密鑰、合規、Canva 帳戶管理）見母文件之專案治理清單，屬管理層事項。第 32 項於 2026-10-20 補記。
 
 ---
 

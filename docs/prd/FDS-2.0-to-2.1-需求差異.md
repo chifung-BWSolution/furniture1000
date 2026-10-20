@@ -75,7 +75,7 @@
 | F-AI-005 | `search_furniture` RPC、tsvector、`search_embeddings`、pgvector |
 | F-AI-006 | 以圖搜款流程＋圖片 embedding |
 | F-AI-007 | 比較 RPC／UI |
-| F-AI-008 | 3D Worker、SKP/GLB 產出、PoC |
+| F-AI-008 | 參數化幾何引擎；設計師 SU 交付 SKP，GLB 只做預覽；不用 OpenSKP |
 | F-AI-009 | Canva 整合、PPT 生成 |
 | F-PLT-001 | 通用任務佇列與 Worker |
 | F-PLT-002 | 角色斷言 RPC、審計 |
