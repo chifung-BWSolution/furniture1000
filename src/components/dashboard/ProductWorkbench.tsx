@@ -120,6 +120,7 @@ export function ProductWorkbench({
   const [params] = useSearchParams();
   const arPage = params.get('ar') === '1';
   const names = splitTitle(detail.title);
+  const category = detail.level2_category || detail.category || detail.level1_category || '未分類';
   const glb = modelFiles.find((file) => file.format === 'glb') ?? null;
   const [viewerOn, setViewerOn] = useState(false);
   const [glbUrl, setGlbUrl] = useState<string | null>(null);
@@ -353,7 +354,39 @@ export function ProductWorkbench({
   return (
     <div className="flex h-full min-h-0 flex-col bg-[#f4f6fb] text-slate-900">
       <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-        <div className="grid items-stretch gap-4 xl:grid-cols-[minmax(0,1.7fr)_minmax(320px,0.9fr)]">
+        <div className="grid items-stretch gap-x-4 gap-y-3 xl:grid-cols-[minmax(0,1.7fr)_minmax(320px,0.9fr)]">
+          <p className="flex min-w-0 items-center truncate text-[13px] text-slate-400">
+            <button type="button" className="hover:text-slate-700" onClick={onClose}>產品模型</button>
+            <span className="px-2 text-slate-300">/</span>
+            <span>{category}</span>
+            <span className="px-2 text-slate-300">/</span>
+            <span className="truncate text-slate-700">{names.primary}</span>
+          </p>
+          <div className="flex items-center justify-end gap-4">
+            <button type="button" className="inline-flex items-center text-[13px] text-slate-600 hover:text-slate-900" onClick={onClose}>
+              <ChevronLeft className="mr-0.5 h-4 w-4" /> 返回列表
+            </button>
+            <button
+              type="button"
+              className="inline-flex items-center text-[13px] text-slate-600 hover:text-slate-900"
+              onClick={() => onToggleFavorite(!loved).catch(() => undefined)}
+            >
+              <Heart className={cn('mr-1 h-3.5 w-3.5', loved && 'fill-rose-500 text-rose-500')} />
+              {loved ? '已收藏' : '加入收藏'}
+            </button>
+            <button
+              type="button"
+              className="inline-flex items-center text-[13px] text-slate-600 hover:text-slate-900"
+              onClick={() => {
+                void navigator.clipboard.writeText(window.location.href).then(
+                  () => toast.success('已複製連結'),
+                  () => toast.error('複製失敗'),
+                );
+              }}
+            >
+              <Share2 className="mr-1 h-3.5 w-3.5" /> 分享
+            </button>
+          </div>
           <section className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
             <div className="mb-3 flex flex-wrap items-center gap-2">
               {(
@@ -489,34 +522,19 @@ export function ProductWorkbench({
           </section>
 
           <aside className="flex h-full flex-col rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
-            <div className="mb-4 flex flex-wrap items-center justify-end gap-x-4 gap-y-2">
-              <button type="button" className="inline-flex items-center text-[13px] text-slate-600 hover:text-slate-900" onClick={onClose}>
-                <ChevronLeft className="mr-0.5 h-4 w-4" /> 返回列表
-              </button>
+            <div className="flex items-start gap-3">
+              <div className="min-w-0 flex-1">
+                <h1 className="text-[22px] font-semibold leading-snug tracking-tight">{names.primary}</h1>
+                {names.secondary && <p className="mt-1 text-sm text-slate-400">{names.secondary}</p>}
+              </div>
               <button
                 type="button"
-                className="inline-flex items-center text-[13px] text-slate-600 hover:text-slate-900"
+                className="mt-1 text-slate-300 hover:text-rose-500"
+                aria-label={loved ? '已收藏' : '加入收藏'}
                 onClick={() => onToggleFavorite(!loved).catch(() => undefined)}
               >
-                <Heart className={cn('mr-1 h-3.5 w-3.5', loved && 'fill-rose-500 text-rose-500')} />
-                {loved ? '已收藏' : '加入收藏'}
+                <Heart className={cn('h-5 w-5', loved && 'fill-rose-500 text-rose-500')} />
               </button>
-              <button
-                type="button"
-                className="inline-flex items-center text-[13px] text-slate-600 hover:text-slate-900"
-                onClick={() => {
-                  void navigator.clipboard.writeText(window.location.href).then(
-                    () => toast.success('已複製連結'),
-                    () => toast.error('複製失敗'),
-                  );
-                }}
-              >
-                <Share2 className="mr-1 h-3.5 w-3.5" /> 分享
-              </button>
-            </div>
-            <div>
-              <h1 className="text-[22px] font-semibold leading-snug tracking-tight">{names.primary}</h1>
-              {names.secondary && <p className="mt-1 text-sm text-slate-400">{names.secondary}</p>}
             </div>
             <dl className="mt-5 grid grid-cols-[4.5rem_1fr] gap-y-3 text-sm">
               {specRows.map(([label, value]) => (
