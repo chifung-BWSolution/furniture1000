@@ -1256,16 +1256,28 @@ const AXIS_INDEX: Record<SizeAxis, 0 | 1 | 2> = { width: 0, depth: 1, height: 2 
 /** Which size axes a profile outline spans, per extrusion axis (same as the engine's PLANE). */
 const PART_PLANE: Record<'x' | 'y' | 'z', [number, number]> = { z: [0, 1], y: [0, 2], x: [1, 2] };
 
-/** Painter's-order isometric sketch of the parts, so the user sees the shape before generating. */
+/** Painter's-order sketch. Drag to orbit, right-drag or Shift-drag to pan. */
 function ModelSketch({ model }: { model: ParametricModel }) {
   const ref = useRef<HTMLCanvasElement>(null);
-  useEffect(() => {
+  const modelRef = useRef(model);
+  modelRef.current = model;
+  const viewRef = useRef({
+    yaw: Math.atan2(0.55, 1),
+    pitch: Math.atan2(0.75, Math.hypot(0.55, 1)),
+    panX: 0,
+    panY: 0,
+    zoom: 1,
+  });
+
+  const paint = useCallback(() => {
     const canvas = ref.current;
     const ctx = canvas?.getContext('2d');
+    const current = modelRef.current;
     if (!canvas || !ctx) return;
     const ratio = window.devicePixelRatio || 1;
     const width = canvas.clientWidth;
     const height = canvas.clientHeight;
+    if (width < 2 || height < 2) return;
     canvas.width = width * ratio;
     canvas.height = height * ratio;
     ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
@@ -1276,11 +1288,12 @@ function ModelSketch({ model }: { model: ParametricModel }) {
     };
     const cross = (a: number[], b: number[]) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
     const dot = (a: number[], b: number[]) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-    // Viewer in front (+y), a little to the right and above.
-    const eye = unit([0.55, 1, 0.75]);
+    const view = viewRef.current;
+    const flat = Math.cos(view.pitch);
+    const eye = unit([flat * Math.sin(view.yaw), flat * Math.cos(view.yaw), Math.sin(view.pitch)]);
     const right = unit(cross(eye, [0, 0, 1]));
     const up = cross(right, eye);
-    const faces = model.components.flatMap((part) =>
+    const faces = current.components.flatMap((part) =>
       part.faces_mm.map((face) => {
         const sum = [0, 0, 0];
         face.forEach((a, i) => {
@@ -1299,9 +1312,10 @@ function ModelSketch({ model }: { model: ParametricModel }) {
     const ys = visible.flatMap((f) => f.points.map((p) => p[1]));
     if (xs.length === 0) return;
     const [minX, maxX, minY, maxY] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
-    const scale = Math.min((width - 16) / (maxX - minX || 1), (height - 16) / (maxY - minY || 1));
-    const offX = (width - (maxX - minX) * scale) / 2 - minX * scale;
-    const offY = (height - (maxY - minY) * scale) / 2 - minY * scale;
+    const fit = Math.min((width - 16) / (maxX - minX || 1), (height - 16) / (maxY - minY || 1));
+    const scale = fit * view.zoom;
+    const offX = (width - (maxX - minX) * scale) / 2 - minX * scale + view.panX;
+    const offY = (height - (maxY - minY) * scale) / 2 - minY * scale + view.panY;
     visible.sort((a, b) => a.depth - b.depth);
     ctx.lineWidth = 0.6;
     ctx.strokeStyle = 'rgba(30,41,59,0.55)';
@@ -1315,8 +1329,82 @@ function ModelSketch({ model }: { model: ParametricModel }) {
       ctx.fill();
       ctx.stroke();
     }
-  }, [model]);
-  return <canvas ref={ref} className="h-40 w-full rounded border bg-white" aria-label="模型預覽" />;
+  }, []);
+
+  useEffect(() => {
+    paint();
+  }, [model, paint]);
+
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    let drag: { x: number; y: number; mode: 'rotate' | 'pan' } | null = null;
+    const down = (event: PointerEvent) => {
+      if (event.button > 2) return;
+      drag = {
+        x: event.clientX,
+        y: event.clientY,
+        mode: event.button === 0 && !event.shiftKey ? 'rotate' : 'pan',
+      };
+      try {
+        canvas.setPointerCapture(event.pointerId);
+      } catch {
+        /* Synthetic events and some dialogs cannot capture the pointer. */
+      }
+    };
+    const move = (event: PointerEvent) => {
+      if (!drag) return;
+      const dx = event.clientX - drag.x;
+      const dy = event.clientY - drag.y;
+      drag.x = event.clientX;
+      drag.y = event.clientY;
+      const view = viewRef.current;
+      if (drag.mode === 'rotate') {
+        view.yaw -= dx * 0.01;
+        view.pitch = Math.min(1.2, Math.max(-1.05, view.pitch + dy * 0.01));
+      } else {
+        view.panX += dx;
+        view.panY += dy;
+      }
+      paint();
+    };
+    const up = (event: PointerEvent) => {
+      drag = null;
+      try {
+        if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
+      } catch {
+        /* Already released. */
+      }
+    };
+    const wheel = (event: WheelEvent) => {
+      event.preventDefault();
+      const view = viewRef.current;
+      view.zoom = Math.min(4, Math.max(0.35, view.zoom * (event.deltaY > 0 ? 0.92 : 1.08)));
+      paint();
+    };
+    const blockMenu = (event: Event) => event.preventDefault();
+    canvas.addEventListener('pointerdown', down);
+    canvas.addEventListener('pointermove', move);
+    canvas.addEventListener('pointerup', up);
+    canvas.addEventListener('pointercancel', up);
+    canvas.addEventListener('wheel', wheel, { passive: false });
+    canvas.addEventListener('contextmenu', blockMenu);
+    return () => {
+      canvas.removeEventListener('pointerdown', down);
+      canvas.removeEventListener('pointermove', move);
+      canvas.removeEventListener('pointerup', up);
+      canvas.removeEventListener('pointercancel', up);
+      canvas.removeEventListener('wheel', wheel);
+      canvas.removeEventListener('contextmenu', blockMenu);
+    };
+  }, [paint]);
+
+  return (
+    <div className="space-y-1">
+      <canvas ref={ref} className="h-52 w-full cursor-grab touch-none rounded border bg-white active:cursor-grabbing" aria-label="模型預覽，拖曳旋轉，右鍵拖曳移動" />
+      <p className="text-muted-foreground">拖曳旋轉，右鍵或 Shift 拖曳移動</p>
+    </div>
+  );
 }
 
 const TOP_OPTIONS: [ModelStyle['top'], string][] = [['rect', '矩形'], ['boat', '船形（兩端收窄）'], ['round', '圓形']];
