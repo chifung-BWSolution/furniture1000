@@ -3,12 +3,15 @@ import { createPortal } from 'react-dom';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import {
-  ChevronLeft, ChevronRight, ExternalLink, FileText, Heart, ImagePlus, Loader2, Package, RotateCcw, Ruler, Search,
+  ChevronDown, ChevronLeft, ChevronRight, ExternalLink, FileText, Heart, ImagePlus, Loader2, Package, RotateCcw, Ruler, Search, Smartphone,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { productThumbUrl } from '@/lib/imageThumb';
 import { LoadingImage } from '@/components/ui/loading-image';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Badge } from '@/components/ui/badge';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
@@ -26,14 +29,22 @@ import { fetchEmbeddingStatus, searchByImage, startImageIndex, type EmbeddingSta
 import { supabase } from '@/lib/supabase';
 import { invokeEdgeFunctionDirect } from '@/lib/invokeEdgeFunction';
 import { buildFurnitureGlb } from '@/lib/furnitureGlb';
+import { buildFurnitureFbx } from '@/lib/furnitureFbx';
+import { ProductWorkbench } from '@/components/dashboard/ProductWorkbench';
 import {
+  FURNITURE_GROUPS,
   FURNITURE_KINDS,
+  STYLE_FIELDS,
+  STYLE_LIMITS,
   buildParametric,
-  inferFurnitureKind,
-  inferTableStyle,
+  inferFurnitureKindFrom,
+  inferModelStyle,
+  resolveStyle,
   type FurnitureKind,
+  type ModelStyle,
   type ParametricModel,
   type SizeAxis,
+  type StyleField,
 } from '@/lib/furnitureParametric';
 import {
   deleteProductModel,
@@ -41,7 +52,7 @@ import {
   fetchModelFlags,
   fetchProductModels,
   fetchSkpStatus,
-  registerGeneratedGlb,
+  registerGeneratedFile,
   requestSkp,
   uploadProductModel,
   type ModelFlags,
@@ -340,6 +351,7 @@ export function FurnitureSearchView({
           favorited={openFavorite}
           onToggleFavorite={(next) => toggleFavorite(detailId, next)}
           onClose={closeDetail}
+          onOpenProduct={openDetail}
           onOpenSource={setSourcePage}
           onModelsChanged={() => setModelFlagsKey((n) => n + 1)}
         />
@@ -1152,48 +1164,95 @@ async function fileToJpeg(file: File): Promise<string> {
   return btoa(binary);
 }
 
-async function estimateFromImage(url: string): Promise<{
+type ImageAnalysis = {
   kind?: FurnitureKind;
   width_mm?: number | null;
   depth_mm?: number | null;
   height_mm?: number | null;
-} | null> {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error('讀不到產品圖');
-  const blob = await res.blob();
-  const image = await fileToJpeg(new File([blob], 'product.jpg', { type: blob.type || 'image/jpeg' }));
-  let result = await invokeEdgeFunctionDirect<{
-    supported?: boolean;
-    kind?: FurnitureKind;
-    width_mm?: number | null;
-    depth_mm?: number | null;
-    height_mm?: number | null;
-    reason?: string;
-  }>('supabase-functions-generate-furniture-model', { image_base64: image, mime_type: 'image/jpeg' });
+  style?: Partial<ModelStyle> | null;
+  structure_notes?: string | null;
+  image_count?: number;
+};
+
+/** Up to three product photos in one call, so the AI can compare views (T-801). */
+async function analyzeProductImages(urls: string[]): Promise<ImageAnalysis | null> {
+  const images: { image_base64: string; mime_type: string }[] = [];
+  for (const url of urls.slice(0, 3)) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) continue;
+      const blob = await res.blob();
+      const image = await fileToJpeg(new File([blob], 'product.jpg', { type: blob.type || 'image/jpeg' }));
+      images.push({ image_base64: image, mime_type: 'image/jpeg' });
+    } catch {
+      // A broken photo should not stop the others from being read.
+    }
+  }
+  if (images.length === 0) throw new Error('讀不到產品圖');
+  let result = await invokeEdgeFunctionDirect<ImageAnalysis & { supported?: boolean; reason?: string }>(
+    'supabase-functions-generate-furniture-model',
+    { images },
+  );
   if (result.status === 404) {
-    result = await invokeEdgeFunctionDirect('generate-furniture-model', { image_base64: image, mime_type: 'image/jpeg' });
+    result = await invokeEdgeFunctionDirect('generate-furniture-model', { images });
   }
   if (result.error || !result.data) throw new Error(result.error?.message ?? '無法辨認圖片');
   if (result.data.supported === false || !result.data.kind) return null;
   return result.data;
 }
 
+type ModelDraft = {
+  target: 'su' | '3d';
+  kind: FurnitureKind | null;
+  width: string;
+  depth: string;
+  height: string;
+  estimated: SizeAxis[];
+  /** What was read or chosen; the kind's defaults fill the rest when shown and built. */
+  style: Partial<ModelStyle>;
+  /** Where the structure came from, shown so the user knows what to check. */
+  styleSource: 'image' | 'name';
+  notes: string | null;
+};
+
+const TOP_OPTIONS: [ModelStyle['top'], string][] = [['rect', '矩形'], ['boat', '船形（兩端收窄）'], ['round', '圓形']];
+const LEG_OPTIONS: [ModelStyle['legs'], string][] = [['four', '四腳'], ['panel', '折板腳'], ['pedestal', '中柱']];
+const CHAIR_BASE_OPTIONS: [ModelStyle['chair_base'], string][] = [['star', '五星腳'], ['four', '四腳'], ['sled', '弓字架']];
+const TOGGLE_LABELS: Partial<Record<StyleField, string>> = {
+  cable_tray: '中間走線槽',
+  screen: '屏風',
+  arms: '扶手',
+};
+const COUNT_LABELS: Partial<Record<StyleField, string>> = {
+  doors: '門',
+  drawers: '抽屜',
+  shelves: '層板',
+  seats: '座位',
+};
+
 function ProductModelsSection({
   product,
   canManage,
   onChanged,
+  onFiles,
+  onAr,
+  appearance = 'plain',
 }: {
   product: ProductDetail;
   /** admin / uploader may upload and remove files. */
   canManage: boolean;
   onChanged: () => void;
+  onFiles?: (files: ProductModelFile[]) => void;
+  onAr?: () => void;
+  appearance?: 'plain' | 'workbench';
 }) {
   const productId = product.id;
   const [files, setFiles] = useState<ProductModelFile[] | null>(null);
   const [busy, setBusy] = useState<null | 'su' | '3d' | 'upload'>(null);
   const [reload, setReload] = useState(0);
-  const [askKind, setAskKind] = useState(false);
-  const [pendingTarget, setPendingTarget] = useState<'su' | '3d'>('su');
+  const [filesError, setFilesError] = useState(false);
+  const [draft, setDraft] = useState<ModelDraft | null>(null);
+  const [reuse, setReuse] = useState<{ target: 'su' | '3d'; files: ProductModelFile[] } | null>(null);
   const [skp, setSkp] = useState<SkpStatus | null>(null);
   const [skpModelId, setSkpModelId] = useState<string | null>(null);
   const savedRef = useRef<{ key: string; id: string } | null>(null);
@@ -1203,15 +1262,20 @@ function ProductModelsSection({
     let cancelled = false;
     fetchProductModels(productId)
       .then((rows) => {
-        if (!cancelled) setFiles(rows);
+        if (cancelled) return;
+        setFiles(rows);
+        setFilesError(false);
+        onFiles?.(rows);
       })
       .catch(() => {
-        if (!cancelled) setFiles([]);
+        if (cancelled) return;
+        setFiles([]);
+        setFilesError(true);
       });
     return () => {
       cancelled = true;
     };
-  }, [productId, reload]);
+  }, [productId, reload, onFiles]);
 
   const skpPending = skp?.status === 'queued' || skp?.status === 'running';
   useEffect(() => {
@@ -1265,62 +1329,128 @@ function ProductModelsSection({
     return data;
   };
 
-  const generate = async (target: 'su' | '3d', kindOverride?: FurnitureKind) => {
+  const existingFor = (target: 'su' | '3d') =>
+    (files ?? []).filter((file) => (target === 'su' ? file.format === 'skp' : file.format === 'glb' || file.format === 'fbx'));
+
+  /** T-806: look for uploaded or earlier generated files before any AI call. */
+  const start = (target: 'su' | '3d', force = false) => {
+    if (filesError) {
+      toast.error('讀不到現有模型檔，請重新載入後再生成');
+      return;
+    }
+    const existing = existingFor(target);
+    if (!force && existing.length > 0) {
+      setDraft(null);
+      setReuse({ target, files: existing });
+      return;
+    }
+    setReuse(null);
+    void prepare(target);
+  };
+
+  /** T-801: read kind, size, and table structure, then hand a draft to the user to confirm. */
+  const prepare = async (target: 'su' | '3d') => {
     setBusy(target);
-    setPendingTarget(target);
     try {
       const text = [product.title, product.model, product.category, product.level1_category, product.level2_category]
         .filter(Boolean)
         .join(' ');
-      let kind = kindOverride ?? inferFurnitureKind(text);
+      let kind = inferFurnitureKindFrom([
+        product.level2_category,
+        product.title,
+        product.level1_category,
+        product.category,
+        product.model,
+      ]);
       let width = measuredMm(product.dimension_l_mm);
       let depth = measuredMm(product.dimension_w_mm);
       let height = measuredMm(product.dimension_h_mm);
       const estimated: SizeAxis[] = [];
-      if (!kind || width == null || depth == null || height == null) {
-        const image = (product.images ?? []).find((src) => /^https?:\/\//i.test(src));
-        if (image) {
-          try {
-            const guess = await estimateFromImage(image);
-            if (guess) {
-              if (!kind && guess.kind) kind = guess.kind;
-              if (width == null && guess.width_mm) {
-                width = guess.width_mm;
-                estimated.push('width');
-              }
-              if (depth == null && guess.depth_mm) {
-                depth = guess.depth_mm;
-                estimated.push('depth');
-              }
-              if (height == null && guess.height_mm) {
-                height = guess.height_mm;
-                estimated.push('height');
-              }
+      const nameStyle = inferModelStyle(text);
+      let style: Partial<ModelStyle> = nameStyle;
+      let styleSource: ModelDraft['styleSource'] = 'name';
+      let notes: string | null = null;
+      const needsStructure = kind == null || STYLE_FIELDS[kind].length > 0;
+      const photos = (product.images ?? []).filter((src) => /^https?:\/\//i.test(src));
+      if (photos.length > 0 && (needsStructure || width == null || depth == null || height == null)) {
+        try {
+          const guess = await analyzeProductImages(photos);
+          if (guess) {
+            if (!kind && guess.kind) kind = guess.kind;
+            if (width == null && guess.width_mm) {
+              width = Math.round(guess.width_mm);
+              estimated.push('width');
             }
-          } catch {
-            if (!kind) {
-              setAskKind(true);
-              toast('讀不到產品圖，請先選擇家具類型');
-              return;
+            if (depth == null && guess.depth_mm) {
+              depth = Math.round(guess.depth_mm);
+              estimated.push('depth');
+            }
+            if (height == null && guess.height_mm) {
+              height = Math.round(guess.height_mm);
+              estimated.push('height');
+            }
+            if (guess.style) {
+              // Counts and features written in the name (三人位, 線盒) beat a guess from the photo.
+              style = { ...guess.style, ...nameStyle };
+              styleSource = 'image';
+              notes = guess.structure_notes ?? null;
             }
           }
+        } catch (err) {
+          toast('讀不到產品圖，結構先按產品名稱判斷', { description: errorText(err) });
         }
       }
-      if (!kind) {
-        setAskKind(true);
-        toast('請先選擇家具類型。辦公桌、會議桌、書架和儲物櫃以外不會生成。');
-        return;
-      }
-      setAskKind(false);
+      setDraft({
+        target,
+        kind,
+        width: width != null ? String(width) : '',
+        depth: depth != null ? String(depth) : '',
+        height: height != null ? String(height) : '',
+        estimated,
+        style,
+        styleSource,
+        notes,
+      });
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const updateDraft = (patch: Partial<ModelDraft>, editedAxis?: SizeAxis) => {
+    setDraft((current) => {
+      if (!current) return current;
+      const estimated = editedAxis ? current.estimated.filter((axis) => axis !== editedAxis) : current.estimated;
+      return { ...current, ...patch, estimated };
+    });
+  };
+
+  /** T-804: build only what the user confirmed. */
+  const generate = async () => {
+    if (!draft) return;
+    const { target, kind } = draft;
+    if (!kind) {
+      toast('請先選擇家具類型');
+      return;
+    }
+    const width = Number(draft.width);
+    const depth = Number(draft.depth);
+    const height = Number(draft.height);
+    if (![width, depth, height].every((n) => Number.isFinite(n) && n > 0)) {
+      toast('請填寫闊、深、高（mm）');
+      return;
+    }
+    setBusy(target);
+    try {
       const model = buildParametric({
         kind,
         width_mm: width,
         depth_mm: depth,
         height_mm: height,
-        estimated_axes: estimated,
-        style: inferTableStyle(text),
+        estimated_axes: draft.estimated,
+        style: draft.style,
       });
       const id = await ensureSaved(model);
+      setDraft(null);
       if (target === 'su') {
         const status = await requestSkp(id);
         setSkpModelId(id);
@@ -1332,10 +1462,25 @@ function ProductModelsSection({
         toast.success(status.status === 'ready' ? 'SKP 已可下載' : '已排入 SU 生成');
       } else {
         const base = (product.model || product.sku || model.label).replace(/[^\w.\-\u3400-\u9fff]+/g, '_').slice(0, 80);
-        await registerGeneratedGlb(id, buildFurnitureGlb(model), `${base}.glb`);
+        const problems: string[] = [];
+        let done = 0;
+        try {
+          await registerGeneratedFile(id, buildFurnitureGlb(model), `${base}.glb`, 'glb');
+          done += 1;
+        } catch (err) {
+          problems.push(`GLB：${errorText(err)}`);
+        }
+        try {
+          await registerGeneratedFile(id, buildFurnitureFbx(model), `${base}.fbx`, 'fbx');
+          done += 1;
+        } catch (err) {
+          problems.push(`FBX：${errorText(err)}`);
+        }
         setReload((n) => n + 1);
         onChanged();
-        toast.success('3D 模型已生成');
+        if (done === 0) throw new Error(problems.join('；'));
+        if (problems.length > 0) toast.warning('3D 只完成一部分', { description: problems.join('；') });
+        else toast.success('3D 模型已生成（GLB 預覽、FBX 檔）');
       }
     } catch (err) {
       toast.error(target === 'su' ? '生成 SU 失敗' : '生成 3D 失敗', { description: errorText(err) });
@@ -1344,10 +1489,29 @@ function ProductModelsSection({
     }
   };
 
+  const shownStyle = draft?.kind
+    ? resolveStyle(draft.kind, Number(draft.width) || 0, Number(draft.depth) || 0, Number(draft.height) || 0, draft.style)
+    : null;
+
+  const workbench = appearance === 'workbench';
+  const uploadInput = canManage ? (
+    <input
+      ref={inputRef}
+      type="file"
+      accept=".skp,.glb,.fbx"
+      className="hidden"
+      onChange={(event) => {
+        const file = event.target.files?.[0];
+        event.target.value = '';
+        if (file) void run(() => uploadProductModel(productId, file), '上載模型失敗');
+      }}
+    />
+  ) : null;
+
   if (!files) {
     return (
       <section className="space-y-1.5">
-        <h3 className="text-sm font-medium">模型檔</h3>
+        {!workbench && <h3 className="text-sm font-medium">模型檔</h3>}
         <p className="flex items-center text-xs text-muted-foreground">
           <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> 載入模型…
         </p>
@@ -1356,56 +1520,242 @@ function ProductModelsSection({
   }
   return (
     <section className="space-y-1.5">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <h3 className="text-sm font-medium">模型檔</h3>
+      <div className={workbench ? 'flex flex-wrap gap-2' : 'flex flex-wrap items-center justify-between gap-2'}>
+        {!workbench && <h3 className="text-sm font-medium">模型檔</h3>}
         <div className="flex flex-wrap gap-1.5">
-          <Button size="sm" className="h-7" disabled={busy != null} onClick={() => void generate('su')}>
+          <Button size="sm" className={workbench ? 'h-9 bg-[#5b4dff] hover:bg-[#4d40e6]' : 'h-7'} disabled={busy != null} onClick={() => start('su')}>
             {busy === 'su' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
             {skp?.status === 'failed' || skp?.status === 'cancelled' ? '重新生成 SU' : '生成 SU'}
           </Button>
-          <Button size="sm" variant="outline" className="h-7" disabled={busy != null} onClick={() => void generate('3d')}>
+          <Button size="sm" variant="outline" className={workbench ? 'h-9' : 'h-7'} disabled={busy != null} onClick={() => start('3d')}>
             {busy === '3d' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
             生成 3D
           </Button>
-          {canManage && (
-            <>
-              <input
-                ref={inputRef}
-                type="file"
-                accept=".skp,.glb"
-                className="hidden"
-                onChange={(event) => {
-                  const file = event.target.files?.[0];
-                  event.target.value = '';
-                  if (file) void run(() => uploadProductModel(productId, file), '上載模型失敗');
-                }}
-              />
-              <Button size="sm" variant="outline" className="h-7" disabled={busy != null} onClick={() => inputRef.current?.click()}>
-                {busy === 'upload' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
-                上載 SKP／GLB
-              </Button>
-            </>
+          {workbench ? (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button size="sm" variant="outline" className="h-9" disabled={files.length === 0} title={files.length === 0 ? '未有可下載的檔案' : '下載已有的模型檔'}>
+                  下載模型 <ChevronDown className="ml-1 h-3.5 w-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start">
+                {files.length === 0 ? (
+                  <DropdownMenuItem disabled>未有可下載的檔案</DropdownMenuItem>
+                ) : (
+                  files.map((file) => (
+                    <DropdownMenuItem
+                      key={file.id}
+                      onClick={() => void downloadModel(file.storage_path, file.file_name).catch((err) => toast.error('下載失敗', { description: errorText(err) }))}
+                    >
+                      {(file.format ?? '').toUpperCase()} · {file.source === 'generated' ? 'AI 生成' : '上載'}
+                      {file.size_bytes != null ? ` · ${(file.size_bytes / 1024 / 1024).toFixed(1)} MB` : ''}
+                    </DropdownMenuItem>
+                  ))
+                )}
+                {canManage && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem disabled={busy != null} onClick={() => inputRef.current?.click()}>
+                      上載 SKP／GLB／FBX
+                    </DropdownMenuItem>
+                  </>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          ) : null}
+          {workbench && (
+            <Button size="sm" variant="outline" className="h-9" onClick={onAr}>
+              <Smartphone className="mr-1 h-3.5 w-3.5" /> 手機 AR 預覽
+            </Button>
           )}
+          {!workbench && canManage && (
+            <Button size="sm" variant="outline" className="h-7" disabled={busy != null} onClick={() => inputRef.current?.click()}>
+              {busy === 'upload' ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+              上載 SKP／GLB／FBX
+            </Button>
+          )}
+          {uploadInput}
         </div>
       </div>
       <p className="text-xs text-muted-foreground">
-        用這件產品的尺寸直接生成。SU 是 SKP，完成後可下載；3D 是 GLB。辦公桌、會議桌、書架和儲物櫃以外不會生成。
+        {workbench
+          ? '確認尺寸和結構後生成。SU 是 SKP；生成 3D 會同時寫出 GLB 預覽和 FBX。沒有檔案時不能下載。'
+          : '用這件產品的尺寸和產品圖辨認結構，確認後生成。SU 是 SKP，完成後可下載；3D 會同時寫出 GLB 和 FBX。'}
       </p>
-      {askKind && (
-        <div className="flex flex-wrap items-center gap-1">
-          <span className="text-xs text-muted-foreground">選擇類型</span>
-          {FURNITURE_KINDS.map((item) => (
+      {filesError && <p className="text-xs text-destructive">讀不到現有模型檔，暫時不能生成。</p>}
+      {reuse && (
+        <div className="space-y-1.5 rounded-md border bg-muted/40 p-2 text-xs">
+          <p>
+            這件產品已有 {[...new Set(reuse.files.map((file) => file.format.toUpperCase()))].join('、')}（
+            {reuse.files.map((f) => (f.source === 'uploaded' ? '上載' : 'AI 生成')).join('、')}
+            ），可以直接下載，不用再生成。
+          </p>
+          <div className="flex flex-wrap gap-1.5">
             <Button
-              key={item.id}
               size="sm"
-              variant="outline"
               className="h-7"
-              disabled={busy != null}
-              onClick={() => void generate(pendingTarget, item.id)}
+              onClick={() => {
+                const f = reuse.files[0];
+                void downloadModel(f.storage_path, f.file_name).catch((err) => toast.error('下載失敗', { description: errorText(err) }));
+              }}
             >
-              {item.label}
+              下載現有檔
             </Button>
-          ))}
+            <Button size="sm" variant="outline" className="h-7" disabled={busy != null} onClick={() => start(reuse.target, true)}>
+              仍要重新生成
+            </Button>
+            <Button size="sm" variant="ghost" className="h-7" onClick={() => setReuse(null)}>
+              取消
+            </Button>
+          </div>
+        </div>
+      )}
+      {draft && (
+        <div className="space-y-2 rounded-md border bg-muted/40 p-2 text-xs">
+          <p className="font-medium">生成前請確認結構（{draft.target === 'su' ? 'SU' : '3D'}）</p>
+          <div className="space-y-1">
+            {FURNITURE_GROUPS.map((group) => (
+              <div key={group.label} className="flex flex-wrap items-center gap-1">
+                <span className="w-10 text-muted-foreground">{group.label}</span>
+                {group.kinds.map((id) => (
+                  <Button
+                    key={id}
+                    size="sm"
+                    variant={draft.kind === id ? 'default' : 'outline'}
+                    className="h-6 px-2 text-xs"
+                    onClick={() => updateDraft({ kind: id })}
+                  >
+                    {FURNITURE_KINDS.find((item) => item.id === id)?.label ?? id}
+                  </Button>
+                ))}
+              </div>
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="w-10 text-muted-foreground">尺寸</span>
+            {(
+              [
+                ['width', '闊'],
+                ['depth', '深'],
+                ['height', '高'],
+              ] as [SizeAxis, string][]
+            ).map(([axis, label]) => (
+              <label key={axis} className="flex items-center gap-1">
+                {label}
+                <Input
+                  value={draft[axis]}
+                  inputMode="numeric"
+                  className="h-6 w-20 px-1.5 text-xs"
+                  onChange={(event) => updateDraft({ [axis]: event.target.value.replace(/[^\d.]/g, '') }, axis)}
+                />
+                {draft.estimated.includes(axis) && (
+                  <Badge variant="outline" className="border-amber-400 px-1 py-0 text-[10px] text-amber-700">
+                    AI 估算
+                  </Badge>
+                )}
+              </label>
+            ))}
+            <span className="text-muted-foreground">mm</span>
+          </div>
+          {draft.kind && shownStyle && STYLE_FIELDS[draft.kind].length > 0 && (
+            <>
+              {STYLE_FIELDS[draft.kind].includes('top') && (
+                <div className="flex flex-wrap items-center gap-1">
+                  <span className="w-10 text-muted-foreground">桌面</span>
+                  {TOP_OPTIONS.map(([id, label]) => (
+                    <Button
+                      key={id}
+                      size="sm"
+                      variant={shownStyle.top === id ? 'default' : 'outline'}
+                      className="h-6 px-2 text-xs"
+                      onClick={() => updateDraft({ style: { ...draft.style, top: id } })}
+                    >
+                      {label}
+                    </Button>
+                  ))}
+                </div>
+              )}
+              {STYLE_FIELDS[draft.kind].includes('legs') && (
+                <div className="flex flex-wrap items-center gap-1">
+                  <span className="w-10 text-muted-foreground">桌腳</span>
+                  {LEG_OPTIONS.map(([id, label]) => (
+                    <Button
+                      key={id}
+                      size="sm"
+                      variant={shownStyle.legs === id ? 'default' : 'outline'}
+                      className="h-6 px-2 text-xs"
+                      onClick={() => updateDraft({ style: { ...draft.style, legs: id } })}
+                    >
+                      {label}
+                    </Button>
+                  ))}
+                </div>
+              )}
+              {STYLE_FIELDS[draft.kind].includes('chair_base') && (
+                <div className="flex flex-wrap items-center gap-1">
+                  <span className="w-10 text-muted-foreground">椅腳</span>
+                  {CHAIR_BASE_OPTIONS.map(([id, label]) => (
+                    <Button
+                      key={id}
+                      size="sm"
+                      variant={shownStyle.chair_base === id ? 'default' : 'outline'}
+                      className="h-6 px-2 text-xs"
+                      onClick={() => updateDraft({ style: { ...draft.style, chair_base: id } })}
+                    >
+                      {label}
+                    </Button>
+                  ))}
+                </div>
+              )}
+              <div className="flex flex-wrap items-center gap-3">
+                {STYLE_FIELDS[draft.kind]
+                  .filter((field) => COUNT_LABELS[field])
+                  .map((field) => {
+                    const [min, max] = STYLE_LIMITS[field as keyof typeof STYLE_LIMITS];
+                    return (
+                      <label key={field} className="flex items-center gap-1">
+                        {COUNT_LABELS[field]}
+                        <Input
+                          type="number"
+                          min={min}
+                          max={max}
+                          value={String(shownStyle[field])}
+                          className="h-6 w-14 px-1.5 text-xs"
+                          onChange={(event) => {
+                            const n = Number(event.target.value);
+                            if (Number.isFinite(n)) updateDraft({ style: { ...draft.style, [field]: Math.min(max, Math.max(min, Math.round(n))) } });
+                          }}
+                        />
+                      </label>
+                    );
+                  })}
+                {STYLE_FIELDS[draft.kind]
+                  .filter((field) => TOGGLE_LABELS[field])
+                  .map((field) => (
+                    <label key={field} className="flex items-center gap-1">
+                      <Checkbox
+                        checked={shownStyle[field] === true}
+                        onCheckedChange={(value) => updateDraft({ style: { ...draft.style, [field]: value === true } })}
+                      />
+                      {TOGGLE_LABELS[field]}
+                    </label>
+                  ))}
+              </div>
+              <p className="text-muted-foreground">
+                {draft.styleSource === 'image' ? '結構由產品圖 AI 辨認' : '結構按產品名稱判斷（未看產品圖）'}
+                {draft.notes ? `：${draft.notes}` : ''}
+              </p>
+            </>
+          )}
+          <div className="flex flex-wrap gap-1.5">
+            <Button size="sm" className="h-7" disabled={busy != null} onClick={() => void generate()}>
+              {busy === draft.target ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
+              確認生成
+            </Button>
+            <Button size="sm" variant="ghost" className="h-7" disabled={busy != null} onClick={() => setDraft(null)}>
+              取消
+            </Button>
+          </div>
         </div>
       )}
       {skp && skp.status !== 'none' && (
@@ -1459,6 +1809,7 @@ function ProductDetailPage({
   favorited,
   onToggleFavorite,
   onClose,
+  onOpenProduct,
   onOpenSource,
   onModelsChanged,
 }: {
@@ -1466,16 +1817,15 @@ function ProductDetailPage({
   favorited: boolean;
   onToggleFavorite: (next: boolean) => Promise<boolean>;
   onClose: () => void;
+  onOpenProduct: (productId: string) => void;
   onOpenSource: (request: SourcePageRequest & { title?: string | null }) => void;
   onModelsChanged: () => void;
 }) {
   const [detail, setDetail] = useState<ProductDetail | null>(null);
   const [loved, setLoved] = useState(favorited);
   const [compare, setCompare] = useState<SupplierCompare | null>(null);
-  const [activeImage, setActiveImage] = useState(0);
-  const [zoomed, setZoomed] = useState(false);
+  const [modelFiles, setModelFiles] = useState<ProductModelFile[]>([]);
   const [reloadKey, setReloadKey] = useState(0);
-  const closeZoom = useCallback(() => setZoomed(false), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -1516,210 +1866,140 @@ function ProductDetailPage({
     };
   }, [productId]);
 
-  const specs: [string, string | null | undefined][] = detail
-    ? [
-        ['型號', detail.model],
-        ['SKU', detail.sku],
-        ['廠家', detail.factory_name],
-        ['類別', [detail.level1_category, detail.level2_category].filter(Boolean).join(' / ') || detail.category],
-        ['尺寸 (mm)', sizeLabel(detail)],
-        ['材質', detail.material],
-        ['顏色', detail.color ? multiColorToChineseDisplay(detail.color) : null],
-        ['交期', detail.lead_time],
-        ['現貨', detail.in_stock ? '是' : null],
-      ].filter(([, v]) => v) as [string, string | null | undefined][]
-    : [];
+  if (!detail) {
+    return (
+      <div className="flex h-full items-center justify-center bg-[#f4f6fb] text-sm text-slate-500">
+        <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 載入中…
+      </div>
+    );
+  }
+
+  const quotes = detail.can_view_cost ? (
+    <div className="space-y-4 text-slate-700">
+      {detail.prices.length === 0 ? (
+        <p className="text-xs text-slate-400">未有經審核的供應商報價。</p>
+      ) : (
+        <div className="overflow-x-auto rounded border border-slate-200">
+          <table className="w-full text-xs">
+            <thead className="bg-slate-50 text-slate-500">
+              <tr>
+                <th className="px-2 py-1.5 text-left font-medium">規格</th>
+                <th className="px-2 py-1.5 text-left font-medium">廠家</th>
+                <th className="px-2 py-1.5 text-left font-medium">單位／MOQ</th>
+                <th className="px-2 py-1.5 text-left font-medium">有效期</th>
+                <th className="px-2 py-1.5 text-left font-medium">來源</th>
+                <th className="px-2 py-1.5 text-left font-medium">匯入日期</th>
+              </tr>
+            </thead>
+            <tbody>
+              {detail.prices.map((row) => (
+                <tr key={row.id} className="border-t border-slate-100">
+                  <td className="px-2 py-1.5">{row.variant_label ?? '標準'}</td>
+                  <td className="px-2 py-1.5">{row.factory_name ?? '—'}</td>
+                  <td className="px-2 py-1.5">
+                    {[row.unit, row.moq != null ? `MOQ ${row.moq}` : null].filter(Boolean).join(' · ') || '—'}
+                  </td>
+                  <td className="px-2 py-1.5">
+                    <Badge variant="outline" className={cn('px-1.5 py-0 text-[10px] font-normal', VALIDITY_CLASS[row.validity])}>
+                      {VALIDITY_LABELS[row.validity]}
+                    </Badge>
+                    {(row.valid_from || row.valid_to) && (
+                      <div className="mt-0.5 text-slate-500">
+                        {row.valid_from ?? '…'} – {row.valid_to ?? '…'}
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-2 py-1.5">
+                    <SourceLink
+                      title={row.document_title}
+                      page={row.page_no}
+                      documentId={row.document_id}
+                      productId={detail.id}
+                      onOpen={onOpenSource}
+                      canOpen={detail.can_open_source}
+                    />
+                  </td>
+                  <td className="px-2 py-1.5 text-slate-500">{row.created_at.slice(0, 10)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <SupplierCompareSection
+        compare={compare}
+        keepId={detail.id}
+        canMerge={detail.can_view_cost}
+        canOpenSource={detail.can_open_source}
+        onOpenSource={onOpenSource}
+        onMerged={() => setReloadKey((n) => n + 1)}
+      />
+    </div>
+  ) : null;
+
+  const documents = detail.sources.length === 0 ? (
+    <p className="text-slate-400">未提供文件</p>
+  ) : (
+    <ul className="space-y-1 text-xs">
+      {detail.sources.map((source) => (
+        <li key={`${source.document_id}-${source.page_no}`} className="flex items-center gap-2">
+          <span className="text-slate-500">{source.doc_type === 'catalog' ? '目錄' : '報價單'}</span>
+          <SourceLink
+            title={source.title}
+            page={source.page_no}
+            documentId={source.document_id}
+            productId={detail.id}
+            onOpen={onOpenSource}
+            canOpen={detail.can_open_source}
+          />
+          {source.factory_name && <span className="text-slate-500">· {source.factory_name}</span>}
+        </li>
+      ))}
+    </ul>
+  );
 
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-center gap-2 border-b border-border px-4 py-3">
-        <Button type="button" variant="ghost" size="sm" className="h-8 shrink-0 px-2" onClick={onClose}>
-          <ChevronLeft className="mr-1 h-4 w-4" />
-          返回列表
-        </Button>
-        <h1 className="min-w-0 flex-1 truncate text-lg font-semibold">{detail?.title ?? '產品詳情'}</h1>
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          className="h-8 shrink-0"
-          onClick={() => {
-            const next = !loved;
-            setLoved(next);
-            onToggleFavorite(next).catch(() => setLoved(!next));
+    <ProductWorkbench
+      detail={detail}
+      loved={loved}
+      onClose={onClose}
+      onToggleFavorite={async (next) => {
+        setLoved(next);
+        try {
+          return await onToggleFavorite(next);
+        } catch (err) {
+          setLoved(!next);
+          throw err;
+        }
+      }}
+      onOpenProduct={onOpenProduct}
+      actions={(openAr) => (
+        <div
+          className="text-slate-900"
+          style={{
+            ['--muted-foreground' as string]: '215 16% 47%',
+            ['--foreground' as string]: '222 47% 11%',
+            ['--muted' as string]: '210 40% 96%',
+            ['--border' as string]: '214 32% 91%',
+            ['--background' as string]: '0 0% 100%',
+            ['--primary' as string]: '243 100% 68%',
+            ['--primary-foreground' as string]: '0 0% 100%',
           }}
         >
-          <Heart className={cn('mr-1 h-3.5 w-3.5', loved && 'fill-rose-500 text-rose-500')} />
-          {loved ? '已加入常用' : '加入常用'}
-        </Button>
-      </div>
-      <div className="min-h-0 flex-1 overflow-y-auto p-4">
-        {!detail ? (
-          <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">
-            <Loader2 className="mr-2 h-4 w-4 animate-spin" /> 載入中…
-          </div>
-        ) : (
-          <div className="mx-auto max-w-5xl space-y-4">
-            <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
-              <div className="space-y-2">
-                <div className="h-64 overflow-hidden rounded-lg bg-white">
-                  {detail.images.length > 0 ? (
-                    <button
-                      type="button"
-                      onClick={() => setZoomed(true)}
-                      className="h-full w-full cursor-zoom-in"
-                      title="點擊放大圖片"
-                      aria-label="放大圖片"
-                    >
-                      <LoadingImage src={detail.images[activeImage]} alt={detail.title} className="h-full w-full object-contain" />
-                    </button>
-                  ) : (
-                    <div className="flex h-full items-center justify-center">
-                      <Package className="h-10 w-10 text-muted-foreground/40" />
-                    </div>
-                  )}
-                </div>
-                {detail.images.length > 1 && (
-                  <div className="flex flex-wrap gap-1.5">
-                    {detail.images.map((src, i) => (
-                      <button
-                        key={src}
-                        type="button"
-                        onClick={() => setActiveImage(i)}
-                        className={cn(
-                          'h-14 w-14 overflow-hidden rounded border-2',
-                          i === activeImage ? 'border-primary' : 'border-transparent',
-                        )}
-                      >
-                        <LoadingImage src={productThumbUrl(src)} alt="" className="h-full w-full object-cover" loading="lazy" />
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div className="space-y-3 text-sm">
-                <PriceLockup discount={detail.middle_price} original={detail.sale_price} size="detail" />
-                <dl className="grid grid-cols-[6rem_1fr] gap-x-3 gap-y-1.5">
-                  {specs.map(([label, value]) => (
-                    <div key={label} className="contents">
-                      <dt className="text-muted-foreground">{label}</dt>
-                      <dd>{value}</dd>
-                    </div>
-                  ))}
-                </dl>
-                {detail.specifications && (
-                  <p className="whitespace-pre-line text-xs text-muted-foreground">{detail.specifications}</p>
-                )}
-                {detail.description && (
-                  <p className="line-clamp-6 whitespace-pre-line text-xs text-muted-foreground">{detail.description}</p>
-                )}
-              </div>
-            </div>
-
-            <section className="space-y-2">
-              <h3 className="text-sm font-medium">供應商報價</h3>
-              {detail.prices.length === 0 ? (
-                <p className="text-xs text-muted-foreground">未有經審核的供應商報價。</p>
-              ) : (
-                <div className="overflow-x-auto rounded border border-border">
-                  <table className="w-full text-xs">
-                    <thead className="bg-muted/50 text-muted-foreground">
-                      <tr>
-                        <th className="px-2 py-1.5 text-left font-medium">規格</th>
-                        <th className="px-2 py-1.5 text-left font-medium">廠家</th>
-                        <th className="px-2 py-1.5 text-left font-medium">單位／MOQ</th>
-                        <th className="px-2 py-1.5 text-left font-medium">有效期</th>
-                        <th className="px-2 py-1.5 text-left font-medium">來源</th>
-                        <th className="px-2 py-1.5 text-left font-medium">匯入日期</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {detail.prices.map((row) => (
-                        <tr key={row.id} className="border-t border-border/60">
-                          <td className="px-2 py-1.5">{row.variant_label ?? '標準'}</td>
-                          <td className="px-2 py-1.5">{row.factory_name ?? '—'}</td>
-                          <td className="px-2 py-1.5">
-                            {[row.unit, row.moq != null ? `MOQ ${row.moq}` : null].filter(Boolean).join(' · ') || '—'}
-                          </td>
-                          <td className="px-2 py-1.5">
-                            <Badge variant="outline" className={cn('px-1.5 py-0 text-[10px] font-normal', VALIDITY_CLASS[row.validity])}>
-                              {VALIDITY_LABELS[row.validity]}
-                            </Badge>
-                            {(row.valid_from || row.valid_to) && (
-                              <div className="mt-0.5 text-muted-foreground">
-                                {row.valid_from ?? '…'} – {row.valid_to ?? '…'}
-                              </div>
-                            )}
-                          </td>
-                          <td className="px-2 py-1.5">
-                            <SourceLink
-                              title={row.document_title}
-                              page={row.page_no}
-                              documentId={row.document_id}
-                              productId={detail.id}
-                              onOpen={onOpenSource}
-                              canOpen={detail.can_open_source}
-                            />
-                          </td>
-                          <td className="px-2 py-1.5 text-muted-foreground">{row.created_at.slice(0, 10)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-            </section>
-
-            <SupplierCompareSection
-              compare={compare}
-              keepId={detail.id}
-              canMerge={detail.can_view_cost}
-              canOpenSource={detail.can_open_source}
-              onOpenSource={onOpenSource}
-              onMerged={() => setReloadKey((n) => n + 1)}
-            />
-
-            <ProductModelsSection product={detail} canManage={detail.can_view_cost} onChanged={onModelsChanged} />
-
-            {detail.sources.length > 0 && (
-              <section className="space-y-1.5">
-                <h3 className="text-sm font-medium">原始文件</h3>
-                <ul className="space-y-1 text-xs">
-                  {detail.sources.map((s) => (
-                    <li key={`${s.document_id}-${s.page_no}`} className="flex items-center gap-2">
-                      <span className="text-muted-foreground">{s.doc_type === 'catalog' ? '目錄' : '報價單'}</span>
-                      <SourceLink
-                        title={s.title}
-                        page={s.page_no}
-                        documentId={s.document_id}
-                        productId={detail.id}
-                        onOpen={onOpenSource}
-                        canOpen={detail.can_open_source}
-                      />
-                      {s.factory_name && <span className="text-muted-foreground">· {s.factory_name}</span>}
-                    </li>
-                  ))}
-                </ul>
-              </section>
-            )}
-          </div>
-        )}
-      </div>
-      {zoomed && detail && detail.images.length > 0
-        ? createPortal(
-            <div className="pointer-events-auto">
-              <ProductImageGalleryLightbox
-                urls={detail.images}
-                title={detail.title}
-                startIndex={activeImage}
-                onClose={closeZoom}
-              />
-            </div>,
-            document.body,
-          )
-        : null}
-    </div>
+          <ProductModelsSection
+            product={detail}
+            canManage={detail.can_view_cost}
+            onChanged={onModelsChanged}
+            onFiles={setModelFiles}
+            onAr={openAr}
+            appearance="workbench"
+          />
+        </div>
+      )}
+      quotes={quotes}
+      documents={documents}
+      modelFiles={modelFiles}
+    />
   );
 }
 
