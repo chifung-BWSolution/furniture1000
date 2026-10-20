@@ -75,7 +75,7 @@ export async function startCanvaConnect(redirectUri: string): Promise<string> {
   url.searchParams.set('response_type', 'code');
   url.searchParams.set('scope', CANVA_SCOPES);
   url.searchParams.set('code_challenge', challenge);
-  url.searchParams.set('code_challenge_method', 's256');
+  url.searchParams.set('code_challenge_method', 'S256');
   url.searchParams.set('redirect_uri', redirectUri);
   url.searchParams.set('state', state);
   return url.toString();

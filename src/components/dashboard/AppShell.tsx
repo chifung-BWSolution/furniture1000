@@ -793,7 +793,13 @@ export function AppShell() {
     } else {
       const sectionPath = pathFromAppView(store.currentView);
       if (sectionPath) {
-        target = sectionPath;
+        const params = new URLSearchParams(location.search);
+        // Canva redirects back with ?code=&state=. Replacing the path alone
+        // drops that query before PresentationView can exchange the code.
+        const keepCanvaOauth =
+          sectionPath === '/fds/pm/presentation' &&
+          (params.has('code') || params.has('error'));
+        target = keepCanvaOauth ? `${sectionPath}?${params.toString()}` : sectionPath;
       } else if (
         location.pathname.startsWith('/quote') ||
         isDesignProjectPath(location.pathname) ||
