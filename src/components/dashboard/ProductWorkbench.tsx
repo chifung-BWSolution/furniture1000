@@ -4,7 +4,7 @@ import { useSearchParams } from 'react-router-dom';
 import QRCode from 'qrcode';
 import { toast } from 'sonner';
 import {
-  ChevronLeft, Heart, Image as ImageIcon, Loader2, Maximize2, Move, Package, RotateCcw, Search, Share2, ZoomIn,
+  Cable, ChevronLeft, Heart, Image as ImageIcon, Leaf, Loader2, Maximize2, Move, Package, RotateCcw, Ruler, Search, Share2, Sparkles, Users, ZoomIn,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -17,7 +17,7 @@ import { LoadingImage } from '@/components/ui/loading-image';
 import { ProductImageGalleryLightbox } from '@/components/dashboard/ProductImageGallery';
 import { GlbViewport, type ViewportTool } from '@/components/dashboard/GlbViewport';
 import { productThumbUrl } from '@/lib/imageThumb';
-import { multiColorToChineseDisplay } from '@/constants/color-map';
+import { autoMatchColor, getColorHex, multiColorToChineseDisplay } from '@/constants/color-map';
 import { signedModelUrl, fetchModelFlags, type ModelFlags, type ProductModelFile } from '@/lib/productModels';
 import {
   EMPTY_SEARCH_FILTERS, searchProducts, sizeLabel, type ProductDetail, type SearchProduct,
@@ -146,6 +146,7 @@ export function ProductWorkbench({
   const [compareOpen, setCompareOpen] = useState(false);
   const [hideSame, setHideSame] = useState(false);
   const [flags, setFlags] = useState<ModelFlags>({});
+  const [addOpen, setAddOpen] = useState(false);
   const [addQuery, setAddQuery] = useState('');
   const [addHits, setAddHits] = useState<SearchProduct[]>([]);
   const stageRef = useRef<HTMLDivElement>(null);
@@ -326,8 +327,7 @@ export function ProductWorkbench({
         <div className="border-b border-slate-200 px-4 py-3">
           <p className="text-sm font-semibold">{detail.title}</p>
           <p className="mt-1 text-xs text-slate-500">
-            這是設計參考預覽。沒有 USDZ，所以 iPhone 不會打開 Quick Look；Android 也不會跳到 Scene Viewer。
-            定位和尺寸只供選型參考，不是 1:1 工程精度。
+            這是設計參考預覽。定位和尺寸只供選型參考，不是 1:1 工程精度。
           </p>
         </div>
         <div className="relative min-h-0 flex-1">
@@ -353,102 +353,76 @@ export function ProductWorkbench({
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[#f4f6fb] text-slate-900">
-      <div className="flex flex-wrap items-center gap-2 border-b border-slate-200 bg-white px-4 py-2.5">
-        <p className="min-w-0 flex-1 truncate text-xs text-slate-500">
-          <button type="button" className="hover:text-slate-900" onClick={onClose}>產品模型</button>
-          <span className="px-1.5">/</span>
-          <span>{category}</span>
-          <span className="px-1.5">/</span>
-          <span className="text-slate-800">{names.primary}</span>
-        </p>
-        <Button type="button" variant="ghost" size="sm" className="h-8 text-slate-600" onClick={onClose}>
-          <ChevronLeft className="mr-1 h-4 w-4" /> 返回列表
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="h-8 text-slate-600"
-          onClick={() => {
-            const next = !loved;
-            onToggleFavorite(next).catch(() => undefined);
-          }}
-        >
-          <Heart className={cn('mr-1 h-3.5 w-3.5', loved && 'fill-rose-500 text-rose-500')} />
-          {loved ? '已加入常用' : '加入常用'}
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="h-8 text-slate-600"
-          onClick={() => {
-            void navigator.clipboard.writeText(window.location.href).then(
-              () => toast.success('已複製連結'),
-              () => toast.error('複製失敗'),
-            );
-          }}
-        >
-          <Share2 className="mr-1 h-3.5 w-3.5" /> 分享
-        </Button>
-      </div>
-
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
-        <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.85fr)_minmax(300px,1fr)]">
-          <section className="rounded-xl border border-slate-200 bg-white p-3">
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+        <div className="grid items-stretch gap-x-4 gap-y-3 xl:grid-cols-[minmax(0,1.7fr)_minmax(320px,0.9fr)]">
+          <p className="flex min-w-0 items-center truncate text-[13px] text-slate-400">
+            <button type="button" className="hover:text-slate-700" onClick={onClose}>產品模型</button>
+            <span className="px-2 text-slate-300">/</span>
+            <span>{category}</span>
+            <span className="px-2 text-slate-300">/</span>
+            <span className="truncate text-slate-700">{names.primary}</span>
+          </p>
+          <div className="flex items-center justify-end gap-4">
+            <button type="button" className="inline-flex items-center text-[13px] text-slate-600 hover:text-slate-900" onClick={onClose}>
+              <ChevronLeft className="mr-0.5 h-4 w-4" /> 返回列表
+            </button>
+            <button
+              type="button"
+              className="inline-flex items-center text-[13px] text-slate-600 hover:text-slate-900"
+              onClick={() => onToggleFavorite(!loved).catch(() => undefined)}
+            >
+              <Heart className={cn('mr-1 h-3.5 w-3.5', loved && 'fill-rose-500 text-rose-500')} />
+              {loved ? '已收藏' : '加入收藏'}
+            </button>
+            <button
+              type="button"
+              className="inline-flex items-center text-[13px] text-slate-600 hover:text-slate-900"
+              onClick={() => {
+                void navigator.clipboard.writeText(window.location.href).then(
+                  () => toast.success('已複製連結'),
+                  () => toast.error('複製失敗'),
+                );
+              }}
+            >
+              <Share2 className="mr-1 h-3.5 w-3.5" /> 分享
+            </button>
+          </div>
+          <section className="rounded-2xl border border-slate-200/80 bg-white p-4 shadow-sm">
             <div className="mb-3 flex flex-wrap items-center gap-2">
               {(
                 [
                   ['3d', '3D 預覽'],
-                  ['image', '圖片'],
-                  ['scene', '場景'],
                   ['ar', 'AR 預覽'],
+                  ['scene', '場景應用'],
                 ] as const
               ).map(([id, label]) => (
                 <button
                   key={id}
                   type="button"
                   className={cn(
-                    'rounded-full px-3 py-1 text-xs',
-                    stage === id ? 'bg-[#5b4dff] text-white' : 'bg-slate-100 text-slate-600',
+                    'rounded-full px-3.5 py-1.5 text-xs',
+                    stage === id ? 'bg-[#5b4dff] text-white' : 'border border-slate-200 bg-white text-slate-600',
                   )}
                   onClick={() => setStage(id)}
                 >
                   {label}
                 </button>
               ))}
-              <div className="ml-auto flex gap-1">
-                {(
-                  [
-                    ['wire', '線框', wireframe],
-                    ['material', '材質', showMaterial],
-                    ['size', '尺寸', showSize],
-                  ] as const
-                ).map(([id, label, on]) => (
-                  <button
-                    key={id}
-                    type="button"
-                    className={cn('rounded-md px-2 py-1 text-xs', on ? 'bg-slate-900 text-white' : 'text-slate-500')}
-                    onClick={() => {
-                      if (id === 'wire') setWireframe((v) => !v);
-                      if (id === 'material') setShowMaterial((v) => !v);
-                      if (id === 'size') setShowSize((v) => !v);
-                    }}
-                  >
-                    {label}
-                  </button>
-                ))}
+              <div className="ml-auto flex items-center gap-1 text-xs text-slate-500">
+                <button type="button" className={cn('rounded-md px-2 py-1', wireframe && 'bg-slate-900 text-white')} onClick={() => setWireframe((v) => !v)}>線框</button>
+                <button type="button" className={cn('rounded-md px-2 py-1', showMaterial && 'bg-slate-900 text-white')} onClick={() => setShowMaterial((v) => !v)}>材質</button>
+                <button type="button" className={cn('rounded-md px-2 py-1', showSize && 'bg-slate-900 text-white')} onClick={() => setShowSize((v) => !v)}>尺寸</button>
               </div>
             </div>
             <div ref={stageRef} className="flex gap-3">
-              <div className="flex max-h-[52vh] w-16 shrink-0 flex-col gap-2 overflow-y-auto">
+              <div className="flex h-[420px] w-[72px] shrink-0 flex-col gap-2 overflow-y-auto">
                 {detail.images.map((src, index) => (
                   <button
                     key={src}
                     type="button"
                     className={cn(
-                      'h-14 w-14 overflow-hidden rounded-md border bg-slate-50',
-                      index === activeImage ? 'border-[#5b4dff]' : 'border-slate-200',
+                      'h-16 w-16 shrink-0 overflow-hidden rounded-xl border bg-white shadow-sm',
+                      stage === 'image' && index === activeImage ? 'border-[#5b4dff] ring-1 ring-[#5b4dff]' : 'border-slate-200',
                     )}
                     onClick={() => {
                       setActiveImage(index);
@@ -459,7 +433,7 @@ export function ProductWorkbench({
                   </button>
                 ))}
               </div>
-              <div className="relative h-[52vh] min-h-[360px] min-w-0 flex-1 overflow-hidden rounded-lg bg-[#f7f8fb]">
+              <div className="relative h-[420px] min-w-0 flex-1 overflow-hidden rounded-xl bg-[#eef1f6]">
                 {stage === '3d' && glbUrl && !glbError && (
                   <GlbViewport
                     url={glbUrl}
@@ -529,8 +503,8 @@ export function ProductWorkbench({
                   key={id}
                   type="button"
                   className={cn(
-                    'inline-flex items-center rounded-full px-3 py-1.5 text-xs',
-                    tool === id ? 'bg-[#5b4dff] text-white' : 'bg-slate-100 text-slate-600',
+                    'inline-flex items-center rounded-full border px-3.5 py-1.5 text-xs shadow-sm',
+                    tool === id ? 'border-[#5b4dff] bg-[#5b4dff] text-white' : 'border-slate-200 bg-white text-slate-600',
                   )}
                   onClick={() => setTool(id)}
                 >
@@ -539,7 +513,7 @@ export function ProductWorkbench({
               ))}
               <button
                 type="button"
-                className="inline-flex items-center rounded-full bg-slate-100 px-3 py-1.5 text-xs text-slate-600"
+                className="inline-flex items-center rounded-full border border-slate-200 bg-white px-3.5 py-1.5 text-xs text-slate-600 shadow-sm"
                 onClick={() => setResetKey((n) => n + 1)}
               >
                 重置視角
@@ -547,23 +521,30 @@ export function ProductWorkbench({
             </div>
           </section>
 
-          <aside className="rounded-xl border border-slate-200 bg-white p-4">
-            <h1 className="text-xl font-semibold leading-snug">{names.primary}</h1>
-            {names.secondary && <p className="mt-1 text-sm text-slate-500">{names.secondary}</p>}
-            <dl className="mt-4 grid grid-cols-[5.5rem_1fr] gap-y-2 text-sm">
+          <aside className="flex h-full flex-col rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
+            <div className="flex items-start gap-3">
+              <div className="min-w-0 flex-1">
+                <h1 className="text-[22px] font-semibold leading-snug tracking-tight">{names.primary}</h1>
+                {names.secondary && <p className="mt-1 text-sm text-slate-400">{names.secondary}</p>}
+              </div>
+              <button
+                type="button"
+                className="mt-1 text-slate-300 hover:text-rose-500"
+                aria-label={loved ? '已收藏' : '加入收藏'}
+                onClick={() => onToggleFavorite(!loved).catch(() => undefined)}
+              >
+                <Heart className={cn('h-5 w-5', loved && 'fill-rose-500 text-rose-500')} />
+              </button>
+            </div>
+            <dl className="mt-5 grid grid-cols-[4.5rem_1fr] gap-y-3 text-sm">
               {specRows.map(([label, value]) => (
                 <div key={label} className="contents">
-                  <dt className="text-slate-500">{label}</dt>
-                  <dd className={value === MISSING ? 'text-slate-400' : ''}>{value}</dd>
+                  <dt className="text-slate-400">{label}</dt>
+                  <dd className={cn('text-slate-800', value === MISSING && 'text-slate-300')}>{value}</dd>
                 </div>
               ))}
             </dl>
-            <div className="mt-4">{actions(() => setArOpen(true))}</div>
-            <p className="mt-3 text-xs text-slate-500">
-              {glb
-                ? `GLB · ${glb.source === 'generated' ? 'AI 生成' : '上載'} · ${bytesLabel(glb.size_bytes) ?? MISSING} · ${glb.created_at.slice(0, 16).replace('T', ' ')}`
-                : '未提供 GLB。生成 3D 後才可以預覽和下載。'}
-            </p>
+            <div className="mt-auto pt-5">{actions(() => setArOpen(true))}</div>
           </aside>
         </div>
 
@@ -730,7 +711,7 @@ export function ProductWorkbench({
           <DialogHeader>
             <DialogTitle>手機 AR 預覽</DialogTitle>
             <DialogDescription className="text-slate-500">
-              {detail.title}。用手機掃描後打開同一件產品。這一版沒有 USDZ，iPhone 不會進 Quick Look，Android 也不會進 Scene Viewer，手機會看到可旋轉的 3D。尺寸只供設計參考。
+              {detail.title}。用手機掃描後打開同一件產品，在手機上旋轉 3D。尺寸只供設計參考。
             </DialogDescription>
           </DialogHeader>
           <ArPanel title={detail.title} link={arLink} qr={qr} />
