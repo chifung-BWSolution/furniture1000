@@ -852,7 +852,7 @@ function ArPanel({ title, link, qr }: { title: string; link: string; qr: string 
     <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
       {qr ? <img src={qr} alt={`${title} 的 AR 連結`} className="h-44 w-44 rounded-md bg-white" /> : <Loader2 className="h-5 w-5 animate-spin text-slate-400" />}
       <p className="text-sm font-medium">{title}</p>
-      <p className="max-w-sm text-xs text-slate-500">
+      <p className="whitespace-nowrap text-xs text-slate-500">
         適用於手機瀏覽器裡的可旋轉預覽。模型若未校準，不會標成 1:1。
       </p>
       <p className="max-w-sm break-all text-[11px] text-slate-400">{link}</p>
