@@ -383,25 +383,23 @@ export function ProductWorkbench({
               </div>
             )}
             <div ref={stageRef} className="flex gap-3">
-              <div className="flex h-[420px] w-[72px] shrink-0 flex-col gap-2">
-                <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto">
-                  {detail.images.map((src, index) => (
-                    <button
-                      key={src}
-                      type="button"
-                      className={cn(
-                        'h-16 w-16 shrink-0 overflow-hidden rounded-xl border bg-white shadow-sm',
-                        stage === 'image' && index === activeImage ? 'border-[#5b4dff] ring-1 ring-[#5b4dff]' : 'border-slate-200',
-                      )}
-                      onClick={() => {
-                        setActiveImage(index);
-                        setStage('image');
-                      }}
-                    >
-                      <LoadingImage src={productThumbUrl(src)} alt="" className="h-full w-full object-cover" />
-                    </button>
-                  ))}
-                </div>
+              <div className="flex h-[420px] w-[72px] shrink-0 flex-col gap-2 overflow-y-auto">
+                {detail.images.map((src, index) => (
+                  <button
+                    key={src}
+                    type="button"
+                    className={cn(
+                      'h-16 w-16 shrink-0 overflow-hidden rounded-xl border bg-white shadow-sm',
+                      stage === 'image' && index === activeImage ? 'border-[#5b4dff] ring-1 ring-[#5b4dff]' : 'border-slate-200',
+                    )}
+                    onClick={() => {
+                      setActiveImage(index);
+                      setStage('image');
+                    }}
+                  >
+                    <LoadingImage src={productThumbUrl(src)} alt="" className="h-full w-full object-cover" />
+                  </button>
+                ))}
                 {glb && (
                   <button
                     type="button"
