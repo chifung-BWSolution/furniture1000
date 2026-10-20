@@ -317,7 +317,6 @@ export function ProductWorkbench({
     ['現貨', detail.in_stock == null ? MISSING : detail.in_stock ? '是' : '否'],
   ];
 
-  const chips = featureChips(detail, names.primary);
   const arLink = typeof window === 'undefined' ? '' : `${window.location.origin}${window.location.pathname}?ar=1`;
 
   if (arPage) {
@@ -587,16 +586,6 @@ export function ProductWorkbench({
               {tab === 'docs' && documents}
               {tab === 'quotes' && quotes}
             </div>
-            {chips.length > 0 && (
-              <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                {chips.map((chip) => (
-                  <div key={chip.title} className="rounded-lg bg-slate-50 px-3 py-2">
-                    <p className="text-sm font-medium">{chip.title}</p>
-                    <p className="text-xs text-slate-500">{chip.detail}</p>
-                  </div>
-                ))}
-              </div>
-            )}
           </section>
 
           <section className="rounded-xl border border-slate-200 bg-white p-4">
@@ -860,15 +849,4 @@ function ArPanel({ title, link, qr }: { title: string; link: string; qr: string 
       <p className="max-w-sm break-all text-[11px] text-slate-400">{link}</p>
     </div>
   );
-}
-
-function featureChips(detail: ProductDetail, title: string): { title: string; detail: string }[] {
-  const text = [title, detail.material, detail.description, detail.specifications].filter(Boolean).join(' ');
-  const chips: { title: string; detail: string }[] = [];
-  if (/現代|簡約/.test(text)) chips.push({ title: '簡約現代設計', detail: '以產品描述中的風格用詞整理' });
-  if (/線盒|走線/.test(text)) chips.push({ title: '多功能線盒', detail: '產品名稱或描述提到走線' });
-  const size = sizeLabel(detail);
-  if (size) chips.push({ title: '外觀尺寸', detail: `${size} mm` });
-  if (/E0|環保|低甲醛/.test(text)) chips.push({ title: '環保材質', detail: shown(detail.material) });
-  return chips.slice(0, 4);
 }

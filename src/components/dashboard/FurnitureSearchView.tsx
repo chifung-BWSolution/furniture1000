@@ -288,17 +288,23 @@ export function FurnitureSearchView({
   }, [imageFile, debounced]);
 
   useEffect(() => {
+    // Detail replaces this tree, so the grid node unmounts. Re-bind when the
+    // list is on screen again; a detached node reports width 0 and must not
+    // shrink the page to one column (ROWS_PER_PAGE products).
+    if (detailId) return;
     const el = scrollerRef.current;
     if (!el) return;
     const apply = () => {
-      const next = columnsForWidth(el.clientWidth);
+      const width = el.clientWidth;
+      if (width <= 0) return;
+      const next = columnsForWidth(width);
       setColumns((cur) => (cur === next ? cur : next));
     };
     apply();
     const observer = new ResizeObserver(apply);
     observer.observe(el);
     return () => observer.disconnect();
-  }, []);
+  }, [detailId]);
 
   const [modelFlags, setModelFlags] = useState<ModelFlags>({});
   const [modelFlagsKey, setModelFlagsKey] = useState(0);
