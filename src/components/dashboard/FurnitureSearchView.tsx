@@ -33,11 +33,9 @@ import { invokeEdgeFunctionDirect } from '@/lib/invokeEdgeFunction';
 import { buildFurnitureGlb } from '@/lib/furnitureGlb';
 import { buildFurnitureFbx } from '@/lib/furnitureFbx';
 import { ProductWorkbench } from '@/components/dashboard/ProductWorkbench';
+import { StructureConfirmForm, type StructureDraft } from '@/components/dashboard/StructureConfirmDialog';
 import {
-  FURNITURE_GROUPS,
-  FURNITURE_KINDS,
   STYLE_FIELDS,
-  STYLE_LIMITS,
   buildParametric,
   customPartsSize,
   fitCustomParts,
@@ -51,7 +49,6 @@ import {
   type ModelStyle,
   type ParametricModel,
   type SizeAxis,
-  type StyleField,
 } from '@/lib/furnitureParametric';
 import {
   deleteProductModel,
@@ -1235,193 +1232,11 @@ async function analyzeProductImages(urls: string[], request: AnalysisRequest = {
   return result.data;
 }
 
-type ModelDraft = {
-  target: 'su' | '3d';
-  kind: FurnitureKind | null;
-  width: string;
-  depth: string;
-  height: string;
-  estimated: SizeAxis[];
-  /** What was read or chosen; the kind's defaults fill the rest when shown and built. */
-  style: Partial<ModelStyle>;
-  /** Where the structure came from, shown so the user knows what to check. */
-  styleSource: 'image' | 'name';
-  notes: string | null;
-  /** custom only: the checked part list the user can edit. */
-  parts: CustomPartSpec[];
-};
+type ModelDraft = StructureDraft;
 
-const SHAPE_LABELS: Record<CustomPartSpec['shape'], string> = { box: '方塊', cylinder: '圓柱', profile: '輪廓' };
 const AXIS_INDEX: Record<SizeAxis, 0 | 1 | 2> = { width: 0, depth: 1, height: 2 };
 /** Which size axes a profile outline spans, per extrusion axis (same as the engine's PLANE). */
 const PART_PLANE: Record<'x' | 'y' | 'z', [number, number]> = { z: [0, 1], y: [0, 2], x: [1, 2] };
-
-/** Painter's-order sketch. Drag to orbit, right-drag or Shift-drag to pan. */
-function ModelSketch({ model }: { model: ParametricModel }) {
-  const ref = useRef<HTMLCanvasElement>(null);
-  const modelRef = useRef(model);
-  modelRef.current = model;
-  const viewRef = useRef({
-    yaw: Math.atan2(0.55, 1),
-    pitch: Math.atan2(0.75, Math.hypot(0.55, 1)),
-    panX: 0,
-    panY: 0,
-    zoom: 1,
-  });
-
-  const paint = useCallback(() => {
-    const canvas = ref.current;
-    const ctx = canvas?.getContext('2d');
-    const current = modelRef.current;
-    if (!canvas || !ctx) return;
-    const ratio = window.devicePixelRatio || 1;
-    const width = canvas.clientWidth;
-    const height = canvas.clientHeight;
-    if (width < 2 || height < 2) return;
-    canvas.width = width * ratio;
-    canvas.height = height * ratio;
-    ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
-    ctx.clearRect(0, 0, width, height);
-    const unit = (v: number[]) => {
-      const n = Math.hypot(v[0], v[1], v[2]) || 1;
-      return v.map((x) => x / n);
-    };
-    const cross = (a: number[], b: number[]) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
-    const dot = (a: number[], b: number[]) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-    const view = viewRef.current;
-    const flat = Math.cos(view.pitch);
-    const eye = unit([flat * Math.sin(view.yaw), flat * Math.cos(view.yaw), Math.sin(view.pitch)]);
-    const right = unit(cross(eye, [0, 0, 1]));
-    const up = cross(right, eye);
-    const faces = current.components.flatMap((part) =>
-      part.faces_mm.map((face) => {
-        const sum = [0, 0, 0];
-        face.forEach((a, i) => {
-          const b = face[(i + 1) % face.length];
-          sum[0] += (a[1] - b[1]) * (a[2] + b[2]);
-          sum[1] += (a[2] - b[2]) * (a[0] + b[0]);
-          sum[2] += (a[0] - b[0]) * (a[1] + b[1]);
-        });
-        const normal = unit(sum);
-        const depth = face.reduce((sum, p) => sum + dot(p, eye), 0) / face.length;
-        return { points: face.map((p) => [dot(p, right), -dot(p, up)]), normal, depth };
-      }),
-    );
-    const visible = faces.filter((f) => dot(f.normal, eye) > 0.001);
-    const xs = visible.flatMap((f) => f.points.map((p) => p[0]));
-    const ys = visible.flatMap((f) => f.points.map((p) => p[1]));
-    if (xs.length === 0) return;
-    const [minX, maxX, minY, maxY] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)];
-    const fit = Math.min((width - 16) / (maxX - minX || 1), (height - 16) / (maxY - minY || 1));
-    const scale = fit * view.zoom;
-    const offX = (width - (maxX - minX) * scale) / 2 - minX * scale + view.panX;
-    const offY = (height - (maxY - minY) * scale) / 2 - minY * scale + view.panY;
-    visible.sort((a, b) => a.depth - b.depth);
-    ctx.lineWidth = 0.6;
-    ctx.strokeStyle = 'rgba(30,41,59,0.55)';
-    for (const face of visible) {
-      const light = 0.55 + 0.35 * Math.max(0, face.normal[2]) + 0.1 * Math.max(0, face.normal[1]);
-      const tone = Math.round(150 + 90 * light);
-      ctx.fillStyle = `rgb(${tone - 20},${tone - 10},${tone})`;
-      ctx.beginPath();
-      face.points.forEach(([px, py], i) => (i === 0 ? ctx.moveTo(px * scale + offX, py * scale + offY) : ctx.lineTo(px * scale + offX, py * scale + offY)));
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-    }
-  }, []);
-
-  useEffect(() => {
-    paint();
-  }, [model, paint]);
-
-  useEffect(() => {
-    const canvas = ref.current;
-    if (!canvas) return;
-    let drag: { x: number; y: number; mode: 'rotate' | 'pan' } | null = null;
-    const down = (event: PointerEvent) => {
-      if (event.button > 2) return;
-      drag = {
-        x: event.clientX,
-        y: event.clientY,
-        mode: event.button === 0 && !event.shiftKey ? 'rotate' : 'pan',
-      };
-      try {
-        canvas.setPointerCapture(event.pointerId);
-      } catch {
-        /* Synthetic events and some dialogs cannot capture the pointer. */
-      }
-    };
-    const move = (event: PointerEvent) => {
-      if (!drag) return;
-      const dx = event.clientX - drag.x;
-      const dy = event.clientY - drag.y;
-      drag.x = event.clientX;
-      drag.y = event.clientY;
-      const view = viewRef.current;
-      if (drag.mode === 'rotate') {
-        view.yaw -= dx * 0.01;
-        view.pitch = Math.min(1.2, Math.max(-1.05, view.pitch + dy * 0.01));
-      } else {
-        view.panX += dx;
-        view.panY += dy;
-      }
-      paint();
-    };
-    const up = (event: PointerEvent) => {
-      drag = null;
-      try {
-        if (canvas.hasPointerCapture(event.pointerId)) canvas.releasePointerCapture(event.pointerId);
-      } catch {
-        /* Already released. */
-      }
-    };
-    const wheel = (event: WheelEvent) => {
-      event.preventDefault();
-      const view = viewRef.current;
-      view.zoom = Math.min(4, Math.max(0.35, view.zoom * (event.deltaY > 0 ? 0.92 : 1.08)));
-      paint();
-    };
-    const blockMenu = (event: Event) => event.preventDefault();
-    canvas.addEventListener('pointerdown', down);
-    canvas.addEventListener('pointermove', move);
-    canvas.addEventListener('pointerup', up);
-    canvas.addEventListener('pointercancel', up);
-    canvas.addEventListener('wheel', wheel, { passive: false });
-    canvas.addEventListener('contextmenu', blockMenu);
-    return () => {
-      canvas.removeEventListener('pointerdown', down);
-      canvas.removeEventListener('pointermove', move);
-      canvas.removeEventListener('pointerup', up);
-      canvas.removeEventListener('pointercancel', up);
-      canvas.removeEventListener('wheel', wheel);
-      canvas.removeEventListener('contextmenu', blockMenu);
-    };
-  }, [paint]);
-
-  return (
-    <div className="space-y-1">
-      <canvas ref={ref} className="h-52 w-full cursor-grab touch-none rounded border bg-white active:cursor-grabbing" aria-label="模型預覽，拖曳旋轉，右鍵拖曳移動" />
-      <p className="text-muted-foreground">拖曳旋轉，右鍵或 Shift 拖曳移動</p>
-    </div>
-  );
-}
-
-const TOP_OPTIONS: [ModelStyle['top'], string][] = [['rect', '矩形'], ['boat', '船形（兩端收窄）'], ['round', '圓形']];
-const LEG_OPTIONS: [ModelStyle['legs'], string][] = [['four', '四腳'], ['panel', '折板腳'], ['pedestal', '中柱']];
-const CHAIR_BASE_OPTIONS: [ModelStyle['chair_base'], string][] = [['star', '五星腳'], ['four', '四腳'], ['sled', '弓字架']];
-const TOGGLE_LABELS: Partial<Record<StyleField, string>> = {
-  cable_tray: '中間走線槽',
-  screen: '屏風',
-  arms: '扶手',
-  frame: '金屬框架（無側板）',
-};
-const COUNT_LABELS: Partial<Record<StyleField, string>> = {
-  doors: '門',
-  drawers: '抽屜',
-  shelves: '層板',
-  seats: '座位',
-};
 
 /** Dialog portals to document.body, so the workbench color tokens have to travel with it. */
 const WORKBENCH_TONE = {
@@ -1733,7 +1548,12 @@ function ProductModelsSection({
     setDraft((current) => {
       if (!current) return current;
       const estimated = editedAxis ? current.estimated.filter((axis) => axis !== editedAxis) : current.estimated;
-      return { ...current, ...patch, estimated };
+      return {
+        ...current,
+        ...patch,
+        ...(patch.style ? { style: { ...current.style, ...patch.style } } : {}),
+        estimated,
+      };
     });
   };
 
@@ -2051,17 +1871,19 @@ function ProductModelsSection({
       >
         <DialogContent
           className={cn(
-            'max-h-[90vh] overflow-hidden bg-white text-slate-900 transition-[max-width] duration-500 ease-out',
-            confirmShown ? 'sm:max-w-3xl' : 'sm:max-w-sm',
+            'overflow-hidden border-slate-200 bg-white text-slate-900 shadow-[0_28px_80px_-28px_rgba(15,23,42,0.55)] transition-[max-width,height] duration-500 ease-out',
+            confirmShown
+              ? 'flex h-[min(820px,calc(100vh-2rem))] max-h-[calc(100vh-2rem)] max-w-[min(1080px,calc(100vw-1.5rem))] flex-col gap-0 p-0 sm:rounded-2xl'
+              : 'max-w-sm',
           )}
-          hideClose={genProgress != null}
+          hideClose
           style={workbench ? WORKBENCH_TONE : undefined}
           onInteractOutside={(event) => { if (genProgress != null || busy != null || partsBusy) event.preventDefault(); }}
           onEscapeKeyDown={(event) => { if (genProgress != null || busy != null || partsBusy) event.preventDefault(); }}
         >
-          <div className={cn('grid transition-[grid-template-rows] duration-500 ease-out', confirmShown ? 'grid-rows-[0fr_1fr]' : 'grid-rows-[1fr_0fr]')}>
+          <div className={cn('grid min-h-0 transition-[grid-template-rows] duration-500 ease-out', confirmShown ? 'flex-1 grid-rows-[0fr_1fr]' : 'grid-rows-[1fr_0fr]')}>
             <div className="min-h-0 overflow-hidden">
-              <div className={cn('transition-all duration-500 ease-out', confirmShown ? '-translate-y-2 scale-95 opacity-0' : 'translate-y-0 scale-100 opacity-100')}>
+              <div className={cn('px-6 py-6 transition-all duration-500 ease-out', confirmShown ? '-translate-y-2 scale-95 opacity-0' : 'translate-y-0 scale-100 opacity-100')}>
                 {genProgress && (
                   <>
                     <DialogHeader>
@@ -2074,212 +1896,31 @@ function ProductModelsSection({
                 )}
               </div>
             </div>
-            <div className="min-h-0 overflow-hidden">
-              <div className={cn('transition-all duration-500 ease-out', confirmShown ? 'translate-y-0 opacity-100' : 'pointer-events-none translate-y-4 opacity-0')}>
-          {draft && (
-        <div className="max-h-[70vh] space-y-3 overflow-y-auto text-xs">
-          <DialogHeader>
-            <DialogTitle className="text-base">生成前請確認結構（{draft.target === 'su' ? 'SU' : '3D'}）</DialogTitle>
-            <DialogDescription className="sr-only">確認家具類型、尺寸和結構後再生出模型。</DialogDescription>
-          </DialogHeader>
-          <div className="space-y-1">
-            {FURNITURE_GROUPS.map((group) => (
-              <div key={group.label} className="flex flex-wrap items-center gap-1">
-                <span className="w-10 text-muted-foreground">{group.label}</span>
-                {group.kinds.map((id) => (
-                  <Button
-                    key={id}
-                    size="sm"
-                    variant={draft.kind === id ? 'default' : 'outline'}
-                    className="h-6 px-2 text-xs"
-                    onClick={() => updateDraft({ kind: id })}
-                  >
-                    {FURNITURE_KINDS.find((item) => item.id === id)?.label ?? id}
-                  </Button>
-                ))}
-              </div>
-            ))}
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="w-10 text-muted-foreground">尺寸</span>
-            {(
-              [
-                ['width', '闊'],
-                ['depth', '深'],
-                ['height', '高'],
-              ] as [SizeAxis, string][]
-            ).map(([axis, label]) => (
-              <label key={axis} className="flex items-center gap-1">
-                {label}
-                <Input
-                  value={draft[axis]}
-                  inputMode="numeric"
-                  className="h-6 w-20 px-1.5 text-xs"
-                  onChange={(event) => updateDraft({ [axis]: event.target.value.replace(/[^\d.]/g, '') }, axis)}
-                />
-                {draft.estimated.includes(axis) && (
-                  <Badge variant="outline" className="border-amber-400 px-1 py-0 text-[10px] text-amber-700">
-                    AI 估算
-                  </Badge>
-                )}
-              </label>
-            ))}
-            <span className="text-muted-foreground">mm</span>
-          </div>
-          {draft.kind && shownStyle && STYLE_FIELDS[draft.kind].length > 0 && (
-            <>
-              {STYLE_FIELDS[draft.kind].includes('top') && (
-                <div className="flex flex-wrap items-center gap-1">
-                  <span className="w-10 text-muted-foreground">桌面</span>
-                  {TOP_OPTIONS.map(([id, label]) => (
-                    <Button
-                      key={id}
-                      size="sm"
-                      variant={shownStyle.top === id ? 'default' : 'outline'}
-                      className="h-6 px-2 text-xs"
-                      onClick={() => updateDraft({ style: { ...draft.style, top: id } })}
-                    >
-                      {label}
-                    </Button>
-                  ))}
-                </div>
-              )}
-              {STYLE_FIELDS[draft.kind].includes('legs') && (
-                <div className="flex flex-wrap items-center gap-1">
-                  <span className="w-10 text-muted-foreground">桌腳</span>
-                  {LEG_OPTIONS.map(([id, label]) => (
-                    <Button
-                      key={id}
-                      size="sm"
-                      variant={shownStyle.legs === id ? 'default' : 'outline'}
-                      className="h-6 px-2 text-xs"
-                      onClick={() => updateDraft({ style: { ...draft.style, legs: id } })}
-                    >
-                      {label}
-                    </Button>
-                  ))}
-                </div>
-              )}
-              {STYLE_FIELDS[draft.kind].includes('chair_base') && (
-                <div className="flex flex-wrap items-center gap-1">
-                  <span className="w-10 text-muted-foreground">椅腳</span>
-                  {CHAIR_BASE_OPTIONS.map(([id, label]) => (
-                    <Button
-                      key={id}
-                      size="sm"
-                      variant={shownStyle.chair_base === id ? 'default' : 'outline'}
-                      className="h-6 px-2 text-xs"
-                      onClick={() => updateDraft({ style: { ...draft.style, chair_base: id } })}
-                    >
-                      {label}
-                    </Button>
-                  ))}
-                </div>
-              )}
-              <div className="flex flex-wrap items-center gap-3">
-                {STYLE_FIELDS[draft.kind]
-                  .filter((field) => COUNT_LABELS[field])
-                  .map((field) => {
-                    const [min, max] = STYLE_LIMITS[field as keyof typeof STYLE_LIMITS];
-                    // A shelf is counted by its levels, top and bottom boards included.
-                    const offset = draft.kind === 'shelf' && field === 'shelves' ? 2 : 0;
-                    return (
-                      <label key={field} className="flex items-center gap-1">
-                        {offset ? '層數' : COUNT_LABELS[field]}
-                        <Input
-                          type="number"
-                          min={min + offset}
-                          max={max + offset}
-                          value={String(Number(shownStyle[field]) + offset)}
-                          className="h-6 w-14 px-1.5 text-xs"
-                          onChange={(event) => {
-                            const n = Number(event.target.value) - offset;
-                            if (Number.isFinite(n)) updateDraft({ style: { ...draft.style, [field]: Math.min(max, Math.max(min, Math.round(n))) } });
-                          }}
-                        />
-                      </label>
-                    );
-                  })}
-                {STYLE_FIELDS[draft.kind]
-                  .filter((field) => TOGGLE_LABELS[field])
-                  .map((field) => (
-                    <label key={field} className="flex items-center gap-1">
-                      <Checkbox
-                        checked={shownStyle[field] === true}
-                        onCheckedChange={(value) => updateDraft({ style: { ...draft.style, [field]: value === true } })}
-                      />
-                      {TOGGLE_LABELS[field]}
-                    </label>
-                  ))}
-              </div>
-              <p className="text-muted-foreground">
-                {draft.styleSource === 'image' ? '結構由產品圖 AI 辨認' : '結構按產品名稱判斷（未看產品圖）'}
-                {draft.notes ? `：${draft.notes}` : ''}
-              </p>
-            </>
-          )}
-          {draft.kind === 'custom' && (
-            <div className="space-y-1">
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="text-muted-foreground">
-                  沒有對應模板，按產品圖拆成 {draft.parts.length} 個部件（方塊、圓柱、輪廓）。可刪掉或改尺寸再生成。
-                </span>
-                <Button size="sm" variant="outline" className="h-6 px-2 text-xs" disabled={partsBusy || busy != null} onClick={() => void loadParts()}>
-                  {partsBusy ? <Loader2 className="mr-1 h-3 w-3 animate-spin" /> : null}
-                  {draft.parts.length > 0 ? '重新辨認部件' : 'AI 拆部件'}
-                </Button>
-              </div>
-              {draft.parts.length > 0 && (
-                <ul className="max-h-48 space-y-0.5 overflow-y-auto rounded border bg-background p-1">
-                  {fittedParts(draft).map((part, index) => (
-                    <li key={`${index}-${part.name}`} className="flex flex-wrap items-center gap-1">
-                      <span className="w-24 truncate" title={part.name}>
-                        {part.name}
-                      </span>
-                      <span className="w-8 text-muted-foreground">{SHAPE_LABELS[part.shape]}</span>
-                      {([0, 1, 2] as const).map((axis) => (
-                        <Input
-                          key={`${axis}-${part.size_mm[axis]}`}
-                          defaultValue={String(part.size_mm[axis])}
-                          inputMode="numeric"
-                          aria-label={`${part.name} ${['闊', '深', '高'][axis]}`}
-                          className="h-5 w-14 px-1 text-[11px]"
-                          onBlur={(event) => resizePart(index, axis, event.target.value)}
-                          onKeyDown={(event) => {
-                            if (event.key === 'Enter') event.currentTarget.blur();
-                          }}
-                        />
-                      ))}
-                      <button
-                        type="button"
-                        className="ml-1 text-muted-foreground hover:text-destructive"
-                        onClick={() => removePart(index)}
-                      >
-                        刪除
-                      </button>
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {draft.notes && <p className="text-muted-foreground">AI：{draft.notes}</p>}
-            </div>
-          )}
-          {previewModel && <ModelSketch model={previewModel} />}
-          <div className="flex flex-wrap gap-1.5">
-            <Button
-              size="sm"
-              className="h-7"
-              disabled={busy != null || partsBusy || (draft.kind === 'custom' && draft.parts.length === 0)}
-              onClick={() => void generate()}
+            <div
+              className="min-h-0 overflow-hidden"
+              ref={(node) => {
+                if (node) node.toggleAttribute('inert', !confirmShown);
+              }}
             >
-              {busy === draft.target ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
-              確認生成
-            </Button>
-            <Button size="sm" variant="ghost" className="h-7" disabled={busy != null} onClick={() => { setDraft(null); setConfirmShown(false); }}>
-              取消
-            </Button>
-          </div>
-        </div>
+              <div className={cn('h-full transition-all duration-500 ease-out', confirmShown ? 'translate-y-0 opacity-100' : 'pointer-events-none translate-y-4 opacity-0')}>
+          {draft && (
+        <StructureConfirmForm
+          draft={draft}
+          shownStyle={shownStyle}
+          preview={previewModel}
+          generating={busy != null}
+          partsBusy={partsBusy}
+          onChange={updateDraft}
+          onGenerate={() => void generate()}
+          onCancel={() => {
+            setDraft(null);
+            setConfirmShown(false);
+          }}
+          onLoadParts={() => void loadParts()}
+          onResizePart={resizePart}
+          onRemovePart={removePart}
+          fittedParts={draft.kind === 'custom' ? fittedParts(draft) : []}
+        />
           )}
               </div>
             </div>
