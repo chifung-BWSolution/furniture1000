@@ -123,6 +123,13 @@ const VALIDITY_CLASS: Record<PriceValidity, string> = {
   unmarked: 'border-border text-muted-foreground',
 };
 
+function modelSizeLabel(bytes: number | null): string {
+  if (bytes == null || bytes < 0) return '';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
@@ -1371,6 +1378,8 @@ function ProductModelsSection({
   const savedRef = useRef<{ key: string; id: string } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [genProgress, setGenProgress] = useState<{ percent: number; label: string } | null>(null);
+  /** Same dialog: false keeps the percentage, true reveals the structure form. */
+  const [confirmShown, setConfirmShown] = useState(false);
   const creepRef = useRef<number | null>(null);
   const progressCloseRef = useRef<number | null>(null);
 
@@ -1413,6 +1422,20 @@ function ProductModelsSection({
       progressCloseRef.current = null;
       setGenProgress(null);
     }, 700);
+  };
+
+  /** Hold 100%, then let the same dialog expand into the structure form. */
+  const handoffToConfirm = () => {
+    stopCreep();
+    showProgress(100, '結構已辨認');
+    if (progressCloseRef.current != null) window.clearTimeout(progressCloseRef.current);
+    progressCloseRef.current = window.setTimeout(() => {
+      setConfirmShown(true);
+      progressCloseRef.current = window.setTimeout(() => {
+        progressCloseRef.current = null;
+        setGenProgress(null);
+      }, 520);
+    }, 420);
   };
 
   useEffect(() => () => {
@@ -1514,6 +1537,7 @@ function ProductModelsSection({
   /** T-801: read kind, size, and table structure, then hand a draft to the user to confirm. */
   const prepare = async (target: 'su' | '3d') => {
     setBusy(target);
+    setConfirmShown(false);
     clearProgress();
     showProgress(8, target === 'su' ? '準備生成 SU' : '準備生成 3D');
     try {
@@ -1855,7 +1879,7 @@ function ProductModelsSection({
                       onClick={() => void downloadModel(file.storage_path, file.file_name).catch((err) => toast.error('下載失敗', { description: errorText(err) }))}
                     >
                       {(file.format ?? '').toUpperCase()} · {file.source === 'generated' ? 'AI 生成' : '上載'}
-                      {file.size_bytes != null ? ` · ${(file.size_bytes / 1024 / 1024).toFixed(1)} MB` : ''}
+                      {file.size_bytes != null ? ` · ${modelSizeLabel(file.size_bytes)}` : ''}
                     </DropdownMenuItem>
                   ))
                 )}
@@ -2177,7 +2201,7 @@ function ProductModelsSection({
               </Badge>
               <span className="truncate">{f.file_name ?? `${f.model_type}.${f.format}`}</span>
               {f.size_bytes != null && (
-                <span className="text-muted-foreground">{(f.size_bytes / 1024 / 1024).toFixed(1)} MB</span>
+                <span className="text-muted-foreground">{modelSizeLabel(f.size_bytes)}</span>
               )}
               {f.source === 'generated' && <span className="text-muted-foreground">AI 生成</span>}
               <button
