@@ -122,7 +122,7 @@
 
 | 能力 | 現況 |
 |---|---|
-| PDF 產品抽取 | `AIProcessorView.tsx` ＋ edge `gemini-pdf-catalog`（Gemini `gemini-2.5-flash`）：瀏覽器 pdfjs 渲染 → 逐頁送入 → 回 bounding box → 前端裁圖 → 只存裁切圖 |
+| PDF 產品抽取 | `AIProcessorView.tsx` ＋ edge `gemini-pdf-catalog`（Gemini `gemini-2.5-flash`）：瀏覽器 pdfjs 渲染 → 逐頁送入 → 回 bounding box → 前端裁圖 → 只存裁切圖。每件產品的分類必須是 `product_category` 既有的一級／二級，不能由模型自創 |
 | Excel 產品抽取 | edge `gemini-excel-catalog` |
 | 圖片相似匹配 | edge `visual-match-images`：**Gemini 視覺評分 0–100（非向量）**，門檻 70／75 |
 | 通用 AI 代理 | edge `gemini-proxy` |
@@ -208,7 +208,12 @@ PDF 上傳 → 建立解析任務 → 逐頁分析 → 頁面分類（目錄/產
 **核心要求（已確認）**：
 1. 分批處理 ＋ 有限度並行。
 2. **不按固定頁數切割以致破壞跨頁產品關係**（現行 `PAGES_PER_BATCH=1` 需改為語意分段）。
-3. 提取名稱、型號、尺寸、材質、分類、圖片、價格。
+3. 提取名稱、型號、尺寸、材質、分類、圖片、價格。分類逐件對應 `product_category` 既有列（一級／二級），對不上就留空，不可自創新分類。
+
+**廠家目錄上載精靈**（`AIProcessorView`，步驟「設置廠家資料」／「上傳及處理產品」）：
+- 步驟 1 的產品分類是可選的預設／後備，不再強制整批共用一個分類。
+- PDF 與 Excel／目錄解析時，AI 依現有分類清單為每一件產品歸類；辨識不到才套用步驟 1 的預設。
+- 步驟 2 每一列以現有分類下拉選單顯示，可把一個分類套用到已選列。未分類的列會標示，全部都有分類才可儲存。
 4. 識別報價貨幣、計價單位、MOQ、有效期。
 5. 保留文件與**原始頁碼**。
 6. 若可得版面座標，保存 **Bounding Box**。

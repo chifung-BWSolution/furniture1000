@@ -65,10 +65,36 @@ function logMemory(label: string): void {
 }
 
 /** Build the catalog prompt for a specific page range */
+function categoryInstruction(categories: string[]): string {
+  const labels = categories.map((label) => label.trim()).filter(Boolean);
+  if (labels.length === 0) {
+    return `PRODUCT CATEGORY: Set "product_category" to null. Do not invent a category.`;
+  }
+  return `PRODUCT CATEGORY: Set "product_category" to EXACTLY one of these existing labels, copied character-for-character, or null if none fits this product. Never invent, translate, or combine labels.
+${labels.map((label) => `- ${label}`).join("\n")}`;
+}
+
+function restrictProductCategories(products: any[], categories: string[]): any[] {
+  const allowed = new Map<string, string>();
+  for (const label of categories) {
+    const trimmed = label.trim();
+    if (!trimmed) continue;
+    allowed.set(trimmed, trimmed);
+    allowed.set(trimmed.replace(/\s+/g, " ").replace(/[／]/g, "/"), trimmed);
+  }
+  return products.map((product) => {
+    const raw = typeof product?.product_category === "string" ? product.product_category.trim() : "";
+    const normalized = raw.replace(/\s+/g, " ").replace(/[／]/g, "/");
+    const kept = allowed.get(raw) || allowed.get(normalized) || null;
+    return { ...product, product_category: kept };
+  });
+}
+
 function buildCatalogPrompt(
   tagsList: string,
   pageStart?: number,
-  pageEnd?: number
+  pageEnd?: number,
+  categories: string[] = [],
 ): string {
   const pageContext =
     pageStart !== undefined && pageEnd !== undefined
@@ -210,6 +236,8 @@ ESTIMATED PRICE (HKD): Based on quality/materials. Office chairs: 800-8000. Desk
 
 COLLECTION: One of: "Office Furniture", "Education Furniture", "Conference Furniture", "Training Furniture", "Storage Solutions", "Reception & Lounge", "Industrial Furniture", "Outdoor Furniture", "School Furniture", "F&B Furniture", "Accessories"
 
+${categoryInstruction(categories)}
+
 TAGS: Select from this official list ONLY: ${tagsList}
 
 IMAGE REGION: For each product, describe where on the page the product image is located (e.g. "top-left quadrant", "center of page 3", "row 2 column 3"). This helps identify which product you're referring to.
@@ -229,6 +257,7 @@ OUTPUT FORMAT — Return ONLY valid JSON (no markdown fences):
       "tags": ["tag1", "tag2"],
       "price": 2880.00,
       "collection": "Collection Name",
+      "product_category": null,
       "material": "主要材質",
       "dimensions": "W x D x H cm (if visible)",
       "image_region": "row 1, column 2 of the product grid",
@@ -986,6 +1015,9 @@ Deno.serve(async (req: Request) => {
     const files = body.files as any[];
     const model = body.model as string | undefined;
     const tags_list = body.tags_list as string | undefined;
+    const productCategories = Array.isArray(body.product_categories)
+      ? (body.product_categories as unknown[]).map((label) => String(label).trim()).filter(Boolean).slice(0, 200)
+      : [];
     const startPage = body.start_page as number | undefined;
     const endPage = body.end_page as number | undefined;
     const uploadSessionId = body.upload_session_id as string | undefined;
@@ -1049,7 +1081,7 @@ Deno.serve(async (req: Request) => {
         })
       );
 
-      const prompt = buildCatalogPrompt(tagsList, startPage, endPage);
+      const prompt = buildCatalogPrompt(tagsList, startPage, endPage, productCategories);
 
       // For single-page requests with multi-object segmentation, use larger token limit
       // A page with 12 products each needing model_number + bounding_box needs ~16K tokens
@@ -1134,7 +1166,7 @@ CRITICAL MULTI-OBJECT RULES:
       }
 
       const rawProducts = parsed.data.products || [];
-      const products = sanitizeProducts(rawProducts);
+      const products = restrictProductCategories(sanitizeProducts(rawProducts), productCategories);
 
       // V7: Skip server-side cropping entirely when page_images are provided.
       // The frontend does cropping more reliably (browser Canvas API is universally supported
@@ -1208,7 +1240,7 @@ CRITICAL MULTI-OBJECT RULES:
         })
       );
 
-      const prompt = buildCatalogPrompt(tagsList);
+      const prompt = buildCatalogPrompt(tagsList, undefined, undefined, productCategories);
 
       const geminiPayload = {
         systemInstruction: {
@@ -1246,7 +1278,7 @@ CRITICAL MULTI-OBJECT RULES:
       // Sanitize bounding boxes before returning
       const sanitizedData = {
         ...parsed.data,
-        products: sanitizeProducts(parsed.data.products || []),
+        products: restrictProductCategories(sanitizeProducts(parsed.data.products || []), productCategories),
       };
       
       return new Response(
@@ -1307,7 +1339,7 @@ CRITICAL MULTI-OBJECT RULES:
         break;
       }
 
-      const prompt = buildCatalogPrompt(tagsList, chunk.start, chunk.end);
+      const prompt = buildCatalogPrompt(tagsList, chunk.start, chunk.end, productCategories);
 
       const geminiPayload = {
         systemInstruction: {
@@ -1331,7 +1363,7 @@ CRITICAL MULTI-OBJECT RULES:
         continue;
       }
 
-      const chunkProducts = sanitizeProducts(parsed.data.products || []);
+      const chunkProducts = restrictProductCategories(sanitizeProducts(parsed.data.products || []), productCategories);
       successfulChunks++;
       allProducts.push(...chunkProducts);
       if (parsed.data.catalog_summary) {
