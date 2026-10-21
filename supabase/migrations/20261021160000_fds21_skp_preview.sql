@@ -400,6 +400,11 @@ begin
 end;
 $$;
 
+revoke all on function public.fds_product_models(text) from public, anon;
+revoke execute on function public.fds_product_model_register(text, text, text, text) from public, anon;
+grant execute on function public.fds_product_models(text) to authenticated;
+grant execute on function public.fds_product_model_register(text, text, text, text) to authenticated;
+
 revoke all on function public.fds_enqueue_skp_preview(uuid) from public, anon, authenticated;
 revoke all on function public.fds_skp_preview_status_for(uuid) from public, anon, authenticated;
 revoke all on function public.fds_request_skp_preview(uuid) from public, anon, authenticated;
