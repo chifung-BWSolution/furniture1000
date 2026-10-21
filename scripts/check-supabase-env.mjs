@@ -20,6 +20,9 @@ const PROJECTS = {
 
 const FURNITURE = 'riaubhtruisbwdlwjzur';
 const PMS = 'kqwktnplkqucsbasyfjl';
+// 這支腳本檢查的是正式庫。Vercel Preview（develop Beta）故意用 FDS2.0
+// 分支 omxizeukbcqzsnjsuwod，由無前綴的 SUPABASE_URL 在 vite build 時寫入。
+// 不要為了讓本腳本通過而把 Preview 的 VITE_SUPABASE_* 改回正式庫。
 
 /** name, required, expected ref, expected role (null = URL), 說明 */
 const CHECKS = [
