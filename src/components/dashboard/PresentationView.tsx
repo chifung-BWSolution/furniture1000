@@ -6,21 +6,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ArrowRight, CheckCircle2, ExternalLink, FileText, Info, Link2, Loader2,
-  Presentation as PresentationIcon, RefreshCcw, Save, Search, Trash2,
+  Presentation as PresentationIcon, RefreshCcw, Save, Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import type { SearchProduct, SearchResult } from '@/lib/productSearch';
-import { searchProducts } from '@/lib/productSearch';
+import { PresentationProductPicker } from '@/components/dashboard/PresentationProductPicker';
+import type { SearchProduct } from '@/lib/productSearch';
 import { CANVA_AUTOFILL_DOC_PATH } from '@/lib/canvaBrandTemplate';
 import {
   canvaDisconnect, exchangeCanvaCode, fetchCanvaStatus,
@@ -34,7 +33,6 @@ import {
   type CanvaSessionVersionRow,
 } from '@/lib/canvaNativeDesign';
 
-const PAGE_SIZE = 50;
 const MAX_ITEMS = 30;
 const PRESENTATION_PATH = '/fds/pm/presentation';
 const TITLE_MAX = 100;
@@ -211,9 +209,7 @@ function Field({
 }
 
 export function PresentationView() {
-  const [query, setQuery] = useState('');
-  const [result, setResult] = useState<SearchResult | null>(null);
-  const [searching, setSearching] = useState(false);
+  const [pickerNonce, setPickerNonce] = useState(0);
   const [selected, setSelected] = useState<SearchProduct[]>([]);
   const [canva, setCanva] = useState<CanvaStatus | null>(null);
   const [canImport, setCanImport] = useState(false);
@@ -298,37 +294,6 @@ export function PresentationView() {
     refreshStatus();
     refreshSessions();
   }, [refreshStatus, refreshSessions]);
-
-  const runSearch = useCallback(async () => {
-    setSearching(true);
-    try {
-      const res = await searchProducts(
-        {
-          query, factory: '', level1: '', level2: '', colors: [], materialTags: [],
-          priceMin: '', priceMax: '', lMin: '', lMax: '', wMin: '', wMax: '', hMin: '', hMax: '',
-          inStock: false, scope: 'all', sort: 'relevance',
-        },
-        0,
-        PAGE_SIZE,
-      );
-      setResult(res);
-    } catch (err) {
-      toast.error('搜索失敗', { description: errorText(err) });
-    } finally {
-      setSearching(false);
-    }
-  }, [query]);
-
-  const toggle = (p: SearchProduct) => {
-    setSelected((current) => {
-      if (current.some((i) => i.id === p.id)) return current.filter((i) => i.id !== p.id);
-      if (current.length >= MAX_ITEMS) {
-        toast.message(`最多 ${MAX_ITEMS} 件`, { description: '簡報不宜過長' });
-        return current;
-      }
-      return [...current, p];
-    });
-  };
 
   const disabled = status !== 'idle';
   const connected = canva?.connected ?? false;
@@ -516,8 +481,7 @@ export function PresentationView() {
     setBrief(defaultBrief());
     setOutline('');
     setSelected([]);
-    setQuery('');
-    setResult(null);
+    setPickerNonce((nonce) => nonce + 1);
     setSessionId(null);
     setActiveSession(null);
     setCanvaLink(null);
@@ -538,8 +502,6 @@ export function PresentationView() {
     }
   };
 
-  const searchResults = result?.items ?? [];
-  const selectedIds = useMemo(() => new Set(selected.map((i) => i.id)), [selected]);
   const titleCount = brief.title.length;
   const purposeCount = (brief.purpose ?? '').length;
   const contentCount = (brief.content ?? '').length;
@@ -716,33 +678,14 @@ export function PresentationView() {
           <StepCard
             n={3}
             title="帶入 FDS 產品"
-            hint={`可選。已選 ${selected.length} / ${MAX_ITEMS} 件，建立時一併交給 Autofill。`}
+            hint="可選。點選產品卡片加入，建立時把已選產品交給 Autofill。"
           >
-            <div className="space-y-2">
-              <div className="flex gap-2">
-                <Input
-                  className="h-10 rounded-lg bg-background"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') runSearch(); }}
-                  placeholder="搜尋產品…"
-                />
-                <Button type="button" variant="outline" className="h-10 bg-background" onClick={runSearch} disabled={searching}>
-                  {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-                </Button>
-              </div>
-              <div className="max-h-48 space-y-1 overflow-y-auto rounded-lg border bg-background p-2">
-                {searchResults.length === 0 && (
-                  <p className="px-2 py-4 text-center text-sm text-muted-foreground">搜尋後在這裡勾選產品</p>
-                )}
-                {searchResults.slice(0, 20).map((p) => (
-                  <label key={p.id} className="flex cursor-pointer items-center gap-2 rounded-md border border-transparent p-2 text-sm hover:bg-muted/60">
-                    <Checkbox checked={selectedIds.has(p.id)} onCheckedChange={() => toggle(p)} />
-                    <span className="min-w-0 flex-1 truncate">{p.title}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
+            <PresentationProductPicker
+              key={pickerNonce}
+              selected={selected}
+              maxItems={MAX_ITEMS}
+              onChange={setSelected}
+            />
           </StepCard>
 
           <StepCard
