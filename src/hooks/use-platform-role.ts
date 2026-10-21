@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthProvider';
 import { supabase } from '@/lib/supabase';
 
-export type PlatformRole = 'admin' | 'staff' | 'client' | null;
+export type PlatformRole = 'admin' | 'staff' | 'client' | 'supplier' | null;
 
 /**
  * Read-only role lookup used to keep client accounts inside 客戶專區.
@@ -30,7 +30,15 @@ export function usePlatformRole() {
       .then(({ data }) => {
         if (cancelled) return;
         const next = String(data?.role || '').toLowerCase();
-        setRole(next === 'client' ? 'client' : next === 'admin' ? 'admin' : 'staff');
+        setRole(
+          next === 'client'
+            ? 'client'
+            : next === 'supplier'
+              ? 'supplier'
+              : next === 'admin'
+                ? 'admin'
+                : 'staff',
+        );
         setLoading(false);
       });
     return () => {
