@@ -88,6 +88,18 @@ Deploy-Function `
   -FilePath (Join-Path $root 'supabase\functions\fetch-pms-pitchings\index.ts') `
   -Name 'fetch-pms-pitchings'
 
+# BWA inquiry picker. Import is ../_shared/pmsProject.ts, so prefer
+# npx supabase functions deploy for both slugs. This single-file upload
+# does not bundle that shared module by itself.
+Deploy-Function `
+  -Slug 'supabase-functions-fetch-bwa-works' `
+  -FilePath (Join-Path $root 'supabase\functions\fetch-bwa-works\index.ts') `
+  -Name 'fetch-bwa-works'
+Deploy-Function `
+  -Slug 'fetch-bwa-works' `
+  -FilePath (Join-Path $root 'supabase\functions\fetch-bwa-works\index.ts') `
+  -Name 'fetch-bwa-works'
+
 Deploy-Function `
   -Slug 'supabase-functions-resolve-pms-staff-by-ids' `
   -FilePath (Join-Path $root 'supabase\functions\resolve-pms-staff-by-ids\index.ts') `

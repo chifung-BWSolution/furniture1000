@@ -35,7 +35,7 @@
 
 | 表／函式 | 用途 |
 |---|---|
-| `bwa_furniture_inquiry` | 詢價頭：工程編號、工程名稱、狀態 `draft`／`sent`／`replied` |
+| `bwa_furniture_inquiry` | 詢價頭：工程編號、工程名稱、狀態 `draft`／`sent`／`replied`，以及可空的 PMS `bwa_pitching_id`／`bwa_project_id`（跨專案 UUID，沒有本庫外鍵） |
 | `bwa_furniture_inquiry_item` | 傢俬項目。唯一價錢欄是 `returned_unit_price`（BWF 回覆的賣價）。沒有成本、廠家、毛利欄 |
 | `bwa_save_furniture_inquiry`／`bwa_send_furniture_inquiry` | 只有 `pm` 可寫草稿並送出。送出後不能改項目，也不能寫賣價 |
 | `bwf_reply_furniture_inquiry` | 只有 `admin`／`uploader` 可回覆賣價 |
@@ -45,7 +45,18 @@
 
 - 對外文件品牌是 **BWA**。不使用 BW Furniture 的公司介紹、案例、服務承諾或客戶專區 QR。
 - `PmsPitchingGate` 仍只服務傢俬快速報價，會用 `bwf_quote` 覆蓋金額。PM 頁不使用它。
-- **待確認**：倉庫沒有 BWA 工程報價的資料來源，所以工程編號現在由 PM 填寫，不猜測 `bwa_pitchings`。也沒有 BWA 法定名稱、地址、電話、案例與互動連結。平台角色沒有機構欄；若 BWF 同事的角色被存成 `pm`，部署後會讀不到 `bwf_quote`。`anon`、`designer`、`client` 目前仍可讀 `bwf_quote`（客戶分享連結與設計專案）。產品搜索對 `pm` 仍可能帶回廠家與中間價，那是 C-04，不是這張詢價。
+**工程來源（PMS 正式庫 `kqwktnplkqucsbasyfjl`，2026-10-21 已核對欄位）**：傢俬詢價可搜尋並選一筆，自動填工程編號和工程名稱。手填仍可用；手改編號或名稱會清掉已存的 id，避免引用過期。
+
+| PMS 表 | 讀取欄 | 寫進詢價 |
+|---|---|---|
+| `public.bwa_projects` | `id`、`pitching_id`、`project_code`、`project_name`、`external_project_name`、`real_customer_display_name` | 選工程：`bwa_project_id`＝`id`，`bwa_pitching_id`＝該列 `pitching_id`。編號用 `project_code`，名稱用 `project_name`，空則用 `external_project_name` |
+| `public.bwa_pitchings` | `id`、`pitching_code`、`real_building_name`、`real_customer_display_name`、`real_customer_co_name` | 選提案：`bwa_pitching_id`＝`id`，`bwa_project_id` 空。編號用 `pitching_code`。此表沒有 `pitching_name`，名稱依序用大廈名、客戶顯示名、公司名 |
+
+這兩張表不在 Furniture 資料庫，所以不是用 Furniture RLS 讓 `pm` 直接讀。讀取門是 edge function `fetch-bwa-works`（PMS service role，呼叫者須為 `pm`／`admin`／`uploader`），只回傳上表的識別欄。不選 `estimated_income`、`estimated_expense`、`estimated_profit`、`cost_centre`、supplier，也不讀 `bwf_pitchings`、`bwf_projects` 或 `bwf_quote`。
+
+**沒有傢俬明細可帶入。** `bwa_projects.furniture_need` 是短標記（有值的列最長約 10 字），不是明細。`furniture_styles` 幾乎沒有資料。`quotation_section_items` 含成本且沒有 BWA 工程欄。`qms_quote_cost_lines` 是成本。詢價項目仍由 PM 逐項填寫。
+
+- **待確認**：沒有 BWA 法定名稱、地址、電話、案例與互動連結。平台角色沒有機構欄；若 BWF 同事的角色被存成 `pm`，部署後會讀不到 `bwf_quote`。`anon`、`designer`、`client` 目前仍可讀 `bwf_quote`（客戶分享連結與設計專案）。產品搜索對 `pm` 仍可能帶回廠家與中間價，那是 C-04，不是這張詢價。非 production Furniture 的 edge function 會打 PMS 分支 QMS_dev（`alrbbyqkeobmvvvscpma`）；這次只核對了 PMS 正式庫的欄位。
 
 ### 1.2 核心業務目標（新增）
 

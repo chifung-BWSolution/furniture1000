@@ -70,6 +70,8 @@ export function PmBudgetView() {
                   <h2 className="truncate text-base font-bold">{row.bwa_project_name || '未命名工程'}</h2>
                   <p className="mt-1 text-sm text-muted-foreground">
                     {row.bwa_project_ref || '無工程編號'}
+                    {row.bwa_project_id ? ' · 已連 BWA 工程' : ''}
+                    {!row.bwa_project_id && row.bwa_pitching_id ? ' · 已連 BWA 提案' : ''}
                     {' · '}
                     {row.item_count} 項傢俬
                     {' · '}
