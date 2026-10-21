@@ -56,7 +56,9 @@
 
 **沒有傢俬明細可帶入。** `bwa_projects.furniture_need` 是短標記（有值的列最長約 10 字），不是明細。`furniture_styles` 幾乎沒有資料。`quotation_section_items` 含成本且沒有 BWA 工程欄。`qms_quote_cost_lines` 是成本。詢價項目仍由 PM 逐項填寫。
 
-- **待確認**：沒有 BWA 法定名稱、地址、電話、案例與互動連結。平台角色沒有機構欄；若 BWF 同事的角色被存成 `pm`，部署後會讀不到 `bwf_quote`。`anon`、`designer`、`client` 目前仍可讀 `bwf_quote`（客戶分享連結與設計專案）。產品搜索對 `pm` 仍可能帶回廠家與中間價，那是 C-04，不是這張詢價。非 production Furniture 的 edge function 會打 PMS 分支 QMS_dev（`alrbbyqkeobmvvvscpma`）；這次只核對了 PMS 正式庫的欄位。
+客戶分享連結不再直接讀 `bwf_quote`。匿名只能呼叫 `get_shared_quote`（有效、未過期、未撤銷的 token），回傳客戶、工程、條款、賣價和項目名稱／規格／圖片／數量／單位。不回傳成本、廠家、供應商或毛利。`designer` 和 `client` 走同一套安全欄位；`admin` 和 `uploader` 仍可直接讀寫內部報價。
+
+- **待確認**：沒有 BWA 法定名稱、地址、電話、案例與互動連結。平台角色沒有機構欄；若 BWF 同事的角色被存成 `pm`，部署後會讀不到 `bwf_quote`。`design_projects` 仍有 allow-all 政策。客戶和設計師的報價列表仍先取出最近 120 張的安全欄位，再在畫面上過濾。產品搜索對 `pm` 仍可能帶回廠家與中間價，那是 C-04，不是這張詢價。非 production Furniture 的 edge function 會打 PMS 分支 QMS_dev（`alrbbyqkeobmvvvscpma`）；這次只核對了 PMS 正式庫的欄位。
 
 ### 1.2 核心業務目標（新增）
 
