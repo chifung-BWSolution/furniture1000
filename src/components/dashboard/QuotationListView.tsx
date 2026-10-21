@@ -44,6 +44,7 @@ import { collectStaffNamesFromQuoteRows } from '@/lib/quoteStaffOptions';
 import { compareQuoteVersion, displayQuoteVersion } from '@/lib/quoteVersions';
 import { formatClientIndustryLabel } from '@/lib/clientIndustryDisplay';
 import { normalizeQuoteDateInput } from '@/lib/quotationLocale';
+import { moveQuoteToTrash, QUOTE_TRASH_STATUS } from '@/lib/quoteTrash';
 
 interface QuoteRecord {
   id: string;
@@ -215,6 +216,7 @@ export function QuotationListView({
       let query = supabase
         .from('bwf_quote')
         .select(LIST_SELECT, withCount ? { count: 'exact' } : undefined)
+        .neq('status', QUOTE_TRASH_STATUS)
         .order('created_at', { ascending: false })
         .range(from, from + PAGE_SIZE - 1);
       if (isLargeAmount) {
@@ -239,7 +241,8 @@ export function QuotationListView({
     const { data, error } = await supabase
       .from('bwf_quote')
       .select(LIST_SELECT)
-      .in('quote_id', quoteIds);
+      .in('quote_id', quoteIds)
+      .neq('status', QUOTE_TRASH_STATUS);
     if (error || !data) return rows;
     return mergeQuoteRecords(rows, data as QuoteRecord[]);
   }, []);
@@ -331,21 +334,16 @@ export function QuotationListView({
     if (!deleteTarget || isDeleting) return;
     setIsDeleting(true);
     try {
-      const { error } = await supabase
-        .from('bwf_quote')
-        .delete()
-        .eq('id', deleteTarget.id);
-
-      if (error) throw error;
+      await moveQuoteToTrash(deleteTarget.id);
 
       setQuotes((prev) => prev.filter((q) => q.id !== deleteTarget.id));
-      toast.success('已刪除報價單', {
-        description: quoteCode(deleteTarget),
+      toast.success('已移入回收桶', {
+        description: `${quoteCode(deleteTarget)} 可在報價回收桶還原`,
       });
       setDeleteTarget(null);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : '無法刪除報價單';
-      toast.error('刪除失敗', { description: message });
+      const message = err instanceof Error ? err.message : '無法移入回收桶';
+      toast.error('移入失敗', { description: message });
     } finally {
       setIsDeleting(false);
     }
@@ -1023,17 +1021,17 @@ export function QuotationListView({
         }}
         size="md"
         icon={<Trash2 className="h-6 w-6" />}
-        title="確認刪除"
+        title="移入回收桶"
         description={
           <>
-            確定要刪除報價單版本{' '}
+            確定要把報價單版本{' '}
             <span className="font-mono-data font-bold text-foreground">
               {deleteTarget ? displayQuoteVersion(deleteTarget.version) : ''}
             </span>
-            （{deleteTarget ? quoteCode(deleteTarget) : ''}）嗎？
+            （{deleteTarget ? quoteCode(deleteTarget) : ''}）移入回收桶嗎？
             <br />
             <span className="mt-2 block text-xs text-muted-foreground">
-              「{deleteLabel}」的此版本將永久移除；其他版本不受影響。
+              「{deleteLabel}」的此版本會從報價一覽隱藏，報價內容仍保留，可在報價回收桶還原。其他版本不受影響。
             </span>
           </>
         }
@@ -1047,7 +1045,7 @@ export function QuotationListView({
               }}
             >
               <Trash2 className="h-4 w-4" />
-              {isDeleting ? '刪除中...' : '是，刪除'}
+              {isDeleting ? '移入中...' : '移入回收桶'}
             </ModalButton>
             <ModalButton
               variant="ghost"

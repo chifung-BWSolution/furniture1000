@@ -57,6 +57,7 @@ export async function overlayPitchingFinancialsFromQuotes(
       'bwf_pitching_id, total_amount, cost_price, modified_date, created_at, project_data->gpSummary',
     )
     .in('bwf_pitching_id', ids)
+    .neq('status', '回收桶')
     .order('modified_date', { ascending: false, nullsFirst: false });
 
   if (error) {

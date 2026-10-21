@@ -438,10 +438,10 @@ export async function ensureDesignProjectPortalQuote(
     if (schemeUuid) {
       const { data: existing } = await supabase
         .from('bwf_quote')
-        .select('id, quote_id')
+        .select('id, quote_id, status')
         .eq('id', schemeUuid)
         .maybeSingle();
-      if (existing?.id) {
+      if (existing?.id && existing.status !== '回收桶') {
         const quoteId =
           String(existing.quote_id || '').trim() ||
           schemeQuoteId ||
@@ -461,6 +461,7 @@ export async function ensureDesignProjectPortalQuote(
     const { data: recent } = await supabase
       .from('bwf_quote')
       .select('id, quote_id, project_data')
+      .neq('status', '回收桶')
       .order('created_at', { ascending: false })
       .limit(120);
     const matched = (recent || []).find((row) => {
