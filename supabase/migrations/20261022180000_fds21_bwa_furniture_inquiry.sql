@@ -556,8 +556,9 @@ grant execute on function public.bwa_send_furniture_inquiry(uuid) to authenticat
 grant execute on function public.bwf_reply_furniture_inquiry(uuid, jsonb) to authenticated;
 
 -- BWA role pm must not read or write BWF internal quotes.
--- Anon and other roles keep the previous allow-all reach so customer share
--- links and the furniture team are unchanged. service_role still bypasses RLS.
+-- Anon has no EXECUTE on bwf_has_role, so anon policies must not call it.
+-- Customer share links stay allow-all for anon. Authenticated pm is blocked.
+-- service_role still bypasses RLS.
 -- Triggers also stop security-definer quote writers when the session is a pm.
 
 create or replace function public.bwf_reject_bwa_pm_quote_write()
@@ -602,24 +603,48 @@ drop policy if exists bwf_quote_block_bwa_pm on public.bwf_quote;
 create policy bwf_quote_block_bwa_pm
   on public.bwf_quote
   for all
-  to anon, authenticated
+  to authenticated
   using (not public.bwf_has_role(array['pm']))
   with check (not public.bwf_has_role(array['pm']));
+
+drop policy if exists bwf_quote_block_bwa_pm_anon on public.bwf_quote;
+create policy bwf_quote_block_bwa_pm_anon
+  on public.bwf_quote
+  for all
+  to anon
+  using (true)
+  with check (true);
 
 drop policy if exists "Allow all access to bwf_quote_item" on public.bwf_quote_item;
 drop policy if exists bwf_quote_item_block_bwa_pm on public.bwf_quote_item;
 create policy bwf_quote_item_block_bwa_pm
   on public.bwf_quote_item
   for all
-  to anon, authenticated
+  to authenticated
   using (not public.bwf_has_role(array['pm']))
   with check (not public.bwf_has_role(array['pm']));
+
+drop policy if exists bwf_quote_item_block_bwa_pm_anon on public.bwf_quote_item;
+create policy bwf_quote_item_block_bwa_pm_anon
+  on public.bwf_quote_item
+  for all
+  to anon
+  using (true)
+  with check (true);
 
 drop policy if exists "Allow all access to bwf_quote_share_links" on public.bwf_quote_share_links;
 drop policy if exists bwf_quote_share_block_bwa_pm on public.bwf_quote_share_links;
 create policy bwf_quote_share_block_bwa_pm
   on public.bwf_quote_share_links
   for all
-  to anon, authenticated
+  to authenticated
   using (not public.bwf_has_role(array['pm']))
   with check (not public.bwf_has_role(array['pm']));
+
+drop policy if exists bwf_quote_share_block_bwa_pm_anon on public.bwf_quote_share_links;
+create policy bwf_quote_share_block_bwa_pm_anon
+  on public.bwf_quote_share_links
+  for all
+  to anon
+  using (true)
+  with check (true);
