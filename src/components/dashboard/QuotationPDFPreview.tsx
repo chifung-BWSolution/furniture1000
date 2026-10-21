@@ -10,6 +10,7 @@ import { quoteCnyTotalFromHkd, quoteItemLineSubtotal } from '@/lib/quoteItemTota
 import { buildQuotationPdfFilename } from '@/lib/quotationPdfFilename';
 import { formatQuoteNumberWithVersion } from '@/lib/quoteVersions';
 import { quotePdf, type QuotePdfLabels } from '@/lib/quotationLocale';
+import { quoteZoneTotals } from '@/lib/quoteFormatSettings';
 import {
   formatSectionTitleLabel,
   productSerialAt,
@@ -1472,6 +1473,9 @@ function QuotationDocument({
   const installFeeRaw = data.installationFee?.amount;
   const totalAmount = Math.max(0, (data.subtotal || 0) - discountValue + installationAmount);
   const items = data.items || [];
+  const zonePlacement = data.format?.zoneSubtotalPlacement ?? 'section_and_summary';
+  const zoneTotals = zonePlacement === 'hidden' ? [] : quoteZoneTotals(items);
+  const zoneEndAt = new Map(zoneTotals.map((zone) => [zone.endIndex, zone]));
 
   const baseUrl = typeof window !== 'undefined' ? window.location.origin : 'https://26c0258f-253c-4e4e-9027-922d08aab63f.canvases.tempo.build';
   const logoUrl = `${baseUrl}/assets/bwf-logo.png`;
@@ -1568,9 +1572,23 @@ function QuotationDocument({
                 [labels.customerEmail, data.clientInfo?.email],
                 [labels.quotationNo, quoteNumber],
                 [labels.date, today],
+                ...(data.format?.showRevisionDate
+                  ? [[labels.revisionDate, data.format.revisionDate] as [string, string | undefined]]
+                  : []),
+                ...(data.format?.showLatestModifiedDate
+                  ? [[labels.latestModifiedDate, data.format.latestModifiedDate] as [string, string | undefined]]
+                  : []),
                 [labels.projectInCharge, data.quoteMeta?.pmName],
               ] as Array<[string, string | undefined | null]>
             ).map(([label, value]) => renderInfoField(label, value))}
+            {data.format?.qrDataUrl ? (
+              <View style={{ marginTop: 6, alignItems: 'flex-start' }}>
+                <Image src={data.format.qrDataUrl} style={{ width: 64, height: 64 }} />
+                <Text style={{ fontSize: 8, marginTop: 2 }}>
+                  {pdfDisplayText(data.format.qrCaption || '')}
+                </Text>
+              </View>
+            ) : null}
           </View>
           <View style={styles.infoRight}>
             {(
@@ -1587,8 +1605,8 @@ function QuotationDocument({
 
         <View style={styles.table}>
           {renderTableHeader()}
-          {items.map((item, idx) =>
-            renderQuotationTableRow(
+          {items.flatMap((item, idx) => {
+            const row = renderQuotationTableRow(
               item,
               idx,
               items,
@@ -1597,8 +1615,35 @@ function QuotationDocument({
               Image,
               labels,
               locale,
-            ),
-          )}
+            );
+            const zone = zonePlacement === 'section_and_summary' ? zoneEndAt.get(idx) : undefined;
+            if (!zone) return [row];
+            return [
+              row,
+              <View
+                key={`zone-${idx}`}
+                style={{ ...styles.tableRow, minHeight: 18, backgroundColor: '#fafafa' }}
+                wrap={false}
+              >
+                <View
+                  style={{
+                    width: '100%',
+                    paddingLeft: 8,
+                    paddingRight: 8,
+                    paddingTop: 4,
+                    paddingBottom: 4,
+                    flexDirection: 'row',
+                    justifyContent: 'space-between',
+                  }}
+                >
+                  <Text style={{ fontSize: 8, fontWeight: 700 }}>
+                    {pdfDisplayText(`${zone.name} ${labels.zoneSubtotal}`)}
+                  </Text>
+                  <Text style={{ fontSize: 8, fontWeight: 700 }}>HK${zone.amount.toLocaleString()}</Text>
+                </View>
+              </View>,
+            ];
+          })}
           {renderInstallRow()}
         </View>
 
@@ -1622,6 +1667,22 @@ function QuotationDocument({
                 Discount:
               </Text>
               <Text style={{ fontSize: 8, lineHeight: 1.4, width: 90, textAlign: 'right' }}>HK${discountValue.toLocaleString()}</Text>
+            </View>
+          ) : null}
+
+          {zoneTotals.length > 0 ? (
+            <View style={{ marginTop: 8, alignItems: 'flex-end' }}>
+              <Text style={{ fontSize: 8, fontWeight: 700, marginBottom: 2 }}>{labels.zoneSummary}</Text>
+              {zoneTotals.map((zone, index) => (
+                <View key={`${zone.name}-${index}`} style={{ flexDirection: 'row', justifyContent: 'flex-end' }}>
+                  <Text style={{ fontSize: 8, width: 140, textAlign: 'right', marginRight: 8 }}>
+                    {pdfDisplayText(zone.name)}
+                  </Text>
+                  <Text style={{ fontSize: 8, width: 90, textAlign: 'right' }}>
+                    HK${zone.amount.toLocaleString()}
+                  </Text>
+                </View>
+              ))}
             </View>
           ) : null}
 

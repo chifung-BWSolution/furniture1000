@@ -241,6 +241,8 @@ export function QuickQuoteView({
     bwfProjectId?: string | null;
     quoteUuid?: string;
     maxVersionInChain?: string;
+    createdAt?: string | null;
+    modifiedDate?: string | null;
   } | null>(null);
   const [formData, setFormData] = useState<QuoteFormData>(
     () => initialUrlPrefillRef.current.form,
@@ -774,6 +776,8 @@ export function QuickQuoteView({
           bwfProjectId: (data.bwf_project_id as string | null) ?? null,
           quoteUuid: data.id as string,
           maxVersionInChain,
+          createdAt: (data.created_at as string | null) ?? null,
+          modifiedDate: (data.modified_date as string | null) ?? null,
         });
         // Keep wizard formData.quoteId aligned with DB quote_id even when
         // project_data.formData omitted the code (stripped on prior 版本審核).

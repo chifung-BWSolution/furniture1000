@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo, type ReactNode } from "react";
+import QRCode from "qrcode";
 import {
   ChevronDown,
   Plus,
@@ -140,6 +141,7 @@ import {
   formatQuoteDisplayDate,
   todayQuoteDateIso,
 } from "@/lib/quotationLocale";
+import { useQuoteFormatSettings } from "@/lib/quoteFormatSettings";
 import {
   DEFAULT_QUOTATION_DELIVERY_DETAILS_EN,
   englishTermsContentForPdf,
@@ -244,6 +246,8 @@ interface QuotationDraftEditorProps {
     quoteUuid?: string;
     /** Highest version string in the quote_id chain — used to compute next submit version. */
     maxVersionInChain?: string;
+    createdAt?: string | null;
+    modifiedDate?: string | null;
   };
   /** Body fields copied from another quote (items, delivery, terms). Header uses formData. */
   initialCopyPayload?: QuoteCopyPayload | null;
@@ -2038,6 +2042,22 @@ export function QuotationDraftEditor({
   const [unifyRateDraft, setUnifyRateDraft] = useState("");
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [shareUrl, setShareUrl] = useState("");
+  const { settings: formatSettings } = useQuoteFormatSettings();
+  const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!shareUrl) {
+      setQrDataUrl(null);
+      return;
+    }
+    let cancelled = false;
+    void QRCode.toDataURL(shareUrl, { margin: 1, width: 180 }).then((url) => {
+      if (!cancelled) setQrDataUrl(url);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [shareUrl]);
   const [shareBusy, setShareBusy] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
 
@@ -3581,6 +3601,25 @@ export function QuotationDraftEditor({
       unit: item.unit,
     }));
     const pdfSubtotal = quoteBillableSubtotal(pdfSourceItems);
+    const formatStamp = (value: string | null | undefined) => {
+      if (!value) return undefined;
+      const parsed = new Date(value);
+      if (Number.isNaN(parsed.getTime())) return value;
+      return parsed.toLocaleDateString(quoteLocale === 'en' ? 'en-GB' : 'zh-HK');
+    };
+    const pdfFormat = {
+      showRevisionDate: formatSettings.showRevisionDate,
+      showLatestModifiedDate: formatSettings.showLatestModifiedDate,
+      revisionDate: formatSettings.showRevisionDate
+        ? formatStamp(existingQuote?.createdAt)
+        : undefined,
+      latestModifiedDate: formatSettings.showLatestModifiedDate
+        ? formatStamp(existingQuote?.modifiedDate)
+        : undefined,
+      zoneSubtotalPlacement: formatSettings.zoneSubtotalPlacement,
+      qrCaption: formatSettings.qrCaption,
+      qrDataUrl: qrDataUrl ?? undefined,
+    };
 
     if (quoteLocale === 'en') {
       const pdfLabels = quotePdf('en');
@@ -3607,6 +3646,7 @@ export function QuotationDraftEditor({
             : 'v1',
           date: displayDate,
         },
+        format: pdfFormat,
         locale: 'en',
         deliveryDetails: deliveryDetailsEn,
         termsContent: {
@@ -3649,6 +3689,7 @@ export function QuotationDraftEditor({
         : 'v1',
       date: displayDate,
     },
+    format: pdfFormat,
     locale: 'zh',
     deliveryDetails,
     termsContent: {
@@ -4767,6 +4808,9 @@ export function QuotationDraftEditor({
                   className="h-[220px] w-[220px]"
                 />
               ) : null}
+              <p className="mt-2 text-center font-body text-sm font-medium text-foreground">
+                {formatSettings.qrCaption}
+              </p>
             </div>
             <label className="mb-1 block font-body text-xs text-muted-foreground">
               網址連結
