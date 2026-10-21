@@ -1,7 +1,7 @@
 // ============================================================================
 // FDS 2.1 Day 9 — Canva 連接與匯入（F-AI-009，T-901）
 // 決議：使用 chifung.login 帳戶；OAuth Authorization-Code＋PKCE 綁定使用者；
-// 未取得有效權限不得使用他人 Canva 資料。F-AI-009 驗收見 canvaNativeDesign.ts（POST /designs）。
+// 未取得有效權限不得使用他人 Canva 資料。F-AI-009 驗收見 canvaNativeDesign.ts（POST /generations）。
 // Client ID／Secret 存在 Supabase Edge secrets（CANVA_CLIENT_ID / CANVA_CLIENT_SECRET），
 // 前端永遠拿不到 Secret；access/refresh token 存在無公認政策的 canva_connections 表。
 // ============================================================================
@@ -14,8 +14,6 @@ export const CANVA_SCOPES = [
   'design:content:write',
   'design:content:read',
   'design:meta:read',
-  'brandtemplate:meta:read',
-  'brandtemplate:content:read',
   'asset:read',
   'asset:write',
   'profile:read',

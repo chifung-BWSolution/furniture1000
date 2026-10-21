@@ -1,13 +1,15 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import {
-  attachImageAssets,
-  AUTOFILL_SCOPES,
-  buildAutofillPayload,
-  missingAutofillScopes,
-  productImageFieldNeeds,
+  buildGenerationRequest,
+  CREDIT_QUOTA_MESSAGE,
+  DESIGN_GENERATION_MISSING_MESSAGE,
+  GENERATION_SCOPES,
+  missingScopes,
+  PRODUCT_SELECT_COLUMNS,
+  RECONNECT_PROFILE_MESSAGE,
   type ProductRow,
-} from "./autofill.ts";
+} from "./generation.ts";
 import {
   exportFormatBody,
   pickDownloadUrl,
@@ -28,8 +30,7 @@ import {
  * - import      → （舊版）Design Imports PPTX
  * - probe       → PoC：檢查 scope／連線
  * - save_draft  → { brief, product_ids?, session_id?, parent_id? }
- * - create_native → { session_id } autofill brand template (T-902) or blank presentation (T-901)
- * - template_dataset → 列出品牌模板 dataset 欄位（除錯）
+ * - create_native → { session_id } Canva AI design generation（POST /generations）
  * - export_pptx / export_pdf / export_design → { session_id, format? } Canva export + 審計列（T-903）
  *
  * Secrets：CANVA_CLIENT_ID、CANVA_CLIENT_SECRET、CANVA_BASE_URL（可選，
@@ -56,9 +57,50 @@ function json(body: unknown, status = 200) {
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const SESSION_ERROR_MAX = 1500;
+
+function clipCanvaError(text: string, fallback: string): string {
+  const body = text.replace(/\s+/g, " ").trim() || fallback;
+  return body.length > SESSION_ERROR_MAX ? body.slice(0, SESSION_ERROR_MAX) : body;
+}
+
+function logCanvaFailure(label: string, status: number | undefined, body: string): void {
+  console.error(label, status ?? "", body.slice(0, SESSION_ERROR_MAX));
+}
 
 function missingExportScopes(scope: string | null | undefined): string[] {
-  return missingAutofillScopes(scope).filter((s) => s === "design:content:read");
+  return missingScopes(scope, ["design:content:read"]);
+}
+
+async function fetchDesignGeneration(
+  accessToken: string,
+  on401?: () => Promise<string | null>,
+): Promise<{ ok: true; raw: string } | { ok: false; status: number; message: string; raw: string }> {
+  let token = accessToken;
+  let res = await canvaAuthedFetch(token, "/users/me/capabilities");
+  if (res.status === 401 && on401) {
+    const next = await on401();
+    if (next) {
+      token = next;
+      res = await canvaAuthedFetch(token, "/users/me/capabilities");
+    }
+  }
+  const raw = await res.text().catch(() => "");
+  if (!res.ok) {
+    logCanvaFailure("canva capabilities failed", res.status, raw);
+    return { ok: false, status: res.status, message: clipCanvaError(raw, `capabilities_${res.status}`), raw };
+  }
+  let capabilities: string[] = [];
+  try {
+    const body = JSON.parse(raw) as { capabilities?: string[] };
+    capabilities = Array.isArray(body.capabilities) ? body.capabilities : [];
+  } catch {
+    return { ok: false, status: res.status, message: "無法讀取 Canva 帳戶能力。", raw };
+  }
+  if (!capabilities.includes("design_generation")) {
+    return { ok: false, status: 403, message: DESIGN_GENERATION_MISSING_MESSAGE, raw };
+  }
+  return { ok: true, raw };
 }
 
 async function pollCanvaJob<T>(
@@ -85,57 +127,29 @@ async function pollCanvaJob<T>(
   return null;
 }
 
-async function uploadAssetFromUrl(
-  accessToken: string,
-  imageUrl: string,
-  name: string,
-  on401?: () => Promise<string | null>,
-): Promise<string | null> {
-  let token = accessToken;
-  let res = await canvaAuthedFetch(token, "/url-asset-uploads", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ url: imageUrl, name: name.slice(0, 255) }),
-  });
-  if (res.status === 401 && on401) {
-    const next = await on401();
-    if (next) {
-      token = next;
-      res = await canvaAuthedFetch(token, "/url-asset-uploads", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: imageUrl, name: name.slice(0, 255) }),
-      });
-    }
-  }
-  if (!res.ok) return null;
-  const created = await res.json();
-  const jobId = created?.job?.id as string | undefined;
-  if (!jobId) return null;
-  const job = await pollCanvaJob<{ status?: string; asset?: { id?: string } }>(
-    token,
-    `/url-asset-uploads/${jobId}`,
-    (j) => j?.status === "success" || j?.status === "failed",
-    on401,
-  );
-  if (job?.status !== "success" || !job.asset?.id) return null;
-  return job.asset.id;
-}
-
 async function loadProductsForSession(
   service: ReturnType<typeof createClient>,
   productIds: string[],
-): Promise<ProductRow[]> {
-  if (productIds.length === 0) return [];
+): Promise<{ products: ProductRow[]; error?: string }> {
+  if (productIds.length === 0) return { products: [] };
   const { data, error } = await service
     .from("products")
-    .select(
-      "id,title,model,sku,image_url,image_url_2,image_url_3,sale_price,middle_price,material,color,size_l,size_w,size_h,level1_category,level2_category,factory",
-    )
+    .select(PRODUCT_SELECT_COLUMNS)
     .in("id", productIds.slice(0, 50));
-  if (error || !data) return [];
-  const byId = new Map((data as ProductRow[]).map((p) => [p.id, p]));
-  return productIds.map((id) => byId.get(id)).filter(Boolean) as ProductRow[];
+  if (error || !data) {
+    console.error(
+      "loadProductsForSession failed",
+      error?.code,
+      error?.message,
+      error?.details,
+      error?.hint,
+    );
+    return { products: [], error: error?.message ?? "products_query_failed" };
+  }
+  const byId = new Map((data as ProductRow[]).map((product) => [product.id, product]));
+  return {
+    products: productIds.map((id) => byId.get(id)).filter(Boolean) as ProductRow[],
+  };
 }
 
 function canvaApiUrl(path: string): string {
@@ -160,10 +174,6 @@ async function canvaAuthedFetch(
   });
 }
 
-function briefTitle(brief: Record<string, unknown>): string {
-  const raw = String(brief.title ?? brief.project ?? brief.client ?? "客戶簡報").trim();
-  return raw.length > 255 ? raw.slice(0, 255) : raw || "客戶簡報";
-}
 
 interface TokenRow {
   access_token: string;
@@ -428,7 +438,7 @@ Deno.serve(async (req: Request) => {
 
   if (!credentials) return json({ error: "canva_not_configured" }, 500);
 
-  // ── probe：T-901 PoC 能力與 scope ─────────────────────────────────
+  // ── probe：連線、scope，以及 design_generation capability ──────────
   if (action === "probe") {
     const { data: conn } = await service
       .from("canva_connections")
@@ -436,54 +446,37 @@ Deno.serve(async (req: Request) => {
       .eq("staff_id", userId)
       .maybeSingle();
     const scopeStr = (conn as { scope?: string } | null)?.scope ?? null;
-    const missAutofill = missingAutofillScopes(scopeStr);
-    const brandTemplateId = Deno.env.get("CANVA_BRAND_TEMPLATE_ID") ?? "";
+    const miss = missingScopes(scopeStr, GENERATION_SCOPES);
     const connected = Boolean(conn);
-    const autofillReady = connected && missAutofill.length === 0 && Boolean(brandTemplateId);
+    let designGeneration = false;
+    let capabilityError = "";
+    if (connected && !miss.includes("profile:read") && !miss.includes("design:content:write")) {
+      const tokenRow = await loadAndRefreshToken(service, userId, credentials);
+      if (!("error" in tokenRow)) {
+        const capability = await fetchDesignGeneration(tokenRow.access_token, async () => {
+          const refreshed = await refreshToken(service, userId, credentials, tokenRow.refresh_token);
+          return refreshed?.access_token ?? null;
+        });
+        designGeneration = capability.ok;
+        if (!capability.ok) capabilityError = capability.message;
+      }
+    }
+    const ready = connected && miss.length === 0 && designGeneration;
     return json({
-      ok: autofillReady,
+      ok: ready,
       connected,
       account_name: (conn as { account_name?: string } | null)?.account_name ?? null,
       scopes: scopeStr,
-      missing_scopes: missAutofill,
-      brand_template_configured: Boolean(brandTemplateId),
-      brand_template_id: brandTemplateId || undefined,
-      autofill_scopes_required: AUTOFILL_SCOPES,
+      missing_scopes: miss,
+      design_generation: designGeneration,
       message:
         !connected
-          ? "canva_not_connected"
-          : !brandTemplateId
-            ? "請在 Edge secrets 設定 CANVA_BRAND_TEMPLATE_ID（見 docs/prd/FDS-2.1-Canva品牌模板Autofill.md）"
-            : missAutofill.length > 0
-              ? "請解除連接後重新授權（Autofill 需 brandtemplate 與 asset scopes）"
-              : "autofill_ready",
-    });
-  }
-
-  if (action === "template_dataset") {
-    const templateId = Deno.env.get("CANVA_BRAND_TEMPLATE_ID") ?? "";
-    if (!templateId) return json({ error: "brand_template_not_configured" }, 400);
-    const tokenRow = await loadAndRefreshToken(service, userId, credentials);
-    if ("error" in tokenRow) return json({ error: tokenRow.error }, 401);
-    const refresh = () =>
-      refreshToken(service, userId, credentials, tokenRow.refresh_token).then((r) =>
-        r?.access_token ?? null,
-      );
-    let res = await canvaAuthedFetch(tokenRow.access_token, `/brand-templates/${templateId}/dataset`);
-    if (res.status === 401 && tokenRow.refresh_token) {
-      const t = await refresh();
-      if (t) res = await canvaAuthedFetch(t, `/brand-templates/${templateId}/dataset`);
-    }
-    if (!res.ok) {
-      const detail = await res.text().catch(() => "");
-      return json({ error: `dataset_failed_${res.status}`, detail: detail.slice(0, 500) }, 502);
-    }
-    const body = await res.json();
-    const dataset = body?.dataset ?? {};
-    return json({
-      brand_template_id: templateId,
-      fields: Object.keys(dataset),
-      dataset,
+          ? "請先連接 Canva。"
+          : miss.includes("profile:read")
+            ? RECONNECT_PROFILE_MESSAGE
+            : miss.length > 0
+              ? `請解除連接後重新連接 Canva。缺少授權：${miss.join(", ")}。`
+              : capabilityError || (designGeneration ? "可以 AI 生成簡報。" : DESIGN_GENERATION_MISSING_MESSAGE),
     });
   }
 
@@ -562,7 +555,7 @@ Deno.serve(async (req: Request) => {
     return json({ session_id: newId, content_version: contentVersion, root_id: rootId ?? newId });
   }
 
-  // ── create_native：T-902 autofill 或 T-901 空白 presentation ───
+  // ── create_native：Canva AI design generation（POST /generations）──
   if (action === "create_native") {
     const sessionId = String(body.session_id ?? "");
     if (!sessionId) return json({ error: "session_id_required" }, 400);
@@ -594,9 +587,12 @@ Deno.serve(async (req: Request) => {
       .eq("staff_id", userId)
       .maybeSingle();
     const scopeStr = (connScope as { scope?: string } | null)?.scope ?? null;
-    const miss = missingAutofillScopes(scopeStr);
-    if (miss.includes("design:content:write")) {
-      return json({ error: "missing_scope", missing_scopes: miss }, 403);
+    const miss = missingScopes(scopeStr, GENERATION_SCOPES);
+    if (miss.includes("design:content:write") || miss.includes("profile:read")) {
+      const message = miss.includes("profile:read")
+        ? RECONNECT_PROFILE_MESSAGE
+        : "目前的 Canva 授權缺少 design:content:write。請解除連接後重新連接 Canva。";
+      return json({ error: "missing_scope", message, missing_scopes: miss }, 403);
     }
 
     const tokenRow = await loadAndRefreshToken(service, userId, credentials);
@@ -617,180 +613,58 @@ Deno.serve(async (req: Request) => {
       .eq("id", sessionId);
 
     const brief = (session.brief ?? {}) as Record<string, unknown>;
-    const title = briefTitle(brief);
-    const brandTemplateId = Deno.env.get("CANVA_BRAND_TEMPLATE_ID") ?? "";
-    const useAutofill = Boolean(brandTemplateId) && miss.length === 0;
+    const loaded = await loadProductsForSession(service, (session.product_ids ?? []) as string[]);
+    const request = buildGenerationRequest(brief, loaded.products);
+    const report: Record<string, unknown> = { ...request.report };
+    if (loaded.error) report.product_load_error = loaded.error;
 
-    if (useAutofill) {
-      let dsRes = await canvaAuthedFetch(
-        tokenRow.access_token,
-        `/brand-templates/${brandTemplateId}/dataset`,
-      );
-      if (dsRes.status === 401 && tokenRow.refresh_token) {
-        const t = await on401();
-        if (t) dsRes = await canvaAuthedFetch(t, `/brand-templates/${brandTemplateId}/dataset`);
-      }
-      if (!dsRes.ok) {
-        const detail = await dsRes.text().catch(() => "");
-        await service
-          .from("canva_design_sessions")
-          .update({
-            status: "failed",
-            error: `dataset_${dsRes.status}`,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", sessionId);
-        return json({ error: "brand_template_dataset_failed", detail: detail.slice(0, 500) }, 502);
-      }
-      const dsBody = await dsRes.json();
-      const datasetKeys = new Set(Object.keys(dsBody?.dataset ?? {}));
-      const products = await loadProductsForSession(service, (session.product_ids ?? []) as string[]);
-      const { data: autofillData, report } = buildAutofillPayload(brief, products, datasetKeys);
-      const imageNeeds = productImageFieldNeeds(products, datasetKeys);
-      const uploads: { field: string; asset_id: string }[] = [];
-      for (const need of imageNeeds) {
-        const assetId = await uploadAssetFromUrl(
-          tokenRow.access_token,
-          need.url,
-          `fds-prod-${need.index}.jpg`,
-          on401,
-        );
-        if (assetId) uploads.push({ field: need.field, asset_id: assetId });
-      }
-      attachImageAssets(autofillData, uploads);
-      (report as Record<string, unknown>).images_uploaded = uploads.length;
-
-      let afRes = await canvaAuthedFetch(tokenRow.access_token, "/autofills", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: "create_from_brand_template",
-          brand_template_id: brandTemplateId,
-          title,
-          data: autofillData,
-        }),
-      });
-      if (afRes.status === 401 && tokenRow.refresh_token) {
-        const t = await on401();
-        if (t) {
-          afRes = await canvaAuthedFetch(t, "/autofills", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              type: "create_from_brand_template",
-              brand_template_id: brandTemplateId,
-              title,
-              data: autofillData,
-            }),
-          });
-        }
-      }
-      if (!afRes.ok) {
-        const detail = await afRes.text().catch(() => "");
-        await service
-          .from("canva_design_sessions")
-          .update({
-            status: "failed",
-            error: `autofill_${afRes.status}`,
-            populate_report: report,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", sessionId);
-        return json({ error: "canva_autofill_failed", detail: detail.slice(0, 500) }, 502);
-      }
-      const afCreated = await afRes.json();
-      const afJobId = afCreated?.job?.id as string | undefined;
-      if (!afJobId) {
-        await service
-          .from("canva_design_sessions")
-          .update({
-            status: "failed",
-            error: "canva_autofill_no_job",
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", sessionId);
-        return json({ error: "canva_autofill_no_job" }, 502);
-      }
-
-      const afJob = await pollCanvaJob<{
-        status?: string;
-        error?: { message?: string };
-        result?: {
-          design?: {
-            id?: string;
-            urls?: { edit_url?: string; view_url?: string };
-            url?: string;
-          };
-        };
-      }>(
-        tokenRow.access_token,
-        `/autofills/${afJobId}`,
-        (j) => j?.status === "success" || j?.status === "failed",
-        on401,
-      );
-      if (!afJob || afJob.status !== "success") {
-        const errMsg = afJob?.error?.message ?? "autofill_timeout";
-        await service
-          .from("canva_design_sessions")
-          .update({
-            status: "failed",
-            error: errMsg,
-            autofill_job_id: afJobId,
-            brand_template_id: brandTemplateId,
-            generation_mode: "autofill",
-            populate_report: report,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", sessionId);
-        return json({ error: "canva_autofill_failed", detail: errMsg, job_id: afJobId }, 502);
-      }
-      const design = afJob.result?.design;
-      const designId = design?.id;
-      const editUrl = design?.urls?.edit_url ?? design?.url ?? null;
-      const viewUrl = design?.urls?.view_url ?? null;
-      if (!designId) {
-        await service
-          .from("canva_design_sessions")
-          .update({ status: "failed", error: "autofill_no_design", autofill_job_id: afJobId })
-          .eq("id", sessionId);
-        return json({ error: "autofill_no_design" }, 502);
-      }
-      const { data: updated, error: updErr } = await service
+    const failGeneration = async (
+      errorText: string,
+      response: Record<string, unknown>,
+      status: number,
+    ) => {
+      await service
         .from("canva_design_sessions")
         .update({
-          status: "ready",
-          generation_mode: "autofill",
-          brand_template_id: brandTemplateId,
-          autofill_job_id: afJobId,
+          status: "failed",
+          error: clipCanvaError(errorText, "canva_generation_failed"),
+          generation_mode: "ai",
+          brand_template_id: null,
           populate_report: report,
-          canva_design_id: designId,
-          edit_url: editUrl,
-          view_url: viewUrl,
-          error: null,
           updated_at: new Date().toISOString(),
         })
-        .eq("id", sessionId)
-        .select("*")
-        .single();
-      if (updErr) return json({ error: updErr.message }, 500);
-      return json(updated);
+        .eq("id", sessionId);
+      return json(response, status);
+    };
+
+    const capability = await fetchDesignGeneration(tokenRow.access_token, on401);
+    if (!capability.ok) {
+      logCanvaFailure("design_generation capability", capability.status, capability.raw || capability.message);
+      const httpStatus = capability.status === 401 ? 401 : capability.status === 403 ? 403 : 502;
+      return await failGeneration(
+        `${capability.message}\n${capability.raw}`,
+        {
+          error: capability.status === 403 ? "design_generation_unavailable" : "canva_capabilities_failed",
+          message: capability.message,
+        },
+        httpStatus,
+      );
     }
 
     const payload = {
-      type: "type_and_asset",
-      design_type: { type: "preset", name: "presentation" },
-      title,
+      brief: request.brief,
+      design_type: request.design_type,
+      outline: request.outline,
     };
-
-    let res = await canvaAuthedFetch(tokenRow.access_token, "/designs", {
+    let res = await canvaAuthedFetch(tokenRow.access_token, "/generations", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
     if (res.status === 401 && tokenRow.refresh_token) {
-      const t = await on401();
-      if (t) {
-        res = await canvaAuthedFetch(t, "/designs", {
+      const next = await on401();
+      if (next) {
+        res = await canvaAuthedFetch(next, "/generations", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
@@ -799,38 +673,89 @@ Deno.serve(async (req: Request) => {
     }
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
-      await service
-        .from("canva_design_sessions")
-        .update({
-          status: "failed",
-          error: `canva_create_${res.status}`,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", sessionId);
-      return json({ error: `canva_create_failed_${res.status}`, detail: detail.slice(0, 500) }, 502);
+      logCanvaFailure("canva generations failed", res.status, detail);
+      let code = "";
+      try {
+        code = String((JSON.parse(detail) as { code?: string }).code ?? "");
+      } catch {
+        code = "";
+      }
+      const credit = res.status === 429 && code === "credit_quota_exceeded";
+      const message = credit ? CREDIT_QUOTA_MESSAGE : clipCanvaError(detail, `canva_generation_${res.status}`);
+      return await failGeneration(
+        credit ? `${CREDIT_QUOTA_MESSAGE}\n${detail}` : detail,
+        {
+          error: credit ? "credit_quota_exceeded" : `canva_generation_failed_${res.status}`,
+          message,
+        },
+        credit ? 429 : 502,
+      );
     }
-    const created = await res.json();
-    const design = created?.design as {
-      id?: string;
-      urls?: { edit_url?: string; view_url?: string };
-    } | undefined;
-    if (!design?.id) {
-      await service
-        .from("canva_design_sessions")
-        .update({ status: "failed", error: "canva_create_no_design", updated_at: new Date().toISOString() })
-        .eq("id", sessionId);
-      return json({ error: "canva_create_no_design" }, 502);
+
+    const created = await res.json().catch(() => null) as { job?: { id?: string } } | null;
+    const jobId = created?.job?.id;
+    if (!jobId) {
+      const raw = JSON.stringify(created ?? {});
+      logCanvaFailure("canva generations no job", res.status, raw);
+      return await failGeneration(
+        raw,
+        { error: "canva_generation_no_job", message: "Canva 沒有回傳生成工作。" },
+        502,
+      );
+    }
+    report.generation_job_id = jobId;
+
+    const job = await pollCanvaJob<{
+      status?: string;
+      error?: { message?: string; code?: string };
+      result?: {
+        design?: {
+          id?: string;
+          url?: string;
+          urls?: { edit_url?: string; view_url?: string };
+          thumbnail?: { url?: string };
+        };
+      };
+    }>(
+      tokenRow.access_token,
+      `/generations/${jobId}`,
+      (item) => item?.status === "success" || item?.status === "failed",
+      on401,
+    );
+    if (!job || job.status !== "success") {
+      const errMsg = job?.error?.message || job?.error?.code || (job ? "generation_failed" : "generation_timeout");
+      const raw = JSON.stringify(job ?? { error: "generation_timeout", job_id: jobId });
+      logCanvaFailure("canva generation job", undefined, raw);
+      return await failGeneration(
+        `${errMsg}\n${raw}`,
+        { error: "canva_generation_failed", message: errMsg, job_id: jobId },
+        502,
+      );
+    }
+
+    const design = job.result?.design;
+    const designId = design?.id;
+    if (!designId) {
+      const raw = JSON.stringify(job);
+      logCanvaFailure("canva generation no design", undefined, raw);
+      return await failGeneration(
+        raw,
+        { error: "canva_generation_no_design", message: "Canva 生成完成但沒有設計。", job_id: jobId },
+        502,
+      );
     }
 
     const { data: updated, error: updErr } = await service
       .from("canva_design_sessions")
       .update({
         status: "ready",
-        generation_mode: "blank",
+        generation_mode: "ai",
         brand_template_id: null,
-        canva_design_id: design.id,
-        edit_url: design.urls?.edit_url ?? null,
-        view_url: design.urls?.view_url ?? null,
+        populate_report: report,
+        canva_design_id: designId,
+        edit_url: design?.urls?.edit_url ?? design?.url ?? null,
+        view_url: design?.urls?.view_url ?? null,
+        thumbnail_url: design?.thumbnail?.url ?? null,
         error: null,
         updated_at: new Date().toISOString(),
       })

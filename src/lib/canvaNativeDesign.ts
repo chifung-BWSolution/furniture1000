@@ -1,4 +1,4 @@
-// FDS 2.1 T-901 — Canva 原生簡報（非 Design Imports / 本機 PPTX）
+// FDS 2.1 — Canva AI 簡報（POST /v1/generations，非品牌模板 Autofill）
 import { parseInvokeError } from '@/lib/edgeFunctionErrors';
 import { supabase } from '@/lib/supabase';
 
@@ -43,7 +43,8 @@ export interface CanvaDesignSession {
   export_download_url?: string | null;
   export_error?: string | null;
   error?: string | null;
-  generation_mode?: 'blank' | 'autofill' | null;
+  thumbnail_url?: string | null;
+  generation_mode?: 'blank' | 'autofill' | 'ai' | null;
   brand_template_id?: string | null;
   autofill_job_id?: string | null;
   populate_report?: Record<string, unknown> | null;
@@ -53,11 +54,11 @@ export interface CanvaDesignSession {
 
 async function invoke<T>(body: Record<string, unknown>): Promise<T> {
   const { data, error } = await supabase.functions.invoke<T>(EDGE, { body });
-  if (error) throw new Error(await parseInvokeError(error, data as { error?: string } | null));
+  if (error) throw new Error(await parseInvokeError(error, data as { error?: string; message?: string } | null));
   if (!data) throw new Error('canva_edge_no_response');
-  const row = data as T & { error?: string; description?: string };
+  const row = data as T & { error?: string; message?: string; description?: string };
   if (row && typeof row === 'object' && 'error' in row && row.error) {
-    throw new Error(String(row.error));
+    throw new Error(String(row.message || row.error));
   }
   return data as T;
 }
@@ -161,19 +162,10 @@ export async function probeCanvaNative(): Promise<{
   connected?: boolean;
   scopes?: string | null;
   missing_scopes?: string[];
-  brand_template_configured?: boolean;
-  brand_template_id?: string;
-  autofill_scopes_required?: string[];
+  design_generation?: boolean;
   message?: string;
 }> {
   return invoke({ action: 'probe' });
-}
-
-export async function fetchCanvaTemplateDataset(): Promise<{
-  brand_template_id: string;
-  fields: string[];
-}> {
-  return invoke({ action: 'template_dataset' });
 }
 
 /** PoC：把欄位整理成可確認大綱（T-902 可改為 AI） */

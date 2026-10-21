@@ -454,7 +454,7 @@ PDF 上傳 → 建立解析任務 → 逐頁分析 → 頁面分類（目錄/產
 5. 使用者在 Canva 保存設計，並從 Canva 下載 .pptx。檔案須包含 Canva 最後修改的內容，能在 PowerPoint 開啟並繼續編輯；PDF 可作附加格式，不代替 PPT 驗收。
 6. 保留內容草稿、素材引用、Canva design ID／編輯連結及生成狀態。重新設計建立新版本，不默默覆蓋使用者在 Canva 的修改。**未取得有效權限不得使用他人 Canva 資料**；對客戶提供的內容不得夾帶未授權成本。
 
-**技術方向**：先驗證授權帳戶可用的 Canva 原生生成／設計通路及 .pptx 下載。API、MCP 或 Canva 內操作的選擇須以完整 PoC 證明；不能假設 Connect Design Imports 具有內容生成設計能力。Autofill 是模板填充能力，不自動等同自由內容的設計；若選用，仍須達到上述匯報設計要求。可用通路不足時記錄能力缺口，不降級回「先生成 PPTX 再匯入」。專業 PDF 可共用內容與品牌資料，但不強制共用固定頁面模板。
+**技術方向**：已採用 Canva AI Design Generation（`POST /v1/generations`，見 `docs/prd/FDS-2.1-Canva-AI生成.md`）。不能假設 Connect Design Imports 具有內容生成設計能力，也不使用品牌模板 Autofill。可用通路不足時記錄能力缺口，不降級回「先生成 PPTX 再匯入」。專業 PDF 可共用內容與品牌資料，但不強制共用固定頁面模板。
 
 > **已決議（2026-10-19）**：Canva 使用 **`chifung.login` 賬戶**。需先確認該帳戶的方案與 API 可用範圍。
 

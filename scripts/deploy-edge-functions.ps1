@@ -17,7 +17,8 @@ function Deploy-Function {
   param(
     [string]$Slug,
     [string]$FilePath,
-    [string]$Name
+    [string]$Name,
+    [string[]]$ExtraFiles = @()
   )
 
   $metaPath = Join-Path $tmpdir "$Name-meta.json"
@@ -26,10 +27,17 @@ function Deploy-Function {
 
   $url = "https://api.supabase.com/v1/projects/$ProjectRef/functions/deploy?slug=$Slug"
   Write-Host "Deploying $Slug ..."
-  $output = curl.exe -s -w "`nHTTP_STATUS:%{http_code}" -X POST $url `
-    -H "Authorization: Bearer $tok" `
-    -F "metadata=@$metaPath;type=application/json" `
-    -F "file=@$FilePath"
+  $curlArgs = @(
+    '-s', '-w', "`nHTTP_STATUS:%{http_code}",
+    '-X', 'POST', $url,
+    '-H', "Authorization: Bearer $tok",
+    '-F', "metadata=@$metaPath;type=application/json",
+    '-F', "file=@$FilePath"
+  )
+  foreach ($extra in $ExtraFiles) {
+    $curlArgs += @('-F', "file=@$extra")
+  }
+  $output = & curl.exe @curlArgs
   $text = ($output | Out-String)
   Write-Host $text.Trim()
   if (-not ($text -match 'HTTP_STATUS:200' -or $text -match 'HTTP_STATUS:201')) {
@@ -128,6 +136,10 @@ Deploy-Function `
 Deploy-Function `
   -Slug 'supabase-functions-generate-canva-presentation' `
   -FilePath (Join-Path $root 'supabase\functions\generate-canva-presentation\index.ts') `
-  -Name 'generate-canva-presentation'
+  -Name 'generate-canva-presentation' `
+  -ExtraFiles @(
+    (Join-Path $root 'supabase\functions\generate-canva-presentation\generation.ts'),
+    (Join-Path $root 'supabase\functions\generate-canva-presentation\exports.ts')
+  )
 
 Write-Host 'All functions deployed successfully.'
