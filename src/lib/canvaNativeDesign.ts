@@ -53,11 +53,14 @@ export interface CanvaDesignSession {
 
 async function invoke<T>(body: Record<string, unknown>): Promise<T> {
   const { data, error } = await supabase.functions.invoke<T>(EDGE, { body });
-  if (error) throw new Error(await parseInvokeError(error, data as { error?: string } | null));
+  if (error) {
+    throw new Error(await parseInvokeError(error, data as { error?: string; message?: string } | null));
+  }
   if (!data) throw new Error('canva_edge_no_response');
-  const row = data as T & { error?: string; description?: string };
+  const row = data as T & { error?: string; message?: string; description?: string };
   if (row && typeof row === 'object' && 'error' in row && row.error) {
-    throw new Error(String(row.error));
+    const message = typeof row.message === 'string' ? row.message.trim() : '';
+    throw new Error(message || String(row.error));
   }
   return data as T;
 }

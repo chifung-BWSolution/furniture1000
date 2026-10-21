@@ -35,7 +35,7 @@
 ## 建立品牌模板（chifung.login）
 
 1. 在 Canva 建立 **16:9 簡報**，含封面、大綱頁、產品頁（可複製多頁）。
-2. 側欄 **Apps → Bulk Create → Labels**，為文字框／圖片設定 **Data field**（名稱須與下表完全一致）。
+2. 側欄 **Apps → Bulk Create → Labels**，為文字框／圖片設定 **Data field**。正式名稱是下表的 `FDS_*`；比對不分大小寫，也接受常見別名（見下節）。
 3. **Publish as brand template**，複製模板 ID。
 4. 將 ID 填入 Supabase Edge secret `CANVA_BRAND_TEMPLATE_ID`。
 
@@ -54,15 +54,37 @@
 | `FDS_PROD_01_DETAILS` … `FDS_PROD_12_DETAILS` | text | 型號、尺寸、材質、參考價等 |
 | `FDS_PROD_01_IMAGE` … `FDS_PROD_12_IMAGE` | **image** | 產品主圖（FDS 以公開 HTTPS URL 上傳至 Canva 素材庫） |
 
-模板可只實作部分欄位；Edge 只會填入 **dataset 內存在的欄位**。
+模板可只實作部分欄位；Edge 只會填入 **dataset 內對得上的欄位**。`FDS_*` 是約定的正式名稱。比對時會先把名稱轉成小寫、並把空白與連字號改成底線，因此 `fds_cover_title` 與 `FDS-COVER-TITLE` 都算同一欄。
+
+### 常見別名（仍以 `FDS_*` 為準）
+
+| 正式名稱 | 也接受 |
+|----------|--------|
+| `FDS_COVER_TITLE` | `title`、`cover_title` |
+| `FDS_COVER_SUBTITLE` | `subtitle`、`cover_subtitle` |
+| `FDS_COVER_CLIENT` | `client`、`cover_client`、`client_name`、`customer` |
+| `FDS_COVER_PURPOSE` | `purpose`、`cover_purpose` |
+| `FDS_COVER_DATE` | `date`、`cover_date`、`date_label` |
+| `FDS_OUTLINE` | `outline`、`content`、`agenda` |
+| `FDS_OUTLINE_1` … `FDS_OUTLINE_5` | `outline_1`、`outline1`（其餘編號同理） |
+| `FDS_PROD_01_TITLE` | `prod_01_title`、`product_01_title`、`product_1_title`、`title_01`、`product_01_name` |
+| `FDS_PROD_01_DETAILS` | `prod_01_details`、`product_01_details`、`product_1_details`、`details_01`、`product_01_description` |
+| `FDS_PROD_01_IMAGE` | `prod_01_image`、`product_01_image`、`product_1_image`、`image_01` |
+
+`title` 只對應封面標題，不會被拿去填產品名稱。產品欄位 02–12 的別名規則與 01 相同。
+
+若文字與圖片都對不上任何欄位，`data` 會是空的。此時 **不呼叫** `POST /autofills`，session 標為失敗，錯誤碼 `brand_template_fields_unmatched`。回應與 `canva_design_sessions.error` 會列出應使用的 `FDS_*` 名稱，以及模板 dataset 裡實際的欄位名。
 
 ## API 流程（Edge `create_native`）
 
 1. `GET /brand-templates/{id}/dataset` — 取得可填欄位
-2. 從 `products` 表載入 session 的 `product_ids`（輕量欄位）
-3. `POST /url-asset-uploads` — 產品圖（公開 URL；preview API）
-4. `POST /autofills` — `create_from_brand_template` + `data`
-5. 輪詢 `GET /autofills/{jobId}` → 取得 `design.id` 與 `urls.edit_url`
+2. 從 `products` 表載入 session 的 `product_ids`（`sale_price`／`price`、`dimension_*_mm`、`factories_display_name` 等實際欄位；查詢失敗會寫入 log 與 `populate_report.product_load_error`）
+3. 依正式名稱與別名對上 dataset；對不上則回 `422 brand_template_fields_unmatched`，不呼叫 Canva autofill
+4. `POST /url-asset-uploads` — 產品圖（公開 URL；preview API）
+5. `POST /autofills` — `create_from_brand_template` + `data`（只在 `data` 非空時）
+6. 輪詢 `GET /autofills/{jobId}` → 取得 `design.id` 與 `urls.edit_url`
+
+Canva 回非成功時，回應本文會截斷後寫入 `canva_design_sessions.error`，並一併保存 `brand_template_id`。
 
 參考：[Autofill 指引](https://www.canva.dev/docs/connect/autofill-guide/)
 
@@ -78,6 +100,7 @@
 2. 選產品：圖文出現在對應產品頁  
 3. 在 Canva 修改後匯出 PPTX → PowerPoint 可編輯  
 4. 新版本不覆蓋舊設計；匯出紀錄可追蹤  
+5. 模板欄位完全對不上：畫面顯示中文說明，並列出應使用的 `FDS_*` 與模板實際欄位；不會對 Canva 送出空的 `data`  
 
 ## 限制（需知）
 

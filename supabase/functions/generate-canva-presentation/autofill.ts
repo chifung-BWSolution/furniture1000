@@ -48,6 +48,7 @@ export type AutofillDataValue =
   | { type: "text"; text: string }
   | { type: "image"; asset_id: string };
 
+/** Columns that exist on public.products. middle_price / size_* / factory are not columns. */
 export interface ProductRow {
   id: string;
   title: string | null;
@@ -57,16 +58,36 @@ export interface ProductRow {
   image_url_2: string | null;
   image_url_3: string | null;
   sale_price: number | null;
-  middle_price: number | null;
+  price: number | null;
   material: string | null;
   color: string | null;
-  size_l: number | null;
-  size_w: number | null;
-  size_h: number | null;
+  dimension_l_mm: number | null;
+  dimension_w_mm: number | null;
+  dimension_h_mm: number | null;
   level1_category: string | null;
   level2_category: string | null;
-  factory: string | null;
+  factories_display_name: string | null;
 }
+
+export const PRODUCT_SELECT_COLUMNS = [
+  "id",
+  "title",
+  "model",
+  "sku",
+  "image_url",
+  "image_url_2",
+  "image_url_3",
+  "sale_price",
+  "price",
+  "material",
+  "color",
+  "dimension_l_mm",
+  "dimension_w_mm",
+  "dimension_h_mm",
+  "level1_category",
+  "level2_category",
+  "factories_display_name",
+].join(",");
 
 /** Reject hosts Canva would fetch that are loopback, link-local, or private. */
 function isBlockedImageHost(hostname: string): boolean {
@@ -115,13 +136,13 @@ function firstHttpImage(p: ProductRow): string | undefined {
 }
 
 function sizeLabel(p: ProductRow): string | null {
-  const parts = [p.size_l, p.size_w, p.size_h].filter((v) => v != null && v > 0);
+  const parts = [p.dimension_l_mm, p.dimension_w_mm, p.dimension_h_mm].filter((v) => v != null && v > 0);
   if (parts.length === 0) return null;
   return parts.map((v) => String(v)).join(" × ") + " mm";
 }
 
 function moneyLabel(n: number | null | undefined): string | null {
-  if (n == null || !Number.isFinite(n)) return null;
+  if (n == null || !Number.isFinite(n) || n <= 0) return null;
   return `HK$${Math.round(n).toLocaleString("en-HK")}`;
 }
 
@@ -135,12 +156,117 @@ function productDetailsLine(p: ProductRow): string {
   if (p.color?.trim()) lines.push(`顏色：${p.color.trim()}`);
   const cat = (p.level2_category ?? p.level1_category ?? "").trim();
   if (cat) lines.push(`分類：${cat}`);
-  if (p.factory?.trim()) lines.push(`供應商：${p.factory.trim()}`);
-  const discount = moneyLabel(p.middle_price);
-  const original = moneyLabel(p.sale_price);
-  if (discount) lines.push(`參考價：${discount}`);
-  else if (original) lines.push(`參考價：${original}`);
+  if (p.factories_display_name?.trim()) lines.push(`供應商：${p.factories_display_name.trim()}`);
+  const selling = moneyLabel(p.sale_price);
+  const list = moneyLabel(p.price);
+  if (selling) lines.push(`參考價：${selling}`);
+  else if (list) lines.push(`參考價：${list}`);
   return lines.join("\n");
+}
+
+export function canonicalAutofillFields(): string[] {
+  const names = [
+    FDS_CANVA_FIELD.COVER_TITLE,
+    FDS_CANVA_FIELD.COVER_SUBTITLE,
+    FDS_CANVA_FIELD.COVER_CLIENT,
+    FDS_CANVA_FIELD.COVER_PURPOSE,
+    FDS_CANVA_FIELD.COVER_DATE,
+    FDS_CANVA_FIELD.OUTLINE_FULL,
+  ];
+  for (let i = 1; i <= MAX_OUTLINE_CHUNKS; i++) names.push(FDS_CANVA_FIELD.outlineChunk(i));
+  const slots = Number.isFinite(MAX_PRODUCTS) && MAX_PRODUCTS > 0 ? Math.min(Math.floor(MAX_PRODUCTS), 12) : 12;
+  for (let n = 1; n <= slots; n++) {
+    names.push(
+      FDS_CANVA_FIELD.productTitle(n),
+      FDS_CANVA_FIELD.productDetails(n),
+      FDS_CANVA_FIELD.productImage(n),
+    );
+  }
+  return names;
+}
+
+/** Compare dataset labels without case or spacing differences. */
+export function normalizeFieldName(name: string): string {
+  return name.trim().toLowerCase().replace(/[\s-]+/g, "_");
+}
+
+/** Canonical FDS_* name plus common Bulk Create labels. FDS_* stays the name we document. */
+export function fieldAliases(canonical: string): string[] {
+  const aliases = new Set<string>([canonical, canonical.replace(/^FDS_/, "")]);
+  const fixed: Record<string, string[]> = {
+    [FDS_CANVA_FIELD.COVER_TITLE]: ["title", "cover_title", "cover title"],
+    [FDS_CANVA_FIELD.COVER_SUBTITLE]: ["subtitle", "cover_subtitle", "cover subtitle"],
+    [FDS_CANVA_FIELD.COVER_CLIENT]: ["client", "cover_client", "client_name", "customer"],
+    [FDS_CANVA_FIELD.COVER_PURPOSE]: ["purpose", "cover_purpose"],
+    [FDS_CANVA_FIELD.COVER_DATE]: ["date", "cover_date", "date_label"],
+    [FDS_CANVA_FIELD.OUTLINE_FULL]: ["outline", "content", "agenda"],
+  };
+  for (const alias of fixed[canonical] ?? []) aliases.add(alias);
+  const outline = /^FDS_OUTLINE_(\d+)$/.exec(canonical);
+  if (outline) {
+    aliases.add(`outline_${outline[1]}`);
+    aliases.add(`outline${Number(outline[1])}`);
+  }
+  const product = /^FDS_PROD_(\d+)_(TITLE|DETAILS|IMAGE)$/.exec(canonical);
+  if (product) {
+    const pad = product[1];
+    const n = String(Number(pad));
+    const kind = product[2].toLowerCase();
+    for (const prefix of ["prod", "product"]) {
+      aliases.add(`${prefix}_${pad}_${kind}`);
+      aliases.add(`${prefix}_${n}_${kind}`);
+    }
+    aliases.add(`${kind}_${pad}`);
+    aliases.add(`${kind}_${n}`);
+    if (kind === "title") {
+      aliases.add(`product_${pad}_name`);
+      aliases.add(`product_${n}_name`);
+    }
+    if (kind === "details") {
+      aliases.add(`product_${pad}_description`);
+      aliases.add(`product_${n}_description`);
+    }
+  }
+  return [...aliases];
+}
+
+export interface DatasetMatcher {
+  resolve(canonical: string): string | undefined;
+  has(canonical: string): boolean;
+  keys(): string[];
+}
+
+export function createDatasetMatcher(datasetKeys: Iterable<string>): DatasetMatcher {
+  const keys = [...datasetKeys];
+  const claimed = new Set<string>();
+  const find = (canonical: string): string | undefined => {
+    const wanted = new Set(fieldAliases(canonical).map(normalizeFieldName));
+    return keys.find((key) => !claimed.has(key) && wanted.has(normalizeFieldName(key)));
+  };
+  return {
+    keys: () => [...keys],
+    has(canonical: string) {
+      return find(canonical) !== undefined;
+    },
+    resolve(canonical: string) {
+      const hit = find(canonical);
+      if (hit) claimed.add(hit);
+      return hit;
+    },
+  };
+}
+
+export function unmatchedBrandTemplateMessage(templateFields: string[]): string {
+  const shown = templateFields.slice(0, 40);
+  const actual = shown.length
+    ? shown.join("、") + (templateFields.length > shown.length ? "…" : "")
+    : "（沒有 Data field）";
+  return [
+    "品牌模板的欄位名稱與 FDS 約定不符，沒有可填入的資料，已停止呼叫 Canva。",
+    "請在模板 Data field 使用這些名稱（大小寫不拘）：FDS_COVER_TITLE、FDS_COVER_SUBTITLE、FDS_COVER_CLIENT、FDS_COVER_PURPOSE、FDS_COVER_DATE、FDS_OUTLINE、FDS_OUTLINE_1 至 FDS_OUTLINE_5、FDS_PROD_01_TITLE、FDS_PROD_01_DETAILS、FDS_PROD_01_IMAGE，產品欄位編號到 12。",
+    "也接受常見別名，例如 title 或 cover_title、subtitle 或 cover_subtitle、client、purpose、date、outline、product_01_title、product_01_details、product_01_image。",
+    `模板目前的欄位：${actual}。`,
+  ].join("");
 }
 
 export function splitOutline(text: string): string[] {
@@ -164,10 +290,11 @@ export function splitOutline(text: string): string[] {
 export function buildAutofillPayload(
   brief: Record<string, unknown>,
   products: ProductRow[],
-  datasetKeys: Set<string>,
+  matcher: DatasetMatcher,
 ): { data: Record<string, AutofillDataValue>; report: Record<string, unknown> } {
   const data: Record<string, AutofillDataValue> = {};
   const used: string[] = [];
+  const canonicalUsed: string[] = [];
   const warnings: string[] = [];
 
   const title = String(brief.title ?? brief.project ?? brief.client ?? "客戶簡報").trim();
@@ -178,10 +305,13 @@ export function buildAutofillPayload(
     String(brief.dateLabel ?? "").trim() ||
     `${new Date().getFullYear()}年${new Date().getMonth() + 1}月`;
 
-  const setText = (key: string, text: string) => {
-    if (!datasetKeys.has(key) || !text.trim()) return;
+  const setText = (canonical: string, text: string) => {
+    if (!text.trim()) return;
+    const key = matcher.resolve(canonical);
+    if (!key) return;
     data[key] = { type: "text", text: text.slice(0, 4000) };
     used.push(key);
+    canonicalUsed.push(canonical);
   };
 
   setText(FDS_CANVA_FIELD.COVER_TITLE, title);
@@ -191,8 +321,11 @@ export function buildAutofillPayload(
   setText(FDS_CANVA_FIELD.COVER_DATE, dateLabel);
 
   if (outline) {
-    if (datasetKeys.has(FDS_CANVA_FIELD.OUTLINE_FULL)) {
-      setText(FDS_CANVA_FIELD.OUTLINE_FULL, outline);
+    const full = matcher.resolve(FDS_CANVA_FIELD.OUTLINE_FULL);
+    if (full) {
+      data[full] = { type: "text", text: outline.slice(0, 4000) };
+      used.push(full);
+      canonicalUsed.push(FDS_CANVA_FIELD.OUTLINE_FULL);
     } else {
       const chunks = splitOutline(outline);
       chunks.forEach((chunk, i) => {
@@ -208,7 +341,7 @@ export function buildAutofillPayload(
     const pTitle = (p.title ?? "").trim() || (p.model ?? "").trim() || "產品";
     setText(FDS_CANVA_FIELD.productTitle(n), pTitle);
     setText(FDS_CANVA_FIELD.productDetails(n), productDetailsLine(p));
-    if (!firstHttpImage(p) && datasetKeys.has(FDS_CANVA_FIELD.productImage(n))) {
+    if (!firstHttpImage(p) && matcher.has(FDS_CANVA_FIELD.productImage(n))) {
       warnings.push(`missing_image_${pad2(n)}`);
     }
   });
@@ -221,6 +354,7 @@ export function buildAutofillPayload(
     data,
     report: {
       fields_sent: used,
+      canonical_fields: canonicalUsed,
       products_included: ordered.length,
       outline_length: outline.length,
       warnings,
@@ -230,13 +364,13 @@ export function buildAutofillPayload(
 
 export function productImageFieldNeeds(
   products: ProductRow[],
-  datasetKeys: Set<string>,
+  matcher: DatasetMatcher,
 ): { index: number; url: string; field: string }[] {
   const out: { index: number; url: string; field: string }[] = [];
   products.slice(0, MAX_PRODUCTS).forEach((p, idx) => {
     const n = idx + 1;
-    const field = FDS_CANVA_FIELD.productImage(n);
-    if (!datasetKeys.has(field)) return;
+    const field = matcher.resolve(FDS_CANVA_FIELD.productImage(n));
+    if (!field) return;
     const url = firstHttpImage(p);
     if (url) out.push({ index: n, url, field });
   });

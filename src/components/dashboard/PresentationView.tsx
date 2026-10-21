@@ -21,7 +21,7 @@ import {
 } from '@/components/ui/select';
 import type { SearchProduct, SearchResult } from '@/lib/productSearch';
 import { searchProducts } from '@/lib/productSearch';
-import { CANVA_AUTOFILL_DOC_PATH } from '@/lib/canvaBrandTemplate';
+import { CANVA_AUTOFILL_DOC_PATH, FDS_CANVA_BRAND_FIELDS } from '@/lib/canvaBrandTemplate';
 import {
   canvaDisconnect, exchangeCanvaCode, fetchCanvaStatus,
   readCanvaOauthCallback, startCanvaConnect, clearCanvaOauthState, type CanvaStatus,
@@ -405,6 +405,12 @@ export function PresentationView() {
       const msg = errorText(err);
       if (msg.includes('design_already_exists') || msg.includes('design_exists')) {
         toast.message('此草稿已有 Canva 設計', { description: '請用「新版本」另建設計，勿覆蓋 Canva 內修改。' });
+      } else if (msg.includes('brand_template_fields_unmatched') || msg.includes('品牌模板的欄位名稱')) {
+        toast.error('品牌模板欄位對不上', {
+          description: msg.includes('FDS_COVER_TITLE')
+            ? msg
+            : `${msg}。請在品牌模板 Data field 使用：${FDS_CANVA_BRAND_FIELDS.join('、')}`,
+        });
       } else {
         toast.error('建立 Canva 設計失敗', { description: msg });
       }

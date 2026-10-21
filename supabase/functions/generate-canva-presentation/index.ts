@@ -4,8 +4,12 @@ import {
   attachImageAssets,
   AUTOFILL_SCOPES,
   buildAutofillPayload,
+  canonicalAutofillFields,
+  createDatasetMatcher,
   missingAutofillScopes,
+  PRODUCT_SELECT_COLUMNS,
   productImageFieldNeeds,
+  unmatchedBrandTemplateMessage,
   type ProductRow,
 } from "./autofill.ts";
 import {
@@ -56,6 +60,16 @@ function json(body: unknown, status = 200) {
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+const SESSION_ERROR_MAX = 1500;
+
+function clipCanvaError(text: string, fallback: string): string {
+  const body = text.replace(/\s+/g, " ").trim() || fallback;
+  return body.length > SESSION_ERROR_MAX ? body.slice(0, SESSION_ERROR_MAX) : body;
+}
+
+function logCanvaFailure(label: string, status: number | undefined, body: string): void {
+  console.error(label, status ?? "", body.slice(0, SESSION_ERROR_MAX));
+}
 
 function missingExportScopes(scope: string | null | undefined): string[] {
   return missingAutofillScopes(scope).filter((s) => s === "design:content:read");
@@ -108,7 +122,11 @@ async function uploadAssetFromUrl(
       });
     }
   }
-  if (!res.ok) return null;
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "");
+    logCanvaFailure("canva url-asset-upload failed", res.status, detail);
+    return null;
+  }
   const created = await res.json();
   const jobId = created?.job?.id as string | undefined;
   if (!jobId) return null;
@@ -118,24 +136,38 @@ async function uploadAssetFromUrl(
     (j) => j?.status === "success" || j?.status === "failed",
     on401,
   );
-  if (job?.status !== "success" || !job.asset?.id) return null;
+  if (job?.status !== "success" || !job.asset?.id) {
+    if (job && job.status !== "success") {
+      logCanvaFailure("canva url-asset-upload job failed", undefined, JSON.stringify(job));
+    }
+    return null;
+  }
   return job.asset.id;
 }
 
 async function loadProductsForSession(
   service: ReturnType<typeof createClient>,
   productIds: string[],
-): Promise<ProductRow[]> {
-  if (productIds.length === 0) return [];
+): Promise<{ products: ProductRow[]; error?: string }> {
+  if (productIds.length === 0) return { products: [] };
   const { data, error } = await service
     .from("products")
-    .select(
-      "id,title,model,sku,image_url,image_url_2,image_url_3,sale_price,middle_price,material,color,size_l,size_w,size_h,level1_category,level2_category,factory",
-    )
+    .select(PRODUCT_SELECT_COLUMNS)
     .in("id", productIds.slice(0, 50));
-  if (error || !data) return [];
+  if (error || !data) {
+    console.error(
+      "loadProductsForSession failed",
+      error?.code,
+      error?.message,
+      error?.details,
+      error?.hint,
+    );
+    return { products: [], error: error?.message ?? "products_query_failed" };
+  }
   const byId = new Map((data as ProductRow[]).map((p) => [p.id, p]));
-  return productIds.map((id) => byId.get(id)).filter(Boolean) as ProductRow[];
+  return {
+    products: productIds.map((id) => byId.get(id)).filter(Boolean) as ProductRow[],
+  };
 }
 
 function canvaApiUrl(path: string): string {
@@ -632,21 +664,32 @@ Deno.serve(async (req: Request) => {
       }
       if (!dsRes.ok) {
         const detail = await dsRes.text().catch(() => "");
+        logCanvaFailure("canva brand template dataset failed", dsRes.status, detail);
+        const stored = clipCanvaError(detail, `dataset_${dsRes.status}`);
         await service
           .from("canva_design_sessions")
           .update({
             status: "failed",
-            error: `dataset_${dsRes.status}`,
+            error: stored,
+            brand_template_id: brandTemplateId,
+            generation_mode: "autofill",
             updated_at: new Date().toISOString(),
           })
           .eq("id", sessionId);
-        return json({ error: "brand_template_dataset_failed", detail: detail.slice(0, 500) }, 502);
+        return json({
+          error: "brand_template_dataset_failed",
+          message: stored,
+          detail: detail.slice(0, 500),
+        }, 502);
       }
       const dsBody = await dsRes.json();
-      const datasetKeys = new Set(Object.keys(dsBody?.dataset ?? {}));
-      const products = await loadProductsForSession(service, (session.product_ids ?? []) as string[]);
-      const { data: autofillData, report } = buildAutofillPayload(brief, products, datasetKeys);
-      const imageNeeds = productImageFieldNeeds(products, datasetKeys);
+      const matcher = createDatasetMatcher(Object.keys(dsBody?.dataset ?? {}));
+      const { products, error: productLoadError } = await loadProductsForSession(
+        service,
+        (session.product_ids ?? []) as string[],
+      );
+      const { data: autofillData, report } = buildAutofillPayload(brief, products, matcher);
+      const imageNeeds = productImageFieldNeeds(products, matcher);
       const uploads: { field: string; asset_id: string }[] = [];
       for (const need of imageNeeds) {
         const assetId = await uploadAssetFromUrl(
@@ -658,7 +701,33 @@ Deno.serve(async (req: Request) => {
         if (assetId) uploads.push({ field: need.field, asset_id: assetId });
       }
       attachImageAssets(autofillData, uploads);
-      (report as Record<string, unknown>).images_uploaded = uploads.length;
+      const reportRecord = report as Record<string, unknown>;
+      reportRecord.images_uploaded = uploads.length;
+      reportRecord.template_fields = matcher.keys();
+      if (productLoadError) reportRecord.product_load_error = productLoadError;
+
+      if (Object.keys(autofillData).length === 0) {
+        const templateFields = matcher.keys();
+        const message = unmatchedBrandTemplateMessage(templateFields);
+        logCanvaFailure("brand_template_fields_unmatched", 422, message);
+        await service
+          .from("canva_design_sessions")
+          .update({
+            status: "failed",
+            error: clipCanvaError(message, "brand_template_fields_unmatched"),
+            brand_template_id: brandTemplateId,
+            generation_mode: "autofill",
+            populate_report: report,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", sessionId);
+        return json({
+          error: "brand_template_fields_unmatched",
+          message,
+          expected_fields: canonicalAutofillFields(),
+          template_fields: templateFields,
+        }, 422);
+      }
 
       let afRes = await canvaAuthedFetch(tokenRow.access_token, "/autofills", {
         method: "POST",
@@ -687,29 +756,38 @@ Deno.serve(async (req: Request) => {
       }
       if (!afRes.ok) {
         const detail = await afRes.text().catch(() => "");
+        logCanvaFailure("canva autofill failed", afRes.status, detail);
+        const stored = clipCanvaError(detail, `autofill_${afRes.status}`);
         await service
           .from("canva_design_sessions")
           .update({
             status: "failed",
-            error: `autofill_${afRes.status}`,
+            error: stored,
+            brand_template_id: brandTemplateId,
+            generation_mode: "autofill",
             populate_report: report,
             updated_at: new Date().toISOString(),
           })
           .eq("id", sessionId);
-        return json({ error: "canva_autofill_failed", detail: detail.slice(0, 500) }, 502);
+        return json({ error: "canva_autofill_failed", message: stored, detail: detail.slice(0, 500) }, 502);
       }
       const afCreated = await afRes.json();
       const afJobId = afCreated?.job?.id as string | undefined;
       if (!afJobId) {
+        const raw = JSON.stringify(afCreated ?? {});
+        logCanvaFailure("canva autofill no job", 502, raw);
         await service
           .from("canva_design_sessions")
           .update({
             status: "failed",
-            error: "canva_autofill_no_job",
+            error: clipCanvaError(raw, "canva_autofill_no_job"),
+            brand_template_id: brandTemplateId,
+            generation_mode: "autofill",
+            populate_report: report,
             updated_at: new Date().toISOString(),
           })
           .eq("id", sessionId);
-        return json({ error: "canva_autofill_no_job" }, 502);
+        return json({ error: "canva_autofill_no_job", message: clipCanvaError(raw, "canva_autofill_no_job") }, 502);
       }
 
       const afJob = await pollCanvaJob<{
@@ -729,12 +807,14 @@ Deno.serve(async (req: Request) => {
         on401,
       );
       if (!afJob || afJob.status !== "success") {
-        const errMsg = afJob?.error?.message ?? "autofill_timeout";
+        const raw = afJob?.error?.message ?? (afJob ? JSON.stringify(afJob.error ?? afJob) : "autofill_timeout");
+        logCanvaFailure("canva autofill job failed", undefined, raw);
+        const stored = clipCanvaError(raw, "autofill_timeout");
         await service
           .from("canva_design_sessions")
           .update({
             status: "failed",
-            error: errMsg,
+            error: stored,
             autofill_job_id: afJobId,
             brand_template_id: brandTemplateId,
             generation_mode: "autofill",
@@ -742,18 +822,28 @@ Deno.serve(async (req: Request) => {
             updated_at: new Date().toISOString(),
           })
           .eq("id", sessionId);
-        return json({ error: "canva_autofill_failed", detail: errMsg, job_id: afJobId }, 502);
+        return json({ error: "canva_autofill_failed", message: stored, detail: stored, job_id: afJobId }, 502);
       }
       const design = afJob.result?.design;
       const designId = design?.id;
       const editUrl = design?.urls?.edit_url ?? design?.url ?? null;
       const viewUrl = design?.urls?.view_url ?? null;
       if (!designId) {
+        const raw = JSON.stringify(afJob.result ?? {});
+        logCanvaFailure("canva autofill no design", 502, raw);
         await service
           .from("canva_design_sessions")
-          .update({ status: "failed", error: "autofill_no_design", autofill_job_id: afJobId })
+          .update({
+            status: "failed",
+            error: clipCanvaError(raw, "autofill_no_design"),
+            autofill_job_id: afJobId,
+            brand_template_id: brandTemplateId,
+            generation_mode: "autofill",
+            populate_report: report,
+            updated_at: new Date().toISOString(),
+          })
           .eq("id", sessionId);
-        return json({ error: "autofill_no_design" }, 502);
+        return json({ error: "autofill_no_design", message: clipCanvaError(raw, "autofill_no_design") }, 502);
       }
       const { data: updated, error: updErr } = await service
         .from("canva_design_sessions")
@@ -799,15 +889,18 @@ Deno.serve(async (req: Request) => {
     }
     if (!res.ok) {
       const detail = await res.text().catch(() => "");
+      logCanvaFailure("canva create design failed", res.status, detail);
+      const stored = clipCanvaError(detail, `canva_create_${res.status}`);
       await service
         .from("canva_design_sessions")
         .update({
           status: "failed",
-          error: `canva_create_${res.status}`,
+          error: stored,
+          brand_template_id: brandTemplateId || null,
           updated_at: new Date().toISOString(),
         })
         .eq("id", sessionId);
-      return json({ error: `canva_create_failed_${res.status}`, detail: detail.slice(0, 500) }, 502);
+      return json({ error: `canva_create_failed_${res.status}`, message: stored, detail: detail.slice(0, 500) }, 502);
     }
     const created = await res.json();
     const design = created?.design as {
@@ -815,11 +908,18 @@ Deno.serve(async (req: Request) => {
       urls?: { edit_url?: string; view_url?: string };
     } | undefined;
     if (!design?.id) {
+      const raw = JSON.stringify(created ?? {});
+      logCanvaFailure("canva create no design", 502, raw);
       await service
         .from("canva_design_sessions")
-        .update({ status: "failed", error: "canva_create_no_design", updated_at: new Date().toISOString() })
+        .update({
+          status: "failed",
+          error: clipCanvaError(raw, "canva_create_no_design"),
+          brand_template_id: brandTemplateId || null,
+          updated_at: new Date().toISOString(),
+        })
         .eq("id", sessionId);
-      return json({ error: "canva_create_no_design" }, 502);
+      return json({ error: "canva_create_no_design", message: clipCanvaError(raw, "canva_create_no_design") }, 502);
     }
 
     const { data: updated, error: updErr } = await service
@@ -929,7 +1029,8 @@ async function runCanvaSessionExport(opts: {
   }
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
-    const errText = `export_start_${res.status}`;
+    logCanvaFailure("canva export failed", res.status, detail);
+    const errText = clipCanvaError(detail, `export_start_${res.status}`);
     await service.from("canva_design_exports").insert({
       session_id: sessionId,
       staff_id: userId,
@@ -939,25 +1040,42 @@ async function runCanvaSessionExport(opts: {
     });
     await service
       .from("canva_design_sessions")
-      .update({ status: "ready", export_error: errText, updated_at: new Date().toISOString() })
+      .update({
+        status: "ready",
+        error: errText,
+        export_error: errText,
+        updated_at: new Date().toISOString(),
+      })
       .eq("id", sessionId);
-    return { error: true, status: 502, body: { error: `canva_export_failed_${res.status}`, detail: detail.slice(0, 500) } };
+    return {
+      error: true,
+      status: 502,
+      body: { error: `canva_export_failed_${res.status}`, message: errText, detail: detail.slice(0, 500) },
+    };
   }
   const exportBody = await res.json();
   const jobId = exportBody?.job?.id as string | undefined;
   if (!jobId) {
+    const raw = JSON.stringify(exportBody ?? {});
+    logCanvaFailure("canva export no job", 502, raw);
+    const stored = clipCanvaError(raw, "canva_export_no_job");
     await service.from("canva_design_exports").insert({
       session_id: sessionId,
       staff_id: userId,
       format,
       canva_design_id: session.canva_design_id,
-      error: "canva_export_no_job",
+      error: stored,
     });
     await service
       .from("canva_design_sessions")
-      .update({ status: "ready", export_error: "canva_export_no_job", updated_at: new Date().toISOString() })
+      .update({
+        status: "ready",
+        error: stored,
+        export_error: stored,
+        updated_at: new Date().toISOString(),
+      })
       .eq("id", sessionId);
-    return { error: true, status: 502, body: { error: "canva_export_no_job" } };
+    return { error: true, status: 502, body: { error: "canva_export_no_job", message: stored } };
   }
 
   let access = tokenRow.access_token;
@@ -976,7 +1094,9 @@ async function runCanvaSessionExport(opts: {
   );
 
   if (!job || job.status !== "success") {
-    const errMsg = job?.error?.message ?? job?.error?.code ?? "export_timeout";
+    const raw = job?.error?.message ?? job?.error?.code ?? (job ? JSON.stringify(job.error ?? job) : "export_timeout");
+    logCanvaFailure("canva export job failed", undefined, raw);
+    const errMsg = clipCanvaError(raw, "export_timeout");
     await service.from("canva_design_exports").insert({
       session_id: sessionId,
       staff_id: userId,
@@ -989,12 +1109,17 @@ async function runCanvaSessionExport(opts: {
       .from("canva_design_sessions")
       .update({
         status: "ready",
+        error: errMsg,
         export_job_id: jobId,
         export_error: errMsg,
         updated_at: new Date().toISOString(),
       })
       .eq("id", sessionId);
-    return { error: true, status: 502, body: { error: "canva_export_failed", detail: errMsg, export_job_id: jobId } };
+    return {
+      error: true,
+      status: 502,
+      body: { error: "canva_export_failed", message: errMsg, detail: errMsg, export_job_id: jobId },
+    };
   }
 
   const downloadUrl = pickDownloadUrl(job);
@@ -1013,6 +1138,7 @@ async function runCanvaSessionExport(opts: {
     .from("canva_design_sessions")
     .update({
       status: "exported",
+      error: null,
       export_job_id: jobId,
       export_download_url: downloadUrl,
       export_error: null,
