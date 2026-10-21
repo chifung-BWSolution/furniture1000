@@ -1,3 +1,4 @@
+import { invokeWithUserJwt } from '@/lib/invokeEdgeFunction';
 import { supabase } from '@/lib/supabase';
 
 export type EmailLogStatus = 'success' | 'failed';
@@ -105,18 +106,14 @@ export async function resendEmailNotification(row: EmailNotificationLog): Promis
     return { ok: false, error: '這種類型還沒有重發入口' };
   }
   const payload = row.payload;
-  const { data, error } = await supabase.functions.invoke('send-upload-log-report-email', {
-    body: {
-      test: payload.test === true,
-      to: row.recipient,
-      forward_to: typeof payload.forward_to === 'string' ? payload.forward_to : undefined,
-      include_all_dates: payload.include_all_dates === true,
-      day_count: typeof payload.day_count === 'number' ? payload.day_count : undefined,
-      resend_of: row.id,
-    },
+  const { error } = await invokeWithUserJwt('send-upload-log-report-email', {
+    test: payload.test === true,
+    to: row.recipient,
+    forward_to: typeof payload.forward_to === 'string' ? payload.forward_to : undefined,
+    include_all_dates: payload.include_all_dates === true,
+    day_count: typeof payload.day_count === 'number' ? payload.day_count : undefined,
+    resend_of: row.id,
   });
-  if (error) return { ok: false, error: error.message };
-  const body = data as { error?: string } | null;
-  if (body?.error) return { ok: false, error: body.error };
+  if (error) return { ok: false, error };
   return { ok: true, error: null };
 }

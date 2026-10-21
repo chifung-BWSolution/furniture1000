@@ -99,6 +99,11 @@ Deploy-Function `
   -Name 'fetch-platform-admin'
 
 Deploy-Function `
+  -Slug 'supabase-functions-invite-supplier' `
+  -FilePath (Join-Path $root 'supabase\functions\invite-supplier\index.ts') `
+  -Name 'invite-supplier'
+
+Deploy-Function `
   -Slug 'supabase-functions-send-upload-log-report-email' `
   -FilePath (Join-Path $root 'supabase\functions\send-upload-log-report-email\index.ts') `
   -Name 'send-upload-log-report-email'

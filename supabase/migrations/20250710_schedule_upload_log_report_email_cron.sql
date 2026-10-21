@@ -1,6 +1,7 @@
 -- Daily 18:00 HKT (10:00 UTC) email digest for 上載產品紀錄.
 -- Requires Edge Function secrets: RESEND_API_KEY, UPLOAD_LOG_REPORT_FROM_EMAIL (optional).
--- Requires vault secret: service_role_key (same as shopify-token-hourly-refresh).
+-- Caller auth is the vault secret fds_worker_secret (header x-worker-secret), same as process-jobs.
+-- A later migration unschedules this job; do not re-apply it just to change the header.
 
 CREATE EXTENSION IF NOT EXISTS pg_cron;
 CREATE EXTENSION IF NOT EXISTS pg_net;
@@ -22,15 +23,14 @@ SELECT cron.schedule(
     url     := 'https://riaubhtruisbwdlwjzur.supabase.co/functions/v1/send-upload-log-report-email',
     headers := jsonb_build_object(
       'Content-Type',  'application/json',
-      'Authorization', 'Bearer ' || (
+      'x-worker-secret', (
         SELECT decrypted_secret
         FROM vault.decrypted_secrets
-        WHERE name = 'service_role_key'
+        WHERE name = 'fds_worker_secret'
         LIMIT 1
       )
     ),
     body    := jsonb_build_object(
-      'to', 'brandingworks.ebiz@gmail.com',
       'include_all_dates', false
     )
   ) AS request_id;
