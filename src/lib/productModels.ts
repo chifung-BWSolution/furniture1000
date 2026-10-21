@@ -11,6 +11,17 @@ const SIGNED_URL_TTL_SECONDS = 300;
 
 export type ModelFormat = 'skp' | 'glb' | 'fbx';
 
+export type SkpPreviewStatus =
+  | { status: 'none' }
+  | { status: 'ready'; storage_path: string; updated_at?: string }
+  | {
+      status: 'pending' | 'queued' | 'running' | 'failed';
+      error?: string | null;
+      job_id?: string;
+      attempts?: number;
+      updated_at?: string;
+    };
+
 export interface ProductModelFile {
   id: string;
   model_type: 'su' | '3d';
@@ -21,6 +32,7 @@ export interface ProductModelFile {
   size_bytes: number | null;
   version_note: string | null;
   created_at: string;
+  preview?: SkpPreviewStatus | null;
 }
 
 export type ModelFlags = Record<string, { su: boolean; '3d': boolean }>;
@@ -168,7 +180,9 @@ export async function fetchSkpStatus(furnitureModelId: string): Promise<SkpStatu
 export interface SkpRequirements {
   ready: boolean;
   connected: boolean | null;
-  checks: Partial<Record<'sketchup' | 'ruby_script' | 'writer' | 'api_dll' | 'preferences_dll', boolean>> | null;
+  checks: Partial<
+    Record<'sketchup' | 'ruby_script' | 'preview_ruby' | 'writer' | 'api_dll' | 'preferences_dll', boolean>
+  > | null;
 }
 
 export class SkpRequirementsError extends Error {
@@ -190,4 +204,30 @@ export async function fetchSkpRequirements(): Promise<SkpRequirements> {
 export async function checkSkpRequirements(): Promise<void> {
   const requirements = await fetchSkpRequirements();
   if (!requirements.ready) throw new SkpRequirementsError(requirements);
+}
+
+export async function requestSkpPreview(productModelId: string): Promise<SkpPreviewStatus> {
+  const { data, error } = await supabase.rpc('fds_request_skp_preview', { p_product_model_id: productModelId });
+  if (error) throw new Error(modelError(error.message));
+  return (data ?? { status: 'none' }) as SkpPreviewStatus;
+}
+
+export async function fetchSkpPreviewStatus(productModelId: string): Promise<SkpPreviewStatus> {
+  const { data, error } = await supabase.rpc('fds_skp_preview_status_for', { p_product_model_id: productModelId });
+  if (error) throw new Error(modelError(error.message));
+  return (data ?? { status: 'none' }) as SkpPreviewStatus;
+}
+
+export function previewGlbPath(file: ProductModelFile): string | null {
+  if (file.format === 'glb') return file.storage_path;
+  if (file.format === 'skp' && file.preview?.status === 'ready' && file.preview.storage_path) {
+    return file.preview.storage_path;
+  }
+  return null;
+}
+
+export function skpPreviewPending(file: ProductModelFile): boolean {
+  if (file.format !== 'skp' || !file.preview) return false;
+  const s = file.preview.status;
+  return s === 'pending' || s === 'queued' || s === 'running';
 }

@@ -2042,6 +2042,10 @@ function ProductModelsSection({
         file={previewFile}
         open={previewFile != null}
         onOpenChange={(open) => { if (!open) setPreviewFile(null); }}
+        onPreviewChange={() => {
+          setReload((n) => n + 1);
+          onChanged();
+        }}
       />
       <Modal
         open={reuse != null && genProgress == null && draft == null}
