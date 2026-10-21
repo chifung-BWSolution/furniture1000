@@ -248,6 +248,9 @@ const CaseClientsView = lazy(() =>
 const FactoryZonesView = lazy(() =>
   import("./FactoryZonesView").then((mod) => ({ default: mod.FactoryZonesView }))
 );
+const FactoryLoginView = lazy(() =>
+  import("./FactoryLoginView").then((mod) => ({ default: mod.FactoryLoginView }))
+);
 
 // Views that fetch their own data independently of the app store's product
 // load — they must not be gated by store.isLoading, so they render immediately.
@@ -297,6 +300,7 @@ const SELF_LOADING_VIEWS = new Set<ViewType>([
   "fds2-cases-clients",
   "fds2-factory-zones",
   "fds2-quote-report",
+  "fds2-factory-login",
   "report-factory",
   "report-product",
   "user-management",
@@ -391,7 +395,8 @@ export function AppShell() {
   // Logged-in staff/admin are not quote-share guests. The token is a no-login
   // link; attaching it to their session locks the whole account into 客戶專區.
   const isStaffAccount =
-    !roleLoading && (platformRole === 'staff' || platformRole === 'admin');
+    !roleLoading &&
+    (platformRole === 'staff' || platformRole === 'admin' || platformRole === 'supplier');
   const quoteShareGuestActive = quoteShareActive && !isStaffAccount;
   const portalTokenActive = invitePortalActive || quoteShareGuestActive;
   // Anonymous quote-share visitors stay in 客戶專區.
@@ -400,14 +405,26 @@ export function AppShell() {
     platformRole === 'client' ||
     quoteShareGuestActive ||
     (invitePortalActive &&
-      (roleLoading || (platformRole !== 'staff' && platformRole !== 'admin')));
+      (roleLoading ||
+        (platformRole !== 'staff' && platformRole !== 'admin' && platformRole !== 'supplier')));
   const isAdmin = platformRole === 'admin';
+  const isSupplier = platformRole === 'supplier';
 
   useEffect(() => {
     if (portalToken) {
       storePortalToken(portalToken);
     }
   }, [portalToken]);
+
+  useEffect(() => {
+    if (roleLoading || !isSupplier) return;
+    if (store.currentView !== 'fds2-factory-login') {
+      store.setCurrentView('fds2-factory-login');
+    }
+    if (location.pathname !== '/fds/factories/login') {
+      navigate('/fds/factories/login', { replace: true });
+    }
+  }, [roleLoading, isSupplier, store, location.pathname, navigate]);
 
   useEffect(() => {
     if (!quoteShareToken || isStaffAccount) return;
@@ -1019,6 +1036,7 @@ export function AppShell() {
     if (store.currentView === 'fds2-cases-clients') return <CaseClientsView />;
     if (store.currentView === 'fds2-factory-zones') return <FactoryZonesView />;
     if (store.currentView === 'fds2-quote-report') return <ProductReportView />;
+    if (store.currentView === 'fds2-factory-login') return <FactoryLoginView />;
     if (isSitemapPlaceholderView(store.currentView)) {
       const meta = getViewMeta(store.currentView);
       return <PlannedPage sectionLabel={meta.sectionLabel} title={meta.viewLabel} />;
