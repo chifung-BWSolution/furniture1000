@@ -245,6 +245,9 @@ const CasePhotosView = lazy(() =>
 const CaseClientsView = lazy(() =>
   import("./CaseClientsView").then((mod) => ({ default: mod.CaseClientsView }))
 );
+const FactoryZonesView = lazy(() =>
+  import("./FactoryZonesView").then((mod) => ({ default: mod.FactoryZonesView }))
+);
 
 // Views that fetch their own data independently of the app store's product
 // load — they must not be gated by store.isLoading, so they render immediately.
@@ -292,6 +295,7 @@ const SELF_LOADING_VIEWS = new Set<ViewType>([
   "fds2-cases-orders",
   "fds2-cases-photos",
   "fds2-cases-clients",
+  "fds2-factory-zones",
   "report-factory",
   "report-product",
   "user-management",
@@ -1012,6 +1016,7 @@ export function AppShell() {
     if (store.currentView === 'fds2-cases-orders') return <CaseOrdersView />;
     if (store.currentView === 'fds2-cases-photos') return <CasePhotosView />;
     if (store.currentView === 'fds2-cases-clients') return <CaseClientsView />;
+    if (store.currentView === 'fds2-factory-zones') return <FactoryZonesView />;
     if (isSitemapPlaceholderView(store.currentView)) {
       const meta = getViewMeta(store.currentView);
       return <PlannedPage sectionLabel={meta.sectionLabel} title={meta.viewLabel} />;
