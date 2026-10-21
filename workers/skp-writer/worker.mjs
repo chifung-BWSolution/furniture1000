@@ -46,6 +46,7 @@ function skpFailureRetryable(message) {
   const text = String(message).toLowerCase();
   return !(
     text.includes('skp_empty') ||
+    text.includes('model empty') ||
     text.includes('skp_too_large') ||
     text.includes('skp_corrupt') ||
     text.includes('corrupt') ||
