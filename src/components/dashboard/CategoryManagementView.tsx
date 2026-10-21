@@ -532,7 +532,7 @@ export function CategoryManagementView() {
       </div>
 
       {/* ── Import confirm dialog ── */}
-      <Modal
+      {pendingImport && <Modal
         open={Boolean(pendingImport)}
         onOpenChange={(open) => { if (!open) setPendingImport(null); }}
         size="md"
@@ -564,7 +564,7 @@ export function CategoryManagementView() {
             </ModalButton>
           </>
         }
-      />
+      />}
     </div>
   );
 }

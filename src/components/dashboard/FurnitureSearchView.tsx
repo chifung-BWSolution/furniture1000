@@ -36,13 +36,13 @@ import { buildFurnitureFbx } from '@/lib/furnitureFbx';
 import { ProductWorkbench } from '@/components/dashboard/ProductWorkbench';
 import { StructureConfirmForm, type StructureDraft } from '@/components/dashboard/StructureConfirmDialog';
 import { useSkpRequirements } from '@/components/dashboard/SkpRequirementsDialog';
+import { FurnitureProductScopeDialog, type ProductCountDetection, type ProductScopeChoice } from '@/components/dashboard/FurnitureProductScopeDialog';
+import { selectFurnitureGeometry, validateFurnitureStructure, type StructureEvidence } from '@/lib/furnitureStructure';
 import {
-  STYLE_FIELDS,
   buildParametric,
   customPartsSize,
   fitCustomParts,
   inferFurnitureKindFrom,
-  inferModelStyle,
   initialModelStyle,
   inferShelfTiers,
   resolveStyle,
@@ -1202,6 +1202,9 @@ async function fileToJpeg(file: File): Promise<string> {
 }
 
 type ImageAnalysis = {
+  requires_product_scope_confirmation?: boolean;
+  detection?: ProductCountDetection;
+  structure?: StructureEvidence;
   kind?: FurnitureKind;
   width_mm?: number | null;
   depth_mm?: number | null;
@@ -1215,6 +1218,8 @@ type ImageAnalysis = {
 };
 
 type AnalysisRequest = {
+  product_scope?: ProductScopeChoice['scope'];
+  product_count?: number;
   mode?: 'classify' | 'parts';
   title?: string | null;
   width_mm?: number | null;
@@ -1223,23 +1228,27 @@ type AnalysisRequest = {
 };
 
 /**
- * Up to three product photos in one call, so the AI can compare views (T-801).
+ * Require at least three distinct readable references; send at most six views.
  * mode 'parts' asks only for the part list used when no template fits.
  */
-async function analyzeProductImages(urls: string[], request: AnalysisRequest = {}): Promise<ImageAnalysis | null> {
+async function analyzeProductImages(urls: (string | File)[], request: AnalysisRequest = {}): Promise<ImageAnalysis | null> {
   const images: { image_base64: string; mime_type: string }[] = [];
-  for (const url of urls.slice(0, 3)) {
+  const seen = new Set<string>();
+  for (const url of urls) {
     try {
-      const res = await fetch(url);
-      if (!res.ok) continue;
-      const blob = await res.blob();
+      const res = typeof url === 'string' ? await fetch(url) : null;
+      if (res && !res.ok) continue;
+      const blob = url instanceof File ? url : await res!.blob();
       const image = await fileToJpeg(new File([blob], 'product.jpg', { type: blob.type || 'image/jpeg' }));
+      if (seen.has(image)) continue;
+      seen.add(image);
       images.push({ image_base64: image, mime_type: 'image/jpeg' });
+      if (images.length === 6) break;
     } catch {
       // A broken photo should not stop the others from being read.
     }
   }
-  if (images.length === 0) throw new Error('讀不到產品圖');
+  if (images.length < 3) throw Object.assign(new Error(`只有 ${images.length} 張可讀取的不同圖片，請補充至最少 3 張`), { code: 'reference_images_required' });
   const body = { images, ...request };
   let result = await invokeEdgeFunctionDirect<ImageAnalysis & { supported?: boolean; reason?: string }>(
     'supabase-functions-generate-furniture-model',
@@ -1249,6 +1258,7 @@ async function analyzeProductImages(urls: string[], request: AnalysisRequest = {
     result = await invokeEdgeFunctionDirect('generate-furniture-model', body);
   }
   if (result.error || !result.data) throw new Error(result.error?.message ?? '無法辨認圖片');
+  if (result.data.requires_product_scope_confirmation && result.data.detection) return result.data;
   if (result.data.supported === false || !result.data.kind) throw new Error(result.data.reason || '無法確認單件產品，請提供單品圖片');
   return result.data;
 }
@@ -1399,6 +1409,14 @@ function ProductModelsSection({
   const [skpModelId, setSkpModelId] = useState<string | null>(null);
   const savedRef = useRef<{ key: string; id: string } | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+  const [extraPhotos, setExtraPhotos] = useState<File[]>([]);
+  const [scopeChoice, setScopeChoice] = useState<ProductScopeChoice>();
+  const [scopeRequest, setScopeRequest] = useState<{ target: 'su' | '3d' | 'parts'; detection: ProductCountDetection } | null>(null);
+  const [photoRequest, setPhotoRequest] = useState<{ target: 'su' | '3d' | 'parts'; message: string } | null>(null);
+  const modelPhotos: (string | File)[] = [...extraPhotos, ...new Set((product.images ?? []).filter(src => /^https?:\/\//i.test(src)))];
+  useEffect(() => { setExtraPhotos([]); setDraft(null); setPhotoRequest(null); }, [productId]);
+  useEffect(() => { setScopeChoice(undefined); setScopeRequest(null); }, [productId, extraPhotos, product.images]);
   const [genProgress, setGenProgress] = useState<{ percent: number; label: string } | null>(null);
   const skpRequirements = useSkpRequirements();
   /** Gate for the structure form: opened once the progress dialog hands over. */
@@ -1524,6 +1542,8 @@ function ProductModelsSection({
       height: model.height_mm,
       style: model.style ?? null,
       parts: model.custom_parts ?? null,
+      structure: model.structure_evidence ?? null,
+      structureParts: model.structure_parts ?? null,
       estimated: model.estimated_axes,
     });
     if (savedRef.current?.key === key) return savedRef.current.id;
@@ -1558,7 +1578,11 @@ function ProductModelsSection({
   };
 
   /** T-801: read kind, size, and table structure, then hand a draft to the user to confirm. */
-  const prepare = async (target: 'su' | '3d') => {
+  const prepare = async (target: 'su' | '3d', choice = scopeChoice) => {
+    if (modelPhotos.length < 3) {
+      setPhotoRequest({ target, message: `目前只有 ${modelPhotos.length} 張候選圖片，最少需要 3 張不同角度圖片。` });
+      return;
+    }
     setBusy(target);
     setConfirmShown(false);
     clearProgress();
@@ -1582,30 +1606,37 @@ function ProductModelsSection({
         product.category,
         product.model,
       ]);
-      let width = measuredMm(product.dimension_l_mm);
-      let depth = measuredMm(product.dimension_w_mm);
-      let height = measuredMm(product.dimension_h_mm);
+      let width = choice?.scope === 'arrangement' ? null : measuredMm(product.dimension_l_mm);
+      let depth = choice?.scope === 'arrangement' ? null : measuredMm(product.dimension_w_mm);
+      let height = choice?.scope === 'arrangement' ? null : measuredMm(product.dimension_h_mm);
       const estimated: SizeAxis[] = [];
       const nameStyle = initialModelStyle(kind, text);
       let style: Partial<ModelStyle> = nameStyle;
       let styleSource: ModelDraft['styleSource'] = 'name';
       let notes: string | null = null;
       let parts: CustomPartSpec[] = [];
-      const needsStructure = kind == null || STYLE_FIELDS[kind].length > 0;
-      const photos = (product.images ?? []).filter((src) => /^https?:\/\//i.test(src));
-      if (photos.length > 0 && (needsStructure || width == null || depth == null || height == null)) {
+      let structure: StructureEvidence | undefined;
+      const photos = modelPhotos;
+      if (photos.length > 0) {
         showProgress(24, '辨認產品圖');
         creepToward(70);
         try {
           const guess = await analyzeProductImages(photos, {
+            product_scope: choice?.scope,
+            product_count: choice?.count,
             title: [product.model, product.title].filter(Boolean).join(' '),
             width_mm: width,
             depth_mm: depth,
             height_mm: height,
           });
           if (guess) {
-            if (!kind && guess.kind) kind = guess.kind;
-            if (kind === 'desk' && guess.source_dimensions_scope === 'arrangement') {
+            if (guess.requires_product_scope_confirmation && guess.detection) {
+              clearProgress();
+              setScopeRequest({ target, detection: guess.detection });
+              return;
+            }
+            if (guess.kind) kind = guess.kind;
+            if (guess.source_dimensions_scope === 'arrangement') {
               if (guess.width_mm && guess.width_mm > 0) {
                 width = Math.round(guess.width_mm);
                 estimated.push('width');
@@ -1620,7 +1651,10 @@ function ProductModelsSection({
               }
             }
             parts = sanitizeCustomParts(guess.parts);
-            if (kind === 'custom') notes = guess.structure_notes ?? null;
+            structure = guess.structure;
+            notes = guess.structure_notes ?? null;
+            style = initialModelStyle(kind, text, guess.style);
+            styleSource = 'image';
             if (width == null && guess.width_mm) {
               width = Math.round(guess.width_mm);
               estimated.push('width');
@@ -1633,28 +1667,17 @@ function ProductModelsSection({
               height = Math.round(guess.height_mm);
               estimated.push('height');
             }
-            if (guess.style) {
-              // Preserve named features, but workstation output starts with one desk.
-              style = initialModelStyle(kind, text, guess.style);
-              styleSource = 'image';
-              notes = guess.structure_notes ?? null;
-            }
           }
         } catch (err) {
-          if (kind === 'desk' && (inferModelStyle(text).seats ?? 1) > 1) {
-            width = null;
-            depth = null;
-            notes = '圖片分析未完成；原資料為多人組合，請填寫單張辦公枱的闊、深，避免使用整組尺寸。';
-          }
-          toast('讀不到產品圖，結構先按產品名稱判斷', { description: errorText(err) });
+          throw err;
         } finally {
           stopCreep();
         }
       }
       showProgress(88, '整理結構');
       const tiers = kind === 'shelf' ? inferShelfTiers(text) : undefined;
-      if (tiers !== undefined) style = { ...style, shelves: tiers - 2 };
-      const partsSize = kind === 'custom' ? customPartsSize(parts) : null;
+      if (tiers !== undefined && style.shelves == null) style = { ...style, shelves: tiers - 2 };
+      const partsSize = customPartsSize(parts);
       if (partsSize) {
         if (width == null) {
           width = partsSize[0];
@@ -1669,7 +1692,12 @@ function ProductModelsSection({
           estimated.push('height');
         }
       }
+      if (!structure) throw new Error('缺少結構辨認資料，請重新辨認圖片');
+      const selected = selectFurnitureGeometry({ kind: kind ?? 'custom', width_mm: width!, depth_mm: depth!, height_mm: height!, style, parts });
+      kind = selected.kind;
+      notes = `${selected.templateMatched ? '部件形狀與模板吻合。' : '按圖片實際部件建模，未套用固定模板。'}${notes ?? ''}`;
       setDraft({
+        structure,
         target,
         kind,
         width: width != null ? String(width) : '',
@@ -1685,7 +1713,8 @@ function ProductModelsSection({
     } catch (err) {
       clearProgress();
       setConfirmShown(false);
-      toast.error(target === 'su' ? '準備生成 SU 失敗' : '準備生成 3D 失敗', { description: errorText(err) });
+      if ((err as { code?: string })?.code === 'reference_images_required') setPhotoRequest({ target, message: errorText(err) });
+      else toast.error(target === 'su' ? '準備生成 SU 失敗' : '準備生成 3D 失敗', { description: errorText(err) });
     } finally {
       setBusy(null);
     }
@@ -1706,35 +1735,47 @@ function ProductModelsSection({
 
   const [partsBusy, setPartsBusy] = useState(false);
   /** No template fits: ask the AI to break the photo into simple solids at the confirmed size. */
-  const loadParts = async () => {
+  const loadParts = async (choice = scopeChoice) => {
     if (!draft) return;
-    const photos = (product.images ?? []).filter((src) => /^https?:\/\//i.test(src));
-    if (photos.length === 0) {
-      toast.error('沒有產品圖，無法拆部件');
+    const photos = modelPhotos;
+    if (photos.length < 3) {
+      setConfirmShown(false);
+      setPhotoRequest({ target: 'parts', message: '最少需要 3 張不同角度圖片，請補充參考圖。' });
       return;
     }
     const size = (value: string) => (Number(value) > 0 ? Number(value) : null);
     setPartsBusy(true);
     try {
       const result = await analyzeProductImages(photos, {
+        product_scope: choice?.scope,
+        product_count: choice?.count,
         mode: 'parts',
         title: [product.model, product.title].filter(Boolean).join(' '),
         width_mm: size(draft.width),
         depth_mm: size(draft.depth),
         height_mm: size(draft.height),
       });
+      if (result?.requires_product_scope_confirmation && result.detection) {
+        setConfirmShown(false);
+        setScopeRequest({ target: 'parts', detection: result.detection });
+        return;
+      }
       const parts = sanitizeCustomParts(result?.parts);
       if (parts.length === 0) throw new Error('AI 沒有給出可用的部件');
       const missing = (['width', 'depth', 'height'] as SizeAxis[]).filter((axis) => !(Number(draft[axis]) > 0));
       const partsSize = customPartsSize(parts);
       updateDraft({
         parts,
+        structure: result?.structure,
         notes: result?.structure_notes ?? draft.notes,
         ...(partsSize ? Object.fromEntries(missing.map((axis) => [axis, String(partsSize[AXIS_INDEX[axis]])])) : {}),
         estimated: [...new Set([...draft.estimated, ...missing])],
       });
     } catch (err) {
-      toast.error('拆部件失敗', { description: errorText(err) });
+      if ((err as { code?: string })?.code === 'reference_images_required') {
+        setConfirmShown(false);
+        setPhotoRequest({ target: 'parts', message: errorText(err) });
+      } else toast.error('拆部件失敗', { description: errorText(err) });
     } finally {
       setPartsBusy(false);
     }
@@ -1764,6 +1805,7 @@ function ProductModelsSection({
         if (i !== index) return part;
         const ratio = n / part.size_mm[axis];
         const size_mm = part.size_mm.map((v, k) => (k === axis ? n : v)) as CustomPartSpec['size_mm'];
+        if (part.shape === 'sweep') return { ...part, size_mm, geometry_scale: [0, 1, 2].map(k => (part.geometry_scale?.[k] ?? 1) * (k === axis ? ratio : 1)) as [number, number, number] };
         if (!part.points_mm || !part.axis) return { ...part, size_mm };
         // A profile's outline is its shape across the axis; stretch it with the size.
         const cross = PART_PLANE[part.axis];
@@ -1777,7 +1819,9 @@ function ProductModelsSection({
 
   const removePart = (index: number) => {
     if (!draft) return;
-    commitParts(fittedParts(draft).filter((_, i) => i !== index));
+    commitParts(fittedParts(draft).filter((_, i) => i !== index).map(part => ({ ...part,
+      connects_to: part.connects_to?.filter(j => j !== index).map(j => j > index ? j - 1 : j),
+    })));
   };
 
   const previewModel = useMemo(() => {
@@ -1798,6 +1842,11 @@ function ProductModelsSection({
       return null;
     }
   }, [draft]);
+  const structureErrors = useMemo(() => {
+    if (!draft || !previewModel) return ['請填寫有效尺寸及完整部件後再生成'];
+    try { return validateFurnitureStructure(previewModel, draft.structure, fittedParts(draft)); }
+    catch (error) { return [errorText(error)]; }
+  }, [draft, previewModel]);
 
   /** T-804: build only what the user confirmed. */
   const generate = async () => {
@@ -1818,6 +1867,7 @@ function ProductModelsSection({
       toast('請先讓 AI 拆部件');
       return;
     }
+    if (structureErrors.length) { toast.error('結構校驗未通過', { description: structureErrors.join('；') }); return; }
     setBusy(target);
     setConfirmShown(false);
     setProgressFlow('generate');
@@ -1841,6 +1891,10 @@ function ProductModelsSection({
         style: draft.style,
         parts: kind === 'custom' ? fittedParts(draft) : [],
       });
+      const errors = validateFurnitureStructure(model, draft.structure, fittedParts(draft));
+      if (errors.length) throw new Error(errors.join('；'));
+      model.structure_evidence = draft.structure;
+      model.structure_parts = draft.parts;
       showProgress(34, '儲存模型');
       const id = await ensureSaved(model);
       setDraft(null);
@@ -1939,6 +1993,16 @@ function ProductModelsSection({
   return (
     <section className="space-y-1.5">
       {skpRequirements.dialog}
+      <FurnitureProductScopeDialog detection={scopeRequest?.detection ?? null} images={modelPhotos}
+        onCancel={() => { setScopeRequest(null); if (scopeRequest?.target === 'parts') setConfirmShown(true); }}
+        onChoose={choice => {
+          if (!scopeRequest) return;
+          const target = scopeRequest.target;
+          setScopeChoice(choice);
+          setScopeRequest(null);
+          if (target === 'parts') { setConfirmShown(true); void loadParts(choice); }
+          else void prepare(target, choice);
+        }} />
       <div className={workbench ? 'flex flex-wrap gap-2' : 'flex flex-wrap items-center justify-between gap-2'}>
         {!workbench && <h3 className="text-sm font-medium">模型檔</h3>}
         <div className="flex flex-wrap gap-1.5">
@@ -1998,6 +2062,36 @@ function ProductModelsSection({
         </p>
       )}
       {filesError && <p className="text-xs text-destructive">讀不到現有模型檔，暫時不能生成。</p>}
+      <Modal
+        open={photoRequest != null && busy == null && !partsBusy}
+        onOpenChange={open => { if (!open) setPhotoRequest(null); }}
+        size="md"
+        title="請補充建模參考圖"
+        description={extraPhotos.length > 0 ? '已加入補充圖片，繼續後會再次檢查可讀取且不重複的圖片數量。' : photoRequest?.message}
+        style={workbench ? WORKBENCH_TONE : undefined}
+        footer={<>
+          <ModalButton disabled={modelPhotos.length < 3} onClick={() => {
+            if (!photoRequest) return;
+            const target = photoRequest.target;
+            setPhotoRequest(null);
+            if (target === 'parts') { setConfirmShown(true); void loadParts(); }
+            else void prepare(target);
+          }}>繼續生成</ModalButton>
+          <ModalButton variant="ghost" onClick={() => setPhotoRequest(null)}>取消</ModalButton>
+        </>}
+      >
+        <div className="space-y-3 text-sm">
+          <p>請包含同款家具的正面、側面及背面／底部；重複或無法讀取的圖片不計算，最多使用 6 張。</p>
+          <p>候選參考圖：{modelPhotos.length} 張</p>
+          <Button size="sm" variant="outline" onClick={() => photoInputRef.current?.click()}>補充參考圖</Button>
+          <input ref={photoInputRef} type="file" multiple accept="image/jpeg,image/png,image/webp" className="hidden" onChange={event => {
+            const selected = Array.from(event.target.files ?? []);
+            event.target.value = '';
+            setExtraPhotos(current => [...current, ...selected].slice(0, 6));
+          }} />
+          {extraPhotos.length > 0 && <div className="space-y-1 text-xs text-muted-foreground"><p>補圖只用於本次建模：</p>{extraPhotos.map((file, index) => <button type="button" key={index} className="mr-2 break-all underline" aria-label={`移除 ${file.name}`} onClick={() => setExtraPhotos(current => current.filter((_, i) => i !== index))}>{file.name} ×</button>)}</div>}
+        </div>
+      </Modal>
       <Modal
         open={reuse != null && genProgress == null && draft == null}
         onOpenChange={(open) => { if (!open && busy == null) setReuse(null); }}
@@ -2077,6 +2171,7 @@ function ProductModelsSection({
               draft={draft}
               shownStyle={shownStyle}
               preview={previewModel}
+              validationErrors={structureErrors}
               generating={busy != null}
               partsBusy={partsBusy}
               onChange={updateDraft}

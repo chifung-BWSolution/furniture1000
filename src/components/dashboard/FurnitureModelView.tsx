@@ -9,12 +9,19 @@ import { invokeEdgeFunctionDirect } from '@/lib/invokeEdgeFunction';
 import { buildFurnitureGlb } from '@/lib/furnitureGlb';
 import { downloadModel, fetchSkpStatus, requestSkp, type SkpStatus } from '@/lib/productModels';
 import { useSkpRequirements } from '@/components/dashboard/SkpRequirementsDialog';
+import { FurnitureProductScopeDialog, type ProductCountDetection, type ProductScopeChoice } from '@/components/dashboard/FurnitureProductScopeDialog';
+import { selectFurnitureGeometry, validateFurnitureStructure, type StructureEvidence } from '@/lib/furnitureStructure';
 import {
   DEFAULT_TABLE_STYLE,
   FURNITURE_KINDS,
   buildParametric,
   faceNormal,
   partFaces,
+  sanitizeCustomParts,
+  resolveStyle,
+  fitCustomParts,
+  customPartsSize,
+  type CustomPartSpec,
   type FurnitureKind,
   type ParametricModel,
   type SizeAxis,
@@ -121,6 +128,10 @@ export function FurnitureModelView({ focus }: { focus: 'su' | '3d' }) {
   const [model, setModel] = useState<ParametricModel | null>(null);
   const [style, setStyle] = useState<TableStyle>(DEFAULT_TABLE_STYLE);
   const [reading, setReading] = useState(false);
+  const [hasReferences, setHasReferences] = useState(false);
+  const [scopeRequest, setScopeRequest] = useState<{ files: File[]; detection: ProductCountDetection } | null>(null);
+  const [structure, setStructure] = useState<StructureEvidence>();
+  const [referenceParts, setReferenceParts] = useState<CustomPartSpec[]>([]);
   const [saved, setSaved] = useState<SavedModel[]>([]);
   /** Row id of the current model once saved; a new generate clears it. */
   const [savedId, setSavedId] = useState<string | null>(null);
@@ -165,24 +176,48 @@ export function FurnitureModelView({ focus }: { focus: 'su' | '3d' }) {
     depth?: number | null;
     height?: number | null;
     estimatedAxes?: SizeAxis[];
+    style?: Partial<TableStyle>;
+    parts?: CustomPartSpec[];
+    structure?: StructureEvidence;
   }) => {
+    if (!next && !hasReferences) {
+      toast.error('請先選擇最少 3 張不同角度圖片完成辨認');
+      return;
+    }
+    const rawParts = next?.parts ?? model?.custom_parts ?? [];
+    const partSize = customPartsSize(rawParts);
+    const w = (next?.width === undefined ? num(width) : next.width) ?? partSize?.[0];
+    const d = (next?.depth === undefined ? num(depth) : next.depth) ?? partSize?.[1];
+    const h = (next?.height === undefined ? num(height) : next.height) ?? partSize?.[2];
     const built = buildParametric({
       kind: next?.kind ?? kind,
-      width_mm: next?.width === undefined ? num(width) : next.width,
-      depth_mm: next?.depth === undefined ? num(depth) : next.depth,
-      height_mm: next?.height === undefined ? num(height) : next.height,
+      width_mm: w,
+      depth_mm: d,
+      height_mm: h,
       estimated_axes: next?.estimatedAxes ?? aiEstimated,
-      style,
+      style: next?.style ?? style,
+      parts: rawParts.length && w && d && h ? fitCustomParts(rawParts, w, d, h) : rawParts,
     });
+    const evidence = next?.structure ?? structure;
+    const errors = validateFurnitureStructure(built, evidence, next?.parts ?? referenceParts);
+    if (errors.length) throw new Error(errors.join('；'));
+    built.structure_evidence = evidence;
+    built.structure_parts = next?.parts ?? referenceParts;
     setModel(built);
     setSavedId(null);
     setSkp(null);
   };
 
-  const readImage = async (file: File) => {
+  const readImage = async (files: File[], choice?: ProductScopeChoice) => {
+    if (files.length < 3 || files.length > 6) {
+      toast.error('請選擇 3 至 6 張同款家具的不同角度圖片');
+      return;
+    }
     setReading(true);
     try {
-      const image = await fileToJpeg(file);
+      const images = await Promise.all(files.map(async file => ({ image_base64: await fileToJpeg(file), mime_type: 'image/jpeg' })));
+      const body = { images, product_scope: choice?.scope, product_count: choice?.count };
+      if (new Set(images.map(image => image.image_base64)).size < 3) throw new Error('最少需要 3 張不同圖片，重複圖片不計算');
       let result = await invokeEdgeFunctionDirect<{
         supported?: boolean;
         kind?: FurnitureKind;
@@ -193,19 +228,28 @@ export function FurnitureModelView({ focus }: { focus: 'su' | '3d' }) {
         estimated?: boolean;
         reason?: string;
         error?: string;
-      }>('supabase-functions-generate-furniture-model', { image_base64: image, mime_type: 'image/jpeg' });
+        style?: Partial<TableStyle> | null;
+        parts?: unknown;
+        structure?: StructureEvidence;
+        requires_product_scope_confirmation?: boolean;
+        detection?: ProductCountDetection;
+      }>('supabase-functions-generate-furniture-model', body);
       if (result.status === 404) {
-        result = await invokeEdgeFunctionDirect('generate-furniture-model', { image_base64: image, mime_type: 'image/jpeg' });
+        result = await invokeEdgeFunctionDirect('generate-furniture-model', body);
       }
       if (result.error || !result.data) throw new Error(result.error?.message ?? '無法辨認圖片');
+      if (result.data.requires_product_scope_confirmation && result.data.detection) {
+        setScopeRequest({ files, detection: result.data.detection });
+        return;
+      }
       if (result.data.supported === false || !result.data.kind || result.data.kind === ('unsupported' as FurnitureKind)) {
         toast.error(result.data.reason || '這件家具不屬於現有模板類型');
         return;
       }
       setKind(result.data.kind);
-      const typedW = num(width);
-      const typedD = num(depth);
-      const typedH = num(height);
+      const typedW = choice?.scope === 'arrangement' ? null : num(width);
+      const typedD = choice?.scope === 'arrangement' ? null : num(depth);
+      const typedH = choice?.scope === 'arrangement' ? null : num(height);
       const guessed = result.data.estimated !== false;
       const estimatedAxes: SizeAxis[] = [];
       if (typedW == null && result.data.width_mm) {
@@ -220,14 +264,37 @@ export function FurnitureModelView({ focus }: { focus: 'su' | '3d' }) {
         setHeight(String(Math.round(result.data.height_mm)));
         if (guessed) estimatedAxes.push('height');
       }
-      setAiEstimated(estimatedAxes);
+      const imageStyle = resolveStyle(result.data.kind,
+        typedW ?? result.data.width_mm ?? 500,
+        typedD ?? result.data.depth_mm ?? 500,
+        typedH ?? result.data.height_mm ?? 850,
+        result.data.style);
+      const imageParts = sanitizeCustomParts(result.data.parts);
+      const partSize = customPartsSize(imageParts)!;
+      if (choice?.scope === 'arrangement') {
+        setWidth(String(partSize[0])); setDepth(String(partSize[1])); setHeight(String(partSize[2]));
+        estimatedAxes.splice(0, estimatedAxes.length, 'width', 'depth', 'height');
+      }
+      setAiEstimated([...estimatedAxes]);
+      const selection = selectFurnitureGeometry({ kind: result.data.kind,
+        width_mm: typedW ?? result.data.width_mm ?? partSize[0],
+        depth_mm: typedD ?? result.data.depth_mm ?? partSize[1],
+        height_mm: typedH ?? result.data.height_mm ?? partSize[2], style: imageStyle, parts: imageParts });
+      setKind(selection.kind);
+      setStyle({ ...DEFAULT_TABLE_STYLE, ...imageStyle });
       generate({
-        kind: result.data.kind,
-        width: typedW ?? result.data.width_mm,
-        depth: typedD ?? result.data.depth_mm,
-        height: typedH ?? result.data.height_mm,
+        kind: selection.kind,
+        width: typedW ?? result.data.width_mm ?? partSize[0],
+        depth: typedD ?? result.data.depth_mm ?? partSize[1],
+        height: typedH ?? result.data.height_mm ?? partSize[2],
         estimatedAxes,
+        style: imageStyle,
+        parts: imageParts,
+        structure: result.data.structure,
       });
+      setStructure(result.data.structure);
+      setReferenceParts(imageParts);
+      setHasReferences(true);
     } catch (err) {
       toast.error('辨認圖片失敗', { description: err instanceof Error ? err.message : String(err) });
     } finally {
@@ -291,6 +358,13 @@ export function FurnitureModelView({ focus }: { focus: 'su' | '3d' }) {
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto p-4">
       {skpRequirements.dialog}
+      <FurnitureProductScopeDialog detection={scopeRequest?.detection ?? null} images={scopeRequest?.files ?? []}
+        onCancel={() => setScopeRequest(null)} onChoose={choice => {
+          if (!scopeRequest) return;
+          const files = scopeRequest.files;
+          setScopeRequest(null);
+          void readImage(files, choice);
+        }} />
       <div>
         <h2 className="text-lg font-semibold">{focus === 'su' ? 'SU 模型' : '3D 模型'}</h2>
         <p className="mt-1 text-sm text-muted-foreground">
@@ -332,15 +406,15 @@ export function FurnitureModelView({ focus }: { focus: 'su' | '3d' }) {
             />
           </div>
         ))}
-        <Button size="sm" onClick={() => generate()}>生成參數</Button>
-        <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(event) => {
-          const file = event.target.files?.[0];
+        <Button size="sm" disabled={reading || !hasReferences} onClick={() => { try { generate(); } catch (error) { toast.error('結構校驗未通過', { description: error instanceof Error ? error.message : String(error) }); } }}>生成參數</Button>
+        <input ref={fileRef} type="file" multiple accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(event) => {
+          const files = Array.from(event.target.files ?? []);
           event.target.value = '';
-          if (file) void readImage(file);
+          if (files.length) void readImage(files);
         }} />
         <Button size="sm" variant="outline" disabled={reading} onClick={() => fileRef.current?.click()}>
           {reading ? <Loader2 className="mr-1 h-3.5 w-3.5 animate-spin" /> : null}
-          從圖片估算
+          從圖片估算（3–6 張不同角度）
         </Button>
       </div>
 

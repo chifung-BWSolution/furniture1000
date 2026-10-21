@@ -87,7 +87,7 @@ export const STYLE_FIELDS: Record<FurnitureKind, StyleField[]> = {
   shelf: ['shelves', 'frame'],
   office_chair: ['chair_base', 'arms'],
   side_chair: ['chair_base', 'arms'],
-  stool: [],
+  stool: ['legs'],
   beam_seating: ['seats', 'arms'],
   sofa: ['seats', 'arms'],
   booth: ['seats'],
@@ -120,6 +120,8 @@ export const DEFAULT_MODEL_STYLE: ModelStyle = {
 export const DEFAULT_TABLE_STYLE = DEFAULT_MODEL_STYLE;
 
 export interface ParametricModel {
+  structure_evidence?: { leg_count: number; part_counts: Record<string, number>; symmetric: boolean; uncertainties: string[]; product_count?: number };
+  structure_parts?: CustomPartSpec[];
   kind: FurnitureKind;
   supported: true;
   label: string;
@@ -139,7 +141,7 @@ export interface ParametricModel {
  */
 export interface CustomPartSpec {
   name: string;
-  shape: 'box' | 'cylinder' | 'profile';
+  shape: 'box' | 'cylinder' | 'profile' | 'sweep';
   /** Bounding lengths along x, y, z. */
   size_mm: Vec3;
   center_mm: Vec3;
@@ -147,6 +149,18 @@ export interface CustomPartSpec {
   axis?: 'x' | 'y' | 'z';
   /** profile only: outline across the axis, relative to the centre (z → (x,y), y → (x,z), x → (y,z)). */
   points_mm?: [number, number][];
+  /** Sweep centreline, relative to center_mm; two points = straight/slanted support. */
+  path_mm?: Vec3[];
+  section?: 'round' | 'rect';
+  section_mm?: [number, number];
+  end_section_mm?: [number, number];
+  /** Axis scaling preserves oriented sections when the overall size is edited. */
+  geometry_scale?: Vec3;
+  role?: 'leg' | 'top' | 'seat' | 'back' | 'arm' | 'frame' | 'body' | 'shelf' | 'other';
+  product_index?: number;
+  form?: 'straight' | 'slanted' | 'bent' | 'tapered' | 'panel';
+  /** Indices in the part list, zero based. */
+  connects_to?: number[];
 }
 
 export const MAX_CUSTOM_PARTS = 40;
@@ -869,11 +883,24 @@ function sledChairComponents(w: number, d: number, h: number, style: ModelStyle)
   return out;
 }
 
-function stoolComponents(w: number, d: number, h: number): ModelPart[] {
+function stoolComponents(w: number, d: number, h: number, style: ModelStyle): ModelPart[] {
   const r = Math.min(w, d) / 2;
   const ring = r * 1.3;
   const ringZ = Math.min(300, h * 0.4);
   const bar = 25;
+  if (style.legs === 'four') {
+    const x = w / 2 - bar;
+    const y = d / 2 - bar;
+    return [
+      ...[-1, 1].flatMap((sx, i) => [-1, 1].map((sy, j) =>
+        slab(`leg-${i * 2 + j + 1}`, `凳腳 ${i * 2 + j + 1}`, bar, bar, sx * x, sy * y, 0, h - 50))),
+      slab('seat', '座墊', w, d, 0, 0, h - 50, h),
+      slab('rail-front', '腳踏 前', x * 2, bar, 0, y, ringZ, ringZ + bar),
+      slab('rail-back', '腳踏 後', x * 2, bar, 0, -y, ringZ, ringZ + bar),
+      slab('rail-l', '腳踏 左', bar, y * 2, -x, 0, ringZ, ringZ + bar),
+      slab('rail-r', '腳踏 右', bar, y * 2, x, 0, ringZ, ringZ + bar),
+    ];
+  }
   return [
     column('foot', '底盤', r * 0.9, r * 0.9, 0, 0, 0, 15, 20),
     column('column', '中柱', 30, 30, 0, 0, 15, h - 50, 12),
@@ -1012,6 +1039,7 @@ function segmentsCross(a: [number, number], b: [number, number], c: [number, num
 /** Outline with ≥3 points, real area, and no edges crossing each other. */
 function simpleOutline(points: [number, number][]): boolean {
   if (points.length < 3 || points.length > 48) return false;
+  if (new Set(points.map(([x, y]) => `${x},${y}`)).size !== points.length) return false;
   if (Math.abs(polygonArea(points)) < 1) return false;
   for (let i = 0; i < points.length; i += 1) {
     for (let j = i + 2; j < points.length; j += 1) {
@@ -1023,21 +1051,23 @@ function simpleOutline(points: [number, number][]): boolean {
 }
 
 /**
- * Keep only parts the engine can build: finite numbers, positive sizes, valid outlines.
- * Returns at most MAX_CUSTOM_PARTS, so untrusted AI output cannot blow up the model.
+ * Validate the entire list: silently dropping a support or replacing its shape changes
+ * the furniture's structure. Reject malformed parts so the user can retry extraction.
  */
 export function sanitizeCustomParts(input: unknown): CustomPartSpec[] {
   if (!Array.isArray(input)) return [];
+  if (input.length > MAX_CUSTOM_PARTS) throw new Error('部件數量超出上限，請重新辨認部件');
   const out: CustomPartSpec[] = [];
   for (const raw of input) {
-    if (out.length >= MAX_CUSTOM_PARTS) break;
-    if (!raw || typeof raw !== 'object') continue;
+    const invalid = () => new Error(`部件 ${out.length + 1} 資料無效，請重新辨認部件`);
+    if (!raw || typeof raw !== 'object') throw invalid();
     const r = raw as Record<string, unknown>;
     const size = Array.isArray(r.size_mm) ? r.size_mm.slice(0, 3) : [];
     const center = Array.isArray(r.center_mm) ? r.center_mm.slice(0, 3) : [];
-    if (size.length !== 3 || center.length !== 3 || !size.every(finite) || !center.every(finite)) continue;
-    if (!size.every((n) => n >= 3 && n <= 10000) || !center.every((n) => Math.abs(n) <= 10000)) continue;
-    const shape = r.shape === 'cylinder' || r.shape === 'profile' ? r.shape : 'box';
+    if (size.length !== 3 || center.length !== 3 || !size.every(finite) || !center.every(finite)) throw invalid();
+    if (!size.every((n) => n >= 3 && n <= 10000) || !center.every((n) => Math.abs(n) <= 10000)) throw invalid();
+    if (!['box', 'cylinder', 'profile', 'sweep'].includes(String(r.shape))) throw invalid();
+    const shape = r.shape as CustomPartSpec['shape'];
     const axisValue = r.axis === 'x' || r.axis === 'y' || r.axis === 'z' ? r.axis : undefined;
     const spec: CustomPartSpec = {
       name: String(r.name ?? '').trim().slice(0, 40) || `部件 ${out.length + 1}`,
@@ -1045,8 +1075,38 @@ export function sanitizeCustomParts(input: unknown): CustomPartSpec[] {
       size_mm: size as Vec3,
       center_mm: center as Vec3,
     };
+    if (['leg', 'top', 'seat', 'back', 'arm', 'frame', 'body', 'shelf', 'other'].includes(String(r.role))) spec.role = r.role as CustomPartSpec['role'];
+    if (r.product_index !== undefined) {
+      if (!Number.isInteger(r.product_index) || Number(r.product_index) < 0 || Number(r.product_index) > 19) throw invalid();
+      spec.product_index = Number(r.product_index);
+    }
+    if (['straight', 'slanted', 'bent', 'tapered', 'panel'].includes(String(r.form))) spec.form = r.form as CustomPartSpec['form'];
+    if (r.connects_to !== undefined) {
+      if (!Array.isArray(r.connects_to) || !r.connects_to.every(n => Number.isInteger(n) && n >= 0 && n < input.length && n !== out.length)) throw invalid();
+      spec.connects_to = [...new Set(r.connects_to as number[])];
+    }
+    if (shape === 'sweep') {
+      if (!Array.isArray(r.path_mm) || r.path_mm.length < 2 || r.path_mm.length > 32 ||
+        !r.path_mm.every(p => Array.isArray(p) && p.length === 3 && p.every(n => finite(n) && Math.abs(n) <= 10000))) throw invalid();
+      const path = r.path_mm as Vec3[];
+      if (path.some((p, i) => i > 0 && Math.hypot(...p.map((n, k) => n - path[i - 1][k])) < 1)) throw invalid();
+      if (new Set(path.map(p => p.join(','))).size !== path.length) throw invalid();
+      const section = (v: unknown): v is [number, number] => Array.isArray(v) && v.length === 2 && v.every(n => finite(n) && n >= 3 && n <= 1000);
+      if (!section(r.section_mm) || (r.end_section_mm !== undefined && !section(r.end_section_mm)) || !['round', 'rect'].includes(String(r.section))) throw invalid();
+      spec.path_mm = path.map(p => [...p] as Vec3);
+      spec.section = r.section as 'round' | 'rect';
+      spec.section_mm = r.section_mm;
+      spec.end_section_mm = r.end_section_mm as [number, number] | undefined;
+      if (r.geometry_scale !== undefined) {
+        if (!Array.isArray(r.geometry_scale) || r.geometry_scale.length !== 3 || !r.geometry_scale.every(n => finite(n) && n > 0.001 && n < 1000)) throw invalid();
+        spec.geometry_scale = r.geometry_scale as Vec3;
+      }
+      spec.size_mm = sweepPart(spec, 'checked', [1,1,1], [0,0,0]).size_mm;
+    }
     if (shape === 'cylinder') spec.axis = axisValue ?? 'z';
     if (shape === 'profile') {
+      if (!Array.isArray(r.points_mm) || r.points_mm.some((p) =>
+        !Array.isArray(p) || p.length !== 2 || !p.every((n) => finite(n) && Math.abs(n) <= 10000))) throw invalid();
       const points = Array.isArray(r.points_mm)
         ? r.points_mm
             .filter((p): p is [number, number] => Array.isArray(p) && p.length >= 2 && finite(p[0]) && finite(p[1]))
@@ -1056,7 +1116,7 @@ export function sanitizeCustomParts(input: unknown): CustomPartSpec[] {
         spec.axis = axisValue;
         spec.points_mm = points;
       } else {
-        spec.shape = 'box';
+        throw new Error(`部件「${spec.name}」輪廓無效，請重新辨認部件`);
       }
     }
     out.push(spec);
@@ -1084,6 +1144,7 @@ function specPart(spec: CustomPartSpec, index: number, scale: Vec3, shift: Vec3)
   const size = spec.size_mm.map((n, i) => n * scale[i]) as Vec3;
   const center = spec.center_mm.map((n, i) => (n - shift[i]) * scale[i]) as Vec3;
   const id = `part-${index + 1}`;
+  if (spec.shape === 'sweep') return sweepPart(spec, id, scale, shift);
   if (spec.shape === 'box') return part(id, spec.name, size, center);
   const along = spec.axis ?? 'z';
   const [u, v] = PLANE[along];
@@ -1094,12 +1155,53 @@ function specPart(spec: CustomPartSpec, index: number, scale: Vec3, shift: Vec3)
   return part(id, spec.name, size, center, { axis: along, points_mm: points });
 }
 
+/** Parallel-transported frames avoid twisting when a tube bends across several axes. */
+function sweepPart(spec: CustomPartSpec, id: string, scale: Vec3, shift: Vec3): ModelPart {
+  const path = spec.path_mm!;
+  const sub = (a: Vec3, b: Vec3) => a.map((v, i) => v - b[i]) as Vec3;
+  const dot = (a: Vec3, b: Vec3) => a.reduce((s, n, i) => s + n * b[i], 0);
+  const cross = (a: Vec3, b: Vec3): Vec3 => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]];
+  const unit = (v: Vec3): Vec3 => { const len = Math.hypot(...v); if (len < 0.00001) throw new Error('彎管路徑折返，請重新辨認部件'); return v.map(n => n / len) as Vec3; };
+  let previous: Vec3 | null = null;
+  const lengths = path.map((p, i) => i ? Math.hypot(...sub(p, path[i - 1])) : 0);
+  const total = lengths.reduce((a, b) => a + b, 0);
+  let distance = 0;
+  const rings = path.map((p, i) => {
+    distance += lengths[i];
+    const before = i > 0 ? unit(sub(p, path[i - 1])) : unit(sub(path[1], p));
+    const after = i < path.length - 1 ? unit(sub(path[i + 1], p)) : before;
+    if (dot(before, after) < -0.95) throw new Error('彎管路徑折返，請重新辨認部件');
+    const angle = Math.acos(Math.max(-1, Math.min(1, dot(before, after))));
+    const radius = Math.max(...spec.section_mm!, ...(spec.end_section_mm ?? spec.section_mm!)) / 2;
+    if (i > 0 && i < path.length - 1 && radius * Math.tan(angle / 2) >= Math.min(lengths[i], lengths[i + 1]) * 0.9) throw new Error('彎管轉角過急或截面過大，請重新辨認部件');
+    const tangent = unit(before.map((n, k) => n + after[k]) as Vec3);
+    const seed: Vec3 = previous ?? (Math.abs(tangent[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0]);
+    let projected = seed.map((n, k) => n - dot(seed, tangent) * tangent[k]) as Vec3;
+    if (Math.hypot(...projected) < 0.001) projected = cross(tangent, Math.abs(tangent[0]) < 0.9 ? [1, 0, 0] : [0, 1, 0]);
+    const u = unit(projected); previous = u;
+    const v = cross(tangent, u);
+    const dims = spec.section_mm!.map((n, k) => n + ((spec.end_section_mm ?? spec.section_mm!)[k] - n) * distance / total);
+    const ring: [number, number][] = spec.section === 'round' ? ellipse(dims[0] / 2, dims[1] / 2, 16) : [[-dims[0]/2,-dims[1]/2],[dims[0]/2,-dims[1]/2],[dims[0]/2,dims[1]/2],[-dims[0]/2,dims[1]/2]];
+    return ring.map(([a,b]) => p.map((n,k) => (spec.center_mm[k] - shift[k] + (n + u[k]*a + v[k]*b)*(spec.geometry_scale?.[k] ?? 1))*scale[k]) as Vec3);
+  });
+  const faces: Vec3[][] = [[...rings[0]].reverse(), rings[rings.length - 1]];
+  for (let i=0;i<rings.length-1;i++) for (let j=0;j<rings[i].length;j++) {
+    const k=(j+1)%rings[i].length;
+    // Split non-planar bent side quads, so every exporter receives the same planar faces.
+    faces.push([rings[i][j],rings[i][k],rings[i+1][k]], [rings[i][j],rings[i+1][k],rings[i+1][j]]);
+  }
+  const pts=faces.flat();
+  const lo=[0,1,2].map(k=>Math.min(...pts.map(p=>p[k])));
+  const hi=[0,1,2].map(k=>Math.max(...pts.map(p=>p[k])));
+  return { id, name:spec.name, size_mm:hi.map((n,k)=>n-lo[k]) as Vec3, position_mm:hi.map((n,k)=>(n+lo[k])/2) as Vec3, faces_mm:faces };
+}
+
 function soundBounds(specs: CustomPartSpec[]): { min: Vec3; max: Vec3; kept: boolean[] } | null {
   const min: Vec3 = [Infinity, Infinity, Infinity];
   const max: Vec3 = [-Infinity, -Infinity, -Infinity];
   const kept = specs.map((spec, i) => {
     const p = specPart(spec, i, [1, 1, 1], [0, 0, 0]);
-    if (!facesSound(p)) return false;
+    if (!facesSound(p)) throw new Error(`部件「${spec.name}」無法建立完整幾何，請重新辨認部件`);
     for (const face of p.faces_mm) {
       for (const pt of face) {
         for (let k = 0; k < 3; k += 1) {
@@ -1136,6 +1238,7 @@ export function fitCustomParts(specs: CustomPartSpec[], w: number, d: number, h:
       size_mm: spec.size_mm.map((n, i) => Math.max(3, Math.round(n * scale[i]))) as Vec3,
       center_mm: spec.center_mm.map((n, i) => Math.round((n - shift[i]) * scale[i])) as Vec3,
     };
+    if (spec.shape === 'sweep') out.geometry_scale = scale.map((n, i) => n * (spec.geometry_scale?.[i] ?? 1)) as Vec3;
     if (spec.points_mm && spec.axis) {
       const [u, v] = PLANE[spec.axis];
       out.points_mm = spec.points_mm.map(([a, b2]) => [Math.round(a * scale[u]), Math.round(b2 * scale[v])]);
@@ -1145,9 +1248,9 @@ export function fitCustomParts(specs: CustomPartSpec[], w: number, d: number, h:
 }
 
 /** Parts keep their own sizes; only centred on the floor plan and stood on the floor. */
-function customComponents(specs: CustomPartSpec[], w: number, d: number, h: number): ModelPart[] {
+function customComponents(specs: CustomPartSpec[]): ModelPart[] {
   const b = soundBounds(specs);
-  if (!b) return [slab('body', '主體', w, d, 0, 0, 0, h)];
+  if (!b) throw new Error('沒有有效部件，請重新辨認部件');
   const shift: Vec3 = [(b.min[0] + b.max[0]) / 2, (b.min[1] + b.max[1]) / 2, b.min[2]];
   return specs.flatMap((spec, i) => (b.kept[i] ? [specPart(spec, i, [1, 1, 1], shift)] : []));
 }
@@ -1155,7 +1258,7 @@ function customComponents(specs: CustomPartSpec[], w: number, d: number, h: numb
 function components(kind: FurnitureKind, w: number, d: number, h: number, style: ModelStyle, parts: CustomPartSpec[] = []): ModelPart[] {
   switch (kind) {
     case 'custom':
-      return customComponents(parts, w, d, h);
+      return customComponents(parts);
     case 'desk':
       return isWorkstation(style, h) ? workstationComponents(w, d, h, style) : tableComponents(kind, w, d, h, style);
     case 'conference':
@@ -1180,7 +1283,7 @@ function components(kind: FurnitureKind, w: number, d: number, h: number, style:
       if (style.chair_base === 'sled') return sledChairComponents(w, d, h, style);
       return sideChairComponents(w, d, h, style);
     case 'stool':
-      return stoolComponents(w, d, h);
+      return stoolComponents(w, d, h, style);
     case 'beam_seating':
       return beamSeatingComponents(w, d, h, style);
     case 'sofa':
@@ -1208,6 +1311,8 @@ export function defaultStyle(kind: FurnitureKind, w: number, d: number, h: numbe
       return { ...base, shelves: clamp(Math.round(h / 360) - 1, 1, 6) };
     case 'office_chair':
       return { ...base, arms: true, chair_base: 'star' };
+    case 'stool':
+      return { ...base, legs: 'pedestal' };
     case 'beam_seating':
       return { ...base, seats: clamp(Math.round(w / 550), 1, 8) };
     case 'sofa':
@@ -1222,7 +1327,10 @@ export function defaultStyle(kind: FurnitureKind, w: number, d: number, h: numbe
 /** Image arrangements and catalogue model names must not select a multi-desk output.
  * The user can explicitly increase workstations in the confirmation form afterwards. */
 export function initialModelStyle(kind: FurnitureKind | null, text: string, imageStyle?: Partial<ModelStyle> | null): Partial<ModelStyle> {
-  const style = { ...imageStyle, ...inferModelStyle(text) };
+  const style = { ...inferModelStyle(text) };
+  for (const [field, value] of Object.entries(imageStyle ?? {})) {
+    if (value !== undefined && value !== null) (style as Record<string, unknown>)[field] = value;
+  }
   if (kind === 'desk') style.seats = 1;
   return style;
 }
@@ -1268,6 +1376,7 @@ export function buildParametric(input: {
   if (height.estimated) estimated_axes.push('height');
   const style = resolveStyle(input.kind, width.mm, depth.mm, height.mm, input.style);
   const parts = input.kind === 'custom' ? sanitizeCustomParts(input.parts) : [];
+  if (input.kind === 'custom' && parts.length === 0) throw new Error('沒有有效部件，請重新辨認部件');
   return {
     kind: input.kind,
     supported: true,
@@ -1348,9 +1457,11 @@ export function inferModelStyle(text: string): Partial<ModelStyle> {
   else if (/L\s*[型形款]|L-?shaped|乾字|F\s*[型形]/i.test(text)) hints.top = 'L';
   if (/板腳|板脚/.test(text)) hints.legs = 'panel';
   else if (/中柱|單腳|单脚|pedestal/i.test(text)) hints.legs = 'pedestal';
+  else if (/四[腳脚]|four[ -]?leg/i.test(text)) hints.legs = 'four';
   if (/線盒|线盒|走線|走线/.test(text)) hints.cable_tray = true;
   if (/屏風|屏风|partition|screen/i.test(text)) hints.screen = true;
-  if (/弓字|弓形|sled|cantilever/i.test(text)) hints.chair_base = 'sled';
+  if (/四[腳脚]|four[ -]?leg|(?:非|無|无|不是)\s*(?:弓字|弓形)/i.test(text)) hints.chair_base = 'four';
+  else if (/弓字|弓形|sled|cantilever/i.test(text)) hints.chair_base = 'sled';
   else if (/五星|five-star|star base|轉椅|转椅/i.test(text)) hints.chair_base = 'star';
   if (/扶手|armrest/i.test(text)) hints.arms = true;
   if (/無扶手|无扶手|armless/i.test(text)) hints.arms = false;

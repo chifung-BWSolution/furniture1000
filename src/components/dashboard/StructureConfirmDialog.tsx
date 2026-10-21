@@ -78,9 +78,10 @@ function countLabel(kind: FurnitureKind | null, field: StyleField): string {
   if (kind === 'desk' && field === 'drawers') return '活動櫃抽屜';
   return COUNT_LABELS[field] ?? field;
 }
-const SHAPE_LABELS: Record<CustomPartSpec['shape'], string> = { box: '方塊', cylinder: '圓柱', profile: '輪廓' };
+const SHAPE_LABELS: Record<CustomPartSpec['shape'], string> = { box: '方塊', cylinder: '圓柱', profile: '輪廓', sweep: '路徑件' };
 
 export type StructureDraft = {
+  structure?: import('@/lib/furnitureStructure').StructureEvidence;
   target: 'su' | '3d';
   kind: FurnitureKind | null;
   width: string;
@@ -395,6 +396,7 @@ export function StructureConfirmForm({
   onResizePart,
   onRemovePart,
   fittedParts,
+  validationErrors = [],
 }: {
   draft: StructureDraft;
   shownStyle: ModelStyle | null;
@@ -408,6 +410,7 @@ export function StructureConfirmForm({
   onResizePart: (index: number, axis: 0 | 1 | 2, value: string) => void;
   onRemovePart: (index: number) => void;
   fittedParts: CustomPartSpec[];
+  validationErrors?: string[];
 }) {
   const kind = draft.kind;
   const fields = kind ? STYLE_FIELDS[kind] : [];
@@ -536,9 +539,9 @@ export function StructureConfirmForm({
 
             {showLegs && shownStyle && (
               <section className="mt-4">
-                <SectionHeading index={legsNo} icon={Table2} title="桌腳 / 底座" />
+                <SectionHeading index={legsNo} icon={Table2} title="腳型 / 底座" />
                 <div className="flex flex-wrap gap-1.5">
-                  {LEG_OPTIONS.map(([id, label]) => (
+                  {LEG_OPTIONS.filter(([id]) => kind !== 'stool' || id !== 'panel').map(([id, label]) => (
                     <ChoiceChip
                       key={id}
                       selected={shownStyle.legs === id}
@@ -616,6 +619,7 @@ export function StructureConfirmForm({
               </section>
             )}
 
+            {validationErrors.length > 0 && <section className="mt-4 text-sm text-destructive" role="alert"><p>結構校驗未通過，請補圖或修正部件：</p><ul className="list-disc pl-5">{validationErrors.map(message => <li key={message}>{message}</li>)}</ul></section>}
             {showParts && (
               <section className="mt-4">
                 <SectionHeading index={partsNo} icon={Box} title="部件清單" />
@@ -672,6 +676,7 @@ export function StructureConfirmForm({
               </section>
             )}
 
+            {draft.structure && <section className="mt-4 text-sm text-slate-600"><p>辨認結構：{draft.structure.leg_count} 隻腳 · {draft.structure.symmetric ? '左右對稱' : '非左右對稱'}</p><ul className="mt-2 space-y-1">{draft.parts.map((part, i) => <li key={i}>{part.name} · {({ straight: '直件', slanted: '斜件', bent: '彎件', tapered: '錐形件', panel: '板件' })[part.form ?? 'panel']} · 接合：{part.connects_to?.map(j => draft.parts[j]?.name).join('、') || '無'}</li>)}</ul></section>}
             {showNotes && (
               <section className="mt-4">
                 <SectionHeading index={notesNo} icon={FileText} title={draft.styleSource === 'image' ? '結構描述（AI 辨識）' : '結構描述'} />
@@ -727,7 +732,7 @@ export function StructureConfirmForm({
           <Button
             type="button"
             className="h-10 rounded-lg bg-[#5b4dff] px-4 text-white shadow-none hover:bg-[#4a3cf0] focus-visible:ring-[#5b4dff]/40"
-            disabled={generating || partsBusy || (kind === 'custom' && draft.parts.length === 0)}
+            disabled={generating || partsBusy || validationErrors.length > 0 || (kind === 'custom' && draft.parts.length === 0)}
             onClick={onGenerate}
           >
             {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
