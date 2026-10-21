@@ -37,9 +37,11 @@ import {
   readCanvaOauthCallback, startCanvaConnect, clearCanvaOauthState, type CanvaStatus,
 } from '@/lib/canvaPresentation';
 import {
-  buildOutlineFromBrief, createNativeCanvaDesign, defaultBrief, exportCanvaSessionPptx,
-  listCanvaDesignSessions, probeCanvaNative, saveCanvaDraft, type CanvaDesignBrief,
-  type CanvaDesignSession,
+  buildOutlineFromBrief, createNativeCanvaDesign, defaultBrief, exportCanvaSessionPdf,
+  exportCanvaSessionPptx, listCanvaDesignExports, listCanvaDesignSessions,
+  listCanvaSessionVersions, probeCanvaNative, proPdfHandoffPath, saveCanvaDraft,
+  type CanvaDesignBrief, type CanvaDesignExportRow, type CanvaDesignSession,
+  type CanvaSessionVersionRow,
 } from '@/lib/canvaNativeDesign';
 
 const PAGE_SIZE = 50;
@@ -86,6 +88,9 @@ export function PresentationView() {
   const [sessions, setSessions] = useState<CanvaDesignSession[]>([]);
   const [activeSession, setActiveSession] = useState<CanvaDesignSession | null>(null);
   const [productsOpen, setProductsOpen] = useState(false);
+  const [versionNote, setVersionNote] = useState('');
+  const [versionRows, setVersionRows] = useState<CanvaSessionVersionRow[]>([]);
+  const [exportRows, setExportRows] = useState<CanvaDesignExportRow[]>([]);
   const [autofillProbe, setAutofillProbe] = useState<Awaited<ReturnType<typeof probeCanvaNative>> | null>(null);
 
   const refreshStatus = useCallback(async () => {
@@ -279,11 +284,30 @@ export function PresentationView() {
       await refreshSessions();
       await refreshStatus();
     } catch (err) {
-      toast.error('建立 Canva 設計失敗', { description: errorText(err) });
+      const msg = errorText(err);
+      if (msg.includes('design_already_exists') || msg.includes('design_exists')) {
+        toast.message('此草稿已有 Canva 設計', { description: '請用「新版本」另建設計，勿覆蓋 Canva 內修改。' });
+      } else {
+        toast.error('建立 Canva 設計失敗', { description: msg });
+      }
     } finally {
       setStatus('idle');
     }
   }, [canCreateNative, disabled, brief, outline, selected, sessionId, refreshSessions, refreshStatus]);
+
+  const refreshSessionDetail = useCallback(async (sid: string) => {
+    try {
+      const [vers, exps] = await Promise.all([
+        listCanvaSessionVersions(sid),
+        listCanvaDesignExports(sid),
+      ]);
+      setVersionRows(vers);
+      setExportRows(exps);
+    } catch {
+      setVersionRows([]);
+      setExportRows([]);
+    }
+  }, []);
 
   const exportPptx = useCallback(async (sid: string) => {
     setStatus('exporting');
@@ -291,22 +315,41 @@ export function PresentationView() {
       const res = await exportCanvaSessionPptx(sid);
       if (res.export_download_url) {
         window.open(res.export_download_url, '_blank', 'noopener,noreferrer');
-        toast.success('PPTX 匯出完成', { description: '下載連結 24 小時內有效；請用 PowerPoint 驗證可編輯性。' });
+        toast.success('PPTX 匯出完成', { description: '請在 PowerPoint 驗證 Canva 最後修改是否可編輯。' });
       }
       await refreshSessions();
+      await refreshSessionDetail(sid);
     } catch (err) {
       toast.error('匯出 PPTX 失敗', { description: errorText(err) });
     } finally {
       setStatus('idle');
     }
-  }, [refreshSessions]);
+  }, [refreshSessions, refreshSessionDetail]);
+
+  const exportPdf = useCallback(async (sid: string) => {
+    setStatus('exporting');
+    try {
+      const res = await exportCanvaSessionPdf(sid);
+      if (res.export_download_url) {
+        window.open(res.export_download_url, '_blank', 'noopener,noreferrer');
+        toast.success('PDF 匯出完成', { description: '附加格式；客戶簡報驗收仍以 PPTX 為準。' });
+      }
+      await refreshSessionDetail(sid);
+    } catch (err) {
+      toast.error('匯出 PDF 失敗', { description: errorText(err) });
+    } finally {
+      setStatus('idle');
+    }
+  }, [refreshSessionDetail]);
 
   const loadSession = (s: CanvaDesignSession) => {
     setSessionId(s.id);
     setBrief({ ...defaultBrief(), ...(s.brief as CanvaDesignBrief) });
     setOutline(String((s.brief as CanvaDesignBrief).outline ?? ''));
+    setVersionNote(s.version_note ?? '');
     setActiveSession(s);
     if (s.edit_url) setCanvaLink({ edit_url: s.edit_url, title: (s.brief as CanvaDesignBrief).title });
+    refreshSessionDetail(s.id);
   };
 
   const newVersion = async (parent: CanvaDesignSession) => {
@@ -320,10 +363,12 @@ export function PresentationView() {
         parent.product_ids ?? [],
         undefined,
         parent.id,
+        versionNote.trim() || `自 v${parent.content_version ?? 1} 複製`,
       );
       setSessionId(session_id);
       toast.message('已建立新版本草稿', { description: '確認後可再次建立 Canva 設計，不覆蓋舊設計。' });
       await refreshSessions();
+      await refreshSessionDetail(session_id);
     } catch (err) {
       toast.error('無法建立新版本', { description: errorText(err) });
     }
@@ -392,7 +437,7 @@ export function PresentationView() {
         <div>
           <h2 className="text-xl font-semibold">客戶簡報（Canva）</h2>
           <p className="text-sm text-muted-foreground">
-            F-AI-009：內容確認 → 品牌模板 Autofill（T-902）→ 於 Canva 編輯 → 下載 PPTX 驗收。
+            F-AI-009：內容確認 → Autofill → Canva 編輯 → 匯出 PPTX 驗收（T-903 版本／匯出紀錄）。
           </p>
         </div>
         <div className="flex rounded-lg border p-0.5">
@@ -401,7 +446,7 @@ export function PresentationView() {
             size="sm"
             onClick={() => setViewMode('native')}
           >
-            Canva 原生（T-902）
+            Canva 簡報
           </Button>
           <Button
             variant={viewMode === 'legacy' ? 'secondary' : 'ghost'}
@@ -575,6 +620,14 @@ export function PresentationView() {
                 </CollapsibleContent>
               </Collapsible>
 
+              <div className="space-y-1">
+                <Label className="text-xs">新版本備註（建立新版本時使用）</Label>
+                <Input
+                  value={versionNote}
+                  onChange={(e) => setVersionNote(e.target.value)}
+                  placeholder="例：客戶回饋後第二稿"
+                />
+              </div>
               <div className="flex flex-wrap gap-2">
                 <Button variant="outline" disabled={disabled || !canImport} onClick={saveDraft}>
                   儲存草稿
@@ -599,14 +652,60 @@ export function PresentationView() {
                 </a>
               )}
               {activeSession?.canva_design_id && (
-                <Button
-                  variant="secondary"
-                  disabled={disabled}
-                  onClick={() => exportPptx(activeSession.id)}
-                >
-                  {status === 'exporting' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  從 Canva 匯出 PPTX（PoC）
-                </Button>
+                <div className="space-y-2 rounded-lg border bg-muted/30 p-3">
+                  <p className="text-xs text-muted-foreground">
+                    請先在 Canva 保存修改，再匯出；連結約 24 小時有效。專業說明 PDF（R5.2）共用內容、獨立版面：
+                    <a className="ml-1 underline" href={proPdfHandoffPath(brief)}>開啟專業 PDF 頁</a>
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button variant="secondary" disabled={disabled} onClick={() => exportPptx(activeSession.id)}>
+                      {status === 'exporting' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                      匯出 PPTX（驗收用）
+                    </Button>
+                    <Button variant="outline" disabled={disabled} onClick={() => exportPdf(activeSession.id)}>
+                      匯出 PDF（附加）
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {(versionRows.length > 0 || exportRows.length > 0) && (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {versionRows.length > 0 && (
+                    <div className="rounded-lg border p-3 text-sm">
+                      <p className="mb-2 font-medium">版本鏈</p>
+                      <ul className="space-y-1 text-xs">
+                        {versionRows.map((v) => (
+                          <li key={v.id} className="flex justify-between gap-2">
+                            <span>v{v.content_version ?? '?'}{v.version_note ? ` · ${v.version_note}` : ''}</span>
+                            <span className="text-muted-foreground">{v.status}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                  {exportRows.length > 0 && (
+                    <div className="rounded-lg border p-3 text-sm">
+                      <p className="mb-2 font-medium">匯出紀錄</p>
+                      <ul className="space-y-1 text-xs">
+                        {exportRows.map((e) => {
+                          const expired = e.url_expires_at && new Date(e.url_expires_at) < new Date();
+                          return (
+                            <li key={e.id} className="flex flex-wrap items-center gap-2">
+                              <span className="uppercase">{e.format}</span>
+                              <span className="text-muted-foreground">{new Date(e.created_at).toLocaleString()}</span>
+                              {e.download_url && !expired ? (
+                                <a className="underline" href={e.download_url} target="_blank" rel="noreferrer">下載</a>
+                              ) : (
+                                <span className="text-muted-foreground">{e.error ?? '連結已過期'}</span>
+                              )}
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  )}
+                </div>
               )}
             </CardContent>
           </Card>
@@ -624,6 +723,9 @@ export function PresentationView() {
                   <Badge variant="outline">{s.status}</Badge>
                   {s.generation_mode && (
                     <Badge variant="secondary" className="text-xs">{s.generation_mode}</Badge>
+                  )}
+                  {s.content_version != null && (
+                    <Badge variant="outline" className="text-xs tabular-nums">v{s.content_version}</Badge>
                   )}
                   <span className="min-w-0 flex-1 truncate font-medium">
                     {(s.brief as CanvaDesignBrief).title || '未命名'}
