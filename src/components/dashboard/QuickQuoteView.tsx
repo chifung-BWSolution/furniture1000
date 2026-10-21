@@ -22,8 +22,6 @@ import { loadQuoteCopyPayload, type QuoteCopyPayload } from '@/lib/quoteCopy';
 import {
   compareQuoteVersion,
   maxQuoteVersion,
-  bumpQuoteVersion,
-  displayQuoteVersion,
 } from '@/lib/quoteVersions';
 import { unsavedGuard } from '@/lib/unsavedGuard';
 import {
@@ -53,10 +51,6 @@ const LazyQuotationPDFPreviewModal = lazy(() =>
     default: mod.QuotationPDFPreviewModal,
   })),
 );
-
-function getNextQuoteVersion(version: string): string {
-  return bumpQuoteVersion(version);
-}
 
 async function fetchMaxVersionForQuote(quoteId: string): Promise<string> {
   const { data, error } = await supabase
@@ -967,52 +961,11 @@ export function QuickQuoteView({
 
   return (
     <>
-    <div className={cn('h-full overflow-y-auto bg-background', currentStep === 3 ? 'px-3 py-5' : 'p-5')}>
-      <div className={cn('mx-auto', currentStep === 3 ? 'w-full max-w-none' : 'max-w-3xl')}>
-        {/* Header */}
+    <div className={cn('h-full bg-background', currentStep === 3 ? 'flex flex-col overflow-hidden' : 'overflow-y-auto p-5')}>
+      <div className={cn('mx-auto', currentStep === 3 ? 'flex h-full min-h-0 w-full max-w-none flex-col' : 'max-w-3xl')}>
+        {/* Header — step 3 chrome lives inside QuotationDraftEditor so it can stick */}
+        {currentStep !== 3 && (
         <div className="mb-8">
-          {currentStep === 3 ? (
-            <div className="flex items-center gap-3">
-              <button
-                type="button"
-                onClick={() => {
-                  // Stay in the wizard with formData / loaded quote intact.
-                  // (Previously, loaded quotes called onClearEditingQuote → list,
-                  // which felt like「黑屏後資料全遺失」when users re-opened 快速報價.)
-                  setCurrentStep(2);
-                }}
-                className="inline-flex shrink-0 items-center gap-2 rounded-lg border border-border px-4 py-2 font-body text-sm font-medium text-foreground transition-colors hover:bg-accent"
-              >
-                <ChevronLeft className="h-4 w-4" />
-                上一步
-              </button>
-              <h1 className="shrink-0 font-display text-2xl font-bold tracking-tight text-foreground">
-                報價單草稿編輯
-              </h1>
-              {loadedQuoteData && (
-                <p className="ml-6 font-body text-sm text-muted-foreground lg:ml-16">
-                  <span className="font-mono-data text-xs tracking-wider text-primary">
-                    {loadedQuoteData.quoteId ||
-                      formData.quoteId ||
-                      '—'}
-                  </span>
-                  <span className="mx-2 text-border">·</span>
-                  目前版本{' '}
-                  <span className="font-semibold">
-                    {displayQuoteVersion(loadedQuoteData.version)}
-                  </span>
-                  <span className="mx-2 text-border">·</span>
-                  送出新版本將為{' '}
-                  <span className="font-semibold text-primary">
-                    {getNextQuoteVersion(
-                      loadedQuoteData.maxVersionInChain ||
-                        loadedQuoteData.version,
-                    )}
-                  </span>
-                </p>
-              )}
-            </div>
-          ) : (
             <div className="grid grid-cols-1 items-start gap-y-3 sm:grid-cols-3">
               {/* title | client info (above 傢俬類別 step) | empty */}
               <div className="min-w-0">
@@ -1047,10 +1000,11 @@ export function QuickQuoteView({
                 </div>
               )}
             </div>
-          )}
         </div>
+        )}
 
-        {/* Stepper */}
+        {/* Stepper — draft editor has its own sticky stepper */}
+        {currentStep !== 3 && (
         <div className="mb-8">
           <div className="flex items-center justify-between">
             {STEPS.map((step, index) => {
@@ -1108,6 +1062,7 @@ export function QuickQuoteView({
             })}
           </div>
         </div>
+        )}
 
         {/* Form Card - only for steps 1-2 */}
         {currentStep < 3 && (
@@ -1531,7 +1486,7 @@ export function QuickQuoteView({
 
         {/* Step 3: Quotation Draft Editor (full width, outside the form card) */}
         {currentStep === 3 && (
-          <div className="tab-panel-in mt-6">
+          <div className="tab-panel-in flex min-h-0 flex-1 flex-col">
             <QuotationDraftEditor
               formData={formData}
               userEmail={userEmail}
