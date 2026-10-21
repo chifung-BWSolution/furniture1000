@@ -56,8 +56,8 @@ export function SidebarNav({
           isCollapsed ? 'w-[72px]' : 'w-[260px]',
         )}
       >
-        {/* Section header */}
-        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-shell-border px-4 py-4">
+        {/* Section header — role label and title share one type style in every module. */}
+        <div className="zone-sidebar-header flex shrink-0 items-center justify-between gap-2 border-b border-shell-border px-4 py-4">
           {!isCollapsed ? (
             <AnimatePresence initial={false} mode="wait">
               <motion.div
@@ -71,11 +71,14 @@ export function SidebarNav({
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-shell-primary/20">
                   <SectionIcon className="h-[18px] w-[18px] text-shell-primary" />
                 </div>
-                <div className="min-w-0 leading-tight">
-                  <div className="font-mono-data text-[10px] font-semibold uppercase tracking-[0.18em] text-shell-primary">
+                <div className="min-w-0 overflow-hidden leading-none">
+                  <div className="truncate font-mono-data text-[10px] font-semibold uppercase leading-none tracking-[0.18em] text-shell-primary">
                     {section.id}
                   </div>
-                  <div className="truncate font-display text-[14px] font-bold text-shell-foreground">
+                  <div
+                    className="truncate font-display text-[14px] font-bold leading-none tracking-normal text-shell-foreground"
+                    title={section.label}
+                  >
                     {section.label}
                   </div>
                 </div>
