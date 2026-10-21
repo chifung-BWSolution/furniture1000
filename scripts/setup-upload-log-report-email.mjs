@@ -5,7 +5,7 @@
  *
  * Requires:
  *   SUPABASE_ACCESS_TOKEN
- *   SUPABASE_SERVICE_ROLE_KEY (for test send)
+ * Test send uses vault secret fds_worker_secret as the x-worker-secret header.
  *
  * Optional env for secrets (will be pushed to Edge Function secrets):
  *   RESEND_API_KEY
@@ -20,7 +20,6 @@ import { spawnSync } from 'node:child_process';
 
 const PROJECT_REF = process.env.SUPABASE_PROJECT_REF || 'riaubhtruisbwdlwjzur';
 const TOKEN = process.env.SUPABASE_ACCESS_TOKEN;
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 const PROJECT_URL = process.env.VITE_SUPABASE_URL || `https://${PROJECT_REF}.supabase.co`;
 
 if (!TOKEN) {
@@ -107,22 +106,24 @@ async function scheduleCron() {
 }
 
 async function sendTestEmail() {
-  if (!SERVICE_KEY) {
-    console.log('SUPABASE_SERVICE_ROLE_KEY not set; skipping test email.');
+  const rows = await runQuery(
+    "select decrypted_secret from vault.decrypted_secrets where name = 'fds_worker_secret' limit 1;",
+  );
+  const list = Array.isArray(rows) ? rows : rows?.result ?? rows?.data ?? [];
+  const secret = Array.isArray(list) ? list[0]?.decrypted_secret : '';
+  if (typeof secret !== 'string' || !secret) {
+    console.log('fds_worker_secret not in vault; skipping test email.');
     return;
   }
 
-  console.log('Sending test email to brandingworks.ebiz@gmail.com ...');
+  console.log('Sending test email via x-worker-secret ...');
   const res = await fetch(`${PROJECT_URL}/functions/v1/send-upload-log-report-email`, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${SERVICE_KEY}`,
       'Content-Type': 'application/json',
+      'x-worker-secret': secret,
     },
-    body: JSON.stringify({
-      test: true,
-      to: process.env.UPLOAD_LOG_REPORT_TO_EMAIL || 'brandingworks.ebiz@gmail.com',
-    }),
+    body: JSON.stringify({ test: true }),
   });
   const payload = await res.json().catch(() => ({}));
   console.log(JSON.stringify(payload, null, 2));

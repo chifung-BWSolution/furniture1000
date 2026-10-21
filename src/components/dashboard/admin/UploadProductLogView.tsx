@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { cn } from '@/lib/utils';
-import { supabase } from '@/lib/supabase';
+import { invokeWithUserJwt } from '@/lib/invokeEdgeFunction';
 import {
   ClipboardList, RefreshCw, Loader2, Clock, ChevronLeft, ChevronRight, ChevronDown, Mail,
 } from 'lucide-react';
@@ -279,12 +279,13 @@ export function UploadProductLogView() {
     setIsSendingTestEmail(true);
     setEmailStatus(null);
     try {
-      const { data, error } = await supabase.functions.invoke('send-upload-log-report-email', {
-        body: { test: true, to: 'brandingworks.ebiz@gmail.com' },
-      });
-      if (error) throw new Error(error.message);
-      if (data?.error) throw new Error(String(data.error));
-      setEmailStatus(`測試電郵已發送至 brandingworks.ebiz@gmail.com`);
+      const { data, error } = await invokeWithUserJwt<{ to?: string[]; error?: string }>(
+        'send-upload-log-report-email',
+        { test: true },
+      );
+      if (error) throw new Error(error);
+      const sentTo = Array.isArray(data?.to) ? data.to.join(', ') : '';
+      setEmailStatus(sentTo ? `測試電郵已發送至 ${sentTo}` : '測試電郵已發送');
     } catch (e) {
       setEmailStatus(e instanceof Error ? e.message : '發送失敗');
     } finally {

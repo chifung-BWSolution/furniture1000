@@ -1,5 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "jsr:@supabase/supabase-js@2";
+import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { fetchUploadLogReportServer } from "./uploadLogReportServer.ts";
 import { formatTodayUploadLogReportAsHtml, formatUploadLogReportAsHtml } from "./uploadLogReportHtml.ts";
 import { formatTodayUploadLogReportAsText, formatUploadLogReportAsText } from "./uploadLogReportText.ts";
@@ -7,11 +7,13 @@ import { formatTodayUploadLogReportAsText, formatUploadLogReportAsText } from ".
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type",
+    "authorization, x-client-info, apikey, content-type, x-worker-secret",
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-const DEFAULT_TO = Deno.env.get("UPLOAD_LOG_REPORT_TO_EMAIL") ?? "brandingworks.ebiz@gmail.com";
+/** Inbox used when the request omits `to`. Env wins; the Gmail address is the historical default. */
+const DEFAULT_TO = Deno.env.get("UPLOAD_LOG_REPORT_TO_EMAIL")?.trim() || "brandingworks.ebiz@gmail.com";
+const CALLER_ROLES = ["admin", "uploader", "pm"];
 
 function jsonResponse(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -20,23 +22,110 @@ function jsonResponse(body: unknown, status = 200) {
   });
 }
 
-function normalizeRecipients(to: string | string[] | undefined): string[] {
-  const raw = Array.isArray(to) ? to : [to ?? DEFAULT_TO];
-  const unique = new Set<string>();
+function isSafeEmail(value: string): boolean {
+  if (!value || value.length > 320) return false;
+  if (/[\r\n\0]/.test(value)) return false;
+  return /^[^\s<>"]+@[^\s<>"]+\.[^\s<>"]+$/.test(value);
+}
+
+function normalizeRecipients(to: string | string[] | undefined, fallback: string): string[] {
+  const raw = to == null || to === "" ? [fallback] : Array.isArray(to) ? to : [to];
+  const seen = new Set<string>();
+  const out: string[] = [];
   for (const entry of raw) {
-    const trimmed = entry?.trim();
-    if (trimmed) unique.add(trimmed);
+    const trimmed = String(entry ?? "").trim();
+    if (!trimmed) continue;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(trimmed);
   }
-  return unique.size > 0 ? [...unique] : [DEFAULT_TO];
+  return out.length > 0 ? out : [fallback];
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 }
 
 function buildForwardNotice(forwardTo: string): { text: string; html: string; subjectSuffix: string } {
   const trimmed = forwardTo.trim();
+  const safeText = trimmed.replace(/[\r\n]/g, " ");
+  const safeHtml = escapeHtml(safeText);
   return {
-    subjectSuffix: `（請轉寄 ${trimmed}）`,
-    text: `【請轉寄】此郵件請轉寄至：${trimmed}\n\n`,
-    html: `<p style="margin:0 0 16px;padding:12px 14px;background:#fff7ed;border:1px solid #fdba74;border-radius:8px;font-size:13px;color:#9a3412;line-height:1.5;"><strong>請轉寄：</strong>此郵件請轉寄至 <a href="mailto:${trimmed}" style="color:#c2410c;">${trimmed}</a></p>`,
+    subjectSuffix: `（請轉寄 ${safeText}）`,
+    text: `【請轉寄】此郵件請轉寄至：${safeText}\n\n`,
+    html: `<p style="margin:0 0 16px;padding:12px 14px;background:#fff7ed;border:1px solid #fdba74;border-radius:8px;font-size:13px;color:#9a3412;line-height:1.5;"><strong>請轉寄：</strong>此郵件請轉寄至 <a href="mailto:${encodeURIComponent(safeText)}" style="color:#c2410c;">${safeHtml}</a></p>`,
   };
+}
+
+function furnitureAdmin(): SupabaseClient {
+  const url = Deno.env.get("SUPABASE_URL") ?? "";
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  if (!url || !serviceKey) {
+    throw new Error("SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY is not configured");
+  }
+  return createClient(url, serviceKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
+
+/** Signed-in admin / uploader / pm, or the vault worker secret used by pg_cron. */
+async function authorizeCaller(req: Request, admin: SupabaseClient): Promise<Response | null> {
+  const workerSecret = req.headers.get("x-worker-secret");
+  if (workerSecret !== null) {
+    const secret = workerSecret.trim();
+    if (!secret) return jsonResponse({ error: "Unauthorized" }, 401);
+    const { data, error } = await admin.rpc("fds_worker_verify_secret", { p_secret: secret });
+    if (error || data !== true) return jsonResponse({ error: "Unauthorized" }, 401);
+    return null;
+  }
+
+  const authHeader = req.headers.get("Authorization") ?? "";
+  const jwt = authHeader.match(/^Bearer\s+(\S+)$/i)?.[1]?.trim() ?? "";
+  if (!jwt) return jsonResponse({ error: "Unauthorized" }, 401);
+
+  const url = Deno.env.get("SUPABASE_URL") ?? "";
+  const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+  if (!url || !anonKey) {
+    return jsonResponse({ error: "SUPABASE_ANON_KEY is not configured" }, 500);
+  }
+  const userClient = createClient(url, anonKey, {
+    global: { headers: { Authorization: `Bearer ${jwt}` } },
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const { data: userData, error: userError } = await userClient.auth.getUser(jwt);
+  if (userError || !userData.user?.id) return jsonResponse({ error: "Unauthorized" }, 401);
+
+  const { data: allowed, error: roleError } = await userClient.rpc("bwf_has_role", {
+    p_roles: CALLER_ROLES,
+  });
+  if (roleError || allowed !== true) return jsonResponse({ error: "permission_denied" }, 403);
+  return null;
+}
+
+/** UPLOAD_LOG_REPORT_TO_EMAIL (or its historical default) plus active profile emails. */
+async function loadAllowedRecipients(admin: SupabaseClient): Promise<Set<string>> {
+  const allowed = new Set<string>();
+  if (isSafeEmail(DEFAULT_TO)) allowed.add(DEFAULT_TO.toLowerCase());
+
+  const { data, error } = await admin
+    .from("platform_user_profiles")
+    .select("email")
+    .eq("active", true);
+  if (error) throw new Error(`recipient lookup failed: ${error.message}`);
+  for (const row of data ?? []) {
+    const email = String((row as { email?: string }).email ?? "").trim();
+    if (isSafeEmail(email)) allowed.add(email.toLowerCase());
+  }
+  return allowed;
+}
+
+function recipientsAllowed(addresses: string[], allowed: Set<string>): boolean {
+  return addresses.every((address) => isSafeEmail(address) && allowed.has(address.toLowerCase()));
 }
 
 async function sendEmailViaGmailSmtp(args: {
@@ -239,14 +328,47 @@ Deno.serve(async (req: Request) => {
     resend_of?: string;
   } = {};
 
+  let admin: SupabaseClient;
+  try {
+    admin = furnitureAdmin();
+  } catch (err) {
+    return jsonResponse(
+      { error: err instanceof Error ? err.message : "Server misconfigured" },
+      500,
+    );
+  }
+
+  const denied = await authorizeCaller(req, admin);
+  if (denied) return denied;
+
   try {
     body = await req.json();
   } catch {
     body = {};
   }
 
-  const to = normalizeRecipients(body.to);
+  if (!isSafeEmail(DEFAULT_TO)) {
+    return jsonResponse({ error: "UPLOAD_LOG_REPORT_TO_EMAIL is not a valid address" }, 500);
+  }
+
+  let allowedRecipients: Set<string>;
+  try {
+    allowedRecipients = await loadAllowedRecipients(admin);
+  } catch (err) {
+    return jsonResponse(
+      { error: err instanceof Error ? err.message : "recipient lookup failed" },
+      500,
+    );
+  }
+
+  const omittedTo = body.to == null
+    || (typeof body.to === "string" && !body.to.trim())
+    || (Array.isArray(body.to) && body.to.every((entry) => !String(entry ?? "").trim()));
+  const to = omittedTo ? [DEFAULT_TO] : normalizeRecipients(body.to, DEFAULT_TO);
   const forwardTo = body.forward_to?.trim() || "";
+  if (!recipientsAllowed(to, allowedRecipients) || (forwardTo && !recipientsAllowed([forwardTo], allowedRecipients))) {
+    return jsonResponse({ error: "recipient_not_allowed" }, 403);
+  }
   const dayCount = Math.min(Math.max(Number(body.day_count) || 30, 1), 30);
   const includeAllDates = body.include_all_dates === true;
 
