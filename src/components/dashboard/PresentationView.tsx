@@ -568,10 +568,10 @@ export function PresentationView() {
   const showGenerationWarning = Boolean(canImport && generationProbe && !generationProbe.ok);
 
   return (
-    <div className="h-full min-h-0 overflow-y-auto bg-slate-50 text-foreground dark:bg-background">
+    <div className="h-full min-h-0 overflow-y-auto bg-slate-50 text-foreground [container-type:size] dark:bg-background">
       <div className="mx-auto grid w-full max-w-7xl items-start gap-5 px-4 py-5 md:px-6 lg:grid-cols-3">
-        <div className="min-w-0 lg:col-span-2">
-          <section className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm sm:p-6">
+        <div className="flex min-h-[100cqh] min-w-0 flex-col lg:col-span-2">
+          <section className="rounded-2xl border border-border/80 bg-card px-4 pb-44 pt-4 shadow-sm sm:px-6 sm:pb-28 sm:pt-6">
             <StepIndicator step={wizardStep} onSelect={goToStep} />
             <div className="mb-5">
               <h3 className="text-base font-bold text-foreground">{WIZARD_STEPS[wizardStep - 1].title}</h3>
@@ -788,61 +788,61 @@ export function PresentationView() {
               )}
             </div>
             )}
-            <div className="mt-6 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-4">
+          </section>
+          <div className="sticky bottom-0 z-20 mt-auto flex flex-wrap items-center justify-between gap-2 border-t border-border bg-card px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-8px_20px_-12px_rgba(15,23,42,0.35)] sm:px-6">
+            <Button
+              type="button"
+              variant="outline"
+              className="bg-background"
+              disabled={wizardStep === 1 || disabled}
+              onClick={() => goToStep(wizardStep - 1)}
+            >
+              上一步
+            </Button>
+            <div className="flex flex-wrap items-center justify-end gap-2">
               <Button
                 type="button"
                 variant="outline"
                 className="bg-background"
-                disabled={wizardStep === 1 || disabled}
-                onClick={() => goToStep(wizardStep - 1)}
+                disabled={disabled}
+                onClick={clearForm}
               >
-                上一步
+                <Trash2 className="h-4 w-4" />
+                清空表單
               </Button>
-              <div className="flex flex-wrap items-center justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="bg-background"
+                disabled={disabled || !canImport}
+                onClick={saveDraft}
+              >
+                {status === 'creating' && generationStep == null ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                儲存草稿
+              </Button>
+              {wizardStep < WIZARD_STEPS.length ? (
                 <Button
                   type="button"
-                  variant="outline"
-                  className="bg-background"
+                  className="bg-indigo-600 text-white hover:bg-indigo-500"
                   disabled={disabled}
-                  onClick={clearForm}
+                  onClick={() => goToStep(wizardStep + 1)}
                 >
-                  <Trash2 className="h-4 w-4" />
-                  清空表單
+                  下一步
+                  <ArrowRight className="h-4 w-4" />
                 </Button>
+              ) : (
                 <Button
                   type="button"
-                  variant="outline"
-                  className="bg-background"
-                  disabled={disabled || !canImport}
-                  onClick={saveDraft}
+                  className="bg-indigo-600 text-white hover:bg-indigo-500"
+                  disabled={!canCreateNative || disabled}
+                  onClick={createNative}
                 >
-                  {status === 'creating' && generationStep == null ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                  儲存草稿
+                  {status === 'creating' && generationStep != null && <Loader2 className="h-4 w-4 animate-spin" />}
+                  {status === 'creating' && generationStep != null ? 'AI 生成中…' : 'AI 生成簡報'}
                 </Button>
-                {wizardStep < WIZARD_STEPS.length ? (
-                  <Button
-                    type="button"
-                    className="bg-indigo-600 text-white hover:bg-indigo-500"
-                    disabled={disabled}
-                    onClick={() => goToStep(wizardStep + 1)}
-                  >
-                    下一步
-                    <ArrowRight className="h-4 w-4" />
-                  </Button>
-                ) : (
-                  <Button
-                    type="button"
-                    className="bg-indigo-600 text-white hover:bg-indigo-500"
-                    disabled={!canCreateNative || disabled}
-                    onClick={createNative}
-                  >
-                    {status === 'creating' && generationStep != null && <Loader2 className="h-4 w-4 animate-spin" />}
-                    {status === 'creating' && generationStep != null ? 'AI 生成中…' : 'AI 生成簡報'}
-                  </Button>
-                )}
-              </div>
+              )}
             </div>
-          </section>
+          </div>
         </div>
 
 
