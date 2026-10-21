@@ -400,7 +400,7 @@ SketchUp Ruby 桌面擴充不採用。
 - FDS 負責內容收集、必要的大綱整理、素材引用、授權及設計狀態；Canva 負責簡報的視覺設計。不得預先以 PptxGenJS／本機固定模板產生 PPTX 再 Design Import；舊流程不符合需求。
 - 內容草稿包括原文、客戶／專案、匯報目的、關鍵重點、語言、風格、期望頁數、素材及可選產品引用。保留確認版本及資料來源；不虛構報價／事實、不輸出未授權成本。
 - 沿用 `canva_connections` 與 OAuth，前端現有 slug 為 `supabase-functions-generate-canva-presentation`；依新通路調整能力，不另開重複連接服務。帳戶維持 `chifung.login`，實際授權及 scopes 需按 PoC 核實。
-- PoC 必須確認適用的 API／MCP／Canva 內操作途徑，並記錄其中需要人工完成的步驟，不能把可手動完成視為已自動化。Connect 的 Design Imports 是匯入；Autofill 是資料填入模板，不自動等同由自由內容完成客戶簡報設計。
+- PoC 必須確認適用的 API／MCP／Canva 內操作途徑，並記錄其中需要人工完成的步驟，不能把可手動完成視為已自動化。Connect 的 Design Imports 是匯入。已實作通路是 Canva AI `POST /v1/generations`（見 `docs/prd/FDS-2.1-Canva-AI生成.md`），不是品牌模板 Autofill。
 - 核對來源：[Canva REST API 能力分類](https://www.canva.dev/docs/apps/rest-apis/reference/)、[Autofill 指引](https://www.canva.dev/docs/apps/rest-apis/autofill-guide/)（2026-10-20）。原生設計通路與帳戶的 PPTX 下載仍須實測，不能只憑 OAuth 成功宣稱功能完成。
 - 保存內容版本、Canva design ID、編輯連結及狀態；不把 PPTX base64 當作生成輸入。重新設計建立新版本，不覆蓋 Canva 手動修改；失敗保留草稿，可重試並防重複建立。
 - 編輯在 Canva 進行，PPTX 由 Canva 保存／下載；可選 API 匯出只作補充，不是必要前置。驗收須下載含最後修改的檔案，在 PowerPoint 開啟並繼續編輯。

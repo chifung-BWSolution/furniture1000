@@ -1,6 +1,6 @@
 // ============================================================================
 // FDS 2.1 — 客戶簡報（F-AI-009）
-// Canva 原生 POST /v1/designs（canvaNativeDesign.ts）。
+// Canva AI POST /v1/generations（canvaNativeDesign.ts）。
 // ============================================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
@@ -20,7 +20,6 @@ import {
 } from '@/components/ui/select';
 import { PresentationProductPicker } from '@/components/dashboard/PresentationProductPicker';
 import type { SearchProduct } from '@/lib/productSearch';
-import { CANVA_AUTOFILL_DOC_PATH } from '@/lib/canvaBrandTemplate';
 import {
   canvaDisconnect, exchangeCanvaCode, fetchCanvaStatus,
   readCanvaOauthCallback, startCanvaConnect, clearCanvaOauthState, type CanvaStatus,
@@ -39,7 +38,12 @@ const TITLE_MAX = 100;
 const PURPOSE_MAX = 200;
 const CONTENT_MAX = 1000;
 const SIDEBAR_PREVIEW = 3;
-const AUTOFILL_DOC_HREF = `https://github.com/chifung-BWSolution/furniture1000/blob/develop/${CANVA_AUTOFILL_DOC_PATH}`;
+const AI_DOC_HREF = 'https://github.com/chifung-BWSolution/furniture1000/blob/develop/docs/prd/FDS-2.1-Canva-AI生成.md';
+const GENERATION_STEPS = [
+  '正在確認 Canva AI 權限',
+  '正在整理大綱與產品',
+  '正在等待 Canva 生成簡報',
+];
 const LANGUAGE_OPTIONS = ['繁體中文', '簡體中文', 'English', '中英對照'];
 const STYLE_OPTIONS = ['專業、簡潔', '簡約現代', '高端精品', '活潑清晰'];
 
@@ -80,7 +84,7 @@ function sessionClient(session: CanvaDesignSession): string {
   return (session.brief as CanvaDesignBrief | null)?.client?.trim() || '—';
 }
 
-/** Only a real stored https URL. There is no thumbnail column today. */
+/** Canva thumbnail URLs expire about 15 minutes after they are issued. */
 function sessionThumbnail(session: CanvaDesignSession): string | null {
   const extra = session as CanvaDesignSession & {
     thumbnail_url?: unknown;
@@ -226,7 +230,8 @@ export function PresentationView() {
   const [versionNote, setVersionNote] = useState('');
   const [versionRows, setVersionRows] = useState<CanvaSessionVersionRow[]>([]);
   const [exportRows, setExportRows] = useState<CanvaDesignExportRow[]>([]);
-  const [autofillProbe, setAutofillProbe] = useState<Awaited<ReturnType<typeof probeCanvaNative>> | null>(null);
+  const [generationProbe, setGenerationProbe] = useState<Awaited<ReturnType<typeof probeCanvaNative>> | null>(null);
+  const [generationStep, setGenerationStep] = useState<number | null>(null);
   const [showAllDrafts, setShowAllDrafts] = useState(false);
   const [showAllDesigns, setShowAllDesigns] = useState(false);
 
@@ -240,9 +245,9 @@ export function PresentationView() {
     setCanImport(allowed);
     if (allowed) {
       const probe = await probeCanvaNative().catch(() => null);
-      setAutofillProbe(probe);
+      setGenerationProbe(probe);
     } else {
-      setAutofillProbe(null);
+      setGenerationProbe(null);
     }
   }, []);
 
@@ -254,6 +259,15 @@ export function PresentationView() {
       setSessions([]);
     }
   }, []);
+
+  const generating = generationStep != null;
+  useEffect(() => {
+    if (!generating) return;
+    const timer = window.setInterval(() => {
+      setGenerationStep((step) => (step == null ? step : Math.min(step + 1, GENERATION_STEPS.length - 1)));
+    }, 4000);
+    return () => window.clearInterval(timer);
+  }, [generating]);
 
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -337,6 +351,7 @@ export function PresentationView() {
   const createNative = useCallback(async () => {
     if (!canCreateNative || disabled) return;
     setStatus('creating');
+    setGenerationStep(0);
     setActiveSession(null);
     try {
       const confirmed = outline.trim() || buildOutlineFromBrief(brief);
@@ -356,24 +371,21 @@ export function PresentationView() {
       setActiveSession(session);
       if (session.edit_url) {
         setCanvaLink({ edit_url: session.edit_url, title: payload.title });
-        const mode = session.generation_mode ?? 'blank';
-        toast.success('已建立 Canva 簡報', {
-          description:
-            mode === 'autofill'
-              ? '大綱與產品資料已填入品牌模板；請在 Canva 內微調版面後匯出 PPTX。'
-              : '未啟用 Autofill（請設定 CANVA_BRAND_TEMPLATE_ID 並重新授權）；目前為空白 presentation。',
+        toast.success('AI 已生成簡報', {
+          description: 'AI 已生成，請在 Canva 微調後匯出。',
         });
       }
       await refreshSessions();
       await refreshStatus();
     } catch (err) {
       const msg = errorText(err);
-      if (msg.includes('design_already_exists') || msg.includes('design_exists')) {
+      if (msg.includes('design_already_exists') || msg.includes('design_exists') || msg.includes('已有 Canva 設計')) {
         toast.message('此草稿已有 Canva 設計', { description: '請用「新版本」另建設計，勿覆蓋 Canva 內修改。' });
       } else {
-        toast.error('建立 Canva 設計失敗', { description: msg });
+        toast.error('AI 生成失敗', { description: msg });
       }
     } finally {
+      setGenerationStep(null);
       setStatus('idle');
     }
   }, [canCreateNative, disabled, brief, outline, selected, sessionId, refreshSessions, refreshStatus]);
@@ -511,7 +523,7 @@ export function PresentationView() {
   const visibleDesigns = showAllDesigns ? designSessions : designSessions.slice(0, SIDEBAR_PREVIEW);
   const languageOptions = optionsWithCurrent(LANGUAGE_OPTIONS, brief.language);
   const styleOptions = optionsWithCurrent(STYLE_OPTIONS, brief.style);
-  const showAutofillWarning = Boolean(canImport && autofillProbe && !autofillProbe.ok);
+  const showGenerationWarning = Boolean(canImport && generationProbe && !generationProbe.ok);
 
   return (
     <div className="h-full min-h-0 overflow-y-auto bg-slate-50 text-foreground dark:bg-background">
@@ -524,7 +536,7 @@ export function PresentationView() {
             <div className="min-w-0">
               <h2 className="text-xl font-bold tracking-tight text-foreground sm:text-2xl">客戶簡報（Canva）</h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                F-AI-009：內容確認 → Autofill → Canva 編輯 → 匯出 PPTX 驗收（T-903 版本 / 匯出紀錄）
+                F-AI-009：內容確認 → AI 生成 → Canva 編輯 → 匯出 PPTX 驗收（T-903 版本 / 匯出紀錄）
               </p>
             </div>
           </div>
@@ -532,7 +544,7 @@ export function PresentationView() {
           <StepCard
             n={1}
             title="簡報內容與設計要求"
-            hint="可不選產品；提交前請確認大綱。建立時會以品牌模板 Autofill 填入封面、大綱與產品圖文（若已配置模板）。"
+            hint="可不選產品；提交前請確認大綱。AI 生成會用標題、客戶、原文與已選產品的名稱、規格和價錢。"
           >
             <div className="space-y-4">
               <Field label="簡報標題" required counter={`${titleCount}/${TITLE_MAX}`}>
@@ -664,7 +676,7 @@ export function PresentationView() {
             <StepCard
               n={2}
               title="確認大綱"
-              hint="由上方欄位整理。可直接修改；建立 Canva 設計時會用這份大綱。"
+              hint="由上方欄位整理。可直接修改；AI 生成時每一段會成為一頁。"
             >
               <Textarea
                 className="min-h-[8rem] rounded-lg bg-background font-mono text-xs"
@@ -678,7 +690,7 @@ export function PresentationView() {
           <StepCard
             n={3}
             title="帶入 FDS 產品"
-            hint="可選。點選產品卡片加入，建立時把已選產品交給 Autofill。"
+            hint="可選。點選產品卡片加入，每一件已選產品會成為自己的一頁。"
           >
             <PresentationProductPicker
               key={pickerNonce}
@@ -709,8 +721,8 @@ export function PresentationView() {
                   disabled={!canCreateNative || disabled}
                   onClick={createNative}
                 >
-                  {status === 'creating' && <Loader2 className="h-4 w-4 animate-spin" />}
-                  建立並填入 Canva 簡報
+                  {status === 'creating' && generationStep != null && <Loader2 className="h-4 w-4 animate-spin" />}
+                  {status === 'creating' && generationStep != null ? 'AI 生成中…' : 'AI 生成'}
                 </Button>
                 {activeSession?.canva_design_id && (
                   <Button type="button" variant="outline" className="bg-background" disabled={disabled} onClick={() => newVersion(activeSession)}>
@@ -718,6 +730,18 @@ export function PresentationView() {
                   </Button>
                 )}
               </div>
+              {generationStep != null && (
+                <ol className="space-y-1 text-xs text-muted-foreground">
+                  {GENERATION_STEPS.map((label, index) => (
+                    <li
+                      key={label}
+                      className={index === generationStep ? 'font-medium text-foreground' : index < generationStep ? 'text-emerald-700 dark:text-emerald-300' : ''}
+                    >
+                      {index < generationStep ? '完成' : index === generationStep ? '進行中' : '等待'} · {label}
+                    </li>
+                  ))}
+                </ol>
+              )}
               {!canvaPathReady && canImport && (
                 <p className="text-xs text-amber-700 dark:text-amber-300">請先連接 Canva 後再建立設計。</p>
               )}
@@ -802,7 +826,7 @@ export function PresentationView() {
                 公司帳戶 {canva?.account_name || 'chifung.login'}（admin / 傢俬組）
               </p>
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                Autofill 需 Canva Pro／Teams，以及品牌模板與 brandtemplate／asset scopes。
+                AI 生成需要帳戶具備 Canva AI 與 Magic Design。點數用完時會暫停生成。
               </p>
             </div>
             <div className="mt-4 space-y-2">
@@ -842,19 +866,18 @@ export function PresentationView() {
                   </Button>
                 </div>
               )}
-              {canImport && autofillProbe?.ok && (
-                <p className="text-center text-xs text-emerald-700 dark:text-emerald-300">Autofill 已就緒（品牌模板已配置）。</p>
+              {canImport && generationProbe?.ok && (
+                <p className="text-center text-xs text-emerald-700 dark:text-emerald-300">可以 AI 生成簡報。</p>
               )}
-              {showAutofillWarning && (
+              {showGenerationWarning && (
                 <div className="rounded-lg bg-orange-50 px-3 py-2 text-xs text-orange-900 dark:bg-orange-950/40 dark:text-orange-100">
                   <p className="flex gap-1.5">
                     <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-orange-500" />
                     <span>
-                      {autofillProbe?.message ??
-                        'Autofill 未就緒：請設定 CANVA_BRAND_TEMPLATE_ID、確認 Canva Pro+，並重新 OAuth。'}
-                      {autofillProbe?.missing_scopes?.length ? ` 缺少 scope：${autofillProbe.missing_scopes.join(', ')}。` : ''}
+                      {generationProbe?.message ?? '無法確認 Canva AI 生成權限。'}
+                      {generationProbe?.missing_scopes?.length ? ` 缺少 scope：${generationProbe.missing_scopes.join(', ')}。` : ''}
                       {' '}
-                      <a className="underline" href={AUTOFILL_DOC_HREF} target="_blank" rel="noreferrer">查看文件</a>
+                      <a className="underline" href={AI_DOC_HREF} target="_blank" rel="noreferrer">查看文件</a>
                     </span>
                   </p>
                 </div>
