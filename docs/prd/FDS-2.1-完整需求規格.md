@@ -1,6 +1,6 @@
 # FDS 2.1 完整需求規格（Furniture Intelligence Platform）
 
-最後更新：2026-10-19
+最後更新：2026-10-21
 
 > **文件定位**：本文件是 FDS 2.0 的**擴展合併版**，而非取代。FDS 2.0 全部業務需求、角色、流程與權限**原樣保留**；本文件只新增 AI 能力並記錄整合方式。
 > **來源**：
@@ -24,6 +24,28 @@
 ### 1.1 定位
 
 **Furniture Intelligence Platform — 家具智能採購與設計平台**：在現有 FDS 2.0 之上，整合家具產品資料、供應商報價、AI 搜索、3D 建模及商務演示，讓 PM 更有效率完成選型、成本查詢與方案製作。
+
+### 1.1.1 PM報價與傢俬報價分離（2026-10-21）
+
+**BWA 與 BWF 是兩家機構。** PM報價（`/fds/pm/*`：報價預算、快速報價、專業說明 PDF、簡報生成，以及日後加在此區的頁）是 **BWA 項目經理** 的詢價方。傢俬報價（`/fds/quote/*`、`/quote/*`，表 `bwf_quote`／`bwf_quote_item`／`bwf_quote_share_links`，含快速報價、報價一覽、回收桶）是 **BWF 傢俬部** 的內部報價，BWA 不能打開或修改。
+
+規格裡沒有既有的詢價單、`quote_requests`，或「工程報價交給傢俬部」的交接表。`bwf_quote.bwf_pitching_id` 只是 BWF 報價掛上 PMS pitching，方向相反。FDS 2.0 第 5 節與 C-04 的中間價（賣價 × 0.8）是產品搜索的內部遮罩，不是這次的跨組織詢價。
+
+**提案（最小模型）**：BWA PM 從 BWA 工程報價抽出傢俬項目，寫成一張詢價送給 BWF，並只讀 BWF 正式回覆的賣價。
+
+| 表／函式 | 用途 |
+|---|---|
+| `bwa_furniture_inquiry` | 詢價頭：工程編號、工程名稱、狀態 `draft`／`sent`／`replied` |
+| `bwa_furniture_inquiry_item` | 傢俬項目。唯一價錢欄是 `returned_unit_price`（BWF 回覆的賣價）。沒有成本、廠家、毛利欄 |
+| `bwa_save_furniture_inquiry`／`bwa_send_furniture_inquiry` | 只有 `pm` 可寫草稿並送出。送出後不能改項目，也不能寫賣價 |
+| `bwf_reply_furniture_inquiry` | 只有 `admin`／`uploader` 可回覆賣價 |
+| `bwa_list_furniture_inquiries`／`bwa_get_furniture_inquiry` | 回傳項目與賣價，不聯結 `bwf_quote` |
+
+資料層：`pm` 不能 SELECT／寫入 `bwf_quote`、`bwf_quote_item`、`bwf_quote_share_links`（RLS，加上觸發器擋住 security definer 寫入）。詢價表沒有成本欄，賣價只有 BWF 角色寫得進。BWA 畫面不連到傢俬報價編輯器。`pm` 的頂欄不顯示「傢俬報價」。
+
+- 對外文件品牌是 **BWA**。不使用 BW Furniture 的公司介紹、案例、服務承諾或客戶專區 QR。
+- `PmsPitchingGate` 仍只服務傢俬快速報價，會用 `bwf_quote` 覆蓋金額。PM 頁不使用它。
+- **待確認**：倉庫沒有 BWA 工程報價的資料來源，所以工程編號現在由 PM 填寫，不猜測 `bwa_pitchings`。也沒有 BWA 法定名稱、地址、電話、案例與互動連結。平台角色沒有機構欄；若 BWF 同事的角色被存成 `pm`，部署後會讀不到 `bwf_quote`。`anon`、`designer`、`client` 目前仍可讀 `bwf_quote`（客戶分享連結與設計專案）。產品搜索對 `pm` 仍可能帶回廠家與中間價，那是 C-04，不是這張詢價。
 
 ### 1.2 核心業務目標（新增）
 
@@ -117,6 +139,7 @@
 | 分區 | `design_projects` ＋ **`project_zones`** ＋ **`zone_products`**（含 `zone_products.notes`、`dimension_*_mm`）；客戶方案頁把 zone 轉成報價 `is_section_title` 列 |
 | 分享連結 | `bwf_quote_share_links`（`share_token`、`status`、`last_viewed_at`）→ 客戶專區 |
 | GP／成本 | **無 GP 欄位**；前端計算 `gpValue = total − 產品成本 − 運費 − 安裝`；`project_data.gpSummary`、`priceMultiplier` |
+| BWA 詢價 | `bwa_furniture_inquiry`／`bwa_furniture_inquiry_item`。BWA 送給 BWF 的傢俬項目，以及 BWF 回覆的賣價。見 §1.1.1。不是 `bwf_quote` |
 
 ### 4.3 AI／檔案／背景任務
 
@@ -615,8 +638,9 @@ PDF 上傳 → 建立解析任務 → 逐頁分析 → 頁面分類（目錄/產
 | 設計師選傢俬 → 產品PDF | `fds2-designer-pdf` | 待開發 | D-2／F-AI-001 |
 | 設計師選傢俬 → SU模型 | `fds2-designer-su` | 待開發 | D-5／**F-AI-008** |
 | 設計師選傢俬 → 3D模型 | `fds2-designer-3d` | 待開發 | D-6／**F-AI-008** |
-| PM報價 → 專業說明 PDF | `fds2-pm-pro-pdf` | 待開發 | R5.2／F-AI-009 |
-| PM報價 → 快速報價 | `fds2-pm-quick` → `quick-quote` | 已存在 | R5.1 |
+| PM報價 → 專業說明 PDF | `fds2-pm-pro-pdf` | 已接上，只列詢價項目與 BWF 回覆賣價 | R5.2／§1.1.1 |
+| PM報價 → 快速報價 | `fds2-pm-quick` | 已接上，BWA 填傢俬項目並送給 BWF | R5.1／§1.1.1 |
+| PM報價 → 報價預算 | `fds2-pm-budget` | 已接上，詢價狀態與回覆賣價 | R5.1／§1.1.1 |
 | 系統設定 → 電郵通知 | `fds2-admin-email` | 待開發 | R6.5 |
 | **新增：AI 解析／審核** | 建議新 view（如 `fds2-products-ai-review`） | 新增 | F-AI-002/003 |
 | **新增：供應商報價比較** | 建議新 view | 新增 | F-AI-007 |

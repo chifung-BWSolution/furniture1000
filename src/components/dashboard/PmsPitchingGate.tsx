@@ -51,7 +51,8 @@ function staffLabel(item: PmsPitchingListItem): string {
 }
 
 /**
- * Full-page PMS pitching picker for 快速報價 (replaces minimal search dropdown).
+ * Pitching picker for 傢俬報價的快速報價.
+ * Overlays 預計收入／毛利 from `bwf_quote`. PM報價 pages must not use this component.
  */
 export function PmsPitchingGate({ onSelect, title, subtitle }: PmsPitchingGateProps) {
   const [search, setSearch] = useState('');
