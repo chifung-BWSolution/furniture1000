@@ -249,6 +249,7 @@ T-803 整體驗收增加：同一產品的上傳版與生成版同時存在、�
 - T-1001 完成：12 張 FDS 2.1 新表在正式與 FDS2.0 分支逐表核對——RLS 全開；reading policy＝`bwf_has_role(['admin','uploader'])` 或 own-row；寫入只經 security-definer RPC；`canva_connections` 無 policy（service role only）；`furniture_models` 同模式。沒有新增 allow-all。
 - T-1004 完成（結構性驗證）：`processing_jobs` 有 `idempotency_key` 唯一鍵＋`one_active_per_document`（document_id, job_type WHERE queued/running）部分唯一索引；兩邊查無重複活動任務（claim/heartbeat/complete/fail 的 runtime 行為 Day 2–5 已驗）。
 - T-1003 抽測：`fds_search_products`（5,289 件）經 PostgREST 3 次連續呼叫 0.99–1.43 秒（含本機→Supabase 網路），無登入 JWT 呼叫正確被拒。與 Day 4 記錄一致，在 2 秒預算內。
+- T-1002 完成（2026-10-21）：正式庫的 `fds-process-jobs` 把 stale running 也包在 `attempts < max_attempts` 裡，最後一次執行被中斷後不會再叫醒 `supabase-functions-process-jobs`，文件停在解析中。`20261022000100_fds21_worker_cron_stale_wake.sql` 改成 queued 仍看重試次數、stale running 不看；function host 沿用該庫 cron 裡已有的網址，正式與 FDS2.0 分支各打自己的 worker。前端上載後仍會立刻 `kickProcessingWorker()`。
 - T-1005 完成（2026-10-21）：內部 Beta 是 Vercel develop preview，`https://bwfbwfbranding-work-furniture-git-develop-bwsystem.vercel.app`。Preview 的 `SUPABASE_URL`／`SUPABASE_ANON_KEY` 指向 FDS2.0 分支 `omxizeukbcqzsnjsuwod`，`vite.config.ts` 在 build 時把無前綴的值寫進瀏覽器；同一組也有 `VITE_SUPABASE_*` fallback，兩邊都是分支庫。正式網域 `bwteam-furniture.com` 仍走 `main` 與正式庫 `riaubhtruisbwdlwjzur`。Preview 受 Vercel SSO 保護。develop 的一鍵登入只在 git 分支剛好是 develop 時打進 bundle。端到端示範已在 Day 5/7/9 做過（上載→解析→審核→搜索→溯源、比較、GLB）。
 - 待完成：真實 PDF 準確率回測（T-503）、設計圖結構與確認（T-801／804）、SKP 寫檔與整合（T-802a／b）、SketchUp 實機驗證（T-803）、Canva 內容到設計／編輯／下載完整重做與 PoC（T-901～903）。
 
