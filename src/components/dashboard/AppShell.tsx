@@ -224,7 +224,6 @@ const QuoteTrashView = lazy(() =>
 const PmBudgetView = lazy(() =>
   import("./PmBudgetView").then((mod) => ({ default: mod.PmBudgetView }))
 );
-);
 
 // Views that fetch their own data independently of the app store's product
 // load — they must not be gated by store.isLoading, so they render immediately.
