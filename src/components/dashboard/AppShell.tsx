@@ -236,6 +236,9 @@ const QuoteFormatView = lazy(() =>
 const EmailNotificationsView = lazy(() =>
   import("./EmailNotificationsView").then((mod) => ({ default: mod.EmailNotificationsView }))
 );
+const CaseOrdersView = lazy(() =>
+  import("./CaseOrdersView").then((mod) => ({ default: mod.CaseOrdersView }))
+);
 
 // Views that fetch their own data independently of the app store's product
 // load — they must not be gated by store.isLoading, so they render immediately.
@@ -280,6 +283,7 @@ const SELF_LOADING_VIEWS = new Set<ViewType>([
   "fds2-factory-sales",
   "fds2-quote-format",
   "fds2-admin-email",
+  "fds2-cases-orders",
   "report-factory",
   "report-product",
   "user-management",
@@ -997,6 +1001,7 @@ export function AppShell() {
     if (store.currentView === 'fds2-factory-sales') return <FactorySalesView />;
     if (store.currentView === 'fds2-quote-format') return <QuoteFormatView />;
     if (store.currentView === 'fds2-admin-email') return <EmailNotificationsView />;
+    if (store.currentView === 'fds2-cases-orders') return <CaseOrdersView />;
     if (isSitemapPlaceholderView(store.currentView)) {
       const meta = getViewMeta(store.currentView);
       return <PlannedPage sectionLabel={meta.sectionLabel} title={meta.viewLabel} />;
