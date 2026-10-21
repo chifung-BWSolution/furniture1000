@@ -296,6 +296,7 @@ const SELF_LOADING_VIEWS = new Set<ViewType>([
   "fds2-cases-photos",
   "fds2-cases-clients",
   "fds2-factory-zones",
+  "fds2-quote-report",
   "report-factory",
   "report-product",
   "user-management",
@@ -1017,6 +1018,7 @@ export function AppShell() {
     if (store.currentView === 'fds2-cases-photos') return <CasePhotosView />;
     if (store.currentView === 'fds2-cases-clients') return <CaseClientsView />;
     if (store.currentView === 'fds2-factory-zones') return <FactoryZonesView />;
+    if (store.currentView === 'fds2-quote-report') return <ProductReportView />;
     if (isSitemapPlaceholderView(store.currentView)) {
       const meta = getViewMeta(store.currentView);
       return <PlannedPage sectionLabel={meta.sectionLabel} title={meta.viewLabel} />;
