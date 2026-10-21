@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 /**
- * Windows SKP worker: claims generate_skp jobs, writes the SKP, uploads it to the private
+ * Windows SKP worker: claims generate_skp and preview_skp jobs. Writes SKP or exports GLB
+ * previews from uploaded SKP via SketchUp (skp_preview.rb).
  * product-models bucket and closes the job.
  *
  * Writes with skp_writer.exe (SketchUp C API) when it is built; otherwise drives an installed
@@ -34,7 +35,9 @@ const ONCE = process.argv.includes('--once');
 const WORKER = `skp-windows-${hostname()}`;
 const IDLE_MS = 10_000;
 const WRITE_TIMEOUT_MS = 60_000;
+const PREVIEW_TIMEOUT_MS = 300_000;
 const SKETCHUP_TIMEOUT_MS = 180_000;
+const PREVIEW_RUBY = join(here, 'skp_preview.rb');
 /** The first run waits for someone to pick a template in the welcome window. */
 const SKETCHUP_FIRST_RUN_TIMEOUT_MS = 600_000;
 
@@ -138,7 +141,92 @@ function runWriter(input, output, dir) {
   });
 }
 
-async function processJob(job) {
+/** Open an existing SKP in SketchUp and export GLB (T-807). */
+async function runSketchUpPreview(inputSkp, outputGlb, dir) {
+  if (!SKETCHUP || !existsSync(PREVIEW_RUBY)) {
+    throw new Error('SketchUp 或 skp_preview.rb 未安裝，無法轉換預覽');
+  }
+  const errorFile = join(dir, 'error.txt');
+  await new Promise((resolve, reject) => {
+    const child = spawn(SKETCHUP, ['-RubyStartup', PREVIEW_RUBY, ...(existsSync(SEED) ? [SEED] : [])], {
+      env: {
+        ...process.env,
+        FDS_SKP_INPUT: inputSkp,
+        FDS_SKP_OUTPUT: outputGlb,
+        FDS_SKP_ERROR: errorFile,
+      },
+      stdio: 'ignore',
+    });
+    const timer = setTimeout(() => {
+      execFile('taskkill', ['/PID', String(child.pid), '/T', '/F'], () => undefined);
+      reject(new Error('SketchUp 預覽轉換逾時'));
+    }, PREVIEW_TIMEOUT_MS);
+    child.on('error', (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+    child.on('exit', () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+  if (existsSync(errorFile)) {
+    throw new Error(clean(await readFile(errorFile, 'utf8')) || 'SketchUp 預覽轉換失敗');
+  }
+  if (!existsSync(outputGlb)) throw new Error('SketchUp 沒有寫出 GLB');
+}
+
+async function processPreviewJob(job) {
+  const productModelId = job.payload?.product_model_id;
+  const storagePath = job.payload?.storage_path;
+  if (!productModelId || !storagePath) {
+    await db.rpc('fds_skp_preview_job_fail', {
+      p_job_id: job.id,
+      p_error: 'invalid_payload',
+      p_retryable: false,
+    });
+    return;
+  }
+
+  const dir = await mkdtemp(join(tmpdir(), 'fds-skp-preview-'));
+  try {
+    const { data: blob, error: dlErr } = await db.storage.from('product-models').download(storagePath);
+    if (dlErr || !blob) throw new Error(dlErr?.message ?? 'skp_download_failed');
+    const skpBytes = Buffer.from(await blob.arrayBuffer());
+    if (skpBytes.length === 0) throw new Error('skp_empty');
+    if (skpBytes.length > 100 * 1024 * 1024) throw new Error('skp_too_large');
+
+    const input = join(dir, 'source.skp');
+    const output = join(dir, 'preview.glb');
+    await writeFile(input, skpBytes);
+    await db.rpc('fds_processing_job_heartbeat', { p_job_id: job.id, p_progress: 0.2 });
+    await runSketchUpPreview(input, output, dir);
+    await db.rpc('fds_processing_job_heartbeat', { p_job_id: job.id, p_progress: 0.75 });
+
+    const bytes = await readFile(output);
+    if (bytes.length === 0) throw new Error('glb_empty');
+    const hash = createHash('sha256').update(bytes).digest('hex');
+    const path = `preview/${productModelId}/${hash}.glb`;
+    const upload = await db.storage.from('product-models').upload(path, bytes, {
+      contentType: 'model/gltf-binary',
+      upsert: true,
+    });
+    if (upload.error) throw upload.error;
+
+    const finish = await db.rpc('fds_skp_preview_job_finish', {
+      p_job_id: job.id,
+      p_storage_path: path,
+      p_size_bytes: bytes.length,
+      p_content_hash: job.payload?.content_hash ?? hash,
+    });
+    if (finish.error) throw finish.error;
+    console.log(`preview job ${job.id}: ${path} (${bytes.length} bytes)`);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+async function processGenerateJob(job) {
   const modelId = job.payload?.furniture_model_id;
   const { data: model, error } = await db
     .from('furniture_models')
@@ -188,12 +276,15 @@ async function reportReadiness() {
   const checks = {
     sketchup: !!SKETCHUP && existsSync(SKETCHUP),
     ruby_script: existsSync(join(here, 'skp_build.rb')),
+    preview_ruby: existsSync(PREVIEW_RUBY),
     writer: existsSync(EXE),
     api_dll: existsSync(join(dirname(EXE), 'SketchUpAPI.dll')),
     preferences_dll: existsSync(join(dirname(EXE), 'SketchUpCommonPreferences.dll')),
   };
-  const ready = (checks.writer && checks.api_dll && checks.preferences_dll) ||
+  const canGenerate = (checks.writer && checks.api_dll && checks.preferences_dll) ||
     (checks.sketchup && checks.ruby_script);
+  const canPreview = checks.sketchup && checks.preview_ruby;
+  const ready = canGenerate || canPreview;
   let { error } = await db.from('fds_skp_workers').upsert({ worker_id: WORKER, ready, checks, checked_at: new Date().toISOString() });
   // Older deployments still accept the original heartbeat until the migration is applied.
   if (error?.code === 'PGRST204' || error?.code === '42703') {
@@ -208,7 +299,7 @@ readinessTimer.unref();
 async function tick() {
   if (!await reportReadiness()) return false;
   const { data, error } = await db.rpc('fds_processing_jobs_claim', {
-    p_job_types: ['generate_skp'],
+    p_job_types: ['generate_skp', 'preview_skp'],
     p_limit: 1,
     p_worker: WORKER,
     p_max_running: 1,
@@ -217,11 +308,16 @@ async function tick() {
   const job = data?.[0];
   if (!job) return false;
   try {
-    await processJob(job);
+    if (job.job_type === 'preview_skp') await processPreviewJob(job);
+    else await processGenerateJob(job);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`job ${job.id} failed: ${message}`);
-    await db.rpc('fds_processing_job_fail', { p_job_id: job.id, p_error: message, p_retryable: true });
+    if (job.job_type === 'preview_skp') {
+      await db.rpc('fds_skp_preview_job_fail', { p_job_id: job.id, p_error: message, p_retryable: true });
+    } else {
+      await db.rpc('fds_processing_job_fail', { p_job_id: job.id, p_error: message, p_retryable: true });
+    }
   }
   return true;
 }

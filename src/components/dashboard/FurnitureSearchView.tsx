@@ -34,7 +34,9 @@ import { invokeEdgeFunctionDirect } from '@/lib/invokeEdgeFunction';
 import { buildFurnitureGlb } from '@/lib/furnitureGlb';
 import { buildFurnitureFbx } from '@/lib/furnitureFbx';
 import { ProductWorkbench } from '@/components/dashboard/ProductWorkbench';
+import { ProductModelPreviewModal } from '@/components/dashboard/ProductModelPreviewModal';
 import { StructureConfirmForm, type StructureDraft } from '@/components/dashboard/StructureConfirmDialog';
+import { buildDimensionConflicts, type DimensionEstimate } from '@/lib/dimensionConflicts';
 import { useSkpRequirements } from '@/components/dashboard/SkpRequirementsDialog';
 import { FurnitureProductScopeDialog, type ProductCountDetection, type ProductScopeChoice } from '@/components/dashboard/FurnitureProductScopeDialog';
 import { selectFurnitureGeometry, validateFurnitureStructure, type StructureEvidence } from '@/lib/furnitureStructure';
@@ -1215,6 +1217,7 @@ type ImageAnalysis = {
   structure_notes?: string | null;
   image_count?: number;
   source_dimensions_scope?: 'single' | 'arrangement' | 'unknown';
+  dimension_estimates?: DimensionEstimate[];
 };
 
 type AnalysisRequest = {
@@ -1399,12 +1402,28 @@ function ProductModelsSection({
   appearance?: 'plain' | 'workbench';
 }) {
   const productId = product.id;
+
+  const catalogDimensions = useMemo(
+    () => ({
+      width_mm: measuredMm(product.dimension_l_mm),
+      depth_mm: measuredMm(product.dimension_w_mm),
+      height_mm: measuredMm(product.dimension_h_mm),
+    }),
+    [product.dimension_h_mm, product.dimension_l_mm, product.dimension_w_mm],
+  );
+
+  const dimensionConflictsFor = useCallback(
+    (estimates: DimensionEstimate[] | undefined, consolidated: { width_mm: number | null; depth_mm: number | null; height_mm: number | null }) =>
+      buildDimensionConflicts(estimates, { catalog: catalogDimensions, consolidated }),
+    [catalogDimensions],
+  );
   const [files, setFiles] = useState<ProductModelFile[] | null>(null);
   const [busy, setBusy] = useState<null | 'su' | '3d' | 'upload'>(null);
   const [reload, setReload] = useState(0);
   const [filesError, setFilesError] = useState(false);
   const [draft, setDraft] = useState<ModelDraft | null>(null);
   const [reuse, setReuse] = useState<{ target: 'su' | '3d'; files: ProductModelFile[] } | null>(null);
+  const [previewFile, setPreviewFile] = useState<ProductModelFile | null>(null);
   const [skp, setSkp] = useState<SkpStatus | null>(null);
   const [skpModelId, setSkpModelId] = useState<string | null>(null);
   const savedRef = useRef<{ key: string; id: string } | null>(null);
@@ -1616,6 +1635,7 @@ function ProductModelsSection({
       let notes: string | null = null;
       let parts: CustomPartSpec[] = [];
       let structure: StructureEvidence | undefined;
+      let dimensionEstimates: DimensionEstimate[] = [];
       const photos = modelPhotos;
       if (photos.length > 0) {
         showProgress(24, '辨認產品圖');
@@ -1635,6 +1655,7 @@ function ProductModelsSection({
               setScopeRequest({ target, detection: guess.detection });
               return;
             }
+            dimensionEstimates = guess.dimension_estimates ?? [];
             if (guess.kind) kind = guess.kind;
             if (guess.source_dimensions_scope === 'arrangement') {
               if (guess.width_mm && guess.width_mm > 0) {
@@ -1696,6 +1717,11 @@ function ProductModelsSection({
       const selected = selectFurnitureGeometry({ kind: kind ?? 'custom', width_mm: width!, depth_mm: depth!, height_mm: height!, style, parts });
       kind = selected.kind;
       notes = `${selected.templateMatched ? '部件形狀與模板吻合。' : '按圖片實際部件建模，未套用固定模板。'}${notes ?? ''}`;
+      const consolidated = {
+        width_mm: width,
+        depth_mm: depth,
+        height_mm: height,
+      };
       setDraft({
         structure,
         target,
@@ -1708,6 +1734,8 @@ function ProductModelsSection({
         styleSource,
         notes,
         parts,
+        dimensionEstimates,
+        dimensionConflicts: dimensionConflictsFor(dimensionEstimates, consolidated),
       });
       handoffToConfirm();
     } catch (err) {
@@ -1724,12 +1752,21 @@ function ProductModelsSection({
     setDraft((current) => {
       if (!current) return current;
       const estimated = editedAxis ? current.estimated.filter((axis) => axis !== editedAxis) : current.estimated;
-      return {
+      const next = {
         ...current,
         ...patch,
         ...(patch.style ? { style: { ...current.style, ...patch.style } } : {}),
         estimated,
       };
+      const width = Number(next.width);
+      const depth = Number(next.depth);
+      const height = Number(next.height);
+      next.dimensionConflicts = dimensionConflictsFor(next.dimensionEstimates, {
+        width_mm: Number.isFinite(width) && width > 0 ? width : null,
+        depth_mm: Number.isFinite(depth) && depth > 0 ? depth : null,
+        height_mm: Number.isFinite(height) && height > 0 ? height : null,
+      });
+      return next;
     });
   };
 
@@ -1975,7 +2012,10 @@ function ProductModelsSection({
       onChange={(event) => {
         const file = event.target.files?.[0];
         event.target.value = '';
-        if (file) void run(() => uploadProductModel(productId, file), '上載模型失敗');
+        if (!file) return;
+        const note = window.prompt('版本說明（可留空，按取消則不上載）');
+        if (note === null) return;
+        void run(() => uploadProductModel(productId, file, note), '上載模型失敗');
       }}
     />
   ) : null;
@@ -2062,6 +2102,15 @@ function ProductModelsSection({
         </p>
       )}
       {filesError && <p className="text-xs text-destructive">讀不到現有模型檔，暫時不能生成。</p>}
+      <ProductModelPreviewModal
+        file={previewFile}
+        open={previewFile != null}
+        onOpenChange={(open) => { if (!open) setPreviewFile(null); }}
+        onPreviewChange={() => {
+          setReload((n) => n + 1);
+          onChanged();
+        }}
+      />
       <Modal
         open={photoRequest != null && busy == null && !partsBusy}
         onOpenChange={open => { if (!open) setPhotoRequest(null); }}
@@ -2098,19 +2147,11 @@ function ProductModelsSection({
         size="md"
         icon={<Package className="h-6 w-6" />}
         title="已有模型檔"
-        description={`這件產品已有 ${[...new Set((reuse?.files ?? []).map((file) => file.format.toUpperCase()))].join('、')}（${[...new Set((reuse?.files ?? []).map((file) => modelSourceLabel(file.source)))].join('、')}），可以直接下載，不用再生成。`}
+        description="可直接下載或預覽（GLB）；沿用不會再呼叫 AI。選「仍要重新生成」會建立新版本並保留舊檔。"
         style={workbench ? WORKBENCH_TONE : undefined}
+        bodyClassName="space-y-3"
         footer={
           <>
-            <ModalButton
-              onClick={() => {
-                const f = reuse?.files[0];
-                if (!f) return;
-                void downloadModel(f.storage_path, f.file_name).catch((err) => toast.error('下載失敗', { description: errorText(err) }));
-              }}
-            >
-              下載現有檔
-            </ModalButton>
             <ModalButton
               variant="secondary"
               disabled={busy != null}
@@ -2119,11 +2160,36 @@ function ProductModelsSection({
               仍要重新生成
             </ModalButton>
             <ModalButton variant="ghost" onClick={() => setReuse(null)}>
-              取消
+              關閉
             </ModalButton>
           </>
         }
-      />
+      >
+        <ul className="max-h-56 space-y-2 overflow-y-auto text-sm">
+          {(reuse?.files ?? []).map((file) => (
+            <li key={file.id} className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+              <Badge variant="outline" className="text-[10px]">{file.format.toUpperCase()}</Badge>
+              <span className="min-w-0 flex-1 truncate">{file.file_name ?? file.storage_path.split('/').pop()}</span>
+              <span className="text-xs text-muted-foreground">{modelSourceLabel(file.source)}</span>
+              {file.version_note && <span className="text-xs text-muted-foreground">「{file.version_note}」</span>}
+              <button
+                type="button"
+                className="text-xs text-primary hover:underline"
+                onClick={() => setPreviewFile(file)}
+              >
+                預覽
+              </button>
+              <button
+                type="button"
+                className="text-xs text-primary hover:underline"
+                onClick={() => void downloadModel(file.storage_path, file.file_name).catch((err) => toast.error('下載失敗', { description: errorText(err) }))}
+              >
+                下載
+              </button>
+            </li>
+          ))}
+        </ul>
+      </Modal>
       <Modal
         open={genProgress != null}
         onOpenChange={() => { /* a running job cannot be dismissed */ }}

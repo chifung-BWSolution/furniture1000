@@ -70,6 +70,7 @@ const CLASSIFY_PROMPT = [
   "Names such as 四人位, 乾字, F型 may describe the catalogue arrangement, not the requested output; isolate one desk.",
   "Estimate width, depth, and height in millimetres of ONE target item. For desks, source_dimensions_scope describes whether the supplied reference dimensions describe a single desk, the whole arrangement, or are unknown. If they describe the arrangement, infer single-desk dimensions from its layout and flag the scope as arrangement; never report the full arrangement dimensions as one desk.",
   "source_dimensions_scope applies to ALL categories: if catalogue dimensions describe repeated identical products arranged together, return arrangement and estimate dimensions of just ONE target product, never the complete group.",
+  "When multiple views or dimension diagrams show labelled sizes, list each distinct reading in dimension_estimates (view = front/side/top/diagram in English). Put your best single-item consolidated estimate in width_mm/depth_mm/height_mm; do not hide disagreements between views.",
   "Then read the structure, only the fields that apply:",
   "tables and desks: top_shape 'L' (L-shaped / F-shaped / 乾字 return with an inner corner), 'boat' (widest in the middle, narrowing to both ends), 'round' (round or oval), else 'rect';",
   "leg_style 'panel' (each end stands on one wide slab, side panel, or folded/bent plate), 'pedestal' (one central column on a foot), else 'four';",
@@ -167,6 +168,18 @@ const CLASSIFY_SCHEMA = {
     frame: { type: "boolean" },
     structure_notes: { type: "string" },
     reason: { type: "string" },
+    dimension_estimates: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          view: { type: "string" },
+          width_mm: { type: "number" },
+          depth_mm: { type: "number" },
+          height_mm: { type: "number" },
+        },
+      },
+    },
   },
   required: ["kind"],
 };
@@ -356,7 +369,17 @@ Deno.serve(async (req: Request) => {
       frame?: boolean;
       structure_notes?: string;
       reason?: string;
+      dimension_estimates?: { view?: string; width_mm?: number; depth_mm?: number; height_mm?: number }[];
     }>(apiKey, CLASSIFY_PROMPT, [title ? `Product name: ${title.slice(0, 200)}.` : "", `Reference catalogue dimensions (may describe the whole arrangement): width=${positive(body.width_mm) ?? "unknown"}, depth=${positive(body.depth_mm) ?? "unknown"}, height=${positive(body.height_mm) ?? "unknown"} mm.`, "Return the furniture kind, SINGLE-item size, source_dimensions_scope, and the structure fields that apply."].join(" "), images, CLASSIFY_SCHEMA);
+
+    const dimension_estimates = Array.isArray(parsed.dimension_estimates)
+      ? parsed.dimension_estimates.slice(0, 6).map((row) => ({
+          view: typeof row.view === "string" ? row.view.slice(0, 40) : null,
+          width_mm: positive(row.width_mm),
+          depth_mm: positive(row.depth_mm),
+          height_mm: positive(row.height_mm),
+        }))
+      : [];
 
     if (parsed.kind === "unsupported" || !parsed.kind) {
       return json({ supported: false, reason: parsed.reason || "圖片看不到家具" });
@@ -383,6 +406,7 @@ Deno.serve(async (req: Request) => {
         parts,
         structure: extraction.structure,
         structure_notes: notes ?? parsed.structure_notes ?? null,
+        dimension_estimates,
         image_count: images.length,
       });
     }
@@ -419,6 +443,7 @@ Deno.serve(async (req: Request) => {
       parts: extraction.parts,
       structure: extraction.structure,
       structure_notes: extraction.notes ?? parsed.structure_notes ?? null,
+      dimension_estimates,
       image_count: images.length,
     });
   } catch (err) {
