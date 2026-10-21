@@ -311,7 +311,7 @@ node scripts/check-supabase-env.mjs --live   # 額外對各 project 發一次請
   session 表 `canva_design_sessions`（`generation_mode=ai`、`thumbnail_url` 約 15 分鐘過期）；流程見 `docs/prd/FDS-2.1-Canva-AI生成.md`。
   secrets＝`CANVA_CLIENT_ID`／`CANVA_CLIENT_SECRET`（`CANVA_BASE_URL` 可選）；redirect URI＝`<域名>/fds/pm/presentation`。
 - 本機 dev／develop 連的是 Supabase 分支 FDS2.0（`omxizeukbcqzsnjsuwod`）。FDS 2.1 的 migration 與 `process-jobs`
-  要**兩邊都部署**（正式 `riaubhtruisbwdlwjzur` ＋ 分支）；套到分支時把 cron 裡的 worker URL 換成分支 ref。
+  要**兩邊都部署**（正式 `riaubhtruisbwdlwjzur` ＋ 分支）。`fds-process-jobs` 的 function host 以該庫現有 cron 為準（`20261022000100_fds21_worker_cron_stale_wake.sql`），不要在新 cron 裡寫死正式 ref。
   分支的一鍵登入帳號 `fds-develop-preview@…` 在分支 `platform_user_profiles` 設為 admin。
 - SKP（設計師 SU）：不用 OpenSKP。SketchUp C SDK 只跑 Windows／macOS，所以 SKP 由 Windows 機器上的
   `workers/skp-writer`（`skp_writer.exe` ＋ `worker.mjs`）領 `processing_jobs` 的 `generate_skp` 寫出，Edge 不處理。
