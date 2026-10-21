@@ -6,6 +6,8 @@ export interface BwaInquirySummary {
   id: string;
   bwa_project_ref: string;
   bwa_project_name: string;
+  bwa_pitching_id: string | null;
+  bwa_project_id: string | null;
   status: BwaInquiryStatus;
   sent_at: string | null;
   replied_at: string | null;
@@ -28,6 +30,8 @@ export interface BwaInquiryDetail {
   id: string;
   bwa_project_ref: string;
   bwa_project_name: string;
+  bwa_pitching_id: string | null;
+  bwa_project_id: string | null;
   note: string;
   status: BwaInquiryStatus;
   sent_at: string | null;
@@ -47,7 +51,16 @@ type PostgrestError = { message?: string; code?: string } | null;
 
 export function inquiryErrorMessage(error: PostgrestError): string {
   const message = error?.message || '';
-  if (error?.code === '42P01' || error?.code === 'PGRST202' || message.includes('bwa_furniture_inquiry') || message.includes('bwa_list_furniture_inquiries')) {
+  if (
+    error?.code === '42P01'
+    || error?.code === '42703'
+    || error?.code === 'PGRST202'
+    || error?.code === 'PGRST204'
+    || message.includes('bwa_furniture_inquiry')
+    || message.includes('bwa_list_furniture_inquiries')
+    || message.includes('bwa_save_furniture_inquiry')
+    || message.includes('bwa_pitching_id')
+  ) {
     return '詢價資料尚未部署。這次沒有改正式資料庫。';
   }
   if (error?.code === '42501' || message.includes('permission_denied')) return '沒有權限。';
@@ -67,6 +80,10 @@ function asStatus(value: unknown): BwaInquiryStatus {
   return 'draft';
 }
 
+function asUuid(value: unknown): string | null {
+  return typeof value === 'string' && value ? value : null;
+}
+
 function asSummary(value: unknown): BwaInquirySummary | null {
   if (!value || typeof value !== 'object') return null;
   const row = value as Record<string, unknown>;
@@ -75,6 +92,8 @@ function asSummary(value: unknown): BwaInquirySummary | null {
     id: row.id,
     bwa_project_ref: String(row.bwa_project_ref || ''),
     bwa_project_name: String(row.bwa_project_name || ''),
+    bwa_pitching_id: asUuid(row.bwa_pitching_id),
+    bwa_project_id: asUuid(row.bwa_project_id),
     status: asStatus(row.status),
     sent_at: typeof row.sent_at === 'string' ? row.sent_at : null,
     replied_at: typeof row.replied_at === 'string' ? row.replied_at : null,
@@ -100,6 +119,8 @@ export async function getFurnitureInquiry(id: string): Promise<{ inquiry: BwaInq
       id: String(row.id || id),
       bwa_project_ref: String(row.bwa_project_ref || ''),
       bwa_project_name: String(row.bwa_project_name || ''),
+      bwa_pitching_id: asUuid(row.bwa_pitching_id),
+      bwa_project_id: asUuid(row.bwa_project_id),
       note: String(row.note || ''),
       status: asStatus(row.status),
       sent_at: typeof row.sent_at === 'string' ? row.sent_at : null,
@@ -128,21 +149,38 @@ export async function saveFurnitureInquiry(input: {
   id: string | null;
   projectRef: string;
   projectName: string;
+  pitchingId: string | null;
+  projectId: string | null;
   note: string;
   items: BwaInquiryDraftItem[];
 }): Promise<{ id: string | null; error: PostgrestError }> {
+  const items = input.items.map((item) => ({
+    name: item.name,
+    spec: item.spec,
+    quantity: item.quantity,
+    unit: item.unit,
+  }));
   const { data, error } = await supabase.rpc('bwa_save_furniture_inquiry', {
     p_id: input.id,
     p_project_ref: input.projectRef,
     p_project_name: input.projectName,
     p_note: input.note,
-    p_items: input.items.map((item) => ({
-      name: item.name,
-      spec: item.spec,
-      quantity: item.quantity,
-      unit: item.unit,
-    })),
+    p_pitching_id: input.pitchingId,
+    p_project_id: input.projectId,
+    p_items: items,
   });
+  const missingNewSignature = error?.code === 'PGRST202'
+    || (error?.message || '').includes('bwa_save_furniture_inquiry');
+  if (missingNewSignature && !input.pitchingId && !input.projectId) {
+    const fallback = await supabase.rpc('bwa_save_furniture_inquiry', {
+      p_id: input.id,
+      p_project_ref: input.projectRef,
+      p_project_name: input.projectName,
+      p_note: input.note,
+      p_items: items,
+    });
+    return { id: typeof fallback.data === 'string' ? fallback.data : null, error: fallback.error };
+  }
   return { id: typeof data === 'string' ? data : null, error };
 }
 
