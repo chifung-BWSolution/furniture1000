@@ -1,3 +1,4 @@
+import { runTripoJob, TripoStop } from "./tripo.ts";
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient, type SupabaseClient } from "jsr:@supabase/supabase-js@2";
 import { getDocumentProxy } from "npm:unpdf@1.9.0";
@@ -30,7 +31,7 @@ const corsHeaders = {
 };
 
 const WORKER_NAME = "edge:process-jobs";
-const JOB_TYPES = ["parse_pdf"];
+const JOB_TYPES = ["parse_pdf", "generate_tripo"];
 const EDGE_MAX_PDF_BYTES = 60 * 1024 * 1024;
 const EXTRACT_BATCH = 8;
 const CLASSIFY_BATCH = 20;
@@ -768,7 +769,7 @@ async function collectUnitImages(
   const hashes = [...found.keys()];
   const { data: existing, error } = await admin
     .from("supplier_document_images")
-    .select("id, content_hash, page_no, page_occurrences")
+    .select("id, content_hash, page_no, page_occurrences, storage_path, public_url")
     .eq("document_id", documentId)
     .in("content_hash", hashes);
   if (error) throw new Error(`image lookup failed: ${error.message}`);
@@ -776,48 +777,38 @@ async function collectUnitImages(
 
   const out: UnitImage[] = [];
   for (const [hash, { page_no, pages, img }] of found) {
-    let row = byHash.get(hash);
-    // Pages in this unit that the stored row has not counted yet.
-    const extra = row ? [...pages].filter((p) => p !== row!.page_no).length : pages.size - 1;
-    if (row && extra > 0) {
-      const occurrences = Number(row.page_occurrences) + extra;
-      await admin
-        .from("supplier_document_images")
-        .update({
-          page_occurrences: occurrences,
-          ...(occurrences >= LOGO_PAGE_OCCURRENCES ? { image_type: "logo" } : {}),
-        })
-        .eq("id", row.id);
-      row = { ...row, page_occurrences: occurrences };
-    }
+    const row = byHash.get(hash);
+    let storagePath = (row?.storage_path as string | undefined) ?? null;
+    let publicUrl = (row?.public_url as string | undefined) ?? null;
     if (!row) {
-      const path = `supplier-extracts/${documentId}/${hash}.jpg`;
+      storagePath = `supplier-extracts/${documentId}/${hash}.jpg`;
       const { error: upErr } = await admin.storage
         .from("product-images")
-        .upload(path, img.bytes, { contentType: "image/jpeg", upsert: true });
+        .upload(storagePath, img.bytes, { contentType: "image/jpeg", upsert: true });
       if (upErr) throw new Error(`image upload failed: ${upErr.message}`);
-      const publicUrl = admin.storage.from("product-images").getPublicUrl(path).data.publicUrl;
-      const { data: inserted, error: insErr } = await admin
-        .from("supplier_document_images")
-        .upsert({
-          document_id: documentId,
-          page_no,
-          storage_path: path,
-          public_url: publicUrl,
-          width: img.width,
-          height: img.height,
-          byte_size: img.bytes.length,
-          content_hash: hash,
-          page_occurrences: pages.size,
-          ...(pages.size >= LOGO_PAGE_OCCURRENCES ? { image_type: "logo" } : {}),
-        }, { onConflict: "document_id,content_hash" })
-        .select("id, content_hash, page_no, page_occurrences")
-        .single();
-      if (insErr) throw new Error(`image insert failed: ${insErr.message}`);
-      row = inserted;
+      publicUrl = admin.storage.from("product-images").getPublicUrl(storagePath).data.publicUrl;
     }
-    if (Number(row.page_occurrences) >= LOGO_PAGE_OCCURRENCES) continue;
-    out.push({ id: row.id as string, page_no, bytes: img.bytes, area: img.area });
+    // The RPC merges these pages into the stored set (document + hash + page).
+    // Replaying the same unit after a failed Gemini call adds nothing new, so
+    // the occurrence count stays the same and a real product photo is never
+    // promoted to a logo.
+    const { data: recorded, error: recErr } = await admin.rpc("fds_supplier_document_image_record", {
+      p_document_id: documentId,
+      p_content_hash: hash,
+      p_pages: [...pages],
+      p_page_no: page_no,
+      p_storage_path: storagePath,
+      p_public_url: publicUrl,
+      p_width: img.width,
+      p_height: img.height,
+      p_byte_size: img.bytes.length,
+    });
+    if (recErr) throw new Error(`image record failed: ${recErr.message}`);
+    const rec = (recorded ?? {}) as { id?: string; page_occurrences?: number };
+    if (!rec.id) throw new Error(`image record failed: no row for ${hash}`);
+    const occurrences = Number(rec.page_occurrences ?? 0);
+    if (occurrences >= LOGO_PAGE_OCCURRENCES) continue;
+    out.push({ id: rec.id, page_no, bytes: img.bytes, area: img.area });
   }
 
   let budget = MAX_INLINE_TOTAL_BYTES;
@@ -1010,8 +1001,10 @@ async function handleParsePdf(admin: SupabaseClient, job: Job): Promise<boolean>
       .from("extraction_items").delete().eq("document_id", documentId).eq("status", "pending");
     if (itemErr) throw new Error(`reset extraction items failed: ${itemErr.message}`);
     // Images stay (reviewed items point at them); occurrence counts are rebuilt by this run.
-    await admin.from("supplier_document_images")
-      .update({ page_occurrences: 1, image_type: "other" }).eq("document_id", documentId);
+    const { error: imgErr } = await admin.rpc("fds_supplier_document_images_reset", {
+      p_document_id: documentId,
+    });
+    if (imgErr) throw new Error(`reset document images failed: ${imgErr.message}`);
 
     const pdf = await openPdfText(await downloadDocument(admin, documentId));
     state = { phase: "extract", cursor: 1, page_count: pdf.numPages, tokens: 0, ocr_pages: 0 };
@@ -1104,6 +1097,15 @@ function progressOf(state: ParseState): number {
 
 async function runJob(admin: SupabaseClient, job: Job) {
   try {
+    if (job.job_type === "generate_tripo") {
+      try {
+        const status = await runTripoJob(admin, job as Parameters<typeof runTripoJob>[1]);
+        return { id: job.id, status };
+      } catch (error) {
+        if (error instanceof TripoStop) throw new NonRetryableError(error.message);
+        throw error;
+      }
+    }
     if (job.job_type !== "parse_pdf") {
       throw new NonRetryableError(`unsupported job_type: ${job.job_type}`);
     }
