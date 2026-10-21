@@ -5,6 +5,10 @@ import { createClient } from "jsr:@supabase/supabase-js@2";
  * Opens one supplier PDF page for a product the caller is allowed to see.
  * The search payload never includes the storage path. This function checks
  * fds_source_page_context with the user JWT, then returns a 5-minute signed URL.
+ *
+ * The signed URL points at the whole private PDF, so only admin / uploader may
+ * get one (C-04 role table: 查看原始 PDF（私有）pm / designer ❌). The RPC
+ * enforces the same rule; the check here is a second lock on the door.
  */
 
 const corsHeaders = {
@@ -15,6 +19,8 @@ const corsHeaders = {
 
 const BUCKET = "supplier-documents";
 const TTL_SECONDS = 300;
+/** Roles allowed to open a private supplier document. */
+const SOURCE_ROLES = ["admin", "uploader"];
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
@@ -39,6 +45,13 @@ Deno.serve(async (req: Request) => {
   });
   const { data: userData } = await userClient.auth.getUser();
   if (!userData.user?.id) return json({ error: "Unauthorized" }, 401);
+
+  // Private supplier documents (quote PDF with cost) are admin / uploader only.
+  const { data: allowed, error: roleErr } = await userClient.rpc("bwf_has_role", {
+    p_roles: SOURCE_ROLES,
+  });
+  if (roleErr) return json({ error: roleErr.message }, 400);
+  if (allowed !== true) return json({ error: "permission_denied" }, 403);
 
   let body: { document_id?: string; page_no?: number | null; product_id?: string | null };
   try {
