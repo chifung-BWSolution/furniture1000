@@ -26,6 +26,7 @@ import { ProductImageGalleryLightbox } from '@/components/dashboard/ProductImage
 import { autoMatchColor, getChineseColorLabel, getColorHex, multiColorToChineseDisplay } from '@/constants/color-map';
 import { MATERIAL_TAG_RULES } from '@/constants/material-tags';
 import { DESIGNER_TYPES_PATH, buildDesignerProductPath, designerProductIdFromPath } from '@/lib/appSectionRoutes';
+import { DesignerCatalogUpload } from '@/components/dashboard/DesignerCatalogUpload';
 import { SourcePageDialog } from '@/components/dashboard/SourcePageDialog';
 import type { SourcePageRequest } from '@/lib/sourcePage';
 import { fetchEmbeddingStatus, searchByImage, startImageIndex, type EmbeddingStatus } from '@/lib/imageSearch';
@@ -401,6 +402,7 @@ export function FurnitureSearchView({
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 p-4">
+      {allowImageSearch && <DesignerCatalogUpload />}
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative min-w-[16rem] flex-1">
           <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />

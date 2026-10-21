@@ -101,6 +101,7 @@ export const NAV_CONFIG: PrimaryItem[] = [
       { view: 'fds2-products-factories', label: '廠家目錄', icon: BookOpen },
       { view: 'fds2-products-quote-pdf', label: '上載報價PDF', icon: FileUp },
       { view: 'fds2-products-ai-review', label: 'AI 提取審核', icon: ListChecks },
+      { view: 'fds2-products-designer-review', label: '設計師目錄審核', icon: ListChecks, adminOnly: true },
       { view: 'fds2-products-pending', label: '待處理產品', icon: Boxes },
       { view: 'fds2-products-catalog', label: '產品目錄', icon: BookOpen },
     ],
@@ -206,6 +207,7 @@ export const ADMIN_ONLY_VIEWS: ViewType[] = [
   'fds2-admin-dev-cost',
   'fds2-admin-email',
   'fds2-report-upload-log',
+  'fds2-products-designer-review',
 ];
 
 /**

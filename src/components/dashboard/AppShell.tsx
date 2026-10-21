@@ -149,6 +149,9 @@ const DevelopmentCostView = lazy(() =>
 const ExtractionReviewView = lazy(() =>
   import("./ExtractionReviewView").then((mod) => ({ default: mod.ExtractionReviewView }))
 );
+const DesignerCatalogReviewView = lazy(() =>
+  import("./DesignerCatalogReviewView").then((mod) => ({ default: mod.DesignerCatalogReviewView }))
+);
 const FurnitureSearchView = lazy(() =>
   import("./FurnitureSearchView").then((mod) => ({ default: mod.FurnitureSearchView }))
 );
@@ -963,6 +966,7 @@ export function AppShell() {
     if (store.currentView === 'fds2-admin-command-logs') return <DailyCommandLogsView />;
     if (store.currentView === 'fds2-admin-dev-cost') return <DevelopmentCostView />;
     if (store.currentView === 'fds2-products-ai-review') return <ExtractionReviewView />;
+    if (store.currentView === 'fds2-products-designer-review') return <DesignerCatalogReviewView />;
     if (store.currentView === 'fds2-designer-types') return <FurnitureSearchView key="browse" />;
     if (store.currentView === 'fds2-designer-pdf') return <DesignerPdfView />;
     if (store.currentView === 'fds2-designer-common' || store.currentView === 'fds2-quote-common') {

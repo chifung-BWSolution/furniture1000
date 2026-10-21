@@ -214,6 +214,12 @@ PDF 上傳 → 建立解析任務 → 逐頁分析 → 頁面分類（目錄/產
 - 步驟 1 的產品分類是可選的預設／後備，不再強制整批共用一個分類。
 - PDF 與 Excel／目錄解析時，AI 依現有分類清單為每一件產品歸類；辨識不到才套用步驟 1 的預設。
 - 步驟 2 每一列以現有分類下拉選單顯示，可把一個分類套用到已選列。未分類的列會標示，全部都有分類才可儲存。
+
+**設計師上載產品目錄**（設計師選傢俬 → 產品類型／產品 PDF）：
+- 設計師選擇或輸入廠家後上載 PDF。解析沿用廠家精靈的 `gemini-pdf-catalog`，並把每一件產品歸入現有 `product_category`，不可自創新分類。
+- 解析結果**不得直接入產品庫**。批次寫入 `designer_catalog_batches`／`designer_catalog_items`，狀態為待審，並記錄上載人、廠家、原始 PDF 與時間。
+- 管理員在「產品管理 → 設計師目錄審核」可改欄位與分類，可逐件或批量通過／拒絕。通過才寫入 `products`；拒絕保留該列與原因。
+- 設計師只看得到自己的批次與每件產品的狀態（含拒絕原因）。權限由 RLS 與 SECURITY DEFINER RPC 執行，不只靠畫面隱藏。
 4. 識別報價貨幣、計價單位、MOQ、有效期。
 5. 保留文件與**原始頁碼**。
 6. 若可得版面座標，保存 **Bounding Box**。
@@ -611,7 +617,8 @@ PDF 上傳 → 建立解析任務 → 逐頁分析 → 頁面分類（目錄/產
 | 產品管理 → 待處理產品 | `fds2-products-pending` → `listed-products` | 已存在 | F-AI-003 |
 | 產品管理 → 產品目錄 | `fds2-products-catalog` → `product-catalog` | 已存在 | F-AI-003 |
 | 設計師選傢俬 → 產品類型 | `fds2-designer-types` | 待開發 | F-AI-005／D-1 |
-| 設計師選傢俬 → 產品PDF | `fds2-designer-pdf` | 待開發 | D-2／F-AI-001 |
+| 設計師選傢俬 → 產品PDF | `fds2-designer-pdf` | 已有瀏覽；設計師可上載目錄並進入待審 | D-2／F-AI-001／F-AI-002 |
+| 產品管理 → 設計師目錄審核 | `fds2-products-designer-review` | 新增，只限 admin | F-AI-002 |
 | 設計師選傢俬 → SU模型 | `fds2-designer-su` | 待開發 | D-5／**F-AI-008** |
 | 設計師選傢俬 → 3D模型 | `fds2-designer-3d` | 待開發 | D-6／**F-AI-008** |
 | PM報價 → 專業說明 PDF | `fds2-pm-pro-pdf` | 待開發 | R5.2／F-AI-009 |

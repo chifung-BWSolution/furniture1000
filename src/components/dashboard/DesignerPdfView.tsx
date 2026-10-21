@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { SourcePageDialog } from '@/components/dashboard/SourcePageDialog';
+import { DesignerCatalogUpload } from '@/components/dashboard/DesignerCatalogUpload';
 import { FurnitureSearchView } from '@/components/dashboard/FurnitureSearchView';
 import {
   fetchDesignerCatalogs,
@@ -145,6 +146,7 @@ export function DesignerPdfView() {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3 p-4">
+      <DesignerCatalogUpload />
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative min-w-[16rem] flex-1">
           <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />

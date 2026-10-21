@@ -170,7 +170,7 @@ interface AIProcessorViewProps {
   geminiProxyUrl?: string;
 }
 
-interface UploadedFile {
+export interface UploadedFile {
   id: string;
   file: File;
   name: string;
@@ -603,7 +603,7 @@ function mapInStock(raw: unknown, columnMapped: boolean): boolean {
 
 // ─── PDF Catalog AI Analysis (V6 — Multi-Object Segmentation + Frontend Cropping) ──
 
-async function analyzePDFCatalogBatched(
+export async function analyzePDFCatalogBatched(
   pdfFiles: UploadedFile[],
   imageFiles: UploadedFile[],
   modelName: string = 'gemini-2.5-flash',
@@ -1390,6 +1390,16 @@ async function analyzePDFCatalogBatched(
       console.log(`[AIProcessor] ✅ Product "${productLabel}" → image assigned (${croppedImageUrl.substring(0, 50)}..., ${Math.round(croppedImageUrl.length / 1024)}KB)`);
     }
 
+    const finite = (value: unknown): number | null => {
+      const n = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value) : NaN;
+      return Number.isFinite(n) ? n : null;
+    };
+    const colorText = typeof p.color === 'string'
+      ? p.color
+      : Array.isArray(p.colors)
+        ? p.colors.filter((c: unknown) => typeof c === 'string' && c.trim()).join(', ')
+        : '';
+
     return {
       id: `catalog-${idPrefix}-${idx}`,
       title: p.title || `Item ${idx + 1}`,
@@ -1397,6 +1407,11 @@ async function analyzePDFCatalogBatched(
       tags: validTags,
       price: typeof p.price === 'number' ? p.price : 0,
       collection: p.collection || 'General',
+      modelNumber: String(p.model_number || p.model || '').trim(),
+      color: colorText,
+      dimensionLMm: finite(p.width_mm) ?? finite(p.dimension_l_mm),
+      dimensionWMm: finite(p.depth_mm) ?? finite(p.dimension_w_mm),
+      dimensionHMm: finite(p.height_mm) ?? finite(p.dimension_h_mm),
       productCategory: (() => {
         const matched = matchExistingProductCategory(categoryPairs, p.product_category)
           ?? matchExistingProductCategory(categoryPairs, fallbackCategory);
