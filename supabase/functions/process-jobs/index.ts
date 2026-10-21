@@ -126,7 +126,8 @@ async function isAuthorized(
 
   const authHeader = req.headers.get("Authorization");
   if (!authHeader) return false;
-  if (authHeader === `Bearer ${serviceKey}`) return true;
+  const bearer = /^Bearer\s+(.+)$/i.exec(authHeader)?.[1]?.trim() ?? "";
+  if (bearer && bearer === serviceKey) return true;
 
   const userClient = createClient(url, anonKey, {
     global: { headers: { Authorization: authHeader } },
@@ -1162,9 +1163,9 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({ error: "Method not allowed" }, 405);
   }
 
-  const url = Deno.env.get("SUPABASE_URL") ?? "";
-  const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+  const url = (Deno.env.get("SUPABASE_URL") ?? "").trim();
+  const anonKey = (Deno.env.get("SUPABASE_ANON_KEY") ?? "").trim();
+  const serviceKey = (Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "").trim();
   if (!url || !anonKey || !serviceKey) {
     return jsonResponse({ error: "Supabase not configured" }, 500);
   }
@@ -1214,8 +1215,8 @@ const PDF_SPLIT_STALE_MS = 10 * 60 * 1000;
 
 /** Notify the Vercel splitter when a needs_split job can be claimed. Does not claim it here. */
 function kickPdfSplit(admin: SupabaseClient) {
-  const splitUrl = Deno.env.get("PDF_SPLIT_URL");
-  const splitSecret = Deno.env.get("PDF_SPLIT_SECRET");
+  const splitUrl = (Deno.env.get("PDF_SPLIT_URL") ?? "").trim();
+  const splitSecret = (Deno.env.get("PDF_SPLIT_SECRET") ?? "").trim();
   if (!splitUrl || !splitSecret) return;
   EdgeRuntime.waitUntil((async () => {
     const now = new Date().toISOString();
