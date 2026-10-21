@@ -1,56 +1,64 @@
 # FDS 2.1 內部 Beta 測試指引
 
-最後更新：2026-10-20
+最後更新：2026-10-21
 對象：傢俬組（uploader）、PM、設計師、管理員
-紀錄：測試問題回報到 Daily Command Log 或直接貼給開發，附頁面＋型號＋截圖。
+紀錄：測試問題回報到 Daily Command Log，或直接貼給開發，附頁面、型號、截圖。
 
 ---
 
-## 1. Beta 版本內容
+## 0. 怎麼打開 Beta
+
+| | 內部 Beta | 正式站 |
+|---|---|---|
+| 網址 | https://bwfbwfbranding-work-furniture-git-develop-bwsystem.vercel.app | https://www.bwteam-furniture.com 、https://bwteam-furniture.com |
+| Git | `develop` | `main` |
+| 資料庫 | FDS2.0 分支 `omxizeukbcqzsnjsuwod` | 正式庫 `riaubhtruisbwdlwjzur` |
+
+- 用上面的 develop preview。`bwteam-furniture.com` 仍是正式站，上面還沒有這輪 Beta 的資料。
+- Preview 要先過 Vercel 登入（團隊 SSO）。登入後，develop 建置會出現「一鍵登入」。
+- 一鍵登入只在 git 分支剛好是 `develop` 時存在。正式站用「使用 PMS 登入」。
+- 在 Beta 上載、審核、改價，寫進的是分支庫，不會改正式庫的產品。
+
+## 1. 現在可以測的功能
 
 | 功能 | 入口 | 角色 |
 |---|---|---|
-| 供應商 PDF 上載＋解析（文字＋Grok OCR） | 產品管理 → 上載報價PDF →「供應商文件」 | admin／uploader |
-| AI 提取審核（逐筆／批量、改欄、選主圖、開原文頁） | 產品管理 → AI 提取審核 | admin／uploader |
-| 匯入產品庫（型號＋廠家身份、追加報價不改既有產品） | 同上，審核通過後按「匯入產品庫」 | admin／uploader |
-| 產品搜索／詳情／溯源（折扣價＋原價，成本按角色遮蔽） | 設計師選傢俬 → 產品類型 | 全部職員 |
-| 以圖搜款（Top 5 相似款） | 產品類型搜索框旁相機按鈕 | 全部職員 |
-| 多供應商比較＋歷史價（不標最低價） | 產品詳情「比較」 | 全部職員（成本限 admin/uploader） |
-| 參數化建模（桌/書架/櫃 GLB） | 設計師選傢俬 → SU模型 / 3D模型 | 全部職員 |
-| Canva 客戶簡報（新需求尚未完成；目前為舊 PPTX 匯入流程） | PM報價 → 簡報生成 | 沿用既有授權；新通路待 PoC |
+| 供應商 PDF 上載與解析 | 產品管理 → 上載報價PDF →「供應商文件（原始 PDF）」 | admin／uploader |
+| AI 提取審核（逐筆、批量、改欄、選主圖） | 產品管理 → AI 提取審核 | admin／uploader |
+| 匯入產品庫（同廠同型號沿用既有產品，只追加報價） | 審核通過後按「匯入產品庫」 | admin／uploader |
+| 產品搜索、詳情、多供應商與歷史價 | 設計師選傢俬 → 產品類型 | 全部職員；成本只給 admin／uploader |
+| 以圖搜款 | 產品類型搜索旁的以圖搜款 | 全部職員 |
+| 開原文頁 | 產品卡片／詳情的來源。沒有權限時不顯示入口 | 只限 admin／uploader |
+| 3D 預覽（GLB）與生成 SU／3D | 打開產品詳情。側欄沒有獨立的「SU 模型／3D 模型」 | 全部職員 |
+| 簡報 | PM報價 → 簡報生成 | 見下方限制；真實客戶簡報驗收未完成 |
 
-## 2. 推薦測試流程（上載 → 解析 → 審核 → 搜索 → 溯源）
+## 2. 建議走一遍的流程
 
-1. 上載：上載報價PDF →「供應商文件」面板選 PDF（≤60MB、≤200MB 儲存上限）→ 文件排隊解析。狀態轉「解析中 → 審核中」。
-2. 解析：頁面分類（封面/目錄/產品/價目表/條款）、逐頁文字（掃描頁走 OCR）、分段、意 AI 結構化。文件大時分批跑（每批刷新狀態）。
-3. 審核：「需注意」欄先處理（缺型號、價格不在原文、缺幣種、尺寸可疑）。可在欄位直接改值（顯示 AI 原值），改完才可批量通過。
-4. 價格閘門：`price_not_in_source`／`missing_price` 必須人工補價才可通過；未確認項批量通過會自動跳過。
-5. 匯入：全部/選中已通過項 →「匯入產品庫」。同廠家同型號沿用既有產品（不會改它的資料），只追加報價與來源。
-6. 搜索：產品類型頁搜型號（去符號也命中：`FDS-T900` / `fds t900`）、疊加篩選、點卡片/詳情看多供應商與歷史價。
-7. 溯源：詳情與卡片的「來源」直接開原文 PDF 對應頁（bbox 有座標時畫框）。
-8. 簡報新需求待實作：提供匯報內容／素材 → Canva 設計 → Canva 編輯 → 保存並下載 PPTX → PowerPoint 驗證。現有選產品、本機 PPTX 下載及 Canva 匯入不能視為通過此驗收。
+1. 上載：上載報價PDF → 供應商文件，選 PDF。儲存上限 200MB。超過 60MB 的檔 Edge 不會解析，會等 Python Worker。
+2. 解析：狀態由排隊轉到解析中、審核中。大檔分批跑。上載後畫面會立刻叫醒 worker。若某批在最後一次執行時被中斷，每分鐘的 cron 仍會叫醒 worker：排隊中的任務仍看剩餘次數；心跳超過 10 分鐘的 running 任務不看次數，由 claim 標成 `worker_timeout` 或續跑。
+3. 審核：先處理「需注意」（缺型號、價格不在原文、缺幣種、尺寸可疑）。欄位可改，改完才批量通過。
+4. 價格：`price_not_in_source`、`missing_price` 要人工補價才能通過。未確認項在批量通過時會被跳過。
+5. 匯入：已通過的項目按「匯入產品庫」。同廠家同型號沿用既有產品，只追加報價與來源。
+6. 搜索：產品類型頁搜型號。去掉符號也會命中，例如 `FDS-T900` 與 `fds t900`。篩選可以疊加。
+7. 溯源：admin／uploader 可從詳情或卡片打開原文 PDF 對應頁。其他角色看不到這道入口，也拿不到整份報價 PDF。
 
-### SKP 新流程驗收（待實作，不能當作目前可用）
+## 3. 不要當成已通過的項目
 
-1. 上傳 SKP 並綁定產品／模型工作項；等待預覽轉換完成，於系統內旋轉、縮放、平移，下載原檔核對。
-2. 同一產品再點生成，應先列出上傳及過往生成版本，提示是否沿用，可先預覽。
-3. 選「使用此文件」不再呼叫 AI、不新增生成任務；選「仍要重新生成」才建新版本，舊檔保留。
-4. 查詢失敗不可當作沒有文件；損壞／無權限檔不可沿用。預覽失敗需可重試，原檔有效時仍可下載。
-5. 上傳 SKP 會排 `preview_skp` 任務，由 Windows SKP Worker（SketchUp + `skp_preview.rb`）轉 GLB 後在產品詳情預覽；需 Worker 在線，且要在實機 SKP 樣本驗證 T-807a 轉換品質。
-## 3. 已知限制（至 2026-10-20）
+- **真實 PDF 準確率（T-503）**：還沒有用 5–10 份真實供應商 PDF 對答案。目前的解析驗收不是這次回測。
+- **SKP 寫檔與 SketchUp 實機（T-802a、T-802b、T-803）**：這次不測、不驗收。產品詳情可以上載或下載 SKP／GLB／FBX，也可以排「生成 SU」。生成與上載後的預覽都要 Windows SKP Worker 在線。Worker 不在線時任務只會留在排隊。未在 SketchUp 裡打開核對過的檔，不能算通過。
+- **Canva 真實簡報（T-901～903）**：PM報價 → 簡報生成是 Canva 頁。舊的「舊版產品 PPTX」模式已拿掉。還沒有用一份真實客戶匯報走完「Canva 設計 → 編輯 → 下載 PPTX → PowerPoint 仍可編輯」。不要把現有頁面當成這項驗收已通過。
+- 建模類型已包含桌、櫃、梳化、辦公椅等。這不是「系統拒絕沙發／椅子」。未按設計圖還原組件結構，也沒有加工級精度。
 
-- **解析準確率未做真實 PDF 對答案**（計劃 T-503）：目前只用合成 27 頁文件驗收；價格提取準確率要等 5–10 份真實供應商 PDF 回測。
-- 非 JPEG 的掃描頁（CCITT／Flate／JPX）與 PDF 內嵌 Flate 圖不支援，會標 `unsupported`（等 Python Worker）。
-- Edge worker 只接 ≤60MB PDF（Storage 上限 200MB）。
-- AI 產品的分類暫存文字 `category`；`product_category_id` 要在「待處理產品」人工歸類；AI 顏色是原文（多為中文），顏色篩選按原文比對。
-- 建模：目前為四類固定模板 GLB 原型，未依設計圖還原組件結構，AI 估算尺寸的來源標記亦待修正。方案是參數化幾何引擎，不用 OpenSKP；SKP 由 SketchUp 官方 C SDK 在 Windows SKP Worker 寫出。SU 頁可排「生成 SKP」，但 worker 未上線前任務只會排隊；`skp_writer.exe` 未編譯、未在 SketchUp 實機驗收（T-802a／T-803）。產品詳情可上載／下載 SKP、GLB。現有程式仍會拒絕沙發／椅子／曲面，這是待修正的實作落差，不是新版需求限制。完整流程與驗收見完整需求 F-AI-008、技術架構第 7 節。
-- 簡報：使用者內容到 Canva 原生設計、編輯及下載的完整通路未驗證，T-901～903 待重做。既有本機 PPTX／Design Imports 不符合新需求，不能只補 secrets 後標示完成。
-- 重新解析會保留已審核項目、同型號不重複產生；已匯入的價錢不能透過審核改動（要另開新報價）。
-- 供應商文件/審核/成本頁只對 admin 與傢俬組（uploader）；其他角色搜索只能見折扣價＋原價，看不到任何成本價。
+## 4. 其他限制
 
-## 4. 後台/運維提示
+- 非 JPEG 的掃描頁（CCITT／Flate／JPX）與 PDF 內嵌 Flate 圖會標 `unsupported`。
+- AI 產品的分類先寫在文字 `category`。`product_category_id` 要在「待處理產品」人工歸類。顏色篩選比對的是原文（多為中文）。
+- 重新解析會保留已審核項目。已匯入的價錢不能在審核裡改掉，要另開一筆報價。
+- 供應商文件、審核、成本只給 admin 與傢俬組（uploader）。其他角色在搜索只看到折扣價與原價。
 
-- 任務層：`processing_jobs` 一文件一活動任務（partial unique index）、`idempotency_key` 唯一；斷點續跑用 checkpoint，不燒重試次數。失敗可在「供應商文件」面板重試／取消。
-- 部署：FDS 2.1 的 migration 與 edge functions **必須同時部署**到正式 `riaubhtruisbwdlwjzur` 與分支 `omxizeukbcqzsnjsuwod`；edge slug 固定 `supabase-functions-<name>`（部署腳本 `scripts/deploy-edge-functions.ps1`）。
-- Canva secrets（未設）：`CANVA_CLIENT_ID`／`CANVA_CLIENT_SECRET` 設到兩個 project 的 Edge secrets；redirect URI＝`<域名>/fds/pm/presentation`。
-- 成本：`processing_jobs` 記 tokens／OCR 頁／時長／費用；文件列表可查。
+## 5. 給維護的人
+
+- 任務表 `processing_jobs`：一份文件同時只會有一個活動任務；`idempotency_key` 唯一。失敗可在供應商文件面板重試或取消。
+- migration 與 edge function 要分別部署到正式庫 `riaubhtruisbwdlwjzur` 與分支 `omxizeukbcqzsnjsuwod`。前端呼叫的 slug 是 `supabase-functions-<name>`。
+- 正式庫還缺一批已在分支上的 FDS migration。不要用整包 `db push` 補，逐份核對後再上。
+- Canva 的 Edge secret（`CANVA_CLIENT_ID`、`CANVA_CLIENT_SECRET`）若未設，簡報頁連不上 Canva。redirect URI 用該環境的網域加 `/fds/pm/presentation`。
