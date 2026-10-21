@@ -1269,6 +1269,11 @@ async function analyzeProductImages(urls: (string | File)[], request: AnalysisRe
 type ModelDraft = StructureDraft;
 
 const AXIS_INDEX: Record<SizeAxis, 0 | 1 | 2> = { width: 0, depth: 1, height: 2 };
+const AXIS_MM: Record<SizeAxis, 'width_mm' | 'depth_mm' | 'height_mm'> = {
+  width: 'width_mm',
+  depth: 'depth_mm',
+  height: 'height_mm',
+};
 /** Which size axes a profile outline spans, per extrusion axis (same as the engine's PLANE). */
 const PART_PLANE: Record<'x' | 'y' | 'z', [number, number]> = { z: [0, 1], y: [0, 2], x: [1, 2] };
 
@@ -1413,8 +1418,16 @@ function ProductModelsSection({
   );
 
   const dimensionConflictsFor = useCallback(
-    (estimates: DimensionEstimate[] | undefined, consolidated: { width_mm: number | null; depth_mm: number | null; height_mm: number | null }) =>
-      buildDimensionConflicts(estimates, { catalog: catalogDimensions, consolidated }),
+    (
+      estimates: DimensionEstimate[] | undefined,
+      consolidated: { width_mm: number | null; depth_mm: number | null; height_mm: number | null },
+      resolvedAxes: SizeAxis[] = [],
+    ) =>
+      buildDimensionConflicts(estimates, {
+        catalog: catalogDimensions,
+        consolidated,
+        ignoreAxes: resolvedAxes.map((axis) => AXIS_MM[axis]),
+      }),
     [catalogDimensions],
   );
   const [files, setFiles] = useState<ProductModelFile[] | null>(null);
@@ -1752,11 +1765,17 @@ function ProductModelsSection({
     setDraft((current) => {
       if (!current) return current;
       const estimated = editedAxis ? current.estimated.filter((axis) => axis !== editedAxis) : current.estimated;
+      const resolved = new Set(current.resolvedSizeAxes ?? []);
+      (['width', 'depth', 'height'] as SizeAxis[]).forEach((axis) => {
+        if (editedAxis === axis || (patch[axis] != null && patch[axis] !== current[axis])) resolved.add(axis);
+      });
+      const resolvedSizeAxes = [...resolved];
       const next = {
         ...current,
         ...patch,
         ...(patch.style ? { style: { ...current.style, ...patch.style } } : {}),
         estimated,
+        resolvedSizeAxes,
       };
       const width = Number(next.width);
       const depth = Number(next.depth);
@@ -1765,7 +1784,7 @@ function ProductModelsSection({
         width_mm: Number.isFinite(width) && width > 0 ? width : null,
         depth_mm: Number.isFinite(depth) && depth > 0 ? depth : null,
         height_mm: Number.isFinite(height) && height > 0 ? height : null,
-      });
+      }, resolvedSizeAxes);
       return next;
     });
   };
@@ -1898,6 +1917,10 @@ function ProductModelsSection({
     const height = Number(draft.height);
     if (![width, depth, height].every((n) => Number.isFinite(n) && n > 0)) {
       toast('請填寫闊、深、高（mm）');
+      return;
+    }
+    if ((draft.dimensionConflicts?.length ?? 0) > 0) {
+      toast.error('尺寸仍有矛盾，請先修正後再生成');
       return;
     }
     if (kind === 'custom' && draft.parts.length === 0) {

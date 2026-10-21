@@ -96,6 +96,8 @@ export type StructureDraft = {
   /** T-804: cross-view or catalogue vs image mismatches; cleared when user edits a size field. */
   dimensionConflicts?: string[];
   dimensionEstimates?: import('@/lib/dimensionConflicts').DimensionEstimate[];
+  /** Axes edited in this draft. Conflicts on these axes are dropped. */
+  resolvedSizeAxes?: SizeAxis[];
 };
 
 /** Y-up metres, same mapping as the GLB writer: (x, y, z) → (x, z, −y). */

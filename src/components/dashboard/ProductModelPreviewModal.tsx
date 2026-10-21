@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Box, Loader2, RotateCcw } from 'lucide-react';
 import { Modal, ModalButton } from '@/components/ui/modal';
 import { GlbViewport, type ViewportTool } from '@/components/dashboard/GlbViewport';
@@ -43,15 +43,23 @@ export function ProductModelPreviewModal({
   const [resetKey, setResetKey] = useState(0);
   const [status, setStatus] = useState('');
   const [retryBusy, setRetryBusy] = useState(false);
+  const onPreviewChangeRef = useRef(onPreviewChange);
+  onPreviewChangeRef.current = onPreviewChange;
+  const previewStatusRef = useRef(preview?.status);
+  previewStatusRef.current = preview?.status;
+  const autoRequestedId = useRef<string | null>(null);
 
   const glbPath = file ? previewGlbPath({ ...file, preview: preview ?? file.preview }) : null;
 
-  const refreshPreview = useCallback(async () => {
-    if (!file || file.format !== 'skp') return;
-    const next = await fetchSkpPreviewStatus(file.id);
+  const refreshPreview = useCallback(async (productModelId: string) => {
+    const next = await fetchSkpPreviewStatus(productModelId);
+    const prev = previewStatusRef.current;
+    previewStatusRef.current = next.status;
     setPreview(next);
-    if (next.status === 'ready' || next.status === 'failed') onPreviewChange?.();
-  }, [file, onPreviewChange]);
+    if (prev !== next.status && (next.status === 'ready' || next.status === 'failed')) {
+      onPreviewChangeRef.current?.();
+    }
+  }, []);
 
   useEffect(() => {
     if (!open || !file) {
@@ -103,22 +111,37 @@ export function ProductModelPreviewModal({
   }, [open, file, preview, glbPath]);
 
   useEffect(() => {
-    if (!open || !file || file.format !== 'skp') return;
-    const current = preview ?? file.preview;
-    if (current?.status === 'ready') return;
-    if (current?.status === 'none') {
-      void requestSkpPreview(file.id)
-        .then((next) => setPreview(next))
-        .catch(() => undefined);
-    }
-    if (!skpPreviewPending({ ...file, preview: current }) && current?.status !== 'none' && current?.status !== 'failed') {
-      return;
+    if (!open) autoRequestedId.current = null;
+  }, [open]);
+
+  useEffect(() => {
+    const productModelId = file?.id;
+    const format = file?.format;
+    const filePreviewStatus = file?.preview?.status;
+    if (!open || !productModelId || format !== 'skp') return;
+    const currentStatus = preview?.status ?? filePreviewStatus;
+    if (currentStatus === 'ready' || currentStatus === 'failed') return;
+    let cancelled = false;
+    if ((!currentStatus || currentStatus === 'none') && autoRequestedId.current !== productModelId) {
+      autoRequestedId.current = productModelId;
+      void requestSkpPreview(productModelId)
+        .then((next) => {
+          if (cancelled) return;
+          previewStatusRef.current = next.status;
+          setPreview(next);
+        })
+        .catch((err: unknown) => {
+          if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+        });
     }
     const timer = window.setInterval(() => {
-      void refreshPreview().catch(() => undefined);
+      void refreshPreview(productModelId).catch(() => undefined);
     }, PREVIEW_POLL_MS);
-    return () => window.clearInterval(timer);
-  }, [open, file, preview, refreshPreview]);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [open, file?.id, file?.format, file?.preview?.status, preview?.status, refreshPreview]);
 
   const title = file?.file_name ?? (file ? `${file.format.toUpperCase()} 模型` : '模型預覽');
   const hint = file?.format === 'skp' ? previewLabel(preview ?? file.preview) : '';

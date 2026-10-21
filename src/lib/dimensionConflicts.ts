@@ -40,15 +40,19 @@ export function buildDimensionConflicts(
     tolerance?: number;
     catalog?: { width_mm?: number | null; depth_mm?: number | null; height_mm?: number | null };
     consolidated?: { width_mm?: number | null; depth_mm?: number | null; height_mm?: number | null };
+    /** Axes the user has already edited. Those readings no longer block generation. */
+    ignoreAxes?: Array<'width_mm' | 'depth_mm' | 'height_mm'>;
   },
 ): string[] {
   const tolerance = options?.tolerance ?? DIMENSION_CONFLICT_TOLERANCE;
+  const ignore = new Set(options?.ignoreAxes ?? []);
   const messages: string[] = [];
   const rows = (estimates ?? []).filter((row) =>
     AXIS_META.some(({ key }) => positive(row[key]) != null),
   );
 
   for (const { key, label } of AXIS_META) {
+    if (ignore.has(key)) continue;
     const byView = rows
       .map((row) => ({ view: (row.view ?? '視圖').trim() || '視圖', value: positive(row[key]) }))
       .filter((entry): entry is { view: string; value: number } => entry.value != null);
@@ -65,6 +69,7 @@ export function buildDimensionConflicts(
   const consolidated = options?.consolidated;
   if (catalog && consolidated) {
     for (const { key, label } of AXIS_META) {
+      if (ignore.has(key)) continue;
       const cat = positive(catalog[key]);
       const ai = positive(consolidated[key]);
       if (cat == null || ai == null) continue;
