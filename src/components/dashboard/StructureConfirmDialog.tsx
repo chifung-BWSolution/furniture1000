@@ -22,6 +22,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import type { DimensionEstimate } from '@/lib/dimensionConflicts';
 import {
   FURNITURE_GROUPS,
   FURNITURE_KINDS,
@@ -91,6 +92,9 @@ export type StructureDraft = {
   styleSource: 'image' | 'name';
   notes: string | null;
   parts: CustomPartSpec[];
+  /** T-804: cross-view or catalogue vs image mismatches; cleared when user edits a size field. */
+  dimensionConflicts?: string[];
+  dimensionEstimates?: import('@/lib/dimensionConflicts').DimensionEstimate[];
 };
 
 /** Y-up metres, same mapping as the GLB writer: (x, y, z) → (x, z, −y). */
@@ -421,6 +425,7 @@ export function StructureConfirmForm({
   const showNotes = kind != null;
   const structureWord = showTop ? '桌面結構' : '結構';
   const outputName = draft.target === 'su' ? 'SU' : '3D';
+  const hasDimensionConflicts = (draft.dimensionConflicts?.length ?? 0) > 0;
 
   let step = 0;
   const stepNo = () => String(++step).padStart(2, '0');
@@ -457,6 +462,17 @@ export function StructureConfirmForm({
           <X className="h-4 w-4" />
         </button>
       </header>
+
+      {hasDimensionConflicts && (
+        <div className="mx-5 mb-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+          <p className="font-medium">多視圖或產品資料尺寸不一致，請先核對並手動修正後再生成：</p>
+          <ul className="mt-1.5 list-disc space-y-1 pl-5 text-[13px] leading-relaxed">
+            {draft.dimensionConflicts!.map((line) => (
+              <li key={line}>{line}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-4 lg:overflow-hidden">
         <div className="grid gap-3 lg:h-full lg:grid-cols-[minmax(0,1.08fr)_minmax(300px,0.92fr)] lg:overflow-hidden">
@@ -727,7 +743,7 @@ export function StructureConfirmForm({
           <Button
             type="button"
             className="h-10 rounded-lg bg-[#5b4dff] px-4 text-white shadow-none hover:bg-[#4a3cf0] focus-visible:ring-[#5b4dff]/40"
-            disabled={generating || partsBusy || (kind === 'custom' && draft.parts.length === 0)}
+            disabled={generating || partsBusy || hasDimensionConflicts || (kind === 'custom' && draft.parts.length === 0)}
             onClick={onGenerate}
           >
             {generating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
