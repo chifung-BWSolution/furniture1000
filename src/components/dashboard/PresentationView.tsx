@@ -21,7 +21,7 @@ import {
 } from '@/components/ui/select';
 import type { SearchProduct, SearchResult } from '@/lib/productSearch';
 import { searchProducts } from '@/lib/productSearch';
-import { CANVA_AUTOFILL_DOC_PATH, FDS_CANVA_BRAND_FIELDS } from '@/lib/canvaBrandTemplate';
+import { CANVA_AUTOFILL_DOC_PATH, FDS_CANVA_BRAND_FIELDS, canvaAutofillNotices } from '@/lib/canvaBrandTemplate';
 import {
   canvaDisconnect, exchangeCanvaCode, fetchCanvaStatus,
   readCanvaOauthCallback, startCanvaConnect, clearCanvaOauthState, type CanvaStatus,
@@ -392,12 +392,14 @@ export function PresentationView() {
       if (session.edit_url) {
         setCanvaLink({ edit_url: session.edit_url, title: payload.title });
         const mode = session.generation_mode ?? 'blank';
+        const notices = canvaAutofillNotices(session.populate_report);
         toast.success('已建立 Canva 簡報', {
           description:
             mode === 'autofill'
               ? '大綱與產品資料已填入品牌模板；請在 Canva 內微調版面後匯出 PPTX。'
               : '未啟用 Autofill（請設定 CANVA_BRAND_TEMPLATE_ID 並重新授權）；目前為空白 presentation。',
         });
+        if (notices.length > 0) toast.warning('產品頁提示', { description: notices.join('') });
       }
       await refreshSessions();
       await refreshStatus();
@@ -795,6 +797,9 @@ export function PresentationView() {
                   <span className="truncate">在 Canva 編輯：{canvaLink.title ?? '設計'}</span>
                 </a>
               )}
+              {canvaAutofillNotices(activeSession?.populate_report).map((notice) => (
+                <p key={notice} className="text-sm text-amber-800 dark:text-amber-200">{notice}</p>
+              ))}
               {activeSession?.canva_design_id && (
                 <div className="space-y-2 rounded-xl border bg-muted/40 p-3">
                   <p className="text-xs text-muted-foreground">

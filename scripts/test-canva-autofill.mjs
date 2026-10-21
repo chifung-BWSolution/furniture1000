@@ -19,8 +19,17 @@ const {
   buildAutofillPayload,
   createDatasetMatcher,
   productImageFieldNeeds,
+  productSlotCount,
   unmatchedBrandTemplateMessage,
 } = context.exports;
+
+const uiContext = { exports: {} };
+vm.createContext(uiContext);
+vm.runInContext(ts.transpileModule(
+  fs.readFileSync(new URL('../src/lib/canvaBrandTemplate.ts', import.meta.url), 'utf8'),
+  { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } },
+).outputText, uiContext);
+const { canvaAutofillNotices } = uiContext.exports;
 
 const failures = [];
 const check = (name, run) => {
@@ -95,6 +104,49 @@ check('unmatched template fields produce an empty payload and a Chinese field li
   assert.match(message, /Headline/);
   assert.match(message, /Body copy/);
   assert.match(message, /已停止呼叫 Canva/);
+});
+
+function numberedProduct(n) {
+  return { ...product, id: `p${n}`, title: `產品${n}` };
+}
+
+check('slot count is the highest product index in the dataset', () => {
+  assert.equal(productSlotCount(['FDS_PROD_01_TITLE', 'fds-prod-03-image', 'FDS_COVER_TITLE']), 3);
+  assert.equal(productSlotCount(['product_08_title', 'product_2_details']), 8);
+  assert.equal(productSlotCount(['title', 'outline']), 0);
+});
+
+check('extra products fill only the first slots and warn', () => {
+  const keys = ['FDS_PROD_01_TITLE', 'FDS_PROD_02_TITLE', 'FDS_PROD_03_DETAILS'];
+  const products = [1, 2, 3, 4, 5].map(numberedProduct);
+  const { data, report } = buildAutofillPayload({ title: '封面' }, products, createDatasetMatcher(keys));
+  assert.equal(data.FDS_PROD_01_TITLE.text, '產品1');
+  assert.equal(data.FDS_PROD_02_TITLE.text, '產品2');
+  assert.equal(data.FDS_PROD_03_TITLE, undefined);
+  assert.equal(report.product_slot_count, 3);
+  assert.equal(report.products_included, 3);
+  assert.equal(JSON.stringify(report.unused_slots), '[]');
+  const warning = report.warnings.find((item) => item && item.code === 'products_truncated');
+  assert.equal(warning.slot_count, 3);
+  assert.equal(warning.selected, 5);
+});
+
+check('unused slot numbers are the blank product pages', () => {
+  const keys = ['FDS_PROD_01_TITLE', 'FDS_PROD_04_IMAGE'];
+  const { report } = buildAutofillPayload({ title: '封面' }, [numberedProduct(1)], createDatasetMatcher(keys));
+  assert.equal(report.product_slot_count, 4);
+  assert.equal(JSON.stringify(report.unused_slots), JSON.stringify([2, 3, 4]));
+  assert.equal(report.warnings.some((item) => item && item.code === 'products_truncated'), false);
+});
+
+check('frontend describes truncation and blank pages in Chinese', () => {
+  const truncated = canvaAutofillNotices({
+    warnings: [{ code: 'products_truncated', slot_count: 3, selected: 5 }],
+    unused_slots: [],
+  });
+  assert.equal(truncated[0], '已選 5 件產品，模板只有 3 個產品欄位，已填入前 3 件。');
+  const blank = canvaAutofillNotices({ warnings: [], unused_slots: [2, 3, 4] });
+  assert.equal(blank[0], '第 2 至 4 個產品頁是空白，可在 Canva 刪除。');
 });
 
 check('image fields resolve to the template key', () => {

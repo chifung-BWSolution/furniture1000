@@ -28,7 +28,14 @@ export const AUTOFILL_SCOPES = [
 
 const MAX_OUTLINE_CHUNKS = 5;
 const OUTLINE_CHUNK_SIZE = 900;
-const MAX_PRODUCTS = Number(Deno.env.get("CANVA_AUTOFILL_MAX_PRODUCTS") ?? "12");
+/** Example length for the unmatched-field list. Runtime slots come from the template dataset. */
+const DOCUMENTED_PRODUCT_SLOTS = 12;
+
+const PRODUCT_SLOT_PATTERNS = [
+  /^(?:fds_)?prod_(\d+)_(?:title|details|image)$/,
+  /^product_(\d+)_(?:title|details|image|name|description)$/,
+  /^(?:title|details|image)_(\d+)$/,
+];
 
 function pad2(n: number): string {
   return String(n).padStart(2, "0");
@@ -174,8 +181,7 @@ export function canonicalAutofillFields(): string[] {
     FDS_CANVA_FIELD.OUTLINE_FULL,
   ];
   for (let i = 1; i <= MAX_OUTLINE_CHUNKS; i++) names.push(FDS_CANVA_FIELD.outlineChunk(i));
-  const slots = Number.isFinite(MAX_PRODUCTS) && MAX_PRODUCTS > 0 ? Math.min(Math.floor(MAX_PRODUCTS), 12) : 12;
-  for (let n = 1; n <= slots; n++) {
+  for (let n = 1; n <= DOCUMENTED_PRODUCT_SLOTS; n++) {
     names.push(
       FDS_CANVA_FIELD.productTitle(n),
       FDS_CANVA_FIELD.productDetails(n),
@@ -256,6 +262,26 @@ export function createDatasetMatcher(datasetKeys: Iterable<string>): DatasetMatc
   };
 }
 
+/** Highest product index in the dataset. Slots are 1..that number, including gaps. */
+export function productSlotCount(datasetKeys: Iterable<string>): number {
+  let highest = 0;
+  for (const key of datasetKeys) {
+    const normalized = normalizeFieldName(key);
+    for (const pattern of PRODUCT_SLOT_PATTERNS) {
+      const match = pattern.exec(normalized);
+      const n = match ? Number(match[1]) : 0;
+      if (Number.isInteger(n) && n > highest) highest = n;
+    }
+  }
+  return highest;
+}
+
+export function unusedProductSlots(slotCount: number, filled: number): number[] {
+  const slots: number[] = [];
+  for (let n = filled + 1; n <= slotCount; n++) slots.push(n);
+  return slots;
+}
+
 export function unmatchedBrandTemplateMessage(templateFields: string[]): string {
   const shown = templateFields.slice(0, 40);
   const actual = shown.length
@@ -295,7 +321,7 @@ export function buildAutofillPayload(
   const data: Record<string, AutofillDataValue> = {};
   const used: string[] = [];
   const canonicalUsed: string[] = [];
-  const warnings: string[] = [];
+  const warnings: Array<string | { code: string; slot_count: number; selected: number }> = [];
 
   const title = String(brief.title ?? brief.project ?? brief.client ?? "客戶簡報").trim();
   const subtitle = [brief.project, brief.client].filter(Boolean).map(String).join(" · ");
@@ -335,7 +361,8 @@ export function buildAutofillPayload(
     }
   }
 
-  const ordered = products.slice(0, MAX_PRODUCTS);
+  const slotCount = productSlotCount(matcher.keys());
+  const ordered = products.slice(0, slotCount);
   ordered.forEach((p, idx) => {
     const n = idx + 1;
     const pTitle = (p.title ?? "").trim() || (p.model ?? "").trim() || "產品";
@@ -346,8 +373,9 @@ export function buildAutofillPayload(
     }
   });
 
-  if (products.length > MAX_PRODUCTS) {
-    warnings.push(`products_truncated_${MAX_PRODUCTS}`);
+  const unusedSlots = unusedProductSlots(slotCount, ordered.length);
+  if (products.length > slotCount) {
+    warnings.push({ code: "products_truncated", slot_count: slotCount, selected: products.length });
   }
 
   return {
@@ -355,7 +383,10 @@ export function buildAutofillPayload(
     report: {
       fields_sent: used,
       canonical_fields: canonicalUsed,
+      products_selected: products.length,
       products_included: ordered.length,
+      product_slot_count: slotCount,
+      unused_slots: unusedSlots,
       outline_length: outline.length,
       warnings,
     },
@@ -367,7 +398,8 @@ export function productImageFieldNeeds(
   matcher: DatasetMatcher,
 ): { index: number; url: string; field: string }[] {
   const out: { index: number; url: string; field: string }[] = [];
-  products.slice(0, MAX_PRODUCTS).forEach((p, idx) => {
+  const slotCount = productSlotCount(matcher.keys());
+  products.slice(0, slotCount).forEach((p, idx) => {
     const n = idx + 1;
     const field = matcher.resolve(FDS_CANVA_FIELD.productImage(n));
     if (!field) return;

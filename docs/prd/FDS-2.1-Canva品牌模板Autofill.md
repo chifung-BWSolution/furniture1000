@@ -28,7 +28,6 @@
 |--------|------|------|
 | `CANVA_CLIENT_ID` / `CANVA_CLIENT_SECRET` | 是 | 既有 |
 | `CANVA_BRAND_TEMPLATE_ID` | **T-902 必填** | 已發佈品牌模板 ID（URL 最後一段，如 `AEN3TrQftXo`） |
-| `CANVA_AUTOFILL_MAX_PRODUCTS` | 否 | 預設 `12`，對應模板產品欄位數 |
 
 未設定 `CANVA_BRAND_TEMPLATE_ID` 時，建立設計會 **降回 T-901 空白 presentation**（並在 UI 提示）。
 
@@ -71,7 +70,14 @@
 | `FDS_PROD_01_DETAILS` | `prod_01_details`、`product_01_details`、`product_1_details`、`details_01`、`product_01_description` |
 | `FDS_PROD_01_IMAGE` | `prod_01_image`、`product_01_image`、`product_1_image`、`image_01` |
 
-`title` 只對應封面標題，不會被拿去填產品名稱。產品欄位 02–12 的別名規則與 01 相同。
+`title` 只對應封面標題，不會被拿去填產品名稱。產品欄位 02 以後的別名規則與 01 相同。
+
+### 產品頁數量
+
+模板請按你可能用到的**最多產品頁**來做，頁碼連續：`FDS_PROD_01_*`、`FDS_PROD_02_*`，一直做到最後一頁。Edge 讀 dataset 裡 `FDS_PROD_NN_*`（以及同等別名）的**最高 NN**，那個數字就是欄位數。沒選到的產品頁保持空白。
+
+- 選中的產品少於欄位：從第 1 頁填起，其餘留空。回應的 `unused_slots` 列出空白頁編號，畫面會用中文提示可在 Canva 刪除這些空白產品頁。
+- 選中的產品多於欄位：只填前 N 件（N = 最高編號），並回傳警告 `products_truncated`（含 `slot_count`）。畫面會用中文說明多出的產品沒有填入。
 
 若文字與圖片都對不上任何欄位，`data` 會是空的。此時 **不呼叫** `POST /autofills`，session 標為失敗，錯誤碼 `brand_template_fields_unmatched`。回應與 `canva_design_sessions.error` 會列出應使用的 `FDS_*` 名稱，以及模板 dataset 裡實際的欄位名。
 
@@ -100,7 +106,9 @@ Canva 回非成功時，回應本文會截斷後寫入 `canva_design_sessions.er
 2. 選產品：圖文出現在對應產品頁  
 3. 在 Canva 修改後匯出 PPTX → PowerPoint 可編輯  
 4. 新版本不覆蓋舊設計；匯出紀錄可追蹤  
-5. 模板欄位完全對不上：畫面顯示中文說明，並列出應使用的 `FDS_*` 與模板實際欄位；不會對 Canva 送出空的 `data`  
+5. 模板欄位完全對不上：畫面顯示中文說明，並列出應使用的 `FDS_*` 與模板實際欄位；不會對 Canva 送出空的 `data`
+6. 產品少於模板頁數：空白頁編號出現在畫面上，可到 Canva 刪除
+7. 產品多於模板頁數：只填前 N 件，畫面提示已截斷  
 
 ## 限制（需知）
 
