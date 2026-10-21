@@ -2,7 +2,6 @@
 // FDS 2.1 Day 9 — Canva 連接與匯入（F-AI-009，T-901）
 // 決議：使用 chifung.login 帳戶；OAuth Authorization-Code＋PKCE 綁定使用者；
 // 未取得有效權限不得使用他人 Canva 資料。F-AI-009 驗收見 canvaNativeDesign.ts（POST /designs）。
-// importPptxToCanva＝舊版 Design Imports，不作完成證據。
 // Client ID／Secret 存在 Supabase Edge secrets（CANVA_CLIENT_ID / CANVA_CLIENT_SECRET），
 // 前端永遠拿不到 Secret；access/refresh token 存在無公認政策的 canva_connections 表。
 // ============================================================================
@@ -89,27 +88,6 @@ export async function startCanvaConnect(redirectUri: string): Promise<string> {
   return url.toString();
 }
 
-export interface CanvaImportResult {
-  design_id: string;
-  edit_url: string;
-  title?: string;
-  /** 同一 staff 之前的匯入（最近 8 筆）。 */
-  history?: { design_id: string; title?: string; edit_url?: string; created_at: string }[];
-}
-
-export async function importPptxToCanva(
-  fileName: string,
-  base64: string,
-  productIds?: string[],
-): Promise<CanvaImportResult> {
-  return invoke<CanvaImportResult>({
-    action: 'import',
-    file_name: fileName,
-    pptx_base64: base64,
-    product_ids: productIds && productIds.length > 0 ? productIds : undefined,
-  });
-}
-
 export async function canvaDisconnect(): Promise<void> {
   await invoke({ action: 'disconnect' });
 }
@@ -139,15 +117,4 @@ export function readCanvaOauthCallback(): CanvaOauthCallback {
 
 export async function exchangeCanvaCode(code: string, verifier: string, redirectUri: string) {
   return invoke<CanvaStatus>({ action: 'exchange', code, code_verifier: verifier, redirect_uri: redirectUri });
-}
-
-/** blob → base64（無 data: 前綴），edge 端解碼。 */
-export async function blobToBase64(blob: Blob): Promise<string> {
-  const buf = new Uint8Array(await blob.arrayBuffer());
-  let bin = '';
-  const CHUNK = 0x8000;
-  for (let i = 0; i < buf.length; i += CHUNK) {
-    bin += String.fromCharCode(...buf.subarray(i, i + CHUNK));
-  }
-  return btoa(bin);
 }
