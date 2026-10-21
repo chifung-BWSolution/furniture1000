@@ -19,6 +19,7 @@ export interface ProductModelFile {
   storage_path: string;
   file_name: string | null;
   size_bytes: number | null;
+  version_note: string | null;
   created_at: string;
 }
 
@@ -69,7 +70,11 @@ async function sha256Hex(file: File): Promise<string> {
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-export async function uploadProductModel(productId: string, file: File): Promise<void> {
+export async function uploadProductModel(
+  productId: string,
+  file: File,
+  versionNote?: string | null,
+): Promise<void> {
   const format = modelFormatOf(file.name);
   if (!format) throw new Error('只接受 .skp、.glb 或 .fbx');
   if (file.size > PRODUCT_MODEL_MAX_BYTES) throw new Error('檔案超過 100MB');
@@ -83,6 +88,7 @@ export async function uploadProductModel(productId: string, file: File): Promise
     p_product_id: productId,
     p_storage_path: path,
     p_file_name: file.name,
+    p_version_note: versionNote?.trim() ? versionNote.trim() : null,
   });
   if (error) throw new Error(modelError(error.message));
 }
