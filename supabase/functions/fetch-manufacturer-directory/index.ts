@@ -11,14 +11,48 @@ const corsHeaders = {
 const FACTORY_ID_UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+function jsonResponse(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
+}
+
 /** PMS stores created_date / evaluator. The directory UI still reads created_at / staff_name. */
 function toStaffCommentShape(row: Record<string, unknown>) {
   const evaluator = typeof row.evaluator === "string" ? row.evaluator.trim() : "";
   return {
-    ...row,
-    created_at: row.created_date ?? null,
+    id: row.id ?? null,
+    factory_id: row.factory_id ?? null,
+    factory: row.factory ?? null,
+    comment: typeof row.comment === "string" ? row.comment : "",
+    created_at: row.created_date ?? row.created_at ?? null,
     staff_name: evaluator || "匿名用戶",
   };
+}
+
+async function requireDirectoryUser(req: Request): Promise<{ email: string } | Response> {
+  const furnitureUrl = Deno.env.get("SUPABASE_URL") ?? "";
+  const furnitureAnonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
+  const authHeader = req.headers.get("Authorization");
+  if (!authHeader || !furnitureUrl || !furnitureAnonKey) {
+    return jsonResponse({ error: "Unauthorized" }, 401);
+  }
+  const furnitureClient = createClient(furnitureUrl, furnitureAnonKey, {
+    global: { headers: { Authorization: authHeader } },
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const { data: userData, error: userError } = await furnitureClient.auth.getUser();
+  if (userError || !userData.user?.id) {
+    return jsonResponse({ error: "Unauthorized" }, 401);
+  }
+  const { data: allowed, error: roleError } = await furnitureClient.rpc("bwf_has_role", {
+    p_roles: ["admin", "uploader", "designer"],
+  });
+  if (roleError || allowed !== true) {
+    return jsonResponse({ error: "Forbidden" }, 403);
+  }
+  return { email: (userData.user.email ?? "").trim().slice(0, 120) };
 }
 
 Deno.serve(async (req: Request) => {
@@ -54,6 +88,9 @@ Deno.serve(async (req: Request) => {
       });
     }
 
+    const caller = await requireDirectoryUser(req);
+    if (caller instanceof Response) return caller;
+
     // Handle save feedback action. PMS factory_id is factories.id (uuid).
     if (body.action === "save_feedback" && body.feedback) {
       const { factory_id: fId, factory_name, comment, staff_name } = body.feedback;
@@ -66,16 +103,22 @@ Deno.serve(async (req: Request) => {
           },
         );
       }
-      const evaluator = (staff_name ?? "").trim() || "匿名用戶";
+      const factoryName = (factory_name ?? "").trim().slice(0, 200);
+      const commentText = (comment ?? "").trim().slice(0, 2000);
+      const displayName = (staff_name ?? "").trim().slice(0, 40);
+      if (!factoryName || !commentText) {
+        return jsonResponse({ error: "請填寫廠家名稱和意見" }, 400);
+      }
+      const evaluator = [displayName, caller.email].filter(Boolean).join(" · ").slice(0, 160) || "用戶";
       const { data: insertedComment, error: insertError } = await masterSupabase
         .from("staff_supplier_comments")
         .insert({
           factory_id: fId,
-          factory: factory_name,
-          comment,
+          factory: factoryName,
+          comment: commentText,
           evaluator,
         })
-        .select()
+        .select("id, factory_id, factory, comment, evaluator, created_date")
         .single();
 
       if (insertError) {
@@ -183,7 +226,7 @@ Deno.serve(async (req: Request) => {
     try {
       const { data, error } = await masterSupabase
         .from("staff_supplier_comments")
-        .select("*")
+        .select("id, factory_id, factory, comment, evaluator, created_date")
         .order("created_date", { ascending: false });
       if (error) {
         console.error("[fetch-manufacturer-directory] Failed to fetch comments:", error.message);

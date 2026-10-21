@@ -75,6 +75,13 @@ import {
   storeQuoteShareToken,
 } from '@/lib/customerPortalRoutes';
 import { resolveQuoteShareToken } from '@/lib/bwfQuoteShareLinks';
+import {
+  customerQuoteError,
+  fetchSharedCustomerQuote,
+  listCustomerQuotes,
+  loadCustomerSafeItems,
+  saveCustomerQuoteScheme,
+} from '@/lib/customerQuoteAccess';
 import { publishDesignProjectStickyChrome } from '@/lib/designProjectStickyChrome';
 import { unsavedGuard } from '@/lib/unsavedGuard';
 import {
@@ -1291,7 +1298,8 @@ export function CustomerQuoteSchemesView() {
   const staffName = usePmsStaffName(user?.id);
   const currentUserName = (staffName || user?.email || '用戶').trim() || '用戶';
   const { projects: clientProjects } = useClientZoneContext();
-  const { role: platformRole, loading: roleLoading } = usePlatformRole();
+  const { role: platformRole, profileRole, loading: roleLoading } = usePlatformRole();
+  const costStaff = profileRole === 'admin' || profileRole === 'uploader';
   const [searchParams] = useSearchParams();
   const quoteShareFromUrl = searchParams.get('quote_share');
   const hasPortalToken = Boolean(readStoredPortalToken());
@@ -1393,8 +1401,15 @@ export function CustomerQuoteSchemesView() {
   const fetchQuotes = useCallback(async () => {
     // Quote-share sessions load only the shared row (see resolve effect below).
     if (quoteShareGuest) return;
+    if (user && roleLoading) return;
     setLoading(true);
     try {
+      if (!costStaff) {
+        const rows = await listCustomerQuotes();
+        setQuotes(rows);
+        setActiveId((current) => current || rows[0]?.id || '');
+        return;
+      }
       const { data, error } = await supabase
         .from('bwf_quote')
         .select(LIST_SELECT)
@@ -1408,13 +1423,15 @@ export function CustomerQuoteSchemesView() {
       setActiveId((current) => current || enriched[0]?.id || '');
     } catch (error) {
       toast.error('無法載入客戶報價', {
-        description: error instanceof Error ? error.message : '請稍後再試',
+        description: error instanceof Error
+          ? error.message
+          : customerQuoteError(error as { code?: string; message?: string }),
       });
       setQuotes([]);
     } finally {
       setLoading(false);
     }
-  }, [quoteShareGuest]);
+  }, [costStaff, quoteShareGuest, roleLoading, user]);
 
   // Load exactly one quotation for quote_share links (guest or logged-in preview).
   useEffect(() => {
@@ -1434,6 +1451,76 @@ export function CustomerQuoteSchemesView() {
 
     void (async () => {
       try {
+        let sharedQuote: Awaited<ReturnType<typeof fetchSharedCustomerQuote>> | undefined;
+        let useLegacyShare = false;
+        try {
+          sharedQuote = await fetchSharedCustomerQuote(token);
+        } catch (error) {
+          const code = (error as { code?: string })?.code;
+          const message = error instanceof Error ? error.message : String((error as { message?: string })?.message || '');
+          if (code === 'PGRST202' || message.includes('get_shared_quote')) {
+            useLegacyShare = true;
+          } else {
+            throw error;
+          }
+        }
+        if (!useLegacyShare) {
+          if (cancelled) return;
+          if (!sharedQuote?.quote.id) {
+            toast.error('分享連結無效或已撤銷', {
+              description:
+                '請重新在報價單按「生成QR Code 及連結」。若剛從編輯頁開啟，請用無痕視窗或另一瀏覽器開啟連結。',
+            });
+            setSharedQuoteTarget(null);
+            setQuotes([]);
+            setShowDetail(false);
+            setLoading(false);
+            return;
+          }
+          const resolved = {
+            quoteUuid: sharedQuote.quote.id,
+            quoteId: sharedQuote.quote.quote_id,
+          };
+          storeQuoteShareTarget(resolved);
+          setSharedQuoteTarget(resolved);
+          const enriched = sharedQuote.quote as QuoteRecord;
+          const projectData =
+            enriched.project_data &&
+            typeof enriched.project_data === 'object' &&
+            !Array.isArray(enriched.project_data)
+              ? (enriched.project_data as Record<string, unknown>)
+              : null;
+          const designProjectId = String(projectData?.designProjectId || '').trim();
+          if (designProjectId) {
+            const linked = await fetchProjectById(designProjectId);
+            if (!cancelled && linked) {
+              const [zones, products] = await Promise.all([
+                fetchZones(linked.id),
+                fetchZoneProducts(linked.id),
+              ]);
+              const inZone = products.filter((product) => Boolean(product.zoneId));
+              const total = inZone.reduce(
+                (sum, product) =>
+                  sum +
+                  (Number(product.salePrice) || 0) *
+                    Math.max(1, Math.floor(Number(product.quantity) || 1)),
+                0,
+              );
+              setPortalProjects([linked]);
+              setPortalProjectData({
+                [linked.id]: { zones, products },
+              });
+              setPortalTotals({ [linked.id]: total });
+            }
+          }
+          if (cancelled) return;
+          setQuotes([enriched]);
+          setActiveId(enriched.id);
+          setShowDetail(true);
+          sharedQuoteOpenedRef.current = true;
+          return;
+        }
+
         const resolved = await resolveQuoteShareToken(token);
         if (cancelled) return;
         if (!resolved?.quoteUuid) {
@@ -1653,6 +1740,7 @@ export function CustomerQuoteSchemesView() {
     if (!showDetail || !activeId) {
       return;
     }
+    if (user && roleLoading) return;
     let cancelled = false;
     setItemsLoading(true);
     const loadItems = async () => {
@@ -1666,7 +1754,9 @@ export function CustomerQuoteSchemesView() {
           : '';
       const quoteItems = syntheticProjectId
         ? []
-        : await loadClientQuoteItems(activeId);
+        : costStaff
+          ? await loadClientQuoteItems(activeId)
+          : await loadCustomerSafeItems(activeId);
       const designProjectIdFromQuote = String(
         (
           activeQuote?.project_data as
@@ -1946,7 +2036,7 @@ export function CustomerQuoteSchemesView() {
     return () => {
       cancelled = true;
     };
-  }, [activeId, portalProjects, quotes, showDetail, syntheticQuotes]);
+  }, [activeId, costStaff, portalProjects, quotes, roleLoading, showDetail, syntheticQuotes, user]);
 
   const allQuoteRows = useMemo(
     () => [...quotes, ...syntheticQuotes],
@@ -2824,7 +2914,17 @@ export function CustomerQuoteSchemesView() {
         quoteUuid = savedScheme.quoteUuid;
       }
 
-      if (quoteUuid) {
+      if (quoteUuid && !costStaff) {
+        await saveCustomerQuoteScheme({
+          token: readStoredQuoteShareToken(),
+          quoteId: quoteUuid,
+          lines: productItems.map((item) => ({
+            id: item.id!,
+            quantity: quantities[item.id!] || 0,
+            selected: Boolean(selections[item.id!]),
+          })),
+        });
+      } else if (quoteUuid) {
         const { data: existingQuote, error: existingError } = await supabase
           .from('bwf_quote')
           .select('id, project_data')
@@ -2870,6 +2970,13 @@ export function CustomerQuoteSchemesView() {
             ),
           );
         }
+      }
+
+      if (!quoteUuid && !costStaff) {
+        toast.error('客戶頁不能新建報價單', {
+          description: '請由傢俬部建立報價後，再用分享連結儲存選擇和數量。',
+        });
+        return;
       }
 
       if (!quoteUuid) {
@@ -2970,8 +3077,9 @@ export function CustomerQuoteSchemesView() {
       });
     } catch (error) {
       toast.error('儲存失敗', {
-        description:
-          error instanceof Error ? error.message : '請稍後再試',
+        description: error instanceof Error
+          ? error.message
+          : customerQuoteError(error as { code?: string; message?: string }),
       });
     } finally {
       setSavingScheme(false);
@@ -2985,6 +3093,7 @@ export function CustomerQuoteSchemesView() {
     items,
     quoteDecision,
     quoteNote,
+    costStaff,
     resolveLinkedProject,
   ]);
 

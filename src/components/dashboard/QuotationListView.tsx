@@ -300,8 +300,16 @@ export function QuotationListView({
       }
     } catch (err: unknown) {
       if (gen !== fetchGenRef.current) return;
-      const message = err instanceof Error ? err.message : '無法載入報價單列表';
-      toast.error('載入失敗', { description: message });
+      const message = err instanceof Error
+        ? err.message
+        : typeof err === 'object' && err && 'message' in err
+          ? String((err as { message?: string }).message || '')
+          : '無法載入報價單列表';
+      const denied = message.includes('permission')
+        || (typeof err === 'object' && err && 'code' in err && (err as { code?: string }).code === '42501');
+      toast.error(denied ? '沒有權限查看內部報價' : '載入失敗', {
+        description: denied ? '成本、廠家和毛利只開放給管理員和上載帳號。' : message,
+      });
     } finally {
       if (gen === fetchGenRef.current) {
         setIsLoading(false);
