@@ -129,7 +129,7 @@
 
 **Day 5 進度（2026-10-19）**：T-501、T-502、T-504 完成。T-503 未做（沒有 5–10 份真實供應商 PDF 可對答案）。T-505 的溯源已接到搜索與審核，可示範上載→解析→審核→搜索→開原文頁。
 - Migration `20261019181000_fds21_source_page_price_gate.sql`：
-  - `fds_source_page_context`：designer／pm／admin／uploader 只能開「已連到該產品」的原文頁。搜索結果仍不回 storage 路徑。Edge `supabase-functions-source-page` 簽 5 分鐘 URL，前端用 pdf.js 畫出該頁；有 bbox 時加框。
+  - `fds_source_page_context`：designer／pm／admin／uploader 只能開「已連到該產品」的原文頁。搜索結果仍不回 storage 路徑。Edge `supabase-functions-source-page` 簽 5 分鐘 URL，前端用 pdf.js 畫出該頁；有 bbox 時加框。（**2026-10-20 更正**：簽名 URL 指向整份 PDF（含成本），原文改限 admin／uploader，見「Day 10 修正」。）
   - 報價單要通過審核，價格必須是 ≥ 0 的數字。`price_not_in_source`／`missing_price` 必須由審核人在修正欄寫下價格才算確認。目錄可以沒有價格。批量通過會跳過未確認項。`supplier_prices.verified` 只接受已通過的提取項。匯入會跳過未確認價格，不寫正式價。
   - `fds_processing_job_complete` 寫入 token、OCR 頁、時長、費用（Gemini Flash 混合單價 USD 0.30／1M tokens）與提取成功率。已完成但未記費用的任務會回填。
 - 前端：產品卡片與詳情的「來源」打開頁內原文；AI 審核的原文也走同一檢視器；文件列表顯示 tokens、時長與費用。
@@ -172,22 +172,67 @@
 | T-803 | F-AI-008 | P2 | T-802 | 手動測試 | **在實際 SketchUp 開啟、編輯組件、儲存** | 兩類簡單家具通過 | SketchUp 環境 |
 | T-804 | F-AI-008 | P2 | T-801 | UI | 尺寸輸入/確認、估算尺寸標示 | 無尺寸時標示估算 | — |
 
-進度（2026-10-19，方案於 2026-10-20 更正）：T-801、T-804 已接上，T-802 只出 GLB。SU／3D 頁可選辦公桌、會議桌、書架、儲物櫃，留空的尺寸標成估算，圖片辨認走 `generate-furniture-model`。沙發、椅子和曲面家具直接拒絕。建模方案是參數化幾何引擎，**不用 OpenSKP**。設計師 SU 要的是 SKP；幾何引擎尚未寫出 SKP，也還沒在 SketchUp 開啟驗證（T-803 未做）。
+進度（2026-10-20 複查修正）：T-801／T-804 **部分完成**，目前只有類型／總尺寸辨認、固定模板及尺寸輸入；設計圖組件抽取、多視圖校對、結構確認均待做，AI 估算數值誤標為已確認亦須修正。主方案是參數化幾何引擎，不用 OpenSKP；SKP 由 SketchUp 官方 C SDK 在 Windows SKP Worker 寫出。
 
-### Day 9 — Canva API、PPT 生成
+進度（2026-10-20，SKP 通路）：已接上 SU 頁「生成 SKP」→ `generate_skp` 任務 → `workers/skp-writer`（C SDK 寫檔＋Node worker 上傳）→ SU 頁下載；產品詳情可上載／下載 SKP、GLB，卡片顯示 SU／3D。只部署到 FDS2.0 分支。排隊、領取、失敗重試、完成登記、上載綁定與權限已在分支實測；`skp_writer.exe` 因本機無 SDK 未編譯，**T-802a（編譯＋真實 SKP）與 T-803（SketchUp 實機）未完成**。
 
-| Task ID | 功能 ID | 優先級 | 依賴 | 改動模組 | 交付內容 | 驗收標準 | 風險 |
-|---|---|---|---|---|---|---|---|
-| T-901 | F-AI-009 | P2 | T-401 | 新 Edge `generate-canva-presentation` | 讀產品資料→預設模板→生成簡報 | 至少一份可編輯簡報 | 已決議：先 PoC 驗證 chifung.login |
-| T-902 | F-AI-009 | P2 | T-901 | UI | 選產品→生成 PPT/PDF、事後可編輯 | 匯出成功 | 配額/授權 |
-| T-903 | F-AI-009, R5.2 | P2 | T-901 | 模板層 | 與專業說明 PDF 共用模板元素 | 品牌一致 | 模板設計 |
+進度（2026-10-20，輪廓拉伸）：部件可帶多邊形輪廓（`outline`，可凹，沿 x／y／z 拉伸），每件存 `faces_mm`（面朝外），預覽、GLB、SKP 共用同一份面資料；GLB 用耳切法三角化凹面。桌類加選項：桌面矩形／船形（兩端收窄）、四腳／折板腳（下段垂直落地，約 58% 高處折向中間接桌面）、中間走線槽。樣本：會議桌 LF-H32P 3200 × 1390 × 775（船形＋折板腳＋走線槽）已出 GLB。GLB 座標由鏡像改為正確旋轉（Z 向上 → Y 向上）。圖片自動辨認這些選項（T-801 結構抽取）未做，現在要人手選。
 
-進度（2026-10-20）：T-901～T-903 完成（除了 Canva 匯入通路要等 `chifung.login` 完成 Canva 連接 App 註冊後才能打通）。
-- 交付通路（決議 C-07 模板路線）：`src/lib/presentation.ts`（PresentationDoc、品牌常數、內容整理規則，與未來專業 PDF `@react-pdf/renderer` 共用）＋ `src/lib/presentationPptx.ts`（pptxgenjs 渲染：封面 → 產品清單（每頁 6 格，圖＋型號＋尺寸＋材質＋折扣價/原價）→ 收尾）。瀏覽器端生成，直接下載 PPTX——驗收標準「可編輯簡報」即此。
-- 新 PM 專屬入口「PM報價 → 簡報生成」（`fds2-pm-presentation`，`PresentationView`）：`fds_search_products` 選產品（≤30 件、排序、折扣價按角色遮蔽）→ 生成並下載 PPTX → 勾「同時匯入 Canva」把同一個 PPTX 經 edge 匯入。
-- Canva 匯入通路（T-901）：Edge `supabase-functions-generate-canva-presentation`，OAuth Authorization-Code＋PKCE（secrets `CANVA_CLIENT_ID`／`CANVA_CLIENT_SECRET`；scope `design:content:write design:meta:read profile:read`）→ token 存 `canva_connections`（migration `20261020015000`，無 policy 只讓 service role 讀）→ `POST /v1/imports`（Design Imports：PPTX → 可編輯 Canva 設計）→ 輪詢回傳 edit_url。匯入留審計 `canva_imports`（本人可讀 own rows）。前端流程：頁上「連接 Canva」→ Canva 授權回本頁 query → exchange＋清 query。
-- 已部署：migration（正式＋FDS2.0 分支）、edge（正式＋分支）。正式與 branch 部署後 `status` action 實測回 `configured:false`。本機以 3 件產品實測 PPTX 生成與下載成功。
-- 限制／待辦：`chifung.login` 在 canva.dev/開發者平台註冊 Connect API App（redirect URI＝`<域名>/fds/pm/presentation`）＋設定兩個 edge secrets 後，匯入通路即可打通；T-903 的 PDF 版共用模板等 `fds2-pm-pro-pdf` 開發時兌現；自動化（非固定）驗證 PPTX 匯入到 Canva 亦待憑證。
+進度（2026-10-20，產品詳情生成流程）：
+- T-806：按「生成 SU／3D」先查這件產品已有的 SKP／GLB（上載或 AI 生成），有就提示「下載現有檔／仍要重新生成」，沿用不叫 AI、不建任務；查詢失敗時擋住生成，不當作無檔。
+- T-801（桌類第一版）：edge `generate-furniture-model` 一次收最多 3 張產品圖（多視圖），除類型／總尺寸外回傳桌面形狀、桌腳樣式、走線槽及辨認說明。桌類即使已有量度尺寸也會看圖讀結構；名稱寫明線盒時保留走線槽。只部署到 FDS2.0 分支。
+- T-804（第一版）：生成前顯示確認面板（類型、闊深高、桌面、桌腳、走線槽、結構來源及 AI 說明），AI 估算的尺寸標「AI 估算」，人手改過即變確認值；確認後才建模型。
+- 實測 LF-H32P：AI 從 3 張圖辨認為船形＋折板腳＋走線槽，生成新 GLB（舊檔保留），SU 已排入 `generate_skp`。
+- 仍待：多視圖尺寸矛盾檢查；T-802a 編譯 `skp_writer.exe`。
+
+進度（2026-10-20，按 FDS 類別擴充模板，取消四類限制）：
+- 模板由 4 類擴到 17 類，對應現有 FDS level1／level2 類別：枱／桌（辦公枱、會議枱、餐桌／洽談桌、茶几、吧台、前台、講台）、儲物（儲物櫃／文件櫃、活動櫃、層架／書架）、座椅（辦公椅、會議椅／餐椅、吧椅、排椅／禮堂椅、梳化、卡座）、靜音倉。`furniture_models.kind` 約束與 `fds_save_furniture_model` 同步放寬（`20261020150000_fds21_furniture_model_kinds.sql`，只套 FDS2.0 分支）。
+- 結構選項按類型顯示：桌面矩形／船形／圓形、桌腳四腳／折板腳／中柱、走線槽、屏風；櫃的門／抽屜／層板數；椅腳五星腳／四腳／弓字架、扶手；梳化／排椅／卡座座位數。AI（`generate-furniture-model`）按同一套欄位回報，只回它看到的欄位，其餘用類型預設。
+- 類型判斷先看 level2 類別，一格含兩類（「吧台、吧椅」）時改看標題；名稱寫明的數量與特徵（三人位、4 抽、線盒、弓字架）優先於 AI 看圖結果。
+- 實測：大班椅 ZY25-C2320-1 由 AI 判出弓字架＋扶手，生成 GLB／FBX，在詳情頁 3D 檢視器正確顯示。
+- 辦公枱可為屏風工作位：桌面加 L 形；人數（單人／雙人／四人／乾字／F 型）按型號，產品圖常把幾張檯拼在一張相；深度夠時面對面兩排。活動櫃抽屜、屏風、端板一併建出。
+- 沒有對應模板時用「其他（AI 部件）」（kind `custom`）：AI 看產品圖輸出最多 30 個部件（方塊、圓柱、拉伸輪廓，含尺寸和位置），前端 `sanitizeCustomParts` 檢查（非數字、過小、自交輪廓會剔除或轉方塊），按總尺寸縮放一次，再交同一套引擎出 GLB／FBX／SKP。確認面板列出部件可改尺寸或刪除（刪除後總尺寸跟部件，不會拉伸其餘部件），並有即時預覽圖。AI 拆部件一次約 50 秒。
+- SKP 寫檔改走 SketchUp Ruby API（C SDK 不公開下載）：`workers/skp-writer/skp_build.rb` 由 worker 以 `-RubyStartup` 啟動本機 SketchUp 2026，讀同一份輸入，建頂層組件＋每部件一個組件，單位毫米，存檔後自動關閉，每件約 10–30 秒。FDS2.0 分支已實跑兩個 `generate_skp` 任務（書架、會議桌）成功上傳並登記；在 SketchUp 開啟，頂層組件與每隻桌腳都可單獨選取編輯（T-803 部分通過，另存／重開未測）。已修正方向：整件轉 180° 令正面對 SketchUp 前視圖。
+- 已知限制：曲面（梳化圓扶手、弧形靠背）仍用方塊近似；產品資料的闊深高次序不一定一致（該椅記錄為 730 × 560 × 610），確認面板可人手改。
+
+**後續實作順序與交付閘門**（取代將 Day 8 視為完成的表述）：
+
+| Task | 依賴 | 實作／驗收 | 狀態 |
+|---|---|---|---|
+| T-802a 寫檔可行性 | 固定桌／櫃組件，可先行 | 符合禁用限制的真實 SKP writer；寫入、重讀、實機修改及另存 | 未完成；未通過前不承諾 SKP 日期 |
+| T-801 設計圖抽取 | 現有圖片分析入口，不依賴圖搜 T-601 | 多視圖、尺寸證據、板厚、層數、桌腳／門板等結構草稿 | 待補 |
+| T-804 確認與幾何 | T-801 | 人工確認結構／尺寸，保留估算來源，矛盾阻擋，參數化組件與圖一致 | 待補及修正 |
+| T-802b 產物整合 | T-802a、T-804 | 同版 GLB／SKP、私有產物、背景任務、冪等／失敗重試 | 未完成 |
+| T-803 實機驗收 | T-802b | 桌與櫃／書架真實圖各一例；尺寸／組件核對，SketchUp 修改、另存、重開 | 未完成 |
+
+取消類別限制亦納入 T-801／804：同步擴充前端選項、Edge 類型 Schema、`FurnitureKind`、資料表／RPC 的 kind 約束與幾何部件能力，保留既有四類資料相容；移除按沙發／椅子／曲面直接拒絕的分支。T-803 增加上述三類代表樣本，不只修改畫面文案。
+
+T-802 拆為 a／b 兩關；Ruby 桌面擴充只列待決替代路線，不視為已批准或已實作。詳細流程及驗收以完整需求 F-AI-008、技術架構第 7 節為準。
+
+### Day 8 補充 — 上傳、歷史選用與系統預覽（2026-10-20）
+
+| Task ID | 依賴 | 交付／驗收 | 狀態 |
+|---|---|---|---|
+| T-805 SKP 上傳 | 既有模型 RPC／私有儲存 | 上傳有效 SKP，保存來源、產品／工作項、版本、hash；原檔可下載且不改寫 | 待開發 |
+| T-806 生成前檢查 | T-805、既有生成模型列表 | AI 呼叫前查上傳及歷史生成版本，提示沿用／預覽／重新生成；沿用不建生成任務，查詢失敗不當作無檔 | 待開發 |
+| T-807a SKP 預覽可行性 | 真實 SKP 樣本，可先行 | 驗證符合現有依賴限制的 SKP 讀取→GLB 通路，含曲面及材質；不要求使用者另交 GLB | 未驗證，不能以自產 GLB 代替 |
+| T-807b 預覽整合 | T-805、T-807a | 系統內 3D viewer、旋轉／縮放／平移、處理／失敗狀態及重試；預覽與原件同權限、同版本 | 待開發 |
+
+T-803 整體驗收增加：同一產品的上傳版與生成版同時存在、選用舊版本不觸發 AI、重生成保留舊檔、多版本查詢、並發生成防重、無權限與損壞檔、預覽失敗重試。T-802a 是寫 SKP；T-807a 是讀 SKP，兩個關卡分開通過。上傳／歷史選用／預覽皆為已確認需求，不因生成 writer 尚未完成而從範圍移除。
+
+### Day 9 — 使用者內容 → Canva 客戶簡報設計（2026-10-20 重訂）
+
+使用者提供內容，由 Canva 完成客戶匯報的簡報設計，可在 Canva 編輯並保存／下載 PPTX。取消先由 FDS／PptxGenJS 產生 PPTX 再匯入 Canva 的交付路線。
+
+| Task ID | 功能 ID | 優先級 | 依賴 | 交付及驗收 | 狀態 |
+|---|---|---|---|---|---|
+| T-901 | F-AI-009 | P2 | 授權 Canva 帳戶及真實匯報樣本，不依賴產品匯入 | 驗證內容／素材交給 Canva 原生設計、取得可編輯簡報並從 Canva 下載 PPTX 的完整通路 | 待重新 PoC；不是只補 secrets |
+| T-902 | F-AI-009 | P2 | T-901 | 內容輸入、附件／設計要求、大綱確認、生成狀態、Canva 編輯入口；不選產品亦能使用 | 現有選產品→本機 PPTX 流程須重做 |
+| T-903 | F-AI-009、R5.2 | P2 | T-901／902 | 保留草稿及 Canva 設計版本；真實客戶簡報修改後保存／下載，PowerPoint 驗證可編輯；PDF 只共用內容及品牌資料 | 未完成 |
+
+**現況與可沿用能力**：已有 `canva_connections`、OAuth PKCE 與 `supabase-functions-generate-canva-presentation`。`presentationPptx.ts` 及 Design Imports 是舊實作，不計為新需求完成，亦不作自動降級路線。沿用連接與權限能力，按已驗證的 Canva 通路調整既有 Edge／頁面；不可假設原 scope 足夠，也不另建重複帳戶連接接口。
+
+**PoC 成功條件**：一份使用者提供的真實匯報內容 → Canva 完成設計 → 修改文字／圖片／版面 → Canva 保存並下載 PPTX → PowerPoint 核對最新修改且可編輯。純模板填字或空白設計連結不能單獨通過；若原生通路能力不足，記錄阻塞與可行方案，不改回先生成 PPTX 再匯入。
 
 ### Day 10 — 聯調、權限、性能、錯誤處理、部署
 
@@ -205,7 +250,21 @@
 - T-1004 完成（結構性驗證）：`processing_jobs` 有 `idempotency_key` 唯一鍵＋`one_active_per_document`（document_id, job_type WHERE queued/running）部分唯一索引；兩邊查無重複活動任務（claim/heartbeat/complete/fail 的 runtime 行為 Day 2–5 已驗）。
 - T-1003 抽測：`fds_search_products`（5,289 件）經 PostgREST 3 次連續呼叫 0.99–1.43 秒（含本機→Supabase 網路），無登入 JWT 呼叫正確被拒。與 Day 4 記錄一致，在 2 秒預算內。
 - T-1005／T-1006：edge 與 migration 已雙環境部署；`docs/prd/FDS-2.1-Beta測試指引.md` 已寫。剩把 develop push 觸發 Vercel build（若 CI 未自動）；端到端示範已在 Day 5/7/9 做過（上載→解析→審核→搜索→溯源、比較、GLB、PPTX）。
-- 待完成：真實 PDF 準確率回測（T-503）、SketchUp 實機驗證（T-803）、Canva 憑證匯入 PoC（T-901 收尾）。
+- 待完成：真實 PDF 準確率回測（T-503）、設計圖結構與確認（T-801／804）、SKP 寫檔與整合（T-802a／b）、SketchUp 實機驗證（T-803）、Canva 內容到設計／編輯／下載完整重做與 PoC（T-901～903）。
+
+### Day 10 修正 — 權限與資料可靠性（2026-10-20）
+
+稽核發現的問題與修法（migration 見 `supabase/migrations/2026102011*`）：
+
+| 問題 | 修法 | 檔案 |
+|---|---|---|
+| PM／designer 可取得整份供應商報價 PDF（簽名 URL 指向完整檔案，成本外洩） | `fds_source_page_context` 只接受 admin／uploader；edge `source-page` 再加一次角色檢查；搜索／詳情回傳 `can_open_source`，前端隱藏開原文入口 | `20261020110000_fds21_source_page_role_gate.sql` |
+| 解析重試把產品圖誤判成 logo（出現頁數用累加，重跑再加一次） | `supplier_document_images.seen_pages` 存出現過的頁碼（唯一集合），`page_occurrences = cardinality(seen_pages)`；worker 改呼叫 `fds_supplier_document_image_record`（document＋hash＋page 唯一關聯，重跑冪等） | `20261020111000_fds21_image_occurrence_dedupe.sql` |
+| 最後一次 worker 被終止後任務永久停在 running | cron 的喚醒條件加上 stale running（heartbeat 超過 10 分鐘）且不看 attempts，讓 `fds_processing_jobs_claim` 有機會把耗盡重試者標記 failed | `20261020111500_fds21_stale_job_cron.sql` |
+| 不同規格被當成歷史價格（1200mm vs 1800mm） | 報價排名與漲跌比較都按 產品＋unit＋variant_label 分組 | `20261020110500_fds21_compare_spec_groups.sql` |
+| PM／designer 比較頁只剩幣別 | 比較頁補回中間價（售價 × 0.8）與原價，成本仍只給 admin／uploader | 同上 |
+| 圖片搜索後改篩選不更新 | 圖片搜索保留已上載圖片，篩選一變就重跑；`fds_match_product_images` 加 `p_text`，搜尋框字詞在圖片搜索也生效 | `20261020112000_fds21_image_search_text_filter.sql` |
+| AI 估算尺寸被當成已確認尺寸 | `buildParametric` 接受 `estimated_axes`，AI 回傳的 `estimated` 保留為估算；手動改過的欄位才當成已確認 | `src/lib/furnitureParametric.ts` |
 
 ---
 
@@ -221,7 +280,7 @@ T-102 ─ T-201 ─ T-202/203/204 ─ T-301 ─┬─ T-302 ─ T-304
                                                           │                └─ T-501
                                                           ├─ T-601 ─ T-602 ─ T-603 ─ T-604
                                                           ├─ T-701 ─ T-704
-                                                          ├─ T-801 ─ T-802 ─ T-803/804
+                                                          ├─ T-801 ─ T-804 ─ T-802b ─ T-803（另依賴 T-802a）
                                                           └─ T-901 ─ T-902/903
 ```
 
@@ -257,5 +316,5 @@ T-102 ─ T-201 ─ T-202/203/204 ─ T-301 ─┬─ T-302 ─ T-304
 ## 7. 未完成項處理（Overflow）
 
 - 若 Day 10 仍未達標：**保 P0**，把 P1/P2 順延並記錄於差異文件的「暫不開發」。
-- 歷史資料導入、複雜家具建模、客戶端 AI 搜索一律**不佔用 10 日**。
+- 歷史資料導入、生產加工級建模精度保證、客戶端 AI 搜索一律**不佔用 10 日**。
 - 所有順延項須回填 `docs/prd/FDS-2.1-完整需求規格.md` 第 17 節決議記錄。

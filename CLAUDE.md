@@ -269,10 +269,16 @@ node scripts/check-supabase-env.mjs --live   # 額外對各 project 發一次請
 
 - 原始 PDF 在**私有** bucket `supplier-documents`，路徑＝`<factory_id 或名稱>/<sha256>.pdf`（同檔重傳自然去重）。
   下載只用 5 分鐘簽名 URL（`src/lib/supplierDocuments.ts`）。
+  **簽名 URL 指向整份檔案**（含全部頁面與供應商成本），所以原文只限 `admin`／`uploader`
+  （角色表 §13：pm／designer ❌）。`fds_source_page_context` 與 edge `source-page` 兩層都要擋；
+  搜索／詳情回傳 `can_open_source`，前端據此把「開原文」改成純文字。
+  要給 pm／designer 看，必須另做**已遮蔽成本的單頁**，不能直接簽原始 PDF。
 - `supplier_documents`／`processing_jobs` **不是 allow-all**：只有 `bwf_has_role(array['admin','uploader'])`
   讀得到，前端寫入一律走 `fds_*` RPC。新的商業資料表照這個模式做，不要再加 `USING (true)`。
 - 任務狀態只經 `fds_processing_jobs_claim` → `fds_processing_job_heartbeat` → `_complete`／`_fail` 流轉；
   Edge worker 與之後的 Python Worker 共用這套 RPC，不要直接改 `status`。
+  **cron 要連 stale running 一起喚醒**（heartbeat 超過 10 分鐘，不看 attempts）：
+  否則最後一次被 CPU／執行時間限制終止時，沒有人再呼叫 claim，文件會永久卡在 parsing。
 - Worker slug＝`supabase-functions-process-jobs`。pg_cron `fds-process-jobs` 用 vault 的 `fds_worker_secret`
   （`x-worker-secret` header）授權；vault 裡的 `service_role_key` 只有 26 字元，不像有效的 service role key，別拿它做授權。
 - Storage 專案上限已調到 200MB；Edge worker 只處理 ≤60MB 的 PDF。
@@ -284,6 +290,9 @@ node scripts/check-supabase-env.mjs --live   # 額外對各 project 發一次請
   經 `fds_extraction_item_review`／`_batch` RPC。重新解析只刪 `pending` 項，已審核的保留且同型號不再重複產生。
 - 抽出的產品圖存 `product-images/supplier-extracts/<document_id>/<sha256>.jpg`，登記在 `supplier_document_images`
   （同文件同 hash 只存一次）；同一張圖出現 ≥3 頁視為 logo，由 `fds_extraction_items_finalize` 從待審項目移除。
+  **出現頁數要用「文件／圖片／頁碼」唯一關聯計數**：`supplier_document_images.seen_pages`
+  存出現過的頁碼（唯一集合），`page_occurrences = cardinality(seen_pages)`，
+  寫入只經 `fds_supplier_document_image_record`（重跑同一 unit 不會再加一次，重試冪等）。
 - Canva（Day 9）：edge slug `supabase-functions-generate-canva-presentation`。OAuth PKCE（scope
   `design:content:write design:meta:read profile:read`），token 只存 `canva_connections`（無 policy，
   只 service role 讀）；匯入審計 `canva_imports`（本人讀 own rows）。secrets＝`CANVA_CLIENT_ID`／
@@ -292,8 +301,21 @@ node scripts/check-supabase-env.mjs --live   # 額外對各 project 發一次請
 - 本機 dev／develop 連的是 Supabase 分支 FDS2.0（`omxizeukbcqzsnjsuwod`）。FDS 2.1 的 migration 與 `process-jobs`
   要**兩邊都部署**（正式 `riaubhtruisbwdlwjzur` ＋ 分支）；套到分支時把 cron 裡的 worker URL 換成分支 ref。
   分支的一鍵登入帳號 `fds-develop-preview@…` 在分支 `platform_user_profiles` 設為 admin。
+- SKP（設計師 SU）：不用 OpenSKP。SketchUp C SDK 只跑 Windows／macOS，所以 SKP 由 Windows 機器上的
+  `workers/skp-writer`（`skp_writer.exe` ＋ `worker.mjs`）領 `processing_jobs` 的 `generate_skp` 寫出，Edge 不處理。
+  C SDK 目前不公開下載（要申請）；沒有 `skp_writer.exe` 時 worker 改用本機已授權的 SketchUp
+  （`SketchUp.exe -RubyStartup skp_build.rb <seed.skp>`，Ruby API 建組件、存檔、自動關閉）。
+  第一次會出歡迎視窗，要有人選一次模板，之後開 `%LOCALAPPDATA%\fds-skp-writer\seed.skp` 就不用人手。
+  我們的 +y 是正面，SketchUp 前視圖看 -y，兩個寫檔程式都把整件轉 180°。
+ 模型檔在私有 bucket `product-models`（`uploaded/` 給 admin／uploader，`generated/` 只給 service role），
+ 登記在 `product_models`，只經 `fds_product_model*`／`fds_request_skp`／`fds_skp_status` RPC。
 - 正式價錢在 `supplier_prices`、來源在 `product_source_refs`（產品／報價／來源分離，產品身份＝型號＋供應商）；
  只有審核通過的項目才可寫入（BR-02）。匯入只經 `fds_import_extracted_products`：同廠家同型號沿用既有產品且不改它，
  只追加報價；不寫 `products.cost_price`（報價可能是外幣）。
 - 產品搜索（「產品類型」頁）只經 `fds_search_products`／`fds_product_detail` RPC：成本只回給 admin／uploader，
   任何角色都不回傳成本價，只拿折扣價（售價 × 0.8）和原價。不要在前端直接 select `supplier_prices`（RLS 只開給 admin／uploader）。
+- 同型號比較（`fds_compare_supplier_prices`）的報價歷史要按 **產品＋unit＋variant_label（規格）** 分組：
+  不同尺寸／計價單位的兩筆報價不是同一條報價的前後，混在一起會產生假的漲跌。
+  比較頁任何角色都看得到中間價與原價，成本只給 admin／uploader。
+- 以圖搜款（`search-by-image` → `fds_match_product_images`）與文字搜索共用同一套篩選（含 `p_text`）；
+  前端改篩選時要用同一張圖重跑圖片搜索，不要只重跑文字搜索。

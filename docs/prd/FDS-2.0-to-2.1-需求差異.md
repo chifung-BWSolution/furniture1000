@@ -45,7 +45,7 @@
 | F-AI-005 搜索 | `productCatalogQuery.ts`、`ProductSelectorModal.tsx`、`CustomerProductSearchView.tsx` 篩選、`pg_trgm` | 加 FTS＋向量 |
 | F-AI-006 以圖搜款 | `visual-match-images`（先復用其 Gemini 相似度流程） | 再演進為向量 |
 | F-AI-007 報價比較 | `bwf_quote_item` 成本欄位、`quoteGpSummary.ts`、`quotePitchingFinancials.ts`、匯率欄位 | 整合而非另建 |
-| F-AI-009 PDF/簡報 | `@react-pdf/renderer`、`QuotationPDFPreview.tsx`（PPTX 另加） | PDF 可先出 |
+| F-AI-009 PDF/簡報 | PDF 沿用既有 renderer；Canva 原生設計另行驗證 | PDF 不代替 Canva PPT 驗收 |
 | F-PLT-001 任務 | pg_cron ＋ pg_net 模式 | 加 `processing_jobs` |
 | F-PLT-002 權限 | `platform_user_profiles`、`bwf_assert_platform_admin()` | 擴充為通用角色斷言 |
 | FDS 2.0 R2 分區 | `project_zones`/`zone_products` | 直接整合，勿新造分區表 |
@@ -75,7 +75,7 @@
 | F-AI-005 | `search_furniture` RPC、tsvector、`search_embeddings`、pgvector |
 | F-AI-006 | 以圖搜款流程＋圖片 embedding |
 | F-AI-007 | 比較 RPC／UI |
-| F-AI-008 | 參數化幾何引擎；設計師 SU 交付 SKP，GLB 只做預覽；不用 OpenSKP |
+| F-AI-008 | 參數化幾何引擎；SketchUp C SDK（Windows SKP Worker）寫 SKP 給設計師 SU，GLB 只做預覽；不用 OpenSKP |
 | F-AI-009 | Canva 整合、PPT 生成 |
 | F-PLT-001 | 通用任務佇列與 Worker |
 | F-PLT-002 | 角色斷言 RPC、審計 |
@@ -90,7 +90,7 @@
 
 | 項目 | 原因 |
 |---|---|
-| 複雜家具（沙發/椅/曲面）自動 SKP | 指令明文排除首版承諾 |
+| 生產加工級精度保證 | 不承諾生產精度；沙發／辦公椅／曲面建模已納入，不再按類別排除 |
 | 客戶端 AI 搜索／以圖搜款 | 首版只開放內部 |
 | 大量歷史 PDF 一次性導入 | 另立項目 |
 | 高精度生產級建模 | F-AI-008 僅 PoC |
@@ -108,7 +108,7 @@
 | 文件附件 | 無文件表；PDF 用完即棄 | PDF 解析及溯源、保存原文 | **整合/新增** `supplier_documents` | P0 |
 | 搜索 | `ilike/eq`＋client 篩選、`pg_trgm` | 全文、語義、圖片搜索 | **擴充** FTS＋pgvector | P0/P1 |
 | 3D 建模 | 無（菜單 placeholder `fds2-designer-su/3d`） | AI 生成 SKP | **新增**（區分上載模型 vs 生成模型） | P2 |
-| 商務簡報 | `@react-pdf/renderer` 出 PDF；無 PPTX | Canva PPT | **新增**（PDF 可先出） | P2 |
+| 商務簡報 | `@react-pdf/renderer` 出 PDF；無 PPTX | Canva PPT | **重訂**（Canva 原生設計、編輯及下載；PDF 不代替驗收） | P2 |
 | 圖片抽取 | 已裁圖存 `product-images` | 類型/關聯/去重/向量 | **擴充** `product_image_assets` | P0 |
 | 背景任務 | pg_cron＋pg_net，無佇列 | Worker、重試、成本 | **擴充/新增** `processing_jobs` | P0 |
 | 權限 | 5 角色；多表 allow-all | 成本/文件 RLS＋審計 | **修改** 收緊 RLS | P0 |
@@ -127,7 +127,7 @@
 | C-04 | 成本可見性 | ✅ **僅 `admin` ＋ `uploader` 可見成本**；PM／設計師用中間價，比較頁遮蔽 |
 | C-05 | AI 價格 vs 報價 | ✅ **審核後才可用、不自動覆寫報價**（`supplier_prices.verified`） |
 | C-06 | SU/3D 模型語意 | ✅ **上載與 AI 生成並存、分入口**（`product_models.source`） |
-| C-07 | 專業 PDF vs Canva PPT | ✅ **共用資料模型與模板元素**（PDF：`@react-pdf/renderer`；Canva：可編輯 PPT） |
+| C-07 | 專業 PDF vs Canva PPT | ✅ **共用內容與品牌資料；Canva 原生設計客戶簡報，PDF 獨立渲染，不強制共用版面**（2026-10-20 修正） |
 | C-08 | A/B 產品分類 | ✅ **用 view/computed 標記**，不改既有資料流 |
 | C-09 | 背景處理架構 | ✅ **Edge 過渡 → Python Worker（Cloud Run Jobs）**，共用 `processing_jobs` |
 
@@ -177,19 +177,18 @@
 5. **影響**：DB — `supplier_prices.verified`；API — 匯入 RPC 不自動覆寫報價；UI — 提示「未審核」。
 6. **需確認**：是（是否允許一鍵採用）。
 
-### C-06：SU/3D 模型語意
-1. **原始需求**：設計師 PRD D-5／D-6「產品綁定 SU／3D 模型連結」（上載既有模型）。
-2. **新增需求**：F-AI-008「AI 生成 SKP」。
-3. **衝突原因**：兩者都叫「SU模型」，但一是**上載既有**、一是**AI 生成**。
-4. **推薦處理**：`product_models` 加 `source`(uploaded/generated)；UI 分「模型庫」與「AI 生成」兩個入口，共用預覽/下載。
-5. **影響**：DB — `product_models.source`；API — `generate-skp`；UI — `fds2-designer-su/3d`。
-6. **需確認**：是（優先家具類別）。
+### C-06：上傳與生成模型統一選用及預覽（2026-10-20 修訂）
 
+- D-5／D-6 上傳 SKP 與 F-AI-008 生成 SKP 保留來源區分，統一在既有模型資料關係及列表管理。
+- 每次生成前查找同產品／工作項且有權存取的已上傳及歷史生成文件，先提示沿用、預覽或重新生成；沿用不呼叫 AI，新生成不覆蓋舊版本。
+- 上傳 SKP 必須可在系統內互動 3D 預覽，轉換由系統負責，不能要求使用者額外上傳 GLB；預覽失敗與原檔有效性分開處理。
+- 沿用 `furniture_models`、保存／列表 RPC，按需要擴充檔案、版本及選用關聯；不採早期草案另建重複 `product_models`。
+- 家具類別限制已取消，包含沙發、辦公椅及曲面。SKP writer 與上傳 SKP reader／preview 通路各自需要可行性驗證，見 T-802a、T-807a。
 ### C-07：專業 PDF vs Canva PPT
 1. **原始需求**：FDS 2.0 R5.2 專業說明 PDF（七段式）、R5.1「PDF 或 PPT」。
 2. **新增需求**：F-AI-009 Canva PPT。
 3. **衝突原因**：輸出格式重疊（PDF/PPT），若各做一套模板會不一致。
-4. **推薦處理**：**共用同一「方案資料模型」**；`@react-pdf/renderer` 出 PDF（已有），Canva 出可編輯 PPT（新）；模板元素共用。
+4. **已確認（2026-10-20）**：使用者提供內容，由 Canva 設計客戶簡報，在 Canva 編輯並保存／下載 PPTX。PDF 可共用內容與品牌資料，版面獨立；禁止以 FDS 先生成 PPTX 再匯入代替。
 5. **影響**：DB — 無（沿用報價資料）；API — `generate-canva-presentation`；UI — PM報價。
 6. **需確認**：是（Canva 帳戶能力）。
 

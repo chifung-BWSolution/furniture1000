@@ -323,21 +323,88 @@ search_furniture(q text, filters jsonb, page int, page_size int)
 - **輸入**：家具圖片／設計圖＋（可選）總寬/深/高。
 - **AI**：識別結構 → 參數化 JSON（組件、尺寸、層級）。
 - **幾何引擎**：由參數生成組件 → **SKP ＋ GLB**。設計師 SU 下載 SKP；GLB 只供 3D 頁瀏覽器預覽。
-- **SKP 產生**：幾何引擎把同一套參數寫成 SKP。**不用 OpenSKP，也不用 SketchUp 官方 SDK 做建模**（2026-10-20 決議）。
+- **SKP 產生**：**不用 OpenSKP**。幾何引擎算出組件，Windows SKP Worker 用 **SketchUp 官方 C SDK** 寫成 SKP（2026-10-20 決議）。
 - **組件化**：模型盡量含可獨立編輯組件。
 - **驗證**：**必須在實際 SketchUp 開啟、編輯組件、儲存**。
-- **限制**：首版只承諾辦公桌/會議桌/書架/儲物櫃；沙發/椅/複雜曲面不承諾。
+- **範圍（2026-10-20 修正）**：取消四類硬性限制；沙發、辦公椅及曲面家具也可提交生成。按圖面完整度與幾何能力逐件評估，無法還原時指出具體部件／缺失資料，不以類別直接拒絕。
 - **模型格式／儲存（已決議）**：格式 **skp ＋ glb**；存放**新 bucket `product-models`**（`product_models` 表 `source='generated'`）。
+
+### 7.1 實作基礎與資料契約（2026-10-20 修正）
+
+上述為目標架構，不表示已實作。FDS 已有 `furniture_models` 及保存／列表 RPC；`product_models` 是早期草案名稱，後續先擴充既有模型資料關係，不新增重複主表。PMS 本機 `src`／`supabase` 搜尋未找到 SKP 生成實作，此結果不代表已盤點全部線上服務。
+
+- 沿用前端實際呼叫的 `supabase-functions-generate-furniture-model` 擴充圖面分析；不用另開相同用途接口。現有圖片分析只有類型及總尺寸估算，組件仍由固定模板生成。
+- `parametric` 增加 Schema／引擎版本、來源圖引用、視圖、逐參數來源與確認資料；保留既有總寬深高欄位。AI 草稿與人工修正分開保存。`estimated_axes`／`estimated` 依來源推導，不能因存在數值便清除。
+- 延續 `components[].id/name/size_mm/position_mm`，補結構參數、必要層級及材質。使用受控幾何操作，擴充曲線輪廓、拉伸／旋轉及曲面／網格部件描述，按形狀選擇建模器；取消四類 enum 作為拒絕閘門。不執行 AI 輸出的程式。總尺寸、板厚、內部淨寬及間距需通過幾何約束；現有靜默 clamp 改成待確認錯誤。
+- 內部 mm、X 寬／Y 深／Z 高、地面中心原點；GLB exporter 轉成米及 Y-up。測試座標轉換手性、面朝向及不對稱結構，避免左右鏡像。SKP exporter 自行轉換至寫檔器需要的單位。
+- 不可變版本 hash 涵蓋來源圖、確認參數、Schema／引擎／匯出器版本；預覽、SKP 與驗證報告綁同版本。
+
+### 7.2 SKP 寫檔器是獨立前置關卡
+
+```text
+設計圖／PDF 選頁 → AI 結構及尺寸證據 → 校驗 → 人工確認
+  → 參數化幾何引擎 → 具名組件模型
+      ├─ GLB exporter → 預覽
+      └─ SKP writer（Windows＋SketchUp C SDK）→ 重讀驗證 → 下載
+```
+
+幾何引擎負責組件形狀／位置；writer 負責真實 SKP 格式序列化。SKP 是封閉格式，只有 [SketchUp C SDK](https://developer.trimble.com/docs/sketchup/tools/sdk/) 或 SketchUp 本體能可靠寫出，且只支援 Windows／macOS，所以 writer 不放 Edge Function 或 Linux Cloud Run，而是一台 Windows 機器上的背景 worker。
+
+實作（2026-10-20）：`workers/skp-writer/`
+- `skp_writer.cpp`：讀 Tab 分隔的組件清單（mm、Z 向上、每件最小角座標），建一個頂層家具組件，內含每個部件各自一個組件（可獨立編輯），單位設為 mm，存成 SketchUp 2020 格式。CMake 以 `-DSKETCHUP_SDK_DIR=<SDK>` 編譯，SDK DLL 隨 exe 複製。
+- `worker.mjs`：以 service role 輪詢 `fds_processing_jobs_claim(['generate_skp'])`，讀 `furniture_models.parametric`，執行 `skp_writer.exe`，上傳 `product-models/generated/<model_id>/<sha256>.skp`，呼叫 `fds_skp_job_finish` 登記並完成任務；失敗走 `fds_processing_job_fail` 重試。執行：`SUPABASE_URL=… SUPABASE_SERVICE_ROLE_KEY=… node workers/skp-writer/worker.mjs`（`--once` 只跑一個）。
+- 尚未驗證：本機沒有 SDK，`skp_writer.exe` 未編譯；T-802a 要在 Windows 機器下載 SDK、編譯、產出樣本並在 SketchUp 開啟、編輯組件、另存。
+
+SketchUp Ruby 桌面擴充不採用。
+
+### 7.3 任務、產物及權限
+
+- 已接 `processing_jobs` 的 `generate_skp`（migration `20261020120000`）：`fds_request_skp` 建任務（本人或 admin／uploader，同一模型只有一個進行中任務），Windows worker 領取；Edge `process-jobs` 只領 `parse_pdf`，不會搶走。`fds_skp_status` 給 SU 頁輪詢。
+- `product-models` bucket 已建，私有；`product_models` 表登記上載與生成的 SKP／GLB（`source=uploaded|generated`），表不開 select，只經 `fds_product_models`／`_flags`／`_register`／`_delete` RPC。上載限 admin／uploader 寫 `uploaded/<product_id>/`；`generated/` 只有 service role 能寫。下載用 5 分鐘簽名 URL。
+- 模型產物區分 preview_ready、skp_pending、skp_failed、skp_ready；job 成功不等於實機驗收。寫入與重讀通過才 ready；實機驗收另記版本、操作者及結果。
+- 模型版本 hash 控制冪等；先寫暫存，成功後才發布。取消／過期 worker 不可掛正式產物；失敗保留確認資料與可用 GLB。重試及參數修改不可覆蓋其他版本。
+- 按完整需求 F-AI-008 驗收桌／櫃真實圖、尺寸 ≤1mm 誤差、結構一致性，以及 SketchUp 開啟、編輯、另存、重開。
 
 ---
 
-## 8. Canva 整合（F-AI-009）
+### 7.4 上傳 SKP、生成前檢查與預覽
 
-- 模式：**結構化產品資料 ＋ 固定模板**（控製品質與品牌一致）。
-- 流程：選產品 → 讀 `products`（名稱/圖/尺寸/材質/價，經角色遮蔽）→ AI 整理內容 → Canva Connect API 用模板生成 → 可再編輯 → 匯出 PPTX/PDF（**視 API 能力**）。
-- 權限：`admin/uploader`；**未取得有效權限不得使用他人 Canva 資料**；用 OAuth token 綁定使用者。
-- **已決議**：使用 **`chifung.login` 賬戶**；其實際方案／API 範圍／配額仍需在 PoC 前確認。
-- 與 R5.2 專業 PDF：共用模板元素；PDF 續用 `@react-pdf/renderer`。
+```text
+上傳 SKP → 私有原檔／hash／版本 → SKP 驗證與讀取 → GLB 衍生預覽 → 系統 3D viewer
+點擊生成 → 查明確關聯且有權存取的上傳／生成版本
+  ├─ 使用既有版本 → 保存選用關聯，不執行生成
+  └─ 明確重新生成 → 新版本／生成任務 → SKP＋GLB
+```
+
+- 沿用 `furniture_models`／保存與列表 RPC，擴充 `source=uploaded|generated`、原檔引用、hash、檔名、版本、預覽引用與狀態。已上傳模型不必有參數化 JSON；調整現有必填 `parametric`／kind 約束，不能虛造桌類或空模型以通過保存。既有參數模型資料維持相容。
+- 沿用 `product_id` 及可對應的既有工作項關係；若缺工作項關係才補充 FDS 欄位。列表 RPC 擴充指定關聯的查詢／分頁，不能用現有最近 12 筆列表判定「沒有文件」。來源資料表與既有模型資產關係先核對，不新建重複模型主表。
+- 生成前檢查與確認在昂貴 AI 呼叫之前完成；建立任務時後端再核對選用版本、權限與進行中任務。若檢查後已有新模型完成，回傳候選讓使用者重新選擇，避免競態重複生成。沿用保存明確 model/version 關聯，不複製原檔、不改來源歸屬。
+- 原檔按內容 hash 去重實體儲存，但產品／工作項關聯及權限各自保留；同 hash 不代表可以跨使用者共享。重試預覽以原檔 hash＋轉換器版本作冪等鍵，產物必須綁定同一原檔版本。
+- 新增 `preview_skp` handler 至既有任務體系，沿用 claim／heartbeat／complete／fail；SKP 讀取／轉換 worker 的路由需實作，不能送給只有 PDF handler 的 worker。解析不可信檔案需有資源／時間限制及檔案有效性檢查。
+- **獨立可行性關卡**：上傳 SKP 沒有參數 JSON，不能沿用固定模板重建預覽。須驗證可讀入真實 SKP 的 parser／轉換通路，轉成瀏覽器可顯示的 GLB；現有 GLB exporter 只能處理自產模型，不能視為已支援 SKP 讀取。讀取 SKP 也可用同一套 SketchUp C SDK，在 Windows SKP Worker 加 `preview_skp` handler 轉 GLB（待做）。
+- 原檔驗證、SKP 可用性及 preview 狀態分開保存；失敗顯示原因並可重試。簽名預覽與原檔下載皆檢查相同模型權限，GLB 衍生檔不得公開繞過原件權限。
+- Viewer 支援旋轉／縮放／平移／重設視角，無載入成功的 3D 內容不顯示「可預覽」。預覽品質 PoC 包含上傳的桌、沙發／椅、曲面樣本與含材質模型，核對座標、比例、外觀；不以縮圖驗收 3D 預覽。
+
+---
+
+## 8. Canva 原生客戶簡報設計（F-AI-009，2026-10-20 重訂）
+
+```text
+使用者匯報內容＋圖片／素材＋設計要求（產品資料可選）
+  → 可編輯內容草稿／大綱 → 使用者確認
+  → Canva 原生設計通路（先 PoC 驗證）
+  → Canva 設計 ID／編輯入口 → 在 Canva 修改內容及版面
+  → Canva 保存／下載 PPTX → PowerPoint 可編輯驗收
+```
+
+- FDS 負責內容收集、必要的大綱整理、素材引用、授權及設計狀態；Canva 負責簡報的視覺設計。不得預先以 PptxGenJS／本機固定模板產生 PPTX 再 Design Import；舊流程不符合需求。
+- 內容草稿包括原文、客戶／專案、匯報目的、關鍵重點、語言、風格、期望頁數、素材及可選產品引用。保留確認版本及資料來源；不虛構報價／事實、不輸出未授權成本。
+- 沿用 `canva_connections` 與 OAuth，前端現有 slug 為 `supabase-functions-generate-canva-presentation`；依新通路調整能力，不另開重複連接服務。帳戶維持 `chifung.login`，實際授權及 scopes 需按 PoC 核實。
+- PoC 必須確認適用的 API／MCP／Canva 內操作途徑，並記錄其中需要人工完成的步驟，不能把可手動完成視為已自動化。Connect 的 Design Imports 是匯入；Autofill 是資料填入模板，不自動等同由自由內容完成客戶簡報設計。
+- 核對來源：[Canva REST API 能力分類](https://www.canva.dev/docs/apps/rest-apis/reference/)、[Autofill 指引](https://www.canva.dev/docs/apps/rest-apis/autofill-guide/)（2026-10-20）。原生設計通路與帳戶的 PPTX 下載仍須實測，不能只憑 OAuth 成功宣稱功能完成。
+- 保存內容版本、Canva design ID、編輯連結及狀態；不把 PPTX base64 當作生成輸入。重新設計建立新版本，不覆蓋 Canva 手動修改；失敗保留草稿，可重試並防重複建立。
+- 編輯在 Canva 進行，PPTX 由 Canva 保存／下載；可選 API 匯出只作補充，不是必要前置。驗收須下載含最後修改的檔案，在 PowerPoint 開啟並繼續編輯。
+- 專業 PDF 可共用內容／品牌資料，但由各自渲染通路處理版面；不要求 Canva 沿用 FDS 固定產品清單模板。
 
 ---
 
@@ -380,7 +447,7 @@ search_furniture(q text, filters jsonb, page int, page_size int)
 - **成本可見性 = 僅 `admin` ＋ `uploader`**（RLS 依此設定，C-04）。
 - **PDF 解析 = 單一管線＋語意分段**（C-02）。
 - **搜索 = 單一 `search_furniture`（FTS＋pgvector）**（C-03）。
-- **Canva 與專業 PDF 共用資料模型與模板元素**（C-07）。
+- **Canva 與專業 PDF 可共用內容／品牌資料，Canva 負責客戶簡報設計，不共用固定頁面渲染器**（C-07，2026-10-20 修正）。
 
 ### 11.2 其餘技術決議（2026-10-19）
 - **AI／Embedding**：續用 Google Gemini；Embedding 用 Google text-embedding。
