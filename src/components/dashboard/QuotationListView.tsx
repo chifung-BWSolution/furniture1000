@@ -45,6 +45,7 @@ import { compareQuoteVersion, displayQuoteVersion } from '@/lib/quoteVersions';
 import { formatClientIndustryLabel } from '@/lib/clientIndustryDisplay';
 import { normalizeQuoteDateInput } from '@/lib/quotationLocale';
 import { moveQuoteToTrash, QUOTE_TRASH_STATUS } from '@/lib/quoteTrash';
+import { BwfInquiryReplyPanel } from '@/components/dashboard/BwfInquiryReplyPanel';
 
 interface QuoteRecord {
   id: string;
@@ -578,6 +579,7 @@ export function QuotationListView({
 
   return (
     <>
+      {!isLargeAmount && <BwfInquiryReplyPanel />}
       <ListPageShell
         title={isLargeAmount ? '大金額投標 (>$50000)' : '報價單一覽'}
         subtitle={

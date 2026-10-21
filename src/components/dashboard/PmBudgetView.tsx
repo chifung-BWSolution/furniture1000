@@ -1,47 +1,32 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { CircleDollarSign, FileText } from 'lucide-react';
+import { PM_PRO_PDF_PATH, PM_QUICK_PATH, pmInquiryPath } from '@/content/bwaPm';
 import {
-  fetchPmsPitchings,
-  pitchingDisplayTitle,
-  type PmsPitchingListItem,
-} from '@/lib/pmsPitchings';
-import { PM_PRO_PDF_PATH, PM_QUICK_PATH, pmPathWithPitching } from '@/content/bwaPm';
-import {
-  formatListDate,
-  formatListMoney,
-  pitchingStatusBadgeClass,
-  pitchingStatusLabel,
-} from '@/lib/listTableUtils';
-
-function money(value: number | string | null | undefined): string {
-  const text = formatListMoney(value);
-  return text === 'N/A' ? '未填' : `HK$ ${text}`;
-}
+  inquiryErrorMessage,
+  inquiryStatusLabel,
+  listFurnitureInquiries,
+  type BwaInquirySummary,
+} from '@/lib/bwaFurnitureInquiry';
+import { formatListDate } from '@/lib/listTableUtils';
 
 export function PmBudgetView() {
-  const [search, setSearch] = useState('');
-  const [debounced, setDebounced] = useState('');
-  const [rows, setRows] = useState<PmsPitchingListItem[]>([]);
+  const [rows, setRows] = useState<BwaInquirySummary[]>([]);
   const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => setDebounced(search.trim()), 300);
-    return () => window.clearTimeout(timer);
-  }, [search]);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    void fetchPmsPitchings({ search: debounced, limit: 40 }).then((pitchings) => {
+    void listFurnitureInquiries().then((result) => {
       if (cancelled) return;
-      setRows(pitchings);
+      setRows(result.rows);
+      setError(result.error ? inquiryErrorMessage(result.error) : '');
       setLoading(false);
     });
     return () => {
       cancelled = true;
     };
-  }, [debounced]);
+  }, []);
 
   return (
     <div className="h-full min-h-0 overflow-y-auto bg-slate-50 text-foreground dark:bg-background">
@@ -54,88 +39,69 @@ export function PmBudgetView() {
               </p>
               <h1 className="mt-1 flex items-center gap-2 text-xl font-bold">
                 <CircleDollarSign className="h-5 w-5 text-primary" />
-                報價預算
+                向 BWF 詢價
               </h1>
               <p className="mt-1 max-w-xl text-sm text-muted-foreground">
-                預算來自 PMS Pitching 的預計收入、支出與毛利。此頁不讀傢俬報價，也不會開啟傢俬報價單。
+                把工程報價裡的傢俬項目送給 BWF 傢俬部。這裡只看 BWF 正式回覆的賣價，不含成本、廠家或毛利。
               </p>
             </div>
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              aria-label="搜尋 Pitching"
-              placeholder="搜尋編號、客戶或名稱"
-              className="h-10 w-full rounded-lg border border-border bg-background px-3 text-sm sm:max-w-xs"
-            />
+            <Link
+              to={PM_QUICK_PATH}
+              className="inline-flex h-10 items-center justify-center rounded-lg bg-primary px-3 text-sm font-semibold text-primary-foreground"
+            >
+              新詢價
+            </Link>
           </div>
-          {!loading && (
-            <p className="mt-4 text-xs text-muted-foreground">{rows.length} 個 Pitching</p>
-          )}
         </section>
 
-        {loading && <p className="px-2 text-sm text-muted-foreground">載入 Pitching…</p>}
-        {!loading && rows.length === 0 && (
+        {loading && <p className="px-2 text-sm text-muted-foreground">載入詢價…</p>}
+        {error && <p className="px-2 text-sm text-destructive">{error}</p>}
+        {!loading && !error && rows.length === 0 && (
           <section className="rounded-2xl border border-border/80 bg-card px-6 py-12 text-center text-sm text-muted-foreground shadow-sm">
-            沒有符合的 Pitching
+            還沒有詢價
           </section>
         )}
 
         <div className="grid gap-3">
-          {rows.map((row) => {
-            const stage = pitchingStatusLabel(row.pitching_stages);
-            return (
-              <article
-                key={row.id}
-                className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm"
-              >
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <h2 className="truncate text-base font-bold">{pitchingDisplayTitle(row)}</h2>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      {row.pitching_code || '無編號'}
-                      {row.customer_name ? ` · ${row.customer_name}` : ''}
-                      {row.main_pm_name ? ` · PM ${row.main_pm_name}` : ''}
-                    </p>
-                  </div>
-                  {stage !== '—' && (
-                    <span className={`rounded-full border px-2 py-0.5 text-[11px] font-semibold ${pitchingStatusBadgeClass(row.pitching_stages)}`}>
-                      {stage}
-                    </span>
-                  )}
+          {rows.map((row) => (
+            <article key={row.id} className="rounded-2xl border border-border/80 bg-card p-4 shadow-sm">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <h2 className="truncate text-base font-bold">{row.bwa_project_name || '未命名工程'}</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">
+                    {row.bwa_project_ref || '無工程編號'}
+                    {' · '}
+                    {row.item_count} 項傢俬
+                    {' · '}
+                    已回覆賣價 {row.returned_count} 項
+                  </p>
                 </div>
-                <dl className="mt-4 grid gap-3 sm:grid-cols-3">
-                  <div className="rounded-xl bg-slate-50 px-3 py-2 dark:bg-background">
-                    <dt className="text-[11px] text-muted-foreground">預計收入</dt>
-                    <dd className="mt-1 text-lg font-bold">{money(row.estimated_income)}</dd>
-                    <dd className="text-xs text-muted-foreground">查詢 {formatListDate(row.enquiry_date)}</dd>
-                  </div>
-                  <div className="rounded-xl bg-slate-50 px-3 py-2 dark:bg-background">
-                    <dt className="text-[11px] text-muted-foreground">預計支出</dt>
-                    <dd className="mt-1 text-lg font-bold">{money(row.estimated_expense)}</dd>
-                  </div>
-                  <div className="rounded-xl bg-slate-50 px-3 py-2 dark:bg-background">
-                    <dt className="text-[11px] text-muted-foreground">預計毛利</dt>
-                    <dd className="mt-1 text-lg font-bold">{money(row.estimated_gross_profit)}</dd>
-                  </div>
-                </dl>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  <Link
-                    to={pmPathWithPitching(PM_QUICK_PATH, row.id)}
-                    className="inline-flex h-9 items-center rounded-lg bg-primary px-3 text-sm font-semibold text-primary-foreground"
-                  >
-                    在 PM 快速報價查看
-                  </Link>
-                  <Link
-                    to={pmPathWithPitching(PM_PRO_PDF_PATH, row.id)}
-                    className="inline-flex h-9 items-center rounded-lg border border-border bg-background px-3 text-sm font-semibold"
-                  >
-                    <FileText className="mr-1.5 h-4 w-4" />
-                    專業說明
-                  </Link>
-                </div>
-              </article>
-            );
-          })}
+                <span className="rounded-full border border-border px-2 py-0.5 text-[11px] font-semibold">
+                  {inquiryStatusLabel(row.status)}
+                </span>
+              </div>
+              <p className="mt-3 text-xs text-muted-foreground">
+                建立 {formatListDate(row.created_at)}
+                {row.sent_at ? ` · 送出 ${formatListDate(row.sent_at)}` : ''}
+                {row.replied_at ? ` · 回覆 ${formatListDate(row.replied_at)}` : ''}
+              </p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Link
+                  to={pmInquiryPath(PM_QUICK_PATH, row.id)}
+                  className="inline-flex h-9 items-center rounded-lg bg-primary px-3 text-sm font-semibold text-primary-foreground"
+                >
+                  查看項目
+                </Link>
+                <Link
+                  to={pmInquiryPath(PM_PRO_PDF_PATH, row.id)}
+                  className="inline-flex h-9 items-center rounded-lg border border-border bg-background px-3 text-sm font-semibold"
+                >
+                  <FileText className="mr-1.5 h-4 w-4" />
+                  說明
+                </Link>
+              </div>
+            </article>
+          ))}
         </div>
       </div>
     </div>

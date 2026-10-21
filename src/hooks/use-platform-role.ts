@@ -11,6 +11,7 @@ export type PlatformRole = 'admin' | 'staff' | 'client' | 'supplier' | null;
 export function usePlatformRole() {
   const { user } = useAuth();
   const [role, setRole] = useState<PlatformRole>(null);
+  const [profileRole, setProfileRole] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -18,6 +19,7 @@ export function usePlatformRole() {
     const email = user?.email?.trim().toLowerCase();
     if (!email) {
       setRole(null);
+      setProfileRole(null);
       setLoading(false);
       return;
     }
@@ -30,6 +32,7 @@ export function usePlatformRole() {
       .then(({ data }) => {
         if (cancelled) return;
         const next = String(data?.role || '').toLowerCase();
+        setProfileRole(next || null);
         setRole(
           next === 'client'
             ? 'client'
@@ -46,5 +49,5 @@ export function usePlatformRole() {
     };
   }, [user?.email]);
 
-  return { role, loading };
+  return { role, profileRole, loading };
 }

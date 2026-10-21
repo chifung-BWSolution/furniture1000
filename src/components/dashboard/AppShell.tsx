@@ -342,7 +342,7 @@ function PlaceholderView({
 export function AppShell() {
   const store = useAppStore();
   const { user } = useAuth();
-  const { role: platformRole, loading: roleLoading } = usePlatformRole();
+  const { role: platformRole, profileRole, loading: roleLoading } = usePlatformRole();
   const location = useLocation();
   const navigate = useNavigate();
   const [showPublishModal, setShowPublishModal] = useState(false);
@@ -555,6 +555,9 @@ export function AppShell() {
     if (!roleLoading && !clientOnly && !isAdmin && isAdminOnlyView(store.currentView)) {
       store.setCurrentView('fds2-admin-shopify');
     }
+    if (!roleLoading && profileRole === 'pm' && findSection(store.currentView) === 'quote') {
+      store.setCurrentView('fds2-pm-budget');
+    }
   }, [
     clientOnly,
     portalToken,
@@ -562,6 +565,7 @@ export function AppShell() {
     quoteShareToken,
     storedQuoteShareToken,
     roleLoading,
+    profileRole,
     isAdmin,
     store.currentView,
     store,
@@ -644,6 +648,11 @@ export function AppShell() {
       return;
     }
 
+    if (!roleLoading && profileRole === 'pm') {
+      if (store.currentView !== 'fds2-pm-budget') store.setCurrentView('fds2-pm-budget');
+      return;
+    }
+
     const normalizedPath = location.pathname.replace(/\/+$/, '') || '/';
     const key = `${normalizedPath}${location.search}`;
     if (deepLinkHandledRef.current === key) return;
@@ -719,7 +728,7 @@ export function AppShell() {
       }
       store.setCurrentView('quick-quote');
     }
-  }, [location.pathname, location.search, navigate, store, user?.email, setEditingQuoteId]);
+  }, [location.pathname, location.search, navigate, store, user?.email, setEditingQuoteId, roleLoading, profileRole]);
 
   // After deploy reload: restore editing quote id/uuid from resume marker or session.
   // Never steal quote_share / portal invite deep links back into the quote editor.
@@ -782,10 +791,14 @@ export function AppShell() {
     if (!isAppSectionPath(location.pathname) && location.pathname !== '/') return;
     const view = appViewFromPath(location.pathname);
     if (!view) return;
+    if (!roleLoading && profileRole === 'pm' && findSection(view) === 'quote') {
+      if (store.currentView !== 'fds2-pm-budget') store.setCurrentView('fds2-pm-budget');
+      return;
+    }
     if (view !== store.currentView) {
       store.setCurrentView(view);
     }
-  }, [location.pathname, store]);
+  }, [location.pathname, store, roleLoading, profileRole]);
 
   // Leaving /customer without ?quote_share= ends the guest preview. A stored
   // token must not be glued back on when the user opens the staff site.
@@ -1017,6 +1030,9 @@ export function AppShell() {
   const contentView = implementedPage(store.currentView) ?? store.currentView;
 
   const renderView = () => {
+    if (!roleLoading && profileRole === 'pm' && findSection(store.currentView) === 'quote') {
+      return <PmBudgetView />;
+    }
     if (store.currentView === 'fds2-admin-prd') return <PrdDescriptionsView />;
     if (store.currentView === 'fds2-admin-command-logs') return <DailyCommandLogsView />;
     if (store.currentView === 'fds2-admin-dev-cost') return <DevelopmentCostView />;
@@ -1318,6 +1334,9 @@ export function AppShell() {
     if (!roleLoading && !isAdmin && (isAdminOnlyView(view) || (linked != null && isAdminOnlyView(linked)))) {
       return;
     }
+    if (!roleLoading && profileRole === 'pm' && (findSection(view) === 'quote' || (linked != null && findSection(linked) === 'quote'))) {
+      return;
+    }
 
     if (linked === "quick-quote" || view === "quick-quote") {
       if (unsavedGuard.isDirty && !unsavedGuard.confirmLeave()) return;
@@ -1466,6 +1485,7 @@ export function AppShell() {
         onSectionChange={handleSectionChange}
         isConnected={store.settings.isConnected}
         clientOnly={clientOnly}
+        hiddenSections={profileRole === 'pm' ? ['quote'] : undefined}
       />
 
       <div className="flex flex-1 min-h-0 overflow-hidden">

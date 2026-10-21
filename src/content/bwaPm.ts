@@ -10,7 +10,7 @@ export const BWA_PM_BRAND = {
 export const PM_QUICK_PATH = '/fds/pm/quick';
 export const PM_PRO_PDF_PATH = '/fds/pm/pro-pdf';
 
-export function pmPathWithPitching(path: string, pitchingId: string): string {
-  const params = new URLSearchParams({ pmsPitchingId: pitchingId });
+export function pmInquiryPath(path: string, inquiryId: string): string {
+  const params = new URLSearchParams({ inquiry: inquiryId });
   return `${path}?${params.toString()}`;
 }
