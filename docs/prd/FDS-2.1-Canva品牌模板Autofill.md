@@ -66,11 +66,18 @@
 
 參考：[Autofill 指引](https://www.canva.dev/docs/connect/autofill-guide/)
 
+## T-903：版本與匯出
+
+- **版本鏈**：`root_id` + `content_version`；「新版本」建立子 session，不覆蓋既有 Canva 設計。
+- **匯出審計**：`canva_design_exports` 記錄 PPTX／PDF 匯出（僅 URL，不存檔案）；連結約 24 小時有效。
+- **專業 PDF（R5.2）**：`/fds/pm/pro-pdf` 共用 brief 文字，獨立 PDF 渲染，非 Canva 版面。
+
 ## 驗收建議
 
 1. 不選產品：確認大綱 → 建立 → Canva 內可見封面與大綱文字  
 2. 選產品：圖文出現在對應產品頁  
 3. 在 Canva 修改後匯出 PPTX → PowerPoint 可編輯  
+4. 新版本不覆蓋舊設計；匯出紀錄可追蹤  
 
 ## 限制（需知）
 
