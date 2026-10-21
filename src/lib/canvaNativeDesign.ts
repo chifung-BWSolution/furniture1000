@@ -6,8 +6,13 @@ const EDGE = 'supabase-functions-generate-canva-presentation';
 
 export interface CanvaDesignBrief {
   title: string;
+  /** Display name. Free text when the client is not in client_companies. */
   client?: string;
+  /** client_companies.id when the user picked an existing client. */
+  clientId?: string;
   project?: string;
+  /** design_projects.id when the user picked an existing project. */
+  projectId?: string;
   purpose?: string;
   /** 使用者原文 */
   content?: string;
