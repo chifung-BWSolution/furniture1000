@@ -10,6 +10,7 @@ import {
   sendFurnitureInquiry,
   type BwaInquiryStatus,
 } from '@/lib/bwaFurnitureInquiry';
+import { searchBwaWorks, type BwaWorkOption } from '@/lib/bwaWorks';
 import { formatListMoney } from '@/lib/listTableUtils';
 import { Button } from '@/components/ui/button';
 
@@ -39,20 +40,48 @@ function money(value: number | null): string {
   return text === 'N/A' ? '未回覆' : `HK$ ${text}`;
 }
 
+function workKindLabel(kind: BwaWorkOption['kind']): string {
+  return kind === 'project' ? '工程' : '提案';
+}
+
+function linkLabel(pitchingId: string | null, projectId: string | null): string {
+  if (projectId) return '已連到 BWA 工程';
+  if (pitchingId) return '已連到 BWA 提案';
+  return '';
+}
+
+function optionKey(option: BwaWorkOption): string {
+  return `${option.kind}:${option.project_id || option.pitching_id || option.code}`;
+}
+
 export function PmQuickView() {
   const [params, setParams] = useSearchParams();
   const inquiryId = (params.get('inquiry') || '').trim();
   const [projectRef, setProjectRef] = useState('');
   const [projectName, setProjectName] = useState('');
+  const [pitchingId, setPitchingId] = useState<string | null>(null);
+  const [projectId, setProjectId] = useState<string | null>(null);
   const [note, setNote] = useState('');
   const [lines, setLines] = useState<DraftLine[]>([blankLine()]);
   const [status, setStatus] = useState<BwaInquiryStatus>('draft');
   const [loading, setLoading] = useState(Boolean(inquiryId));
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
+  const [workQuery, setWorkQuery] = useState('');
+  const [workOptions, setWorkOptions] = useState<BwaWorkOption[]>([]);
+  const [workError, setWorkError] = useState('');
+  const [workOpen, setWorkOpen] = useState(false);
+  const [workLoading, setWorkLoading] = useState(false);
 
   useEffect(() => {
     if (!inquiryId) {
+      setProjectRef('');
+      setProjectName('');
+      setPitchingId(null);
+      setProjectId(null);
+      setNote('');
+      setLines([blankLine()]);
+      setStatus('draft');
       setLoading(false);
       return;
     }
@@ -68,6 +97,8 @@ export function PmQuickView() {
       const inquiry = result.inquiry;
       setProjectRef(inquiry.bwa_project_ref);
       setProjectName(inquiry.bwa_project_name);
+      setPitchingId(inquiry.bwa_pitching_id);
+      setProjectId(inquiry.bwa_project_id);
       setNote(inquiry.note);
       setStatus(inquiry.status);
       setLines(
@@ -91,6 +122,38 @@ export function PmQuickView() {
 
   const locked = status !== 'draft';
 
+  useEffect(() => {
+    if (locked || !workOpen) return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      setWorkLoading(true);
+      void searchBwaWorks(workQuery).then((result) => {
+        if (cancelled) return;
+        setWorkOptions(result.items);
+        setWorkError(result.error);
+        setWorkLoading(false);
+      });
+    }, workQuery.trim() ? 250 : 0);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [workQuery, workOpen, locked]);
+
+  const clearWorkLink = () => {
+    setPitchingId(null);
+    setProjectId(null);
+  };
+
+  const pickWork = (option: BwaWorkOption) => {
+    setProjectRef(option.code);
+    setProjectName(option.name);
+    setPitchingId(option.pitching_id);
+    setProjectId(option.project_id);
+    setWorkQuery('');
+    setWorkOpen(false);
+  };
+
   const updateLine = (key: string, patch: Partial<DraftLine>) => {
     setLines((current) => current.map((line) => (line.key === key ? { ...line, ...patch } : line)));
   };
@@ -99,6 +162,8 @@ export function PmQuickView() {
     id: inquiryId || null,
     projectRef,
     projectName,
+    pitchingId,
+    projectId,
     note,
     items: lines.map((line) => ({
       name: line.name.trim(),
@@ -167,7 +232,7 @@ export function PmQuickView() {
             傢俬詢價
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
-            填工程編號和傢俬項目，送給 BWF。賣價由 BWF 回覆，這一頁只讀。
+            從 BWA 工程或提案選一筆，或直接手填編號和名稱，再填傢俬項目送給 BWF。賣價由 BWF 回覆，這一頁只讀。PMS 沒有傢俬明細可以帶入。
           </p>
           <p className="mt-2 text-sm font-semibold">{inquiryStatusLabel(status)}</p>
         </section>
@@ -175,13 +240,77 @@ export function PmQuickView() {
         {loading && <p className="px-2 text-sm text-muted-foreground">載入詢價…</p>}
         {!loading && (
           <section className="space-y-4 rounded-2xl border border-border/80 bg-card p-4 shadow-sm sm:p-6">
+            {!locked && (
+              <div className="relative">
+                <label className="text-sm" htmlFor="bwa-work-search">
+                  搜尋 BWA 工程或提案
+                  <input
+                    id="bwa-work-search"
+                    value={workQuery}
+                    role="combobox"
+                    aria-expanded={workOpen}
+                    aria-controls="bwa-work-list"
+                    autoComplete="off"
+                    placeholder="編號、名稱或客戶"
+                    onFocus={() => setWorkOpen(true)}
+                    onBlur={() => window.setTimeout(() => setWorkOpen(false), 150)}
+                    onChange={(event) => {
+                      setWorkQuery(event.target.value);
+                      setWorkOpen(true);
+                    }}
+                    className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-3"
+                  />
+                </label>
+                {workOpen && (
+                  <ul
+                    id="bwa-work-list"
+                    role="listbox"
+                    className="absolute z-20 mt-1 max-h-72 w-full overflow-y-auto rounded-lg border border-border bg-card py-1 shadow-md"
+                  >
+                    {workLoading && <li className="px-3 py-2 text-sm text-muted-foreground">搜尋中…</li>}
+                    {!workLoading && workError && (
+                      <li className="px-3 py-2 text-sm text-muted-foreground">{workError}</li>
+                    )}
+                    {!workLoading && !workError && workOptions.length === 0 && (
+                      <li className="px-3 py-2 text-sm text-muted-foreground">
+                        沒有符合的工程或提案。可以直接手填下面的編號和名稱。
+                      </li>
+                    )}
+                    {!workLoading && !workError && workOptions.map((option) => (
+                      <li key={optionKey(option)}>
+                        <button
+                          type="button"
+                          role="option"
+                          className="flex w-full flex-col items-start px-3 py-2 text-left hover:bg-muted"
+                          onMouseDown={(event) => {
+                            event.preventDefault();
+                            pickWork(option);
+                          }}
+                        >
+                          <span className="text-sm font-semibold">
+                            {workKindLabel(option.kind)} · {option.code || '無編號'}
+                          </span>
+                          <span className="text-xs text-muted-foreground">
+                            {option.name || '無名稱'}
+                            {option.customer_name && option.customer_name !== option.name ? ` · ${option.customer_name}` : ''}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            )}
             <div className="grid gap-3 sm:grid-cols-2">
               <label className="text-sm">
                 工程編號
                 <input
                   value={projectRef}
                   disabled={locked}
-                  onChange={(event) => setProjectRef(event.target.value)}
+                  onChange={(event) => {
+                    setProjectRef(event.target.value);
+                    clearWorkLink();
+                  }}
                   className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-3 disabled:opacity-60"
                 />
               </label>
@@ -190,11 +319,17 @@ export function PmQuickView() {
                 <input
                   value={projectName}
                   disabled={locked}
-                  onChange={(event) => setProjectName(event.target.value)}
+                  onChange={(event) => {
+                    setProjectName(event.target.value);
+                    clearWorkLink();
+                  }}
                   className="mt-1 h-10 w-full rounded-lg border border-border bg-background px-3 disabled:opacity-60"
                 />
               </label>
             </div>
+            {linkLabel(pitchingId, projectId) && (
+              <p className="text-xs text-muted-foreground">{linkLabel(pitchingId, projectId)}。手改編號或名稱會改回手填。</p>
+            )}
             <label className="block text-sm">
               備註
               <textarea
