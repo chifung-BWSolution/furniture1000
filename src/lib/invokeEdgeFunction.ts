@@ -1,3 +1,4 @@
+import { parseInvokeError } from '@/lib/edgeFunctionErrors';
 import { supabase } from '@/lib/supabase';
 
 const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000;
@@ -72,4 +73,44 @@ export async function invokeEdgeFunctionDirect<T = Record<string, unknown>>(
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** Session access token for edge calls that must not fall back to the anon key. */
+export async function requireUserAccessToken(): Promise<string> {
+  const { data: userData, error } = await supabase.auth.getUser();
+  if (error || !userData.user) throw new Error('請先登入');
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token?.trim();
+  if (!token) throw new Error('請先登入');
+  return token;
+}
+
+export async function invokeWithUserJwt<T = Record<string, unknown>>(
+  slug: string,
+  body: unknown,
+): Promise<{ data: T | null; error: string | null }> {
+  let accessToken: string;
+  try {
+    accessToken = await requireUserAccessToken();
+  } catch (err) {
+    return { data: null, error: err instanceof Error ? err.message : '請先登入' };
+  }
+  const { data, error } = await supabase.functions.invoke<T>(slug, {
+    body,
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
+  if (error || (data as { error?: string } | null)?.error) {
+    const message = await parseInvokeError(error, data as { error?: string } | null);
+    return { data: data ?? null, error: explainEmailInvokeError(message) };
+  }
+  return { data: data ?? null, error: null };
+}
+
+export function explainEmailInvokeError(message: string): string {
+  if (message === 'Unauthorized' || message === '請先登入') return '請先登入';
+  if (message === 'permission_denied') return '只有管理員、上載員或專案經理可以寄出這封信';
+  if (message === 'recipient_not_allowed') {
+    return '收件人必須是上載紀錄通知信箱，或在職帳號的電郵';
+  }
+  return message;
 }
