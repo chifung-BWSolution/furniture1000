@@ -148,7 +148,7 @@ async function runSketchUpPreview(inputSkp, outputGlb, dir) {
   }
   const errorFile = join(dir, 'error.txt');
   await new Promise((resolve, reject) => {
-    const child = spawn(SKETCHUP, ['-RubyStartup', PREVIEW_RUBY], {
+    const child = spawn(SKETCHUP, ['-RubyStartup', PREVIEW_RUBY, ...(existsSync(SEED) ? [SEED] : [])], {
       env: {
         ...process.env,
         FDS_SKP_INPUT: inputSkp,

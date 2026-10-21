@@ -11,7 +11,7 @@ module FdsSkpPreview
   def export_glb(model, output)
     raise 'model empty' if model.entities.length == 0 && model.definitions.length <= 1
 
-    # SketchUp 2021+ ships a glTF exporter; extension determines format.
+    # SketchUp 2024+ ships a GLB exporter; extension determines format.
     options = {
       :triangulate_faces => true,
       :doublesided_faces => true,
@@ -31,8 +31,9 @@ module FdsSkpPreview
       path = File.expand_path(input)
       raise 'skp missing' unless File.exist?(path)
 
-      model = Sketchup.open_file(path)
-      raise 'open failed' unless model
+      raise 'open failed' unless Sketchup.open_file(path)
+      model = Sketchup.active_model
+      raise 'active model missing' unless model
 
       export_glb(model, File.expand_path(output))
     rescue StandardError => e
