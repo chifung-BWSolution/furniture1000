@@ -1,9 +1,8 @@
 // ============================================================================
 // FDS 2.1 Day 9 — Canva 連接與匯入（F-AI-009，T-901）
 // 決議：使用 chifung.login 帳戶；OAuth Authorization-Code＋PKCE 綁定使用者；
-// 未取得有效權限不得使用他人 Canva 資料。匯入通路＝Design Imports：
-// 前端生成 PPTX → edge 以 Bearer token 呼叫 POST /v1/imports → 輪詢 job →
-// 回傳可編輯設計連結（edit_url 有效 30 天）。
+// 未取得有效權限不得使用他人 Canva 資料。F-AI-009 驗收見 canvaNativeDesign.ts（POST /designs）。
+// importPptxToCanva＝舊版 Design Imports，不作完成證據。
 // Client ID／Secret 存在 Supabase Edge secrets（CANVA_CLIENT_ID / CANVA_CLIENT_SECRET），
 // 前端永遠拿不到 Secret；access/refresh token 存在無公認政策的 canva_connections 表。
 // ============================================================================
@@ -12,7 +11,8 @@ import { supabase } from '@/lib/supabase';
 
 const EDGE = 'supabase-functions-generate-canva-presentation';
 
-export const CANVA_SCOPES = 'design:content:write design:meta:read profile:read';
+export const CANVA_SCOPES =
+  'design:content:write design:content:read design:meta:read profile:read';
 
 export interface CanvaStatus {
   connected: boolean;

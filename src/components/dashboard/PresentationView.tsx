@@ -1,15 +1,13 @@
 // ============================================================================
-// FDS 2.1 Day 9 — 簡報生成（F-AI-009，T-902）
-// PM 專屬入口：選產品（fds_search_products，成本按角色遮蔽）→ 固定模板整理
-// → pptxgenjs 生成 PPTX（可編輯，直接下載）→ 勾選「匯入 Canva」時經 edge
-// generate-canva-presentation 用 Design Imports 轉成可編輯 Canva 設計。
-// Canva 授權（chifung.login）走 OAuth PKCE：code 落在本頁 query，exchange 後清掉。
+// FDS 2.1 — 客戶簡報（F-AI-009）
+// T-901 PoC：Canva 原生 POST /v1/designs（canvaNativeDesign.ts），非 Design Imports。
+// 舊版「選產品 → PptxGenJS → 匯入 Canva」保留於「舊版」分頁，不作驗收。
 // ============================================================================
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ArrowDown, ArrowUp, CheckCircle2, Link2, Loader2, Plus, Presentation as PresentationIcon,
-  RefreshCcw, Search, Unlink, X,
+  ArrowDown, ArrowUp, CheckCircle2, ChevronDown, ExternalLink, Link2, Loader2, Plus,
+  Presentation as PresentationIcon, RefreshCcw, Search, Unlink, X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
@@ -22,10 +20,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import type { SearchProduct, SearchResult, SearchScope } from '@/lib/productSearch';
 import { moneyLabel, searchProducts } from '@/lib/productSearch';
 import {
@@ -36,12 +36,18 @@ import {
   blobToBase64, canvaDisconnect, exchangeCanvaCode, fetchCanvaStatus, importPptxToCanva,
   readCanvaOauthCallback, startCanvaConnect, clearCanvaOauthState, type CanvaStatus,
 } from '@/lib/canvaPresentation';
+import {
+  buildOutlineFromBrief, createNativeCanvaDesign, defaultBrief, exportCanvaSessionPptx,
+  listCanvaDesignSessions, probeCanvaNative, saveCanvaDraft, type CanvaDesignBrief,
+  type CanvaDesignSession,
+} from '@/lib/canvaNativeDesign';
 
 const PAGE_SIZE = 50;
 const MAX_ITEMS = 30;
 const PRESENTATION_PATH = '/fds/pm/presentation';
 
-type Status = 'idle' | 'generating' | 'importing';
+type Status = 'idle' | 'generating' | 'importing' | 'creating' | 'exporting';
+type ViewMode = 'native' | 'legacy';
 
 function errorText(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
@@ -55,6 +61,7 @@ function pricePreview(p: SearchProduct): string | null {
 }
 
 export function PresentationView() {
+  const [viewMode, setViewMode] = useState<ViewMode>('native');
   const [query, setQuery] = useState('');
   const [scope, setScope] = useState<SearchScope>('all');
   const [result, setResult] = useState<SearchResult | null>(null);
@@ -66,12 +73,19 @@ export function PresentationView() {
     dateLabel: '',
     showPrices: true,
   });
-  const [importCanva, setImportCanva] = useState(true);
+  const [importCanva, setImportCanva] = useState(false);
   const [canva, setCanva] = useState<CanvaStatus | null>(null);
   const [canImport, setCanImport] = useState(false);
   const [status, setStatus] = useState<Status>('idle');
   const [canvaLink, setCanvaLink] = useState<{ edit_url: string; title?: string } | null>(null);
   const oauthHandledRef = useRef(false);
+
+  const [brief, setBrief] = useState<CanvaDesignBrief>(() => defaultBrief());
+  const [outline, setOutline] = useState('');
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [sessions, setSessions] = useState<CanvaDesignSession[]>([]);
+  const [activeSession, setActiveSession] = useState<CanvaDesignSession | null>(null);
+  const [productsOpen, setProductsOpen] = useState(false);
 
   const refreshStatus = useCallback(async () => {
     const [statusValue, role] = await Promise.all([
@@ -82,7 +96,15 @@ export function PresentationView() {
     setCanImport(Boolean(role.data));
   }, []);
 
-  // OAuth 回調：?code=…&state=… exchange 後把 query 從網址清掉
+  const refreshSessions = useCallback(async () => {
+    try {
+      const rows = await listCanvaDesignSessions(12);
+      setSessions(rows);
+    } catch {
+      setSessions([]);
+    }
+  }, []);
+
   useEffect(() => {
     const url = new URL(window.location.href);
     if (!url.searchParams.has('code')) return;
@@ -104,23 +126,25 @@ export function PresentationView() {
       return;
     }
     (async () => {
-        try {
-          const redirectUri = `${window.location.origin}${PRESENTATION_PATH}`;
-          const connected = await exchangeCanvaCode(code, cb.verifier, redirectUri);
-          toast.success('Canva 已連接', { description: connected.account_name ? `帳戶：${connected.account_name}` : 'chifung.login' });
-        } catch (err) {
-          toast.error('Canva 授權失敗', { description: errorText(err) });
-        } finally {
-          clearCanvaOauthState();
-          clean();
-          refreshStatus();
-        }
+      try {
+        const redirectUri = `${window.location.origin}${PRESENTATION_PATH}`;
+        const connected = await exchangeCanvaCode(code, cb.verifier, redirectUri);
+        toast.success('Canva 已連接', { description: connected.account_name ? `帳戶：${connected.account_name}` : 'chifung.login' });
+      } catch (err) {
+        toast.error('Canva 授權失敗', { description: errorText(err) });
+      } finally {
+        clearCanvaOauthState();
+        clean();
+        refreshStatus();
+      }
     })();
   }, [refreshStatus]);
 
-  useEffect(() => { refreshStatus(); }, [refreshStatus]);
+  useEffect(() => {
+    refreshStatus();
+    refreshSessions();
+  }, [refreshStatus, refreshSessions]);
 
-  // 取消勾選 / 移除時把 meta 歸零重算標題
   useEffect(() => {
     setMeta((m) => {
       if (selected.length === 0 && !m.title) return m;
@@ -149,14 +173,15 @@ export function PresentationView() {
     }
   }, [query, scope]);
 
-  // 初次載入列出產品目錄
-  useEffect(() => { runSearch(); }, [runSearch]);
+  useEffect(() => {
+    if (viewMode === 'legacy') runSearch();
+  }, [runSearch, viewMode]);
 
   const toggle = (p: SearchProduct) => {
     setSelected((current) => {
       if (current.some((i) => i.id === p.id)) return current.filter((i) => i.id !== p.id);
       if (current.length >= MAX_ITEMS) {
-        toast.message(`最多 ${MAX_ITEMS} 件`, { description: '簡報超過 30 頁不利列印與 Canva 匯入' });
+        toast.message(`最多 ${MAX_ITEMS} 件`, { description: '簡報不宜過長' });
         return current;
       }
       return [...current, p];
@@ -178,7 +203,124 @@ export function PresentationView() {
   const connected = canva?.connected ?? false;
   const canvaPathReady = Boolean(canva?.configured && canImport && connected);
 
-  const generate = useCallback(async () => {
+  const nativeTitleOk = Boolean(brief.title.trim() || brief.client?.trim() || brief.project?.trim());
+  const nativeContentOk = Boolean(brief.content?.trim() || outline.trim());
+  const canCreateNative = nativeTitleOk && nativeContentOk && canvaPathReady;
+
+  const syncOutline = useCallback(() => {
+    const next = buildOutlineFromBrief({ ...brief, outline: undefined });
+    setOutline(next);
+    setBrief((b) => ({ ...b, outline: next }));
+  }, [brief]);
+
+  const saveDraft = useCallback(async () => {
+    if (!canImport) return;
+    setStatus('creating');
+    try {
+      const confirmed = outline.trim() || buildOutlineFromBrief(brief);
+      const payload: CanvaDesignBrief = {
+        ...brief,
+        outline: confirmed,
+        confirmedAt: new Date().toISOString(),
+      };
+      const { session_id } = await saveCanvaDraft(
+        payload,
+        selected.map((p) => p.id),
+        sessionId ?? undefined,
+      );
+      setSessionId(session_id);
+      toast.success('草稿已儲存');
+      await refreshSessions();
+    } catch (err) {
+      toast.error('儲存失敗', { description: errorText(err) });
+    } finally {
+      setStatus('idle');
+    }
+  }, [brief, outline, selected, sessionId, canImport, refreshSessions]);
+
+  const createNative = useCallback(async () => {
+    if (!canCreateNative || disabled) return;
+    setStatus('creating');
+    setActiveSession(null);
+    try {
+      const confirmed = outline.trim() || buildOutlineFromBrief(brief);
+      const payload: CanvaDesignBrief = {
+        ...brief,
+        title: brief.title.trim() || `${brief.client ?? ''} ${brief.project ?? ''}`.trim() || '客戶簡報',
+        outline: confirmed,
+        confirmedAt: new Date().toISOString(),
+      };
+      const { session_id } = await saveCanvaDraft(
+        payload,
+        selected.map((p) => p.id),
+        sessionId ?? undefined,
+      );
+      setSessionId(session_id);
+      const session = await createNativeCanvaDesign(session_id);
+      setActiveSession(session);
+      if (session.edit_url) {
+        setCanvaLink({ edit_url: session.edit_url, title: payload.title });
+        toast.success('已建立 Canva 簡報', {
+          description: '請在 Canva 內編排版面與素材；API 建立空白 presentation，內容需於 Canva 完成。',
+        });
+      }
+      await refreshSessions();
+      const probe = await probeCanvaNative().catch(() => null);
+      if (probe?.missing_scopes?.length) {
+        toast.message('匯出 PPTX 需重新授權', { description: probe.message ?? probe.missing_scopes.join(', ') });
+      }
+    } catch (err) {
+      toast.error('建立 Canva 設計失敗', { description: errorText(err) });
+    } finally {
+      setStatus('idle');
+    }
+  }, [canCreateNative, disabled, brief, outline, selected, sessionId, refreshSessions]);
+
+  const exportPptx = useCallback(async (sid: string) => {
+    setStatus('exporting');
+    try {
+      const res = await exportCanvaSessionPptx(sid);
+      if (res.export_download_url) {
+        window.open(res.export_download_url, '_blank', 'noopener,noreferrer');
+        toast.success('PPTX 匯出完成', { description: '下載連結 24 小時內有效；請用 PowerPoint 驗證可編輯性。' });
+      }
+      await refreshSessions();
+    } catch (err) {
+      toast.error('匯出 PPTX 失敗', { description: errorText(err) });
+    } finally {
+      setStatus('idle');
+    }
+  }, [refreshSessions]);
+
+  const loadSession = (s: CanvaDesignSession) => {
+    setSessionId(s.id);
+    setBrief({ ...defaultBrief(), ...(s.brief as CanvaDesignBrief) });
+    setOutline(String((s.brief as CanvaDesignBrief).outline ?? ''));
+    setActiveSession(s);
+    if (s.edit_url) setCanvaLink({ edit_url: s.edit_url, title: (s.brief as CanvaDesignBrief).title });
+  };
+
+  const newVersion = async (parent: CanvaDesignSession) => {
+    setSessionId(null);
+    setBrief({ ...(parent.brief as CanvaDesignBrief), confirmedAt: undefined });
+    setOutline(String((parent.brief as CanvaDesignBrief).outline ?? ''));
+    setActiveSession(null);
+    try {
+      const { session_id } = await saveCanvaDraft(
+        parent.brief as CanvaDesignBrief,
+        parent.product_ids ?? [],
+        undefined,
+        parent.id,
+      );
+      setSessionId(session_id);
+      toast.message('已建立新版本草稿', { description: '確認後可再次建立 Canva 設計，不覆蓋舊設計。' });
+      await refreshSessions();
+    } catch (err) {
+      toast.error('無法建立新版本', { description: errorText(err) });
+    }
+  };
+
+  const generateLegacy = useCallback(async () => {
     if (!canGenerate || disabled) return;
     const nameBase = meta.title.trim();
     setStatus('generating');
@@ -188,8 +330,6 @@ export function PresentationView() {
         `${new Date().getFullYear()}年${new Date().getMonth() + 1}月`;
       const doc = buildPresentationDoc({ ...meta, dateLabel }, selected);
       const blob = await buildPresentationBlob(doc);
-
-      // 1) 永遠先交付可編輯 PPTX（驗收標準）
       const fileName = `${safeFileName(nameBase)}.pptx`;
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -197,22 +337,16 @@ export function PresentationView() {
       a.download = fileName;
       a.click();
       URL.revokeObjectURL(url);
-
-      // 2) 選擇性：Canva Design Imports
       if (importCanva && canvaPathReady) {
         setStatus('importing');
         const base64 = await blobToBase64(blob);
-        const imported = await importPptxToCanva(
-          fileName,
-          base64,
-          selected.map((p) => p.id),
-        );
+        const imported = await importPptxToCanva(fileName, base64, selected.map((p) => p.id));
         if (imported.edit_url) {
           setCanvaLink({ edit_url: imported.edit_url, title: imported.title });
-          toast.success('已匯入 Canva', { description: '在 Canva 內可直接編輯設計' });
+          toast.success('已匯入 Canva（舊版通路）');
         }
       }
-      toast.success('簡報已生成並下載', { description: fileName });
+      toast.success('PPTX 已下載（舊版本機模板）');
     } catch (err) {
       toast.error('生成失敗', { description: errorText(err) });
     } finally {
@@ -245,42 +379,57 @@ export function PresentationView() {
 
   return (
     <div className="mx-auto w-full max-w-7xl space-y-4 p-4 md:p-6">
-      <div>
-        <h2 className="text-xl font-semibold">簡報生成</h2>
-        <p className="text-sm text-muted-foreground">
-          選產品 → 整理內容 → 生成可編輯 PPTX；可一併匯入 Canva（chifung.login）繼續設計。
-        </p>
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-semibold">客戶簡報（Canva）</h2>
+          <p className="text-sm text-muted-foreground">
+            F-AI-009：內容確認 → Canva 原生 presentation → 於 Canva 編輯 → 下載 PPTX 驗收。
+          </p>
+        </div>
+        <div className="flex rounded-lg border p-0.5">
+          <Button
+            variant={viewMode === 'native' ? 'secondary' : 'ghost'}
+            size="sm"
+            onClick={() => setViewMode('native')}
+          >
+            Canva 原生（T-901）
+          </Button>
+          <Button
+            variant={viewMode === 'legacy' ? 'secondary' : 'ghost'}
+            size="sm"
+            onClick={() => setViewMode('legacy')}
+          >
+            舊版產品 PPTX
+          </Button>
+        </div>
       </div>
 
-      {/* ── Canva 連接卡 ────────────────────────────────────────────── */}
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="flex items-center gap-2 text-base">
             <PresentationIcon className="h-4 w-4" /> Canva 連接
           </CardTitle>
           <CardDescription>
-            匯入通路使用公司共用帳戶 chifung.login（限公司管理員／傢俬組）。
+            公司帳戶 chifung.login（admin／傢俬組）。T-901 需{' '}
+            <code className="rounded bg-muted px-1">design:content:write</code> 與{' '}
+            <code className="rounded bg-muted px-1">design:content:read</code>（匯出 PPTX）。
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap items-center gap-3">
-          {!canva && <span className="text-sm text-muted-foreground"><Loader2 className="mr-1 inline h-3.5 w-3.5" />偵測中…</span>}
+          {!canva && <span className="text-sm text-muted-foreground"><Loader2 className="mr-1 inline h-3.5 w-3.5 animate-spin" />偵測中…</span>}
           {canva && !canva.configured && (
             <div className="text-sm text-muted-foreground">
-              尚未配置：請在 Supabase Edge secrets 設定 <code className="rounded bg-muted px-1">CANVA_CLIENT_ID</code> 與{' '}
-              <code className="rounded bg-muted px-1">CANVA_CLIENT_SECRET</code>（用 chifung.login 在 canva.dev 註冊 Connect API App，
-              redirect URI 加上 <code className="rounded bg-muted px-1">{`<域名>${PRESENTATION_PATH}`}</code>）。
+              請在 Edge secrets 設定 CANVA_CLIENT_ID／CANVA_CLIENT_SECRET，redirect URI：
+              <code className="rounded bg-muted px-1">{`<域名>${PRESENTATION_PATH}`}</code>
             </div>
           )}
           {canva?.configured && !canImport && (
-            <div className="text-sm text-muted-foreground">Canva 匯入只開放給公司管理員與傢俬組（現有角色不適用）。仍可生成 PPTX。</div>
+            <div className="text-sm text-muted-foreground">僅 admin／傢俬組可使用 Canva 簡報功能。</div>
           )}
           {canva?.configured && canImport && !connected && (
-            <>
-              <Button onClick={connect} disabled={disabled}>
-                <Link2 className="mr-2 h-4 w-4" /> 連接 Canva（chifung.login）
-              </Button>
-              <span className="text-sm text-muted-foreground">授權只求 design:content:write，生成 PPTX 不需要登入 Canva。</span>
-            </>
+            <Button onClick={connect} disabled={disabled}>
+              <Link2 className="mr-2 h-4 w-4" /> 連接 Canva
+            </Button>
           )}
           {connected && (
             <>
@@ -299,159 +448,317 @@ export function PresentationView() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
-        {/* ── 搜尋 ───────────────────────────────────────────────────── */}
-        <Card className="order-1">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">1. 選產品（{selected.length}/{MAX_ITEMS}）</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex gap-2">
-              <Input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') runSearch(); }}
-                placeholder="名稱／型號／供應商…"
-              />
-              <Button onClick={runSearch} disabled={searching}>
-                {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-              </Button>
-              <Select value={scope} onValueChange={(v) => setScope(v as SearchScope)}>
-                <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">全部產品</SelectItem>
-                  <SelectItem value="catalog">產品目錄</SelectItem>
-                  <SelectItem value="shopify">已上架</SelectItem>
-                  <SelectItem value="quoted">有供應商報價</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="max-h-[26rem] space-y-1.5 overflow-y-auto rounded-lg border p-2">
-              {searchResults.length === 0 && !searching && (
-                <p className="p-6 text-center text-sm text-muted-foreground">沒有找到產品</p>
-              )}
-              {searchResults.map((p) => {
-                const picked = selectedIds.has(p.id);
-                return (
-                  <label
-                    key={p.id}
-                    className={cn(
-                      'flex cursor-pointer items-center gap-3 rounded-lg border p-2 text-sm transition-colors',
-                      picked ? 'border-blue-500/50 bg-blue-50/60' : 'border-transparent hover:bg-muted/50',
-                    )}
-                  >
-                    <Checkbox checked={picked} onCheckedChange={() => toggle(p)} />
-                    <span className="h-11 w-14 shrink-0 overflow-hidden rounded bg-muted">
-                      <LoadingImage
-                        src={p.image_url ? productThumbUrl(p.image_url, 192) : null}
-                        alt={p.title}
-                        className="h-full w-full object-contain"
-                      />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate font-medium">{p.title}</span>
-                      <span className="block truncate text-xs text-muted-foreground">
-                        {[p.model, p.factory_name].filter(Boolean).join(' ｜ ')}
-                      </span>
-                    </span>
-                    {moneyLabel(p.middle_price, 'HK$') && (
-                      <span className="shrink-0 text-xs font-semibold tabular-nums">
-                        {moneyLabel(p.middle_price, 'HK$')}
-                      </span>
-                    )}
-                  </label>
-                );
-              })}
-            </div>
-            {result && (
-              <p className="text-xs text-muted-foreground">顯示首 {searchResults.length} 個結果（共 {result.total}）</p>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* ── 右欄：設定手冊 ────────────────────────────────────────────── */}
-        <Card className="order-2">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">2. 已選產品 · 標題 · 版式</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="max-h-56 space-y-1.5 overflow-y-auto rounded-lg border p-2">
-              {selected.length === 0 && (
-                <p className="p-6 text-center text-sm text-muted-foreground">在左邊勾選產品</p>
-              )}
-              {selected.map((p, i) => (
-                <div key={p.id} className="flex items-center gap-2 rounded-lg border p-2 text-sm">
-                  <span className="w-5 text-center text-xs text-muted-foreground tabular-nums">{i + 1}</span>
-                  <span className="min-w-0 flex-1 truncate">{p.title}</span>
-                  {pricePreview(p) && (
-                    <span className="text-xs font-semibold tabular-nums">{pricePreview(p)}</span>
-                  )}
-                  <Button variant="ghost" size="icon" className="h-7 w-7" disabled={i === 0} onClick={() => move(i, -1)}>
-                    <ArrowUp className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button variant="ghost" size="icon" className="h-7 w-7" disabled={i === selected.length - 1} onClick={() => move(i, 1)}>
-                    <ArrowDown className="h-3.5 w-3.5" />
-                  </Button>
-                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => toggle(p)}>
-                    <X className="h-3.5 w-3.5" />
-                  </Button>
+      {viewMode === 'native' && (
+        <>
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">1. 匯報內容與設計要求</CardTitle>
+              <CardDescription>可不選產品；提交前請確認大綱。Canva 負責視覺編排，API 建立空白 presentation。</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="sm:col-span-2 space-y-1">
+                  <Label>簡報標題</Label>
+                  <Input
+                    value={brief.title}
+                    onChange={(e) => setBrief((b) => ({ ...b, title: e.target.value }))}
+                    placeholder="例：2026 Q3 方案匯報"
+                  />
                 </div>
-              ))}
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="sm:col-span-2 space-y-1">
-                <Label>簡報標題</Label>
-                <Input value={meta.title} onChange={(e) => setMeta((m) => ({ ...m, title: e.target.value }))} />
+                <div className="space-y-1">
+                  <Label>客戶</Label>
+                  <Input value={brief.client ?? ''} onChange={(e) => setBrief((b) => ({ ...b, client: e.target.value }))} />
+                </div>
+                <div className="space-y-1">
+                  <Label>專案</Label>
+                  <Input value={brief.project ?? ''} onChange={(e) => setBrief((b) => ({ ...b, project: e.target.value }))} />
+                </div>
+                <div className="sm:col-span-2 space-y-1">
+                  <Label>匯報目的</Label>
+                  <Input value={brief.purpose ?? ''} onChange={(e) => setBrief((b) => ({ ...b, purpose: e.target.value }))} />
+                </div>
+                <div className="space-y-1">
+                  <Label>語言</Label>
+                  <Input value={brief.language ?? ''} onChange={(e) => setBrief((b) => ({ ...b, language: e.target.value }))} />
+                </div>
+                <div className="space-y-1">
+                  <Label>風格</Label>
+                  <Input value={brief.style ?? ''} onChange={(e) => setBrief((b) => ({ ...b, style: e.target.value }))} />
+                </div>
+                <div className="space-y-1">
+                  <Label>期望頁數</Label>
+                  <Input
+                    type="number"
+                    min={4}
+                    max={40}
+                    value={brief.pageCount ?? ''}
+                    onChange={(e) => setBrief((b) => ({ ...b, pageCount: Number(e.target.value) || undefined }))}
+                  />
+                </div>
               </div>
               <div className="space-y-1">
-                <Label>副標題（公司／專案）</Label>
-                <Input value={meta.subtitle} onChange={(e) => setMeta((m) => ({ ...m, subtitle: e.target.value }))} />
-              </div>
-              <div className="space-y-1">
-                <Label>日期</Label>
-                <Input
-                  value={meta.dateLabel}
-                  placeholder="自動（2026年10月）"
-                  onChange={(e) => setMeta((m) => ({ ...m, dateLabel: e.target.value }))}
+                <Label>匯報原文（可貼上客戶提供內容）</Label>
+                <Textarea
+                  className="min-h-[8rem]"
+                  value={brief.content ?? ''}
+                  onChange={(e) => setBrief((b) => ({ ...b, content: e.target.value }))}
                 />
               </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-4 rounded-lg border bg-muted/40 p-3">
-              <div className="flex items-center gap-2">
-                <Switch id="show-prices" checked={meta.showPrices} onCheckedChange={(v) => setMeta((m) => ({ ...m, showPrices: v }))} />
-                <Label htmlFor="show-prices" className="text-sm">顯示折扣價</Label>
+              <div className="space-y-1">
+                <div className="flex items-center justify-between gap-2">
+                  <Label>確認大綱</Label>
+                  <Button type="button" variant="outline" size="sm" onClick={syncOutline}>
+                    從上方欄位整理
+                  </Button>
+                </div>
+                <Textarea
+                  className="min-h-[6rem] font-mono text-xs"
+                  value={outline}
+                  onChange={(e) => setOutline(e.target.value)}
+                  placeholder="整理後的大綱；建立 Canva 前請確認"
+                />
               </div>
-              <div className="flex items-center gap-2">
-                <Switch id="import-canva" checked={importCanva} onCheckedChange={setImportCanva} />
-                <Label htmlFor="import-canva" className="text-sm">同時匯入 Canva</Label>
+
+              <Collapsible open={productsOpen} onOpenChange={setProductsOpen}>
+                <CollapsibleTrigger asChild>
+                  <Button variant="ghost" className="w-full justify-between">
+                    可選：帶入 FDS 產品（{selected.length}）
+                    <ChevronDown className={cn('h-4 w-4 transition-transform', productsOpen && 'rotate-180')} />
+                  </Button>
+                </CollapsibleTrigger>
+                <CollapsibleContent className="mt-2 space-y-2 rounded-lg border p-3">
+                  <div className="flex gap-2">
+                    <Input
+                      value={query}
+                      onChange={(e) => setQuery(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') runSearch(); }}
+                      placeholder="搜尋產品…"
+                    />
+                    <Button onClick={runSearch} disabled={searching}>
+                      {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                    </Button>
+                  </div>
+                  <div className="max-h-48 space-y-1 overflow-y-auto">
+                    {searchResults.slice(0, 20).map((p) => (
+                      <label key={p.id} className="flex cursor-pointer items-center gap-2 rounded border p-2 text-sm">
+                        <Checkbox checked={selectedIds.has(p.id)} onCheckedChange={() => toggle(p)} />
+                        <span className="truncate flex-1">{p.title}</span>
+                      </label>
+                    ))}
+                  </div>
+                </CollapsibleContent>
+              </Collapsible>
+
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" disabled={disabled || !canImport} onClick={saveDraft}>
+                  儲存草稿
+                </Button>
+                <Button className="flex-1 sm:flex-none" disabled={!canCreateNative || disabled} onClick={createNative}>
+                  {status === 'creating' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  建立 Canva 簡報（原生 API）
+                </Button>
               </div>
-            </div>
+              {!canvaPathReady && canImport && (
+                <p className="text-xs text-amber-700">請先連接 Canva 後再建立設計。</p>
+              )}
+              {canvaLink && (
+                <a
+                  href={canvaLink.edit_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-50/60 p-3 text-sm font-medium text-emerald-700 hover:bg-emerald-50"
+                >
+                  <ExternalLink className="h-4 w-4 shrink-0" />
+                  <span className="truncate">在 Canva 編輯：{canvaLink.title ?? '設計'}</span>
+                </a>
+              )}
+              {activeSession?.canva_design_id && (
+                <Button
+                  variant="secondary"
+                  disabled={disabled}
+                  onClick={() => exportPptx(activeSession.id)}
+                >
+                  {status === 'exporting' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  從 Canva 匯出 PPTX（PoC）
+                </Button>
+              )}
+            </CardContent>
+          </Card>
 
-            <Button className="w-full" disabled={!canGenerate || disabled} onClick={generate}>
-              {status === 'generating' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {status === 'importing' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-              {status === 'importing' ? '匯入 Canva 中…' : `生成 PPTX 並下載（共 ${selected.length} 件）`}
-            </Button>
-            <p className="text-xs text-muted-foreground">
-              <Plus className="mr-0.5 inline h-3 w-3" />若勾了「同時匯入 Canva」，完成後會回到可編輯 Canva 連結。
-            </p>
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">最近草稿與設計</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {sessions.length === 0 && (
+                <p className="text-sm text-muted-foreground">尚無紀錄；儲存草稿或建立設計後會出現於此。</p>
+              )}
+              {sessions.map((s) => (
+                <div key={s.id} className="flex flex-wrap items-center gap-2 rounded-lg border p-2 text-sm">
+                  <Badge variant="outline">{s.status}</Badge>
+                  <span className="min-w-0 flex-1 truncate font-medium">
+                    {(s.brief as CanvaDesignBrief).title || '未命名'}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {new Date(s.created_at).toLocaleString()}
+                  </span>
+                  <Button size="sm" variant="ghost" onClick={() => loadSession(s)}>載入</Button>
+                  {s.edit_url && (
+                    <Button size="sm" variant="ghost" asChild>
+                      <a href={s.edit_url} target="_blank" rel="noreferrer">Canva</a>
+                    </Button>
+                  )}
+                  {s.status === 'ready' && (
+                    <Button size="sm" variant="outline" onClick={() => exportPptx(s.id)}>匯出 PPTX</Button>
+                  )}
+                  {s.canva_design_id && (
+                    <Button size="sm" variant="outline" onClick={() => newVersion(s)}>新版本</Button>
+                  )}
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        </>
+      )}
 
-            {canvaLink && (
-              <a
-                href={canvaLink.edit_url}
-                target="_blank"
-                rel="noreferrer"
-                className="flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-50/60 p-3 text-sm font-medium text-emerald-700 hover:bg-emerald-50"
-              >
-                <Link2 className="h-4 w-4 shrink-0" />
-                <span className="truncate">在 Canva 內打開：{canvaLink.title ?? '設計'}</span>
-              </a>
-            )}
-          </CardContent>
-        </Card>
-      </div>
+      {viewMode === 'legacy' && (
+        <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-3 text-sm text-amber-900">
+          此分頁為舊版本機 PPTX ＋ Design Imports，<strong>不符合</strong> F-AI-009 驗收；僅供過渡參考。
+        </div>
+      )}
+
+      {viewMode === 'legacy' && (
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]">
+          <Card className="order-1">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">1. 選產品（{selected.length}/{MAX_ITEMS}）</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="flex gap-2">
+                <Input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') runSearch(); }}
+                  placeholder="名稱／型號／供應商…"
+                />
+                <Button onClick={runSearch} disabled={searching}>
+                  {searching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
+                </Button>
+                <Select value={scope} onValueChange={(v) => setScope(v as SearchScope)}>
+                  <SelectTrigger className="w-36"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">全部產品</SelectItem>
+                    <SelectItem value="catalog">產品目錄</SelectItem>
+                    <SelectItem value="shopify">已上架</SelectItem>
+                    <SelectItem value="quoted">有供應商報價</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="max-h-[26rem] space-y-1.5 overflow-y-auto rounded-lg border p-2">
+                {searchResults.length === 0 && !searching && (
+                  <p className="p-6 text-center text-sm text-muted-foreground">沒有找到產品</p>
+                )}
+                {searchResults.map((p) => {
+                  const picked = selectedIds.has(p.id);
+                  return (
+                    <label
+                      key={p.id}
+                      className={cn(
+                        'flex cursor-pointer items-center gap-3 rounded-lg border p-2 text-sm transition-colors',
+                        picked ? 'border-blue-500/50 bg-blue-50/60' : 'border-transparent hover:bg-muted/50',
+                      )}
+                    >
+                      <Checkbox checked={picked} onCheckedChange={() => toggle(p)} />
+                      <span className="h-11 w-14 shrink-0 overflow-hidden rounded bg-muted">
+                        <LoadingImage
+                          src={p.image_url ? productThumbUrl(p.image_url, 192) : null}
+                          alt={p.title}
+                          className="h-full w-full object-contain"
+                        />
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-medium">{p.title}</span>
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {[p.model, p.factory_name].filter(Boolean).join(' ｜ ')}
+                        </span>
+                      </span>
+                      {moneyLabel(p.middle_price, 'HK$') && (
+                        <span className="shrink-0 text-xs font-semibold tabular-nums">
+                          {moneyLabel(p.middle_price, 'HK$')}
+                        </span>
+                      )}
+                    </label>
+                  );
+                })}
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="order-2">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">2. 已選產品 · 標題 · 版式</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="max-h-56 space-y-1.5 overflow-y-auto rounded-lg border p-2">
+                {selected.length === 0 && (
+                  <p className="p-6 text-center text-sm text-muted-foreground">在左邊勾選產品</p>
+                )}
+                {selected.map((p, i) => (
+                  <div key={p.id} className="flex items-center gap-2 rounded-lg border p-2 text-sm">
+                    <span className="w-5 text-center text-xs text-muted-foreground tabular-nums">{i + 1}</span>
+                    <span className="min-w-0 flex-1 truncate">{p.title}</span>
+                    {pricePreview(p) && (
+                      <span className="text-xs font-semibold tabular-nums">{pricePreview(p)}</span>
+                    )}
+                    <Button variant="ghost" size="icon" className="h-7 w-7" disabled={i === 0} onClick={() => move(i, -1)}>
+                      <ArrowUp className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" disabled={i === selected.length - 1} onClick={() => move(i, 1)}>
+                      <ArrowDown className="h-3.5 w-3.5" />
+                    </Button>
+                    <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => toggle(p)}>
+                      <X className="h-3.5 w-3.5" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="sm:col-span-2 space-y-1">
+                  <Label>簡報標題</Label>
+                  <Input value={meta.title} onChange={(e) => setMeta((m) => ({ ...m, title: e.target.value }))} />
+                </div>
+                <div className="space-y-1">
+                  <Label>副標題</Label>
+                  <Input value={meta.subtitle} onChange={(e) => setMeta((m) => ({ ...m, subtitle: e.target.value }))} />
+                </div>
+                <div className="space-y-1">
+                  <Label>日期</Label>
+                  <Input
+                    value={meta.dateLabel}
+                    placeholder="自動"
+                    onChange={(e) => setMeta((m) => ({ ...m, dateLabel: e.target.value }))}
+                  />
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-4 rounded-lg border bg-muted/40 p-3">
+                <div className="flex items-center gap-2">
+                  <Switch id="show-prices" checked={meta.showPrices} onCheckedChange={(v) => setMeta((m) => ({ ...m, showPrices: v }))} />
+                  <Label htmlFor="show-prices" className="text-sm">顯示折扣價</Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Switch id="import-canva" checked={importCanva} onCheckedChange={setImportCanva} />
+                  <Label htmlFor="import-canva" className="text-sm">Design Imports 匯入 Canva</Label>
+                </div>
+              </div>
+              <Button className="w-full" disabled={!canGenerate || disabled} onClick={generateLegacy}>
+                {status === 'generating' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                {status === 'importing' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                下載本機 PPTX（舊版）
+              </Button>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }
