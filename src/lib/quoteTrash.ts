@@ -41,6 +41,20 @@ export function isQuoteInTrash(status: string | null | undefined): boolean {
   return status === QUOTE_TRASH_STATUS;
 }
 
+const trashListeners = new Set<() => void>();
+
+/** Sidebar badge refreshes after a quote is moved to or restored from the trash. */
+export function subscribeTrashedQuotes(listener: () => void): () => void {
+  trashListeners.add(listener);
+  return () => {
+    trashListeners.delete(listener);
+  };
+}
+
+function notifyTrashedQuotesChanged(): void {
+  trashListeners.forEach((listener) => listener());
+}
+
 export async function moveQuoteToTrash(id: string): Promise<void> {
   const { data, error } = await supabase
     .from('bwf_quote')
@@ -64,6 +78,7 @@ export async function moveQuoteToTrash(id: string): Promise<void> {
     .update({ status: QUOTE_TRASH_STATUS, project_data: next })
     .eq('id', id);
   if (updateError) throw updateError;
+  notifyTrashedQuotesChanged();
 }
 
 export async function restoreQuoteFromTrash(id: string): Promise<void> {
@@ -89,6 +104,17 @@ export async function restoreQuoteFromTrash(id: string): Promise<void> {
     })
     .eq('id', id);
   if (updateError) throw updateError;
+  notifyTrashedQuotesChanged();
+}
+
+/** Same `status = 回收桶` rows as {@link listTrashedQuotes}, without downloading quote JSON. */
+export async function countTrashedQuotes(): Promise<number> {
+  const { count, error } = await supabase
+    .from('bwf_quote')
+    .select('id', { count: 'exact', head: true })
+    .eq('status', QUOTE_TRASH_STATUS);
+  if (error) throw error;
+  return count ?? 0;
 }
 
 export async function listTrashedQuotes(): Promise<TrashedQuoteRow[]> {

@@ -16,6 +16,11 @@ export interface SecondaryItem {
   icon: LucideIcon;
   /** Only visible to 系統管理員 (role = admin). */
   adminOnly?: boolean;
+  /**
+   * Kept out of the scrolling list and pinned above the theme toggle.
+   * Still belongs to this section, so it only shows while the section is active.
+   */
+  pinned?: boolean;
 }
 
 export interface PrimaryItem {
@@ -77,7 +82,7 @@ export const NAV_CONFIG: PrimaryItem[] = [
       { view: 'fds2-quote-report', label: '產品報告', icon: BarChart2 },
       { view: 'fds2-quote-list', label: '報價一覽', icon: ClipboardList },
       { view: 'fds2-quote-large', label: '大金額投標 (>$50000)', icon: CircleDollarSign },
-      { view: 'fds2-quote-trash', label: '報價回收桶', icon: Trash2 },
+      { view: 'fds2-quote-trash', label: '報價回收桶', icon: Trash2, pinned: true },
       { view: 'fds2-quote-format', label: '報價單格式設定', icon: FileText },
     ],
   },
@@ -302,7 +307,7 @@ export function filterNavChildren(
   } else if (opts?.quoteShareGuest) {
     list = list.filter((c) => c.view !== 'customer-org-account' && c.view !== 'fds2-customer-org');
   }
-  return list;
+  return list.filter((child) => !child.pinned);
 }
 
 export function getFirstVisibleView(
