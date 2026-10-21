@@ -37,10 +37,10 @@ begin
 
   v_hash := coalesce(
     v_row.content_hash,
-    substring(v_row.storage_path from '/([0-9a-f]{64})\\.skp$')
+    substring(v_row.storage_path from '/([0-9a-f]{64})\.skp$')
   );
   if v_hash is null then
-    v_hash := encode(digest(v_row.storage_path, 'sha256'), 'hex');
+    v_hash := encode(extensions.digest(v_row.storage_path, 'sha256'), 'hex');
   end if;
 
   if v_row.preview_status = 'ready'
@@ -314,7 +314,7 @@ begin
     raise exception 'storage_object_missing' using errcode = 'P0002';
   end if;
 
-  v_hash := substring(v_path from '/([0-9a-f]{64})\\.');
+  v_hash := substring(v_path from '/([0-9a-f]{64})\.');
 
   insert into public.product_models (
     product_id, model_type, format, source, storage_path, file_name, size_bytes, content_hash, version_note, created_by
