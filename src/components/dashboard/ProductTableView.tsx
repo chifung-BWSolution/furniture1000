@@ -9,23 +9,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from '@/components/ui/dialog';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
+import { Modal, ModalButton } from '@/components/ui/modal';
 import {
   Tooltip,
   TooltipContent,
@@ -53,6 +37,8 @@ import {
   Check,
   ArrowUp,
   ArrowDown,
+  Layers,
+  Undo2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { supabase } from '@/lib/supabase';
@@ -649,6 +635,89 @@ export const ProductTableView = memo(function ProductTableView({
     return () => window.removeEventListener('keydown', handler);
   }, [cancelEdit, saveEdit]);
 
+  /** Persist the variant rows of the open 變體 modal back to the host product. */
+  const handleSaveVariants = async () => {
+    if (!variantModal) return;
+    // productId is the FK to products.id used for ready_to_shopify queries.
+    // product.id is ready_to_shopify.id (rts row UUID).
+    const hostProductId = variantModal.product.productId || variantModal.product.id;
+    const hostRtsId = variantModal.product.id;
+    const variants = variantModal.product.variants;
+
+    // rts ids of products CURRENTLY merged into this host (excluding host itself)
+    const currentMergedRtsIds = variants
+      .filter(v => v.id !== hostRtsId)
+      .map(v => v.id);
+
+    const shopifyVariants = variants.map(v => ({
+      id: v.id,
+      sku: v.sku,
+      price: v.price,
+      title: v.option1 || v.size || '',
+      option1: v.option1 || v.size || '',
+      option2: null,
+      option3: null,
+      compare_at_price: null,
+      inventory_quantity: v.inventory ?? 0,
+    }));
+
+    // Read the host's PREVIOUSLY-stored variants so we can detect which
+    // sub-products were removed this session and must be restored.
+    const { data: existingRow } = await supabase
+      .from('ready_to_shopify')
+      .select('variants')
+      .eq('product_id', hostProductId)
+      .maybeSingle();
+    const prevMergedRtsIds: string[] = Array.isArray(existingRow?.variants)
+      ? (existingRow!.variants as any[])
+          .map(v => String(v.id))
+          .filter(id => id && id !== hostRtsId)
+      : [];
+
+    // 1. Save variants to the host product's ready_to_shopify row
+    const { error } = await supabase
+      .from('ready_to_shopify')
+      .update({ variants: shopifyVariants })
+      .eq('product_id', hostProductId);
+    if (error) {
+      toast.error('儲存失敗', { description: error.message });
+      return;
+    }
+
+    // 2. Hide currently-merged sub-products from 準備上載 WITHOUT deleting
+    //    them — set furniture_group_checked=null so the row (and all its
+    //    data) survives. They can be restored by un-merging.
+    if (currentMergedRtsIds.length > 0) {
+      await supabase
+        .from('ready_to_shopify')
+        .update({ furniture_group_checked: null })
+        .in('id', currentMergedRtsIds);
+      currentMergedRtsIds.forEach(id => onUpdateProduct(id, { readyToPublish: false } as any));
+    }
+
+    // 3. Restore sub-products that were merged before but removed now —
+    //    bring them back as standalone products in 準備上載.
+    const restoredRtsIds = prevMergedRtsIds.filter(id => !currentMergedRtsIds.includes(id));
+    if (restoredRtsIds.length > 0) {
+      await supabase
+        .from('ready_to_shopify')
+        .update({ furniture_group_checked: true, variants: [] })
+        .in('id', restoredRtsIds);
+    }
+
+    const descParts: string[] = [`已儲存 ${variants.length} 個變體`];
+    if (currentMergedRtsIds.length > 0) descParts.push(`${currentMergedRtsIds.length} 件已合併`);
+    if (restoredRtsIds.length > 0) descParts.push(`${restoredRtsIds.length} 件已還原為單獨產品`);
+    toast.success('變體已儲存', { description: descParts.join('，') });
+    setVariantModal(null);
+    setShowProductPicker(false);
+    setPickerSearch('');
+    setPickerFactoryFilter('');
+    setPickerPage(0);
+    // Trigger parent to reload 準備上載 list so changes reflect
+    onVariantsSaved?.();
+  };
+
   return (
     <TooltipProvider>
       <div className="flex h-full flex-col">
@@ -1035,109 +1104,26 @@ export const ProductTableView = memo(function ProductTableView({
             }}
           />
         ) : (
-        <Dialog open={!!variantModal} onOpenChange={() => { setVariantModal(null); setShowProductPicker(false); setPickerSearch(''); setPickerFactoryFilter(''); setPickerPage(0); }}>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <div className="flex items-start justify-between pr-6">
-                <div>
-                  <DialogTitle className="font-display">
-                    變體 — {variantModal?.product.title}
-                  </DialogTitle>
-                  <DialogDescription className="font-body text-xs">
-                    管理每個變體的 ID、SKU、售價、尺寸、Option1 和庫存
-                  </DialogDescription>
-                </div>
-                <Button
-                  size="sm"
-                  className="shrink-0 gap-1.5 font-display text-xs"
-                  onClick={async () => {
-                    if (!variantModal) return;
-                    // productId is the FK to products.id used for ready_to_shopify queries.
-                    // product.id is ready_to_shopify.id (rts row UUID).
-                    const hostProductId = variantModal.product.productId || variantModal.product.id;
-                    const hostRtsId = variantModal.product.id;
-                    const variants = variantModal.product.variants;
-
-                    // rts ids of products CURRENTLY merged into this host (excluding host itself)
-                    const currentMergedRtsIds = variants
-                      .filter(v => v.id !== hostRtsId)
-                      .map(v => v.id);
-
-                    const shopifyVariants = variants.map(v => ({
-                      id: v.id,
-                      sku: v.sku,
-                      price: v.price,
-                      title: v.option1 || v.size || '',
-                      option1: v.option1 || v.size || '',
-                      option2: null,
-                      option3: null,
-                      compare_at_price: null,
-                      inventory_quantity: v.inventory ?? 0,
-                    }));
-
-                    // Read the host's PREVIOUSLY-stored variants so we can detect which
-                    // sub-products were removed this session and must be restored.
-                    const { data: existingRow } = await supabase
-                      .from('ready_to_shopify')
-                      .select('variants')
-                      .eq('product_id', hostProductId)
-                      .maybeSingle();
-                    const prevMergedRtsIds: string[] = Array.isArray(existingRow?.variants)
-                      ? (existingRow!.variants as any[])
-                          .map(v => String(v.id))
-                          .filter(id => id && id !== hostRtsId)
-                      : [];
-
-                    // 1. Save variants to the host product's ready_to_shopify row
-                    const { error } = await supabase
-                      .from('ready_to_shopify')
-                      .update({ variants: shopifyVariants })
-                      .eq('product_id', hostProductId);
-                    if (error) {
-                      toast.error('儲存失敗', { description: error.message });
-                      return;
-                    }
-
-                    // 2. Hide currently-merged sub-products from 準備上載 WITHOUT deleting
-                    //    them — set furniture_group_checked=null so the row (and all its
-                    //    data) survives. They can be restored by un-merging.
-                    if (currentMergedRtsIds.length > 0) {
-                      await supabase
-                        .from('ready_to_shopify')
-                        .update({ furniture_group_checked: null })
-                        .in('id', currentMergedRtsIds);
-                      currentMergedRtsIds.forEach(id => onUpdateProduct(id, { readyToPublish: false } as any));
-                    }
-
-                    // 3. Restore sub-products that were merged before but removed now —
-                    //    bring them back as standalone products in 準備上載.
-                    const restoredRtsIds = prevMergedRtsIds.filter(id => !currentMergedRtsIds.includes(id));
-                    if (restoredRtsIds.length > 0) {
-                      await supabase
-                        .from('ready_to_shopify')
-                        .update({ furniture_group_checked: true, variants: [] })
-                        .in('id', restoredRtsIds);
-                    }
-
-                    const descParts: string[] = [`已儲存 ${variants.length} 個變體`];
-                    if (currentMergedRtsIds.length > 0) descParts.push(`${currentMergedRtsIds.length} 件已合併`);
-                    if (restoredRtsIds.length > 0) descParts.push(`${restoredRtsIds.length} 件已還原為單獨產品`);
-                    toast.success('變體已儲存', { description: descParts.join('，') });
-                    setVariantModal(null);
-                    setShowProductPicker(false);
-                    setPickerSearch('');
-                    setPickerFactoryFilter('');
-                    setPickerPage(0);
-                    // Trigger parent to reload 準備上載 list so changes reflect
-                    onVariantsSaved?.();
-                  }}
-                >
-                  <Check className="h-3.5 w-3.5" />
-                  完成
-                </Button>
-              </div>
-            </DialogHeader>
-            <div className="space-y-3 mt-2">
+        <Modal
+          open={!!variantModal}
+          onOpenChange={(open) => { if (!open) { setVariantModal(null); setShowProductPicker(false); setPickerSearch(''); setPickerFactoryFilter(''); setPickerPage(0); } }}
+          size="2xl"
+          icon={<Layers className="h-6 w-6" />}
+          title={`變體 — ${variantModal?.product.title ?? ''}`}
+          description="管理每個變體的 ID、SKU、售價、尺寸、Option1 和庫存"
+          footer={
+            <>
+              <ModalButton onClick={() => void handleSaveVariants()}>
+                <Check className="h-4 w-4" />
+                完成
+              </ModalButton>
+              <ModalButton variant="ghost" onClick={() => setVariantModal(null)}>
+                取消
+              </ModalButton>
+            </>
+          }
+        >
+            <div className="space-y-3">
               {variantModal?.product.variants.map((v, idx) => (
                 <VariantRow
                   key={v.id}
@@ -1277,89 +1263,86 @@ export const ProductTableView = memo(function ProductTableView({
                 </div>
               );
             })()}
-          </DialogContent>
-        </Dialog>
+        </Modal>
         )}
 
         {/* Revert Reason Dialog */}
-        <Dialog open={showRevertDialog} onOpenChange={setShowRevertDialog}>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle className="font-display">退回原因（可選）</DialogTitle>
-              <DialogDescription className="font-body text-xs">
-                選擇退回原因，可多選。退回後產品將移至「產品文案」頁面並顯示退回原因標籤。
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-3 mt-2">
-              {REVERT_OPTIONS.map(opt => (
-                <label key={opt} className="flex items-center gap-3 cursor-pointer group">
-                  <input
-                    type="checkbox"
-                    checked={revertReasons.includes(opt)}
-                    onChange={e => {
-                      setRevertReasons(prev =>
-                        e.target.checked ? [...prev, opt] : prev.filter(r => r !== opt)
-                      );
-                    }}
-                    className="h-4 w-4 rounded border-border accent-primary"
-                  />
-                  <span className="font-body text-sm text-foreground group-hover:text-primary transition-colors">{opt}</span>
-                </label>
-              ))}
-              {revertReasons.includes('其他') && (
-                <textarea
-                  value={revertOther}
-                  onChange={e => setRevertOther(e.target.value.slice(0, 200))}
-                  placeholder="請輸入其他原因（最多約 100 個中文字）"
-                  rows={3}
-                  className="w-full rounded-lg border border-border bg-background px-3 py-2 font-body text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/40 resize-none"
-                />
-              )}
-            </div>
-            <div className="flex justify-end gap-2 mt-4">
-              <Button variant="outline" size="sm" className="font-display text-xs" onClick={() => setShowRevertDialog(false)}>
-                取消
-              </Button>
-              <Button
-                size="sm"
-                className="font-display text-xs bg-amber-500 hover:bg-amber-600 text-white"
+        <Modal
+          open={showRevertDialog}
+          onOpenChange={setShowRevertDialog}
+          size="md"
+          icon={<Undo2 className="h-6 w-6" />}
+          title="退回原因（可選）"
+          description="選擇退回原因，可多選。退回後產品將移至「產品文案」頁面並顯示退回原因標籤。"
+          footer={
+            <>
+              <ModalButton
                 onClick={async () => {
                   setShowRevertDialog(false);
                   await onRevertToInfo?.(Array.from(selectedIds), { labels: revertReasons, other: revertOther.trim() });
                 }}
               >
                 確認退回 ({selectedIds.size})
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
+              </ModalButton>
+              <ModalButton variant="ghost" onClick={() => setShowRevertDialog(false)}>
+                取消
+              </ModalButton>
+            </>
+          }
+        >
+          <div className="space-y-3">
+            {REVERT_OPTIONS.map(opt => (
+              <label key={opt} className="flex items-center gap-3 cursor-pointer group">
+                <input
+                  type="checkbox"
+                  checked={revertReasons.includes(opt)}
+                  onChange={e => {
+                    setRevertReasons(prev =>
+                      e.target.checked ? [...prev, opt] : prev.filter(r => r !== opt)
+                    );
+                  }}
+                  className="h-4 w-4 rounded border-border accent-primary"
+                />
+                <span className="font-body text-sm text-foreground group-hover:text-primary transition-colors">{opt}</span>
+              </label>
+            ))}
+            {revertReasons.includes('其他') && (
+              <textarea
+                value={revertOther}
+                onChange={e => setRevertOther(e.target.value.slice(0, 200))}
+                placeholder="請輸入其他原因（最多約 100 個中文字）"
+                rows={3}
+                className="w-full rounded-lg border border-border bg-background px-3 py-2 font-body text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary/40 resize-none"
+              />
+            )}
+          </div>
+        </Modal>
 
         {/* Batch Delete Confirmation Modal */}
-        <AlertDialog open={showBatchDeleteModal} onOpenChange={setShowBatchDeleteModal}>
-          <AlertDialogContent className="max-w-md border-destructive/20">
-            <AlertDialogHeader>
-              <AlertDialogTitle className="font-display text-lg">
-                確定要刪除產品嗎？
-              </AlertDialogTitle>
-              <AlertDialogDescription className="font-body text-sm leading-relaxed">
-                你總共選擇了{' '}
-                <span className="font-mono-data font-bold text-destructive">{selectedIds.size}</span>{' '}
-                個產品。刪除後，若需重新加入，必須重新上傳 PDF 或圖片。
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel className="font-display text-sm font-bold">
-                否
-              </AlertDialogCancel>
-              <AlertDialogAction
-                onClick={handleBatchDelete}
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90 font-display text-sm font-bold"
-              >
+        <Modal
+          open={showBatchDeleteModal}
+          onOpenChange={setShowBatchDeleteModal}
+          size="md"
+          icon={<Trash2 className="h-6 w-6" />}
+          title="確定要刪除產品嗎？"
+          description={
+            <>
+              你總共選擇了{' '}
+              <span className="font-mono-data font-bold text-destructive">{selectedIds.size}</span>{' '}
+              個產品。刪除後，若需重新加入，必須重新上傳 PDF 或圖片。
+            </>
+          }
+          footer={
+            <>
+              <ModalButton variant="destructive" onClick={handleBatchDelete}>
                 是
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+              </ModalButton>
+              <ModalButton variant="ghost" onClick={() => setShowBatchDeleteModal(false)}>
+                否
+              </ModalButton>
+            </>
+          }
+        />
 
         {/* Product Detail Modal.
             準備上載 (readyToPublishMode) reuses the 傢俬組檢查 card-style modal so

@@ -23,23 +23,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-} from '@/components/ui/dialog';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
+import { Modal, ModalButton } from '@/components/ui/modal';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   AlertTriangle,
@@ -53,6 +37,7 @@ import {
   ExternalLink,
   Factory,
   FolderTree,
+  Layers,
   LayoutGrid,
   List,
   Loader2,
@@ -2470,230 +2455,231 @@ export function ListedProductsView({
         )}
 
         {/* Variant Modal */}
-        <Dialog open={!!variantModal} onOpenChange={() => setVariantModal(null)}>
-          <DialogContent className="max-w-lg">
-            <DialogHeader>
-              <DialogTitle className="font-display">
-                款式 — {variantModal?.product.title}
-              </DialogTitle>
-              <DialogDescription className="font-body text-xs">
-                產品款式詳情（唯讀模式）
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-3 mt-2">
-              {variantModal?.product.variants.length === 0 && (
-                <p className="text-xs text-muted-foreground font-body">沒有可用的款式</p>
-              )}
-              {variantModal?.product.variants.map((v) => (
-                <div
-                  key={v.id}
-                  className="grid grid-cols-5 gap-2 rounded-lg border border-border bg-muted/30 p-3"
-                >
-                  <div className="space-y-1">
-                    <label className="font-mono-data text-[9px] uppercase tracking-widest text-muted-foreground">
-                      尺寸
-                    </label>
-                    <p className="text-xs font-mono-data">{v.size || '—'}</p>
-                  </div>
-                  <div className="space-y-1">
-                    <label className="font-mono-data text-[9px] uppercase tracking-widest text-muted-foreground">
-                      顏色
-                    </label>
-                    <p className="text-xs font-mono-data">{v.color || '—'}</p>
-                  </div>
-                  <div className="space-y-1">
-                    <label className="font-mono-data text-[9px] uppercase tracking-widest text-muted-foreground">
-                      SKU
-                    </label>
-                    <p className="text-xs font-mono-data">{v.sku || '—'}</p>
-                  </div>
-                  <div className="space-y-1">
-                    <label className="font-mono-data text-[9px] uppercase tracking-widest text-muted-foreground">
-                      價格
-                    </label>
-                    <p className="text-xs font-mono-data font-bold">${v.price.toFixed(2)}</p>
-                  </div>
-                  <div className="space-y-1">
-                    <label className="font-mono-data text-[9px] uppercase tracking-widest text-muted-foreground">
-                      庫存
-                    </label>
-                    <p className="text-xs font-mono-data">{v.inventory}</p>
-                  </div>
+        <Modal
+          open={!!variantModal}
+          onOpenChange={(open) => { if (!open) setVariantModal(null); }}
+          size="lg"
+          icon={<Layers className="h-6 w-6" />}
+          title={`款式 — ${variantModal?.product.title ?? ''}`}
+          description="產品款式詳情（唯讀模式）"
+          footer={
+            <ModalButton variant="ghost" onClick={() => setVariantModal(null)}>
+              關閉
+            </ModalButton>
+          }
+        >
+          <div className="space-y-3">
+            {variantModal?.product.variants.length === 0 && (
+              <p className="text-xs text-muted-foreground font-body">沒有可用的款式</p>
+            )}
+            {variantModal?.product.variants.map((v) => (
+              <div
+                key={v.id}
+                className="grid grid-cols-5 gap-2 rounded-lg border border-border bg-muted/30 p-3"
+              >
+                <div className="space-y-1">
+                  <label className="font-mono-data text-[9px] uppercase tracking-widest text-muted-foreground">
+                    尺寸
+                  </label>
+                  <p className="text-xs font-mono-data">{v.size || '—'}</p>
                 </div>
-              ))}
-            </div>
-          </DialogContent>
-        </Dialog>
+                <div className="space-y-1">
+                  <label className="font-mono-data text-[9px] uppercase tracking-widest text-muted-foreground">
+                    顏色
+                  </label>
+                  <p className="text-xs font-mono-data">{v.color || '—'}</p>
+                </div>
+                <div className="space-y-1">
+                  <label className="font-mono-data text-[9px] uppercase tracking-widest text-muted-foreground">
+                    SKU
+                  </label>
+                  <p className="text-xs font-mono-data">{v.sku || '—'}</p>
+                </div>
+                <div className="space-y-1">
+                  <label className="font-mono-data text-[9px] uppercase tracking-widest text-muted-foreground">
+                    價格
+                  </label>
+                  <p className="text-xs font-mono-data font-bold">${v.price.toFixed(2)}</p>
+                </div>
+                <div className="space-y-1">
+                  <label className="font-mono-data text-[9px] uppercase tracking-widest text-muted-foreground">
+                    庫存
+                  </label>
+                  <p className="text-xs font-mono-data">{v.inventory}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Modal>
 
         {/* Delete Confirmation Dialog */}
-        <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle className="font-display flex items-center gap-2">
-                <Trash2 className="h-5 w-5 text-destructive" />
-                確認刪除
-              </AlertDialogTitle>
-              <AlertDialogDescription className="font-body text-sm">
-                是否刪除所選的 <span className="font-bold text-foreground">{selectedIds.size}</span> 件產品？
-                <br />
-                <span className="text-xs text-muted-foreground mt-2 block">
-                  此操作將從本地資料庫永久移除所選產品。此操作無法撤銷。
-                </span>
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel className="font-display text-xs font-bold">
-                否
-              </AlertDialogCancel>
-              <AlertDialogAction
-                onClick={handleDeleteSelected}
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90 font-display text-xs font-bold gap-1.5"
-              >
-                <Trash2 className="h-3.5 w-3.5" />
+        <Modal
+          open={showDeleteConfirm}
+          onOpenChange={setShowDeleteConfirm}
+          size="md"
+          icon={<Trash2 className="h-6 w-6" />}
+          title="確認刪除"
+          description={
+            <>
+              是否刪除所選的{' '}
+              <span className="font-bold text-foreground">{selectedIds.size}</span> 件產品？
+              <br />
+              <span className="text-xs text-muted-foreground mt-2 block">
+                此操作將從本地資料庫永久移除所選產品。此操作無法撤銷。
+              </span>
+            </>
+          }
+          footer={
+            <>
+              <ModalButton variant="destructive" onClick={handleDeleteSelected}>
+                <Trash2 className="h-4 w-4" />
                 是
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+              </ModalButton>
+              <ModalButton variant="ghost" onClick={() => setShowDeleteConfirm(false)}>
+                否
+              </ModalButton>
+            </>
+          }
+        />
 
         {/* C 暫不考慮 — 確認移除單一產品 */}
-        <AlertDialog open={!!dismissTarget} onOpenChange={(o) => { if (!o) setDismissTarget(null); }}>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle className="font-display flex items-center gap-2">
-                <Trash2 className="h-5 w-5 text-rose-500" />
-                確認移除
-              </AlertDialogTitle>
-              <AlertDialogDescription className="font-body text-sm">
-                是否同意移除 <span className="font-bold text-foreground">1</span> 項的產品？
-                <br />
-                <span className="text-xs text-muted-foreground mt-2 block">
-                  「{dismissTarget?.title}」將從「所有產品」頁面移除（產品資料保留於資料庫，可日後找回）。
-                </span>
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel className="font-display text-xs font-bold">否</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={confirmDismiss}
-                className="bg-rose-500 text-white hover:bg-rose-600 font-display text-xs font-bold gap-1.5"
-              >
-                <Trash2 className="h-3.5 w-3.5" /> 是，移除
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+        <Modal
+          open={!!dismissTarget}
+          onOpenChange={(o) => { if (!o) setDismissTarget(null); }}
+          size="md"
+          icon={<Trash2 className="h-6 w-6" />}
+          title="確認移除"
+          description={
+            <>
+              是否同意移除 <span className="font-bold text-foreground">1</span> 項的產品？
+              <br />
+              <span className="text-xs text-muted-foreground mt-2 block">
+                「{dismissTarget?.title}」將從「所有產品」頁面移除（產品資料保留於資料庫，可日後找回）。
+              </span>
+            </>
+          }
+          footer={
+            <>
+              <ModalButton variant="destructive" onClick={confirmDismiss}>
+                <Trash2 className="h-4 w-4" /> 是，移除
+              </ModalButton>
+              <ModalButton variant="ghost" onClick={() => setDismissTarget(null)}>
+                否
+              </ModalButton>
+            </>
+          }
+        />
 
         {/* 批量「暫不考慮」確認 */}
-        <AlertDialog open={showBatchRejectConfirm} onOpenChange={setShowBatchRejectConfirm}>
-          <AlertDialogContent className="max-w-md border-rose-500/20">
-            <AlertDialogHeader>
-              <AlertDialogTitle className="font-display flex items-center gap-2">
-                <Ban className="h-5 w-5 text-rose-500" />
-                確認批量「暫不考慮」
-              </AlertDialogTitle>
-              <AlertDialogDescription className="font-body text-sm">
-                將所選的{' '}
-                <span className="font-mono-data font-bold text-rose-500">{selectedIds.size}</span>{' '}
-                件產品標記為「暫不考慮」？
-                <br />
-                <span className="text-xs text-muted-foreground mt-2 block">
-                  產品資料將儲存至{' '}
-                  <code className="font-mono-data text-rose-500">products_rejected</code>{' '}
-                  記錄，並從列表中移除。
-                </span>
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel className="font-display text-xs font-bold">取消</AlertDialogCancel>
-              <AlertDialogAction
-                onClick={handleBatchReject}
-                className="bg-rose-500 text-white hover:bg-rose-600 font-display text-xs font-bold gap-1.5"
-              >
-                <Ban className="h-3.5 w-3.5" /> 確認暫不考慮
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
+        <Modal
+          open={showBatchRejectConfirm}
+          onOpenChange={setShowBatchRejectConfirm}
+          size="md"
+          icon={<Ban className="h-6 w-6" />}
+          title="確認批量「暫不考慮」"
+          description={
+            <>
+              將所選的{' '}
+              <span className="font-mono-data font-bold text-rose-500">{selectedIds.size}</span>{' '}
+              件產品標記為「暫不考慮」？
+              <br />
+              <span className="text-xs text-muted-foreground mt-2 block">
+                產品資料將儲存至{' '}
+                <code className="font-mono-data text-rose-500">products_rejected</code>{' '}
+                記錄，並從列表中移除。
+              </span>
+            </>
+          }
+          footer={
+            <>
+              <ModalButton variant="destructive" onClick={handleBatchReject}>
+                <Ban className="h-4 w-4" /> 確認暫不考慮
+              </ModalButton>
+              <ModalButton variant="ghost" onClick={() => setShowBatchRejectConfirm(false)}>
+                取消
+              </ModalButton>
+            </>
+          }
+        />
 
         {/* 定價對話框 */}
-        <Dialog open={showPricingDialog} onOpenChange={setShowPricingDialog}>
-          <DialogContent className="max-w-sm">
-            <DialogHeader>
-              <DialogTitle className="font-display flex items-center gap-2">
-                <Calculator className="h-4 w-4 text-emerald-500" />
-                批量定價
-              </DialogTitle>
-              <DialogDescription className="font-body text-sm">
-                輸入定價倍數，售價 = 成本 × 倍數（小數進位取整數）
-                <br />
-                <span className="text-xs text-muted-foreground mt-1 block">
-                  套用至當前頁面顯示的{' '}
-                  <span className="font-mono-data font-bold text-foreground">
-                    {products.filter(p => p.costPrice != null && p.costPrice > 0).length}
-                  </span>{' '}
-                  件有成本的產品（依目前篩選及分頁）
-                </span>
-              </DialogDescription>
-            </DialogHeader>
-            <div className="space-y-4 py-2">
-              <div className="space-y-2">
-                <label className="font-mono-data text-[11px] text-muted-foreground uppercase tracking-widest">
-                  定價倍數
-                </label>
-                <Input
-                  type="number"
-                  step="0.1"
-                  min="0.1"
-                  placeholder="例如 2.3、2.5、2.7"
-                  value={pricingMultiplier}
-                  onChange={e => setPricingMultiplier(e.target.value)}
-                  className="font-mono-data text-sm"
-                  onKeyDown={e => { if (e.key === 'Enter') handleApplyPricing(); }}
-                  autoFocus
-                />
-                {pricingMultiplier && !isNaN(parseFloat(pricingMultiplier)) && (
-                  <p className="text-[11px] text-muted-foreground font-body">
-                    預覽：成本 ¥360 → 售價 HK$
-                    <span className="font-mono-data font-bold text-emerald-500">
-                      {Math.ceil(360 * parseFloat(pricingMultiplier))}
-                    </span>
-                  </p>
-                )}
-              </div>
-              <div className="flex gap-2 flex-wrap">
-                {['2.3', '2.5', '2.7', '3.0'].map(v => (
-                  <button
-                    key={v}
-                    onClick={() => setPricingMultiplier(v)}
-                    className={cn(
-                      'rounded-md border px-3 py-1 text-xs font-mono-data transition-colors',
-                      pricingMultiplier === v
-                        ? 'border-emerald-500 bg-emerald-500/10 text-emerald-600'
-                        : 'border-border hover:border-emerald-500/50 hover:bg-muted'
-                    )}
-                  >
-                    ×{v}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="flex justify-end gap-2 pt-2">
-              <Button variant="outline" size="sm" onClick={() => setShowPricingDialog(false)} className="font-display text-xs">
-                取消
-              </Button>
-              <Button
-                size="sm"
+        <Modal
+          open={showPricingDialog}
+          onOpenChange={setShowPricingDialog}
+          size="sm"
+          icon={<Calculator className="h-6 w-6" />}
+          title="批量定價"
+          description={
+            <>
+              輸入定價倍數，售價 = 成本 × 倍數（小數進位取整數）
+              <br />
+              <span className="text-xs text-muted-foreground mt-1 block">
+                套用至當前頁面顯示的{' '}
+                <span className="font-mono-data font-bold text-foreground">
+                  {products.filter(p => p.costPrice != null && p.costPrice > 0).length}
+                </span>{' '}
+                件有成本的產品（依目前篩選及分頁）
+              </span>
+            </>
+          }
+          footer={
+            <>
+              <ModalButton
                 onClick={handleApplyPricing}
                 disabled={!pricingMultiplier || isNaN(parseFloat(pricingMultiplier)) || parseFloat(pricingMultiplier) <= 0 || isApplyingPricing}
-                className="gap-1.5 font-display text-xs bg-emerald-600 hover:bg-emerald-500 text-white"
               >
-                {isApplyingPricing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Calculator className="h-3.5 w-3.5" />}
+                {isApplyingPricing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Calculator className="h-4 w-4" />}
                 套用定價
-              </Button>
+              </ModalButton>
+              <ModalButton variant="ghost" onClick={() => setShowPricingDialog(false)}>
+                取消
+              </ModalButton>
+            </>
+          }
+        >
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="font-mono-data text-[11px] text-muted-foreground uppercase tracking-widest">
+                定價倍數
+              </label>
+              <Input
+                type="number"
+                step="0.1"
+                min="0.1"
+                placeholder="例如 2.3、2.5、2.7"
+                value={pricingMultiplier}
+                onChange={e => setPricingMultiplier(e.target.value)}
+                className="font-mono-data text-sm"
+                onKeyDown={e => { if (e.key === 'Enter') handleApplyPricing(); }}
+                autoFocus
+              />
+              {pricingMultiplier && !isNaN(parseFloat(pricingMultiplier)) && (
+                <p className="text-[11px] text-muted-foreground font-body">
+                  預覽：成本 ¥360 → 售價 HK$
+                  <span className="font-mono-data font-bold text-emerald-500">
+                    {Math.ceil(360 * parseFloat(pricingMultiplier))}
+                  </span>
+                </p>
+              )}
             </div>
-          </DialogContent>
-        </Dialog>
+            <div className="flex gap-2 flex-wrap">
+              {['2.3', '2.5', '2.7', '3.0'].map(v => (
+                <button
+                  key={v}
+                  onClick={() => setPricingMultiplier(v)}
+                  className={cn(
+                    'rounded-md border px-3 py-1 text-xs font-mono-data transition-colors',
+                    pricingMultiplier === v
+                      ? 'border-emerald-500 bg-emerald-500/10 text-emerald-600'
+                      : 'border-border hover:border-emerald-500/50 hover:bg-muted'
+                  )}
+                >
+                  ×{v}
+                </button>
+              ))}
+            </div>
+          </div>
+        </Modal>
 
         {/* Product Detail Modal */}
         {detailProduct && (
