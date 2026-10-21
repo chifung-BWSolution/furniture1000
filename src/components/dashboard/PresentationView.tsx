@@ -86,6 +86,7 @@ export function PresentationView() {
   const [sessions, setSessions] = useState<CanvaDesignSession[]>([]);
   const [activeSession, setActiveSession] = useState<CanvaDesignSession | null>(null);
   const [productsOpen, setProductsOpen] = useState(false);
+  const [autofillProbe, setAutofillProbe] = useState<Awaited<ReturnType<typeof probeCanvaNative>> | null>(null);
 
   const refreshStatus = useCallback(async () => {
     const [statusValue, role] = await Promise.all([
@@ -93,7 +94,14 @@ export function PresentationView() {
       supabase.rpc('bwf_has_role', { p_roles: ['admin', 'uploader'] }),
     ]);
     setCanva(statusValue);
-    setCanImport(Boolean(role.data));
+    const allowed = Boolean(role.data);
+    setCanImport(allowed);
+    if (allowed) {
+      const probe = await probeCanvaNative().catch(() => null);
+      setAutofillProbe(probe);
+    } else {
+      setAutofillProbe(null);
+    }
   }, []);
 
   const refreshSessions = useCallback(async () => {
@@ -260,21 +268,22 @@ export function PresentationView() {
       setActiveSession(session);
       if (session.edit_url) {
         setCanvaLink({ edit_url: session.edit_url, title: payload.title });
+        const mode = session.generation_mode ?? 'blank';
         toast.success('已建立 Canva 簡報', {
-          description: '請在 Canva 內編排版面與素材；API 建立空白 presentation，內容需於 Canva 完成。',
+          description:
+            mode === 'autofill'
+              ? '大綱與產品資料已填入品牌模板；請在 Canva 內微調版面後匯出 PPTX。'
+              : '未啟用 Autofill（請設定 CANVA_BRAND_TEMPLATE_ID 並重新授權）；目前為空白 presentation。',
         });
       }
       await refreshSessions();
-      const probe = await probeCanvaNative().catch(() => null);
-      if (probe?.missing_scopes?.length) {
-        toast.message('匯出 PPTX 需重新授權', { description: probe.message ?? probe.missing_scopes.join(', ') });
-      }
+      await refreshStatus();
     } catch (err) {
       toast.error('建立 Canva 設計失敗', { description: errorText(err) });
     } finally {
       setStatus('idle');
     }
-  }, [canCreateNative, disabled, brief, outline, selected, sessionId, refreshSessions]);
+  }, [canCreateNative, disabled, brief, outline, selected, sessionId, refreshSessions, refreshStatus]);
 
   const exportPptx = useCallback(async (sid: string) => {
     setStatus('exporting');
@@ -383,7 +392,7 @@ export function PresentationView() {
         <div>
           <h2 className="text-xl font-semibold">客戶簡報（Canva）</h2>
           <p className="text-sm text-muted-foreground">
-            F-AI-009：內容確認 → Canva 原生 presentation → 於 Canva 編輯 → 下載 PPTX 驗收。
+            F-AI-009：內容確認 → 品牌模板 Autofill（T-902）→ 於 Canva 編輯 → 下載 PPTX 驗收。
           </p>
         </div>
         <div className="flex rounded-lg border p-0.5">
@@ -392,7 +401,7 @@ export function PresentationView() {
             size="sm"
             onClick={() => setViewMode('native')}
           >
-            Canva 原生（T-901）
+            Canva 原生（T-902）
           </Button>
           <Button
             variant={viewMode === 'legacy' ? 'secondary' : 'ghost'}
@@ -410,9 +419,9 @@ export function PresentationView() {
             <PresentationIcon className="h-4 w-4" /> Canva 連接
           </CardTitle>
           <CardDescription>
-            公司帳戶 chifung.login（admin／傢俬組）。T-901 需{' '}
-            <code className="rounded bg-muted px-1">design:content:write</code> 與{' '}
-            <code className="rounded bg-muted px-1">design:content:read</code>（匯出 PPTX）。
+            公司帳戶 chifung.login（admin／傢俬組）。T-902 Autofill 需 Pro／Teams 方案、品牌模板 ID，以及
+            brandtemplate／asset scopes（見 repo{' '}
+            <code className="rounded bg-muted px-1">docs/prd/FDS-2.1-Canva品牌模板Autofill.md</code>）。
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-wrap items-center gap-3">
@@ -445,6 +454,21 @@ export function PresentationView() {
               </Button>
             </>
           )}
+          {canImport && autofillProbe && (
+            <div className="w-full text-sm text-muted-foreground">
+              {autofillProbe.ok ? (
+                <span className="text-emerald-700">Autofill 已就緒（品牌模板已配置）。</span>
+              ) : (
+                <span className="text-amber-800">
+                  {autofillProbe.message ??
+                    'Autofill 未就緒：請設定 CANVA_BRAND_TEMPLATE_ID、確認 Canva Pro+，並重新 OAuth。'}
+                  {autofillProbe.missing_scopes?.length ? (
+                    <span className="block text-xs">缺少 scope：{autofillProbe.missing_scopes.join(', ')}</span>
+                  ) : null}
+                </span>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -453,7 +477,9 @@ export function PresentationView() {
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base">1. 匯報內容與設計要求</CardTitle>
-              <CardDescription>可不選產品；提交前請確認大綱。Canva 負責視覺編排，API 建立空白 presentation。</CardDescription>
+              <CardDescription>
+                可不選產品；提交前請確認大綱。建立時會以品牌模板 Autofill 填入封面、大綱與產品圖文（若已配置模板）。
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid gap-3 sm:grid-cols-2">
@@ -555,7 +581,7 @@ export function PresentationView() {
                 </Button>
                 <Button className="flex-1 sm:flex-none" disabled={!canCreateNative || disabled} onClick={createNative}>
                   {status === 'creating' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                  建立 Canva 簡報（原生 API）
+                  建立並填入 Canva 簡報
                 </Button>
               </div>
               {!canvaPathReady && canImport && (
@@ -596,6 +622,9 @@ export function PresentationView() {
               {sessions.map((s) => (
                 <div key={s.id} className="flex flex-wrap items-center gap-2 rounded-lg border p-2 text-sm">
                   <Badge variant="outline">{s.status}</Badge>
+                  {s.generation_mode && (
+                    <Badge variant="secondary" className="text-xs">{s.generation_mode}</Badge>
+                  )}
                   <span className="min-w-0 flex-1 truncate font-medium">
                     {(s.brief as CanvaDesignBrief).title || '未命名'}
                   </span>

@@ -293,11 +293,10 @@ node scripts/check-supabase-env.mjs --live   # 額外對各 project 發一次請
   **出現頁數要用「文件／圖片／頁碼」唯一關聯計數**：`supplier_document_images.seen_pages`
   存出現過的頁碼（唯一集合），`page_occurrences = cardinality(seen_pages)`，
   寫入只經 `fds_supplier_document_image_record`（重跑同一 unit 不會再加一次，重試冪等）。
-- Canva（F-AI-009／T-901）：edge slug `supabase-functions-generate-canva-presentation`。
-  OAuth PKCE（scope 含 `design:content:write`、`design:content:read`、`design:meta:read`、`profile:read`）；
-  token 在 `canva_connections`；原生簡報 session 在 `canva_design_sessions`（RPC `fds_list_canva_design_sessions`）。
-  驗收通路＝POST `/v1/designs` preset presentation ＋可選 POST `/v1/exports` pptx；Design Imports 為舊版。
-  secrets＝`CANVA_CLIENT_ID`／`CANVA_CLIENT_SECRET`；redirect URI＝`<域名>/fds/pm/presentation`；限 admin/uploader。
+- Canva（F-AI-009／T-901～902）：edge slug `supabase-functions-generate-canva-presentation`。
+  T-902 預設通路＝品牌模板 `POST /autofills`（需 `CANVA_BRAND_TEMPLATE_ID`、Canva Pro+、brandtemplate／asset scopes）；
+  未配置模板時降回空白 `POST /designs`。session 表 `canva_design_sessions`；欄位約定見 `docs/prd/FDS-2.1-Canva品牌模板Autofill.md`。
+  secrets＝`CANVA_CLIENT_ID`／`CANVA_CLIENT_SECRET`／`CANVA_BRAND_TEMPLATE_ID`；redirect URI＝`<域名>/fds/pm/presentation`。
 - 本機 dev／develop 連的是 Supabase 分支 FDS2.0（`omxizeukbcqzsnjsuwod`）。FDS 2.1 的 migration 與 `process-jobs`
   要**兩邊都部署**（正式 `riaubhtruisbwdlwjzur` ＋ 分支）；套到分支時把 cron 裡的 worker URL 換成分支 ref。
   分支的一鍵登入帳號 `fds-develop-preview@…` 在分支 `platform_user_profiles` 設為 admin。

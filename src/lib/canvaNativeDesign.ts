@@ -39,6 +39,10 @@ export interface CanvaDesignSession {
   export_download_url?: string | null;
   export_error?: string | null;
   error?: string | null;
+  generation_mode?: 'blank' | 'autofill' | null;
+  brand_template_id?: string | null;
+  autofill_job_id?: string | null;
+  populate_report?: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
 }
@@ -88,11 +92,22 @@ export async function exportCanvaSessionPptx(sessionId: string): Promise<{
 
 export async function probeCanvaNative(): Promise<{
   ok: boolean;
+  connected?: boolean;
   scopes?: string | null;
   missing_scopes?: string[];
+  brand_template_configured?: boolean;
+  brand_template_id?: string;
+  autofill_scopes_required?: string[];
   message?: string;
 }> {
   return invoke({ action: 'probe' });
+}
+
+export async function fetchCanvaTemplateDataset(): Promise<{
+  brand_template_id: string;
+  fields: string[];
+}> {
+  return invoke({ action: 'template_dataset' });
 }
 
 /** PoC：把欄位整理成可確認大綱（T-902 可改為 AI） */
