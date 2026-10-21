@@ -19,11 +19,23 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { PresentationProductPicker } from '@/components/dashboard/PresentationProductPicker';
+import { PresentationSearchCombobox } from '@/components/dashboard/PresentationSearchCombobox';
 import type { SearchProduct } from '@/lib/productSearch';
 import {
   canvaDisconnect, exchangeCanvaCode, fetchCanvaStatus,
   readCanvaOauthCallback, startCanvaConnect, clearCanvaOauthState, type CanvaStatus,
 } from '@/lib/canvaPresentation';
+import {
+  clientContentDefault,
+  clientPurposeDefault,
+  loadPresentationClients,
+  nextFieldValue,
+  projectContentDefault,
+  projectOptionHint,
+  projectPurposeDefault,
+  type PresentationClientOption,
+  type PresentationProjectOption,
+} from '@/lib/presentationClients';
 import {
   buildOutlineFromBrief, createNativeCanvaDesign, defaultBrief, exportCanvaSessionPdf,
   exportCanvaSessionPptx, listCanvaDesignExports, listCanvaDesignSessions,
@@ -260,6 +272,13 @@ export function PresentationView() {
   const oauthHandledRef = useRef(false);
 
   const [brief, setBrief] = useState<CanvaDesignBrief>(() => defaultBrief());
+  const briefRef = useRef(brief);
+  briefRef.current = brief;
+  const autoPurpose = useRef<string | null>(null);
+  const autoContent = useRef<string | null>(null);
+  const [clients, setClients] = useState<PresentationClientOption[]>([]);
+  const [clientsLoading, setClientsLoading] = useState(true);
+  const [clientsError, setClientsError] = useState('');
   const [wizardStep, setWizardStep] = useState(1);
   const [outline, setOutline] = useState('');
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -272,6 +291,23 @@ export function PresentationView() {
   const [generationStep, setGenerationStep] = useState<number | null>(null);
   const [showAllDrafts, setShowAllDrafts] = useState(false);
   const [showAllDesigns, setShowAllDesigns] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    loadPresentationClients()
+      .then((rows) => {
+        if (!cancelled) setClients(rows);
+      })
+      .catch((err) => {
+        if (!cancelled) setClientsError(err instanceof Error ? err.message : '載入客戶失敗');
+      })
+      .finally(() => {
+        if (!cancelled) setClientsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const refreshStatus = useCallback(async () => {
     const [statusValue, role] = await Promise.all([
@@ -476,6 +512,8 @@ export function PresentationView() {
   }, [refreshSessionDetail]);
 
   const loadSession = (s: CanvaDesignSession) => {
+    autoPurpose.current = null;
+    autoContent.current = null;
     setSessionId(s.id);
     setBrief({ ...defaultBrief(), ...(s.brief as CanvaDesignBrief) });
     setOutline(String((s.brief as CanvaDesignBrief).outline ?? ''));
@@ -487,6 +525,8 @@ export function PresentationView() {
   };
 
   const newVersion = async (parent: CanvaDesignSession) => {
+    autoPurpose.current = null;
+    autoContent.current = null;
     setSessionId(null);
     setBrief({ ...(parent.brief as CanvaDesignBrief), confirmedAt: undefined });
     setOutline(String((parent.brief as CanvaDesignBrief).outline ?? ''));
@@ -530,6 +570,8 @@ export function PresentationView() {
   };
 
   const clearForm = () => {
+    autoPurpose.current = null;
+    autoContent.current = null;
     setBrief(defaultBrief());
     setOutline('');
     setSelected([]);
@@ -541,6 +583,52 @@ export function PresentationView() {
     setVersionRows([]);
     setExportRows([]);
     setWizardStep(1);
+  };
+
+  const applyAuto = (purposeSuggestion: string, contentSuggestion: string) => {
+    const current = briefRef.current;
+    const purposeNext = nextFieldValue(current.purpose, purposeSuggestion, autoPurpose.current, PURPOSE_MAX);
+    const contentNext = nextFieldValue(current.content, contentSuggestion, autoContent.current, CONTENT_MAX);
+    autoPurpose.current = purposeNext.auto;
+    autoContent.current = contentNext.auto;
+    return { purpose: purposeNext.value, content: contentNext.value };
+  };
+
+  const selectClient = (client: PresentationClientOption) => {
+    const filled = applyAuto(clientPurposeDefault(client), clientContentDefault(client));
+    const projectStillThere = client.projects.some((project) => project.id === briefRef.current.projectId);
+    setBrief({
+      ...briefRef.current,
+      client: client.name,
+      clientId: client.id,
+      projectId: projectStillThere ? briefRef.current.projectId : undefined,
+      purpose: filled.purpose,
+      content: filled.content,
+    });
+  };
+
+  const selectProject = (project: PresentationProjectOption) => {
+    const current = briefRef.current;
+    const owner = clients.find((row) => row.projects.some((item) => item.id === project.id)) ?? null;
+    const adoptClient = !current.client?.trim() && owner != null;
+    const contactClient = adoptClient
+      ? owner
+      : clients.find((row) => row.id === current.clientId) ?? null;
+    const filled = applyAuto(
+      projectPurposeDefault(project),
+      contactClient
+        ? projectContentDefault(contactClient, project)
+        : (project.note ? `客戶備註：${project.note}` : ''),
+    );
+    setBrief({
+      ...current,
+      client: adoptClient && owner ? owner.name : current.client,
+      clientId: adoptClient && owner ? owner.id : current.clientId,
+      project: project.name,
+      projectId: project.id,
+      purpose: filled.purpose,
+      content: filled.content,
+    });
   };
 
   const goToStep = useCallback((next: number) => {
@@ -559,6 +647,18 @@ export function PresentationView() {
   const titleCount = brief.title.length;
   const purposeCount = (brief.purpose ?? '').length;
   const contentCount = (brief.content ?? '').length;
+  const selectedClient = clients.find((row) => row.id === brief.clientId) ?? null;
+  const projectChoices = useMemo(() => {
+    const rows = selectedClient
+      ? selectedClient.projects.map((project) => ({ project, clientName: null as string | null }))
+      : clients.flatMap((client) => client.projects.map((project) => ({ project, clientName: client.name })));
+    const seen = new Set<string>();
+    return rows.filter(({ project }) => {
+      if (seen.has(project.id)) return false;
+      seen.add(project.id);
+      return true;
+    });
+  }, [clients, selectedClient]);
   const draftSessions = useMemo(() => sessions.filter((s) => !isCanvaDesign(s)), [sessions]);
   const designSessions = useMemo(() => sessions.filter(isCanvaDesign), [sessions]);
   const visibleDrafts = showAllDrafts ? draftSessions : draftSessions.slice(0, SIDEBAR_PREVIEW);
@@ -590,20 +690,59 @@ export function PresentationView() {
                 />
               </Field>
               <div className="grid gap-4 sm:grid-cols-2">
-                <Field label="客戶">
-                  <Input
-                    className="h-10 rounded-lg bg-background"
+                <Field label="客戶" hint="可搜尋現有客戶，或直接輸入新客戶">
+                  <PresentationSearchCombobox
+                    ariaLabel="客戶"
                     value={brief.client ?? ''}
-                    onChange={(e) => setBrief((b) => ({ ...b, client: e.target.value }))}
                     placeholder="請輸入客戶名稱"
+                    loading={clientsLoading}
+                    emptyText={clientsError || '沒有相符客戶，可直接使用輸入的名稱'}
+                    options={clients.map((client) => ({
+                      id: client.id,
+                      label: client.name,
+                      hint: [client.contactPerson, client.projects.length ? `${client.projects.length} 個專案` : '']
+                        .filter(Boolean)
+                        .join(' · ') || null,
+                    }))}
+                    onText={(value) => setBrief((current) => ({
+                      ...current,
+                      client: value,
+                      clientId: current.client === value ? current.clientId : undefined,
+                    }))}
+                    onPick={(option) => {
+                      const client = clients.find((row) => row.id === option.id);
+                      if (client) selectClient(client);
+                    }}
                   />
                 </Field>
-                <Field label="專案">
-                  <Input
-                    className="h-10 rounded-lg bg-background"
+                <Field
+                  label="專案"
+                  hint={brief.clientId ? '顯示此客戶的設計專案，也可直接輸入' : '可搜尋設計專案，或直接輸入'}
+                >
+                  <PresentationSearchCombobox
+                    ariaLabel="專案"
                     value={brief.project ?? ''}
-                    onChange={(e) => setBrief((b) => ({ ...b, project: e.target.value }))}
                     placeholder="請輸入專案名稱"
+                    loading={clientsLoading}
+                    emptyText={
+                      selectedClient && selectedClient.projects.length === 0
+                        ? '此客戶沒有已登記專案，可直接輸入'
+                        : '沒有相符專案，可直接輸入'
+                    }
+                    options={projectChoices.map(({ project, clientName }) => ({
+                      id: project.id,
+                      label: project.name,
+                      hint: [clientName, projectOptionHint(project)].filter(Boolean).join(' · ') || null,
+                    }))}
+                    onText={(value) => setBrief((current) => ({
+                      ...current,
+                      project: value,
+                      projectId: current.project === value ? current.projectId : undefined,
+                    }))}
+                    onPick={(option) => {
+                      const project = projectChoices.find((row) => row.project.id === option.id)?.project;
+                      if (project) selectProject(project);
+                    }}
                   />
                 </Field>
               </div>
