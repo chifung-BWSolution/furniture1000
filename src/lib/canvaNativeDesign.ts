@@ -1,4 +1,5 @@
 // FDS 2.1 T-901 — Canva 原生簡報（非 Design Imports / 本機 PPTX）
+import { parseInvokeError } from '@/lib/edgeFunctionErrors';
 import { supabase } from '@/lib/supabase';
 
 const EDGE = 'supabase-functions-generate-canva-presentation';
@@ -52,7 +53,7 @@ export interface CanvaDesignSession {
 
 async function invoke<T>(body: Record<string, unknown>): Promise<T> {
   const { data, error } = await supabase.functions.invoke<T>(EDGE, { body });
-  if (error) throw new Error(error.message);
+  if (error) throw new Error(await parseInvokeError(error, data as { error?: string } | null));
   if (!data) throw new Error('canva_edge_no_response');
   const row = data as T & { error?: string; description?: string };
   if (row && typeof row === 'object' && 'error' in row && row.error) {

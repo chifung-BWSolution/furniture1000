@@ -138,12 +138,19 @@ async function loadProductsForSession(
   return productIds.map((id) => byId.get(id)).filter(Boolean) as ProductRow[];
 }
 
+function canvaApiUrl(path: string): string {
+  if (!path.startsWith("/") || path.includes("..") || path.includes("\\") || path.includes("://")) {
+    throw new Error("invalid_canva_path");
+  }
+  return `${API_BASE}${path}`;
+}
+
 async function canvaAuthedFetch(
   accessToken: string,
   path: string,
   init?: RequestInit,
 ): Promise<Response> {
-  const url = path.startsWith("http") ? path : `${API_BASE}${path.startsWith("/") ? "" : "/"}${path}`;
+  const url = canvaApiUrl(path);
   return fetch(url, {
     ...init,
     headers: {
@@ -164,6 +171,21 @@ interface TokenRow {
   expires_at: string | null;
   scope: string | null;
   account_name: string | null;
+}
+
+/** OAuth redirect must come back to this app's presentation page. */
+function allowedCanvaRedirect(uri: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(uri);
+  } catch {
+    return false;
+  }
+  if (url.username || url.password) return false;
+  const path = url.pathname.replace(/\/$/, "");
+  if (path !== "/fds/pm/presentation") return false;
+  if (url.protocol === "https:") return true;
+  return url.protocol === "http:" && (url.hostname === "localhost" || url.hostname === "127.0.0.1");
 }
 
 function basicCredentials(): string | null {
@@ -257,6 +279,7 @@ Deno.serve(async (req: Request) => {
     const verifier = String(body.code_verifier ?? "");
     const redirectUri = String(body.redirect_uri ?? "");
     if (!code || !verifier || !redirectUri) return json({ error: "invalid_request" }, 400);
+    if (!allowedCanvaRedirect(redirectUri)) return json({ error: "redirect_uri_rejected" }, 400);
     const token = await tokenRequest(credentials, "authorization_code", {
       code, code_verifier: verifier, redirect_uri: redirectUri,
     });
@@ -556,7 +579,7 @@ Deno.serve(async (req: Request) => {
       const ageMs = Date.now() - new Date(String(session.updated_at)).getTime();
       if (ageMs < 120_000) return json({ error: "create_in_progress" }, 409);
     }
-    if (session.canva_design_id && session.status === "ready") {
+    if (session.canva_design_id) {
       return json({
         error: "design_already_exists",
         message: "此草稿已有 Canva 設計；請用「新版本」建立另一條設計鏈，勿覆蓋 Canva 內修改。",
@@ -677,7 +700,17 @@ Deno.serve(async (req: Request) => {
       }
       const afCreated = await afRes.json();
       const afJobId = afCreated?.job?.id as string | undefined;
-      if (!afJobId) return json({ error: "canva_autofill_no_job" }, 502);
+      if (!afJobId) {
+        await service
+          .from("canva_design_sessions")
+          .update({
+            status: "failed",
+            error: "canva_autofill_no_job",
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", sessionId);
+        return json({ error: "canva_autofill_no_job" }, 502);
+      }
 
       const afJob = await pollCanvaJob<{
         status?: string;
@@ -912,7 +945,20 @@ async function runCanvaSessionExport(opts: {
   }
   const exportBody = await res.json();
   const jobId = exportBody?.job?.id as string | undefined;
-  if (!jobId) return { error: true, status: 502, body: { error: "canva_export_no_job" } };
+  if (!jobId) {
+    await service.from("canva_design_exports").insert({
+      session_id: sessionId,
+      staff_id: userId,
+      format,
+      canva_design_id: session.canva_design_id,
+      error: "canva_export_no_job",
+    });
+    await service
+      .from("canva_design_sessions")
+      .update({ status: "ready", export_error: "canva_export_no_job", updated_at: new Date().toISOString() })
+      .eq("id", sessionId);
+    return { error: true, status: 502, body: { error: "canva_export_no_job" } };
+  }
 
   let access = tokenRow.access_token;
   const job = await pollCanvaJob<CanvaExportJob>(
@@ -1022,15 +1068,17 @@ async function refreshToken(
   });
   if (!token.access_token) return null;
   const expiresAt = token.expires_in ? new Date(Date.now() + token.expires_in * 1000).toISOString() : null;
+  const tokenPatch: Record<string, unknown> = {
+    access_token: token.access_token,
+    refresh_token: token.refresh_token ?? refreshTokenValue,
+    expires_at: expiresAt,
+    updated_at: new Date().toISOString(),
+  };
+  // Refresh responses may omit scope. Writing null would wipe the scopes we already stored.
+  if (typeof token.scope === "string" && token.scope.trim()) tokenPatch.scope = token.scope;
   await service
     .from("canva_connections")
-    .update({
-      access_token: token.access_token,
-      refresh_token: token.refresh_token ?? refreshTokenValue,
-      expires_at: expiresAt,
-      scope: token.scope ?? null,
-      updated_at: new Date().toISOString(),
-    })
+    .update(tokenPatch)
     .eq("staff_id", userId);
   return { access_token: token.access_token, refresh_token: token.refresh_token ?? refreshTokenValue };
 }

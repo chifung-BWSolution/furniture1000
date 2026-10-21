@@ -68,9 +68,48 @@ export interface ProductRow {
   factory: string | null;
 }
 
+/** Reject hosts Canva would fetch that are loopback, link-local, or private. */
+function isBlockedImageHost(hostname: string): boolean {
+  const host = hostname.toLowerCase().replace(/\.$/, "").replace(/^\[|\]$/g, "");
+  if (!host || host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) return true;
+  if (host === "metadata.google.internal" || host === "169.254.169.254") return true;
+  const ipv4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
+  if (ipv4) {
+    const n = [ipv4[1], ipv4[2], ipv4[3], ipv4[4]].map((part) => Number(part));
+    if (n.some((part) => part > 255)) return true;
+    const [a, b] = n;
+    if (a === 0 || a === 10 || a === 127 || a === 255) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 172 && b >= 16 && b <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 100 && b >= 64 && b <= 127) return true;
+    return false;
+  }
+  if (host.includes(":")) {
+    if (host === "::" || host === "::1") return true;
+    if (/^f[cd]/i.test(host) || /^fe[89ab]/i.test(host)) return true;
+    const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(host);
+    if (mapped) return isBlockedImageHost(mapped[1]);
+  }
+  return false;
+}
+
+/** Public HTTPS only. Canva's URL upload fetches this host, so private targets are skipped. */
+export function isPublicHttpsImageUrl(raw: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== "https:") return false;
+  if (url.username || url.password) return false;
+  return !isBlockedImageHost(url.hostname);
+}
+
 function firstHttpImage(p: ProductRow): string | undefined {
   for (const url of [p.image_url, p.image_url_2, p.image_url_3]) {
-    if (url && /^https?:\/\//i.test(url)) return url;
+    if (url && isPublicHttpsImageUrl(url)) return url;
   }
   return undefined;
 }
