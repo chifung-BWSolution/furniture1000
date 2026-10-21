@@ -1,0 +1,4 @@
+/** Keep in sync with src/lib/pdfSplitCore.mjs. Edge refuses a PDF above this size. */
+export const PDF_EDGE_MAX_BYTES = 60 * 1024 * 1024;
+/** Each split part is kept near this size so the rewritten PDF stays under the Edge cap. */
+export const PDF_SPLIT_TARGET_BYTES = 40 * 1024 * 1024;

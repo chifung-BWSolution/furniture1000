@@ -3,7 +3,7 @@ import { Upload } from 'tus-js-client';
 export const DOCUMENT_CHUNK_BYTES = 6 * 1024 * 1024;
 
 export interface DocumentUploadProgress {
-  phase: 'preparing' | 'uploading' | 'retrying' | 'registering' | 'complete';
+  phase: 'preparing' | 'uploading' | 'retrying' | 'splitting' | 'registering' | 'complete';
   uploadedBytes: number;
   totalBytes: number;
 }

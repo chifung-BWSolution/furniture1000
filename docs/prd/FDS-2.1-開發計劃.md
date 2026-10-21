@@ -59,7 +59,7 @@
 - Migration `20261019040749_fds21_supplier_documents_jobs.sql`：`bwf_has_role`／`bwf_assert_role`／`bwf_current_staff_id`、`supplier_documents`、`processing_jobs`（重試＋指數退避、心跳、取消、同文件只容一個進行中任務）、`fds_*` RPC、pg_cron `fds-process-jobs`（每分鐘，有待處理任務才呼叫）。
 - Edge `supabase-functions-process-jobs`：目前 `parse_pdf` 只做檢查（讀頁數），完成後文件轉 `review`；文字／OCR／結構化從 Day 2 起加在同一 job type。
 - 前端：`AIProcessorView` 第二步下方的「供應商文件」面板（上載→排隊解析、狀態、重新解析、取消、5 分鐘簽名下載）；舊 AI 處理流程上載 PDF 時只存檔原件、不排任務。
-- Storage 專案上限由 50MB 調到 200MB（`product-images` 仍有自己的 50MB 上限）。Edge 只處理 ≤60MB 的 PDF，更大的檔案要等 Python Worker。
+- Storage 專案上限由 50MB 調到 200MB（`product-images` 仍有自己的 50MB 上限）。Edge 只解析 ≤60MB 的 PDF。超過 60MB 的原檔保留，由瀏覽器（pdf-lib）或 Windows `workers/pdf-split` 拆成約 40MB、帶頁碼偏移的子文件，每段走既有 `parse_pdf`，結果合併回父文件。部署 worker 後必須重啟該行程。
 - 待補：T-205 錯誤日誌已有（`processing_jobs.error_log`），進度儀表待 Day 2；`processing_jobs.cost_*` 欄位已建，成本計算在 T-504。
 
 ### Day 2 — PDF 文字提取與 OCR

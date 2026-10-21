@@ -107,6 +107,7 @@ export const FLAG_LABELS: Record<string, string> = {
   currency_from_document: '幣種沿用文件',
   dimension_suspicious: '尺寸可疑',
   duplicate_model: '型號重複',
+  merged_across_parts: '跨段合併',
   ai_uncertain: 'AI 不確定',
   low_confidence: '低置信度',
 };
@@ -143,6 +144,7 @@ export async function listReviewDocuments(): Promise<ReviewDocument[]> {
     .from('supplier_documents')
     .select('id, factory_name, title, doc_type, currency, status, storage_path, page_count, created_at, pending:extraction_items(count), total:extraction_items(count)')
     .eq('pending.status', 'pending')
+    .is('parent_document_id', null)
     .in('status', ['review', 'ready', 'parsing'])
     .order('created_at', { ascending: false })
     .limit(100);
